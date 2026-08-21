@@ -42,7 +42,6 @@ git clone --recurse-submodules <url>
 - `RageVEditor/` — the editor application
 - `RageVRuntime/` — the standalone runtime: a project, no editor
 - `SampleProject/` — the project the editor and tests open by default
-- `Sandbox/` — sample application, stale and off by default
 - `tools/shaderinfo` — compile a shader and dump its reflection
 - `tools/rhismoke` — exercise either backend headlessly
 

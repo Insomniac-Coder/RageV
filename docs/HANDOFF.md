@@ -827,7 +827,6 @@ C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\Commo
 | `rvpack` | Packages a project into a runnable folder. Headless; no GPU. |
 | `rhismoke` | Drives either backend headlessly. |
 | `shaderinfo` | Compiles a `.rvshader`, prints reflection + generated GLSL. |
-| `Sandbox` | Stale, predates the RHI, **off by default**. |
 
 ### Flags
 
@@ -6451,7 +6450,10 @@ because the alternative is someone finding each one by being confused.
 - **Running any application without `--screenshot` opens a window and waits.**
   That is correct behaviour and not a hang, but it will look like one in a
   script. Every verification run should pass the flag.
-- **`Sandbox` predates the RHI and does not build.** Off by default.
+- **`Sandbox` is gone (2026-08-21).** It targeted the legacy renderer, and
+  five of the seven things it included -- `RageV.h`, `Entrypoint.h`,
+  `Texture2D`, `FrameBuffer`, `OrthographicCameraController` -- no longer
+  exist, so the option that built it could not have succeeded.
 - **The editor UI does not scale itself.** `--ui-scale=N|auto` exists and
   defaults to 1.0; `auto` follows the monitor. Deliberate — on a 150% display
   auto gives a 27px font, which is what the OS asks for and larger than anyone

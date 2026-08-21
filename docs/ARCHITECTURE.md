@@ -18,13 +18,13 @@ development: it is the only way to get the validation layers, and the device
 prints a warning and continues without them when they are absent.
 
 Outputs land in `build/bin/<Config>/<Target>/`, each with its own copy of
-`assets/`. They are deliberately not shared — the editor and Sandbox ship
-different versions of the same shader files.
+`assets/`. They are deliberately not shared — a target stages the shaders it
+was built against, so one that has not been rebuilt keeps running the old
+ones.
 
 | Target | What it is |
 |---|---|
 | `RageVEditor` | The editor. Runs on either backend. |
-| `Sandbox` | Stale 2D sample, predates the RHI. Off by default (`RAGEV_BUILD_SANDBOX`). |
 | `shaderinfo` | Compiles a `.rvshader` and prints reflection + generated GLSL. |
 | `rhismoke` | Drives either backend end to end without the editor (`--rhi=vulkan\|opengl`). |
 
@@ -187,7 +187,6 @@ Things that are load-bearing and easy to break:
   first shader that needs it.
 - **Multi-viewport ImGui is OpenGL-only.** Each extra OS window needs its own
   swapchain, which is a second presentation path the engine does not drive.
-- **Sandbox is not ported** and is off by default.
 - **No readback path.** Verification is currently "the frame completed without
   validation errors", not "the pixels are right". A
   `RHIDevice::Readback(renderTarget)` would let the smoke test assert on actual
