@@ -104,6 +104,14 @@ namespace RageV
 		static float LivePhaseMs(FramePhase phase);
 		static float LiveGpuPhaseMs(FramePhase phase);
 		static float LiveGpuFrameMs();
+		// The measured wall clock of a frame, smoothed like the phases. Not
+		// the simulation's step: under --frame-time those differ, and it is
+		// this one that can be compared with the phases inside it.
+		static float LiveCpuFrameMs();
+		// The same, unsmoothed: what the last frame actually took. For a
+		// caller keeping its own history, which should average real samples
+		// rather than an already-averaged one.
+		static float LastCpuFrameMs();
 		static float MeanGpuFrameMs();
 		static float MeanGpuPhaseMs(FramePhase phase);
 

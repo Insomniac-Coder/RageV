@@ -398,7 +398,11 @@ void EditorLayer::OnUpdate(Timestep ts)
 
 	const float elapsed = ts.GetSeconds();
 
-	m_FrameTimeAccum += ts.GetMilliSeconds();
+	// The measured frame, not the timestep it was advanced by. Under
+	// --frame-time the two are different numbers and only one of them is a
+	// performance figure -- see FrameProfiler::LiveCpuFrameMs.
+	const float measuredMs = FrameProfiler::LastCpuFrameMs();
+	m_FrameTimeAccum += measuredMs > 0.0f ? measuredMs : ts.GetMilliSeconds();
 	m_FrameTimeSamples++;
 	m_ReadoutElapsed += elapsed;
 	m_HistoryElapsed += elapsed;
@@ -2021,7 +2025,12 @@ void EditorLayer::DrawStatisticsPanel()
 
 		ImGui::TableNextRow();
 		ImGui::TableNextColumn(); ImGui::TextDisabled("whole frame");
-		ImGui::TableNextColumn(); ImGui::TextDisabled("%.3f", m_FrameTimeMs);
+		// The smoothed measurement rather than this panel's own readout, which
+		// only refreshes four times a second: the phases beside it are
+		// smoothed the same way, so the rows are comparable.
+		const float cpuFrame = FrameProfiler::LiveCpuFrameMs();
+		ImGui::TableNextColumn();
+		ImGui::TextDisabled("%.3f", cpuFrame > 0.0f ? cpuFrame : m_FrameTimeMs);
 		ImGui::TableNextColumn();
 		if (gpuFrame > 0.0f)
 			ImGui::TextDisabled("%.3f", gpuFrame);
@@ -2034,7 +2043,8 @@ void EditorLayer::DrawStatisticsPanel()
 		ImGui::TableNextRow();
 		ImGui::TableNextColumn(); ImGui::TextDisabled("waiting");
 		ImGui::TableNextColumn();
-		ImGui::TextDisabled("%.3f", Math::Max(m_FrameTimeMs - cpuTotal, 0.0f));
+		ImGui::TextDisabled("%.3f",
+			Math::Max((cpuFrame > 0.0f ? cpuFrame : m_FrameTimeMs) - cpuTotal, 0.0f));
 		ImGui::TableNextColumn(); ImGui::TextDisabled("--");
 
 		ImGui::EndTable();

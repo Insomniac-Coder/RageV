@@ -57,6 +57,8 @@ namespace RageV
 		float s_LiveCpu[(int)FramePhase::Count]{};
 		float s_LiveGpu[(int)FramePhase::Count]{};
 		float s_LiveGpuFrame = 0.0f;
+		float s_LiveCpuFrame = 0.0f;
+		float s_LastCpuFrame = 0.0f;
 		constexpr float kSmoothing = 0.05f;
 
 		void Smooth(float& average, float sample)
@@ -179,6 +181,8 @@ namespace RageV
 	}
 
 	float FrameProfiler::LiveGpuFrameMs() { return s_LiveGpuFrame; }
+	float FrameProfiler::LiveCpuFrameMs() { return s_LiveCpuFrame; }
+	float FrameProfiler::LastCpuFrameMs() { return s_LastCpuFrame; }
 
 	bool ProfileScope::OpenGpuScope(FramePhase phase, uint32_t& beginSlot, uint32_t& endSlot)
 	{
@@ -218,6 +222,11 @@ namespace RageV
 		}
 		if (s_GpuTotal >= 0.0f)
 			Smooth(s_LiveGpuFrame, s_GpuTotal);
+		if (frameMs > 0.0f)
+		{
+			s_LastCpuFrame = frameMs;
+			Smooth(s_LiveCpuFrame, frameMs);
+		}
 
 		if (!s_Collecting)
 			return;

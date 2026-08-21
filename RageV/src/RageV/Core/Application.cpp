@@ -470,10 +470,23 @@ namespace RageV {
 			// reproducible. Everything downstream of this -- particles,
 			// OnFrame, the interpolation alpha -- becomes a function of the
 			// frame *number* rather than of how busy this machine was.
+			//
+			// **Measured and simulated are two different numbers and the
+			// profiler must never be handed the simulated one.** Under
+			// --frame-time the step is a constant, and reporting it as the
+			// frame's duration made the Statistics panel claim a 16.600 ms
+			// frame while the phases inside it summed to 26.822 -- parts
+			// larger than the whole, on a run where vsync was off. The step
+			// paces the simulation; the wall clock is how long the frame took.
+			const float measured = time - m_LastTime;
 			const float frameTime = config.FrameTime > 0.0f
 								  ? config.FrameTime
-								  : time - m_LastTime;
+								  : measured;
 			m_LastTime = time;
+			// The span just closed, which is the previous frame's -- the
+			// current one is not over yet. Filed against this frame's phases,
+			// off by one frame, which is what any single-clock loop can do.
+			m_MeasuredFrameMs = measured * 1000.0f;
 
 			m_Window->OnUpdate();
 
@@ -617,7 +630,7 @@ namespace RageV {
 			// panel reads, and having it inside the benchmark branch meant that
 			// panel showed 0.000 for every phase in normal use -- a profiler
 			// that only works when nobody is looking at it.
-			FrameProfiler::EndFrame(frameTime * 1000.0f);
+			FrameProfiler::EndFrame(m_MeasuredFrameMs);
 
 			if (benchmarkFrames > 0 && m_BenchmarkFrame >= benchmarkWarmup + benchmarkFrames)
 			{

@@ -79,6 +79,9 @@ namespace RageV {
 		LayerStack m_LayerStack;
 		static Application* m_Instance;
 		float m_LastTime = 0.0f;
+		// The wall clock of the last completed frame, which is not the step
+		// the simulation was advanced by whenever --frame-time is in force.
+		float m_MeasuredFrameMs = 0.0f;
 		std::string m_Name;
 
 		// Frames run under --benchmark, warm-up included. Separate from the
