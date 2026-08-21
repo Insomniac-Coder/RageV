@@ -782,6 +782,29 @@ def van_body():
     mesh.panel(_van_rake_quad(-VAN_RAKE_HALF, -half, s_top, s_bottom), 0.05)
     mesh.panel(_van_rake_quad(half, VAN_RAKE_HALF, s_top, s_bottom), 0.05)
 
+    # **The two ends of the wedge, and this is the gap that was reported.**
+    #
+    # The cab's front face, the top of the nose and the rake between them are
+    # three sides of a triangular prism running the width of the vehicle, and
+    # nothing has ever closed its ends. The cab box's side stops at the cab's
+    # front; the nose box's side stops at the top of the nose; the triangle
+    # between those two is bounded by neither. So there is a hole straight
+    # through each A-pillar into the inside of the nose, on both sides, which
+    # reads as a slot beside the windscreen -- and is what "a gap in the van's
+    # windshield and body, on both sides" meant.
+    #
+    # It survived the windscreen being rebuilt because it is not the
+    # windscreen. The docstring above says the body is a closed volume and
+    # every window lies on it; that was a claim about three boxes and a slab,
+    # and a slab bridging two boxes closes one face of a prism, not three.
+    for sign in (-1.0, 1.0):
+        # Inset by half the cap's thickness, so it finishes flush inside the
+        # body's own side rather than standing proud of it.
+        x = sign * (VAN_RAKE_HALF - 0.015)
+        mesh.panel([(x, VAN_BONNET, VAN_NOSE),
+                    (x, VAN_BONNET, VAN_RAKE_TOP_Z),
+                    (x, VAN_CAB_TOP, VAN_RAKE_TOP_Z)], 0.03)
+
     # Wheel arches, as a lip round each opening -- without them the wheels look
     # parked beside the van rather than under it.
     for z in VAN_AXLES:
