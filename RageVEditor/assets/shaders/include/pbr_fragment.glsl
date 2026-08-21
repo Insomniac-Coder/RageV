@@ -345,6 +345,17 @@ layout(set = 1, binding = 4) uniform sampler2D u_LayerRoughness[LAYERS];
 
 #endif   // RV_LAYERED
 
+// **Everything below this line needs a vertex stage**, and RV_TRACE_ONLY is how
+// a pass without one borrows the tracing above it.
+//
+// The traced GI pass is a fullscreen triangle: it reconstructs its position and
+// normal from the depth and surface attachments rather than receiving them
+// interpolated, and it writes one colour rather than the four a lit fragment
+// does. It still wants TraceSurface, ShadeTraced and the whole set 0 that feeds
+// them, which is why it includes this file instead of copying them -- two
+// copies of a light loop is how two renderers end up disagreeing about what a
+// hit looks like.
+#ifndef RV_TRACE_ONLY
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
 layout(location = 2) in vec2 v_TexCoord;
@@ -393,6 +404,7 @@ layout(location = 2) out vec4 o_Surface;
 // cannot be filtered without filtering the frame. Zero in every variant that
 // does not trace.
 layout(location = 3) out vec4 o_Indirect;
+#endif   // !RV_TRACE_ONLY
 
 // Octahedral encoding, unit vector to [0,1]^2. Two 8-bit channels give about a
 // degree of direction, which a reflection ray does not notice.
@@ -418,6 +430,7 @@ bool HasMap(int flag) { return (u_Material.MapFlags & flag) != 0; }
 // It has to agree with LightGrid::Build exactly. Where they disagree a fragment
 // reads another cell's lights, which looks like lighting that snaps as the
 // camera moves rather than like an indexing bug.
+#ifndef RV_TRACE_ONLY
 uint ClusterIndexFor(vec3 worldPos)
 {
 	vec2 tileCount = u_Scene.ClusterGrid.xy;
@@ -444,6 +457,7 @@ uint ClusterIndexFor(vec3 worldPos)
 
 	return (z * uint(tileCount.y) + tile.y) * uint(tileCount.x) + tile.x;
 }
+#endif
 
 float SampleCascade(int cascade, vec3 coordinate)
 {
@@ -530,11 +544,14 @@ float TraceShadowFrom(vec3 worldPos, vec3 Ng, vec3 L, float tMax)
 		 ? 1.0 : 0.0;
 }
 
-// The surface being shaded: its own geometric normal.
+// The surface being shaded: its own geometric normal. The tracing above takes
+// its normal as an argument and is what a pass with no varyings uses.
+#ifndef RV_TRACE_ONLY
 float TraceShadow(vec3 worldPos, vec3 L, float tMax)
 {
 	return TraceShadowFrom(worldPos, normalize(v_Normal), L, tMax);
 }
+#endif
 #else
 float ShadowFactor(vec3 worldPos, vec3 N, vec3 L)
 {
@@ -875,9 +892,13 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 // One bounce shades every hit with this; the second bounce replaces it with a
 // traced ray and lets *that* hit have it instead, which is why the recursion
 // ends at depth two by construction and not by a counter.
-vec3 ProbeIrradiance(vec3 normal)
+// `probe` is which cube of the array answers. A parameter rather than the
+// varying it used to read: the tracing below is shared with a pass that has no
+// vertex stage and so no per-instance probe, and a function that reaches for a
+// varying cannot be shared with one.
+vec3 ProbeIrradiance(vec3 normal, float probe)
 {
-	return textureLod(u_Irradiance, vec4(RotateIntoSky(normal), v_Probe), 0.0).rgb *
+	return textureLod(u_Irradiance, vec4(RotateIntoSky(normal), probe), 0.0).rgb *
 			  u_Scene.Environment.x;
 }
 
@@ -894,12 +915,12 @@ vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
 // probe. The reflection ray stays one bounce deep even while the diffuse
 // around it is two -- a mirror ray is not a light-transport estimate, nothing
 // accumulates it, and doubling its cost would buy an agreement nobody can see.
-vec3 TraceReflection(vec3 origin, vec3 Ng, vec3 direction)
+vec3 TraceReflection(vec3 origin, vec3 Ng, vec3 direction, float probe)
 {
 	TracedSurface surface = TraceSurface(origin, Ng, direction, 1.0e4);
 	if (surface.Missed)
 		return surface.Sky;
-	return ShadeTraced(surface, ProbeIrradiance(surface.Normal));
+	return ShadeTraced(surface, ProbeIrradiance(surface.Normal, probe));
 }
 #endif
 
@@ -1062,6 +1083,7 @@ vec2 Parallax(vec2 uv, vec3 viewTS)
 // (ENGINE-NOTES 7aq) -- and nothing after it knows which. That is the whole
 // of the layered fork: the lights, the shadows by map or by ray, the probe,
 // the reflection mix and the emissive term run over this struct unchanged.
+#ifndef RV_TRACE_ONLY
 struct Surface
 {
 	vec4  BaseColor;
@@ -1458,7 +1480,7 @@ void main()
 
 			// What arrives at the hit. At one bounce the probe answers; at two,
 			// one more ray does and the probe answers for *its* hit instead.
-			vec3 arriving = ProbeIrradiance(first.Normal);
+			vec3 arriving = ProbeIrradiance(first.Normal, v_Probe);
 			if (giBounces >= 2)
 			{
 				// Perturbed before the second draw: reusing the first ray's two
@@ -1471,7 +1493,7 @@ void main()
 				TracedSurface second = TraceSurface(first.Position, first.Normal, onward, giReach);
 				arriving = second.Missed
 						 ? second.Sky
-						 : ShadeTraced(second, ProbeIrradiance(second.Normal));
+						 : ShadeTraced(second, ProbeIrradiance(second.Normal, v_Probe));
 			}
 
 			bounced += ShadeTraced(first, arriving);
@@ -1603,7 +1625,7 @@ void main()
 		float mirror = 1.0 - smoothstep(0.25, 0.6, roughness);
 		if (mirror > 0.0)
 		{
-			vec3 traced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N));
+			vec3 traced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N), v_Probe);
 			prefiltered = mix(prefiltered, traced, mirror);
 		}
 	}
@@ -1636,3 +1658,5 @@ void main()
 	// one did, so quads and meshes were being shown through different ones.
 	o_Color = vec4(color, baseColor.a);
 }
+
+#endif   // !RV_TRACE_ONLY
