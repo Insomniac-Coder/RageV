@@ -81,6 +81,25 @@ namespace RageV
 		// of this file is already built on.
 		const char* MethodsOn = nullptr;
 
+		// Which enumerator a saved `true` means, for a field that used to be a
+		// boolean.
+		//
+		// An enum reads from disk by name, so a file holding `true` matches
+		// nothing and falls back to the default -- which for a field whose
+		// default is Off is a silent downgrade of every existing project. The
+		// mapping is stated per field rather than assumed, because it is not
+		// the same one twice: ambient occlusion's `true` was half resolution.
+		// -1 means the field was never a boolean.
+		//
+		// **Last on purpose.** Several fields in ComponentRegistry.cpp still
+		// build a FieldHint positionally -- `FieldHint{ Widget::Default, 0, 0,
+		// 0.1f, nullptr, 0, "tooltip" }` -- so a member inserted anywhere but
+		// the end silently shifts what those arguments mean. Adding this one
+		// after EnumCount put a tooltip into an int and stopped the build,
+		// which is the good outcome; the bad one is a member whose type
+		// happens to match.
+		int LegacyTrue = -1;
+
 		// Marks an Int field as choosing an **animation clip of the mesh on
 		// this same entity**, so the inspector offers their names instead of
 		// asking for an index.

@@ -62,6 +62,15 @@ namespace RageV
 
 		const std::string text = node.as<std::string>();
 
+		// A field that used to be a boolean. `true` and `false` match no
+		// enumerator's name, so without this every project saving the old
+		// spelling would quietly load as the enum's default -- which is Off
+		// for all of these, and so would turn a feature off rather than
+		// migrate it. FieldHint::LegacyTrue says which enumerator the `true`
+		// meant; `false` is always the first, because Off is.
+		if (field.Hint.LegacyTrue >= 0 && (text == "true" || text == "false"))
+			return text == "true" ? field.Hint.LegacyTrue : 0;
+
 		if (field.Hint.EnumNames)
 		{
 			for (int i = 0; i < field.Hint.EnumCount; i++)

@@ -196,12 +196,23 @@ namespace RageV
 		return requested;
 	}
 
-	bool ResolveRayTracedAmbientOcclusion(const RenderSettings& render)
+	AoDetail ResolveRayTracedAmbientOcclusion(const RenderSettings& render)
 	{
 		if (!ResolveRayTracing(render))
-			return false;
+			return AoDetail::Off;
 		const EngineConfig& config = EngineConfig::Get();
-		return config.HasRayAoOverride ? config.RayAoOverride : render.RayTracedAmbientOcclusion;
+		if (config.HasRayAoOverride)
+		{
+			// --rt-ao=on predates the level, so it means "at whatever level
+			// the settings hold" and picks the one the flag used to mean when
+			// they hold none. Every check script that passes on|off keeps
+			// working and keeps measuring what it measured.
+			if (!config.RayAoOverride)
+				return AoDetail::Off;
+			return render.RayTracedAmbientOcclusion == AoDetail::Off
+				 ? AoDetail::Half : render.RayTracedAmbientOcclusion;
+		}
+		return render.RayTracedAmbientOcclusion;
 	}
 
 	// How many bounces the traced form runs (ENGINE-NOTES 7ax). Clamped to
@@ -422,7 +433,8 @@ namespace RageV
 		// screen walk in front of it would only be another way to be wrong
 		// on-screen. The profile's toggle is not consulted; its row says so.
 		const bool rayReflections = ResolveRayTracedReflections(desc.Render);
-		const bool rayOcclusion = ResolveRayTracedAmbientOcclusion(desc.Render);
+		const AoDetail rayAo = ResolveRayTracedAmbientOcclusion(desc.Render);
+		const bool rayOcclusion = rayAo != AoDetail::Off;
 		// The third twin (7at). Where it runs, the lit shader casts the bounce
 		// itself and the screen-space chain below is not added at all --
 		// whatever the profile holds; its row says so. The dial goes to the
@@ -1009,16 +1021,28 @@ namespace RageV
 			desc.Indirect->Advance();
 		}
 
-		if ((desc.Post.AmbientOcclusion || rayOcclusion) && PostProcess::IsReady())
+		// The traced form answers where it runs, exactly as it always has --
+		// what is new is that both forms say at what resolution. The blur that
+		// follows is handed these dimensions, so its radius narrows with them
+		// rather than smearing the extra detail back off, which is the rule
+		// the GI dial already follows (7az).
+		const AoDetail aoLevel = rayOcclusion ? rayAo : desc.Post.AmbientOcclusion;
+		if (aoLevel != AoDetail::Off && PostProcess::IsReady())
 		{
-			const uint32_t halfWidth = Math::Max(desc.Width / 2u, 1u);
-			const uint32_t halfHeight = Math::Max(desc.Height / 2u, 1u);
+			const bool aoFull = aoLevel == AoDetail::Full;
+			const uint32_t halfWidth = aoFull ? desc.Width
+											  : Math::Max(desc.Width / 2u, 1u);
+			const uint32_t halfHeight = aoFull ? desc.Height
+											   : Math::Max(desc.Height / 2u, 1u);
 
 			RGTargetDesc aoDesc;
 			aoDesc.Name = "SsaoRaw";
 			aoDesc.Color = Format::R16G16B16A16_SFLOAT;
 			aoDesc.Depth = Format::Undefined;
-			aoDesc.Scale = 0.5f;
+			// The target follows the dial and not only the numbers handed to
+			// the shader: changing one without the other leaves the pass
+			// running at one resolution and reading a texel size for another.
+			aoDesc.Scale = aoFull ? 1.0f : 0.5f;
 			const RGResource raw = graph.CreateTarget(aoDesc);
 
 			RGTargetDesc blurredDesc = aoDesc;

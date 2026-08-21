@@ -26,6 +26,22 @@ namespace RageV
 	// How finely the screen-space bounce is gathered (ENGINE-NOTES 7az).
 	// Low and Medium differ only in taps; High also gathers at full
 	// resolution, which is where most of its cost is.
+	// How finely ambient occlusion is computed, for either form.
+	//
+	// The pass has always run at half resolution and upsampled -- occlusion is
+	// low frequency and paying full rate for it buys detail the blur removes,
+	// which is the same trade the bloom chain and the depth-of-field gather
+	// make. It is a trade rather than a law: a crease a pixel wide is the one
+	// thing half resolution cannot resolve, and a scene of thin geometry wants
+	// the choice. So the resolution is now the setting, and the old boolean's
+	// `true` is Half -- exactly what it used to do.
+	enum class AoDetail : uint32_t
+	{
+		Off,
+		Half,
+		Full,
+	};
+
 	enum class GiDetail : uint32_t
 	{
 		Low,      // half resolution, 12 taps
@@ -301,7 +317,7 @@ namespace RageV
 		// -- which darkens direct light too, the stated compromise of every
 		// forward-plus-post AO. Treat it as contact shadowing and keep the
 		// intensity restrained. Off adds no pass and is exact.
-		bool AmbientOcclusion = false;
+		AoDetail AmbientOcclusion = AoDetail::Off;
 
 		// World metres the hemisphere reaches. Small is contact darkening in
 		// creases; large is soft room-scale shading and costs cache misses.

@@ -182,6 +182,15 @@ namespace
 			return hint;
 		}
 
+		// What a file's `true` meant, for a field that used to be a boolean.
+		// See FieldHint::LegacyTrue -- the mapping differs per field, so it is
+		// written at the field rather than guessed by the serializer.
+		FieldHint WasBool(int trueValue, FieldHint hint)
+		{
+			hint.LegacyTrue = trueValue;
+			return hint;
+		}
+
 		FieldHint OnlyWhen(FieldVisibility visible, FieldHint hint = {})
 		{
 			hint.VisibleIf = visible;
@@ -1270,6 +1279,9 @@ namespace
 	{
 		// The names a script writes, and the same order the enum declares.
 		const char* const kGiQualityNames[] = { "Low", "Medium", "High" };
+		// Off, and then the resolution the occlusion is computed at. `false`
+		// and `true` in an older file are Off and Half, which is what they did.
+		const char* const kAoDetailNames[] = { "Off", "Half", "Full" };
 		const char* const kAntiAliasingNames[] = { "None", "FXAA", "SMAA", "SSAA",
 												   "MSAA", "TAA" };
 		const char* const kSkyNames[] = { "Color", "Gradient", "Cubemap" };
@@ -1343,7 +1355,7 @@ namespace
 		}
 		bool RayOcclusionTakesOver(const void*)
 		{
-			return ResolveRayTracedAmbientOcclusion(Project::Render());
+			return ResolveRayTracedAmbientOcclusion(Project::Render()) != AoDetail::Off;
 		}
 		bool RayGiTakesOver(const void*)
 		{
@@ -1372,6 +1384,16 @@ namespace
 			return static_cast<const PostSettings*>(block)->GlobalIllumination
 				&& !RayGiTakesOver(block) && !VoxelGiTakesOver(block);
 		}
+		// **And the traced form, since it started obeying it.** A traced
+		// bounce used to run until it hit something, which is why this row was
+		// the gather's alone; it now stops at the radius, so the row applies
+		// wherever either of them runs. A setting the renderer reads and the
+		// inspector hides is worse than one that is merely wrong: nobody can
+		// find it to change it.
+		bool GiRadiusApplies(const void* block)
+		{
+			return GiScreenSpaceRuns(block) || RayGiTakesOver(block);
+		}
 		// The quality dial serves the screen gather and the voxel gather --
 		// both run at the resolution it picks -- and not the traced form.
 		bool GiGatherRuns(const void* block)
@@ -1399,7 +1421,8 @@ namespace
 		// The AO dials serve both forms, so they show while either runs.
 		bool AoDialsApply(const void* block)
 		{
-			return static_cast<const PostSettings*>(block)->AmbientOcclusion || RayOcclusionTakesOver(block);
+			return static_cast<const PostSettings*>(block)->AmbientOcclusion != AoDetail::Off
+				|| RayOcclusionTakesOver(block);
 		}
 
 		bool BloomOn(const void* block)
@@ -1504,12 +1527,16 @@ namespace
 						"rows say so.")))),
 
 				Field<&RenderSettings::RayTracedAmbientOcclusion>("RayTracedAmbientOcclusion",
-					Named("RT ambient occlusion", OnlyWhen(RayTracingOn, Tip(
+					Named("RT ambient occlusion", OnlyWhen(RayTracingOn,
+						WasBool((int)AoDetail::Half, Enum(kAoDetailNames,
 						"Cast SSAO's taps as short rays into the scene instead of "
 						"probing the depth buffer: no halos, off-screen occluders "
 						"count, and no reconstruction to wobble. Uses the post "
-						"profile's AO radius and intensity; while on, its Ambient "
-						"occlusion toggle is not used and its row says so.")))),
+						"profile's AO radius and intensity; where this is not Off "
+						"the profile's own Ambient occlusion is not used and its "
+						"row says so." "\n\n"
+						"Half and Full are the resolution the occlusion is "
+						"computed at, the same two the profile's row offers."))))),
 
 				Field<&RenderSettings::RayTracedGlobalIllumination>("RayTracedGlobalIllumination",
 					Named("RT global illumination", OnlyWhen(OffersRayGi, Tip(
@@ -1595,7 +1622,7 @@ namespace
 
 		bool AmbientOcclusionOn(const void* block)
 		{
-			return ((const PostSettings*)block)->AmbientOcclusion;
+			return ((const PostSettings*)block)->AmbientOcclusion != AoDetail::Off;
 		}
 
 		bool ScreenSpaceReflectionsOn(const void* block)
@@ -1845,13 +1872,16 @@ namespace
 							"reaches further for the same grid."))))),
 
 				Field<&PostSettings::GiRadius>("GiRadius",
-					Named("GI radius", OnlyWhen(GiScreenSpaceRuns,
+					Named("GI radius", OnlyWhen(GiRadiusApplies,
 						Drag(0.05f, 0.1f, 20.0f,
 							"World metres a bounce may travel. Small is colour "
-							"bleeding in corners; large is room-scale. Shown only "
-							"for the screen-space form: a traced ray runs until "
-							"it hits something, and a voxel cone to the edge of "
-							"its grid.")))),
+							"bleeding in corners; large is room-scale. Read by "
+							"the screen-space gather and by the traced form, "
+							"which stops its rays here rather than running them "
+							"to the horizon -- a bounce that misses contributes "
+							"nothing either way, and the far ones cost the most. "
+							"The voxel form cones to the edge of its grid "
+							"instead.")))),
 
 				Field<&PostSettings::GiQuality>("GiQuality",
 					Named("Quality", OnlyWhen(GiGatherRuns,
@@ -1902,12 +1932,17 @@ namespace
 					Named("Ambient occlusion", DisabledWhen(RayOcclusionTakesOver,
 						"Ray-traced ambient occlusion is on in Render Settings and is used instead; "
 						"the radius and intensity below still apply.",
-						Tip(
+						WasBool((int)AoDetail::Half, Enum(kAoDetailNames,
 						"Contact shadowing from the depth buffer: creases, "
 						"corners and the seam where things meet the ground "
 						"darken. Applied over the lit image, so treat it as "
 						"shadowing and keep the intensity restrained rather "
-						"than expecting global illumination.")))),
+						"than expecting global illumination." "\n\n"
+						"Half computes it at half the frame's resolution and "
+						"upsamples, which is what this did when it was a "
+						"checkbox and is right for almost everything: occlusion "
+						"is low frequency. Full resolves creases a pixel wide, "
+						"and costs about four times as much."))))),
 
 				Field<&PostSettings::AoRadius>("AoRadius",
 					Named("AO radius", OnlyWhen(AoDialsApply,

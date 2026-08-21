@@ -198,7 +198,7 @@ namespace RageV
 	// a hit, and say so once when they cannot. The post profile's SSR and
 	// SSAO rows ask these to know whether they have been taken over.
 	bool ResolveRayTracedReflections(const RenderSettings& render);
-	bool ResolveRayTracedAmbientOcclusion(const RenderSettings& render);
+	AoDetail ResolveRayTracedAmbientOcclusion(const RenderSettings& render);
 	// The third (ENGINE-NOTES 7at): indirect diffuse cast from the shading
 	// point rather than gathered off the screen. Needs bindless as well, for
 	// the same reason reflections do. The post profile's Global illumination

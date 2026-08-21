@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "RageV/Renderer/PostSettings.h"
 
 namespace RageV
 {
@@ -189,7 +190,12 @@ namespace RageV
 		// AmbientOcclusion toggle is then not consulted, its radius and
 		// intensity still are.
 		bool RayTracedReflections = false;
-		bool RayTracedAmbientOcclusion = false;
+		// Off, Half or Full, the same three the profile's own AO offers and
+		// for the same reason -- the level is the resolution the occlusion is
+		// computed at. Where this is anything but Off it answers instead of
+		// the profile's, which is what "the traced twin wins" has always
+		// meant; the radius and the intensity still come from the profile.
+		AoDetail RayTracedAmbientOcclusion = AoDetail::Off;
 
 		// The third of the pattern (ENGINE-NOTES 7at): indirect diffuse cast
 		// as rays from the shading point instead of gathered off the screen,

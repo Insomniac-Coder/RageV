@@ -9613,12 +9613,12 @@ void main()
 			  "off again adds none of them");
 
 		// --- SSAO (9.6) ---------------------------------------------------------
-		post.AmbientOcclusion = true;
+		post.AmbientOcclusion = AoDetail::Half;
 		Check(build(1600, 900, render, post), "with SSAO on the frame compiles");
 		Check(hasPass("SSAO compute") && hasPass("SSAO blur x")
 			  && hasPass("SSAO blur y") && hasPass("SSAO apply"),
 			  "and all four SSAO stages are in it");
-		post.AmbientOcclusion = false;
+		post.AmbientOcclusion = AoDetail::Off;
 		Check(build(1600, 900, render, post) && !hasPass("SSAO"),
 			  "off again adds none of them");
 
@@ -9816,7 +9816,7 @@ void main()
 
 			// SSR passes sit after SSAO now: a ray's radiance should carry
 			// the occlusion of the corner it landed in.
-			post.AmbientOcclusion = true;
+			post.AmbientOcclusion = AoDetail::Half;
 			Check(buildReflecting(), "with SSAO on as well it compiles");
 			{
 				size_t ssao = graph.GetPassCount(), ssr = 0;
@@ -9827,7 +9827,7 @@ void main()
 				}
 				Check(ssr > ssao, "and the trace runs after the occlusion is applied");
 			}
-			post.AmbientOcclusion = false;
+			post.AmbientOcclusion = AoDetail::Off;
 
 			post.ScreenSpaceReflections = false;
 			Check(buildReflecting() && !hasPass("SSR"), "off again adds neither");
