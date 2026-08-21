@@ -197,7 +197,9 @@ namespace RageV
 	// what the device can. Reflections also need bindless materials to shade
 	// a hit, and say so once when they cannot. The post profile's SSR and
 	// SSAO rows ask these to know whether they have been taken over.
-	bool ResolveRayTracedReflections(const RenderSettings& render);
+	RayDetail ResolveRayTracedReflections(const RenderSettings& render);
+	// The roughness window a mirror ray is weighed in over, per level.
+	Vec2 RayDetailGloss(RayDetail detail);
 	AoDetail ResolveRayTracedAmbientOcclusion(const RenderSettings& render);
 	// The third (ENGINE-NOTES 7at): indirect diffuse cast from the shading
 	// point rather than gathered off the screen. Needs bindless as well, for

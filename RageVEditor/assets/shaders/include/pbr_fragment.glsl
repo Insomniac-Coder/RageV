@@ -1559,7 +1559,14 @@ void main()
 	// would converge to. The SSR passes do not run when this is compiled
 	// in, so the block below is dead by its own gate.
 	{
-		float mirror = 1.0 - smoothstep(0.25, 0.6, roughness);
+		// The window comes from the quality level (7bt) rather than being a
+		// constant here: it is the only axis a level can move while the ray
+		// is cast inside this shader. Zero would mean nothing traces, which
+		// no level asks for, so it also stands in for "nobody set it".
+		vec2 gloss = u_Scene.ScreenReflections.zw;
+		if (gloss.y <= 0.0)
+			gloss = vec2(0.25, 0.6);
+		float mirror = 1.0 - smoothstep(gloss.x, gloss.y, roughness);
 		if (mirror > 0.0)
 		{
 			vec3 traced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N), v_Probe);

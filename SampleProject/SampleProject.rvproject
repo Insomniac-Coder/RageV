@@ -12,7 +12,7 @@ Project:
     TemporalJitterPhase: 8
     ShadowsEnabled: true
     RayTracing: true
-    RayTracedReflections: true
+    RayTracedReflections: High
     RayTracedAmbientOcclusion: Half
     RayTracedGlobalIllumination: High
     ShadowDistance: 40

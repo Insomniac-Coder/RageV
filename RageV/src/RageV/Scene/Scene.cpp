@@ -1414,7 +1414,8 @@ namespace RageV
 		Renderer3D::SetRayTracedShadows(traced);
 		// And whether the same structure answers reflections (7ao); resolved
 		// after the shadows because it rides on them.
-		Renderer3D::SetRayTracedReflections(ResolveRayTracedReflections(Project::Render()));
+		Renderer3D::SetRayTracedReflections(
+			ResolveRayTracedReflections(Project::Render()) != RayDetail::Off);
 		// And the traced bounce (7at), on the same beat and by the same
 		// resolve. Its dial is the post profile's, handed to the renderer
 		// here so the lit shader has it: zero while the traced form is not

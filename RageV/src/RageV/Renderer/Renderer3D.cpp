@@ -1106,8 +1106,13 @@ namespace RageV
 													Renderer::GetGiReach());
 		}
 
+		// zw: the gloss window a *traced* mirror ray is weighed in over. The
+		// two forms never run together -- the screen-space passes are not
+		// added when the traced one is compiled in -- so the pair is free, and
+		// putting it here costs no new binding.
+		const Vec2 gloss = Renderer::GetReflectionGloss();
 		s_Data->Scene.ScreenReflections = Vec4(haveReflections ? reflections->Intensity : 0.0f,
-											   rowSign, 0.0f, 0.0f);
+											   rowSign, gloss.x, gloss.y);
 
 		// The same two numbers for the indirect buffer, read the same way.
 		const Renderer::ScreenIndirect* indirect = Renderer::GetScreenIndirect();

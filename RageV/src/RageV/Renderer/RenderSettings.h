@@ -189,7 +189,18 @@ namespace RageV
 		// the scene in place of the depth-buffer probe; the profile's
 		// AmbientOcclusion toggle is then not consulted, its radius and
 		// intensity still are.
-		bool RayTracedReflections = false;
+		// Off, Low, Medium or High.
+		//
+		// The level is a **gloss window**, not a resolution, and that is a
+		// property of where the work sits rather than an oversight. The mirror
+		// ray is mixed into the specular term inside the lit fragment, this
+		// frame, weighted out as the surface roughens -- which is the whole of
+		// its advantage over the screen-space walk. Moving it to a pass the
+		// way the bounce moved (7bs) would need either a frame of lag or an
+		// albedo attachment to rebuild a metal's F0 from, and both cost more
+		// than the 0.30 ms the rays cost. So the level says how glossy a
+		// surface has to be before it earns a ray.
+		RayDetail RayTracedReflections = RayDetail::Off;
 		// Off, Half or Full, the same three the profile's own AO offers and
 		// for the same reason -- the level is the resolution the occlusion is
 		// computed at. Where this is anything but Off it answers instead of

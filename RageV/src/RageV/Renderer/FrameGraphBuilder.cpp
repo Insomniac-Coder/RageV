@@ -175,14 +175,19 @@ namespace RageV
 		return requested;
 	}
 
-	bool ResolveRayTracedReflections(const RenderSettings& render)
+	RayDetail ResolveRayTracedReflections(const RenderSettings& render)
 	{
 		if (!ResolveRayTracing(render))
-			return false;
+			return RayDetail::Off;
 		const EngineConfig& config = EngineConfig::Get();
-		const bool requested = config.HasRayReflectionsOverride ? config.RayReflectionsOverride
-																: render.RayTracedReflections;
-		if (requested && !Renderer3D::IsBindless())
+		RayDetail requested = render.RayTracedReflections;
+		if (config.HasRayReflectionsOverride)
+		{
+			// --rt-reflections=on predates the level, and means what it meant.
+			requested = !config.RayReflectionsOverride ? RayDetail::Off
+					  : (requested == RayDetail::Off ? RayDetail::High : requested);
+		}
+		if (requested != RayDetail::Off && !Renderer3D::IsBindless())
 		{
 			static bool reported = false;
 			if (!reported)
@@ -191,9 +196,23 @@ namespace RageV
 							 "on this device; a hit cannot be shaded, so screen-space reflections stay");
 				reported = true;
 			}
-			return false;
+			return RayDetail::Off;
 		}
 		return requested;
+	}
+
+	// Where a mirror ray stops being the answer, per level: below the first
+	// number the ray is taken whole, above the second the probe's blur is what
+	// many jittered rays would have converged to anyway. High is the window
+	// the shader used to hold as a constant.
+	Vec2 RayDetailGloss(RayDetail detail)
+	{
+		switch (detail)
+		{
+			case RayDetail::Low:    return Vec2(0.05f, 0.20f);
+			case RayDetail::Medium: return Vec2(0.15f, 0.40f);
+			default:                return Vec2(0.25f, 0.60f);
+		}
 	}
 
 	AoDetail ResolveRayTracedAmbientOcclusion(const RenderSettings& render)
@@ -447,7 +466,10 @@ namespace RageV
 		// lit shader then casts the mirror ray itself, this frame, and a
 		// screen walk in front of it would only be another way to be wrong
 		// on-screen. The profile's toggle is not consulted; its row says so.
-		const bool rayReflections = ResolveRayTracedReflections(desc.Render);
+		const RayDetail reflectionDetail = ResolveRayTracedReflections(desc.Render);
+		const bool rayReflections = reflectionDetail != RayDetail::Off;
+		// The window the lit shader weighs a mirror ray in over.
+		Renderer::SetReflectionGloss(RayDetailGloss(reflectionDetail));
 		const AoDetail rayAo = ResolveRayTracedAmbientOcclusion(desc.Render);
 		const bool rayOcclusion = rayAo != AoDetail::Off;
 		// The third twin (7at). Where it runs, the lit shader casts the bounce

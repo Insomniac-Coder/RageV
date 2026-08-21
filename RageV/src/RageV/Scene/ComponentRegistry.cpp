@@ -1353,7 +1353,7 @@ namespace
 		// row live, which is what runs there.
 		bool RayReflectionsTakeOver(const void*)
 		{
-			return ResolveRayTracedReflections(Project::Render());
+			return ResolveRayTracedReflections(Project::Render()) != RayDetail::Off;
 		}
 		bool RayOcclusionTakesOver(const void*)
 		{
@@ -1519,14 +1519,21 @@ namespace
 						"occlusion on the same structures.")))),
 
 				Field<&RenderSettings::RayTracedReflections>("RayTracedReflections",
-					Named("RT reflections", OnlyWhen(OffersRayReflections, Tip(
+					Named("RT reflections", OnlyWhen(OffersRayReflections,
+						WasBool((int)RayDetail::High, Enum(kRayDetailNames,
 						"Trace the mirror ray from every glossy surface and shade "
 						"what it hits, instead of walking the screen: reflections "
 						"of things off-screen and behind other things, correct "
 						"parallax. Rough surfaces keep the probe. Offered only "
-						"where materials are bindless as well. While on, the post "
-						"profile's Screen-space reflections are not used and its "
-						"rows say so.")))),
+						"where materials are bindless as well. Where this is not "
+						"Off, the post profile's Screen-space reflections are not "
+						"used and its rows say so." "\n\n"
+						"The level is how glossy a surface has to be to earn a "
+						"ray -- High traces up to roughness 0.6, Medium to 0.4, "
+						"Low only near-mirrors. Not a resolution, unlike the other "
+						"two: the ray is cast inside the lit shader so its answer "
+						"can be mixed into the specular term the same frame, which "
+						"is the whole of what it has over the screen-space walk."))))),
 
 				Field<&RenderSettings::RayTracedAmbientOcclusion>("RayTracedAmbientOcclusion",
 					Named("RT ambient occlusion", OnlyWhen(RayTracingOn,

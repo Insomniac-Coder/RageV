@@ -149,6 +149,7 @@ namespace RageV
 		float s_GlobalIllumination = 0.0f;
 		int s_GiBounces = 1;
 		float s_GiReach = 0.0f;
+		Vec2 s_ReflectionGloss{ 0.25f, 0.60f };
 	}
 
 	void Renderer::SetGlobalIllumination(float intensity)
@@ -174,6 +175,16 @@ namespace RageV
 	float Renderer::GetGiReach()
 	{
 		return s_GiReach;
+	}
+
+	void Renderer::SetReflectionGloss(const Vec2& window)
+	{
+		s_ReflectionGloss = window;
+	}
+
+	Vec2 Renderer::GetReflectionGloss()
+	{
+		return s_ReflectionGloss;
 	}
 
 	int Renderer::GetGiBounces()

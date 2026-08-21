@@ -114,6 +114,13 @@ namespace RageV
 		static void SetGiReach(float metres);
 		static float GetGiReach();
 
+		// The roughness window a traced mirror ray is weighed in over: taken
+		// whole below x, gone above y. The quality level for reflections,
+		// expressed the only way it can be while the ray is cast inside the
+		// lit fragment -- as how glossy a surface has to be to earn one.
+		static void SetReflectionGloss(const Vec2& window);
+		static Vec2 GetReflectionGloss();
+
 		// Last frame's indirect diffuse, for the lighting that draws this
 		// frame: RGB the irradiance arriving from the scene, **albedo-free**,
 		// A how far to trust it. ENGINE-NOTES 7av.
