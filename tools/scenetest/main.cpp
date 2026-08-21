@@ -1600,6 +1600,109 @@ namespace
 			  "as the point emitter that moves, which is what it was");
 	}
 
+	// The viewport camera's wheel, which is the control somebody uses more than
+	// any other in an editor and the one that had somewhere to get stuck.
+	//
+	// The step used to be a *number of metres* proportional to the square of
+	// the distance. Close in that collapses: at the one-metre floor a notch
+	// moved six millimetres, and climbing back out was equally slow, so getting
+	// near anything meant falling into a well the wheel could not lift you out
+	// of. 142 notches in, 147 back.
+	//
+	// It is a ratio now, and these are the three properties a ratio has that
+	// metres-by-distance-squared does not.
+	void CheckViewportZoom()
+	{
+		auto fresh = [](float distance)
+		{
+			EditorCamera camera(45.0f, 1.6f, 0.1f, 1000.0f);
+			camera.SetActive(true);
+			camera.SetOrbit({ 0.0f, 0.0f, 0.0f }, distance, 0.0f, 0.0f);
+			return camera;
+		};
+
+		// **One notch is the same fraction at every scale.** This is the whole
+		// property, and it is what makes the control usable a centimetre from
+		// a windscreen and a kilometre above a forest with no mode switch.
+		float ratios[3] = { 0.0f, 0.0f, 0.0f };
+		const float scales[3] = { 2.0f, 20.0f, 200.0f };
+		for (int i = 0; i < 3; i++)
+		{
+			EditorCamera camera = fresh(scales[i]);
+			const float before = camera.GetDistance();
+			MouseScrolledEvent scroll(0.0f, 1.0f);
+			camera.OnEvent(scroll);
+			ratios[i] = camera.GetDistance() / before;
+		}
+		Check(Math::Abs(ratios[0] - ratios[1]) < 1e-4f
+			  && Math::Abs(ratios[1] - ratios[2]) < 1e-4f
+			  && ratios[0] < 0.99f,
+			  "one notch of the wheel is the same fraction of the distance at "
+			  "two metres, twenty and two hundred");
+
+		// **In and out are the same number of notches.** The old curve was not
+		// symmetric -- it took five more to climb out than to fall in -- and an
+		// asymmetric zoom is one that drifts every time somebody looks at
+		// something and comes back.
+		{
+			EditorCamera camera = fresh(20.0f);
+			const float start = camera.GetDistance();
+			for (int i = 0; i < 12; i++) { MouseScrolledEvent in(0.0f, 1.0f); camera.OnEvent(in); }
+			const float close = camera.GetDistance();
+			for (int i = 0; i < 12; i++) { MouseScrolledEvent out(0.0f, -1.0f); camera.OnEvent(out); }
+
+			Check(close < start * 0.25f, "twelve notches in gets meaningfully closer");
+			Check(Math::Abs(camera.GetDistance() - start) < start * 0.01f,
+				  "and twelve back out returns to where it started");
+		}
+
+		// **Getting out of the well is as cheap as getting in.** The number
+		// that matters is small: this is a wheel a hand has to turn.
+		{
+			EditorCamera camera = fresh(10.0f);
+			int in = 0;
+			while (camera.GetDistance() > 0.51f && in < 500)
+			{
+				MouseScrolledEvent scroll(0.0f, 1.0f);
+				camera.OnEvent(scroll);
+				in++;
+			}
+			int out = 0;
+			while (camera.GetDistance() < 10.0f && out < 500)
+			{
+				MouseScrolledEvent scroll(0.0f, -1.0f);
+				camera.OnEvent(scroll);
+				out++;
+			}
+			Check(in < 40 && out < 40,
+				  "ten metres to the floor and back is a few dozen notches, not "
+				  "a few hundred");
+		}
+
+		// The floor holds and the pivot moves instead, so scrolling in past it
+		// keeps travelling rather than stopping dead.
+		{
+			EditorCamera camera = fresh(1.0f);
+			const Vec3 before = camera.GetPosition();
+			for (int i = 0; i < 20; i++) { MouseScrolledEvent s(0.0f, 1.0f); camera.OnEvent(s); }
+			Check(camera.GetDistance() > 0.49f && camera.GetDistance() < 0.51f,
+				  "the distance stops at the floor");
+			Check(Math::Length(camera.GetPosition() - before) > 0.5f,
+				  "and the camera keeps moving forward anyway, by pushing the pivot");
+		}
+
+		// The throttle's floor is a speed somebody can see. It used to be
+		// 0.05 m/s, which over a second of holding W is five centimetres --
+		// indistinguishable from the key doing nothing, and therefore
+		// indistinguishable from S doing nothing.
+		{
+			EditorCamera camera = fresh(10.0f);
+			camera.SetMoveSpeed(0.0f);
+			Check(camera.GetMoveSpeed() >= 0.5f,
+				  "the fly throttle cannot be turned down to a standstill");
+		}
+	}
+
 	// Particles, checked by counting rather than by looking. The simulation
 	// is deterministic -- xorshift, fixed dt -- so exact numbers are
 	// assertable; what they look like is the screenshot's job.
@@ -13444,6 +13547,7 @@ int RunTests(int argc, char** argv)
 	CheckParticleCurves();
 	CheckParticles();
 	CheckEmitterVolumes();
+	CheckViewportZoom();
 	CheckColliderOverlay();
 	CheckAnimationBlend();
 	CheckEditorIcons();

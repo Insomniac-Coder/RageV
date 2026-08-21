@@ -52,13 +52,29 @@ WCAG 2.2 AA contrast by a script, so neither is a guess.
 |---|---|
 | Left-click | Select. Clicking empty space deselects |
 | Right-drag | Look around |
-| WASD while right-dragging | Fly |
+| WASD while right-dragging | Fly. QE go down and up, Shift is 3× |
 | Middle-drag | Pan |
 | Wheel | Zoom |
+| Wheel **while right-dragging** | Fly speed, not zoom |
+
+> [!IMPORTANT]
+> **WASD only moves the camera while the right button is held.** On its own W
+> is the translate gizmo, E is rotate and R is scale — the same keys every
+> editor uses, and they are ignored while you are flying so the two never fire
+> together.
 
 The wheel is **positional** — it belongs to whatever the pointer is over, not
 to whatever has focus. Scrolling the Inspector after clicking an object does
 not zoom the scene behind it.
+
+Zoom is a **ratio**: one notch is the same fraction of the current distance
+whether you are a centimetre from a windscreen or a kilometre above the trees,
+so it never crawls when far out and never overshoots when close in. Roughly two
+dozen notches covers ten metres, and the same two dozen brings you back.
+
+The fly speed is separate, persists until changed, and floors at 0.5 m/s. If
+flying feels stuck, the wheel has probably been turned down while the right
+button was held — scroll up with it held to wind it back.
 
 Light and camera entities draw billboard icons so they can be found and clicked
 without being visible geometry.

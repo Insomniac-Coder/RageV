@@ -3026,6 +3026,13 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 	const bool control = Input::IsKeyPressed(RV_KEY_LEFT_CONTROL) || Input::IsKeyPressed(RV_KEY_RIGHT_CONTROL);
 	const bool shift = Input::IsKeyPressed(RV_KEY_LEFT_SHIFT) || Input::IsKeyPressed(RV_KEY_RIGHT_SHIFT);
 
+	// Holding the right button over the viewport is fly mode, and WASD belongs
+	// to the camera while it is. Asked of the button rather than of the camera
+	// so it is true on the frame the button goes down, before the camera's
+	// update has run.
+	const bool flying = m_IsViewportHovered
+					 && Input::IsMouseButtonPressed(RV_MOUSE_BUTTON_RIGHT);
+
 	switch (e.GetKeyCode())
 	{
 		case RV_KEY_N:
@@ -3082,10 +3089,20 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 			break;
 
 		// Gizmo modes, matching the convention most editors use. Ignored while
-		// typing into a field.
-		case RV_KEY_W: if (!control && !ImGui::GetIO().WantTextInput) { m_GizmoOperation = ImGuizmo::OPERATION::TRANSLATE; return true; } break;
-		case RV_KEY_E: if (!control && !ImGui::GetIO().WantTextInput) { m_GizmoOperation = ImGuizmo::OPERATION::ROTATE;    return true; } break;
-		case RV_KEY_R: if (!control && !ImGui::GetIO().WantTextInput) { m_GizmoOperation = ImGuizmo::OPERATION::SCALE;     return true; } break;
+		// typing into a field -- **and while flying**, because W is also the
+		// fly-forward key and the two were both firing: holding the right
+		// button and pressing W flew the camera and silently switched the
+		// gizmo to Translate at the same time.
+		//
+		// It is worse than untidy outside fly mode. Somebody who presses W
+		// expecting to move gets a gizmo change they may not notice and no
+		// movement, and S does nothing at all -- which reads exactly like the
+		// two keys doing the same thing as each other, namely nothing. The
+		// keys are right; what was missing is that they belong to whichever
+		// mode the mouse is in.
+		case RV_KEY_W: if (!control && !flying && !ImGui::GetIO().WantTextInput) { m_GizmoOperation = ImGuizmo::OPERATION::TRANSLATE; return true; } break;
+		case RV_KEY_E: if (!control && !flying && !ImGui::GetIO().WantTextInput) { m_GizmoOperation = ImGuizmo::OPERATION::ROTATE;    return true; } break;
+		case RV_KEY_R: if (!control && !flying && !ImGui::GetIO().WantTextInput) { m_GizmoOperation = ImGuizmo::OPERATION::SCALE;     return true; } break;
 
 		// Frame the selection, the one navigation shortcut every editor shares.
 		case RV_KEY_F: if (!control && !ImGui::GetIO().WantTextInput) { FocusSelection(); return true; } break;

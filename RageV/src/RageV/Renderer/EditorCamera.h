@@ -71,9 +71,11 @@ namespace RageV
 
 		void Orbit(const Vec2& delta);
 		void Pan(const Vec2& delta);
-		void Zoom(float delta);
 
-		float ZoomSpeed() const;
+		// In notches of the wheel. Positive is closer, and the step is a
+		// *ratio* of the current distance rather than a number of metres.
+		void Zoom(float notches);
+
 		Vec2 PanSpeed() const;
 
 	private:

@@ -44,7 +44,16 @@ namespace RageV
 
 	void EditorCamera::SetMoveSpeed(float speed)
 	{
-		m_MoveSpeed = Math::Clamp(speed, 0.05f, 500.0f);
+		// **The floor is 0.5 m/s, not 0.05.** The wheel is the throttle while
+		// flying and each notch divides by 1.15, so a couple of flicks take
+		// 6 m/s down to the old floor -- at which W for a whole second moved
+		// the camera five centimetres. Nothing showed the throttle, nothing
+		// reset it, and the symptom is that W and S both appear to do nothing
+		// and are therefore indistinguishable from each other.
+		//
+		// Half a metre a second is still a crawl, and it is visibly a crawl
+		// rather than visibly nothing, which is the difference that matters.
+		m_MoveSpeed = Math::Clamp(speed, 0.5f, 200.0f);
 	}
 
 	void EditorCamera::SetViewportSize(float width, float height)
@@ -115,13 +124,26 @@ namespace RageV
 		RecalculateView();
 	}
 
-	float EditorCamera::ZoomSpeed() const
-	{
-		// Proportional to distance: a fixed step crawls when far out and
-		// overshoots the target when close in.
-		const float distance = Math::Max(m_Distance * 0.25f, 0.0f);
-		return Math::Min(distance * distance, 100.0f);
-	}
+	// How much closer one notch of the wheel gets you, as a *ratio*.
+	//
+	// **Multiplicative, and that is the whole fix.** The step used to be
+	// `min((distance * 0.25)^2, 100)` metres -- proportional to distance, which
+	// is the right instinct and the wrong power. Squared, it collapses: at the
+	// one-metre floor a notch moved the camera six millimetres, so getting
+	// close to something meant arriving in a well you then could not scroll
+	// out of, because climbing out was equally slow. It read as the wheel
+	// simply stopping working.
+	//
+	// A ratio has no such well. Fifteen per cent of the distance is fifteen per
+	// cent whether that distance is a centimetre or a kilometre, so the same
+	// flick of the wheel always covers the same fraction of the way in or out
+	// and the control behaves identically at every scale.
+	constexpr float kZoomPerNotch = 1.15f;
+
+	// Close enough to inspect a windscreen, far enough not to sit inside the
+	// near clip. Below it the pivot is pushed ahead instead -- see Zoom.
+	constexpr float kMinDistance = 0.5f;
+	constexpr float kMaxDistance = 5000.0f;
 
 	Vec2 EditorCamera::PanSpeed() const
 	{
@@ -149,17 +171,22 @@ namespace RageV
 		m_FocalPoint += GetUp() * delta.y * speed.y * m_Distance * 0.1f;
 	}
 
-	void EditorCamera::Zoom(float delta)
+	void EditorCamera::Zoom(float notches)
 	{
-		m_Distance -= delta * ZoomSpeed();
+		const float wanted = m_Distance * Math::Pow(kZoomPerNotch, -notches);
 
 		// Once the pivot is reached, keep going by pushing the pivot ahead
-		// instead of stopping dead or inverting through it.
-		if (m_Distance < 1.0f)
+		// instead of stopping dead or inverting through it. The push is what
+		// the zoom would have travelled, so scrolling in past the floor keeps
+		// moving at the rate it was moving at rather than grinding to a halt.
+		if (wanted < kMinDistance)
 		{
-			m_FocalPoint += GetForward() * (1.0f - m_Distance);
-			m_Distance = 1.0f;
+			m_FocalPoint += GetForward() * (kMinDistance - wanted);
+			m_Distance = kMinDistance;
+			return;
 		}
+
+		m_Distance = Math::Min(wanted, kMaxDistance);
 	}
 
 	void EditorCamera::OnUpdate(Timestep ts)
@@ -239,7 +266,9 @@ namespace RageV
 			return true;
 		}
 
-		Zoom(e.GetYOffset() * 0.1f);
+		// One notch, one step of the ratio. The wheel reports whole notches, so
+		// this is deliberately unscaled.
+		Zoom(e.GetYOffset());
 		RecalculateView();
 		return true;
 	}
