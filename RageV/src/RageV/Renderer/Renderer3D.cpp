@@ -466,8 +466,14 @@ namespace RageV
 			// The camera's culled result and the slot table that names each
 			// slot's mesh, recorded by DrawSceneIndirect and issued by
 			// EndScene once the instance table is uploaded and bound.
+			//
+			// The slot table is **copied, not borrowed**. It is a handful of
+			// entries -- one per distinct mesh -- against the risk of holding
+			// a pointer into a vector that Scene rebuilds on every draw-list
+			// refresh, which is a dangling read the moment anything refreshes
+			// between the two calls.
 			GpuCull::View IndirectView;
-			const std::vector<GpuCull::Slot>* IndirectSlots = nullptr;
+			std::vector<GpuCull::Slot> IndirectSlots;
 
 			// Accumulated between BeginScene and EndScene, then sorted.
 			std::vector<PendingDraw> Pending;
@@ -1134,6 +1140,13 @@ namespace RageV
 
 		// Resource sets are tied to a pipeline layout, so they go with it and
 		// are recreated on demand.
+		//
+		// **Every set in the slot, and forgetting one is a crash rather than a
+		// wrong picture.** Resizing the editor rebuilds these pipelines,
+		// because the target formats are part of them; a set left pointing at
+		// the layout that has just been destroyed faults the next time it is
+		// bound. GpuSet was added without being added here, and that is what
+		// resizing found.
 		for (auto& frame : s_Data->SceneSlots)
 		{
 			for (auto& slot : frame)
@@ -1141,6 +1154,7 @@ namespace RageV
 				slot.Set.reset();
 				slot.SkinnedSet.reset();
 				slot.LayeredSet.reset();
+				slot.GpuSet.reset();
 			}
 		}
 	}
@@ -1618,7 +1632,7 @@ namespace RageV
 		s_Data->Instances.clear();
 		s_Data->ReservedInstances = 0;
 		s_Data->IndirectView = {};
-		s_Data->IndirectSlots = nullptr;
+		s_Data->IndirectSlots.clear();
 		s_Data->BoneScratch.clear();
 		// Cleared here rather than in EndScene, because SetSceneInstance
 		// registers materials before EndScene runs and clearing there would
@@ -1643,7 +1657,7 @@ namespace RageV
 		// a record of any of it -- so returning here on `Pending.empty()` drew
 		// the sky and nothing else. It only looked right on scenes that also
 		// had something skinned in them.
-		const bool haveIndirect = s_Data->IndirectView.IsValid() && s_Data->IndirectSlots;
+		const bool haveIndirect = s_Data->IndirectView.IsValid() && !s_Data->IndirectSlots.empty();
 		if (!cmd || !s_Data->Pipeline || (s_Data->Pending.empty() && !haveIndirect))
 			return;
 
@@ -2181,14 +2195,14 @@ namespace RageV
 		// the order between the two is free -- and doing it first means the
 		// static geometry has written depth before the skinned and layered
 		// draws are shaded.
-		if (s_Data->IndirectView.IsValid() && s_Data->IndirectSlots && slot.GpuSet)
+		if (haveIndirect && slot.GpuSet)
 		{
 			cmd->BindPipeline(s_Data->Pipeline);
 			cmd->BindResourceSet(0, slot.GpuSet);
 			if (s_Data->Bindless)
 				cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
 
-			const std::vector<GpuCull::Slot>& indirect = *s_Data->IndirectSlots;
+			const std::vector<GpuCull::Slot>& indirect = s_Data->IndirectSlots;
 			const uint32_t slotCount =
 				Math::Min((uint32_t)indirect.size(), s_Data->IndirectView.SlotCount);
 
@@ -2456,10 +2470,9 @@ namespace RageV
 
 		// Recorded, not issued. EndScene has to fill and bind the instance
 		// table before any of this can draw, and it cannot do that until every
-		// submission is in. `slots` is borrowed for the rest of the scene --
-		// it is Scene's own table and outlives EndScene.
+		// submission is in.
 		s_Data->IndirectView = view;
-		s_Data->IndirectSlots = &slots;
+		s_Data->IndirectSlots = slots;
 	}
 
 	void Renderer3D::DrawShadowIndirect(const GpuCull::View& view,
