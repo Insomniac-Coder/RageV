@@ -63,14 +63,19 @@ namespace RageV
 		Vec3 Rotation{ 0.0f, 0.0f, 0.0f };
 		Vec3 Scale{ 1.0f };
 
-		// Recomputed unconditionally by Scene::UpdateWorldTransforms in one
-		// top-down pass per frame.
+		// Derived by Scene::UpdateWorldTransforms, top down from the roots.
 		//
 		// Deliberately not a dirty-flag cache. A flag has to be set at every
 		// write site -- the inspector, the gizmo, scripts, the serializer, and
 		// everything added later -- and a single missed one leaves an object
-		// silently rendering in the wrong place. Recomputing is O(n) at scene
-		// scale and cannot be got wrong.
+		// silently rendering in the wrong place.
+		//
+		// **The walk is still O(n) and still cannot be got wrong; what it no
+		// longer does is recompute.** It compares the three vectors below
+		// against the copies kept beside them, and where they agree -- and the
+		// parent's world matrix did not move either -- the existing World is
+		// already the answer. Nothing has to report a change, because nothing
+		// is trusted to: the walk looks. See `CachedPosition`.
 		Mat4 World{ 1.0f };
 
 		// Where `World` was on the previous frame, which is what a motion
@@ -85,6 +90,26 @@ namespace RageV
 		// times a frame -- the update, a probe capture, a shadow pass -- and
 		// "the value before this call" is zero motion by the second one.
 		Mat4 PreviousWorld{ 1.0f };
+
+		// What Position, Rotation and Scale were when `World` was last
+		// computed. **Appended at the end on purpose**: this component is read
+		// by native script modules compiled against this header, and moving an
+		// existing member's offset would have them writing to the wrong place
+		// (ENGINE-NOTES 7by).
+		//
+		// Nine floats and a flag against a matrix compose and a 4x4 multiply.
+		// At sixty thousand objects the walk that used to cost 65 nanoseconds
+		// an object costs about five, and the frame it runs seven times in
+		// gets most of a second back per second.
+		//
+		// Derived state like `World`: not serialized, not shown, not part of
+		// the component's identity. `CacheValid` is false on a fresh component
+		// so the first walk always computes -- there is no value of the three
+		// vectors that could stand for "never computed".
+		Vec3 CachedPosition{ 0.0f };
+		Vec3 CachedRotation{ 0.0f };
+		Vec3 CachedScale{ 1.0f };
+		bool CacheValid = false;
 
 		TransformComponent() = default;
 		TransformComponent(const TransformComponent&) = default;

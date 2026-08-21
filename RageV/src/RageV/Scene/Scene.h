@@ -441,7 +441,12 @@ namespace RageV
 		// Convolves the sky and every complete probe into their array slices,
 		// and records which slice each probe went to.
 		void PackProbes(RHI::RHICommandList& cmd);
-		void PropagateTransform(entt::entity handle, const Mat4& parentWorld);
+		// One subtree, top down. Returns whether this node's world matrix
+		// actually changed, which is what lets its children skip: a child's
+		// world is its parent's world times its own local, so if neither
+		// moved, neither did the child's.
+		bool PropagateTransform(entt::entity handle, const Mat4& parentWorld,
+								bool parentChanged);
 		void UnlinkFromParent(Entity entity);
 
 		// Wired to EnTT's on_destroy signals rather than called from

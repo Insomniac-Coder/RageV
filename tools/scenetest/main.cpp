@@ -1418,6 +1418,113 @@ namespace
 	// alone passes for an emitter that never left the origin, which is the bug
 	// this feature exists to fix -- so every bound check here is paired with a
 	// fill check.
+	// The transform walk compares instead of recomputing (roadmap 8.15), and
+	// this is the check that says it still gets the same answer.
+	//
+	// `Scene::GetWorldTransform` is the oracle: it walks the parent chain and
+	// multiplies, reading no cache at all, which is what the walk used to do at
+	// every node on every call. Every case below asserts the cached `World`
+	// against it. A comparison that decided wrongly that nothing had moved
+	// would leave `World` at an old value while the oracle moved on, and that
+	// is precisely the silent failure the whole approach exists to avoid -- so
+	// it is worth an assertion per case rather than one at the end.
+	void CheckTransformCache()
+	{
+		auto scene = std::make_shared<Scene>();
+
+		Entity root = scene->CreateEntity("Root");
+		Entity mid = scene->CreateEntity("Mid");
+		Entity leaf = scene->CreateEntity("Leaf");
+		Entity loose = scene->CreateEntity("Loose");
+		scene->SetParent(mid, root);
+		scene->SetParent(leaf, mid);
+
+		auto& rootT = root.GetComponent<TransformComponent>();
+		auto& midT = mid.GetComponent<TransformComponent>();
+		auto& leafT = leaf.GetComponent<TransformComponent>();
+		auto& looseT = loose.GetComponent<TransformComponent>();
+
+		auto agrees = [&scene](Entity entity)
+		{
+			const Mat4& cached = entity.GetComponent<TransformComponent>().World;
+			const Mat4 walked = scene->GetWorldTransform(entity);
+			for (int column = 0; column < 4; column++)
+				for (int row = 0; row < 4; row++)
+					if (Math::Abs(cached[column][row] - walked[column][row]) > 1e-5f)
+						return false;
+			return true;
+		};
+
+		auto allAgree = [&]()
+		{
+			return agrees(root) && agrees(mid) && agrees(leaf) && agrees(loose);
+		};
+
+		rootT.Position = Vec3(1.0f, 2.0f, 3.0f);
+		midT.Position = Vec3(0.0f, 5.0f, 0.0f);
+		leafT.Position = Vec3(2.0f, 0.0f, 0.0f);
+		looseT.Position = Vec3(-4.0f, 0.0f, 7.0f);
+		scene->UpdateWorldTransforms();
+		Check(allAgree(), "the first walk computes every world transform");
+
+		// Nothing moved. This is the case the whole change exists for, and the
+		// one where a wrong answer would be invisible: the matrices must still
+		// be right, not merely unchanged.
+		scene->UpdateWorldTransforms();
+		Check(allAgree(), "and a second walk with nothing moved leaves them right");
+
+		// A parent moving has to reach a grandchild that did not move itself.
+		// This is the case a naive per-object comparison gets wrong.
+		rootT.Position = Vec3(10.0f, 2.0f, 3.0f);
+		scene->UpdateWorldTransforms();
+		Check(allAgree(), "moving a root carries its whole subtree with it");
+		Check(Math::Abs(leafT.World[3][0] - 12.0f) < 1e-5f,
+			  "and the grandchild really is where the move put it, not where it was");
+
+		// The other direction: a leaf moving under a parent that did not.
+		leafT.Position = Vec3(2.0f, 0.0f, 9.0f);
+		scene->UpdateWorldTransforms();
+		Check(allAgree(), "and a leaf moves under a parent that stood still");
+
+		// Rotation and scale are compared too, not just position -- each is a
+		// separate vector and a comparison that watched only one of them would
+		// pass every check above.
+		midT.Rotation = Vec3(0.0f, Math::Radians(90.0f), 0.0f);
+		scene->UpdateWorldTransforms();
+		Check(allAgree(), "a rotation counts as a move");
+		midT.Scale = Vec3(2.0f, 2.0f, 2.0f);
+		scene->UpdateWorldTransforms();
+		Check(allAgree(), "and so does a scale");
+
+		// Writing the same value is not a move, and must not become one --
+		// but must not break anything either.
+		const Mat4 before = leafT.World;
+		leafT.Position = leafT.Position;
+		scene->UpdateWorldTransforms();
+		bool unmoved = true;
+		for (int column = 0; column < 4; column++)
+			for (int row = 0; row < 4; row++)
+				if (before[column][row] != leafT.World[column][row])
+					unmoved = false;
+		Check(allAgree() && unmoved,
+			  "writing a transform's own value back is not a move");
+
+		// Reparenting changes what a node's world is without touching any of
+		// the three vectors this compares. SetParent re-expresses the local
+		// transform so the object does not jump, which is a write -- but the
+		// check is that the answer is right afterwards either way.
+		scene->SetParent(leaf, root);
+		scene->UpdateWorldTransforms();
+		Check(allAgree(), "reparenting leaves every world transform correct");
+
+		// And an entity created after the first walk has no cached value to
+		// compare against, which is what CacheValid is for.
+		Entity late = scene->CreateEntity("Late");
+		late.GetComponent<TransformComponent>().Position = Vec3(3.0f, 3.0f, 3.0f);
+		scene->UpdateWorldTransforms();
+		Check(agrees(late), "an entity created after the first walk still computes");
+	}
+
 	// GPU culling (roadmap 8.3): the table the depth views cull against.
 	//
 	// What is checkable here is the *shape* of the table, not the culling
@@ -13802,6 +13909,7 @@ int RunTests(int argc, char** argv)
 	CheckCurveAsset();
 	CheckParticleCurves();
 	CheckParticles();
+	CheckTransformCache();
 	CheckGpuCull();
 	CheckEmitterVolumes();
 	CheckViewportZoom();

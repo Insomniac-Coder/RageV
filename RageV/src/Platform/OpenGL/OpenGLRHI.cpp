@@ -1837,6 +1837,15 @@ namespace RageV::GL
 			GLint workGroupCount = 0;
 			glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &workGroupCount);
 			m_Caps.MaxComputeWorkGroupCount = (uint32_t)workGroupCount;
+
+			// GLint is signed and this can be larger than 2 GB on some
+			// drivers, which would come back negative. Asked as a 64-bit
+			// value, which the 4.3 core profile provides for exactly this
+			// reason.
+			GLint64 storageBlockSize = 0;
+			glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, &storageBlockSize);
+			m_Caps.MaxStorageBufferBytes =
+				storageBlockSize > 0 ? (uint64_t)storageBlockSize : 0;
 		}
 	}
 

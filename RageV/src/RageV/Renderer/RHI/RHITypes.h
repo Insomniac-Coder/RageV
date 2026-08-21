@@ -605,6 +605,20 @@ namespace RageV::RHI
 		uint32_t MaxComputeWorkGroupSize  = 0;
 		uint32_t MaxComputeWorkGroupCount = 0;
 
+		// The most bytes of one storage buffer a shader may address.
+		//
+		// **This is what decides how many objects a pass may hold, and it is
+		// the device's number rather than one this engine picked.** A buffer
+		// larger than this may allocate perfectly well and then be readable
+		// only up to the limit, so the shader indexes past the end and reads
+		// whatever is there -- no error, no validation message, just wrong
+		// answers from the tail of a big scene. Anything sizing a table by
+		// element count must divide this by the element's size and say so
+		// when the scene exceeds it.
+		//
+		// Vulkan guarantees at least 128 MB; OpenGL 4.3 guarantees 16 MB.
+		uint64_t MaxStorageBufferBytes = 0;
+
 		// A fragment shader may write a storage image (ENGINE-NOTES 7bc):
 		// `fragmentStoresAndAtomics` on Vulkan, image load/store on OpenGL
 		// 4.2. Compute writes need nothing beyond SupportsCompute; this is

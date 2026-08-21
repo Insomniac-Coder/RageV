@@ -291,30 +291,62 @@ namespace RageV
 		return GetParentWorldTransform(entity) * transform.GetLocalTransform();
 	}
 
-	void Scene::PropagateTransform(entt::entity handle, const Mat4& parentWorld)
+	bool Scene::PropagateTransform(entt::entity handle, const Mat4& parentWorld,
+								   bool parentChanged)
 	{
 		auto& transform = m_Registry.get<TransformComponent>(handle);
-		transform.World = parentWorld * transform.GetLocalTransform();
+
+		// **Compared rather than reported.** Nothing in the engine has to
+		// remember to say it moved something -- the inspector, the gizmo, the
+		// serializer, physics, both scripting languages and everything added
+		// later all just write the vectors, as they always have. This looks at
+		// what they wrote. A dirty flag would be faster still and would be
+		// wrong the first time one of those sites forgot to raise it, which is
+		// a silently frozen object rather than a visible failure.
+		//
+		// Exact comparison, deliberately. A write of the same value is not a
+		// move, and a tolerance here would be a threshold below which slow
+		// motion stops.
+		const bool localChanged = !transform.CacheValid
+							   || transform.Position != transform.CachedPosition
+							   || transform.Rotation != transform.CachedRotation
+							   || transform.Scale != transform.CachedScale;
+
+		const bool changed = parentChanged || localChanged;
+
+		if (changed)
+		{
+			transform.World = parentWorld * transform.GetLocalTransform();
+			transform.CachedPosition = transform.Position;
+			transform.CachedRotation = transform.Rotation;
+			transform.CachedScale = transform.Scale;
+			transform.CacheValid = true;
+		}
 
 		// Copied out before recursing: the reference above stays valid only
 		// while the registry is not restructured, and the copy costs one matrix.
 		const Mat4 world = transform.World;
 
+		// Descended into regardless of `changed`, because a child may have
+		// moved under a parent that did not. What the flag saves is the
+		// arithmetic at each node, not the visit.
 		for (UUID childID : m_Registry.get<RelationshipComponent>(handle).Children)
 		{
 			if (Entity child = GetEntityByUUID(childID))
-				PropagateTransform(child, world);
+				PropagateTransform(child, world, changed);
 		}
+
+		return changed;
 	}
 
 	void Scene::UpdateWorldTransforms()
 	{
 
 		// The draw list is built out of these matrices, so it is stale the
-		// moment they are recomputed. Raised here rather than at every site
-		// that moves something, for the reason the recomputation itself is
-		// unconditional: a flag that has to be set at every write site is a
-		// flag one of them will forget.
+		// moment they are recomputed. Raised unconditionally, and *not* only
+		// when something moved: the list also holds a resolved mesh and a
+		// borrowed pointer per entity, so adding or removing either would
+		// leave it stale in a way no transform comparison can see.
 		m_DrawListDirty = true;
 
 		auto view = m_Registry.view<TransformComponent, RelationshipComponent>();
@@ -322,8 +354,11 @@ namespace RageV
 		{
 			// Roots only; children are reached by recursion, and starting from
 			// every entity would compute deep nodes once per ancestor.
+			//
+			// A root has no parent, so nothing above it can have moved -- which
+			// is what the `false` says.
 			if (!view.get<RelationshipComponent>(handle).Parent.IsValid())
-				PropagateTransform(handle, Mat4(1.0f));
+				PropagateTransform(handle, Mat4(1.0f), false);
 		}
 	}
 

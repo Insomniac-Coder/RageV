@@ -70,9 +70,59 @@ namespace RageV
 			std::vector<std::vector<ViewSlot>> Slots;
 			uint32_t Cursor = 0;
 			uint32_t ViewsThisFrame = 0;
+
+			// The most objects one table may hold on *this* device, worked out
+			// from its limits at startup rather than chosen. See ComputeCeiling.
+			uint32_t MaxObjects = 0;
+			bool CeilingReported = false;
 		};
 
 		std::unique_ptr<GpuCullData> s_Data;
+
+		// How many objects this device can actually cull in one pass.
+		//
+		// **Nothing here is a number somebody picked.** Two device limits bound
+		// it and the smaller wins:
+		//
+		//   - one storage buffer's addressable size, divided by whichever of
+		//     the two tables has the larger element -- an Object is 96 bytes
+		//     and an instance matrix is 64, so the objects decide it. A buffer
+		//     past this limit can allocate and then be readable only up to it,
+		//     which is silently wrong rather than a failure;
+		//   - the largest group count one dispatch may ask for, times the
+		//     shader's group size, since the cull is one invocation per object.
+		//
+		// On anything current this lands in the millions -- Vulkan guarantees
+		// at least 128 MB of storage buffer and 65535 groups, so the floor is
+		// about 1.4 million objects, and real devices are far above it. The
+		// point is not that the ceiling is low; it is that it belongs to the
+		// device and is said out loud when a scene reaches it, instead of the
+		// tail of a big scene quietly not being drawn.
+		uint32_t ComputeCeiling(const RHIDevice& device, uint32_t groupSize)
+		{
+			const DeviceCaps& caps = device.GetCaps();
+
+			uint32_t ceiling = ~0u;
+
+			if (caps.MaxStorageBufferBytes > 0)
+			{
+				const uint64_t byElement = caps.MaxStorageBufferBytes / sizeof(GpuCull::Object);
+				ceiling = (uint32_t)Math::Min<uint64_t>(ceiling, byElement);
+			}
+
+			if (caps.MaxComputeWorkGroupCount > 0 && groupSize > 0)
+			{
+				const uint64_t byDispatch =
+					(uint64_t)caps.MaxComputeWorkGroupCount * (uint64_t)groupSize;
+				ceiling = (uint32_t)Math::Min<uint64_t>(ceiling, byDispatch);
+			}
+
+			// A device that reported neither limit told us nothing, and
+			// guessing a ceiling would be exactly the invented number this
+			// function exists to avoid. Unlimited, and the allocation failing
+			// is then the honest answer.
+			return ceiling;
+		}
 
 		// Separate from s_Data so that turning it off does not throw away the
 		// pipelines, and turning it back on does not have to rebuild them.
@@ -162,7 +212,10 @@ namespace RageV
 		}
 
 		s_Data->Slots.assign(device.GetFramesInFlight(), {});
-		RV_CORE_INFO("GPU culling available: depth views cull in compute");
+		s_Data->MaxObjects = ComputeCeiling(device, s_Data->CullPipeline->GetWorkGroupSizeX());
+
+		RV_CORE_INFO("GPU culling available: depth views cull in compute, up to {0} objects "
+					 "a scene on this device", s_Data->MaxObjects);
 	}
 
 	void GpuCull::Shutdown()
@@ -224,6 +277,27 @@ namespace RageV
 
 		const uint32_t objectCount = (uint32_t)objects.size();
 		const uint32_t slotCount = (uint32_t)slots.size();
+
+		// Refused rather than truncated. Culling the first million objects and
+		// silently dropping the rest would be a scene missing its tail with
+		// nothing to say why; taking the CPU walk is slower and complete.
+		//
+		// **The number of draws is not what is bounded here** -- that is one
+		// per distinct mesh, and its buffer grows to fit like every other. What
+		// is bounded is how many objects one dispatch can reach.
+		if (objectCount > s_Data->MaxObjects)
+		{
+			if (!s_Data->CeilingReported)
+			{
+				RV_CORE_WARN("GPU culling: {0} objects is past this device's limit of {1}, so "
+							 "the depth passes are walking their casters on the CPU instead. "
+							 "The limit is the smaller of one storage buffer's addressable "
+							 "size and one dispatch's group count.",
+							 objectCount, s_Data->MaxObjects);
+				s_Data->CeilingReported = true;
+			}
+			return false;
+		}
 
 		if (!EnsureBuffer(s_Data->Objects, s_Data->ObjectCapacity, objectCount,
 						  sizeof(Object), BufferUsage::Storage, MemoryDomain::HostVisible,

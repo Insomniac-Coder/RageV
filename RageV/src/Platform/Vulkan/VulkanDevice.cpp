@@ -704,6 +704,7 @@ namespace RageV::Vk
 		m_Caps.SupportsCompute = true;
 		m_Caps.MaxComputeWorkGroupSize = properties.limits.maxComputeWorkGroupSize[0];
 		m_Caps.MaxComputeWorkGroupCount = properties.limits.maxComputeWorkGroupCount[0];
+		m_Caps.MaxStorageBufferBytes = properties.limits.maxStorageBufferRange;
 		m_Caps.SupportsFragmentStores = m_FragmentStoresSupported;
 		m_TimestampsSupported = m_Caps.SupportsTimestampQueries;
 		// Zero means the device does not support them at all, whatever the
