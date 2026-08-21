@@ -459,7 +459,12 @@ namespace RageV
 				for (int level = 0; level < kLevels; ++level)
 				{
 					const uint8_t bit = (uint8_t)(1u << level);
-					if (!(chunk.Stale & bit) || (!all && level != chunk.Level))
+					// The level being drawn, and the one rays trace, which is
+					// fixed and would otherwise never be refreshed after a
+					// stroke -- a reflection of terrain the brush has already
+					// moved on from.
+					const bool wanted = level == chunk.Level || level == kRayLevel;
+					if (!(chunk.Stale & bit) || (!all && !wanted))
 						continue;
 					BuildLevel(chunk, cx, cz, level);
 					chunk.Stale &= (uint8_t)~bit;

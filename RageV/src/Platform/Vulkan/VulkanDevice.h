@@ -52,6 +52,9 @@ namespace RageV::Vk
 		// Record a breadcrumb into `cmd`. Interns the name; no-op without the
 		// checkpoint extension.
 		void SetCheckpoint(VkCommandBuffer cmd, const char* name);
+		// Whether the run asked for diagnostics. Gates checks that are cheap
+		// but not free and only earn their keep while hunting something.
+		bool ValidationEnabled() const { return m_ValidationEnabled; }
 		// Ask the queue and the driver what actually happened. Called once,
 		// from the first IsDeviceLost() that answers yes.
 		void ReportGpuCrashDetails() const;

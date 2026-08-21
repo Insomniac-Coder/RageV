@@ -143,6 +143,13 @@ namespace RageV::Vk
 
 		if (!desc.DebugName.empty())
 			m_Device.SetDebugName((uint64_t)m_Buffer, VK_OBJECT_TYPE_BUFFER, desc.DebugName.c_str());
+
+		// Registered only when it has an address, because only an address can
+		// appear in a device fault. The debug name is the whole value of this:
+		// a fault report says "inside 'fox.vertices'" instead of a number.
+		m_RangeBase = GetDeviceAddress();
+		m_RangeSerial = NoteGpuRange(desc.DebugName.empty() ? "buffer" : desc.DebugName.c_str(),
+									 m_RangeBase, desc.Size);
 	}
 
 	uint64_t VulkanBuffer::GetDeviceAddress() const
@@ -160,9 +167,15 @@ namespace RageV::Vk
 		VkBuffer buffer = m_Buffer;
 		VmaAllocation allocation = m_Allocation;
 		VmaAllocator allocator = m_Device.GetAllocator();
-		m_Deletion->Push([allocator, buffer, allocation]()
+		// Marked freed inside the deletion, not here: until the queue runs the
+		// range is still legitimately readable by an in-flight frame, and
+		// calling it freed early would turn every normal teardown into a
+		// use-after-free accusation.
+		const uint64_t base = m_RangeBase, serial = m_RangeSerial;
+		m_Deletion->Push([allocator, buffer, allocation, base, serial]()
 		{
 			vmaDestroyBuffer(allocator, buffer, allocation);
+			MarkGpuRangeFreed(base, serial);
 		});
 	}
 
@@ -911,6 +924,8 @@ namespace RageV::Vk
 
 		if (name)
 			m_Device.SetDebugName((uint64_t)backing.Buffer, VK_OBJECT_TYPE_BUFFER, name);
+
+		backing.RangeSerial = NoteGpuRange(name ? name : "as.backing", backing.Address, size);
 		return backing;
 	}
 
@@ -921,9 +936,11 @@ namespace RageV::Vk
 		VmaAllocator allocator = m_Device.GetAllocator();
 		VkBuffer buffer = backing.Buffer;
 		VmaAllocation allocation = backing.Allocation;
-		m_Deletion->Push([allocator, buffer, allocation]()
+		const uint64_t base = backing.Address, serial = backing.RangeSerial;
+		m_Deletion->Push([allocator, buffer, allocation, base, serial]()
 		{
 			vmaDestroyBuffer(allocator, buffer, allocation);
+			MarkGpuRangeFreed(base, serial);
 		});
 		backing = Backing{};
 	}
@@ -991,6 +1008,8 @@ namespace RageV::Vk
 		VkAccelerationStructureDeviceAddressInfoKHR addressInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
 		addressInfo.accelerationStructure = m_Structure;
 		m_Address = vkGetAccelerationStructureDeviceAddressKHR(m_Device.GetDevice(), &addressInfo);
+		NoteStructureRange(geometry.DebugName.empty() ? "blas" : geometry.DebugName.c_str(),
+						   sizes.accelerationStructureSize);
 
 		if (geometry.Dynamic)
 		{
@@ -1118,6 +1137,50 @@ namespace RageV::Vk
 		VkAccelerationStructureDeviceAddressInfoKHR addressInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
 		addressInfo.accelerationStructure = m_Structure;
 		m_Address = vkGetAccelerationStructureDeviceAddressKHR(m_Device.GetDevice(), &addressInfo);
+		NoteStructureRange("tlas", sizes.accelerationStructureSize);
+	}
+
+	void VulkanAccelerationStructure::VerifyInstanceReference(uint64_t reference, uint32_t index) const
+	{
+		if (!m_Device.ValidationEnabled())
+			return;
+
+		const GpuRangeStatus status = GpuRangeStatusOf(reference);
+		if (status == GpuRangeStatus::Live)
+			return;
+
+		// Once. A dead reference is dead every frame until something changes,
+		// and the finding is the first one.
+		static bool reported = false;
+		if (reported)
+			return;
+		reported = true;
+
+		if (status == GpuRangeStatus::Freed)
+		{
+			RV_CORE_ERROR("[Vulkan] top-level build: instance {0} references '{1}' at {2:#x}, "
+						  "whose backing is FREED -- this is the use-after-free the GPU "
+						  "faults on", index, GpuRangeName(reference), reference);
+		}
+		else
+		{
+			RV_CORE_ERROR("[Vulkan] top-level build: instance {0} references {1:#x}, which is "
+						  "not a registered acceleration-structure range at all", index,
+						  reference);
+			DescribeGpuAddress(reference);
+		}
+	}
+
+	void VulkanAccelerationStructure::NoteStructureRange(const char* name, uint64_t size)
+	{
+		// Skipped when the driver hands back the storage buffer's address:
+		// the map is keyed by base, so registering both would only overwrite
+		// the buffer's entry with a second name for the same bytes.
+		if (m_Address == 0 || m_Address == m_Storage.Address)
+			return;
+		m_StructureRangeBase = m_Address;
+		m_StructureRangeSerial = NoteGpuRange((std::string(name) + " (structure)").c_str(),
+											  m_Address, size);
 	}
 
 	VulkanAccelerationStructure::~VulkanAccelerationStructure()
@@ -1126,9 +1189,11 @@ namespace RageV::Vk
 		VkAccelerationStructureKHR structure = m_Structure;
 		if (structure != VK_NULL_HANDLE)
 		{
-			m_Deletion->Push([device, structure]()
+			const uint64_t base = m_StructureRangeBase, serial = m_StructureRangeSerial;
+			m_Deletion->Push([device, structure, base, serial]()
 			{
 				vkDestroyAccelerationStructureKHR(device, structure, nullptr);
+				MarkGpuRangeFreed(base, serial);
 			});
 		}
 		Destroy(m_Storage);
@@ -1168,6 +1233,13 @@ namespace RageV::Vk
 			out.instanceShaderBindingTableRecordOffset = 0;
 			out.flags = 0;
 			out.accelerationStructureReference = blas->GetDeviceAddress();
+
+			// The registry, used forwards. A reference to a structure whose
+			// backing has been freed is the one way this build can hand
+			// traversal a pointer into nothing, and the GPU's version of that
+			// finding is an invalid read of a random page with no way back to
+			// the culprit. Here it still has a name.
+			VerifyInstanceReference(out.accelerationStructureReference, i);
 		}
 
 		VkAccelerationStructureGeometryInstancesDataKHR instanceData{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR };

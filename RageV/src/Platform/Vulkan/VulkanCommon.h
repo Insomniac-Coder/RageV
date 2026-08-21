@@ -5,6 +5,7 @@
 // VK_NO_PROTOTYPES is set project-wide and nothing links vulkan-1 directly.
 
 #include <volk.h>
+#include <string>
 #include "RageV/Renderer/RHI/RHITypes.h"
 
 namespace RageV::Vk
@@ -50,11 +51,26 @@ namespace RageV::Vk
 	// fault inside a freed range is the finding -- a use-after-free with the
 	// culprit's debug name on it. Render-thread only, like every other Vulkan
 	// call in this engine.
-	void NoteGpuRange(const char* name, uint64_t base, uint64_t size);
-	void MarkGpuRangeFreed(uint64_t base);
+	//
+	// Note returns a serial and Free takes it back, because a driver reuses a
+	// virtual address the moment it is free: without the serial, a deletion
+	// running after the next allocation landed on the same base would stamp
+	// "freed" on a live range and the report would accuse the wrong resource.
+	uint64_t NoteGpuRange(const char* name, uint64_t base, uint64_t size);
+	void MarkGpuRangeFreed(uint64_t base, uint64_t serial);
 	// Logs the range containing `fault`, or the nearest ones either side when
 	// nothing contains it -- just-past-the-end is an overrun caught red-handed.
 	void DescribeGpuAddress(uint64_t fault);
+
+	enum class GpuRangeStatus { Unknown, Live, Freed };
+	// What a *base* address is, asked before the GPU is handed it. This is the
+	// registry used forwards rather than after the fact: a top-level build can
+	// check every acceleration-structure reference it is about to write and
+	// name the dead one on the CPU, instead of the GPU faulting on a random
+	// page an hour later with nothing to tie it to.
+	GpuRangeStatus GpuRangeStatusOf(uint64_t base);
+	// The registered name for a base address, or "" when nothing owns it.
+	std::string GpuRangeName(uint64_t base);
 
 	// Destruction has to be deferred: the GPU may still be reading a resource
 	// from an in-flight frame when its last reference is dropped.

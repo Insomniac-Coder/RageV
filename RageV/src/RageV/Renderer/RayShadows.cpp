@@ -55,6 +55,7 @@ namespace RageV
 			std::vector<RayCaster> Records;
 			bool Active = false;
 			bool BuiltThisFrame = false;
+			uint32_t BuiltCount = 0;
 
 			// The posing pass. Absent -- and every skinned caster traces at
 			// its bind pose -- when the shader did not compile or the device
@@ -319,7 +320,33 @@ namespace RageV
 		if (!s_Data || !s_Data->Available)
 			return;
 		if (s_Data->BuiltThisFrame)
+		{
+			// The structure belongs to the frame, not to the view: an earlier
+			// view built it, and this one has since rebuilt the record list
+			// that a hit's custom index is resolved through. The two must
+			// describe the same world, or a hit carries an index into a list
+			// that no longer holds what the structure says it holds -- which
+			// is a shader reading whatever is at that address (7bp).
+			//
+			// Everything the list is built from is view-independent by
+			// construction, so this cannot fire. It is checked because when it
+			// did, the symptom was a lost device forty seconds later with
+			// nothing to tie it to.
+			if ((uint32_t)s_Data->Instances.size() != s_Data->BuiltCount)
+			{
+				static bool reported = false;
+				if (!reported)
+				{
+					reported = true;
+					RV_CORE_ERROR("[RayShadows] the structure was built with {0} instances "
+								  "and this view's record list has {1}. A traced hit resolves "
+								  "its custom index through the list, so the two must match; "
+								  "something view-dependent has got into the list",
+								  s_Data->BuiltCount, s_Data->Instances.size());
+				}
+			}
 			return;
+		}
 
 		const uint32_t frame = s_Data->Device->GetFrameIndex();
 
@@ -372,6 +399,7 @@ namespace RageV
 		cmd.BuildTopLevelAS(s_Data->Structures[frame], s_Data->Instances.data(), count);
 		s_Data->Active = true;
 		s_Data->BuiltThisFrame = true;
+		s_Data->BuiltCount = count;
 	}
 
 	bool RayShadows::IsActive()

@@ -1393,6 +1393,24 @@ namespace RageV::Vk
 		vkCmdSetCheckpointNV(cmd, interned.c_str());
 	}
 
+	namespace
+	{
+		const char* FaultAddressTypeToString(VkDeviceFaultAddressTypeEXT type)
+		{
+			switch (type)
+			{
+				case VK_DEVICE_FAULT_ADDRESS_TYPE_NONE_EXT:                        return "none";
+				case VK_DEVICE_FAULT_ADDRESS_TYPE_READ_INVALID_EXT:                return "INVALID READ";
+				case VK_DEVICE_FAULT_ADDRESS_TYPE_WRITE_INVALID_EXT:               return "INVALID WRITE";
+				case VK_DEVICE_FAULT_ADDRESS_TYPE_EXECUTE_INVALID_EXT:             return "INVALID EXECUTE";
+				case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_UNKNOWN_EXT: return "shader instruction pointer (unknown)";
+				case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_INVALID_EXT: return "shader instruction pointer (invalid)";
+				case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_FAULT_EXT:   return "shader instruction pointer (faulted here)";
+				default:                                                           return "?";
+			}
+		}
+	}
+
 	void VulkanDevice::ReportGpuCrashDetails() const
 	{
 		if (m_CheckpointsSupported)
@@ -1439,10 +1457,23 @@ namespace RageV::Vk
 					RV_CORE_ERROR("  Device fault: {0}", info.description);
 					for (const VkDeviceFaultAddressInfoEXT& address : addresses)
 					{
-						RV_CORE_ERROR("    address {0:#x} (+/- {1:#x}), type {2}",
+						// The type is the half that says what to do with the
+						// number. An invalid access is an address in *our*
+						// space and the registry can name it; an instruction
+						// pointer is somewhere in a shader's code and the
+						// registry would only mis-attribute it to whichever
+						// buffer happened to be below.
+						const bool access =
+							address.addressType == VK_DEVICE_FAULT_ADDRESS_TYPE_READ_INVALID_EXT ||
+							address.addressType == VK_DEVICE_FAULT_ADDRESS_TYPE_WRITE_INVALID_EXT ||
+							address.addressType == VK_DEVICE_FAULT_ADDRESS_TYPE_EXECUTE_INVALID_EXT;
+
+						RV_CORE_ERROR("    address {0:#x} (+/- {1:#x}), {2}",
 									  (uint64_t)address.reportedAddress,
 									  (uint64_t)address.addressPrecision,
-									  (int)address.addressType);
+									  FaultAddressTypeToString(address.addressType));
+						if (access)
+							Vk::DescribeGpuAddress((uint64_t)address.reportedAddress);
 					}
 					for (const VkDeviceFaultVendorInfoEXT& entry : vendor)
 					{
@@ -1593,7 +1624,12 @@ namespace RageV::Vk
 		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
 
+		// The same bookends as the frame's list. An immediate submit carries
+		// acceleration-structure builds and staging copies, which is exactly
+		// the work that would fault without any render-graph pass having run.
+		SetCheckpoint(cmd, "immediate/begin");
 		record(cmd);
+		SetCheckpoint(cmd, "immediate/end");
 
 		VK_CHECK(vkEndCommandBuffer(cmd));
 

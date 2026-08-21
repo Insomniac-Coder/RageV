@@ -105,125 +105,129 @@ And two older ones that still hold:
 - **A cubemap sky is the scene's image-based light, not a backdrop.** The camp
   was lit like an afternoon because it still had the courtyard's dusk panorama.
 
-## Open defect: the editor loses the device in Play on Vulkan
+## Fixed: the editor lost the device in Play on Vulkan
 
-**Status: not fixed.** Reproducible, narrowed, instrumented, and understood well
-enough that the next session should not have to re-derive any of it. The project
-ships around it (see *What ships* below), which is a workaround and not a fix.
+**Status: fixed (2026-08-21), and the fix is one line of intent.** The
+acceleration structure is *world* state and the terrain's level of detail is
+*view* state, and the ray-instance list was built out of both.
 
-### Reproduce it
+### What was actually wrong
 
-    cd build/bin/Release/RageVEditor
-    ./RageVEditor.exe --project=../../../../SampleProject --rhi=vulkan \
-        --play=on --render-defaults=off --frames-in-flight=1 \
-        --frame-time=0.0166 --screenshot-frame=1200 --screenshot=out.png
+Every view that draws the scene rebuilds the ray-instance list — clear, walk
+every mesh, walk every terrain chunk, build. `RayShadows::Build` is guarded to
+run **once per device frame**, because the structure holds every caster with no
+frustum and one build serves every view. So in the editor, which draws the
+scene twice:
 
-with all three ray-traced features on in `SampleProject.rvproject`:
+| | viewport (first) | game panel (second) |
+|---|---|---|
+| Instance list | cleared, refilled | cleared, **refilled again** |
+| Structure | **built from this list** | guarded — not rebuilt |
+| What the traced passes read | list and structure agree | structure from view 1, **list from view 2** |
 
-    RayTracing: true
-    RayTracedReflections: true
-    RayTracedAmbientOcclusion: true
-    RayTracedGlobalIllumination: true
+Both lists held the same *number* of instances, so nothing looked wrong. But
+`Terrain::SelectLod` runs per view and picks each chunk's level from *that
+camera's* distance, and the list took `chunk.Selected()`. The two cameras are in
+different places, so the second list named different chunk meshes in the same
+slots.
 
-Dies inside about 400 frames. `frames-in-flight=1` is the fastest repro; it
-fails at 1, 2 and 3 alike.
+A traced hit carries the `instanceCustomIndex` it had in the structure — that
+is, view 1's index — and every traced pass resolves it through the list, which
+is view 2's. The record it lands on describes a different mesh. Whatever that
+record is read as — a bindless slot, an offset — is then wrong, and a ray query
+following it dereferences an address that is not mapped.
 
-### What is established, with the measurement behind it
+That is the whole thing:
 
-| Claim | Evidence |
-|---|---|
-| Needs **all three** ray-traced features | all three: lost 3/3. Any one off: 0/3 at 1200 frames. Every *pair* is fine |
-| Needs the editor's **second frame graph** | Game panel open: 2/2 lost. Closed (`game = 0` in `panels.ini`): 0/2. Nothing else changed |
-| The runtime is unaffected | one graph, all three on, thousands of frames, clean |
-| Inside one frame, not across frames | fails identically at 1, 2 and 3 frames in flight |
-| Not a timeout | ~22 ms/frame against a 2 s watchdog |
-| Not API misuse | synchronization validation clean up to the loss; every message after it is a consequence |
-| Not deterministic | the same frame number passes on one run and fails on the next |
-| Does **not** cross the graph boundary | `--graph-barrier=on` records a full pipeline barrier between the two graphs. Still lost 3/3 |
-| The fault precedes the first pass | GPU checkpoints report **none reached**, on a device where checkpoints are confirmed available |
-| Device fault addresses | two, types 6 and 1, e.g. `0x1701191190 (±0x10)` and `0x670ea000 (±0x1000)`. Identical across runs |
+- **Editor only.** The runtime draws one view, so its list and structure are the
+  same list and structure. Thousands of frames, clean, always were.
+- **Needs the Game panel open.** No second view, no second list.
+- **Non-deterministic.** The cinematic camera has to be far enough from the
+  editor camera for the levels to differ, which depends on where the shot is.
+- **Not a synchronization hazard.** Nothing is racing; the data is wrong before
+  it is submitted. Sync validation was clean, and a full barrier between the two
+  graphs did not help, because there was nothing to order.
+- **A random unmapped page each time.** Not a stale allocation — garbage.
 
-Hardware: NVIDIA GeForce RTX 5070 Ti Laptop, Vulkan 1.4.325. Both
-`VK_NV_device_diagnostic_checkpoints` and `VK_EXT_device_fault` are available and
-enabled; the device logs which it has at startup.
+### The fix
 
-**"No checkpoints reached" is the sharpest clue and it is not yet explained.**
-Every render-graph pass drops a breadcrumb before it runs, so the fault happening
-before *any* of them puts it in work recorded ahead of the graphs — the shadow
-passes, the acceleration-structure builds, the skinning compute — or in the
-submission itself. That is where to look next.
+`Terrain::Chunk::ForRays()` returns `Levels[kRayLevel]` — level 0, the finest —
+and the ray-instance list takes that instead of `Selected()`. A ray can start
+anywhere, so there is no distance to pick a level from. Both views now produce
+the identical list, so whichever one builds the structure, the other agrees with
+it. `SelectLod` keeps the ray level non-stale alongside the level being drawn,
+so a brush stroke does not leave reflections of terrain the data has moved on
+from.
 
-### Ruled out, each checked directly
+`RayShadows::Build` also checks the invariant on the guarded path — the list a
+later view brings must be the same length as the one the structure was built
+from — and says so loudly if it ever is not. It cannot fire as the code stands.
+That is the point: when it *did*, the symptom was a lost device forty seconds
+later with nothing to tie it to.
 
-- **The TLAS being rebuilt by the second graph.** `RayShadows::Build` is guarded
-  by `BuiltThisFrame`, reset once per device frame in `Renderer3D::BeginFrame`.
-  The second graph's call is a no-op.
-- **A missing barrier after the acceleration-structure builds.** There is one and
-  its stage mask is right: `ACCELERATION_STRUCTURE_BUILD` →
-  `FRAGMENT | COMPUTE | ACCELERATION_STRUCTURE_BUILD`, write → read.
-- **The animated skinned mesh.** Stopping the fox's animator removes the
-  per-frame bottom-level rebuild entirely and changes nothing: 2/2 either way.
-- **Descriptor sets rewritten after being bound.** The obvious suspect, because
-  there is one set per pipeline per frame in flight and the editor binds each
-  pipeline twice a frame. The engine has a tripwire for exactly this and it stays
-  silent through the fault — *and the tripwire is now trustworthy*: it used to be
-  gated on validation with `ImmediateSubmit` clearing its record wholesale, so an
-  asset upload between the two graphs blinded it for the rest of the frame. It
-  now retires binds per command buffer. Still silent.
-- **Renderer3D per-scene slots overflowing.** They grow on demand, no fixed cap.
-- **Cross-frame resource reuse.** See the frames-in-flight row above.
+### Verified
 
-### Two failed fixes, and why they failed
+- 3 x 2500 frames, all three ray-traced features on, frames-in-flight 1: clean.
+- 2 x 2500 frames at frames-in-flight 2 and 3: clean.
+- Previously: **lost within ~400 frames, 3 runs out of 3.**
+- Invariant check silent throughout; runtime unaffected; `scenetest` failure set
+  byte-identical before and after (97 pre-existing failures in this environment,
+  all shader-compile and texture-cook fixtures).
+- Held-camera shimmer unchanged: median 720 px before, 492 px after, mean delta
+  0.454 vs 0.463.
+- Cost: load 0.21 s -> 0.27 s, from building full-detail bottom-level structures
+  for all 64 terrain chunks instead of whichever levels the camera happened to
+  ask for. Bounded and one-off, where the old behaviour was unbounded.
 
-Both were attempts at the descriptor-set theory, both reverted. Recorded because
-the reasons generalise.
+### Two things the previous write-up got wrong
 
-**Rotating to a spare descriptor set when the current one is already bound.**
-Wrong at the root: callers may bind a set's handle without committing first, so a
-set has to keep one stable handle per frame. On the way to learning that it also
+Both were load-bearing and both sent the search the wrong way.
 
-- **flickered** — a spare has never been fully written, and `Commit` writes only
-  the delta when the frame slot is not dirty, so the rest of the new set's
-  bindings were undefined; and
-- **lost the device more reliably than the original bug** — a spare allocated
-  later comes from a different pool block in the device's chain, and
-  `vkFreeDescriptorSets` must be given the pool that owns the set. Freeing every
-  spare from `m_Pool` is an invalid free.
+**"GPU checkpoints: none reached — the fault precedes the first breadcrumb."**
+It does not. Bookend checkpoints were added to *every* submission — the frame's
+command list and every `ImmediateSubmit` — and the query still returns zero. So
+`vkGetQueueCheckpointDataNV` returns nothing on this driver, and "none reached"
+means the query is empty, not that the GPU got nowhere. The message now says
+so. Do not spend a session on that clue again.
 
-### Tools that exist for it now
+**"Device fault addresses, identical run to run."** They are not. Four runs gave
+`0x670ea000`, `0xd47bf000`, `0x676da000`, `0x676da000` — a different unmapped
+page most times, which is the signature of a *garbage* pointer rather than a
+stale allocation, and was the clue that mattered.
 
-- **`--play=on`** — starts the editor in Play as soon as the scene loads. Without
-  it the fault needs a person pressing a button and cannot be scripted.
-- **`--graph-barrier=on`** — full pipeline barrier between the editor's two
-  graphs. A bisection tool: if a hazard vanishes under it, it crosses the graphs.
-  It does not.
-- **GPU checkpoints and device fault** — enabled when present. On a loss the
-  engine prints the last breadcrumb reached and any faulting address. Passes drop
-  breadcrumbs named `<graph>/<pass>`; the editor's graphs are named `scene` and
-  `game` so a report can tell two identically-named passes apart.
-- **A device-lost latch** — the first loss is reported in full and the
-  application stops. Before this it reported the wait and the submit failing once
-  each, every frame, forever: a report of it arrived as 250 identical lines in
-  one second with the first failure long gone off the top.
+### What the hunt left behind, and is worth keeping
+
+- **The GPU address-range registry** (`Vk::NoteGpuRange`, `MarkGpuRangeFreed`,
+  `DescribeGpuAddress`, `GpuRangeStatusOf`). Every buffer with a device address
+  and every acceleration-structure backing registers its range and name;
+  destruction marks it freed *inside the deletion*, not at drop, with a serial
+  so a reused address cannot be mis-accused. A device fault now reads
+  `-> inside 'fox.vertices' [0x... + 0x...]` or `-> 0x... past the end of
+  'tlas.instances'`, which is what turned an address into a direction.
+- **Used forwards, not only after the fact.** Under `--validation=on`, every
+  top-level build checks each instance's structure reference against the
+  registry before writing it. It is how "a freed bottom-level structure" was
+  ruled out in one run instead of argued about.
+- **Decoded fault types.** `type 6` now reads `shader instruction pointer
+  (faulted here)` and `type 1` reads `INVALID READ`, and only the access types
+  get an address lookup — an instruction pointer is in shader code and would be
+  mis-attributed to whichever buffer sat below it.
+- **`--play=on`** and **`--graph-barrier=on`**, both still useful.
 
 ### What ships
 
-`RayTracing: true`, `RayTracedReflections: true`, the other two `false`. Verified
-at 1500 frames over three runs. Reflections are the one the camp needs — the
-mirror is the whole reason ray tracing is on.
+The crash was the only reason `RayTracedAmbientOcclusion` and
+`RayTracedGlobalIllumination` were off. They can go back on; measured cost on
+this machine is **9.3 ms/frame with reflections alone against 13.8 ms/frame with
+all three**, at 1600x900 with the editor drawing two views. Left as the owner's
+call rather than flipped quietly.
 
-### Next step
-
-A graphics debugger — RenderDoc or Nsight — on the frame that dies, looking at
-what is recorded *before* the first graph pass, since that is where the
-checkpoint evidence points. `--play=on` makes the capture a two-minute setup.
-
-### TAA shimmer: measured, and not a regression
+### TAA shimmer: what is measured, and what is not established
 
 "Flicker in the Game view" was reported repeatedly during the crash work. It was
 chased with a metric -- pixels in the Game panel changing by more than 32 between
-consecutive frames, with the camera held still -- and it is **temporal
-anti-aliasing**, present before any of this session's work.
+consecutive frames, with the camera held still -- and what the metric responds
+to is **temporal anti-aliasing**.
 
 | Configuration | Shimmering pixels |
 |---|---|
@@ -240,10 +244,17 @@ Three things follow, each worth keeping.
 **Ray tracing is not the cause.** Turning it off makes shimmer *worse*, not
 better, at matched feedback.
 
-**It is not new.** The old demo scene -- the courtyard, which is what the editor
-opened on before the camp existed -- shimmers *more* at the pre-session settings
-than the camp does. Anyone who did not see it before was most likely not looking
-at the Game panel in Play, which is the only place that panel renders.
+**Whether it is new is NOT established, and an earlier version of this section
+claimed it was.** The evidence offered was that the courtyard -- the scene the
+editor opened on before the camp existed -- shimmers *more* at the pre-session
+settings than the camp does. That shows the shimmer is consistent across scenes.
+It does not show that the Game panel did not regress, which is what was actually
+reported. There is no measurement of the Game panel from before this work, so
+there is nothing to compare against; do not let the table above imply otherwise.
+
+What *is* established: two of the inputs changed in this session. Ray tracing
+went from off to on, and `TemporalFeedback` went from 0.6 to 0.9. The table
+shows what each is worth.
 
 **It is `TemporalFeedback` behaving as documented.** At 0.6 each frame keeps 60 %
 of the accumulated image and takes 40 % of a freshly *jittered* one, so a still

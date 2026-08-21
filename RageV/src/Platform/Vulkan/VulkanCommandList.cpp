@@ -37,6 +37,12 @@ namespace RageV::Vk
 		VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		VK_CHECK(vkBeginCommandBuffer(m_CommandBuffer, &beginInfo));
+
+		// Bookends, so "no checkpoint reached" is an answer rather than a
+		// puzzle. A post-mortem naming neither of these did not fault in the
+		// frame's command buffer at all -- it faulted in some other submit,
+		// and the driver answers with that submit's (empty) checkpoint list.
+		m_Device.SetCheckpoint(m_CommandBuffer, "frame/begin");
 	}
 
 	void VulkanCommandList::Adopt(VkCommandBuffer commandBuffer)
@@ -84,6 +90,7 @@ namespace RageV::Vk
 		dependency.pImageMemoryBarriers = &barrier;
 		vkCmdPipelineBarrier2(m_CommandBuffer, &dependency);
 
+		m_Device.SetCheckpoint(m_CommandBuffer, "frame/end");
 		VK_CHECK(vkEndCommandBuffer(m_CommandBuffer));
 		m_CommandBuffer = VK_NULL_HANDLE;
 	}

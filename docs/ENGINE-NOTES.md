@@ -11248,6 +11248,74 @@ take it out and the bed sounds empty.
 
 ---
 
+### 7bp. A structure has no camera: the editor's device loss
+
+The editor lost the graphics device in Play on Vulkan, forty seconds in, only
+with all three ray-traced features on and only with the Game panel open. The
+runtime never did. It took a long time to find because every property of it
+pointed at synchronization, and none of it was.
+
+**What was wrong.** `RayShadows::Build` is guarded to run once per device frame.
+That guard is right: the structure holds every caster with no frustum, so one
+build serves every view drawn in the frame. What was wrong is that the *list*
+the structure is built from was rebuilt by every view. The editor draws the
+scene twice, so the second view cleared the list, refilled it from its own
+camera, and then found the structure already built and left it alone.
+
+The refill is view-independent -- except for one line. `Terrain::SelectLod` runs
+per view and picks each chunk's level of detail from that camera's distance, and
+the ray-instance list took `chunk.Selected()`. Two cameras in different places
+select different levels, so the second list named different chunk meshes in the
+same slots. Same length; different world.
+
+A traced hit carries the `instanceCustomIndex` the structure gave it and every
+traced pass resolves it through the list. Structure from view one, list from view
+two: the record is a different mesh's record, and whatever it is read as is
+wrong. A ray query following it dereferences an address that is not mapped.
+
+**Why it looked like a race.** It has every symptom of one -- non-deterministic,
+editor-only, gone when a panel is closed -- and none of the causes. Sync
+validation was clean for the whole run. A full pipeline barrier between the two
+graphs changed nothing, because nothing was out of order: the data was already
+wrong when it was submitted. The device fault said INVALID READ at a different
+unmapped page nearly every run, which is a *garbage* pointer, not a stale
+allocation, and that was the clue that finally pointed away from lifetimes.
+
+**The rule.** *An acceleration structure has no camera, so nothing built into it
+may come from one.* `Chunk::ForRays()` returns the finest level, unconditionally.
+Both views now build the identical list, so whichever one builds the structure,
+the other agrees with it. `SelectLod` keeps the ray level non-stale alongside the
+drawn one, so a brush stroke does not leave reflections of terrain the data has
+moved on from. The cost is bounded -- one bottom-level structure per chunk
+instead of however many levels the camera asked for over a session -- and 0.06 s
+of load.
+
+**Two diagnostics that were wrong, and cost more than the bug.**
+
+*"GPU checkpoints: none reached, so the fault precedes the first breadcrumb."*
+It does not. Bookend checkpoints were added to every submission, including every
+`ImmediateSubmit`, and the query still returned zero:
+`vkGetQueueCheckpointDataNV` returns nothing on this driver. An empty answer is
+not evidence about where the GPU got to, and reading it as evidence sent a
+session looking for work recorded before the first pass. A tool that reports
+absence must be able to distinguish "nothing happened" from "I cannot tell you".
+
+*"The fault addresses are identical run to run."* They were not; three of four
+differed. The claim came from too few runs and it argued for a fixed stale
+allocation, which is the opposite of what a varying address means.
+
+**What survives.** The GPU address-range registry: every buffer with a device
+address and every acceleration-structure backing registers its base, size and
+debug name, and destruction marks the range freed *inside the deletion* rather
+than at drop -- with a serial, so a driver reusing the address cannot get the
+previous tenant blamed. A device fault then reads
+`-> inside 'fox.vertices' [0x... + 0x...]` instead of a number. Better, it is
+used *forwards*: under validation, every top-level build checks each instance's
+structure reference against the registry before writing it, which ruled out
+"a freed bottom-level structure" in a single run.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

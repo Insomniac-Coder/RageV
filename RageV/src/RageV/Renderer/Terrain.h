@@ -45,6 +45,9 @@ namespace RageV
 		static constexpr uint32_t kChunkQuads = 64;
 		// Levels of detail per chunk: every 1st, 2nd, 4th, 8th sample.
 		static constexpr int kLevels = 4;
+		// The level Chunk::ForRays traces, kept non-stale by SelectLod
+		// alongside the level being drawn.
+		static constexpr int kRayLevel = 0;
 
 		struct Dimensions
 		{
@@ -82,6 +85,18 @@ namespace RageV
 			uint8_t Stale = 0;
 
 			const RHI::Ref<Mesh>& Selected() const { return Levels[Level]; }
+			// What a ray traces into. Deliberately *not* Selected().
+			//
+			// Level is chosen from a camera, and the acceleration structure
+			// has no camera: it is built once per frame and traced by every
+			// view drawn in that frame. Feeding it Selected() makes the world
+			// depend on which view happened to build it first -- the editor's
+			// viewport, the game panel, or a probe capture -- and the answer
+			// changes between frames, which is a whole terrain popping
+			// between levels inside every reflection. Pinned to the finest
+			// level so the answer is the same for everyone: a ray can start
+			// anywhere, so there is no distance to choose from.
+			const RHI::Ref<Mesh>& ForRays() const { return Levels[kRayLevel]; }
 		};
 
 		// Builds every chunk at every level. `device` may be null: the chunks

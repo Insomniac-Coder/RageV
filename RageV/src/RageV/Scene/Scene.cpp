@@ -1725,12 +1725,20 @@ namespace RageV
 				RayShadows::AddInstance(resolved, transform.World, bones, material, params);
 			}
 
-			// The terrain, every chunk at its level, no frustum: a hill outside
-			// the view still shadows what is inside it (7ap).
+			// The terrain, every chunk, no frustum: a hill outside the view
+			// still shadows what is inside it (7ap).
+			//
+			// ForRays, not Selected: this list is rebuilt by every view that
+			// draws the scene, and only the first of them actually builds the
+			// structure -- the rest find it built and keep their own list. A
+			// camera-dependent level therefore hands the traced passes a list
+			// of instances the structure does not contain, in an order it does
+			// not share, and a hit resolved through it reads whatever is at
+			// that index. That is the editor's device loss (7bp).
 			ForEachTerrainChunk([&](Entity, TransformComponent& transform, TerrainComponent& component,
 									Terrain&, Terrain::Chunk& chunk)
 			{
-				const RHI::Ref<Mesh>& mesh = chunk.Selected();
+				const RHI::Ref<Mesh>& mesh = chunk.ForRays();
 				if (!mesh)
 					return;
 				RHI::Ref<Material> material = Assets::Manager::GetMaterial(component.Material);

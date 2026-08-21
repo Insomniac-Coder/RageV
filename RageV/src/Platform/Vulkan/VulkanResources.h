@@ -29,6 +29,10 @@ namespace RageV::Vk
 		VmaAllocation m_Allocation = VK_NULL_HANDLE;
 		void*         m_Mapped     = nullptr;
 		bool          m_HasAddress = false;
+		// What this buffer registered with the GPU address-range registry, so
+		// the deletion can hand both back and a fault address can be named.
+		uint64_t      m_RangeBase   = 0;
+		uint64_t      m_RangeSerial = 0;
 	};
 
 	// An acceleration structure (ENGINE-NOTES 7am), either level. Owns the
@@ -67,9 +71,20 @@ namespace RageV::Vk
 			VmaAllocation Allocation = VK_NULL_HANDLE;
 			void*         Mapped = nullptr;
 			VkDeviceAddress Address = 0;
+			uint64_t      RangeSerial = 0;
 		};
 		Backing CreateBacking(VkDeviceSize size, VkBufferUsageFlags usage, bool hostVisible, const char* name);
 		void    Destroy(Backing& backing);
+		void    NoteStructureRange(const char* name, uint64_t size);
+		void    VerifyInstanceReference(uint64_t reference, uint32_t index) const;
+
+		// The structure's own device address, which a top-level instance
+		// records and a ray query then follows. On some drivers it is the
+		// storage buffer's address and on others it is not, so it is
+		// registered separately when it differs -- a stale instance reference
+		// faults *here*, not in the buffer.
+		uint64_t m_StructureRangeBase = 0;
+		uint64_t m_StructureRangeSerial = 0;
 
 		VulkanDevice& m_Device;
 		std::shared_ptr<DeletionQueue> m_Deletion;

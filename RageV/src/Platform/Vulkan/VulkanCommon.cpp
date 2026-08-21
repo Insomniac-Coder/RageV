@@ -79,6 +79,7 @@ namespace RageV::Vk
 		{
 			std::string Name;
 			uint64_t    Size = 0;
+			uint64_t    Serial = 0;
 			bool        Freed = false;
 		};
 		// Keyed by base address, ordered, so a fault address resolves with one
@@ -90,18 +91,36 @@ namespace RageV::Vk
 		}
 	}
 
-	void NoteGpuRange(const char* name, uint64_t base, uint64_t size)
+	uint64_t NoteGpuRange(const char* name, uint64_t base, uint64_t size)
 	{
 		if (base == 0)
-			return;
-		Detail::GpuRanges()[base] = { name ? name : "?", size, false };
+			return 0;
+		static uint64_t serial = 0;
+		Detail::GpuRanges()[base] = { name ? name : "?", size, ++serial, false };
+		return serial;
 	}
 
-	void MarkGpuRangeFreed(uint64_t base)
+	void MarkGpuRangeFreed(uint64_t base, uint64_t serial)
 	{
 		auto it = Detail::GpuRanges().find(base);
-		if (it != Detail::GpuRanges().end())
+		// Only if it is still the range that was noted. A newer allocation at
+		// the same base has a higher serial and is alive.
+		if (it != Detail::GpuRanges().end() && it->second.Serial == serial)
 			it->second.Freed = true;
+	}
+
+	GpuRangeStatus GpuRangeStatusOf(uint64_t base)
+	{
+		auto it = Detail::GpuRanges().find(base);
+		if (it == Detail::GpuRanges().end())
+			return GpuRangeStatus::Unknown;
+		return it->second.Freed ? GpuRangeStatus::Freed : GpuRangeStatus::Live;
+	}
+
+	std::string GpuRangeName(uint64_t base)
+	{
+		auto it = Detail::GpuRanges().find(base);
+		return it == Detail::GpuRanges().end() ? std::string() : it->second.Name;
 	}
 
 	void DescribeGpuAddress(uint64_t fault)
