@@ -1,0 +1,154 @@
+// Ray-traced global illumination, as a pass.
+//
+// **Why this is not in the lit shader any more.** It was, and everything it
+// needs is bound there, which is the argument the original made. What that
+// costs is a resolution: an attachment has one size, so four bounce rays were
+// cast for every shaded fragment of a full-resolution frame -- 5.8 million
+// rays -- while ambient occlusion did the same class of tracing at half
+// resolution for a ninth of the cost. Indirect light is the lowest-frequency
+// thing in the frame and the one paying full rate for it.
+//
+// As a pass it has a target, and a target has a scale. The quality dial that
+// the screen-space and voxel gathers have always had (7az) can finally mean
+// the same thing here.
+//
+// It borrows rather than copies: RV_TRACE_ONLY drops the lit shader's vertex
+// stage -- its nine varyings, its four outputs, its cluster lookup and its
+// surface sampling -- and keeps set 0, the material heap and TraceSurface. A
+// second copy of that light loop is how two renderers start disagreeing about
+// what a hit looks like.
+//
+// Output is raw irradiance, **albedo-free**: the lit shader multiplies by the
+// surface's own base colour when it reads the accumulated buffer next frame.
+// The same contract the in-shader version wrote, so the denoise and the read
+// after it are unchanged.
+
+#type vertex
+#version 460 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 460 core
+
+#define RV_TRACE_ONLY
+#include "include/pbr_fragment.glsl"
+#include "include/view_reconstruction.glsl"
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Indirect;
+
+// The scene pass's depth and its surface description, in a set of their own.
+// Set 3 rather than a spare binding in set 0: set 0 is the scene's, shared
+// with every lit pipeline, and adding to it would change a layout that four
+// other shaders reflect.
+layout(set = 3, binding = 0) uniform sampler2D u_GiDepth;
+layout(set = 3, binding = 1) uniform sampler2D u_GiSurface;
+
+layout(push_constant) uniform GiParams
+{
+	float NearClip;
+	float FarClip;
+	float InvP0;
+	float InvP1;
+
+	float FlipY;
+	// How many bounce rays this pixel casts. A push constant rather than a
+	// define: a fork earns its place by removing work from the inner loop
+	// (8.2), and a loop bound does not.
+	float Rays;
+	float _pad0;
+	float _pad1;
+
+	// The camera-to-world rotation as three rows, and where the camera is:
+	// what carries a reconstructed point out into the world the rays are cast
+	// in. The same block RTAO carries, for the same reason.
+	vec4 CameraRow0;
+	vec4 CameraRow1;
+	vec4 CameraRow2;
+	vec4 CameraPosition;
+} u_Gi;
+
+void main()
+{
+	const bool flip = u_Gi.FlipY > 0.5;
+	const vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	// Sky, grid, particles, text: anything the PBR shaders did not draw has no
+	// surface to bounce light off and no depth worth reconstructing.
+	const vec4 surface = texture(u_GiSurface, uv);
+	if (SurfaceIsEmpty(surface))
+	{
+		o_Indirect = vec4(0.0, 0.0, 0.0, 1.0);
+		return;
+	}
+
+	// **Minus the jitter** (ENGINE-NOTES 7bq). The depth was drawn through a
+	// projection TAA had translated by a sub-pixel offset, so the point this
+	// texel describes is the one whose NDC is the texel's minus that offset.
+	// A pass that hands the position straight back to ViewToUv never notices;
+	// this one casts a real ray from it and cannot cancel the error.
+	const float z = LinearDepth(texture(u_GiDepth, uv).r, u_Gi.NearClip, u_Gi.FarClip);
+	const vec2 jitter = vec2(u_Scene.Jitter.x, flip ? -u_Scene.Jitter.y : u_Scene.Jitter.y) * 0.5;
+	const vec3 frame = ViewPosition(uv - jitter, z, vec2(u_Gi.InvP0, u_Gi.InvP1));
+
+	// The reconstruction frame out to the world: undo the row direction and
+	// the depth axis, then the camera.
+	const vec3 view = vec3(frame.x, flip ? -frame.y : frame.y, -frame.z);
+	const vec3 world = u_Gi.CameraPosition.xyz + vec3(dot(u_Gi.CameraRow0.xyz, view),
+													  dot(u_Gi.CameraRow1.xyz, view),
+													  dot(u_Gi.CameraRow2.xyz, view));
+
+	const vec3 N = OctDecode(surface.rg);
+
+	// The same hash the lit shader used, off the pixel *and* the frame: four
+	// rays cannot integrate a hemisphere, and what makes them converge is
+	// casting a different four every frame for the denoise to average.
+	const uvec2 pixel = uvec2(gl_FragCoord.xy);
+	uint seed = GiHash(pixel.x * 0x9E3779B9u ^ pixel.y
+					   ^ (uint(u_Scene.GlobalIllumination.y) * 0x85EBCA6Bu));
+
+	const int rays = clamp(int(u_Gi.Rays + 0.5), 1, 32);
+	const int bounces = int(u_Scene.GlobalIllumination.z + 0.5);
+	const float reach = u_Scene.GlobalIllumination.w > 0.0
+					  ? u_Scene.GlobalIllumination.w : 1.0e4;
+
+	vec3 bounced = vec3(0.0);
+	for (int i = 0; i < rays; ++i)
+	{
+		seed += uint(i) * 0x9E3779B9u;
+		const vec3 direction = CosineDirection(N, seed);
+
+		TracedSurface first = TraceSurface(world, N, direction, reach);
+		// A miss is nothing, not the sky (7bb): the probe already integrates
+		// the sky over the whole hemisphere, and adding it here counts it
+		// twice.
+		if (first.Missed)
+			continue;
+
+		// **Probe slot 0, the sky, rather than the shading instance's own.**
+		// The in-shader version read v_Probe -- which probe the *receiving*
+		// object was assigned -- and a fullscreen pass has no instance to ask.
+		// Slot 0 is what an object with no probe of its own gets, and a hit is
+		// not the receiver anyway.
+		vec3 arriving = ProbeIrradiance(first.Normal, 0.0);
+		if (bounces >= 2)
+		{
+			seed += 0x68BC21EBu;
+			const vec3 onward = CosineDirection(first.Normal, seed);
+			TracedSurface second = TraceSurface(first.Position, first.Normal, onward, reach);
+			arriving = second.Missed ? second.Sky
+									 : ShadeTraced(second, ProbeIrradiance(second.Normal, 0.0));
+		}
+
+		bounced += ShadeTraced(first, arriving);
+	}
+
+	o_Indirect = vec4(bounced / float(rays), 1.0);
+}

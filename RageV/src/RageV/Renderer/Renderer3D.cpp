@@ -283,6 +283,14 @@ namespace RageV
 			// is the layered block and its samplers instead of a material's.
 			Ref<RHIShader>   LayeredShader;
 			Ref<RHIPipeline> LayeredPipeline;
+			// The traced bounce, as a fullscreen pass rather than part of the
+			// lit fragment (7bs). The same set 0 and the same material heap --
+			// it includes the lit shader with RV_TRACE_ONLY -- plus a set of
+			// its own holding the depth and surface it reconstructs from.
+			Ref<RHIShader>   GiShader;
+			Ref<RHIPipeline> GiPipeline;
+			Format           GiTargetColor = Format::Undefined;
+			Ref<RHISampler>  PointSampler;
 			Format TargetColor = Format::R8G8B8A8_UNORM;
 			Format TargetDepth = Format::D32_SFLOAT;
 		// Sample count, which has to equal the target's. A pipeline whose
@@ -321,6 +329,15 @@ namespace RageV
 			{
 				Ref<RHIBuffer>      Buffer;
 				Ref<RHIResourceSet> Set;
+				// The traced bounce reads the same scene block through a set of
+				// its own: a set is allocated against one pipeline's layout,
+				// and this pipeline's set 0 is a subset -- no shadow maps, no
+				// cluster grid, no instance stream, because a hit is not on
+				// screen and has no cluster.
+				Ref<RHIResourceSet> GiSet;
+				// Its depth and surface inputs, which change per view rather
+				// than per scene.
+				Ref<RHIResourceSet> GiInputs;
 				// The batch's per-instance array. Grows to the largest scene
 				// this slot has drawn and stays there, so a steady scene stops
 				// allocating after its first frame.
@@ -598,6 +615,17 @@ namespace RageV
 		environment.MaxLod = 16.0f;
 		s_Data->EnvironmentSampler = device.CreateSampler(environment);
 
+		// Point, clamped: the traced bounce reads a depth and a packed normal,
+		// and the average of a near depth and a far one is a distance nothing
+		// in the scene is at -- which is a ray starting in mid-air.
+		SamplerDesc exact;
+		exact.MinFilter = FilterMode::Nearest;
+		exact.MagFilter = FilterMode::Nearest;
+		exact.WrapU = WrapMode::ClampToEdge;
+		exact.WrapV = WrapMode::ClampToEdge;
+		exact.WrapW = WrapMode::ClampToEdge;
+		s_Data->PointSampler = device.CreateSampler(exact);
+
 		// Both shaders, not just the lit one. The shadow pass failing on its own
 		// used to leave this announcing readiness while nothing cast anything.
 		s_Data->Ready = s_Data->Shader != nullptr && s_Data->ShadowShader != nullptr &&
@@ -649,6 +677,18 @@ namespace RageV
 		else
 			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/pbr_skinned.rvshader");
 
+		// The traced bounce's own pass, where the settings ask for it. Same
+		// defines: it includes the lit fragment and needs the same forks
+		// compiled in, plus RV_TRACE_ONLY which the file itself sets.
+		s_Data->GiShader = nullptr;
+		if (s_Data->RayGlobalIlluminationOn && s_Data->Bindless && s_Data->RayShadowsOn)
+		{
+			if (auto gi = ShaderCompiler::CompileFromFile("assets/shaders/rtgi_trace.rvshader", defines))
+				s_Data->GiShader = s_Data->Device->CreateShader(*gi);
+			else
+				RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/rtgi_trace.rvshader");
+		}
+
 		// The layered variant defines RV_LAYERED itself; everything else about
 		// it -- the heap, the rays -- follows the same defines.
 		if (auto layered = ShaderCompiler::CompileFromFile("assets/shaders/pbr_layered.rvshader", defines))
@@ -657,6 +697,99 @@ namespace RageV
 			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/pbr_layered.rvshader");
 
 		return true;
+	}
+
+	bool Renderer3D::CanTraceGlobalIllumination()
+	{
+		return s_Data && s_Data->GiShader != nullptr;
+	}
+
+	void Renderer3D::TraceGlobalIllumination(RHICommandList& cmd,
+											 const Ref<RHITexture>& depth,
+											 const Ref<RHITexture>& surface,
+											 Format targetColor,
+											 const GiTraceView& view, int rays)
+	{
+		if (!s_Data || !s_Data->GiShader || !depth || !surface)
+			return;
+		if (!s_Data->ActiveScene)
+			return;
+
+		// The pipeline is built against the target's format, and the caller
+		// chooses that -- so a change rebuilds here rather than at the next
+		// EnsurePipeline, which has already run by the time a pass executes.
+		if (s_Data->GiTargetColor != targetColor || !s_Data->GiPipeline)
+		{
+			s_Data->GiTargetColor = targetColor;
+
+			GraphicsPipelineDesc gi;
+			gi.Name = "Renderer3D.gi";
+			gi.Shader = s_Data->GiShader;
+			gi.Topology = PrimitiveTopology::TriangleList;
+			gi.Rasterizer.Cull = CullMode::None;
+			gi.Blend = BlendPreset::Opaque;
+			gi.DepthStencil.DepthTestEnable = false;
+			gi.DepthStencil.DepthWriteEnable = false;
+			gi.ColorFormats = { targetColor };
+			gi.DepthFormat = Format::Undefined;
+			s_Data->GiPipeline = s_Data->Device->CreatePipeline(gi);
+
+			// A set belongs to the layout it was allocated against, and that
+			// layout has just been replaced.
+			for (auto& frame : s_Data->SceneSlots)
+				for (auto& slot : frame)
+					slot.GiSet = nullptr;
+		}
+
+		if (!s_Data->GiPipeline)
+			return;
+
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!slot.GiSet)
+			return;   // the scene block has not been written for this pipeline yet
+
+		if (!slot.GiInputs)
+			slot.GiInputs = s_Data->Device->CreateResourceSet(s_Data->GiPipeline, 3);
+		if (!slot.GiInputs)
+			return;
+
+		slot.GiInputs->SetTexture(0, depth, s_Data->PointSampler);
+		slot.GiInputs->SetTexture(1, surface, s_Data->PointSampler);
+		slot.GiInputs->Commit();
+
+		struct GiParams
+		{
+			float NearClip, FarClip, InvP0, InvP1;
+			float FlipY, Rays, Pad0, Pad1;
+			Vec4  CameraRow0, CameraRow1, CameraRow2, CameraPosition;
+		} params{};
+
+		params.NearClip = view.NearClip;
+		params.FarClip = view.FarClip;
+		params.InvP0 = view.InvProjection0;
+		params.InvP1 = view.InvProjection1;
+		// Vulkan's first framebuffer row is the top of the image and OpenGL's
+		// is the bottom, so a fullscreen pass reads its source the other way
+		// up on one of them. The same rule every post pass carries.
+		params.FlipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+		params.Rays = (float)Math::Clamp(rays, 1, 32);
+
+		// The camera transform is the view's inverse; the rotation part of an
+		// inverse is the transpose, so the camera's rows are the view's
+		// columns, and the position falls out of the full inverse.
+		const Mat4 camera = Math::Inverse(view.View);
+		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0], 0.0f);
+		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);
+		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], 0.0f);
+		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2], 0.0f);
+
+		cmd.BindPipeline(s_Data->GiPipeline);
+		cmd.BindResourceSet(0, slot.GiSet);
+		if (s_Data->Heap)
+			cmd.BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd.BindResourceSet(3, slot.GiInputs);
+		cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
+		cmd.Draw(3);
 	}
 
 	void Renderer3D::SetRayTracedShadows(bool enabled)
@@ -831,6 +964,36 @@ namespace RageV
 			desc.Name = "Renderer3D.pbr.layered";
 			desc.Shader = s_Data->LayeredShader;
 			s_Data->LayeredPipeline = s_Data->Device->CreatePipeline(desc);
+		}
+
+		// The traced bounce: a fullscreen triangle with no depth of its own and
+		// one colour out. Its target is the indirect buffer, whose format the
+		// caller states -- not this pipeline's business what size it is, which
+		// is the whole point of moving the work out of an attachment.
+		// Its target is the indirect buffer unless a caller says otherwise, so
+		// the pipeline -- and with it the whole set 0 the shader reflects --
+		// is built and validated here rather than the first time a frame
+		// happens to trace.
+		if (s_Data->GiTargetColor == Format::Undefined)
+			s_Data->GiTargetColor = s_Data->TargetIndirect;
+
+		if (s_Data->GiShader && s_Data->GiTargetColor != Format::Undefined)
+		{
+			GraphicsPipelineDesc gi;
+			gi.Name = "Renderer3D.gi";
+			gi.Shader = s_Data->GiShader;
+			gi.Topology = PrimitiveTopology::TriangleList;
+			gi.Rasterizer.Cull = CullMode::None;
+			gi.Blend = BlendPreset::Opaque;
+			gi.DepthStencil.DepthTestEnable = false;
+			gi.DepthStencil.DepthWriteEnable = false;
+			gi.ColorFormats = { s_Data->GiTargetColor };
+			gi.DepthFormat = Format::Undefined;
+			s_Data->GiPipeline = s_Data->Device->CreatePipeline(gi);
+		}
+		else
+		{
+			s_Data->GiPipeline = nullptr;
 		}
 
 		s_Data->PipelineDirty = false;
@@ -1270,6 +1433,29 @@ namespace RageV
 		}
 		}   // both sets
 
+		// The traced bounce's set, written on its own because its layout is a
+		// subset: no shadow maps (it traces its shadows), no cluster grid (a
+		// hit is not on screen and has no cluster), no BRDF table, no
+		// reflection or indirect history. Writing a binding a layout does not
+		// declare is a validation error, not a harmless extra, so this cannot
+		// simply join the loop above.
+		if (s_Data->GiPipeline)
+		{
+			if (!slot.GiSet)
+				slot.GiSet = s_Data->Device->CreateResourceSet(s_Data->GiPipeline, 0);
+
+			slot.GiSet->SetUniformBuffer(0, slot.Buffer, 0, sizeof(SceneUniforms));
+			slot.GiSet->SetStorageBuffer(8, slot.Lights, 0,
+										 (uint64_t)lightSlots * sizeof(GpuLight));
+			slot.GiSet->SetTexture(1, environmentMap ? environmentMap
+													 : TextureLoader::BlackCubeArray(*s_Data->Device),
+								   s_Data->EnvironmentSampler);
+			slot.GiSet->SetTexture(5, irradianceMap ? irradianceMap
+													: TextureLoader::BlackCubeArray(*s_Data->Device),
+								   s_Data->EnvironmentSampler);
+			slot.GiSet->SetAccelerationStructure(RayShadows::kBinding, RayShadows::GetStructure());
+		}
+
 		// Not committed and not bound yet.
 		//
 		// The instance buffer is part of this same set, and its contents are
@@ -1533,6 +1719,14 @@ namespace RageV
 									   (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
 			if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
 				slot.Set->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+
+			// The same two the traced bounce shades a hit through.
+			if (slot.GiSet)
+			{
+				slot.GiSet->SetStorageBuffer(13, slot.Materials, 0,
+											 (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+				slot.GiSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+			}
 		}
 
 		// Always bound, even with nothing skinned in the scene: the layout

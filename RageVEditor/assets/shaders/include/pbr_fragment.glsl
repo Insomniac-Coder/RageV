@@ -1026,6 +1026,12 @@ vec3 UnpackNormal(mat3 TBN, vec2 xy, float scale)
 	return normalize(TBN * tangentNormal);
 }
 
+// **From here down is the lit fragment.** The maps it samples, the surface it
+// assembles and the shading over it all read interpolated per-instance values
+// -- v_Surface, v_BaseColor, v_MaterialIndex -- which a fullscreen pass does
+// not have. The tracing above this line does not.
+#ifndef RV_TRACE_ONLY
+
 #ifndef RV_LAYERED
 vec3 PerturbNormal(mat3 TBN, vec2 uv)
 {
@@ -1083,7 +1089,6 @@ vec2 Parallax(vec2 uv, vec3 viewTS)
 // (ENGINE-NOTES 7aq) -- and nothing after it knows which. That is the whole
 // of the layered fork: the lights, the shadows by map or by ray, the probe,
 // the reflection mix and the emissive term run over this struct unchanged.
-#ifndef RV_TRACE_ONLY
 struct Surface
 {
 	vec4  BaseColor;

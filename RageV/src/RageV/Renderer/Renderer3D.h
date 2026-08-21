@@ -169,6 +169,38 @@ namespace RageV
 		static void SetRayTracedGlobalIllumination(bool enabled);
 		static bool IsRayTracedGlobalIllumination();
 
+		// What the traced bounce needs to put a screen pixel back in the world:
+		// the clips that turn a depth value into metres, the projection's two
+		// scale terms, and the view matrix it inverts to reach world space.
+		// The same description the ambient-occlusion pass carries, because it
+		// is answering the same question.
+		struct GiTraceView
+		{
+			float NearClip = 0.05f;
+			float FarClip = 1000.0f;
+			float InvProjection0 = 1.0f;
+			float InvProjection1 = 1.0f;
+			Mat4  View{ 1.0f };
+		};
+
+		// The traced bounce, over a whole target (ENGINE-NOTES 7bs).
+		//
+		// `depth` and `surface` are the scene pass's own attachments; `rays` is
+		// how many cosine directions each pixel casts. The target's size is
+		// whatever the caller bound, which is the entire reason this is a pass:
+		// as part of the lit fragment it could only ever run at the frame's
+		// resolution.
+		//
+		// Writes raw irradiance, albedo-free, exactly as the in-shader form
+		// did -- so the denoise after it and the read next frame are unchanged.
+		// Does nothing where the traced form is not compiled in.
+		static void TraceGlobalIllumination(RHI::RHICommandList& cmd,
+											const RHI::Ref<RHI::RHITexture>& depth,
+											const RHI::Ref<RHI::RHITexture>& surface,
+											RHI::Format targetColor,
+											const GiTraceView& view, int rays);
+		static bool CanTraceGlobalIllumination();
+
 		// Whether the lit pass reads material textures through the bindless
 		// heap this session (ENGINE-NOTES 7al): the device can, and
 		// --bindless did not say no. Reported rather than assumed, because a
