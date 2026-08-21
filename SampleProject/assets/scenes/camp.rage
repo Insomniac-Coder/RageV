@@ -34,6 +34,7 @@ Entities:
         HoldSeconds: 3.4
         TravelSeconds: 4.2
         Profiles: post/camp_focus_8_4.rvpostprofile,post/camp_focus_8_4.rvpostprofile,post/camp_focus_3_6.rvpostprofile,post/camp_focus_2_6.rvpostprofile,post/camp.rvpostprofile,post/camp.rvpostprofile,post/camp.rvpostprofile,post/camp.rvpostprofile,post/camp_focus_3_6.rvpostprofile,post/camp_focus_2_6.rvpostprofile,post/camp_focus_3_6.rvpostprofile,post/camp_focus_8_4.rvpostprofile
+        Targets: 0.5 0.7 0,0.5 0.7 0,1.1 0.65 -0.6,1.87 1 -1.58,3 1.05 -2.4,0.4 1 -1.2,-1.6 1 -1.4,-5.9 1.1 -3.3,-2.5 0.9 0.3,-2.55 0.85 0.42,4 0.45 2,0.6 0.9 0.2
   - EntityID: 10748874122643597306
     TagComponent:
       Tag: Shot 1
@@ -117,6 +118,20 @@ Entities:
     TransformComponent:
       Position: [-6.00976, 5.10836, 5.74624]
       Rotation: [-0.453786, -0.872665, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7843378711529770298
+    TagComponent:
+      Tag: Via 7
+    TransformComponent:
+      Position: [-7.5, 2, -7.75]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7843364417878603555
+    TagComponent:
+      Tag: Via 8
+    TransformComponent:
+      Position: [-8.5, 2, 4.5]
+      Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
   - EntityID: 11489088586242532446
     TagComponent:
@@ -1236,30 +1251,6 @@ Entities:
     MeshComponent:
       Mesh: 517647426988074246
       Material: 12702333840733718255
-  - EntityID: 1733501780012312305
-    TagComponent:
-      Tag: Pine 13
-    TransformComponent:
-      Position: [-9.31894, 9.15541e-05, -9.70141]
-      Rotation: [0, 4.74318, 0]
-      Scale: [0.98768, 1.02719, 0.98768]
-    RelationshipComponent:
-      Parent: 6883162270153339232
-    MeshComponent:
-      Mesh: 4223614010073120019
-      Material: 4358931631775128290
-  - EntityID: 2677264613823989347
-    TagComponent:
-      Tag: Pine 13 Trunk
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1.15, 1.15, 1.15]
-    RelationshipComponent:
-      Parent: 1733501780012312305
-    MeshComponent:
-      Mesh: 517647426988074246
-      Material: 12702333840733718255
   - EntityID: 1733502879523940516
     TagComponent:
       Tag: Pine 14
@@ -2268,30 +2259,6 @@ Entities:
     MeshComponent:
       Mesh: 517647426988074246
       Material: 12702333840733718255
-  - EntityID: 16177663983870719064
-    TagComponent:
-      Tag: Pine Near 1
-    TransformComponent:
-      Position: [-8.30446, 9.15541e-05, 1.94412]
-      Rotation: [0, 0.36631, 0]
-      Scale: [0.726503, 0.755563, 0.726503]
-    RelationshipComponent:
-      Parent: 6883162270153339232
-    MeshComponent:
-      Mesh: 14427405135352506436
-      Material: 6204932610722130860
-  - EntityID: 69810422508337070
-    TagComponent:
-      Tag: Pine Near 1 Trunk
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 16177663983870719064
-    MeshComponent:
-      Mesh: 517647426988074246
-      Material: 12702333840733718255
   - EntityID: 16177667282405603697
     TagComponent:
       Tag: Pine Near 2
@@ -2460,30 +2427,6 @@ Entities:
     MeshComponent:
       Mesh: 517647426988074246
       Material: 12702333840733718255
-  - EntityID: 13592682779699347232
-    TagComponent:
-      Tag: Pine Near 18
-    TransformComponent:
-      Position: [-11.1388, 9.15541e-05, 6.40922]
-      Rotation: [0, 1.1982, 0]
-      Scale: [0.900544, 0.936566, 0.900544]
-    RelationshipComponent:
-      Parent: 6883162270153339232
-    MeshComponent:
-      Mesh: 14427405135352506436
-      Material: 6204932610722130860
-  - EntityID: 2374963385577366038
-    TagComponent:
-      Tag: Pine Near 18 Trunk
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 13592682779699347232
-    MeshComponent:
-      Mesh: 517647426988074246
-      Material: 12702333840733718255
   - EntityID: 13592683879210975443
     TagComponent:
       Tag: Pine Near 19
@@ -2556,30 +2499,6 @@ Entities:
     MeshComponent:
       Mesh: 517647426988074246
       Material: 12702333840733718255
-  - EntityID: 13595492031908858662
-    TagComponent:
-      Tag: Pine Near 23
-    TransformComponent:
-      Position: [-11.4656, 9.15541e-05, -8.37436]
-      Rotation: [0, 5.42867, 0]
-      Scale: [0.832482, 0.865781, 0.832482]
-    RelationshipComponent:
-      Parent: 6883162270153339232
-    MeshComponent:
-      Mesh: 4223614010073120019
-      Material: 6204932610722130860
-  - EntityID: 9685826039198802504
-    TagComponent:
-      Tag: Pine Near 23 Trunk
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 13595492031908858662
-    MeshComponent:
-      Mesh: 517647426988074246
-      Material: 12702333840733718255
   - EntityID: 13595494230932115084
     TagComponent:
       Tag: Pine Near 25
@@ -2649,30 +2568,6 @@ Entities:
       Scale: [1, 1, 1]
     RelationshipComponent:
       Parent: 13595496429955371506
-    MeshComponent:
-      Mesh: 517647426988074246
-      Material: 12702333840733718255
-  - EntityID: 13594534357280876106
-    TagComponent:
-      Tag: Pine Near 30
-    TransformComponent:
-      Position: [-11.4982, 9.15541e-05, 3.16108]
-      Rotation: [0, 1.29811, 0]
-      Scale: [0.737145, 0.766631, 0.737145]
-    RelationshipComponent:
-      Parent: 6883162270153339232
-    MeshComponent:
-      Mesh: 14427405135352506436
-      Material: 6204932610722130860
-  - EntityID: 8119464987167276404
-    TagComponent:
-      Tag: Pine Near 30 Trunk
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 13594534357280876106
     MeshComponent:
       Mesh: 517647426988074246
       Material: 12702333840733718255
@@ -2844,30 +2739,6 @@ Entities:
     MeshComponent:
       Mesh: 517647426988074246
       Material: 12702333840733718255
-  - EntityID: 12450428798831837958
-    TagComponent:
-      Tag: Sapling 12
-    TransformComponent:
-      Position: [-8.40428, 9.15541e-05, 3.34583]
-      Rotation: [0, 0.659106, 0]
-      Scale: [0.99901, 1.03897, 0.99901]
-    RelationshipComponent:
-      Parent: 6883162270153339232
-    MeshComponent:
-      Mesh: 3805385701708967495
-      Material: 6204932610722130860
-  - EntityID: 16544984890548238696
-    TagComponent:
-      Tag: Sapling 12 Trunk
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [0.8, 0.8, 0.8]
-    RelationshipComponent:
-      Parent: 12450428798831837958
-    MeshComponent:
-      Mesh: 517647426988074246
-      Material: 12702333840733718255
   - EntityID: 12450429898343466169
     TagComponent:
       Tag: Sapling 13
@@ -2913,30 +2784,6 @@ Entities:
       Scale: [0.8, 0.8, 0.8]
     RelationshipComponent:
       Parent: 12450430997855094380
-    MeshComponent:
-      Mesh: 517647426988074246
-      Material: 12702333840733718255
-  - EntityID: 12450435395901607224
-    TagComponent:
-      Tag: Sapling 18
-    TransformComponent:
-      Position: [-11.242, 9.15541e-05, 2.894]
-      Rotation: [0, 0.709372, 0]
-      Scale: [0.908205, 0.944533, 0.908205]
-    RelationshipComponent:
-      Parent: 6883162270153339232
-    MeshComponent:
-      Mesh: 3805385701708967495
-      Material: 6204932610722130860
-  - EntityID: 12726912012898120014
-    TagComponent:
-      Tag: Sapling 18 Trunk
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [0.8, 0.8, 0.8]
-    RelationshipComponent:
-      Parent: 12450435395901607224
     MeshComponent:
       Mesh: 517647426988074246
       Material: 12702333840733718255
@@ -2988,30 +2835,6 @@ Entities:
     MeshComponent:
       Mesh: 517647426988074246
       Material: 12702333840733718255
-  - EntityID: 12453265538832054663
-    TagComponent:
-      Tag: Sapling 24
-    TransformComponent:
-      Position: [-8.10512, 9.15541e-05, 1.01874]
-      Rotation: [0, 0.759637, 0]
-      Scale: [0.817455, 0.850153, 0.817455]
-    RelationshipComponent:
-      Parent: 6883162270153339232
-    MeshComponent:
-      Mesh: 3805385701708967495
-      Material: 6204932610722130860
-  - EntityID: 7652401655715005437
-    TagComponent:
-      Tag: Sapling 24 Trunk
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [0.8, 0.8, 0.8]
-    RelationshipComponent:
-      Parent: 12453265538832054663
-    MeshComponent:
-      Mesh: 517647426988074246
-      Material: 12702333840733718255
   - EntityID: 12453264439320426452
     TagComponent:
       Tag: Sapling 25
@@ -3057,30 +2880,6 @@ Entities:
       Scale: [0.8, 0.8, 0.8]
     RelationshipComponent:
       Parent: 12453267737855311085
-    MeshComponent:
-      Mesh: 517647426988074246
-      Material: 12702333840733718255
-  - EntityID: 12453251245180887920
-    TagComponent:
-      Tag: Sapling 29
-    TransformComponent:
-      Position: [-9.35059, 9.15541e-05, 7.42395]
-      Rotation: [0, 1.49163, 0]
-      Scale: [1.19239, 1.24009, 1.19239]
-    RelationshipComponent:
-      Parent: 6883162270153339232
-    MeshComponent:
-      Mesh: 3805385701708967495
-      Material: 6204932610722130860
-  - EntityID: 16038915124485520518
-    TagComponent:
-      Tag: Sapling 29 Trunk
-    TransformComponent:
-      Position: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [0.8, 0.8, 0.8]
-    RelationshipComponent:
-      Parent: 12453251245180887920
     MeshComponent:
       Mesh: 517647426988074246
       Material: 12702333840733718255
@@ -3184,7 +2983,7 @@ Entities:
     TagComponent:
       Tag: Frame Pine 2
     TransformComponent:
-      Position: [-9.6, 9.15541e-05, 1.1]
+      Position: [-13, 9.15541e-05, 3]
       Rotation: [0, 3.4, 0]
       Scale: [1.15, 1.196, 1.15]
     RelationshipComponent:

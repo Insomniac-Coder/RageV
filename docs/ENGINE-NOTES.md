@@ -11524,6 +11524,78 @@ believing the test.
 
 ---
 
+### 7bw. Checking where the camera stands does not check where it goes
+
+The camp's cinematic camera flew through the van. Shot 8 stands outside the
+clearing looking back at it and shot 9 is at the mirror by the fire; the script
+lerps between the two markers, and the straight line went **2.70 m inside** the
+van's keep-out and then 0.63 m inside the fire's.
+
+Every check passed. The generator refuses to place a shot inside the tent, the
+van or the fire -- that check exists because shot 4 once solved to a camera
+standing in the campfire -- and both ends of this move were comfortably clear.
+Nothing had ever asked about the twelve straight lines between them.
+
+**The rule: a constraint on the states is not a constraint on the transitions.**
+It is the same shape as the checks that pass while a feature is broken (7ba):
+the assertion is true, it is just not the assertion anybody needed.
+
+### What it took to fix, which is the more useful half
+
+**1. The path has to be able to curve.** Moving either end does not help --
+shot 8's whole idea is the van seen from outside the clearing, so the van is
+*between* it and the camp and every straight line inward crosses it. A leg may
+now carry a waypoint entity, `Via 8`, and the travel becomes a quadratic Bezier
+through it. Most legs have none.
+
+**2. The waypoints have to be in the corridor too.** Trees are rejected against
+the chain of camera stations, and the first solved via flew the camera straight
+into a hand-placed framing pine -- which the corridor caught, immediately,
+because the via had been added to it. A quadratic Bezier never leaves the
+triangle of its control points, so clearing trees against the two straight
+segments clears the curve as well, slightly conservatively.
+
+That pine and the waypoint were then solved *together*, for the pair that moves
+the tree least: 3.9 m, from (-9.6, 1.1) to (-13.0, 3.0). The file already had
+the rule -- the shots are the composition and the forest is scenery, so the
+scenery gives way -- and the only new thing is that this tree was placed by
+hand, so moving it is a decision rather than a rejection.
+
+**3. Interpolating euler angles is the wrong thing to interpolate.** With the
+path fixed the move still looked at nothing: the aim turns 176 degrees on this
+leg, `LerpAngle` correctly takes the short way round, and the short way faces
+the forest while the body arcs the other side of it. Three of the four seconds
+were empty trees.
+
+The fix is not a flag saying "turn the long way". Each shot is *solved from a
+target* and only the answer used to cross over -- the marker's position and
+angles -- so the script was interpolating angles without knowing what they were
+angles at. The targets now cross too, and the camera aims at the interpolated
+point from wherever the curve has put it. **A camera that aims at a place has
+no short way or long way round**, and the subject stays in frame by
+construction rather than by the two endpoints happening to agree.
+
+Entity.LookAt does the turning rather than arithmetic in the script. Writing
+the inverse of the generator's solve by hand is four lines and also a second
+opinion about which way -Z points that nothing would check.
+
+### And the margin, which found one more
+
+The travel check refuses anything *inside* an obstacle and reports anything
+within 0.25 m of one. Shot 5 to shot 6 clears the tent's keep-out by **1.4
+millimetres** -- it passed the strict test and the tent's roof still wipes
+across half the frame for most of a second.
+
+It is reported rather than refused, and that asymmetry is deliberate: the
+corridor between the tent and Frame Pine 3 is six centimetres wide and the one
+between the tent and the fire is four, so no waypoint exists at ground level.
+Getting that leg clean means moving a shot or a tree, which is a decision about
+the film. A generator that refused to run until somebody made it would be
+holding the scene hostage over a judgement call; one that said nothing would
+let it rot. It prints on every build until somebody decides.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

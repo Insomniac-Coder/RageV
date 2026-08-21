@@ -75,6 +75,40 @@ SCENE_VERSION = 6
 # keep out of it as well -- a scattered pine will happily stand in a van.
 VAN_AT = (-5.9, -3.3)
 
+# What the camera may not be inside -- named because two checks ask it now: the
+# shots, and the travel between them.
+#
+# The fire is in this list for the same reason the tent is: it is a solid object
+# at the origin with a ring of stones round it, and a camera inside it sees the
+# inside of a flame. The ring is 0.94 m out and its stones are 0.2 m across, so
+# 1.2 m is where the fire physically ends. Anything larger than that is not a
+# collision, it is an opinion about framing -- and it rejected the mirror
+# close-up, which is a good shot standing just outside the stones.
+SOLIDS = (("the tent", (3.05, -2.5), 2.2),
+          ("the van", VAN_AT, 3.4),
+          ("the fire", (0.0, 0.0), 1.2))
+
+# **And a margin on top, for the travel only** -- as a warning, not a refusal.
+#
+# A shot either stands somewhere or it does not, so "outside the radius" is the
+# whole question for a station. A moving camera is different: it is outside for
+# one frame and the answer has to hold for the frames either side, at four
+# metres a second.
+#
+# Not a theoretical worry. Shot 5 to shot 6 clears the tent's keep-out by
+# **1.4 millimetres** -- and the tent's own corner is 1.98 m from its centre,
+# so the lens goes past the fabric at about twenty centimetres. It does not
+# clip, and the roof still wipes across half the frame for most of a second.
+#
+# It is *reported* rather than refused because there is no fix here that is
+# only a fix: the corridor between the tent and Frame Pine 3 is six
+# centimetres wide and the one between the tent and the fire is four, so no
+# waypoint exists at ground level. Getting shot 5 to shot 6 cleanly means
+# moving a shot or a tree, which is a decision about the film. A generator
+# that refused to run until somebody made it would be holding the scene
+# hostage over a judgement call; one that says nothing would let it rot.
+TRAVEL_MARGIN = 0.25
+
 PRIMITIVE_BASE = 0x7261676556000000
 CUBE, SPHERE, PLANE, CYLINDER, QUAD = (PRIMITIVE_BASE + i for i in range(5))
 
@@ -267,6 +301,68 @@ SHOTS = (
 
 
 
+# --- the travel between them ---------------------------------------------------
+#
+# **A shot being clear does not make the move to it clear.** The camera lerps
+# from one marker to the next, so the path is a straight line through the camp,
+# and two of these legs went straight through the van -- 8 to 9 by 2.70 m
+# inside it, and then 0.63 m inside the fire on the way out the other side.
+# Both endpoints passed every check there was, because every check there was
+# looked at where the camera *stands*.
+#
+# It is not fixable by moving the ends. Shot 8's whole idea is the van seen
+# from outside the clearing, so the van is *between* it and anything in the
+# camp; every straight line inward crosses it.
+#
+# So a leg may carry a waypoint, and the script bends the travel through it as
+# a quadratic Bezier. Keyed by the shot the leg leaves, one-based, so `8` bends
+# the move from shot 8 to shot 9. Absent means straight, which is what a leg
+# with nothing in the way should be.
+#
+# The values are solved rather than eyeballed -- the shortest path that clears
+# every obstacle by 0.40 m and stays 0.8 m off the ground -- and then asserted
+# below against the curve the script actually walks. A Bezier only leans
+# *toward* its control point, so a via that looks clear on paper is not
+# evidence of anything.
+VIAS = {
+    # Out and round the van's north side at eye level, then down into the
+    # mirror. 13.7 m of straight line becomes 16.8 m of arc: the camera clears
+    # the van by 0.45 m and the fire by 0.78 m and never leaves head height,
+    # which is what keeps the camp a place somebody is walking through rather
+    # than one a drone is flying over.
+    #
+    # **Solved together with the framing pine it displaced.** The first answer
+    # here was (-9.5, 2.0, 3.0) and it flew straight through Frame Pine 2 --
+    # the corridor said so, which is the check earning its keep twice in one
+    # change. The pair that moves the tree least is this via and the pine 3.4 m
+    # further out.
+    8: (-8.5, 2.0, 4.5),
+    # 7 to 8 only grazed -- 2.96 m from the van's centre against a 3.4 m
+    # keep-out, so a few centimetres outside the bodywork and well inside the
+    # near clip. Nudged out for 0.3 m of extra path.
+    7: (-7.5, 2.0, -7.75),
+}
+
+
+def travel_path(a, via, b, steps):
+    """The points the script actually visits, easing included.
+
+    Smoothstep on the parameter and then the Bezier, in that order and not the
+    other way round -- the script eases `t` and evaluates the curve at the
+    eased value, so sampling the curve uniformly would check a path nothing
+    takes at speeds nothing reaches.
+    """
+    for i in range(steps + 1):
+        t = i / steps
+        eased = t * t * (3.0 - 2.0 * t)
+        if via is None:
+            yield tuple(a[j] + (b[j] - a[j]) * eased for j in range(3))
+        else:
+            u = 1.0 - eased
+            yield tuple(u * u * a[j] + 2.0 * u * eased * via[j] + eased * eased * b[j]
+                        for j in range(3))
+
+
 # **One focus distance cannot serve twelve shots.** They range from 2.3 m -- the
 # mirror, close -- to 9.6 m at the final wide, and a single value leaves either
 # the close shots blurred at the front or the wides blurred at the subject. The
@@ -358,9 +454,20 @@ def camera_corridor():
     and the forest is scenery. The scenery gives way.
     """
     path = []
-    for _, target, distance, yaw, pitch in SHOTS:
+    for index, (_, target, distance, yaw, pitch) in enumerate(SHOTS, start=1):
         position, _ = look_at(target, distance, yaw, pitch)
         path.append((position[0], position[2]))
+
+        # **The waypoints are part of the corridor**, and this is not a detail:
+        # a leg that swings wide to miss the van swings into the trees, and the
+        # trees were only ever rejected against the straight chain. Adding the
+        # via here rejects them along a-via-b instead -- two segments the curve
+        # is guaranteed to stay inside, since a quadratic Bezier never leaves
+        # the triangle of its control points. Conservative in the right
+        # direction: the corridor is a little wider than the path.
+        if index in VIAS:
+            via = VIAS[index]
+            path.append((via[0], via[2]))
     return path
 
 
@@ -420,8 +527,21 @@ def build(profiles, profile_paths, mat, prop, tex, curve):
     # shot focused at the first shot's distance, silently, because a refused
     # write reports nothing to the scene.
     shot_profiles = ",".join(profile_paths[focus_band(shot[2])] for shot in SHOTS)
+
+    # **What each shot looks at, handed over rather than thrown away.** Every
+    # shot in the table above is solved from a target, and until now only the
+    # answer crossed -- the marker's position and euler angles -- so the script
+    # had to interpolate the angles and could not know what they were angles
+    # *at*. That is fine while a move is a straight line between two framings
+    # of roughly the same thing, and wrong the moment one is not: shot 8's arc
+    # round the van turns 176 degrees, the short way round faces the forest,
+    # and the camera spent three of four seconds looking at nothing.
+    #
+    # A camera that aims at a place has no short way or long way round.
+    shot_targets = ",".join(f"{t[0]:g} {t[1]:g} {t[2]:g}" for _, t, _, _, _ in SHOTS)
+
     s.managed_script("CampCamera", HoldSeconds=3.4, TravelSeconds=4.2,
-                     Profiles=shot_profiles)
+                     Profiles=shot_profiles, Targets=shot_targets)
 
     # The shots themselves. Empty transforms, named so the script can find
     # them -- which makes the camera move a thing you can drag in the editor
@@ -444,16 +564,7 @@ def build(profiles, profile_paths, mat, prop, tex, curve):
         # The fire is in this list for the same reason the tent is: it is a
         # solid object at the origin with a ring of stones round it, and a
         # camera inside it sees the inside of a flame.
-        for what, at, radius in (("the tent", (3.05, -2.5), 2.2),
-                                 ("the van", VAN_AT, 3.4),
-                                 # The ring is 0.94 m out and its stones are
-                                 # 0.2 m across, so 1.2 m is where the fire
-                                 # physically ends. Anything larger than that
-                                 # is not a collision, it is an opinion about
-                                 # framing -- and it rejected the mirror
-                                 # close-up, which is a good shot standing just
-                                 # outside the stones.
-                                 ("the fire", (0.0, 0.0), 1.2)):
+        for what, at, radius in SOLIDS:
             gap = math.hypot(position[0] - at[0], position[2] - at[1])
             if gap < radius:
                 raise SystemExit(
@@ -464,6 +575,62 @@ def build(profiles, profile_paths, mat, prop, tex, curve):
         # and what it looks at is all a marker is; its lens is in the table on
         # the script above.
         s.entity(name, position=position, rotation=rotation)
+
+    # --- and the same question asked of the *travel* --------------------------
+    #
+    # Everything above checks where the camera stands. Nothing checked where it
+    # goes, and two legs went through the van: the checks were all true and the
+    # film still had the lens inside the bodywork for most of a second.
+    #
+    # **Walked rather than reasoned about.** The path is a smoothstepped
+    # quadratic Bezier and the obstacles are circles, so there is a closed form
+    # -- and writing it means writing the script's easing a second time in
+    # another language, which is the drift this file exists to avoid. Two
+    # hundred samples of the same arithmetic the script does costs nothing and
+    # cannot disagree with it.
+    stations = [look_at(t, d, y, p)[0] for _, t, d, y, p in SHOTS]
+    tight = {}
+    for index in range(len(stations)):
+        # Round the loop: shot 12 travels back to shot 1 like every other leg,
+        # and a check that stopped at eleven would leave the one leg nobody
+        # thinks about unchecked.
+        nxt = (index + 1) % len(stations)
+        via = VIAS.get(index + 1)
+        legend = f"{SHOTS[index][0]} -> {SHOTS[nxt][0]}"
+
+        for point in travel_path(stations[index], via, stations[nxt], 200):
+            floor = ground_height(point[0], point[2])
+            if point[1] < floor + 0.35:
+                raise SystemExit(
+                    f"the move {legend} dips {floor + 0.35 - point[1]:.2f} m "
+                    f"into the ground at ({point[0]:.1f}, {point[2]:.1f})")
+
+            for what, at, radius in SOLIDS:
+                gap = math.hypot(point[0] - at[0], point[2] - at[1])
+
+                # Inside it is a bug and stops the build.
+                if gap < radius:
+                    raise SystemExit(
+                        f"the move {legend} passes {gap:.2f} m from {what}, "
+                        f"which is inside it (needs {radius:.1f}). Give the leg "
+                        f"a waypoint in VIAS[{index + 1}]")
+
+                # Outside but within the margin is a judgement call, said out
+                # loud once per leg. Recorded rather than raised: see
+                # TRAVEL_MARGIN.
+                if gap < radius + TRAVEL_MARGIN and legend not in tight:
+                    tight[legend] = (what, gap, radius)
+
+    for legend, (what, gap, radius) in tight.items():
+        print(f"  tight: {legend} passes {gap:.2f} m from {what}, which is "
+              f"outside its {radius:.1f} m but inside the {TRAVEL_MARGIN:.2f} m "
+              f"margin a moving camera wants")
+
+    # The waypoints themselves, as entities the script finds by name and a
+    # person can drag. No rotation: a via is a place the camera passes, not a
+    # framing -- the aim is still interpolated between the two shots.
+    for index, via in sorted(VIAS.items()):
+        s.entity(f"Via {index}", position=via)
 
     # --- the ground ----------------------------------------------------------
     s.entity("Ground", position=(0, TERRAIN_Y, 0))
@@ -894,8 +1061,17 @@ def build(profiles, profile_paths, mat, prop, tex, curve):
     # scattered, because framing is a decision about the *picture* and a random
     # ring will not make it -- these are the ones the establishing shot looks
     # past, nearer and darker than everything behind them.
+    #
+    # **Number 2 moved from (-9.6, 1.1) to make room for a camera move.** The
+    # arc that takes shot 8 round the north of the van passes exactly where it
+    # stood, and the corridor check said so rather than letting the camera fly
+    # through it. It is still the left edge of the establishing shot, 3.5 m
+    # further out and back -- which is the rule this file already followed for
+    # the scattered ones: the shots are the composition and the forest is
+    # scenery, so the scenery gives way. The difference is only that this one
+    # is placed by hand, so moving it is a decision rather than a rejection.
     for i, (x, z, size) in enumerate(((-9.6, 8.8, 1.4), (10.6, 7.6, 1.3),
-                                      (-9.6, 1.1, 1.15), (9.4, -4.2, 1.2),
+                                      (-13.0, 3.0, 1.15), (9.4, -4.2, 1.2),
                                       (-4.0, 11.6, 1.3))):
         kind = "pine_tall" if i % 2 else "pine"
         if not clear_of_camera(x, z, canopy[kind] * size + CLEARANCE):
