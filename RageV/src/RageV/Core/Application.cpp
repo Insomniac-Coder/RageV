@@ -470,6 +470,7 @@ namespace RageV {
 		// switching this off makes IsAvailable answer no so every depth view
 		// takes the walk instead.
 		GpuCull::SetEnabled(config.GpuCull);
+		GpuCull::SetLitEnabled(config.GpuLit);
 		const uint32_t benchmarkWarmup = benchmarkFrames > 0
 			? Math::Max(10u, benchmarkFrames / 5u) : 0u;
 

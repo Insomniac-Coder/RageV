@@ -95,7 +95,13 @@ namespace RageV
 		};
 
 		// One view's culled result: the arguments its draws read, and the
-		// instances they read through them.
+		// buffer they read their per-instance data through.
+		//
+		// A depth view's `Instances` holds finished matrices, because that is
+		// all a depth pass reads. The camera's holds *indices* into the lit
+		// pass's instance table, because two hundred and fifty-six bytes an
+		// instance is not a cull pass's to rewrite. Same struct; which one it
+		// is follows from which call produced it.
 		struct View
 		{
 			RHI::Ref<RHI::RHIBuffer> Commands;
@@ -113,6 +119,12 @@ namespace RageV
 		// walks its casters -- which is the only way to compare the two paths
 		// on one machine in one build.
 		static void SetEnabled(bool enabled);
+
+		// The lit pass's half, separately (`--gpu-lit=on|off`), because it is
+		// **not finished** and the depth half is. CullLit answers with an
+		// invalid view while this is off, and the lit pass walks and sorts as
+		// it always did.
+		static void SetLitEnabled(bool enabled);
 
 		// Whether a view can be culled at all: compute, both shaders, and the
 		// buffers. False means every caller falls back to the CPU walk.
@@ -157,6 +169,27 @@ namespace RageV
 		// Returns an invalid View if anything is missing; the caller then
 		// walks the objects itself.
 		static View Cull(RHI::RHICommandList& cmd, const Mat4& viewProjection);
+
+		// The same, for the camera: the survivors as *indices* into the lit
+		// pass's instance table, grouped by mesh slot, with an indirect draw
+		// per slot.
+		//
+		// The lit pass reads its instance through those indices already --
+		// scene_vertex.glsl's FetchInstance, which the CPU path fills the same
+		// way -- so nothing about the shaders changes. What goes away is
+		// EndScene's sorting: grouping by mesh is what the slots are, so there
+		// is nothing left to sort for.
+		//
+		// **Must be called outside a render pass**, like Cull, and for the
+		// same reason. The frame's prepare phase is where it belongs -- beside
+		// the shadow maps, before the graph opens anything.
+		//
+		// Order within a slot is the order the atomics landed in, not front to
+		// back. Roadmap 8.16 has the CPU's front-to-back sort costing more
+		// than the early-z it buys past a few thousand objects, so this is a
+		// deliberate trade rather than an omission, and sorting the survivors
+		// is the next piece.
+		static View CullLit(RHI::RHICommandList& cmd, const Mat4& viewProjection);
 
 		// How many views culled this frame, for the statistics line.
 		static uint32_t GetViewCount();

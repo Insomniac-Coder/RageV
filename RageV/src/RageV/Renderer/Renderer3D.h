@@ -81,6 +81,40 @@ namespace RageV
 		static void DrawShadowIndirect(const GpuCull::View& view,
 									   const std::vector<GpuCull::Slot>& slots);
 
+		// --- the GPU-driven lit path (roadmap 8.3) --------------------------
+		//
+		// The camera's cull writes *indices* into an instance table rather than
+		// instance data, so the table has to exist and be indexed the way the
+		// cull table is. These three calls build it.
+		//
+		// Reserves rows 0..count-1 of the frame's instance pool for the cull
+		// table's objects, so SetSceneInstance can fill them in any order. The
+		// CPU path's own draws append after them, as they always did.
+		static void ReserveSceneInstances(uint32_t count);
+
+		// Fills one reserved row. `index` is the object's place in the cull
+		// table -- Scene::DrawItem::CullIndex -- not its place in any draw
+		// order, because the GPU decides that.
+		//
+		// Does what DrawMesh does to build an instance, and nothing else: no
+		// pending draw is recorded, because there is no draw to record until
+		// the cull says which rows survived.
+		static void SetSceneInstance(uint32_t index, const Mat4& transform,
+									 const Mat4& previousTransform,
+									 const RHI::Ref<Material>& material,
+									 const MaterialParams& params, uint32_t probe);
+
+		// Every static mesh the camera kept, in as many draws as the scene has
+		// distinct meshes, each one's instance count read out of the buffer
+		// GpuCull::CullLit filled.
+		//
+		// Between BeginScene and EndScene like the other draw calls, and it
+		// leaves the pending list alone -- so a scene can submit its static
+		// meshes this way and its skinned ones, its layered ones and its
+		// terrain the other.
+		static void DrawSceneIndirect(const GpuCull::View& view,
+									  const std::vector<GpuCull::Slot>& slots);
+
 		// The same pose the lit pass was given. Without this a skinned figure
 		// walks and its shadow stands still in the bind pose.
 		static void DrawSkinnedMeshShadow(const RHI::Ref<Mesh>& mesh, const Mat4& transform,

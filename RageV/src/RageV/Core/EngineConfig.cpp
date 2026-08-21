@@ -101,6 +101,9 @@ namespace RageV
 		if (key == "gpu-cull" || key == "gpucull")
 			return ParseBool(value, config.GpuCull);
 
+		if (key == "gpu-lit" || key == "gpulit")
+			return ParseBool(value, config.GpuLit);
+
 		if (key == "bindless")
 			return ParseBool(value, config.Bindless);
 

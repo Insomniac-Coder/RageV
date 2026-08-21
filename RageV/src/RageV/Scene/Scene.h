@@ -138,6 +138,10 @@ namespace RageV
 			// drawing them again would double every shadow's depth writes for
 			// no visible change and twice the cost.
 			uint32_t CullSlot = kNoCullSlot;
+			// And this object's row in the cull table, which is the index the
+			// camera's cull pass hands back as a survivor. Meaningless when
+			// CullSlot is kNoCullSlot.
+			uint32_t CullIndex = 0;
 		};
 
 		static constexpr uint32_t kNoCullSlot = ~0u;
@@ -542,6 +546,14 @@ namespace RageV
 		// slot's range in the instance buffer. Kept between frames for the
 		// allocation, like everything else here.
 		std::vector<uint32_t> m_CullCounts;
+		// How many objects the cull table holds.
+		//
+		// **Not `m_CullObjects.size()`**: that vector is filled only on the
+		// frame's *first* refresh, because the table it feeds is uploaded once
+		// a frame, and it is cleared on every refresh like everything else
+		// here. The count has to survive the refreshes that do not rebuild it,
+		// because the instance table is indexed by it.
+		uint32_t m_CullObjectCount = 0;
 
 		// Which entries of the draw list the GPU table does *not* hold: the
 		// skinned casters, and anything with too few indices to draw. Filled
@@ -554,6 +566,13 @@ namespace RageV
 		// not static, which is exactly the streaming the two arrays exist to
 		// avoid.
 		std::vector<uint32_t> m_CpuDraws;
+
+		// What the camera's cull pass decided, for the lit pass to draw
+		// through (roadmap 8.3). Produced in the frame's prepare phase --
+		// RenderShadows, outside any render pass, because it is a dispatch --
+		// and consumed inside the graph's scene pass. Invalid when there is no
+		// cull pass or no table, and then the lit pass walks as it always did.
+		GpuCull::View m_CulledLit;
 
 		std::vector<ProbeSlot> m_ProbeSlots;
 

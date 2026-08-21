@@ -1468,6 +1468,22 @@ namespace RageV
 
 		RenderShadowMaps(camera, cameraTransform);
 
+		// **What the camera can see, decided here and not in the lit pass**
+		// (roadmap 8.3). It is a dispatch, and a dispatch may not be recorded
+		// inside a render pass; this is the last point in the frame that is
+		// outside one and knows where the camera is.
+		//
+		// The draw list is refreshed first because the table the cull reads is
+		// built with it -- free when RenderShadowMaps has already done it, and
+		// necessary when it returned early because shadows are off.
+		m_CulledLit = {};
+		RefreshDrawList();
+		if (RHI::RHICommandList* cull = Renderer::GetCommandList())
+		{
+			m_CulledLit = GpuCull::CullLit(
+				*cull, camera.GetProjection() * Math::Inverse(cameraTransform));
+		}
+
 		// The voxel grid, after the maps it is lit from (ENGINE-NOTES 7bc).
 		UpdateVoxelGI(cameraTransform);
 	}
@@ -1496,24 +1512,29 @@ namespace RageV
 		// is a property of the device and the shaders, decided at startup.
 		const bool gpuCull = GpuCull::IsAvailable();
 
-		// **The table is a frame's product; this list is a call's.** The list
-		// is rebuilt every time a render path raises the dirty flag, which is
-		// twice a frame at least, because its component pointers are only
-		// good for the walk that took them. The table has no pointers in it
-		// and nothing in it changes between those calls, so building it again
-		// would be ninety-six bytes an object written and uploaded for a
-		// second copy of an identical answer -- which at sixty thousand
-		// objects costs more than the walks the table exists to remove.
+		// **The table is rebuilt whenever this list is, and that is not an
+		// optimisation left on the table -- it is a correctness rule.**
 		//
-		// The slot assignment below still runs either way. It is a handful of
-		// entries, and the *rest* of this walk needs it: which entries the
-		// depth pass must not draw itself, and which mesh each slot binds.
-		const bool buildTable = gpuCull && !GpuCull::HasObjects(this);
+		// Building it only on the frame's first refresh saved a 96-byte-per-
+		// object write and upload, and it was wrong: the slot offsets, the
+		// per-object row indices and the list of what the CPU still draws are
+		// derived here on *every* refresh, and they have to describe the table
+		// that was actually uploaded. While a scene's meshes are still
+		// streaming in, two refreshes of one frame see different sets of
+		// resolvable objects, and the second one's offsets point into the
+		// first one's table. It showed as a scene appearing piece by piece for
+		// its first few seconds -- which reads as slow loading rather than as
+		// a mismatched buffer.
+		//
+		// Anything cheaper than this has to prove the object set is unchanged,
+		// not assume it.
+		const bool buildTable = gpuCull;
 		m_CullObjects.clear();
 		m_CullSlots.clear();
 		m_CullMeshes.clear();
 		m_CullCounts.clear();
 		m_CpuDraws.clear();
+		m_CullObjectCount = 0;
 
 		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
 
@@ -1535,6 +1556,12 @@ namespace RageV
 		// resolving the mesh handle above is already one.
 		const Mesh* lastMesh = nullptr;
 		uint32_t lastSlot = kNoCullSlot;
+
+		// Which row of the cull table the next static object takes. Counted
+		// rather than read off m_CullObjects.size(), because the table is only
+		// *built* on the frame's first refresh -- later ones still have to
+		// number the objects the same way to point at it.
+		uint32_t cullRow = 0;
 
 		auto slotFor = [&](const Mesh* key) -> uint32_t
 		{
@@ -1612,6 +1639,7 @@ namespace RageV
 
 				m_CullCounts[slot]++;
 				entry.CullSlot = slot;
+				entry.CullIndex = cullRow++;
 			}
 			else if (gpuCull)
 			{
@@ -1629,6 +1657,8 @@ namespace RageV
 		// range is as long as the number of objects that named it, which is why
 		// an atomic handing out places inside it cannot overrun however the
 		// culling goes -- and why nothing needs sorting.
+		m_CullObjectCount = cullRow;
+
 		if (gpuCull && !m_CullSlots.empty())
 		{
 			uint32_t base = 0;
@@ -1647,6 +1677,7 @@ namespace RageV
 				for (DrawItem& entry : m_DrawItems)
 					entry.CullSlot = kNoCullSlot;
 				m_CpuDraws.clear();
+				m_CullObjectCount = 0;
 			}
 		}
 	}
@@ -2584,9 +2615,52 @@ namespace RageV
 			// bounds with them. What is left here is what genuinely depends on
 			// this view: whether the object is in it, and which probe it
 			// reflects.
-			const size_t drawCount = m_DrawBounds.size();
-			for (size_t index = 0; index < drawCount; index++)
+			// **The GPU-driven half** (roadmap 8.3). The cull pass decided
+			// which of these are visible and in what order; what is left here
+			// is filling the table it hands out indices into -- every object
+			// in it, not just the visible ones, because the CPU does not know
+			// which those are and asking would mean reading device memory back.
+			//
+			// More rows built than the walk below would have built, and no
+			// sort at all. The sort was 4.1 ms of a 13.9 ms render graph at
+			// sixty thousand objects; the extra rows are the difference
+			// between the object count and the visible count.
+			const bool gpuLit = m_CulledLit.IsValid() && m_CullObjectCount > 0;
+			if (gpuLit)
 			{
+				Renderer3D::ReserveSceneInstances(m_CullObjectCount);
+
+				const size_t itemCount = m_DrawItems.size();
+				for (size_t index = 0; index < itemCount; index++)
+				{
+					const DrawItem& entry = m_DrawItems[index];
+					if (entry.CullSlot == kNoCullSlot)
+						continue;
+
+					RHI::Ref<Material> material =
+						Assets::Manager::GetMaterial(entry.Source->Material);
+					if (!material)
+						material = Renderer3D::GetDefaultMaterial();
+
+					const MaterialParams params = entry.Source->ResolveParams(
+						material ? material->GetParams() : MaterialParams{});
+
+					Renderer3D::SetSceneInstance(entry.CullIndex, entry.Transform->World,
+												 entry.Transform->PreviousWorld, material,
+												 params, ProbeSlotFor(m_DrawBounds[index].Centre));
+				}
+
+				Renderer3D::DrawSceneIndirect(m_CulledLit, m_CullMeshes);
+			}
+
+			// Everything the table does not hold: the skinned meshes, anything
+			// with too few indices to draw indexed, and -- when there is no
+			// cull pass -- all of it.
+			const size_t drawCount = m_DrawBounds.size();
+			for (size_t step = 0; step < (gpuLit ? m_CpuDraws.size() : drawCount); step++)
+			{
+				const size_t index = gpuLit ? m_CpuDraws[step] : step;
+
 				const DrawBounds& bounds = m_DrawBounds[index];
 				if (!frustum.Intersects(bounds.Centre, bounds.Extents))
 				{

@@ -355,6 +355,12 @@ namespace RageV
 			{
 				Ref<RHIBuffer>      Buffer;
 				Ref<RHIResourceSet> Set;
+				// The same set 0 again, differing in one binding: the visible
+				// indices come from the cull pass rather than from the CPU.
+				// A second set rather than a rebind, because both are used in
+				// the same render pass and a descriptor set may not be
+				// rewritten while a command buffer still refers to it.
+				Ref<RHIResourceSet> GpuSet;
 				// The traced bounce reads the same scene block through a set of
 				// its own: a set is allocated against one pipeline's layout,
 				// and this pipeline's set 0 is a subset -- no shadow maps, no
@@ -452,6 +458,16 @@ namespace RageV
 			std::vector<uint32_t> LightOrder;
 			LightList Ordered;
 			LightGrid Grid;
+
+			// How many rows at the head of the instance pool belong to the
+			// cull table rather than to a pending draw (roadmap 8.3). The CPU
+			// path's own instances start after them.
+			uint32_t ReservedInstances = 0;
+			// The camera's culled result and the slot table that names each
+			// slot's mesh, recorded by DrawSceneIndirect and issued by
+			// EndScene once the instance table is uploaded and bound.
+			GpuCull::View IndirectView;
+			const std::vector<GpuCull::Slot>* IndirectSlots = nullptr;
 
 			// Accumulated between BeginScene and EndScene, then sorted.
 			std::vector<PendingDraw> Pending;
@@ -578,6 +594,27 @@ namespace RageV
 		{
 			draw.Instance = (uint32_t)s_Data->Instances.size();
 			return s_Data->Instances.emplace_back();
+		}
+
+		// This material's row in the frame's material buffer, made on first
+		// sight. Shared by both paths -- EndScene numbers the CPU draws'
+		// materials through it, and SetSceneInstance the GPU rows' -- so a
+		// material both paths use gets one record rather than two.
+		uint32_t RegisterMaterial(const Ref<Material>& material)
+		{
+			const Material* key = material.get();
+			auto it = s_Data->MaterialIndex.find(key);
+			if (it != s_Data->MaterialIndex.end())
+				return it->second;
+
+			GpuMaterial record;
+			if (material)
+				material->WriteRecord(*s_Data->Heap, record);
+
+			const uint32_t index = (uint32_t)s_Data->MaterialScratch.size();
+			s_Data->MaterialIndex.emplace(key, index);
+			s_Data->MaterialScratch.push_back(record);
+			return index;
 		}
 
 		Renderer3DData::ShadowSlot& AcquireShadowSlot()
@@ -1454,7 +1491,14 @@ namespace RageV
 		if (s_Data->LayeredPipeline && !slot.LayeredSet)
 			slot.LayeredSet = s_Data->Device->CreateResourceSet(s_Data->LayeredPipeline, 0);
 
-		Ref<RHIResourceSet> targets[] = { slot.Set, slot.SkinnedSet, slot.LayeredSet };
+		// The GPU-driven path's set: the same set 0 in every binding but the
+		// visible indices, so it is populated alongside the others here and
+		// differs only where EndScene says.
+		if (s_Data->Pipeline && !slot.GpuSet)
+			slot.GpuSet = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0);
+
+		Ref<RHIResourceSet> targets[] = { slot.Set, slot.SkinnedSet, slot.LayeredSet,
+										  slot.GpuSet };
 
 		for (const Ref<RHIResourceSet>& sceneSet : targets)
 		{
@@ -1572,7 +1616,15 @@ namespace RageV
 		// the hazard recorded in HANDOFF §5.
 		s_Data->Pending.clear();
 		s_Data->Instances.clear();
+		s_Data->ReservedInstances = 0;
+		s_Data->IndirectView = {};
+		s_Data->IndirectSlots = nullptr;
 		s_Data->BoneScratch.clear();
+		// Cleared here rather than in EndScene, because SetSceneInstance
+		// registers materials before EndScene runs and clearing there would
+		// throw away the records the GPU rows already point at.
+		s_Data->MaterialScratch.clear();
+		s_Data->MaterialIndex.clear();
 		s_Data->SceneActive = true;
 	}
 
@@ -1584,7 +1636,15 @@ namespace RageV
 		s_Data->SceneActive = false;
 
 		RHICommandList* cmd = Renderer::GetCommandList();
-		if (!cmd || s_Data->Pending.empty() || !s_Data->Pipeline)
+
+		// **An empty pending list is not an empty frame any more** (roadmap
+		// 8.3). A scene of nothing but static meshes submits no pending draws
+		// at all -- the cull pass decided what to draw and the CPU never made
+		// a record of any of it -- so returning here on `Pending.empty()` drew
+		// the sky and nothing else. It only looked right on scenes that also
+		// had something skinned in them.
+		const bool haveIndirect = s_Data->IndirectView.IsValid() && s_Data->IndirectSlots;
+		if (!cmd || !s_Data->Pipeline || (s_Data->Pending.empty() && !haveIndirect))
 			return;
 
 		if (!s_Data->ActiveScene)
@@ -1879,22 +1939,11 @@ namespace RageV
 		// instances. Bound path: nothing -- the material set carries it all.
 		if (s_Data->Bindless)
 		{
-			s_Data->MaterialScratch.clear();
-			s_Data->MaterialIndex.clear();
+			// Not cleared here: BeginScene does that, because the GPU path's
+			// rows registered their materials before this ran.
 			for (PendingDraw& draw : s_Data->Pending)
-			{
-				const Material* key = draw.MaterialRef.get();
-				auto it = s_Data->MaterialIndex.find(key);
-				if (it == s_Data->MaterialIndex.end())
-				{
-					GpuMaterial record;
-					if (draw.MaterialRef)
-						draw.MaterialRef->WriteRecord(*s_Data->Heap, record);
-					it = s_Data->MaterialIndex.emplace(key, (uint32_t)s_Data->MaterialScratch.size()).first;
-					s_Data->MaterialScratch.push_back(record);
-				}
-				s_Data->Instances[draw.Instance].Indices.z = (float)it->second;
-			}
+				s_Data->Instances[draw.Instance].Indices.z =
+					(float)RegisterMaterial(draw.MaterialRef);
 
 			// The ray-instance table (7ao): one row per structure instance, in
 			// build order, each naming its buffers by address and its material
@@ -1994,7 +2043,10 @@ namespace RageV
 			return;
 		}
 
-		if (!EnsureInstanceBuffer(slot.Visible, slot.VisibleCapacity, count,
+		// At least one element even when the CPU path submitted nothing: a
+		// binding the layout declares and the set leaves unwritten is a
+		// validation error, not a harmless omission.
+		if (!EnsureInstanceBuffer(slot.Visible, slot.VisibleCapacity, Math::Max(count, 1u),
 								  sizeof(uint32_t), "Renderer3D.visible"))
 		{
 			return;
@@ -2014,7 +2066,25 @@ namespace RageV
 		slot.Set->SetStorageBuffer(7, slot.Instances, 0,
 								   (uint64_t)instanceRows * sizeof(InstanceData));
 		slot.Set->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
-								   (uint64_t)count * sizeof(uint32_t));
+								   (uint64_t)Math::Max(count, 1u) * sizeof(uint32_t));
+
+		// The same instance table, read through the indices the cull pass
+		// wrote instead of the ones the sort produced. One binding apart, and
+		// that is the whole difference between the two paths at draw time.
+		if (slot.GpuSet && s_Data->IndirectView.IsValid())
+		{
+			slot.GpuSet->SetStorageBuffer(7, slot.Instances, 0,
+										  (uint64_t)instanceRows * sizeof(InstanceData));
+			slot.GpuSet->SetStorageBuffer(kVisibleBinding, s_Data->IndirectView.Instances);
+			if (s_Data->Bindless)
+			{
+				slot.GpuSet->SetStorageBuffer(13, slot.Materials, 0,
+											  (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
+					slot.GpuSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+			}
+			slot.GpuSet->Commit();
+		}
 		// Only where the layout declares it: on the bound path the shader has
 		// no binding 13, and writing an undeclared binding is the validation
 		// error HANDOFF section 5 records.
@@ -2061,7 +2131,7 @@ namespace RageV
 		if (slot.SkinnedSet)
 		{
 			slot.SkinnedSet->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
-											  (uint64_t)count * sizeof(uint32_t));
+											  (uint64_t)Math::Max(count, 1u) * sizeof(uint32_t));
 			slot.SkinnedSet->SetStorageBuffer(7, slot.Instances, 0,
 											  (uint64_t)instanceRows * sizeof(InstanceData));
 			slot.SkinnedSet->SetStorageBuffer(11, slot.Bones, 0,
@@ -2079,7 +2149,7 @@ namespace RageV
 		if (slot.LayeredSet)
 		{
 			slot.LayeredSet->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
-											  (uint64_t)count * sizeof(uint32_t));
+											  (uint64_t)Math::Max(count, 1u) * sizeof(uint32_t));
 			slot.LayeredSet->SetStorageBuffer(7, slot.Instances, 0,
 											  (uint64_t)instanceRows * sizeof(InstanceData));
 			if (s_Data->Bindless)
@@ -2105,6 +2175,51 @@ namespace RageV
 		// three pipelines draws it.
 		DrawKind boundKind = DrawKind::Static;
 		bool anyPipelineBound = false;
+
+		// **The GPU-driven half, first.** Its instance counts live in device
+		// memory and its draws depend on nothing the loop below decides, so
+		// the order between the two is free -- and doing it first means the
+		// static geometry has written depth before the skinned and layered
+		// draws are shaded.
+		if (s_Data->IndirectView.IsValid() && s_Data->IndirectSlots && slot.GpuSet)
+		{
+			cmd->BindPipeline(s_Data->Pipeline);
+			cmd->BindResourceSet(0, slot.GpuSet);
+			if (s_Data->Bindless)
+				cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+
+			const std::vector<GpuCull::Slot>& indirect = *s_Data->IndirectSlots;
+			const uint32_t slotCount =
+				Math::Min((uint32_t)indirect.size(), s_Data->IndirectView.SlotCount);
+
+			for (uint32_t i = 0; i < slotCount; i++)
+			{
+				const GpuCull::Slot& entry = indirect[i];
+				if (!entry.MeshRef)
+					continue;
+
+				// Where this slot's survivors begin in the index buffer. Not
+				// the draw's firstInstance, for the reason scene_vertex.glsl
+				// gives.
+				ObjectPushConstants object;
+				object.BaseInstance = (int32_t)entry.InstanceBase;
+				cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+
+				cmd->BindVertexBuffer(0, entry.MeshRef->GetVertexBuffer());
+				cmd->BindIndexBuffer(entry.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+				cmd->DrawIndexedIndirect(s_Data->IndirectView.Commands,
+										 (uint64_t)i * sizeof(GpuCull::SlotCommand),
+										 1, sizeof(GpuCull::SlotCommand));
+
+				// The draw is counted; its triangles are not, and cannot be --
+				// how many instances it draws is a number in device memory the
+				// CPU never reads back, which is the point.
+				s_Data->DrawCalls++;
+			}
+
+			// The loop below has to bind its own pipeline and set again.
+			anyPipelineBound = false;
+		}
 
 		// One draw per run of identical mesh and bound material state.
 		uint32_t start = 0;
@@ -2292,6 +2407,59 @@ namespace RageV
 		draw.LightMVP = s_Data->ShadowViewProjection * transform;
 
 		s_Data->ShadowPending.push_back(std::move(draw));
+	}
+
+	void Renderer3D::ReserveSceneInstances(uint32_t count)
+	{
+		if (!s_Data || !s_Data->SceneActive)
+			return;
+
+		// Grown, never shrunk within a scene: the CPU path's draws append
+		// after these and their indices are absolute.
+		if (s_Data->Instances.size() < count)
+			s_Data->Instances.resize(count);
+		s_Data->ReservedInstances = count;
+	}
+
+	void Renderer3D::SetSceneInstance(uint32_t index, const Mat4& transform,
+									  const Mat4& previousTransform,
+									  const Ref<Material>& material,
+									  const MaterialParams& params, uint32_t probe)
+	{
+		if (!s_Data || !s_Data->SceneActive || index >= s_Data->ReservedInstances)
+			return;
+
+		InstanceData& instance = s_Data->Instances[index];
+		instance.Model = transform;
+		instance.PreviousModel = previousTransform;
+		instance.NormalMatrix = Mat4(Math::Transpose(Math::Inverse(Mat3(transform))));
+		instance.BaseColor = params.BaseColor;
+		instance.EmissiveColor = params.EmissiveColor;
+		instance.Surface = { params.Metallic, params.Roughness,
+							 params.Occlusion, params.NormalScale };
+
+		// The material's record, resolved here rather than in EndScene: these
+		// rows have no pending draw for EndScene's pass to find them by. Same
+		// table, same numbering, so a material used by both paths gets one
+		// record.
+		const Ref<Material>& effective = material ? material : s_Data->DefaultMaterial;
+		const float record = s_Data->Bindless ? (float)RegisterMaterial(effective) : 0.0f;
+
+		instance.Indices = { 0.0f, (float)probe, record, 0.0f };
+	}
+
+	void Renderer3D::DrawSceneIndirect(const GpuCull::View& view,
+									   const std::vector<GpuCull::Slot>& slots)
+	{
+		if (!s_Data || !s_Data->SceneActive || !view.IsValid() || slots.empty())
+			return;
+
+		// Recorded, not issued. EndScene has to fill and bind the instance
+		// table before any of this can draw, and it cannot do that until every
+		// submission is in. `slots` is borrowed for the rest of the scene --
+		// it is Scene's own table and outlives EndScene.
+		s_Data->IndirectView = view;
+		s_Data->IndirectSlots = &slots;
 	}
 
 	void Renderer3D::DrawShadowIndirect(const GpuCull::View& view,

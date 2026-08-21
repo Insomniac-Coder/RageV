@@ -43,6 +43,9 @@
 //   --gpu-cull=on|off       cull the depth views in compute (8.3) or on the
 //                           CPU; on where the device allows it. Off draws the
 //                           same picture the old way, for comparison.
+//   --gpu-lit=on|off        the same for the lit pass. UNFINISHED, off by
+//                           default: correct and much faster on static-only
+//                           scenes, wrong and flickering on mixed ones.
 //   --render-defaults=on|off  ignore the project's Render Settings and use
 //                           the struct's defaults, so a check depends only on
 //                           its own command line (ENGINE-NOTES 7ba). The
@@ -255,6 +258,13 @@ namespace RageV
 		// way, which is what makes the two directly comparable -- and an
 		// escape hatch if a driver ever disagrees about indirect draws.
 		bool         GpuCull = true;
+		// The same for the *lit* pass (roadmap 8.3). **Unfinished**: it draws a
+		// pure-static scene pixel for pixel identically to the CPU path and
+		// takes sixty thousand objects from 55 to 73 FPS, but a scene that
+		// mixes GPU-drawn static meshes with CPU-drawn skinned ones renders
+		// visibly differently and flickers. On, so the defect is in front of
+		// whoever is working on it; --gpu-lit=off is the way back.
+		bool         GpuLit = true;
 		// A check's affordance (ENGINE-NOTES 7ba): the project's Render Settings
 		// are replaced by `RenderSettings{}` at load, so a run depends only on
 		// what its command line says. The other overrides still apply on top.

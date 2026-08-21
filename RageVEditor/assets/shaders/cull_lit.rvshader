@@ -1,0 +1,130 @@
+// Which objects the camera can see, decided on the GPU (roadmap 8.3).
+//
+// cull_casters.rvshader does this for a depth view and writes the finished
+// light-view-projection times model, because that is all a depth pass reads.
+// The lit pass reads two hundred and fifty-six bytes an instance, and a cull
+// pass has no business rewriting those -- so this writes an *index* instead,
+// and the vertex stage reads its instance through it (scene_vertex.glsl,
+// FetchInstance). That indirection already exists: the CPU path fills the same
+// buffer with the same kind of index, which is what lets one be the other's
+// fallback rather than its replacement.
+//
+// What it removes from the CPU is the whole of EndScene's sorting. Grouping by
+// mesh was the reason the draws had to be sorted at all, and here it is a
+// property of the layout: every object was assigned a mesh slot before it
+// arrived, each slot owns a fixed range of the index buffer as long as the
+// number of objects that named it, and an atomic hands out places inside it.
+//
+// **Order within a slot is the order the atomics happened**, which is not
+// front to back. For the scenes this exists for that is the right trade -- the
+// measurement in roadmap 8.16 has the CPU's front-to-back sort costing far
+// more than the early-z it buys past a few thousand objects -- but it is a
+// real difference from the CPU path, not an oversight. Sorting the survivors
+// is the next piece.
+
+#type compute
+#version 450 core
+
+layout(local_size_x = 64) in;
+
+// The same table cull_casters.rvshader reads, and the same 96 bytes: a model
+// matrix and a world-space box. The model matrix is unused here -- the frustum
+// test needs only the bounds -- but the table is shared with the depth views,
+// and a second copy laid out for this pass would be another 5.7 MB uploaded a
+// frame at sixty thousand objects to save reading past 64 bytes.
+struct Object
+{
+	mat4 Model;
+	// xyz world-space centre; w carries the mesh slot's bits.
+	vec4 CentreSlot;
+	vec4 Extents;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer Objects
+{
+	Object Items[];
+} u_Objects;
+
+// See cull_casters.rvshader for why the base is a sixth word rather than the
+// command's own FirstInstance.
+struct SlotCommand
+{
+	uint IndexCount;
+	uint InstanceCount;
+	uint FirstIndex;
+	uint VertexOffset;
+	uint FirstInstance;
+	uint InstanceBase;
+};
+
+layout(std430, set = 0, binding = 1) buffer Commands
+{
+	SlotCommand Items[];
+} u_Commands;
+
+// Which row of the instance table each drawn instance reads. Exactly what the
+// CPU path writes into its own copy of this buffer, so scene_vertex.glsl needs
+// no variant.
+layout(std430, set = 0, binding = 2) writeonly buffer Visible
+{
+	uint Items[];
+} u_Visible;
+
+layout(push_constant) uniform Params
+{
+	mat4 ViewProjection;
+	uint ObjectCount;
+	uint SlotCount;
+} u_Params;
+
+// Gribb-Hartmann, unnormalised, near plane at z = 0. Identical to
+// cull_casters.rvshader's, and the reasoning for each of those three choices
+// is written out there.
+//
+// Named InFrustum rather than Visible because the buffer above already has
+// that name, and GLSL puts both in one namespace -- which fails as "function
+// name is redeclaration of existing name", pointing at the function.
+bool InFrustum(vec3 centre, vec3 extents)
+{
+	mat4 m = u_Params.ViewProjection;
+	vec4 r0 = vec4(m[0][0], m[1][0], m[2][0], m[3][0]);
+	vec4 r1 = vec4(m[0][1], m[1][1], m[2][1], m[3][1]);
+	vec4 r2 = vec4(m[0][2], m[1][2], m[2][2], m[3][2]);
+	vec4 r3 = vec4(m[0][3], m[1][3], m[2][3], m[3][3]);
+
+	vec4 planes[6];
+	planes[0] = r3 + r0;
+	planes[1] = r3 - r0;
+	planes[2] = r3 + r1;
+	planes[3] = r3 - r1;
+	planes[4] = r2;
+	planes[5] = r3 - r2;
+
+	for (int i = 0; i < 6; i++)
+	{
+		vec3 normal = planes[i].xyz;
+		float reach = dot(abs(normal), extents);
+		if (dot(normal, centre) + planes[i].w + reach < 0.0)
+			return false;
+	}
+
+	return true;
+}
+
+void main()
+{
+	uint i = gl_GlobalInvocationID.x;
+	if (i >= u_Params.ObjectCount)
+		return;
+
+	Object object = u_Objects.Items[i];
+	if (!InFrustum(object.CentreSlot.xyz, object.Extents.xyz))
+		return;
+
+	uint slot = floatBitsToUint(object.CentreSlot.w);
+	if (slot >= u_Params.SlotCount)
+		return;
+
+	uint place = atomicAdd(u_Commands.Items[slot].InstanceCount, 1u);
+	u_Visible.Items[u_Commands.Items[slot].InstanceBase + place] = i;
+}

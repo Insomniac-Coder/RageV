@@ -51,6 +51,9 @@ namespace RageV
 			Ref<RHIComputePipeline> ResetPipeline;
 			Ref<RHIShader>          CullShader;
 			Ref<RHIComputePipeline> CullPipeline;
+			// The camera's variant: writes indices rather than matrices.
+			Ref<RHIShader>          LitShader;
+			Ref<RHIComputePipeline> LitPipeline;
 
 			// The frame's table, shared by every view. Host-visible: the CPU
 			// writes them once a frame and the GPU only reads them.
@@ -70,6 +73,13 @@ namespace RageV
 			std::vector<std::vector<ViewSlot>> Slots;
 			uint32_t Cursor = 0;
 			uint32_t ViewsThisFrame = 0;
+
+			// The camera's own ring. Separate from the depth views' because
+			// its survivor buffer holds four bytes an object rather than
+			// sixty-four, and sizing one ring for the larger would waste the
+			// difference on every depth view a frame opens.
+			std::vector<std::vector<ViewSlot>> LitSlots;
+			uint32_t LitCursor = 0;
 
 			// The most objects one table may hold on *this* device, worked out
 			// from its limits at startup rather than chosen. See ComputeCeiling.
@@ -127,6 +137,7 @@ namespace RageV
 		// Separate from s_Data so that turning it off does not throw away the
 		// pipelines, and turning it back on does not have to rebuild them.
 		bool s_Enabled = true;
+		bool s_LitEnabled = true;
 
 		// Grows `buffer` to hold at least `count` elements of `stride`, in
 		// powers of two so a scene that creeps upwards does not reallocate
@@ -200,6 +211,18 @@ namespace RageV
 			}
 		}
 
+		if (auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/cull_lit.rvshader"))
+		{
+			s_Data->LitShader = device.CreateShader(*compiled);
+			if (s_Data->LitShader)
+			{
+				ComputePipelineDesc desc;
+				desc.Name = "GpuCull.lit";
+				desc.Shader = s_Data->LitShader;
+				s_Data->LitPipeline = device.CreateComputePipeline(desc);
+			}
+		}
+
 		if (!s_Data->ResetPipeline || !s_Data->CullPipeline)
 		{
 			// Said once, and loudly enough to be found: the frame still draws
@@ -211,7 +234,17 @@ namespace RageV
 			return;
 		}
 
+		if (!s_Data->LitPipeline)
+		{
+			// The depth half still runs; only the camera falls back. Said
+			// separately from the warning above, because they fail
+			// independently and a reader needs to know which happened.
+			RV_CORE_WARN("GPU culling: the camera's cull pass did not build, so the lit pass "
+						 "walks and sorts its draws on the CPU");
+		}
+
 		s_Data->Slots.assign(device.GetFramesInFlight(), {});
+		s_Data->LitSlots.assign(device.GetFramesInFlight(), {});
 		s_Data->MaxObjects = ComputeCeiling(device, s_Data->CullPipeline->GetWorkGroupSizeX());
 
 		RV_CORE_INFO("GPU culling available: depth views cull in compute, up to {0} objects "
@@ -226,6 +259,11 @@ namespace RageV
 	void GpuCull::SetEnabled(bool enabled)
 	{
 		s_Enabled = enabled;
+	}
+
+	void GpuCull::SetLitEnabled(bool enabled)
+	{
+		s_LitEnabled = enabled;
 	}
 
 	bool GpuCull::IsAvailable()
@@ -249,6 +287,7 @@ namespace RageV
 			return;
 
 		s_Data->Cursor = 0;
+		s_Data->LitCursor = 0;
 		s_Data->ViewsThisFrame = 0;
 		// Forgotten rather than kept: a frame that never calls SetObjects --
 		// a probe capture, a frame before the first RenderShadows -- must not
@@ -265,9 +304,6 @@ namespace RageV
 	{
 		if (!IsAvailable())
 			return false;
-
-		if (s_Data->HaveObjects && s_Data->Owner == owner)
-			return true;
 
 		s_Data->HaveObjects = false;
 		s_Data->Owner = nullptr;
@@ -321,6 +357,86 @@ namespace RageV
 		s_Data->HaveObjects = true;
 		s_Data->Owner = owner;
 		return true;
+	}
+
+	GpuCull::View GpuCull::CullLit(RHICommandList& cmd, const Mat4& viewProjection)
+	{
+		View view;
+
+		if (!s_LitEnabled || !IsAvailable() || !s_Data->HaveObjects || !s_Data->LitPipeline)
+			return view;
+
+		const uint32_t frame = s_Data->Device->GetFrameIndex();
+		auto& slots = s_Data->LitSlots[frame];
+		while (s_Data->LitCursor >= slots.size())
+			slots.push_back(ViewSlot{});
+
+		ViewSlot& slot = slots[s_Data->LitCursor++];
+
+		if (!EnsureBuffer(slot.Commands, slot.CommandCapacity, s_Data->SlotCount,
+						  sizeof(SlotCommand), BufferUsage::Storage | BufferUsage::Indirect,
+						  MemoryDomain::DeviceLocal, "GpuCull.litCommands"))
+		{
+			return view;
+		}
+
+		// Four bytes an object, not sixty-four: this holds indices into the
+		// lit pass's instance table rather than finished matrices. The slot
+		// ranges together are exactly the object count, whatever survives.
+		if (!EnsureBuffer(slot.Instances, slot.InstanceCapacity, s_Data->ObjectCount,
+						  sizeof(uint32_t), BufferUsage::Storage,
+						  MemoryDomain::DeviceLocal, "GpuCull.litVisible"))
+		{
+			return view;
+		}
+
+		if (!slot.ResetSet)
+			slot.ResetSet = s_Data->Device->CreateResourceSet(s_Data->ResetPipeline, 0);
+		if (!slot.CullSet)
+			slot.CullSet = s_Data->Device->CreateResourceSet(s_Data->LitPipeline, 0);
+		if (!slot.ResetSet || !slot.CullSet)
+			return view;
+
+		slot.ResetSet->SetStorageBuffer(0, s_Data->Template);
+		slot.ResetSet->SetStorageBuffer(1, slot.Commands);
+		slot.ResetSet->Commit();
+
+		slot.CullSet->SetStorageBuffer(0, s_Data->Objects);
+		slot.CullSet->SetStorageBuffer(1, slot.Commands);
+		slot.CullSet->SetStorageBuffer(2, slot.Instances);
+		slot.CullSet->Commit();
+
+		ResetParams reset;
+		reset.SlotCount = s_Data->SlotCount;
+
+		cmd.BindComputePipeline(s_Data->ResetPipeline);
+		cmd.BindResourceSet(0, slot.ResetSet);
+		cmd.PushConstants(ShaderStage::Compute, 0, sizeof(reset), &reset);
+		cmd.Dispatch(s_Data->ResetPipeline->GroupsFor(s_Data->SlotCount));
+
+		// Two, for the reason Cull gives: the pass reads each slot's base and
+		// increments each slot's count, and BufferBarrier names one use a side.
+		cmd.BufferBarrier(slot.Commands, BufferSync::ComputeWrite, BufferSync::ComputeWrite);
+		cmd.BufferBarrier(slot.Commands, BufferSync::ComputeWrite, BufferSync::ComputeRead);
+
+		CullParams params;
+		params.ViewProjection = viewProjection;
+		params.ObjectCount = s_Data->ObjectCount;
+		params.SlotCount = s_Data->SlotCount;
+
+		cmd.BindComputePipeline(s_Data->LitPipeline);
+		cmd.BindResourceSet(0, slot.CullSet);
+		cmd.PushConstants(ShaderStage::Compute, 0, sizeof(params), &params);
+		cmd.Dispatch(s_Data->LitPipeline->GroupsFor(s_Data->ObjectCount));
+
+		cmd.BufferBarrier(slot.Commands, BufferSync::ComputeWrite, BufferSync::IndirectRead);
+		cmd.BufferBarrier(slot.Instances, BufferSync::ComputeWrite, BufferSync::ShaderRead);
+
+		view.Commands = slot.Commands;
+		view.Instances = slot.Instances;
+		view.SlotCount = s_Data->SlotCount;
+		s_Data->ViewsThisFrame++;
+		return view;
 	}
 
 	GpuCull::View GpuCull::Cull(RHICommandList& cmd, const Mat4& viewProjection)
