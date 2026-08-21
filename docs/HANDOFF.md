@@ -105,6 +105,81 @@ And two older ones that still hold:
 - **A cubemap sky is the scene's image-based light, not a backdrop.** The camp
   was lit like an afternoon because it still had the courtyard's dusk panorama.
 
+## Open defect: horizontal banding on flat surfaces, Vulkan only
+
+**Status: not investigated.** Reported by the owner with screenshots on
+2026-08-21, at the end of the session. Written down rather than chased,
+deliberately -- the context was nearly spent and a half-run investigation is
+worse than a clean start.
+
+### What it looks like
+
+Regular horizontal bands across large, smooth, evenly-lit surfaces. Two places
+in the camp show it clearly: the camper's flank and the tent's pale band. Both
+are big flat panels with a gentle top-to-bottom lighting ramp across them,
+which is the signature to look for -- nothing with detail on it shows it.
+
+The owner reports it is **Vulkan only** and that OpenGL is clean.
+
+### What is already ruled out, each measured on 2026-08-21
+
+- **Not a texture.** The camper's material carries no maps at all --
+  `camp_van_paint.rmat` has an empty `Maps:` -- and the banding sits on it just
+  the same. It is also on the roof units and the tent, which are three
+  different materials.
+- **Not depth of field.** Toggling `DepthOfField` in the profile the shot
+  actually uses changes 9.69% of the frame's pixels, and the bands are in both
+  renders.
+- **Not the ray-traced passes.** `--rt-ao=off`, `--rt-gi=off` and `--rt=off`
+  each produce the same gradient statistics down the flank as the shipped
+  configuration.
+- **Not the van rebuild.** It was there on the model this replaced; the old
+  van wore a metal texture that hid it.
+
+### What I got wrong, because it is the reason this is still open
+
+I was asked about this earlier in the session, sampled a 10x16 patch of the
+flank at x=300-309 y=185-200, found a smooth 165-to-204 ramp with a ripple of
+about two levels, and **told the owner the banding did not exist** -- that it
+was ringing from the LANCZOS upscale in my own crop. The crop upscale was
+adding ringing, which is true and is what misled me. But:
+
+- One small patch, chosen because it was convenient, is not a survey of a
+  five-metre panel.
+- A two-level ripple on a smooth ramp is not evidence *against* banding. It is
+  what banding is, in eight bits.
+
+An artefact the owner can see in two places is a fact. A measurement that
+disagrees with it has been taken wrongly until proven otherwise.
+
+### Where to start
+
+**First, reproduce it as a number**, which has not been done. The two backends
+do not frame the camp identically from the same command, so the columns I
+compared were not the same surface -- that is what made the first comparison
+useless. Build a fixture instead: one flat panel filling the frame under one
+light, rendered on both backends, and count sign reversals down a column. A
+smooth ramp reverses direction almost never; a banded one reverses at every
+band edge.
+
+Then the candidates, in the order their cost is smallest:
+
+1. **Quantisation to eight bits with no dither.** The most likely answer for a
+   Vulkan-only artefact on a smooth ramp: if the two backends differ in
+   swapchain format, or in whether an sRGB image view does the transfer
+   function rather than the shader, they will quantise at different points on
+   the curve and only one will show contouring. Check what
+   `VulkanDevice`'s swapchain format is against what the OpenGL path uses.
+2. **The HDR scene target's format.** Same argument one stage earlier.
+3. **The tonemap's output precision**, and whether anything downstream of it
+   is 8-bit before the swapchain.
+
+If it is quantisation, the fix is a dither of one least-significant bit at the
+end of the tonemap -- ordered or blue-noise -- which is the standard answer and
+costs nothing. **Measure before adding it**: a dither that hides a real
+precision bug elsewhere is the same mistake as an effect that hides a lighting
+problem (7g).
+
 ## Fixed: the editor lost the device in Play on Vulkan
 
 **Status: fixed (2026-08-21), and the fix is one line of intent.** The
