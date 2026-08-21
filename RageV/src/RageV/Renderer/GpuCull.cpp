@@ -2,6 +2,7 @@
 #include "GpuCull.h"
 
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
+#include "RageV/Renderer/Renderer3D.h"
 
 namespace RageV
 {
@@ -363,8 +364,30 @@ namespace RageV
 	{
 		View view;
 
-		if (!s_LitEnabled || !IsAvailable() || !s_Data->HaveObjects || !s_Data->LitPipeline)
+		// **The lit path needs bindless materials, and this is not a
+		// preference.**
+		//
+		// It draws one indirect call per mesh slot, so every instance in that
+		// call is shaded by whatever set is bound -- which is only correct
+		// when the material is *per instance*, and it is per instance only
+		// under bindless, where the instance carries a record index and the
+		// shader looks its textures up.
+		//
+		// On the bound path a material is a descriptor set that has to be
+		// bound before its draw, and one draw cannot bind several. The result
+		// is every static mesh shaded by the default material: colours survive
+		// (they ride in the instance data) and textures do not. It showed on
+		// OpenGL, which never has bindless, with a scene of white boxes and a
+		// correctly textured fox -- the fox being skinned, and skinned meshes
+		// taking the CPU path.
+		//
+		// The depth views are unaffected either way: a depth pass has no
+		// material at all.
+		if (!s_LitEnabled || !IsAvailable() || !s_Data->HaveObjects || !s_Data->LitPipeline
+			|| !Renderer3D::IsBindless())
+		{
 			return view;
+		}
 
 		const uint32_t frame = s_Data->Device->GetFrameIndex();
 		auto& slots = s_Data->LitSlots[frame];

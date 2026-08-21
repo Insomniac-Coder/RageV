@@ -11681,6 +11681,31 @@ from the matrix (Gribb-Hartmann, the same six `Frustum::Build` extracts) --
 and does not normalise them, because nothing reads the distance, only its sign,
 and dividing a plane by the positive length of its normal cannot change that.
 
+### The lit path needs bindless, and OpenGL is how that was found
+
+One indirect draw per mesh slot shades every instance in it with whatever
+descriptor set is bound. That is only correct when the material is chosen *per
+instance*, which it is only under bindless -- the instance carries a record
+index and the fragment stage looks its textures up. On the bound path a
+material *is* a set, it has to be bound before its draw, and one draw cannot
+bind several.
+
+So on OpenGL, which never has bindless, every static mesh came out shaded by
+the default material. **Colours survived and textures did not**, because the
+colour rides in the instance data and the textures do not -- a courtyard of
+white boxes with one correctly textured fox standing in it. The fox is skinned,
+and skinned meshes take the CPU path, which is what made the pattern legible
+rather than mysterious.
+
+`CullLit` now refuses without bindless and the lit pass walks as before. The
+depth views are unaffected either way: a depth pass has no material at all.
+
+**Neither backend's checks could have caught this**, and that is the part worth
+keeping. scenetest passes on OpenGL because nothing in it compares a *textured*
+render against a reference; the failure was visible only to somebody looking at
+the screen. A capability the fast path depends on has to be asserted where the
+path is chosen, not assumed from the platform that was being developed on.
+
 ### What it is worth keeping for
 
 The depth pass alone cannot pay for the table, because the depth pass's own
