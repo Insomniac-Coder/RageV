@@ -207,7 +207,12 @@ namespace RageV
 		// material heap. While on, the profile's GlobalIllumination is not
 		// consulted; its GiIntensity still is. Four rays a pixel: the most
 		// expensive switch here, and off by default.
-		bool RayTracedGlobalIllumination = false;
+		//
+		// Off, Low, Medium or High. Since 7bs the bounce is a pass rather than
+		// part of the lit fragment, so the level can mean what it means
+		// everywhere else: Low and Medium differ in rays per pixel, High also
+		// traces at the frame's own resolution instead of half of it.
+		RayDetail RayTracedGlobalIllumination = RayDetail::Off;
 
 		// GiBounces and the whole of the voxel form moved to the post profile
 		// on 2026-08-20 (10.6, ENGINE-NOTES 7bg), where the rest of the GI

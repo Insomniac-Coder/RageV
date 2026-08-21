@@ -203,7 +203,11 @@ namespace RageV
 	// point rather than gathered off the screen. Needs bindless as well, for
 	// the same reason reflections do. The post profile's Global illumination
 	// row asks this to know whether it has been taken over.
-	bool ResolveRayTracedGlobalIllumination(const RenderSettings& render);
+	RayDetail ResolveRayTracedGlobalIllumination(const RenderSettings& render);
+	// What a level costs per pixel. Stated once so the target's scale and the
+	// shader's ray count cannot be given different answers.
+	bool RayDetailIsFullRes(RayDetail detail);
+	int  RayDetailRays(RayDetail detail);
 	// How deep the traced bounce goes (ENGINE-NOTES 7ax): the project's
 	// setting under --gi-bounces=, clamped to 1 or 2 here as well as at the
 	// flag, because a serialized int can hold anything and the shader reads

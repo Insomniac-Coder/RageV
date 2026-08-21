@@ -9690,7 +9690,7 @@ void main()
 			if (RayShadows::IsAvailable())
 			{
 				render.RayTracing = true;
-				render.RayTracedGlobalIllumination = true;
+				render.RayTracedGlobalIllumination = RayDetail::High;
 				Check(buildBouncing() && !hasPass("SSGI"),
 					  "and with the traced form resolved on, the screen-space chain is absent");
 
@@ -9723,7 +9723,7 @@ void main()
 					  "and one asking for none gets one, because zero bounces is not off");
 				post.GiBounces = 1;
 
-				render.RayTracedGlobalIllumination = false;
+				render.RayTracedGlobalIllumination = RayDetail::Off;
 				render.RayTracing = false;
 			}
 
@@ -9754,10 +9754,10 @@ void main()
 				if (RayShadows::IsAvailable())
 				{
 					render.RayTracing = true;
-					render.RayTracedGlobalIllumination = true;
+					render.RayTracedGlobalIllumination = RayDetail::High;
 					Check(buildBouncing() && !hasPass("Voxel GI gather") && !hasPass("SSGI"),
 						  "and with the traced form on as well, rays win: neither gather runs");
-					render.RayTracedGlobalIllumination = false;
+					render.RayTracedGlobalIllumination = RayDetail::Off;
 					render.RayTracing = false;
 				}
 

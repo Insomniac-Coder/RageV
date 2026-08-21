@@ -42,6 +42,22 @@ namespace RageV
 		Full,
 	};
 
+	// How much a ray-traced effect spends per pixel.
+	//
+	// The same two axes the rasterised gathers have had since 7az, and in the
+	// same order: Low and Medium differ in how many rays each pixel casts,
+	// High also runs at the frame's own resolution rather than half of it --
+	// which is where most of its cost is and most of its sharpness. Off is
+	// off, and hands the effect back to whichever screen-space form the
+	// profile asks for.
+	enum class RayDetail : uint32_t
+	{
+		Off,
+		Low,
+		Medium,
+		High,
+	};
+
 	enum class GiDetail : uint32_t
 	{
 		Low,      // half resolution, 12 taps

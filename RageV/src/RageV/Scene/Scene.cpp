@@ -1419,7 +1419,8 @@ namespace RageV
 		// resolve. Its dial is the post profile's, handed to the renderer
 		// here so the lit shader has it: zero while the traced form is not
 		// running, which is what makes the shader's block cost nothing.
-		Renderer3D::SetRayTracedGlobalIllumination(ResolveRayTracedGlobalIllumination(Project::Render()));
+		Renderer3D::SetRayTracedGlobalIllumination(
+			ResolveRayTracedGlobalIllumination(Project::Render()) != RayDetail::Off);
 
 		RenderShadowMaps(camera, cameraTransform);
 
@@ -1825,7 +1826,7 @@ namespace RageV
 		// and the gather that reads it cannot disagree about its size.
 		const PostSettings post = GetPostSettings();
 		const bool voxel = ResolveVoxelGlobalIllumination(post)
-						&& !ResolveRayTracedGlobalIllumination(Project::Render());
+						&& ResolveRayTracedGlobalIllumination(Project::Render()) == RayDetail::Off;
 		if (!voxel || !VoxelGI::IsReady())
 		{
 			VoxelGI::Invalidate();

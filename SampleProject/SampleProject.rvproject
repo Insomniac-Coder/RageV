@@ -14,7 +14,7 @@ Project:
     RayTracing: true
     RayTracedReflections: true
     RayTracedAmbientOcclusion: Half
-    RayTracedGlobalIllumination: true
+    RayTracedGlobalIllumination: High
     ShadowDistance: 40
     ShadowSplitLambda: 0.85
     ShadowNormalOffset: 0.9

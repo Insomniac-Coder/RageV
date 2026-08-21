@@ -1282,6 +1282,8 @@ namespace
 		// Off, and then the resolution the occlusion is computed at. `false`
 		// and `true` in an older file are Off and Half, which is what they did.
 		const char* const kAoDetailNames[] = { "Off", "Half", "Full" };
+		// Off, then the two the rasterised dial uses -- rays, then resolution.
+		const char* const kRayDetailNames[] = { "Off", "Low", "Medium", "High" };
 		const char* const kAntiAliasingNames[] = { "None", "FXAA", "SMAA", "SSAA",
 												   "MSAA", "TAA" };
 		const char* const kSkyNames[] = { "Color", "Gradient", "Cubemap" };
@@ -1359,7 +1361,7 @@ namespace
 		}
 		bool RayGiTakesOver(const void*)
 		{
-			return ResolveRayTracedGlobalIllumination(Project::Render());
+			return ResolveRayTracedGlobalIllumination(Project::Render()) != RayDetail::Off;
 		}
 		// The voxel form (8.1, ENGINE-NOTES 7bc): the profile's choice, where
 		// rays do not win and the device can.
@@ -1539,17 +1541,23 @@ namespace
 						"computed at, the same two the profile's row offers."))))),
 
 				Field<&RenderSettings::RayTracedGlobalIllumination>("RayTracedGlobalIllumination",
-					Named("RT global illumination", OnlyWhen(OffersRayGi, Tip(
+					Named("RT global illumination", OnlyWhen(OffersRayGi,
+						WasBool((int)RayDetail::High, Enum(kRayDetailNames,
 						"Cast the bounce as rays from every surface instead of "
 						"gathering it off the screen: light arrives from what is "
 						"behind the camera and behind other things, and lands on "
 						"the surface's own albedo rather than on the lit colour "
-						"standing in for it. Four rays a pixel -- the most "
-						"expensive switch here -- resolved by temporal "
-						"anti-aliasing. Offered only where materials are bindless "
-						"as well. While on, the post profile's Global illumination "
-						"is not used and its row says so; its intensity still "
-						"applies.")))),
+						"standing in for it. Offered only where materials are "
+						"bindless as well. Where this is not Off, the post "
+						"profile's Global illumination is not used and its row "
+						"says so; its intensity still applies." "\n\n"
+						"Low and Medium cast two rays and four; High casts four "
+						"at the frame's own resolution rather than half of it, "
+						"which is four times the rays and most of the cost. Half "
+						"resolution is not the compromise it sounds like -- "
+						"indirect light is the lowest-frequency thing in the "
+						"picture -- and it is what ambient occlusion has always "
+						"done."))))),
 
 				Field<&RenderSettings::ShadowDistance>("ShadowDistance",
 					Named("Distance", OnlyWhen(UsesCascades,

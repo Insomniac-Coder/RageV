@@ -246,17 +246,25 @@ namespace RageV
 		return requested;
 	}
 
-	bool ResolveRayTracedGlobalIllumination(const RenderSettings& render)
+	RayDetail ResolveRayTracedGlobalIllumination(const RenderSettings& render)
 	{
 		if (!ResolveRayTracing(render))
-			return false;
+			return RayDetail::Off;
 		const EngineConfig& config = EngineConfig::Get();
-		const bool requested = config.HasRayGiOverride ? config.RayGiOverride
-													  : render.RayTracedGlobalIllumination;
+		RayDetail requested = render.RayTracedGlobalIllumination;
+		if (config.HasRayGiOverride)
+		{
+			// --rt-gi=on predates the level: it means "at whatever the
+			// settings hold", and the level the flag used to mean when they
+			// hold none. Every check script passing on|off keeps measuring
+			// what it measured.
+			requested = !config.RayGiOverride ? RayDetail::Off
+					  : (requested == RayDetail::Off ? RayDetail::High : requested);
+		}
 		// Shading a hit reads the material heap, exactly as a reflection's
 		// does: without bindless there is nothing to shade with, so the
 		// screen-space form stays and the log says so once (7at).
-		if (requested && !Renderer3D::IsBindless())
+		if (requested != RayDetail::Off && !Renderer3D::IsBindless())
 		{
 			static bool reported = false;
 			if (!reported)
@@ -266,10 +274,17 @@ namespace RageV
 							 "screen-space form stays");
 				reported = true;
 			}
-			return false;
+			return RayDetail::Off;
 		}
 		return requested;
 	}
+
+	// What a level costs per pixel, in one place so the target and the shader
+	// cannot be given different answers -- the trap 7az records for the
+	// rasterised dial, where a pass ran at one resolution and read a texel
+	// size for another.
+	bool RayDetailIsFullRes(RayDetail detail) { return detail == RayDetail::High; }
+	int  RayDetailRays(RayDetail detail)      { return detail == RayDetail::Low ? 2 : 4; }
 
 	void BuildFrame(RenderGraph& graph, const FrameDesc& desc)
 	{
@@ -441,7 +456,8 @@ namespace RageV
 		// renderer here, because the shader reads it out of the scene block:
 		// zero when the traced form is not running, so the block costs
 		// nothing where it is compiled in but idle.
-		const bool rayGi = ResolveRayTracedGlobalIllumination(desc.Render);
+		const RayDetail giDetail = ResolveRayTracedGlobalIllumination(desc.Render);
+		const bool rayGi = giDetail != RayDetail::Off;
 		Renderer::SetGlobalIllumination(rayGi ? Math::Max(desc.Post.GiIntensity, 0.0f) : 0.0f);
 		// One while the traced form is off, so the uniform never claims a
 		// depth nothing is tracing -- the same shape as the intensity above.
@@ -998,9 +1014,16 @@ namespace RageV
 			traceDesc.Name = "RtGiRaw";
 			traceDesc.Color = Format::R16G16B16A16_SFLOAT;
 			traceDesc.Depth = Format::Undefined;
-			// Full, for now. The quality dial goes on top of this once the
-			// pass has been shown to produce what the lit shader produced.
-			traceDesc.Scale = 1.0f;
+			// **The dial, which is the whole reason this became a pass.** The
+			// target follows it and so do the dimensions handed to the denoise
+			// below, because setting one without the other leaves a pass
+			// running at one resolution and reading a texel size for another.
+			const bool giFullRes = RayDetailIsFullRes(giDetail);
+			traceDesc.Scale = giFullRes ? 1.0f : 0.5f;
+			const uint32_t giTraceWidth = giFullRes ? desc.Width
+													: Math::Max(desc.Width / 2u, 1u);
+			const uint32_t giTraceHeight = giFullRes ? desc.Height
+													 : Math::Max(desc.Height / 2u, 1u);
 			const RGResource giTraced = graph.CreateTarget(traceDesc);
 
 			Renderer3D::GiTraceView traceView;
@@ -1019,13 +1042,14 @@ namespace RageV
 					builder.Sample(sceneHDR);
 					builder.DisableDepth();
 				},
-				[sceneHDR, normalIndex, traceView](RGPassContext& context)
+				[sceneHDR, normalIndex, traceView, rays = RayDetailRays(giDetail)]
+				(RGPassContext& context)
 				{
 					Renderer3D::TraceGlobalIllumination(context.Cmd,
 														context.Depth(sceneHDR),
 														context.Color(sceneHDR, normalIndex),
 														Format::R16G16B16A16_SFLOAT,
-														traceView, 4);
+														traceView, rays);
 				});
 
 			// Accumulated through the same pass the screen-space chain ends
@@ -1043,7 +1067,7 @@ namespace RageV
 					builder.DisableDepth();
 				},
 				[giTraced, sceneHDR, previousIndirect, velocityIndex,
-				 width = desc.Width, height = desc.Height,
+				 width = giTraceWidth, height = giTraceHeight,
 				 feedback = giFeedback, has = indirectHasHistory](RGPassContext& context)
 				{
 					PostProcess::GiDenoise(context.Cmd,
