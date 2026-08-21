@@ -1,14 +1,150 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-20.
+**Read this first.** Updated 2026-08-21.
 
-**The section immediately below this one covers the camp scene**, which is the
-project's demo scene and the most recent work. Its traps are worth reading even
-if you are here for something else -- most of them are engine contracts rather
-than scene problems.
+Work on **`main`**, which is pushed and clean.
 
-Work on **`main`**. The `vulkan-overhaul` branch is merged into it and is
-finished with, and `main` is pushed.
+---
+
+## Start here: where 8.3 got to, and what is next
+
+**Next session's job is the GPU path for roadmap 8.3.** The measuring is done,
+the cheap half has landed, and the object table the GPU version needs is already
+built. What follows is enough to pick it up cold.
+
+### What the measurement said, because it changed what 8.3 is
+
+`tools/scripts/make_scale_scenes.py` builds stress scenes at a range of object
+counts with density held constant; `tools/scripts/bench_scale.py` walks them.
+Run the second before and after anything that claims to make scale cheaper. It
+passes `--vsync=off` for you, which is not optional -- with vsync on, every
+number is the display's refresh and the benchmark says so in as many words.
+
+Baseline, Vulkan, 1280x720, default render settings:
+
+| objects | frame | FPS | GPU | shadow CPU | graph CPU | draws |
+|---|---|---|---|---|---|---|
+| 1,000 | 0.87 ms | 1149 | 0.33 ms | 0.20 | 0.34 | 12 |
+| 5,000 | 3.55 ms | 282 | 0.48 ms | 0.83 | 1.62 | 9 |
+| 20,000 | 15.53 ms | 64 | 0.85 ms | 3.20 | 7.86 | 5 |
+| 60,000 | 60.18 ms | 17 | 7.08 ms | 9.04 | 28.85 | 5 |
+
+The row's own reason for deferring itself -- "draws a thousand in 1.9 ms and is
+nowhere near the wall" -- was true where it was made and wrong about the shape.
+At a thousand the GPU is 38 % of the frame; at twenty thousand it is 5 %.
+
+**It is not a draw-call problem: there are five.** Instancing already collapses
+twenty thousand objects across four meshes into five `DrawIndexed` calls, so
+"compute-built draw commands", which is how the row words itself, would save
+almost nothing. The experiment that isolates the real cost is
+`scenes/scale_sky.rage` -- the same twenty thousand objects with the camera
+pitched at the sky, everything culled, one draw, zero triangles, **still 8.26 ms
+a frame**. Shadow maps cost 3.01 ms of that whether or not anything is visible.
+
+So the expensive thing is the per-object CPU work that happens regardless of
+what is drawn, and that is what the GPU path has to remove.
+
+### What landed (98225ed), and what it is worth
+
+`Scene::RefreshDrawList` resolves the mesh and the world bounds **once a frame**
+instead of once per view, into two parallel arrays: `DrawBounds` (24 bytes, what
+the cull touches) and `DrawItem` (what only survivors read). Every view keeps
+just the frustum test.
+
+| objects | frame | shadow CPU |
+|---|---|---|
+| 1,000 | 0.87 -> 0.83 ms | 0.20 -> 0.16 |
+| 5,000 | 3.55 -> 3.19 ms | 0.83 -> 0.61 |
+| 20,000 | 15.53 -> 14.26 ms | 3.20 -> 2.25 |
+| 60,000 | 60.18 -> 51.92 ms | 9.04 -> 6.60 |
+
+**Shadow CPU down 27-30 %, the frame 5-14 %, and that is the whole of it.** The
+graph barely moved, because the camera pass's cost was never the lookup -- it is
+submitting what survives. "Other" barely moved either: that is
+`UpdateWorldTransforms` over every entity, untouched. Twenty thousand objects
+went 64 -> 70 FPS against 0.85 ms of GPU work. **The wall is still there**, which
+is why this is kept as a gain and not as the fix.
+
+### The design the measurement implies
+
+1. **`DrawBounds` uploaded to a storage buffer** when the scene changes rather
+   than rebuilt per frame. It is already the right shape and the right 24 bytes.
+2. **A cull compute pass per view** -- camera and each cascade -- testing that
+   buffer against the view's frustum and compacting surviving instance indices,
+   with an atomic count that becomes an indirect draw's `instanceCount`.
+3. **`DrawIndexedIndirect` in the RHI**, which does not exist yet: there is no
+   indirect draw of any kind. Everything else it needs does -- compute
+   pipelines, storage buffers, `Dispatch`, barriers -- proven by GPU skinning,
+   GPU particle simulation and the voxel injection.
+4. **Vulkan only, with the CPU path as the OpenGL fallback**, which is the
+   precedent bindless and ray tracing both set. `SupportsRayQuery` and
+   `SupportsDescriptorIndexing` are the shape to copy.
+
+`UpdateWorldTransforms` is the other 20 ms at sixty thousand objects and none of
+the above touches it. Worth measuring separately before assuming the GPU path
+alone gets the frame under control.
+
+---
+
+## Three stale artefacts cost most of a day, and none of them announced itself
+
+Written down because they cost hours each and the symptoms pointed elsewhere
+every time.
+
+**1. The editor keeps its own staged shaders.** Editing
+`RageVEditor/assets/shaders/` and building `RageVRuntime` leaves the editor
+running the old shader. The fix landed, the runtime proved it, and the editor
+still showed the defect -- which reads as "the fix did not work" rather than
+"the fix is not in this binary". Build the editor target too, or all of them.
+
+**2. A project's script module is built against the engine's headers.** Adding
+three fields to `ParticleEmitterComponent` moved `Burst`, and `SampleProject`'s
+native `Sample.dll` -- built earlier, not rebuilt -- wrote to the old offset. It
+surfaced as a *UI button test* failing while the click, the button and the
+binding all passed. `cmake --build SampleProject/bin/module --config Debug` and
+again for `Release`.
+
+**3. An incremental build does not always recompile what a header change
+touched, and the failure is not a compile error.** Adding two vectors to `Scene`
+changed its size; the exe kept the old `sizeof`, `make_shared<Scene>` allocated
+too little, and the constructor wrote past the end. The symptom was a
+**Release-only segfault inside `std::vector::clear()` on an empty vector**, with
+Debug working perfectly -- so it looked like optimiser-exposed UB, and I chased
+the structured binding, `GetMaterial` and component-pointer lifetimes before the
+truth. `m_DrawItems` printed `size 18445272897802728025`.
+
+**The rule this leaves: a header change that alters a type's layout needs
+`--clean-first`, and "Debug works, Release crashes" should make that the *first*
+hypothesis rather than the tenth.** Object timestamps are not evidence -- the
+stale `RuntimeLayer.obj` was newer than the header it was stale against.
+
+---
+
+## Still open
+
+- **Depth-of-field flicker at silhouettes.** The mechanism is understood --
+  jitter-driven, the composite ramps over one pixel of circle-of-confusion --
+  and three candidate fixes were measured and eliminated (+jitter 619, -jitter
+  596, min-of-4 depth 604, against 222 unfixed and a 198 control). Nothing is
+  half-applied; all three were reverted.
+- **The camp's shot 5 to shot 6 travel clears the tent by 1.4 millimetres.** The
+  scene generator prints it on every build. It does not clip and the roof still
+  wipes half the frame for most of a second, and there is no waypoint that fixes
+  it: the corridor between the tent and Frame Pine 3 is six centimetres and the
+  one between the tent and the fire is four. It needs a shot or a tree moved,
+  which is a decision about the film (7bw).
+- **Roadmap 6.4's slider** is the one widget with no component. Everything else
+  in phase 6 is built.
+- **ENGINE-NOTES 7bs and 7bt are cited from four files and were never written.**
+  `rvdoc --check` does not validate note cross-references, so nothing catches it.
+
+---
+
+**The camp scene section below** is the project's demo scene. Its traps are
+worth reading even if you are here for something else -- most of them are
+engine contracts rather than scene problems.
+
+The `vulkan-overhaul` branch is merged into `main` and is finished with.
 
 Companion docs:
 - [ROADMAP.md](ROADMAP.md) — where this is going, in dependency order.
