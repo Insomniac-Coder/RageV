@@ -15,6 +15,8 @@ several emitters parented together.
 | `Emit`, `Rate` | Continuous emission, in particles per second. |
 | `Burst` | Fired once and consumed. An explosion is `Emit` off and a burst. |
 | `Lifetime`, `LifetimeJitter` | How long each lives, and how much that varies. |
+| `Shape`, `Box size` | Where a particle is born: at the emitter, or anywhere inside a volume. See below. |
+| `Motion` | Whether it then moves at all. |
 | `Direction`, `Spread`, `Speed`, `SpeedJitter` | The cone they leave through. `Spread` is a half-angle in degrees; 180 is a sphere. |
 | `Gravity`, `Drag` | The emitter's **own** gravity, not the physics world's. |
 | `SizeStart`, `SizeEnd`, `ColorStart`, `ColorEnd` | Interpolated over each particle's life. |
@@ -32,6 +34,61 @@ be hit by one, and no script is told about one.
 > should move as smoothly as the display can show it. A hitch is forgiven
 > rather than paid back, so a two-second stall does not produce two seconds of
 > particles in one frame.
+
+## Spawning in a volume
+
+`Shape: Point` puts every particle at the emitter's own position. That is right
+for anything with a source — a chimney, a muzzle, a wound — and wrong for
+anything spread over an area.
+
+The failure is worth recognising, because it is not fixed by tuning. Fireflies
+over a clearing, made from a point emitter with `Spread` at 180 and a lot of
+speed jitter, read as a slow fountain: there is a hole where the emitter is,
+because nothing has drifted away from it yet, and a shell where the oldest have
+got to. **The tell is the empty space at the origin, not the speed**, so making
+them slower makes it worse.
+
+`Shape: Box` spawns each particle at a uniformly random point inside `Box size`,
+so the volume is full from the first frame and stays full.
+
+```
+Shape        Box
+Box size     15, 2.6, 11
+Motion       Directional
+Speed        0.13
+```
+
+`Box size` is the box's **full extents in metres**, in the emitter's own frame.
+It is its own size rather than a multiple of the entity's scale — the rule
+`ColliderComponent` follows, so an emitter parented to something scaled is not
+scaled twice. It does turn with the emitter.
+
+> [!NOTE]
+> A **local-space** emitter is the one exception, and cannot be otherwise. Its
+> particles are stored in the emitter's frame and the transform is applied when
+> they are drawn, so its box rides the entity's scale along with everything else
+> it emits.
+
+### Motion: whether they go anywhere
+
+`Motion: Directional` is the cone above, then `Gravity` and `Drag` — what every
+emitter has always done, and still the default.
+
+`Motion: Stationary` gives a particle no velocity and applies neither force. It
+appears where it was born, lives out its lifetime and goes. With a box that is
+a field of things blinking on and off in place, which is a different effect
+from a slow drift and worth reaching for directly.
+
+> [!WARNING]
+> `Stationary` is **not** the same as `Speed` at zero. Gravity would still take
+> it, and turning gravity off as well spells one intention across two fields
+> that have to be read together — and that the next person to open the
+> inspector has to reverse-engineer.
+
+> [!TIP]
+> **View > Show Emitters** (F4) draws every box emitter's volume in the scene
+> view, and nothing in the game view. It is drawn from the same function the
+> emitter spawns from, so it cannot show a box the particles do not use.
 
 ## Curves, when two endpoints are not enough
 

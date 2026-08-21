@@ -11859,21 +11859,24 @@ Entities:
     TagComponent:
       Tag: Fireflies
     TransformComponent:
-      Position: [0.5, 1, 1.5]
+      Position: [0, 1.7, -1]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     ParticleEmitterComponent:
       Emit: true
-      Rate: 6
+      Rate: 30
       Burst: 0
-      Lifetime: 6.0
+      Lifetime: 9.6
       LifetimeJitter: 0.5
+      Shape: Box
+      BoxSize: [15, 2.6, 11]
+      Motion: Directional
       Direction: [0, 1, 0]
       Spread: 180
-      Speed: 0.3
-      SpeedJitter: 0.9
-      Gravity: [0, 0.015, 0]
-      Drag: 0.9
+      Speed: 0.13
+      SpeedJitter: 0.85
+      Gravity: [0, 0.004, 0]
+      Drag: 0.2
       SizeStart: 0.045
       SizeEnd: 0.045
       ColorStart: [0.8, 1, 0.45, 0]
@@ -11883,40 +11886,7 @@ Entities:
       Blend: Additive
       Space: World
       Texture: 8334611711036830663
-      MaxParticles: 56
-      SimulateOnGpu: false
-      SizeCurve: 0
-      ColorGradient: 0
-      AlphaCurve: 10762499778556447626
-  - EntityID: 14864256556270999119
-    TagComponent:
-      Tag: Fireflies Far
-    TransformComponent:
-      Position: [5.4, 1.6, -4.6]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    ParticleEmitterComponent:
-      Emit: true
-      Rate: 4
-      Burst: 0
-      Lifetime: 6.5
-      LifetimeJitter: 0.5
-      Direction: [0, 1, 0]
-      Spread: 180
-      Speed: 0.26
-      SpeedJitter: 0.9
-      Gravity: [0, 0.01, 0]
-      Drag: 0.9
-      SizeStart: 0.04
-      SizeEnd: 0.04
-      ColorStart: [0.75, 1, 0.45, 0]
-      ColorEnd: [0.55, 1, 0.3, 0]
-      Spin: 0
-      Facing: Billboard
-      Blend: Additive
-      Space: World
-      Texture: 8334611711036830663
-      MaxParticles: 40
+      MaxParticles: 340
       SimulateOnGpu: false
       SizeCurve: 0
       ColorGradient: 0

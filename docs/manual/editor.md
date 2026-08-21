@@ -39,6 +39,7 @@ WCAG 2.2 AA contrast by a script, so neither is a guess.
 | **F** | Frame the selection |
 | **F2** | Toggle the grid |
 | **F3** | Toggle collider wireframes |
+| **F4** | Toggle particle emitter volumes |
 | **Delete** | Delete the selection |
 
 > [!NOTE]

@@ -351,6 +351,7 @@ private:
 	RageV::Vec2 m_RequestedGameSize = { 0.0f, 0.0f };
 	void ApplyPendingResizes();
 	void DrawColliderOverlay();
+	void DrawEmitterVolumes();
 	void HandleViewportPicking(const ImVec2& imageOrigin, const ImVec2& imageSize);
 	bool m_IsViewportFocused = false, m_IsViewportHovered = false;
 
@@ -401,6 +402,12 @@ private:
 	// properly. Scene view only -- the game view is meant to be what a player
 	// would see.
 	bool m_ShowColliders = false;
+
+	// The spawn volume of every box emitter, in the scene view. Off by default
+	// for the reason the colliders are: it is a diagnostic, and it is most
+	// useful for the minute somebody spends sizing a box. Scene view only --
+	// the game view is what a player would see, and a wireframe box is not.
+	bool m_ShowEmitters = false;
 
 	// The ground grid. On by default, and the opposite call from the colliders
 	// above: this is not a diagnostic, it is the floor. Without one a scene with

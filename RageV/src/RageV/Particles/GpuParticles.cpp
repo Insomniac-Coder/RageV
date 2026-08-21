@@ -54,6 +54,19 @@ namespace RageV::Particles
 			Mat4 Model;
 			Vec4 SpaceScale;
 
+			// The spawn box, as three half-axis vectors already turned into
+			// the space this shader integrates in -- the answer, not the
+			// ingredients, exactly as the ramps below are.
+			//
+			// Three vectors rather than a size and a matrix because that is
+			// what makes the two paths provably the same: both ask
+			// Particles::SpawnBoxAxes, so "does the box follow rotation but
+			// not scale" is decided once, in C++, where it can be tested.
+			// A point emitter's are zero and the shader adds them anyway.
+			Vec4 BoxAxisX;
+			Vec4 BoxAxisY;
+			Vec4 BoxAxisZ;
+
 			// The ramps, already resolved.
 			//
 			// The shader is handed the *answer*, not the ingredients: which of
@@ -72,7 +85,7 @@ namespace RageV::Particles
 			// nothing but an indexing bug.
 			Vec4 SizeRamp[Curve::Baked::kSize];
 		};
-		static_assert(sizeof(EmitterParams) == 208 + 2 * 16 * Curve::Baked::kSize,
+		static_assert(sizeof(EmitterParams) == 256 + 2 * 16 * Curve::Baked::kSize,
 					  "Must match particle_sim.rvshader");
 
 		// One emitter's residency. Kept while the emitter exists, whether or
@@ -490,7 +503,22 @@ namespace RageV::Particles
 			params.SpawnCount = spawn;
 			params.Epoch = resident.Epoch;
 			params.Model = transform.World;
-			params.SpaceScale = Vec4(local ? 1.0f : 0.0f, scale, 0.0f, 0.0f);
+			// z carries the motion, so a stationary emitter neither launches
+			// its particles nor pulls on them afterwards. The CPU path reads
+			// the same field off the component; this is the same decision
+			// crossing the bus rather than a second one.
+			params.SpaceScale = Vec4(local ? 1.0f : 0.0f, scale,
+									 emitter.Motion == ParticleMotion::Stationary ? 1.0f : 0.0f,
+									 0.0f);
+
+			// The one function both paths ask, so the box the editor draws,
+			// the box the CPU spawns in and the box the compute shader spawns
+			// in are the same box by construction.
+			Vec3 boxAxes[3];
+			Particles::SpawnBoxAxes(emitter, transform.World, boxAxes);
+			params.BoxAxisX = Vec4(boxAxes[0], 0.0f);
+			params.BoxAxisY = Vec4(boxAxes[1], 0.0f);
+			params.BoxAxisZ = Vec4(boxAxes[2], 0.0f);
 
 			// Resolve the ramps here, once per emitter per frame, using the
 			// same function the CPU renderer calls per particle. 64 samples of

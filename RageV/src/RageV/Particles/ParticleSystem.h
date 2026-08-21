@@ -32,6 +32,28 @@ namespace RageV::Particles
 						const Curve::Baked* colorGradient,
 						const Curve::Baked* alphaCurve);
 
+	// The spawn box as three half-axis vectors, in the space the emitter's
+	// particles are integrated in.
+	//
+	// A free function for the same reason Evaluate is one: three callers have
+	// to agree on it exactly -- the CPU emitter, the parameters the compute
+	// shader is handed, and the volume the editor draws -- and a box the
+	// overlay disagrees with is worse than no overlay, because it is a
+	// measurement of the wrong thing that looks like a measurement of the
+	// right one.
+	//
+	// **World-space emitters get the box turned by the emitter and not scaled
+	// by it**, which is BoxSize's contract. A local-space one gets the plain
+	// axes: its particles are stored in the emitter's frame and the transform
+	// is applied when they are drawn, so folding it in here would apply it
+	// twice. Anything drawing this in world space has to account for that --
+	// see EditorLayer::DrawEmitterVolumes.
+	//
+	// All three are zero for a point emitter, so a caller may add them
+	// unconditionally.
+	void SpawnBoxAxes(const ParticleEmitterComponent& emitter, const Mat4& world,
+					  Vec3 outAxes[3]);
+
 	// The CPU simulation: ages, integrates and emits for every emitter in the
 	// scene that is not simulating on the GPU.
 	//

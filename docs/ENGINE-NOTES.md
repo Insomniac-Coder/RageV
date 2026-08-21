@@ -11449,6 +11449,81 @@ ramp is invisible in the ramp's statistics and obvious once the ramp is gone.
 
 ---
 
+### 7bv. The box emitter is a shape, not a second emitter
+
+Asked for as "a new type of emitter, Particle Emitter Box": particles spawning
+anywhere inside an adjustable volume instead of at one point, with a mode that
+leaves them where they land, and a volume the editor draws.
+
+**It is two fields on `ParticleEmitterComponent`, not a component of its own**,
+and the reason is what the feature was wanted for. The fireflies it was asked
+for already had colour, size, an alpha curve, an additive blend, a sprite and a
+world-space contract that were right. A second component either re-declares
+every one of those -- and then there are two places for a particle to get its
+colour ramp, which is the shape of every drift this codebase has written down --
+or it is a cut-down emitter that cannot make the effect it exists for. What was
+actually missing is *where a particle is born*, which is one enum and one
+vector.
+
+The cost is honest: there is no "Particle Emitter Box" row in Add Component.
+Setting `Shape` to `Box` is what makes one.
+
+**Every random draw is taken whether or not it is used.** A box emitter needs
+three numbers a point emitter does not, and a stationary particle needs no
+direction. Taking those draws conditionally would mean the two shapes walk the
+random sequence at different rates, so flipping `Shape` in the inspector would
+reshuffle every lifetime, direction and spin as well as the positions. A
+control that also reshuffles the effect cannot be used to compare two settings,
+which is the only thing anybody wants it for. Three multiplies by zero and one
+discarded cone direction is the price, per particle, per spawn.
+
+**One function answers where the box is.** `Particles::SpawnBoxAxes` returns
+three half-axis vectors, and all three callers ask it: the CPU emitter, the
+parameters the compute shader is handed, and the volume the editor draws. The
+GPU path is handed the *answer* -- three vectors already in its own space --
+for the same reason it is handed the resolved ramps rather than the curve
+assets: a shader that cannot express the rule cannot disagree with it. And the
+overlay matters most, because an overlay that agrees with the simulation by
+coincidence is a measurement of the wrong thing that looks like a measurement
+of the right one.
+
+`BoxSize` is metres and turns with the emitter without being scaled by it,
+which is `ColliderComponent`'s rule. A local-space emitter is the exception and
+cannot be otherwise: its particles are stored in the emitter's frame and the
+transform is applied when they are drawn, so folding it in at spawn would apply
+it twice. `DrawEmitterVolumes` is the one place that difference is undone.
+
+**Stationary is not Speed at zero.** Gravity still takes a particle with no
+speed, so the intent needs two fields set together and read together -- and the
+next person to open that inspector has to reverse-engineer which pair of
+unrelated-looking zeroes meant "this does not move". The enum says it once and
+greys out the six rows it governs.
+
+### And a trap: an engine layout change breaks a project's script module silently
+
+Adding three fields to `ParticleEmitterComponent` moved `Burst`. `scenetest`
+then failed one check -- "striking the anvil asks its sparks for a burst" --
+while the click, the button and the script binding all passed.
+
+`SampleProject`'s native scripts are a **separate DLL**, built against the
+engine's headers and loaded at runtime. It had not been rebuilt, so
+`sparks.Burst = 34` wrote at the old offset. Nothing reported anything: the
+module loaded, the method was found and called, and it modified the wrong bytes
+of a component that still existed. The fix is one command --
+
+```
+cmake --build SampleProject/bin/module --config Debug
+cmake --build SampleProject/bin/module --config Release
+```
+
+-- and the lesson is that **the failure appears somewhere unrelated to the
+change**. A check about a UI button is what caught a particle component's
+layout moving. Worth remembering before assuming a change to one system broke
+another: if a project's scripts are involved, rebuild the module before
+believing the test.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

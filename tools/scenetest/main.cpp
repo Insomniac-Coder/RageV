@@ -1408,6 +1408,198 @@ namespace
 		}
 	}
 
+	// The box emitter: where a particle is born, and whether it then moves.
+	//
+	// Checked by *bounds and spread* rather than by exact positions. Inside the
+	// box is the contract; which point inside is the random sequence's business
+	// and asserting it would pin an implementation detail. But "inside the box"
+	// alone passes for an emitter that never left the origin, which is the bug
+	// this feature exists to fix -- so every bound check here is paired with a
+	// fill check.
+	void CheckEmitterVolumes()
+	{
+		constexpr float dt = 1.0f / 60.0f;
+		const Vec3 at(10.0f, 3.0f, -4.0f);
+		const Vec3 size(4.0f, 2.0f, 6.0f);
+
+		auto scene = std::make_shared<Scene>();
+		Entity host = scene->CreateEntity("Box");
+		host.GetComponent<TransformComponent>().Position = at;
+
+		auto& emitter = host.AddComponent<ParticleEmitterComponent>();
+		emitter.Emit = false;            // bursts only, so the count is exact
+		emitter.Lifetime = 100.0f;
+		emitter.LifetimeJitter = 0.0f;
+		emitter.MaxParticles = 4096;
+		emitter.Shape = EmitterShape::Box;
+		emitter.BoxSize = size;
+		emitter.Motion = ParticleMotion::Stationary;
+		emitter.Burst = 2000;
+		scene->OnUpdateRuntime(dt);
+
+		Check(emitter.Pool.size() == 2000, "a box emitter fires its burst like any other");
+
+		Vec3 low(1e9f), high(-1e9f);
+		for (const Particle& particle : emitter.Pool)
+			for (int i = 0; i < 3; i++)
+			{
+				low[i] = Math::Min(low[i], particle.Position[i]);
+				high[i] = Math::Max(high[i], particle.Position[i]);
+			}
+
+		bool inside = true;
+		for (int i = 0; i < 3; i++)
+			inside = inside && low[i] >= at[i] - size[i] * 0.5f - 1e-4f
+							&& high[i] <= at[i] + size[i] * 0.5f + 1e-4f;
+		Check(inside, "every particle is born inside the box");
+
+		// **And the box is filled**, which is the half that matters: the check
+		// above passes for an emitter still stuck at one point. Two thousand
+		// uniform draws reach within a twentieth of each face; a point emitter
+		// reaches zero.
+		bool fills = true;
+		for (int i = 0; i < 3; i++)
+			fills = fills && (high[i] - low[i]) > size[i] * 0.9f;
+		Check(fills, "and they fill it rather than clustering at its centre");
+
+		// Stationary is not Speed at zero. Gravity is on and strong, drag with
+		// it; nothing may move, and the pool is re-read after a full second.
+		emitter.Gravity = Vec3(0.0f, -20.0f, 0.0f);
+		emitter.Drag = 3.0f;
+		std::vector<Vec3> before;
+		for (const Particle& particle : emitter.Pool)
+			before.push_back(particle.Position);
+
+		for (int i = 0; i < 60; i++)
+			scene->OnUpdateRuntime(dt);
+
+		bool still = emitter.Pool.size() == before.size();
+		for (size_t i = 0; still && i < emitter.Pool.size(); i++)
+			still = Math::Length(emitter.Pool[i].Position - before[i]) < 1e-6f;
+		Check(still, "a stationary particle ignores gravity and drag, not just speed");
+
+		// The other mode, on the same box: born in the volume and then moving.
+		emitter.Pool.clear();
+		emitter.Motion = ParticleMotion::Directional;
+		emitter.Gravity = Vec3(0.0f);
+		emitter.Drag = 0.0f;
+		emitter.Speed = 2.0f;
+		emitter.SpeedJitter = 0.0f;
+		emitter.Spread = 180.0f;
+		emitter.Burst = 500;
+		scene->OnUpdateRuntime(dt);
+		for (int i = 0; i < 60; i++)
+			scene->OnUpdateRuntime(dt);
+
+		int moved = 0;
+		for (const Particle& particle : emitter.Pool)
+			moved += Math::Length(particle.Position - at) > size.y * 0.5f ? 1 : 0;
+		Check(moved > 0, "a directional box emitter still sends its particles somewhere");
+
+		// --- Shape changes the shape and nothing else ----------------------
+		//
+		// A point emitter puts every particle at the emitter, which is what
+		// every scene authored before this existed relies on.
+		auto pointScene = std::make_shared<Scene>();
+		Entity pointHost = pointScene->CreateEntity("Point");
+		pointHost.GetComponent<TransformComponent>().Position = at;
+		auto& point = pointHost.AddComponent<ParticleEmitterComponent>();
+		point.Emit = false;
+		point.Lifetime = 100.0f;
+		point.MaxParticles = 256;
+		point.Burst = 200;
+		pointScene->OnUpdateRuntime(dt);
+
+		bool atOrigin = !point.Pool.empty();
+		for (const Particle& particle : point.Pool)
+			atOrigin = atOrigin && Math::Length(particle.Position - at) < 1e-4f;
+		Check(atOrigin, "a point emitter is untouched: every particle starts at the emitter");
+
+		// --- the box turns with the emitter and is not scaled by it --------
+		//
+		// BoxSize is metres, the rule ColliderComponent follows. An emitter
+		// parented to something scaled would otherwise fire into a volume
+		// nothing draws -- and the editor overlay, which asks the same
+		// function, would draw the volume it does not fire into.
+		auto turned = std::make_shared<Scene>();
+		Entity turnedHost = turned->CreateEntity("Turned");
+		auto& turnedTransform = turnedHost.GetComponent<TransformComponent>();
+		turnedTransform.Rotation = Vec3(0.0f, Math::Radians(90.0f), 0.0f);
+		turnedTransform.Scale = Vec3(3.0f);
+
+		auto& turnedEmitter = turnedHost.AddComponent<ParticleEmitterComponent>();
+		turnedEmitter.Emit = false;
+		turnedEmitter.Lifetime = 100.0f;
+		turnedEmitter.LifetimeJitter = 0.0f;
+		turnedEmitter.MaxParticles = 4096;
+		turnedEmitter.Shape = EmitterShape::Box;
+		turnedEmitter.BoxSize = Vec3(1.0f, 0.0f, 8.0f);   // a long, flat slab
+		turnedEmitter.Motion = ParticleMotion::Stationary;
+		turnedEmitter.Burst = 2000;
+		turned->OnUpdateRuntime(dt);
+
+		Vec3 turnedLow(1e9f), turnedHigh(-1e9f);
+		for (const Particle& particle : turnedEmitter.Pool)
+			for (int i = 0; i < 3; i++)
+			{
+				turnedLow[i] = Math::Min(turnedLow[i], particle.Position[i]);
+				turnedHigh[i] = Math::Max(turnedHigh[i], particle.Position[i]);
+			}
+
+		// Turned a quarter turn about Y, the 8 m side lies along world X and
+		// the 1 m side along world Z. Scaled by three it would be 24.
+		const float spanX = turnedHigh.x - turnedLow.x;
+		const float spanZ = turnedHigh.z - turnedLow.z;
+		Check(spanX > 7.0f && spanX < 8.01f && spanZ > 0.85f && spanZ < 1.01f,
+			  "the box turns with the emitter and is not scaled by it");
+		Check(Math::Abs(turnedHigh.y - turnedLow.y) < 1e-4f,
+			  "and a zero side is a slab rather than an error");
+
+		// --- and it survives the file --------------------------------------
+		SceneSerializer writer(scene);
+		const std::string text = writer.SerializeToString();
+		Check(text.find("Shape: Box") != std::string::npos
+			  && text.find("BoxSize") != std::string::npos,
+			  "the shape and its size serialize by name");
+
+		auto reloaded = std::make_shared<Scene>();
+		SceneSerializer reader(reloaded);
+		Check(reader.DeserializeFromString(text), "and the scene loads again");
+
+		Entity restored = reloaded->FindEntityByName("Box");
+		if (restored && restored.HasComponent<ParticleEmitterComponent>())
+		{
+			const auto& back = restored.GetComponent<ParticleEmitterComponent>();
+			Check(back.Shape == EmitterShape::Box
+				  && Math::Length(back.BoxSize - size) < 1e-6f
+				  && back.Motion == ParticleMotion::Directional,
+				  "with the shape, the size and the motion it was saved with");
+		}
+		else
+		{
+			Check(false, "with the shape, the size and the motion it was saved with");
+		}
+
+		// An emitter authored before any of this existed reads back as a point
+		// emitter that moves, which is what it was.
+		auto legacy = std::make_shared<Scene>();
+		SceneSerializer legacyReader(legacy);
+		Check(legacyReader.DeserializeFromString(
+				  "Scene: Legacy\nVersion: 6\nEntities:\n"
+				  "  - EntityID: 12345\n"
+				  "    TagComponent:\n      Tag: Old\n"
+				  "    TransformComponent:\n"
+				  "      Position: [0, 0, 0]\n      Rotation: [0, 0, 0]\n      Scale: [1, 1, 1]\n"
+				  "    ParticleEmitterComponent:\n      Rate: 7\n"),
+			  "a scene file written before Shape existed still loads");
+		Entity old = legacy->FindEntityByName("Old");
+		Check(old && old.HasComponent<ParticleEmitterComponent>()
+			  && old.GetComponent<ParticleEmitterComponent>().Shape == EmitterShape::Point
+			  && old.GetComponent<ParticleEmitterComponent>().Motion
+					 == ParticleMotion::Directional,
+			  "as the point emitter that moves, which is what it was");
+	}
+
 	// Particles, checked by counting rather than by looking. The simulation
 	// is deterministic -- xorshift, fixed dt -- so exact numbers are
 	// assertable; what they look like is the screenshot's job.
@@ -13251,6 +13443,7 @@ int RunTests(int argc, char** argv)
 	CheckCurveAsset();
 	CheckParticleCurves();
 	CheckParticles();
+	CheckEmitterVolumes();
 	CheckColliderOverlay();
 	CheckAnimationBlend();
 	CheckEditorIcons();

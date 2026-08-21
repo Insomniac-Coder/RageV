@@ -968,31 +968,38 @@ def build(profiles, profile_paths, mat, prop, tex, curve):
         ("OuterCone", 30),
     ])
 
-    # Fireflies: world space so they stay where they drift rather than riding
-    # the entity, and slow enough to read as insects.
-    s.entity("Fireflies", position=(0.5, 1.0, 1.5))
+    # Fireflies, over the clearing rather than out of two points in it.
+    #
+    # **This is what EmitterShape::Box is for.** They used to be a pair of
+    # point emitters with Spread at 180 and a lot of speed jitter, which is the
+    # only way a point emitter can pretend to be a volume -- and it does not
+    # work, because the tell is not the motion. Every particle starts at the
+    # same place, so there is a hole where the emitter is and a shell where the
+    # oldest ones have got to, and the eye reads a slow fountain no matter how
+    # slow it is made. A box spawns each one at a uniformly random point inside
+    # itself, so the field is full from the first frame and stays full.
+    #
+    # The two point emitters are one box. Fifteen metres across and eleven
+    # deep covers the camp from the van to the tent; 2.6 tall and centred at
+    # 1.7 keeps the bottom clear of the ground, which is not flat here, and the
+    # top under the canopy.
+    #
+    # World space, so a fly stays where it drifted rather than riding the
+    # entity, and Directional rather than Stationary: they blink through the
+    # alpha curve either way, but a metre of drift over eight seconds is the
+    # difference between insects and fairy lights. The near-zero gravity is a
+    # bias upward, not a fall.
+    s.entity("Fireflies", position=(0, 1.7, -1.0))
     s.block("ParticleEmitterComponent", [
-        ("Emit", "true"), ("Rate", 6), ("Burst", 0), ("Lifetime", 6.0),
-        ("LifetimeJitter", 0.5), ("Direction", "[0, 1, 0]"), ("Spread", 180),
-        ("Speed", 0.3), ("SpeedJitter", 0.9), ("Gravity", "[0, 0.015, 0]"),
-        ("Drag", 0.9), ("SizeStart", 0.045), ("SizeEnd", 0.045),
+        ("Emit", "true"), ("Rate", 30), ("Burst", 0), ("Lifetime", 9.6),
+        ("LifetimeJitter", 0.5),
+        ("Shape", "Box"), ("BoxSize", "[15, 2.6, 11]"), ("Motion", "Directional"),
+        ("Direction", "[0, 1, 0]"), ("Spread", 180),
+        ("Speed", 0.13), ("SpeedJitter", 0.85), ("Gravity", "[0, 0.004, 0]"),
+        ("Drag", 0.2), ("SizeStart", 0.045), ("SizeEnd", 0.045),
         ("ColorStart", "[0.8, 1, 0.45, 0]"), ("ColorEnd", "[0.6, 1, 0.3, 0]"),
         ("Spin", 0), ("Facing", "Billboard"), ("Blend", "Additive"),
-        ("Space", "World"), ("Texture", tex["spark"]), ("MaxParticles", 56),
-        ("SimulateOnGpu", "false"),
-        ("SizeCurve", 0), ("ColorGradient", 0), ("AlphaCurve", curve["alpha"]),
-    ])
-
-    # A second drift on the far side, so the effect is not one glowing spot.
-    s.entity("Fireflies Far", position=(5.4, 1.6, -4.6))
-    s.block("ParticleEmitterComponent", [
-        ("Emit", "true"), ("Rate", 4), ("Burst", 0), ("Lifetime", 6.5),
-        ("LifetimeJitter", 0.5), ("Direction", "[0, 1, 0]"), ("Spread", 180),
-        ("Speed", 0.26), ("SpeedJitter", 0.9), ("Gravity", "[0, 0.01, 0]"),
-        ("Drag", 0.9), ("SizeStart", 0.04), ("SizeEnd", 0.04),
-        ("ColorStart", "[0.75, 1, 0.45, 0]"), ("ColorEnd", "[0.55, 1, 0.3, 0]"),
-        ("Spin", 0), ("Facing", "Billboard"), ("Blend", "Additive"),
-        ("Space", "World"), ("Texture", tex["spark"]), ("MaxParticles", 40),
+        ("Space", "World"), ("Texture", tex["spark"]), ("MaxParticles", 340),
         ("SimulateOnGpu", "false"),
         ("SizeCurve", 0), ("ColorGradient", 0), ("AlphaCurve", curve["alpha"]),
     ])

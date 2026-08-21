@@ -95,6 +95,8 @@ namespace
 		const char* kParticleFacingNames[] = { "Billboard", "Flat" };
 		const char* kParticleBlendNames[] = { "Alpha", "Additive", "WeightedBlended" };
 		const char* kParticleSpaceNames[] = { "World", "Local" };
+		const char* kEmitterShapeNames[] = { "Point", "Box" };
+		const char* kParticleMotionNames[] = { "Directional", "Stationary" };
 		const char* kAudioBusNames[] = { "Master", "Music", "SFX", "UI" };
 
 		FieldHint AssetRef(AssetType accepts, const char* tooltip = nullptr)
@@ -208,6 +210,18 @@ namespace
 		bool IsSpot(const void* component)
 		{
 			return static_cast<const LightComponent*>(component)->Light.Type == Light::LightType::Spot;
+		}
+
+		bool EmitsFromBox(const void* component)
+		{
+			return static_cast<const ParticleEmitterComponent*>(component)->Shape
+				== EmitterShape::Box;
+		}
+
+		bool ParticlesStandStill(const void* component)
+		{
+			return static_cast<const ParticleEmitterComponent*>(component)->Motion
+				== ParticleMotion::Stationary;
 		}
 
 		bool IsPositional(const void* component)
@@ -1006,21 +1020,67 @@ namespace
 					Drag(0.05f, 0.05f, 60.0f, "Seconds each particle lives.")),
 				Field<&ParticleEmitterComponent::LifetimeJitter>("LifetimeJitter",
 					Slider(0.0f, 1.0f, "Random spread as a fraction of Lifetime.")),
+				Field<&ParticleEmitterComponent::Shape>("Shape",
+					Enum(kEmitterShapeNames,
+						 "Where a particle is born. Point is the emitter's own "
+						 "position -- a chimney, a muzzle. Box spawns anywhere "
+						 "inside a volume, which is what anything spread over an "
+						 "area needs: fireflies over a clearing, dust in a shaft "
+						 "of light. A cone leaving one point reads as a fountain "
+						 "however slowly it moves, because the tell is the empty "
+						 "space at the origin rather than the speed.")),
+				Field<&ParticleEmitterComponent::BoxSize>("BoxSize",
+					Named("Box size",
+						DisabledWhen([](const void* c) { return !EmitsFromBox(c); },
+									 "Only a Box emitter has a volume to spawn in.",
+							FieldHint{ FieldHint::Widget::Default, 0, 0, 0.05f, nullptr, 0,
+									   "Full extents in metres, in the emitter's own "
+									   "frame. Its own size rather than the entity's "
+									   "scale, as a collider's is -- so an emitter "
+									   "parented to something scaled is not scaled "
+									   "twice. Shown in the viewport under "
+									   "View > Show Emitters." }))),
+				Field<&ParticleEmitterComponent::Motion>("Motion",
+					Enum(kParticleMotionNames,
+						 "Whether a particle goes anywhere once it is born. "
+						 "Directional is the cone below, then gravity and drag. "
+						 "Stationary gives it no velocity and applies neither, so "
+						 "it appears, lives out its lifetime and goes -- which "
+						 "with a Box is a field of things blinking on and off in "
+						 "place. Speed at zero is not the same thing: gravity "
+						 "still takes it.")),
+
 				Field<&ParticleEmitterComponent::Direction>("Direction",
-					FieldHint{ FieldHint::Widget::Default, 0, 0, 0.1f, nullptr, 0,
-							   "The cone's axis, in the emitter's own frame." }),
+					DisabledWhen(ParticlesStandStill,
+								 "A stationary particle has no direction.",
+						FieldHint{ FieldHint::Widget::Default, 0, 0, 0.1f, nullptr, 0,
+								   "The cone's axis, in the emitter's own frame." })),
 				Field<&ParticleEmitterComponent::Spread>("Spread",
-					Slider(0.0f, 180.0f, "Half-angle of the cone, degrees. 180 is a sphere.")),
+					DisabledWhen(ParticlesStandStill,
+								 "A stationary particle has no direction.",
+						Slider(0.0f, 180.0f,
+							   "Half-angle of the cone, degrees. 180 is a sphere, "
+							   "which is how a box emitter drifts every way at "
+							   "once."))),
 				Field<&ParticleEmitterComponent::Speed>("Speed",
-					Drag(0.1f, 0.0f, 1000.0f)),
+					DisabledWhen(ParticlesStandStill,
+								 "A stationary particle does not move.",
+								 Drag(0.1f, 0.0f, 1000.0f))),
 				Field<&ParticleEmitterComponent::SpeedJitter>("SpeedJitter",
-					Slider(0.0f, 1.0f)),
+					DisabledWhen(ParticlesStandStill,
+								 "A stationary particle does not move.",
+								 Slider(0.0f, 1.0f))),
 				Field<&ParticleEmitterComponent::Gravity>("Gravity",
-					FieldHint{ FieldHint::Widget::Default, 0, 0, 0.1f, nullptr, 0,
-							   "This emitter's own, not the physics world's: snow "
-							   "drifts, sparks plunge, neither is a rigid body." }),
+					DisabledWhen(ParticlesStandStill,
+								 "Nothing pulls on a stationary particle -- that is "
+								 "what makes it stationary rather than slow.",
+						FieldHint{ FieldHint::Widget::Default, 0, 0, 0.1f, nullptr, 0,
+								   "This emitter's own, not the physics world's: snow "
+								   "drifts, sparks plunge, neither is a rigid body." })),
 				Field<&ParticleEmitterComponent::Drag>("Drag",
-					Slider(0.0f, 10.0f, "Fraction of velocity lost per second.")),
+					DisabledWhen(ParticlesStandStill,
+								 "Nothing pulls on a stationary particle.",
+						Slider(0.0f, 10.0f, "Fraction of velocity lost per second."))),
 				Field<&ParticleEmitterComponent::SizeStart>("SizeStart",
 					Drag(0.01f, 0.0f, 100.0f)),
 				Field<&ParticleEmitterComponent::SizeEnd>("SizeEnd",

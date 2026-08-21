@@ -271,6 +271,9 @@ The full guide, with the curve editor and the blend modes, is in
 | `Burst` | `0` | Particles spawned at once when triggered from a script |
 | `Lifetime` | `1.5` | Seconds a particle lives |
 | `LifetimeJitter` | `0.25` | Fraction of random variation on the lifetime |
+| `Shape` | `Point` | Where particles are born: `Point` is the emitter itself, `Box` is anywhere inside `BoxSize` |
+| `BoxSize` | `2, 1, 2` | The spawn box's full extents in metres, in the emitter's frame. `Box` only |
+| `Motion` | `Directional` | `Directional` uses the cone below, then gravity and drag. `Stationary` gives no velocity and applies neither |
 | `Direction` | `0, 1, 0` | Which way the cone points |
 | `Spread` | `25.0` | Half-angle of the cone, in degrees. 0 is a beam, 180 is a sphere |
 | `Speed` | `3.0` | Initial speed along the cone |
@@ -303,6 +306,31 @@ The full guide, with the curve editor and the blend modes, is in
 > [!NOTE]
 > An unset curve means the start/end pair still decides that channel, so
 > attaching one changes nothing until a key moves.
+
+**Spawning in a volume.** A `Point` emitter puts every particle at the same
+place, which is right for anything with a source -- a chimney, a muzzle -- and
+wrong for anything spread over an area. Fireflies over a clearing leaving one
+point read as a fountain however slowly they move, because the tell is the
+empty space at the origin rather than the speed. `Shape: Box` spawns each
+particle at a uniformly random point inside `BoxSize`.
+
+`BoxSize` is the box's own size in metres, not a multiple of the entity's
+scale -- the same rule `ColliderComponent` follows, so an emitter parented to
+something scaled is not scaled twice. A **local-space** emitter is the one
+exception and cannot be otherwise: its particles are stored in the emitter's
+frame and the transform is applied when they are drawn, so its box rides the
+entity's scale along with everything else it emits.
+
+`Motion: Stationary` is not the same as `Speed` at zero -- gravity would still
+take it, and turning gravity off as well spells one intention across two
+fields that have to be read together. Stationary particles appear where they
+were born, live out their lifetime and go, which with a box is a field of
+things blinking on and off in place.
+
+> [!TIP]
+> **View > Show Emitters** (F4) draws every box emitter's volume in the scene
+> view, and nothing in the game view. It is drawn from the same function the
+> emitter spawns from, so it cannot show a box the particles do not use.
 
 ## User interface
 

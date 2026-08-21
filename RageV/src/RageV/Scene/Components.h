@@ -582,6 +582,30 @@ namespace RageV
 	// moves with the torch.
 	enum class ParticleSpace { World, Local };
 
+	// Where a particle is born.
+	//
+	// Point is the emitter's own position, which is every emitter written
+	// before this existed and is right for anything with a source: a chimney,
+	// a muzzle, a wound. Box spawns anywhere inside a volume, which is what
+	// something *distributed* needs -- fireflies over a clearing, dust in a
+	// shaft of light, embers over a fire pit. A cone of them leaving one point
+	// reads as a fountain however slowly it moves, and no amount of speed or
+	// spread tuning fixes that, because the tell is the empty space at the
+	// origin rather than the motion.
+	enum class EmitterShape { Point, Box };
+
+	// Whether a particle goes anywhere once it is born.
+	//
+	// Directional is the cone below -- Direction, Spread, Speed, and then
+	// Gravity and Drag -- and is what every emitter has always done.
+	// Stationary gives it no velocity at all and applies neither gravity nor
+	// drag: it appears where it was born, lives out its lifetime, and goes.
+	// With a box that is a field of things blinking on and off in place, which
+	// is a different effect from a slow drift and not one the cone can reach:
+	// Speed at zero still falls under gravity, and turning gravity off as well
+	// spells the intent in two fields that have to be read together.
+	enum class ParticleMotion { Directional, Stationary };
+
 	// One live particle. CPU-simulated; the GPU path keeps the same layout on
 	// its own buffers and never reads it back.
 	struct Particle
@@ -609,6 +633,23 @@ namespace RageV
 
 		float Lifetime = 1.5f;           // seconds each particle lives
 		float LifetimeJitter = 0.25f;    // fraction of Lifetime, randomised away
+
+		// Where particles are born, and whether they then move. Both default
+		// to what the emitter did before they existed, so nothing authored
+		// against the old component changes.
+		EmitterShape   Shape = EmitterShape::Point;
+		ParticleMotion Motion = ParticleMotion::Directional;
+
+		// The spawn box's full extents in metres, in the emitter's own frame.
+		//
+		// Its own property rather than the entity's scale, which is the rule
+		// ColliderComponent follows and for the same reason: an emitter parented
+		// to something scaled should not have its volume scaled twice. A
+		// *local-space* emitter is the exception and cannot be otherwise --
+		// local particles are stored in the emitter's frame and the transform
+		// is applied when they are drawn, so its box rides the entity's scale
+		// along with everything else it emits.
+		Vec3  BoxSize{ 2.0f, 1.0f, 2.0f };
 
 		// The cone particles leave through, in the emitter's own frame.
 		Vec3  Direction{ 0.0f, 1.0f, 0.0f };
@@ -676,6 +717,9 @@ namespace RageV
 			Burst = other.Burst;
 			Lifetime = other.Lifetime;
 			LifetimeJitter = other.LifetimeJitter;
+			Shape = other.Shape;
+			Motion = other.Motion;
+			BoxSize = other.BoxSize;
 			Direction = other.Direction;
 			Spread = other.Spread;
 			Speed = other.Speed;

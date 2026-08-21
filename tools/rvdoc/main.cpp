@@ -2088,6 +2088,8 @@ hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
 			{ "RageV/src/RageV/Scene/Components.h",        "ParticleFacing",  "components.md" },
 			{ "RageV/src/RageV/Scene/Components.h",        "ParticleBlend",   "components.md" },
 			{ "RageV/src/RageV/Scene/Components.h",        "ParticleSpace",   "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h",        "EmitterShape",    "components.md" },
+			{ "RageV/src/RageV/Scene/Components.h",        "ParticleMotion",  "components.md" },
 			{ "RageV/src/RageV/Physics/PhysicsTypes.h",    "BodyType",        "components.md" },
 			{ "RageV/src/RageV/Physics/PhysicsTypes.h",    "ColliderShape",   "components.md" },
 			{ "RageV/src/RageV/Audio/AudioEngine.h",       "AudioBus",        "components.md" },

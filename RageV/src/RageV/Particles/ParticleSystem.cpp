@@ -52,6 +52,43 @@ namespace RageV::Particles
 		}
 	}
 
+	void SpawnBoxAxes(const ParticleEmitterComponent& emitter, const Mat4& world,
+					  Vec3 outAxes[3])
+	{
+		if (emitter.Shape != EmitterShape::Box)
+		{
+			outAxes[0] = outAxes[1] = outAxes[2] = Vec3(0.0f);
+			return;
+		}
+
+		// Half extents, because the field is the box's *size* -- what a person
+		// measures with a tape -- and everything downstream wants the radius.
+		// A negative entry is not an error worth reporting, it is a box someone
+		// dragged past zero, and its absolute value is the box they can see.
+		const Vec3 half = Math::Abs(emitter.BoxSize) * 0.5f;
+
+		if (emitter.Space == ParticleSpace::Local)
+		{
+			outAxes[0] = Vec3(half.x, 0.0f, 0.0f);
+			outAxes[1] = Vec3(0.0f, half.y, 0.0f);
+			outAxes[2] = Vec3(0.0f, 0.0f, half.z);
+			return;
+		}
+
+		// Turned by the emitter, **normalised first**: BoxSize is metres, not
+		// a multiple of whatever the entity happens to be scaled by. The cone
+		// axis in Emit is normalised for exactly this reason and the box has to
+		// answer the same way, or an emitter parented to something scaled would
+		// fire into a volume it does not draw.
+		for (int i = 0; i < 3; i++)
+		{
+			const Vec3 column = Vec3(world[i]);
+			const float length = Math::Length(column);
+			const Vec3 direction = length > 0.0f ? column / length : Vec3(0.0f);
+			outAxes[i] = direction * half[i];
+		}
+	}
+
 	Appearance Evaluate(const ParticleEmitterComponent& emitter, float t,
 						const Curve::Baked* sizeCurve,
 						const Curve::Baked* colorGradient,
@@ -108,13 +145,35 @@ namespace RageV::Particles
 
 		const float spread = Math::Radians(Math::Clamp(emitter.Spread, 0.0f, 180.0f));
 
+		// Zero for a point emitter, so the offset below is three multiplies and
+		// no branch inside the loop.
+		Vec3 boxAxes[3];
+		SpawnBoxAxes(emitter, world, boxAxes);
+		const bool stationary = emitter.Motion == ParticleMotion::Stationary;
+
 		for (int i = 0; i < count; i++)
 		{
 			Particle particle;
-			particle.Position = origin;
-			particle.Velocity = RandomInCone(emitter.Rng, axis, spread)
-							  * emitter.Speed
+
+			// **Every draw is taken whether or not it is used**, here and for
+			// the velocity below. A point emitter and a box emitter with the
+			// same seed therefore walk the random sequence at the same rate, so
+			// changing Shape or Motion changes only the thing it names --
+			// switching Motion while the sequence shifted underneath would
+			// reshuffle every lifetime and direction as well, and a control
+			// that also reshuffles the effect cannot be used to compare two
+			// settings.
+			const float rx = RandomSigned(emitter.Rng);
+			const float ry = RandomSigned(emitter.Rng);
+			const float rz = RandomSigned(emitter.Rng);
+
+			particle.Position = origin
+							  + boxAxes[0] * rx + boxAxes[1] * ry + boxAxes[2] * rz;
+
+			const Vec3 cone = RandomInCone(emitter.Rng, axis, spread);
+			const float speed = emitter.Speed
 							  * (1.0f + RandomSigned(emitter.Rng) * emitter.SpeedJitter);
+			particle.Velocity = stationary ? Vec3(0.0f) : cone * speed;
 			particle.Lifetime = Math::Max(0.05f,
 				emitter.Lifetime * (1.0f + RandomSigned(emitter.Rng) * emitter.LifetimeJitter));
 			particle.Rotation = RandomFloat(emitter.Rng) * Math::TwoPi;
@@ -172,9 +231,16 @@ namespace RageV::Particles
 					continue;
 				}
 
-				particle.Velocity += emitter.Gravity * dt;
-				particle.Velocity *= Math::Max(0.0f, 1.0f - emitter.Drag * dt);
-				particle.Position += particle.Velocity * dt;
+				// Stationary is not "Speed at zero": gravity would still take
+				// it, and a firefly that sinks is a firefly with a problem.
+				// Neither force is applied, so the particle stays exactly where
+				// it was born for the whole of its life.
+				if (emitter.Motion != ParticleMotion::Stationary)
+				{
+					particle.Velocity += emitter.Gravity * dt;
+					particle.Velocity *= Math::Max(0.0f, 1.0f - emitter.Drag * dt);
+					particle.Position += particle.Velocity * dt;
+				}
 				particle.Rotation += particle.Spin * dt;
 				++i;
 			}

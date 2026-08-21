@@ -586,7 +586,8 @@ void EditorLayer::OnUpdate(Timestep ts)
 		}
 	};
 
-	if (m_ShowColliders || (m_TerrainTool.Enabled && m_SceneState == SceneState::Edit))
+	if (m_ShowColliders || m_ShowEmitters ||
+		(m_TerrainTool.Enabled && m_SceneState == SceneState::Edit))
 		scene.DrawOverlay = [this](RGPassContext&) { DrawColliderOverlay(); };
 
 	// The scene's own canvases. Drawn last of all, after tone mapping, so no
@@ -857,11 +858,73 @@ void EditorLayer::DrawColliderOverlay()
 
 	if (m_ShowColliders)
 		Physics::DrawColliders(*m_Scene, selected);
+	if (m_ShowEmitters)
+		DrawEmitterVolumes();
 	// The brush's ring on the ground under the cursor, in the same overlay
 	// (7ar). Only in edit mode: the tool is inert in Play.
 	if (m_SceneState == SceneState::Edit)
 		m_TerrainTool.DrawOverlay();
 	DebugRenderer::EndScene();
+}
+
+// Every box emitter's spawn volume, inside the overlay the colliders use.
+//
+// Inside it rather than beside it because BeginScene has already chosen the
+// camera and built the frustum this is culled against -- an overlay that
+// opened its own scene would be drawn through the editor camera even when the
+// viewport is showing the game one, which is the bug DrawColliderOverlay's
+// comment exists to prevent.
+//
+// **The box is asked for rather than derived.** Particles::SpawnBoxAxes is the
+// same function the CPU emitter and the compute shader's parameters are built
+// from, so this cannot draw a volume the emitter does not spawn in -- which is
+// the only property that makes the overlay worth having. An overlay that
+// agrees with the code by coincidence is a measurement of the wrong thing that
+// looks like a measurement of the right one.
+void EditorLayer::DrawEmitterVolumes()
+{
+	// Amber, the weight a trigger volume is drawn at: this is a region things
+	// come out of rather than a solid, which is the same class of thing.
+	constexpr Vec4 kColor{ 0.95f, 0.68f, 0.20f, 1.0f };
+
+	auto view = m_Scene->GetRegistry().view<ParticleEmitterComponent, TransformComponent>();
+	for (auto handle : view)
+	{
+		auto [emitter, transform] =
+			view.get<ParticleEmitterComponent, TransformComponent>(handle);
+		if (emitter.Shape != EmitterShape::Box)
+			continue;
+
+		Vec3 axes[3];
+		Particles::SpawnBoxAxes(emitter, transform.World, axes);
+
+		// **A local emitter's box carries the entity's transform and a world
+		// emitter's does not**, because that is what happens to its particles:
+		// local ones are stored in the emitter's frame and the Model is applied
+		// when they are drawn, so the box they land in is the transformed one.
+		// SpawnBoxAxes answers in simulation space and this is the one place
+		// the difference is undone.
+		if (emitter.Space == ParticleSpace::Local)
+			for (int i = 0; i < 3; i++)
+				axes[i] = Vec3(transform.World * Vec4(axes[i], 0.0f));
+
+		// DrawBox wants a frame and half extents separately, and the axes carry
+		// both: their lengths are the extents and their directions the frame. A
+		// zero-length axis -- a box with one side flattened, which is a
+		// reasonable thing to author for a sheet of dust -- keeps the entity's
+		// own direction, so the sides that remain still draw.
+		Mat4 frame(1.0f);
+		Vec3 half(0.0f);
+		for (int i = 0; i < 3; i++)
+		{
+			half[i] = Math::Length(axes[i]);
+			const Vec3 fallback = Math::Normalize(Vec3(transform.World[i]));
+			frame[i] = Vec4(half[i] > 0.0f ? axes[i] / half[i] : fallback, 0.0f);
+		}
+		frame[3] = transform.World[3];
+
+		DebugRenderer::DrawBox(frame, half, kColor);
+	}
 }
 
 // Applied at the top of a frame rather than where the size is discovered.
@@ -1205,6 +1268,7 @@ void EditorLayer::LoadPanelState()
 		else if (key == "render-settings") m_ShowRenderSettings = value;
 		else if (key == "build-log")       m_ShowScriptBuild = value;
 		else if (key == "colliders")       m_ShowColliders = value;
+		else if (key == "emitters")        m_ShowEmitters = value;
 		else if (key == "grid")            m_ShowGrid = value;
 		else if (key == "preview-post")    m_PreviewPost = value;
 		// Not a bool like the rest, so it reads the raw text rather than `value`.
@@ -1292,6 +1356,7 @@ void EditorLayer::SavePanelState()
 	file << "render-settings = " << (m_ShowRenderSettings ? 1 : 0) << "\n";
 	file << "build-log = "       << (m_ShowScriptBuild ? 1 : 0) << "\n";
 	file << "colliders = "       << (m_ShowColliders ? 1 : 0) << "\n";
+	file << "emitters = "        << (m_ShowEmitters ? 1 : 0) << "\n";
 	file << "grid = "            << (m_ShowGrid ? 1 : 0) << "\n";
 	file << "preview-post = "    << (m_PreviewPost ? 1 : 0) << "\n";
 	file << "theme = "           << EditorTheme::Name(m_Theme) << "\n";
@@ -1562,6 +1627,17 @@ void EditorLayer::DrawMenuBar()
 							  "Green is static, bright green dynamic, blue kinematic,\n"
 							  "amber a trigger. While playing, a body the simulation\n"
 							  "has put to sleep is drawn dimmed.");
+		}
+
+		ImGui::MenuItem("Show Emitters", "F4", &m_ShowEmitters);
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("The spawn volume of every Box particle emitter,\n"
+							  "in the scene view.\n\n"
+							  "Point emitters draw nothing -- their volume is a\n"
+							  "point, and the icon is already there. Drawn from the\n"
+							  "same function the emitter spawns from, so the box is\n"
+							  "the one particles actually appear in.");
 		}
 
 		ImGui::MenuItem("Preview Post", nullptr, &m_PreviewPost);
@@ -3043,6 +3119,7 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 		// unmodified letter near WASD is already a gizmo.
 		case RV_KEY_F2: m_ShowGrid = !m_ShowGrid; return true;
 		case RV_KEY_F3: m_ShowColliders = !m_ShowColliders; return true;
+		case RV_KEY_F4: m_ShowEmitters = !m_ShowEmitters; return true;
 
 		case RV_KEY_DELETE:
 		{

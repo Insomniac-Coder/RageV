@@ -66,8 +66,18 @@ layout(std140, set = 0, binding = 2) uniform EmitterParams
 	// already where they belong and this is the identity.
 	mat4 Model;
 	// x local space (0 or 1), y uniform scale taken from Model's longest
-	// basis axis -- precomputed rather than three square roots per particle.
+	// basis axis -- precomputed rather than three square roots per particle,
+	// z stationary (0 or 1).
 	vec4 SpaceScale;
+
+	// The spawn box as three half-axis vectors, already in this shader's
+	// space. Zero for a point emitter, which is why the spawn below adds them
+	// with no branch. Turned by the emitter and deliberately not scaled by it
+	// -- that rule lives in Particles::SpawnBoxAxes, and this shader is handed
+	// its answer so it has no copy to drift from.
+	vec4 BoxAxisX;
+	vec4 BoxAxisY;
+	vec4 BoxAxisZ;
 
 	// The ramps, already resolved on the CPU by Particles::Evaluate.
 	//
@@ -173,13 +183,19 @@ void main()
 		}
 		else
 		{
-			vec3 velocity = particle.VelocityLifetime.xyz;
-			velocity += gravity * dt;
-			velocity *= max(0.0, 1.0 - drag * dt);
+			// Stationary is not "speed zero": gravity would still take it.
+			// Neither force is applied and the position never moves, which is
+			// the same branch ParticleSystem::Update takes on the CPU.
+			if (u_Emitter.SpaceScale.z < 0.5)
+			{
+				vec3 velocity = particle.VelocityLifetime.xyz;
+				velocity += gravity * dt;
+				velocity *= max(0.0, 1.0 - drag * dt);
 
-			particle.PositionAge.xyz += velocity * dt;
+				particle.PositionAge.xyz += velocity * dt;
+				particle.VelocityLifetime.xyz = velocity;
+			}
 			particle.PositionAge.w = age;
-			particle.VelocityLifetime.xyz = velocity;
 			particle.Spin.x += particle.Spin.y * dt;
 		}
 	}
@@ -201,15 +217,26 @@ void main()
 			vec3 axis = u_Emitter.AxisCosSpread.xyz;
 			float cosSpread = u_Emitter.AxisCosSpread.w;
 
+			// **The same draws in the same order as the CPU path**, taken
+			// whether or not they are used. Three for the box, then the cone,
+			// then the speed: a point emitter and a box emitter of one seed
+			// walk the sequence at the same rate, and switching Shape or
+			// Motion changes only the thing it names.
+			vec3 spawnOffset = u_Emitter.BoxAxisX.xyz * RandomSigned(state)
+							 + u_Emitter.BoxAxisY.xyz * RandomSigned(state)
+							 + u_Emitter.BoxAxisZ.xyz * RandomSigned(state);
+
+			vec3 cone = RandomInCone(state, axis, cosSpread);
+
 			float speed = u_Emitter.SpeedLife.x
 						* (1.0 + RandomSigned(state) * u_Emitter.SpeedLife.y);
 
 			lifetime = max(0.05, u_Emitter.SpeedLife.z
 								* (1.0 + RandomSigned(state) * u_Emitter.SpeedLife.w));
 
-			particle.PositionAge = vec4(origin, 0.0);
-			particle.VelocityLifetime = vec4(RandomInCone(state, axis, cosSpread) * speed,
-											 lifetime);
+			particle.PositionAge = vec4(origin + spawnOffset, 0.0);
+			particle.VelocityLifetime =
+				vec4(u_Emitter.SpaceScale.z < 0.5 ? cone * speed : vec3(0.0), lifetime);
 			particle.Spin = vec4(RandomFloat(state) * 6.2831853,
 								 radians(u_Emitter.SizeSpin.z) * RandomSigned(state),
 								 0.0, 0.0);
