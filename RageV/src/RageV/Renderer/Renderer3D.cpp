@@ -654,6 +654,43 @@ namespace RageV
 	// changes; the SPIR-V cache makes the second and later calls a file read.
 	bool Renderer3D::CompileLitShaders()
 	{
+		// **The traced bounce's own pass, compiled before the lit shaders and
+		// not after, because whether it exists decides how they are compiled.**
+		//
+		// It used to be built afterwards, and a failure there left the engine
+		// in a state with no consistent answer: the lit shader carried
+		// RV_RAY_GI, so it wrote zero to the indirect buffer and waited for a
+		// pass that did not exist, while the frame graph suppressed the
+		// screen-space chain because the *setting* still said traced. The
+		// result was a frame with no indirect light at all and nothing said
+		// so. Turning the flag off here is what makes the fallback whole:
+		// every shader below is then compiled for the screen-space form, and
+		// the graph resolves to it for the same reason.
+		s_Data->GiShader = nullptr;
+		if (s_Data->RayGlobalIlluminationOn && s_Data->Bindless && s_Data->RayShadowsOn)
+		{
+			std::vector<std::string> traceDefines;
+			if (s_Data->Bindless)
+				traceDefines.push_back("RV_BINDLESS");
+			traceDefines.push_back("RV_RAY_SHADOWS");
+			if (s_Data->RayReflectionsOn)
+				traceDefines.push_back("RV_RAY_REFLECTIONS");
+			traceDefines.push_back("RV_RAY_GI");
+
+			if (auto gi = ShaderCompiler::CompileFromFile("assets/shaders/rtgi_trace.rvshader",
+														 traceDefines))
+			{
+				s_Data->GiShader = s_Data->Device->CreateShader(*gi);
+			}
+			else
+			{
+				RV_CORE_ERROR("Renderer3D: assets/shaders/rtgi_trace.rvshader did not compile, "
+							  "so the traced bounce cannot run; falling back to the "
+							  "screen-space form for this session");
+				s_Data->RayGlobalIlluminationOn = false;
+			}
+		}
+
 		std::vector<std::string> defines;
 		if (s_Data->Bindless)
 			defines.push_back("RV_BINDLESS");
@@ -676,18 +713,6 @@ namespace RageV
 			s_Data->SkinnedShader = s_Data->Device->CreateShader(*skinned);
 		else
 			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/pbr_skinned.rvshader");
-
-		// The traced bounce's own pass, where the settings ask for it. Same
-		// defines: it includes the lit fragment and needs the same forks
-		// compiled in, plus RV_TRACE_ONLY which the file itself sets.
-		s_Data->GiShader = nullptr;
-		if (s_Data->RayGlobalIlluminationOn && s_Data->Bindless && s_Data->RayShadowsOn)
-		{
-			if (auto gi = ShaderCompiler::CompileFromFile("assets/shaders/rtgi_trace.rvshader", defines))
-				s_Data->GiShader = s_Data->Device->CreateShader(*gi);
-			else
-				RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/rtgi_trace.rvshader");
-		}
 
 		// The layered variant defines RV_LAYERED itself; everything else about
 		// it -- the heap, the rays -- follows the same defines.

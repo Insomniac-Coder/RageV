@@ -10112,7 +10112,31 @@ void main()
 			// rows are even offered there, so the checkbox stays false and the
 			// screen-space chain rightly keeps running -- asserting its
 			// absence would be asserting that OpenGL loses GI.
-			if (RayShadows::IsAvailable())
+			//
+			// **And the renderer has to actually be in that mode**, which is
+			// what these two checks were missing for a day. Setting the
+			// *project setting* to High says what is wanted; whether the
+			// traced form can run is a property of the renderer -- it needs
+			// `rtgi_trace.rvshader` compiled, which happens when the renderer
+			// is told, which nothing here was doing. So the graph fell back to
+			// the screen-space chain, correctly, and two claims written about
+			// the traced one failed.
+			//
+			// A test that drives BuildFrame directly has to establish what the
+			// Scene establishes before it: the setting *and* the renderer.
+			// Shadows first, then the bounce -- the order Scene::OnRender uses,
+			// and not a stylistic one: the traced bounce rides on the shadows'
+			// acceleration structure, so SetRayTracedGlobalIllumination
+			// refuses while they are off and the shader is never compiled.
+			Renderer3D::SetRayTracedShadows(true);
+			Renderer3D::SetRayTracedGlobalIllumination(true);
+
+			// Bindless and ray shadows are its other two prerequisites, and on
+			// a device without them the traced form is legitimately
+			// unavailable -- the same reason OpenGL is excluded below. Asking
+			// the renderer rather than assuming keeps the claim honest on
+			// hardware neither of us has.
+			if (RayShadows::IsAvailable() && Renderer3D::CanTraceGlobalIllumination())
 			{
 				render.RayTracing = true;
 				render.RayTracedGlobalIllumination = RayDetail::High;
@@ -10176,7 +10200,7 @@ void main()
 				Check(hasPass("SSGI blur x") && hasPass("SSGI blur y") && hasPass("GI denoise"),
 					  "and the blur and the denoise after it are the same passes the screen form ends on");
 
-				if (RayShadows::IsAvailable())
+				if (RayShadows::IsAvailable() && Renderer3D::CanTraceGlobalIllumination())
 				{
 					render.RayTracing = true;
 					render.RayTracedGlobalIllumination = RayDetail::High;

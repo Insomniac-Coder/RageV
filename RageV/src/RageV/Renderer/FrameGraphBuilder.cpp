@@ -479,7 +479,19 @@ namespace RageV
 		// zero when the traced form is not running, so the block costs
 		// nothing where it is compiled in but idle.
 		const RayDetail giDetail = ResolveRayTracedGlobalIllumination(desc.Render);
-		const bool rayGi = giDetail != RayDetail::Off;
+
+		// **And the pass has to have a shader.** Without one the traced branch
+		// below cannot run, and leaving this true would suppress the
+		// screen-space chain as well -- a frame with no indirect light at all,
+		// which is what happened before CompileLitShaders learned to turn the
+		// renderer's own flag off in the same case.
+		//
+		// Asked here rather than inside ResolveRayTracedGlobalIllumination on
+		// purpose: that function is also what *decides* whether to put the
+		// renderer into traced mode, so consulting the shader there would mean
+		// no shader, so no traced mode, so no shader.
+		const bool rayGi = giDetail != RayDetail::Off &&
+						   Renderer3D::CanTraceGlobalIllumination();
 		Renderer::SetGlobalIllumination(rayGi ? Math::Max(desc.Post.GiIntensity, 0.0f) : 0.0f);
 		// One while the traced form is off, so the uniform never claims a
 		// depth nothing is tracing -- the same shape as the intensity above.
