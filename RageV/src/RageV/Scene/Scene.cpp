@@ -309,6 +309,13 @@ namespace RageV
 
 	void Scene::UpdateWorldTransforms()
 	{
+		// The draw list is built out of these matrices, so it is stale the
+		// moment they are recomputed. Raised here rather than at every site
+		// that moves something, for the reason the recomputation itself is
+		// unconditional: a flag that has to be set at every write site is a
+		// flag one of them will forget.
+		m_DrawListDirty = true;
+
 		auto view = m_Registry.view<TransformComponent, RelationshipComponent>();
 		for (auto handle : view)
 		{
@@ -1429,6 +1436,63 @@ namespace RageV
 		UpdateVoxelGI(cameraTransform);
 	}
 
+	// The five walks a frame used to do, collapsed into one.
+	//
+	// Everything here is view-independent: which mesh a handle names, which
+	// material, where the object's bounds land in the world. None of it changes
+	// between the camera and a cascade, and all of it was being redone for each.
+	//
+	// **The order is the registry's**, and it has to stay that way. Instancing
+	// downstream groups runs of the same mesh, and the depth sort is applied to
+	// what survives -- neither is disturbed by this, because this changes when
+	// the resolution happens rather than what order things arrive in.
+	void Scene::RefreshDrawList()
+	{
+		if (!m_DrawListDirty)
+			return;
+		m_DrawListDirty = false;
+
+		m_DrawBounds.clear();
+		m_DrawItems.clear();
+
+		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
+
+		// Reserving on the view's size rather than growing: at sixty thousand
+		// objects the reallocations alone are a measurable share of the build,
+		// and the capacity survives the clear above so this is a no-op after
+		// the first frame.
+		const size_t count = meshView.size_hint();
+		m_DrawBounds.reserve(count);
+		m_DrawItems.reserve(count);
+
+		for (auto& item : meshView)
+		{
+			auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
+
+			// Null when the handle points at nothing loadable -- a deleted
+			// model, or a scene opened without its assets. Skipped rather than
+			// substituted, so the gap is visible. Skipped *here* means every
+			// view skips it, which is what the five walks each did separately.
+			RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh);
+			if (!resolved)
+				continue;
+
+			DrawBounds bounds;
+			Frustum::TransformBounds(resolved->GetBounds(), transform.World,
+									 bounds.Centre, bounds.Extents);
+
+			DrawItem entry;
+			entry.Entity = item;
+			entry.Transform = &transform;
+			entry.Source = &mesh;
+			entry.Skinned = resolved->IsSkinned();
+			entry.Resolved = std::move(resolved);
+
+			m_DrawBounds.push_back(bounds);
+			m_DrawItems.push_back(std::move(entry));
+		}
+	}
+
 	void Scene::RenderShadowMaps(const Camera& camera, const Mat4& cameraTransform)
 	{
 		// The same answer RenderShadows told the lit pass a moment ago.
@@ -1445,6 +1509,7 @@ namespace RageV
 			return;
 
 		UpdateWorldTransforms();
+		RefreshDrawList();
 
 		// Nothing to shadow, and a shadow pass over an empty scene is a render
 		// pass that clears and stops.
@@ -1469,46 +1534,49 @@ namespace RageV
 
 			Renderer3D::BeginShadow(viewProjection);
 
-			for (auto& item : meshView)
+			// **The frustum test alone, over the flat array.** Everything this
+			// loop used to do first -- the view's component fetch, the mesh
+			// lookup, the bounds transform -- does not depend on which cascade
+			// is asking, and RefreshDrawList did it once for all of them.
+			const size_t drawCount = m_DrawBounds.size();
+			for (size_t index = 0; index < drawCount; index++)
 			{
-				auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
-
-				RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh);
-				if (!resolved)
-					continue;
-
-				Vec3 centre, extents;
-				Frustum::TransformBounds(resolved->GetBounds(), transform.World, centre, extents);
-
-				if (!frustum.Intersects(centre, extents))
+				const DrawBounds& bounds = m_DrawBounds[index];
+				if (!frustum.Intersects(bounds.Centre, bounds.Extents))
 				{
 					Renderer3D::CountCulled();
 					continue;
 				}
 
+				// Only what survives reads the item, which is the whole reason
+				// the two arrays are separate.
+				const DrawItem& entry = m_DrawItems[index];
+				const Mat4& world = entry.Transform->World;
+
 				// The same pose the lit pass will be given. Without this a
 				// skinned figure walks and its shadow stands still in the bind
 				// pose -- which reads as a shadow bug rather than a skinning
 				// one, and is why the depth pass has a skinned shader at all.
-				if (resolved->IsSkinned())
+				if (entry.Skinned)
 				{
-					const auto* animator = m_Registry.try_get<AnimatorComponent>(item);
+					const auto* animator = m_Registry.try_get<AnimatorComponent>(entry.Entity);
 
 					if (animator && !animator->Skinning.empty())
 					{
-						Renderer3D::DrawSkinnedMeshShadow(resolved, transform.World,
+						Renderer3D::DrawSkinnedMeshShadow(entry.Resolved, world,
 														  animator->Skinning);
 					}
-					else if (const Skeleton* skeleton = Assets::Manager::GetSkeleton(mesh.Mesh))
+					else if (const Skeleton* skeleton =
+								 Assets::Manager::GetSkeleton(entry.Source->Mesh))
 					{
 						const std::vector<Mat4> bind(skeleton->Size(), Mat4(1.0f));
-						Renderer3D::DrawSkinnedMeshShadow(resolved, transform.World, bind);
+						Renderer3D::DrawSkinnedMeshShadow(entry.Resolved, world, bind);
 					}
 
 					continue;
 				}
 
-				Renderer3D::DrawMeshShadow(resolved, transform.World);
+				Renderer3D::DrawMeshShadow(entry.Resolved, world);
 			}
 
 			// The terrain's chunks at their chosen level, against this pass's
@@ -2301,6 +2369,11 @@ namespace RageV
 		// Meshes first: they are opaque and depth-tested, so drawing them ahead
 		// of the alpha-blended quads means the quads blend against a complete
 		// depth buffer rather than over each other arbitrarily.
+		// Built here as well as in the shadow pass: this can be entered without
+		// one -- a reflection probe's capture, or a project with shadows off --
+		// and the flag makes the second call free when it was not.
+		RefreshDrawList();
+
 		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
 		const bool anyTerrain = Renderer::HasDevice() && HasTerrain();
 		if ((meshView.begin() != meshView.end() || anyTerrain) && Renderer::HasDevice())
@@ -2314,51 +2387,49 @@ namespace RageV
 			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment,
 								   Project::Render(), environment, irradiance, jitter);
 
-			for (auto& item : meshView)
+			// **The frustum test alone**, as the cascades do -- the mesh and
+			// the material were resolved once by RefreshDrawList, and the
+			// bounds with them. What is left here is what genuinely depends on
+			// this view: whether the object is in it, and which probe it
+			// reflects.
+			const size_t drawCount = m_DrawBounds.size();
+			for (size_t index = 0; index < drawCount; index++)
 			{
-				auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
-
-				// Null when the handle points at nothing loadable -- a deleted
-				// model, or a scene opened without its assets. Skipped rather
-				// than substituted, so the gap is visible.
-				RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh);
-				if (!resolved)
-					continue;
-
-				Vec3 centre, extents;
-				Frustum::TransformBounds(resolved->GetBounds(), transform.World, centre, extents);
-
-				if (!frustum.Intersects(centre, extents))
+				const DrawBounds& bounds = m_DrawBounds[index];
+				if (!frustum.Intersects(bounds.Centre, bounds.Extents))
 				{
 					Renderer3D::CountCulled();
 					continue;
 				}
 
+				const DrawItem& entry = m_DrawItems[index];
+				const Mat4& world = entry.Transform->World;
+
 				// Which probe this object reflects. Against the object's own
 				// centre, not its origin: a long wall's origin can sit outside
 				// every probe's influence while most of the wall is inside one.
-				const uint32_t probe = ProbeSlotFor(centre);
+				const uint32_t probe = ProbeSlotFor(bounds.Centre);
 
-				// The material, and this entity's scalars on top of it.
-				//
-				// A lookup per mesh per frame, like the mesh handle above it --
-				// and the same shape, so the two cannot drift in how a missing
-				// asset behaves. Null falls back to the renderer's default,
-				// which is what an entity with nothing assigned draws with.
-				RHI::Ref<Material> material = Assets::Manager::GetMaterial(mesh.Material);
+				// This entity's scalars on top of the material's own. Resolved
+				// here rather than in the draw list because it is cheap, it is
+				// eighty bytes an object to carry, and only what survives the
+				// test above ever needs it.
+				RHI::Ref<Material> material =
+					Assets::Manager::GetMaterial(entry.Source->Material);
 				if (!material)
 					material = Renderer3D::GetDefaultMaterial();
 
-				const MaterialParams params =
-					mesh.ResolveParams(material ? material->GetParams() : MaterialParams{});
+				const MaterialParams params = entry.Source->ResolveParams(
+					material ? material->GetParams() : MaterialParams{});
 
-			// A skinned mesh has to reach the skinned pipeline whether or not
-				// anything is animating it: its vertex layout is the wider one,
-				// and the static pipeline would read joint indices as texture
-				// coordinates. Without an animator it draws its bind pose.
-				if (resolved->IsSkinned())
+				// A skinned mesh has to reach the skinned pipeline whether or
+				// not anything is animating it: its vertex layout is the wider
+				// one, and the static pipeline would read joint indices as
+				// texture coordinates. Without an animator it draws its bind
+				// pose.
+				if (entry.Skinned)
 				{
-					const auto* animator = m_Registry.try_get<AnimatorComponent>(item);
+					const auto* animator = m_Registry.try_get<AnimatorComponent>(entry.Entity);
 
 					// A skinned mesh with no animator still needs a full pose,
 					// not an empty one: its vertices name bones by index, and a
@@ -2369,21 +2440,22 @@ namespace RageV
 					// property the tests assert.
 					if (animator && !animator->Skinning.empty())
 					{
-						Renderer3D::DrawSkinnedMesh(resolved, transform.World, material, params,
+						Renderer3D::DrawSkinnedMesh(entry.Resolved, world, material, params,
 													animator->Skinning, probe,
-													&transform.PreviousWorld);
+													&entry.Transform->PreviousWorld);
 					}
-					else if (const Skeleton* skeleton = Assets::Manager::GetSkeleton(mesh.Mesh))
+					else if (const Skeleton* skeleton =
+								 Assets::Manager::GetSkeleton(entry.Source->Mesh))
 					{
 						const std::vector<Mat4> bind(skeleton->Size(), Mat4(1.0f));
-						Renderer3D::DrawSkinnedMesh(resolved, transform.World, material, params,
-													bind, probe, &transform.PreviousWorld);
+						Renderer3D::DrawSkinnedMesh(entry.Resolved, world, material, params,
+													bind, probe, &entry.Transform->PreviousWorld);
 					}
 				}
 				else
 				{
-					Renderer3D::DrawMesh(resolved, transform.World, material, params, probe,
-										 &transform.PreviousWorld);
+					Renderer3D::DrawMesh(entry.Resolved, world, material, params, probe,
+										 &entry.Transform->PreviousWorld);
 				}
 			}
 

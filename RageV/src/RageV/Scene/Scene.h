@@ -22,6 +22,7 @@ namespace RageV
 	class Camera;
 	class EditorCamera;
 	struct TransformComponent;
+	struct MeshComponent;
 	struct TerrainComponent;
 	// Only ever held as a pointer here; the editor is what fills one in.
 	struct EditorIconSettings;
@@ -80,6 +81,61 @@ namespace RageV
 		// render entry points; call it directly after mutating transforms if a
 		// world value is needed before the next frame.
 		void UpdateWorldTransforms();
+
+		// --- the draw list ----------------------------------------------------
+		//
+		// **Everything drawable, resolved once a frame and tested by every
+		// view.** A frame draws the scene five times over -- once for the
+		// camera and once per shadow cascade -- and each of those used to be a
+		// full walk: an `entt` view, a hash lookup for the mesh, a second for
+		// the material, a bounds transform and a frustum test, per object per
+		// view. Measured at twenty thousand objects that is 100,004 tests and
+		// 14.5 ms a frame against 0.78 ms of GPU work, and the same scene with
+		// the camera pointed at the sky -- nothing drawn at all -- still cost
+		// 8.26 ms.
+		//
+		// The lookups and the bounds do not depend on which view is asking, so
+		// they are done once. What is left per view is a frustum test over a
+		// flat array, which is the cheapest thing in the frame.
+		//
+		// **Split in two, and that is the point rather than a tidy-up.** The
+		// cull touches `DrawBounds` alone -- 24 bytes an object, sequential, no
+		// pointer chased -- and only what survives reads the item beside it.
+		// One array of everything would stream two hundred bytes an object
+		// through the test to look at twenty-four of them.
+		struct DrawBounds
+		{
+			Vec3 Centre{ 0.0f };
+			Vec3 Extents{ 0.0f };
+		};
+
+		// Parallel to DrawBounds by index.
+		//
+		// The component pointers are borrowed for the frame, not owned. That
+		// is safe for exactly the reason the code it replaces was already
+		// safe: rendering adds and removes no components, and the previous
+		// walk already handed `&transform.PreviousWorld` to the renderer. It
+		// is not safe across a frame, so nothing here outlives RefreshDrawList.
+		//
+		// `ResolveParams` is deliberately *not* precomputed. It is cheap, it is
+		// 80 bytes an object to store, and it is only needed for what survives
+		// -- so it stays where the survivor is handled and the array stays 64
+		// bytes wide.
+		struct DrawItem
+		{
+			entt::entity Entity = entt::null;
+			TransformComponent* Transform = nullptr;
+			MeshComponent* Source = nullptr;
+			RHI::Ref<Mesh> Resolved;
+			bool Skinned = false;
+		};
+
+		// Rebuilt from the registry. Call after UpdateWorldTransforms and
+		// before anything reads the list; both render entry points do.
+		void RefreshDrawList();
+
+		const std::vector<DrawBounds>& GetDrawBounds() const { return m_DrawBounds; }
+		const std::vector<DrawItem>& GetDrawItems() const { return m_DrawItems; }
 		// The shadow maps half of RenderShadows: cascades and local maps, or
 		// the ray structures under traced shadows.
 		void RenderShadowMaps(const Camera& camera, const Mat4& cameraTransform);
@@ -432,6 +488,24 @@ namespace RageV
 			float Influence = 0.0f;
 			uint32_t Slot = 0;
 		};
+		// Set by UpdateWorldTransforms, cleared by RefreshDrawList.
+		//
+		// **The flag is what makes calling Refresh from every render entry
+		// point free.** A frame reaches the list from two places -- the shadow
+		// pass and the lit pass -- and a reflection probe reaches it six more
+		// times inside one of them. Rebuilding per caller would be six extra
+		// walks to avoid five, which is the wrong direction.
+		//
+		// It is safe because every render path begins with
+		// UpdateWorldTransforms, so anything that could have changed the list
+		// has already raised this by the time a view asks for it.
+		bool m_DrawListDirty = true;
+
+		// Cleared and refilled by RefreshDrawList; the capacity is kept, which
+		// is most of why rebuilding it every frame costs what it does.
+		std::vector<DrawBounds> m_DrawBounds;
+		std::vector<DrawItem> m_DrawItems;
+
 		std::vector<ProbeSlot> m_ProbeSlots;
 
 		SceneEnvironment m_Environment;
