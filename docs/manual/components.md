@@ -67,14 +67,28 @@ space is derived from them.
 
 | Field | What it is |
 |---|---|
-| `World` | The composed world matrix, recomputed top-down once per frame |
+| `World` | The composed world matrix, derived top-down from the roots |
 | `PreviousWorld` | Where `World` was last frame — what a motion vector is made of |
+| `CachedPosition` | What `Position` was when `World` was last computed |
+| `CachedRotation` | What `Rotation` was when `World` was last computed |
+| `CachedScale` | What `Scale` was when `World` was last computed |
+| `CacheValid` | False until the first walk, so a new entity always computes |
 
 > [!NOTE]
-> `World` is recomputed unconditionally rather than cached behind a dirty flag.
-> A flag has to be set at every write site — inspector, gizmo, scripts,
-> serializer, and everything added later — and one missed site leaves an object
-> silently rendering in the wrong place.
+> **`World` is not cached behind a dirty flag, and deliberately so.** A flag has
+> to be set at every write site — inspector, gizmo, scripts, serializer, and
+> everything added later — and one missed site leaves an object silently
+> rendering in the wrong place.
+>
+> Instead the walk *compares*. It keeps a copy of the three vectors it last
+> composed from, and where they still agree — and the parent's world matrix did
+> not move either — the existing `World` is already the answer. Nothing has to
+> report that it moved something, because nothing is trusted to.
+>
+> The four cached fields exist for that comparison. They are derived state like
+> `World` itself: not serialized, not shown in the inspector, and not part of
+> what makes two transforms equal. Writing to them from outside the walk has no
+> meaning beyond making it recompute once.
 
 ## Rendering
 
