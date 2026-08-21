@@ -1428,90 +1428,22 @@ void main()
 					  u_Scene.Environment.x;
 
 #ifdef RV_RAY_GI
-	// One bounce, traced (ENGINE-NOTES 7at). Four cosine-weighted directions
-	// about the shading normal, each answered by the same TraceReflection the
-	// mirror ray uses -- the sky where it misses, a simplified shade where it
-	// hits -- and averaged into the irradiance the diffuse term already
-	// multiplies by albedo. That last part is the point: a post pass has to
-	// stand the lit colour in for the albedo it does not have, and here the
-	// albedo is right there.
+	// **The bounce is traced in a pass of its own now** (ENGINE-NOTES 7bs).
 	//
-	// The directions are hashed from the pixel *and* the frame, unlike every
-	// other kernel in this renderer, which are hashed from the pixel alone so
-	// a frame is deterministic. Four rays cannot integrate a hemisphere; what
-	// makes this converge is TAA accumulating a different four every frame,
-	// so the noise has to move. A still camera with TAA off will show it.
-	{
-		const int kGiRays = 4;
-		uvec2 giPixel = uvec2(gl_FragCoord.xy);
-		uint giSeed = GiHash(giPixel.x * 0x9E3779B9u ^ giPixel.y
-							 ^ (uint(u_Scene.GlobalIllumination.y) * 0x85EBCA6Bu));
-
-		// How deep the path goes before the probe answers for the rest (7ax).
-		// A uniform rather than a define: a third lit-shader variant on top of
-		// the bindless and layered forks would be a fork that removes no work
-		// from the inner loop, which is 8.2's bar for one.
-		const int giBounces = int(u_Scene.GlobalIllumination.z + 0.5);
-
-		// **How far a bounce reaches, and why it is not the whole scene.**
-		// A miss here contributes nothing -- the probe already integrates the
-		// sky over the hemisphere (7bb) -- so a ray that travels a hundred
-		// metres to hit a distant tree and a ray that travels a hundred metres
-		// and misses produce almost the same answer, and cost wildly different
-		// amounts. The profile has said "world metres a bounce may travel"
-		// since GiRadius existed; only the screen-space gather was listening.
-		// Zero keeps the old unbounded behaviour for any caller that has not
-		// set it.
-		const float giReach = u_Scene.GlobalIllumination.w > 0.0
-							? u_Scene.GlobalIllumination.w : 1.0e4;
-
-		vec3 giNormal = normalize(v_Normal);
-		vec3 bounced = vec3(0.0);
-		for (int i = 0; i < kGiRays; ++i)
-		{
-			giSeed += uint(i) * 0x9E3779B9u;
-			vec3 direction = CosineDirection(N, giSeed);
-
-			TracedSurface first = TraceSurface(v_WorldPos, giNormal, direction, giReach);
-			// A miss is nothing, not the sky (ENGINE-NOTES 7bb). The probe below
-			// already integrates the sky over the whole hemisphere; four rays
-			// that mostly miss are a four-sample estimate of that same probe, and
-			// adding them was the sky twice -- 171 to 214.7 on a wall lit by
-			// nothing else. The divide by kGiRays stays, so what is left is the
-			// walls' share of the hemisphere; the sky is the probe's to supply and
-			// the sky the walls block is ambient occlusion's to remove.
-			if (first.Missed)
-				continue;
-
-			// What arrives at the hit. At one bounce the probe answers; at two,
-			// one more ray does and the probe answers for *its* hit instead.
-			vec3 arriving = ProbeIrradiance(first.Normal, v_Probe);
-			if (giBounces >= 2)
-			{
-				// Perturbed before the second draw: reusing the first ray's two
-				// numbers would send every path off in the same direction twice,
-				// and correlated samples do not average into an answer -- they
-				// average into a bias the denoiser then holds very steadily.
-				giSeed += 0x68BC21EBu;
-				vec3 onward = CosineDirection(first.Normal, giSeed);
-
-				TracedSurface second = TraceSurface(first.Position, first.Normal, onward, giReach);
-				arriving = second.Missed
-						 ? second.Sky
-						 : ShadeTraced(second, ProbeIrradiance(second.Normal, v_Probe));
-			}
-
-			bounced += ShadeTraced(first, arriving);
-		}
-
-		// To the attachment, not to `irradiance`: the resolve copies it into
-		// the frame's Indirect buffer, the denoiser filters it there, and the
-		// *next* frame's lighting reads it back and multiplies by albedo --
-		// the same path the screen-space form takes. Raw, with no intensity
-		// applied: the dial lives at the read, so both forms scale in one
-		// place.
-		o_Indirect = vec4(bounced / float(kGiRays), 1.0);
-	}
+	// It used to be cast here: four cosine directions per shaded fragment,
+	// which is four rays for every pixel of a full-resolution frame because an
+	// attachment has only one size. Indirect light is the lowest-frequency
+	// thing in the picture and was the only term paying full rate for itself --
+	// ambient occlusion has done the same class of tracing at half resolution
+	// since it existed. rtgi_trace.rvshader reconstructs the same position and
+	// normal from this pass's depth and surface attachments and calls the same
+	// TraceSurface, at whatever resolution the quality dial asks for.
+	//
+	// Zero rather than left unwritten: an attachment a pass declares and does
+	// not write holds whatever the last frame left in it, and this one is read
+	// by nothing now -- but "read by nothing" is a property of today's graph,
+	// and undefined memory is a property of forever.
+	o_Indirect = vec4(0.0, 0.0, 0.0, 1.0);
 #endif
 
 	// Last frame's indirect diffuse (ENGINE-NOTES 7av), added to the probe's

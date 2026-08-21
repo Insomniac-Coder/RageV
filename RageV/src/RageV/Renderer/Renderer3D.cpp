@@ -1785,6 +1785,13 @@ namespace RageV
 
 		slot.Set->Commit();
 
+		// The traced bounce's set with them. Written in two places -- the
+		// scene block and the environment above, the two storage buffers with
+		// the material scratch -- and committed once here, where the sets it
+		// shares a frame with are.
+		if (slot.GiSet)
+			slot.GiSet->Commit();
+
 		// Bound per run rather than once, because the run decides which of the
 		// three pipelines draws it.
 		DrawKind boundKind = DrawKind::Static;

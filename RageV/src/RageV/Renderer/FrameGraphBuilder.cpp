@@ -987,30 +987,67 @@ namespace RageV
 			// next frame reads.
 			desc.Indirect->Advance();
 		}
-		else if (wantIndirect && rayGi && currentIndirect != kRGInvalid)
+		else if (wantIndirect && rayGi && currentIndirect != kRGInvalid
+				 && Renderer3D::CanTraceGlobalIllumination())
 		{
-			// The traced form. The lit shader has already written raw
-			// irradiance into the scene target's indirect attachment, so all
-			// that is left is to accumulate it into the buffer the next frame
-			// reads -- through the same pass the screen-space chain ends on,
-			// because at this point the two carry the same quantity and, since
-			// 7ay closed the gather's loop, neither carries its own answer back
-			// into itself.
+			// **The traced form, in a pass of its own** (ENGINE-NOTES 7bs).
+			// It used to be four rays inside the lit fragment, which is one
+			// resolution -- the frame's -- because an attachment has one size.
+			// Here it has a target, and a target has a scale.
+			RGTargetDesc traceDesc;
+			traceDesc.Name = "RtGiRaw";
+			traceDesc.Color = Format::R16G16B16A16_SFLOAT;
+			traceDesc.Depth = Format::Undefined;
+			// Full, for now. The quality dial goes on top of this once the
+			// pass has been shown to produce what the lit shader produced.
+			traceDesc.Scale = 1.0f;
+			const RGResource giTraced = graph.CreateTarget(traceDesc);
+
+			Renderer3D::GiTraceView traceView;
+			traceView.NearClip = desc.NearClip;
+			traceView.FarClip = desc.FarClip;
+			traceView.InvProjection0 = desc.InvProjection0;
+			traceView.InvProjection1 = desc.InvProjection1;
+			traceView.View = desc.View;
+
+			graph.AddPass("RT GI trace",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(giTraced);
+					// Depth and the surface description, which is where the
+					// position and the normal come back from.
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[sceneHDR, normalIndex, traceView](RGPassContext& context)
+				{
+					Renderer3D::TraceGlobalIllumination(context.Cmd,
+														context.Depth(sceneHDR),
+														context.Color(sceneHDR, normalIndex),
+														Format::R16G16B16A16_SFLOAT,
+														traceView, 4);
+				});
+
+			// Accumulated through the same pass the screen-space chain ends
+			// on, because at this point the two carry the same quantity and,
+			// since 7ay closed the gather's loop, neither carries its own
+			// answer back into itself.
 			graph.AddPass("GI denoise",
 				[&](RGPassBuilder& builder)
 				{
 					builder.Write(currentIndirect);
+					builder.Sample(giTraced);
 					builder.Sample(sceneHDR);
 					if (previousIndirect != kRGInvalid)
 						builder.Sample(previousIndirect);
 					builder.DisableDepth();
 				},
-				[sceneHDR, indirectIndex, previousIndirect, velocityIndex,
+				[giTraced, sceneHDR, previousIndirect, velocityIndex,
 				 width = desc.Width, height = desc.Height,
 				 feedback = giFeedback, has = indirectHasHistory](RGPassContext& context)
 				{
 					PostProcess::GiDenoise(context.Cmd,
-										   context.Color(sceneHDR, indirectIndex),
+										   context.Color(giTraced),
 										   previousIndirect != kRGInvalid
 											   ? context.Color(previousIndirect) : nullptr,
 										   context.Color(sceneHDR, velocityIndex),
