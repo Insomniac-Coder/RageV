@@ -573,6 +573,20 @@ namespace RageV
 		// and consumed inside the graph's scene pass. Invalid when there is no
 		// cull pass or no table, and then the lit pass walks as it always did.
 		GpuCull::View m_CulledLit;
+		// Which camera it was culled *for*.
+		//
+		// **A scene is rendered from more than one place in a frame.** A
+		// realtime reflection probe captures six faces through this same path,
+		// and the editor draws a viewport and a game view. Each calls
+		// RenderShadows with its own camera, so the view above is only good
+		// for the render that produced it -- and a probe face drawing the main
+		// camera's survivors is a scene that alternates between two pictures
+		// every frame, which is what it did.
+		//
+		// Compared rather than trusted: the lit pass takes the GPU path only
+		// when the camera it is drawing through is the one this was culled
+		// for, and walks its own draws otherwise.
+		Mat4 m_CulledLitFor{ 0.0f };
 
 		std::vector<ProbeSlot> m_ProbeSlots;
 

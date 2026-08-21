@@ -1477,11 +1477,14 @@ namespace RageV
 		// built with it -- free when RenderShadowMaps has already done it, and
 		// necessary when it returned early because shadows are off.
 		m_CulledLit = {};
+		m_CulledLitFor = Mat4(0.0f);
 		RefreshDrawList();
 		if (RHI::RHICommandList* cull = Renderer::GetCommandList())
 		{
 			m_CulledLit = GpuCull::CullLit(
 				*cull, camera.GetProjection() * Math::Inverse(cameraTransform));
+			if (m_CulledLit.IsValid())
+				m_CulledLitFor = cameraTransform;
 		}
 
 		// The voxel grid, after the maps it is lit from (ENGINE-NOTES 7bc).
@@ -2625,7 +2628,21 @@ namespace RageV
 			// sort at all. The sort was 4.1 ms of a 13.9 ms render graph at
 			// sixty thousand objects; the extra rows are the difference
 			// between the object count and the visible count.
-			const bool gpuLit = m_CulledLit.IsValid() && m_CullObjectCount > 0;
+			// The same camera this was culled for, and not a probe face or the
+			// other viewport. The transform is the one RenderShadows was handed
+			// and the one this render was handed, so an exact comparison is
+			// asking whether they are the same call's, not whether two floats
+			// are close.
+			bool sameCamera = true;
+			for (int column = 0; column < 4 && sameCamera; column++)
+				for (int row = 0; row < 4; row++)
+					if (cameraTransform[column][row] != m_CulledLitFor[column][row])
+					{
+						sameCamera = false;
+						break;
+					}
+
+			const bool gpuLit = sameCamera && m_CulledLit.IsValid() && m_CullObjectCount > 0;
 			if (gpuLit)
 			{
 				Renderer3D::ReserveSceneInstances(m_CullObjectCount);
