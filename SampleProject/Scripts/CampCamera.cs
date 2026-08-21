@@ -45,14 +45,25 @@ public class CampCamera : Script
 	private Vector3[] m_Positions = new Vector3[0];
 	private Vector3[] m_Rotations = new Vector3[0];
 
-	// Each shot's post profile, read off the marker's own CameraComponent.
+	// Each shot's post profile, in shot order, comma separated. Written by the
+	// scene generator from the same focus bands it built the profiles from.
 	//
 	// **A shot is a position, an aim and a lens**, and the lens is the part
 	// that was missing. Twelve shots spanning 2.3 m to 9.6 m cannot share one
 	// focus distance: at any single value either the close shots blur at the
 	// front or the wides blur at the subject, and the fox's closing shot came
-	// back as a soft smear because of it. The markers carry a profile each --
-	// same grade, different focus -- and this copies it across.
+	// back as a soft smear because of it.
+	//
+	// **A table here rather than a CameraComponent on every marker**, which is
+	// what this was. A marker only ever needed to say where the camera stands;
+	// giving each one a whole camera -- projection, clip planes, aspect flag --
+	// so it could carry one number left the scene reporting thirteen cameras
+	// when it has one. Twelve numbers belong in a field of twelve numbers.
+	//
+	// Fewer entries than shots is fine and means the rest keep the lens they
+	// have, which is the same thing an empty entry means.
+	private string Profiles = "";
+
 	private string[] m_Profiles = new string[0];
 	private string m_Applied = "";
 
@@ -69,7 +80,9 @@ public class CampCamera : Script
 	{
 		var positions = new Vector3[MaxShots];
 		var rotations = new Vector3[MaxShots];
-		var profiles = new string[MaxShots];
+		string[] table = Profiles.Length > 0
+			? Profiles.Split(',')
+			: new string[0];
 
 		int found = 0;
 		for (int i = 1; i <= MaxShots; i++)
@@ -80,11 +93,6 @@ public class CampCamera : Script
 
 			positions[found] = marker.Position;
 			rotations[found] = marker.Rotation;
-			// Empty when the marker has no camera of its own, which is a
-			// perfectly good way to author a shot -- it just keeps whatever
-			// lens the live camera already has.
-			profiles[found] = marker.GetComponentField("CameraComponent",
-													   "PostProfile");
 			found++;
 		}
 
@@ -95,7 +103,7 @@ public class CampCamera : Script
 		{
 			m_Positions[i] = positions[i];
 			m_Rotations[i] = rotations[i];
-			m_Profiles[i] = profiles[i];
+			m_Profiles[i] = i < table.Length ? table[i].Trim() : "";
 		}
 
 		if (found == 0)

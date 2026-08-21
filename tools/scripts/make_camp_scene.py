@@ -273,10 +273,16 @@ SHOTS = (
 # fox's own closing shot came back as a soft orange smear with an unreadable
 # name tag, which is the shot the whole film ends on.
 #
-# So a **shot marker carries its own lens**: each one gets a CameraComponent of
-# its own, with a ViewRank far above the live camera's so it can never become
-# primary, pointing at whichever of these focus bands is nearest its subject.
-# The script copies the marker's profile onto the live camera as it moves.
+# So the camera changes focus per shot, and **the script carries the table**:
+# one field on CampCamera holding the profile each shot wants, in shot order,
+# written here so the two cannot drift.
+#
+# It used to be a CameraComponent on every marker, ViewRank 90 so none of them
+# could ever become primary, and the script read each marker's profile off it.
+# That worked and it cost the scene twelve cameras to hold twelve numbers --
+# a whole component, with a projection and clip planes and an aspect flag, per
+# marker, none of which was ever rendered through. A scene that reports
+# thirteen cameras when it has one is a scene that is lying about itself.
 #
 # Four bands rather than twelve profiles: focus is a soft quantity and the
 # difference between 3.4 m and 3.6 m is not visible, while four small files are
@@ -363,7 +369,14 @@ def build(profiles, mat, prop, tex, curve):
     # original, so it compounded: 4.2 s of travel became 11.4, then 24, then
     # 12.7, and every one of those was still slower than the shot before it.
     # 3.4 and 4.2 are what the camera was written with.
-    s.managed_script("CampCamera", HoldSeconds=3.4, TravelSeconds=4.2)
+    #
+    # The focus table rides on the script rather than on twelve markers: one
+    # profile handle per shot, in shot order, comma separated. Written from the
+    # same `focus_band` call the profiles themselves were built from, so a band
+    # cannot be renumbered here and left stale there.
+    shot_profiles = ",".join(str(profiles[focus_band(shot[2])]) for shot in SHOTS)
+    s.managed_script("CampCamera", HoldSeconds=3.4, TravelSeconds=4.2,
+                     Profiles=shot_profiles)
 
     # The shots themselves. Empty transforms, named so the script can find
     # them -- which makes the camera move a thing you can drag in the editor
@@ -402,19 +415,10 @@ def build(profiles, mat, prop, tex, curve):
                     f"{name} stands {gap:.2f} m from {what}, which is inside "
                     f"it -- move the target or flip the yaw")
 
+        # A transform and a name, and nothing else. Where the camera stands
+        # and what it looks at is all a marker is; its lens is in the table on
+        # the script above.
         s.entity(name, position=position, rotation=rotation)
-
-        # The marker's own lens. ViewRank 90 rather than 0: lowest wins, so
-        # these can never take over the view, and the field exists to be read
-        # rather than rendered through.
-        s.block("CameraComponent", [
-            ("ViewRank", 90), ("FixedAspectRatio", "false"),
-            ("ProjectionType", "Perspective"), ("PerspectiveFOV", 50),
-            ("PerspectiveNearClip", 0.05), ("PerspectiveFarClip", 400),
-            ("OrthographicScale", 10), ("OrthographicNearClip", -1),
-            ("OrthographicFarClip", 1),
-            ("PostProfile", profiles[focus_band(distance)]),
-        ])
 
     # --- the ground ----------------------------------------------------------
     s.entity("Ground", position=(0, TERRAIN_Y, 0))
