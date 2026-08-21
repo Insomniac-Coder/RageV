@@ -34,8 +34,13 @@ public class CampCamera : Script
 	// equal to what the scene asks for makes the timing right whether or not
 	// the override reaches the field, and leaves the override as the tuning
 	// knob it was meant to be rather than the only thing holding the pacing up.
-	private float HoldSeconds = 3.4f;
-	private float TravelSeconds = 4.2f;
+	//
+	// **Travel is a duration, so a faster camera is a smaller number.** Forty
+	// per cent more speed over a fixed distance is 4.2 / 1.4 = 3.0 s, not
+	// 4.2 * 0.6 -- the two answers differ by a fifth of the move and only one
+	// of them is what "forty per cent faster" means.
+	private float HoldSeconds = 2.72f;
+	private float TravelSeconds = 3.0f;
 
 	// No more than this many, and the search stops at the first gap. A scene
 	// with "Shot 1" and "Shot 3" gets one shot and not a jump through the

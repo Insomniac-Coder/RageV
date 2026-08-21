@@ -540,7 +540,11 @@ def build(profiles, profile_paths, mat, prop, tex, curve):
     # A camera that aims at a place has no short way or long way round.
     shot_targets = ",".join(f"{t[0]:g} {t[1]:g} {t[2]:g}" for _, t, _, _, _ in SHOTS)
 
-    s.managed_script("CampCamera", HoldSeconds=3.4, TravelSeconds=4.2,
+    # Kept equal to the script's own defaults on purpose -- see the comment on
+    # them. 3.0 s of travel is the old 4.2 at forty per cent more speed, and
+    # 2.72 s is the old 3.4 held a fifth shorter: a shot cycle goes from 7.6 s
+    # to 5.72, and the twelve-shot film from 91 s to 69.
+    s.managed_script("CampCamera", HoldSeconds=2.72, TravelSeconds=3.0,
                      Profiles=shot_profiles, Targets=shot_targets)
 
     # The shots themselves. Empty transforms, named so the script can find
