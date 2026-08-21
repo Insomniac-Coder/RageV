@@ -434,6 +434,10 @@ namespace RageV
 		// One while the traced form is off, so the uniform never claims a
 		// depth nothing is tracing -- the same shape as the intensity above.
 		Renderer::SetGiBounces(rayGi ? ResolveGiBounces(desc.Post) : 1);
+		// The profile's GiRadius, which until now only the screen-space gather
+		// read. Clamped away from zero so "the setting is off" cannot be
+		// spelled the same way as "no bounce reaches anything".
+		Renderer::SetGiReach(rayGi ? Math::Max(desc.Post.GiRadius, 0.05f) : 0.0f);
 		const bool wantReflections = desc.Post.ScreenSpaceReflections
 								  && !rayReflections
 								  && desc.Reflections != nullptr

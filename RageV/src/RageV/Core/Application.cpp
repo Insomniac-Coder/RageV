@@ -461,6 +461,9 @@ namespace RageV {
 		// averaging those in makes a run look worse the shorter it is. A fifth
 		// of the run, and never fewer than ten frames.
 		const uint32_t benchmarkFrames = config.BenchmarkFrames;
+		// A benchmark that cannot say which pass spent the time is a number
+		// without a lead, so it turns this on for itself.
+		FrameProfiler::EnablePassTimings(config.PassTimings || benchmarkFrames > 0);
 		const uint32_t benchmarkWarmup = benchmarkFrames > 0
 			? Math::Max(10u, benchmarkFrames / 5u) : 0u;
 

@@ -101,6 +101,19 @@ namespace RageV
 		static void SetGiBounces(int bounces);
 		static int GetGiBounces();
 
+		// How far a traced bounce ray reaches, in world metres.
+		//
+		// The profile has had `GiRadius` all along -- "world metres a bounce
+		// may travel" -- and only the screen-space gather ever read it. The
+		// traced form cast every ray to 10 km, so each of the four rays a
+		// pixel traversed the whole scene's structure to find a hit that a
+		// miss would have handled identically: a bounce that misses
+		// contributes nothing here, because the probe already answers for the
+		// sky (7bb). Bounding it does not change what the setting means, it
+		// makes the traced form obey it.
+		static void SetGiReach(float metres);
+		static float GetGiReach();
+
 		// Last frame's indirect diffuse, for the lighting that draws this
 		// frame: RGB the irradiance arriving from the scene, **albedo-free**,
 		// A how far to trust it. ENGINE-NOTES 7av.

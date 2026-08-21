@@ -39,6 +39,7 @@
 //                           ray tracing on and bindless materials)
 //   --rt-ao=on|off          override the ray-traced ambient occlusion option
 //   --gi-bounces=1|2        how many times traced light bounces (7ax)
+//   --pass-timings=on       GPU time every render-graph pass (implied by --benchmark)
 //   --render-defaults=on|off  ignore the project's Render Settings and use
 //                           the struct's defaults, so a check depends only on
 //                           its own command line (ENGINE-NOTES 7ba). The
@@ -242,6 +243,9 @@ namespace RageV
 		// 0 means "not given"; 1 and 2 are the only values the flag accepts,
 		// so there is no third state to mean anything else.
 		int          GiBouncesOverride = 0;
+		// Time every render-graph pass on the GPU. Implied by --benchmark;
+		// off otherwise, because seventy timestamps a frame is not free.
+		bool         PassTimings = false;
 		// A check's affordance (ENGINE-NOTES 7ba): the project's Render Settings
 		// are replaced by `RenderSettings{}` at load, so a run depends only on
 		// what its command line says. The other overrides still apply on top.

@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "RenderGraph.h"
 #include "RageV/Core/Log.h"
+#include "RageV/Core/FrameProfiler.h"
 
 namespace RageV
 {
@@ -394,6 +395,15 @@ namespace RageV
 		{
 			Pass& pass = m_Passes[i];
 
+			// Named with the graph, so the editor's two runs of the same pass
+			// are one entry with a call count rather than two anonymous ones.
+			// Built once and used by both the breadcrumb and the timer.
+			const std::string scope = m_Name + '/' + pass.Name;
+			uint32_t tsBegin = 0, tsEnd = 0;
+			const bool timed = FrameProfiler::ClaimNamedGpuScope(scope.c_str(), tsBegin, tsEnd);
+			if (timed)
+				cmd.WriteTimestamp(tsBegin);
+
 			// A compute pass has no attachment to begin, so it skips straight
 			// to its lambda -- a dispatch recorded inside a render pass is
 			// illegal on Vulkan, which is the reason this kind exists at all.
@@ -409,11 +419,13 @@ namespace RageV
 				context.Width = m_Width;
 				context.Height = m_Height;
 
-				cmd.SetCheckpoint((m_Name + '/' + pass.Name).c_str());
+				cmd.SetCheckpoint(scope.c_str());
 				cmd.PushDebugGroup(pass.Name.c_str());
 				if (pass.ExecuteFn)
 					pass.ExecuteFn(context);
 				cmd.PopDebugGroup();
+				if (timed)
+					cmd.WriteTimestamp(tsEnd);
 				continue;
 			}
 
@@ -459,7 +471,7 @@ namespace RageV
 			// The breadcrumb goes down before the render pass opens, so a
 			// death anywhere inside it -- clears included -- still reads as
 			// this pass having started and not finished.
-			cmd.SetCheckpoint((m_Name + '/' + pass.Name).c_str());
+			cmd.SetCheckpoint(scope.c_str());
 
 			// Named in the capture, so a frame in RenderDoc reads the same way
 			// the declaration does.
@@ -471,6 +483,10 @@ namespace RageV
 
 			cmd.EndRenderPass();
 			cmd.PopDebugGroup();
+			// After the pass ends, so the clear and the resolve are inside the
+			// measurement -- they are work this pass caused.
+			if (timed)
+				cmd.WriteTimestamp(tsEnd);
 		}
 	}
 

@@ -106,7 +106,11 @@ namespace RageV::RHI
 		// costs no stall.
 		//
 		// Slots are the caller's to assign. FrameProfiler maps two per phase.
-		static constexpr uint32_t kTimestampSlots = 64;
+		// Enough for the seven phases and every render-graph pass, twice --
+		// the editor runs the graph for its viewport and its game panel into
+		// one command buffer, and a pass timed only in the first of those is a
+		// pass whose cost is understated by half.
+		static constexpr uint32_t kTimestampSlots = 512;
 
 		// Nanoseconds per tick. Vulkan reports it per device; OpenGL is already
 		// nanoseconds.

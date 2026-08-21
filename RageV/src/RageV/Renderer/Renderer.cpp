@@ -148,6 +148,7 @@ namespace RageV
 	{
 		float s_GlobalIllumination = 0.0f;
 		int s_GiBounces = 1;
+		float s_GiReach = 0.0f;
 	}
 
 	void Renderer::SetGlobalIllumination(float intensity)
@@ -163,6 +164,16 @@ namespace RageV
 	void Renderer::SetGiBounces(int bounces)
 	{
 		s_GiBounces = Math::Clamp(bounces, 1, 2);
+	}
+
+	void Renderer::SetGiReach(float metres)
+	{
+		s_GiReach = Math::Max(metres, 0.0f);
+	}
+
+	float Renderer::GetGiReach()
+	{
+		return s_GiReach;
 	}
 
 	int Renderer::GetGiBounces()

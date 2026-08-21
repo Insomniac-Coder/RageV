@@ -721,7 +721,9 @@ struct TracedSurface
 	vec3 Emissive;
 };
 
-TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction)
+// `reach` is how far the ray may travel, in world metres. A reflection wants
+// the whole scene; a diffuse bounce does not -- see Renderer::SetGiReach.
+TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 {
 	TracedSurface surface;
 	surface.Missed = false;
@@ -743,7 +745,7 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction)
 
 	rayQueryEXT q;
 	rayQueryInitializeEXT(q, u_SceneAS, gl_RayFlagsOpaqueEXT, 0xFFu,
-						  origin + Ng * offset, 0.0, direction, 1.0e4);
+						  origin + Ng * offset, 0.0, direction, reach);
 	while (rayQueryProceedEXT(q)) {}
 
 	if (rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT)
@@ -894,7 +896,7 @@ vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
 // accumulates it, and doubling its cost would buy an agreement nobody can see.
 vec3 TraceReflection(vec3 origin, vec3 Ng, vec3 direction)
 {
-	TracedSurface surface = TraceSurface(origin, Ng, direction);
+	TracedSurface surface = TraceSurface(origin, Ng, direction, 1.0e4);
 	if (surface.Missed)
 		return surface.Sky;
 	return ShadeTraced(surface, ProbeIrradiance(surface.Normal));
@@ -1424,6 +1426,18 @@ void main()
 		// from the inner loop, which is 8.2's bar for one.
 		const int giBounces = int(u_Scene.GlobalIllumination.z + 0.5);
 
+		// **How far a bounce reaches, and why it is not the whole scene.**
+		// A miss here contributes nothing -- the probe already integrates the
+		// sky over the hemisphere (7bb) -- so a ray that travels a hundred
+		// metres to hit a distant tree and a ray that travels a hundred metres
+		// and misses produce almost the same answer, and cost wildly different
+		// amounts. The profile has said "world metres a bounce may travel"
+		// since GiRadius existed; only the screen-space gather was listening.
+		// Zero keeps the old unbounded behaviour for any caller that has not
+		// set it.
+		const float giReach = u_Scene.GlobalIllumination.w > 0.0
+							? u_Scene.GlobalIllumination.w : 1.0e4;
+
 		vec3 giNormal = normalize(v_Normal);
 		vec3 bounced = vec3(0.0);
 		for (int i = 0; i < kGiRays; ++i)
@@ -1431,7 +1445,7 @@ void main()
 			giSeed += uint(i) * 0x9E3779B9u;
 			vec3 direction = CosineDirection(N, giSeed);
 
-			TracedSurface first = TraceSurface(v_WorldPos, giNormal, direction);
+			TracedSurface first = TraceSurface(v_WorldPos, giNormal, direction, giReach);
 			// A miss is nothing, not the sky (ENGINE-NOTES 7bb). The probe below
 			// already integrates the sky over the whole hemisphere; four rays
 			// that mostly miss are a four-sample estimate of that same probe, and
@@ -1454,7 +1468,7 @@ void main()
 				giSeed += 0x68BC21EBu;
 				vec3 onward = CosineDirection(first.Normal, giSeed);
 
-				TracedSurface second = TraceSurface(first.Position, first.Normal, onward);
+				TracedSurface second = TraceSurface(first.Position, first.Normal, onward, giReach);
 				arriving = second.Missed
 						 ? second.Sky
 						 : ShadeTraced(second, ProbeIrradiance(second.Normal));

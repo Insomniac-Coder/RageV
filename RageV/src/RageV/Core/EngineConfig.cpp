@@ -95,6 +95,9 @@ namespace RageV
 		if (key == "depth-sort" || key == "depthsort")
 			return ParseBool(value, config.DepthSortOpaque);
 
+		if (key == "pass-timings" || key == "passtimings")
+			return ParseBool(value, config.PassTimings);
+
 		if (key == "bindless")
 			return ParseBool(value, config.Bindless);
 

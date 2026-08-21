@@ -935,9 +935,12 @@ namespace RageV
 		// face and the main view do not draw the same four rays either.
 		{
 			static uint32_t giFrame = 0;
+			// w is the bounce's reach in metres; zero means the shader's own
+			// unbounded default, which is what a caller that never set it gets.
 			s_Data->Scene.GlobalIllumination = Vec4(Renderer::GetGlobalIllumination(),
 													(float)(giFrame++ & 0xFFFFu),
-													(float)Renderer::GetGiBounces(), 0.0f);
+													(float)Renderer::GetGiBounces(),
+													Renderer::GetGiReach());
 		}
 
 		s_Data->Scene.ScreenReflections = Vec4(haveReflections ? reflections->Intensity : 0.0f,

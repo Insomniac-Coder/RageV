@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 #include <chrono>
+#include <string>
+#include <vector>
 
 namespace RageV
 {
@@ -114,6 +116,30 @@ namespace RageV
 		static float LastCpuFrameMs();
 		static float MeanGpuFrameMs();
 		static float MeanGpuPhaseMs(FramePhase phase);
+
+		// A GPU scope named at runtime.
+		//
+		// The seven phases are a fixed enum because they are the shape of a
+		// frame. A render-graph pass is not: which passes exist is decided by
+		// the frame's features, and the editor runs the whole list twice. So
+		// these are keyed by name, summed when a name appears more than once
+		// in a frame, and reported with how many times that was.
+		//
+		// Off by default. Seventy extra timestamps a frame is not free, and a
+		// profiler that is always on is a profiler that is part of what it
+		// measures. --pass-timings=on turns it on; --benchmark implies it.
+		static void EnablePassTimings(bool on);
+		static bool PassTimingsEnabled();
+		static bool ClaimNamedGpuScope(const char* name, uint32_t& beginSlot, uint32_t& endSlot);
+
+		struct PassTiming
+		{
+			std::string Name;
+			float       GpuMs = 0.0f;
+			uint32_t    Calls = 0;
+		};
+		// Smoothed like the phases, sorted longest first.
+		static const std::vector<PassTiming>& PassTimings();
 
 		// Claims the next free pair of slots for `phase`. Returns false when the
 		// frame has used them all, in which case the scope is CPU only.

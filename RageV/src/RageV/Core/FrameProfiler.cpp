@@ -4,6 +4,7 @@
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/Renderer.h"
 #include <spdlog/fmt/fmt.h>
+#include <algorithm>
 
 namespace RageV
 {
@@ -59,6 +60,25 @@ namespace RageV
 		float s_LiveGpuFrame = 0.0f;
 		float s_LiveCpuFrame = 0.0f;
 		float s_LastCpuFrame = 0.0f;
+
+		// --- named scopes ----------------------------------------------------
+		// The name table is append-only and its strings never move, so a claim
+		// can hold an index and the per-frame lists cost no allocation once the
+		// frame's shape has settled.
+		bool s_PassTimings = false;
+		std::vector<std::string> s_PassNames;
+		struct NamedClaim { uint32_t Name; uint32_t Begin; uint32_t End; };
+		// Per frame slot, for the same reason the phase claims are: the results
+		// that arrive belong to the frame that last used the pool.
+		std::vector<std::vector<NamedClaim>> s_NamedHistory;
+		std::vector<FrameProfiler::PassTiming> s_LivePasses;
+
+		std::vector<NamedClaim>& NamedClaimsFor(uint32_t frame)
+		{
+			if (s_NamedHistory.size() <= frame)
+				s_NamedHistory.resize(frame + 1);
+			return s_NamedHistory[frame];
+		}
 		constexpr float kSmoothing = 0.05f;
 
 		void Smooth(float& average, float sample)
@@ -93,6 +113,31 @@ namespace RageV
 		s_GpuTotal = -1.0f;
 		for (float& phase : s_GpuPhases)
 			phase = -1.0f;
+	}
+
+	void FrameProfiler::EnablePassTimings(bool on) { s_PassTimings = on; }
+	bool FrameProfiler::PassTimingsEnabled() { return s_PassTimings; }
+	const std::vector<FrameProfiler::PassTiming>& FrameProfiler::PassTimings() { return s_LivePasses; }
+
+	bool FrameProfiler::ClaimNamedGpuScope(const char* name, uint32_t& beginSlot, uint32_t& endSlot)
+	{
+		if (!s_PassTimings || !name)
+			return false;
+		if (s_NextSlot + 1 >= RHI::RHIDevice::kTimestampSlots || !Renderer::HasDevice())
+			return false;
+
+		uint32_t index = 0;
+		for (; index < s_PassNames.size(); index++)
+			if (s_PassNames[index] == name)
+				break;
+		if (index == s_PassNames.size())
+			s_PassNames.emplace_back(name);
+
+		beginSlot = s_NextSlot++;
+		endSlot = s_NextSlot++;
+		NamedClaimsFor(Renderer::GetDevice().GetFrameIndex())
+			.push_back({ index, beginSlot, endSlot });
+		return true;
 	}
 
 	bool FrameProfiler::ClaimGpuScope(FramePhase phase, uint32_t& beginSlot, uint32_t& endSlot)
@@ -155,6 +200,46 @@ namespace RageV
 			const int index = (int)scope.Phase;
 			s_GpuPhases[index] = s_GpuPhases[index] < 0.0f ? ms : s_GpuPhases[index] + ms;
 			s_GpuSeen = true;
+		}
+
+		// The named scopes, summed by name and counted. A pass that ran in both
+		// of the editor's graphs reports the total of the two and says "x2",
+		// which is the number that matters when deciding what to cut.
+		if (s_PassTimings)
+		{
+			std::vector<NamedClaim>& named = NamedClaimsFor(device.GetFrameIndex());
+			std::vector<PassTiming> frame(s_PassNames.size());
+			for (size_t i = 0; i < s_PassNames.size(); i++)
+				frame[i].Name = s_PassNames[i];
+
+			for (const NamedClaim& claim : named)
+			{
+				const float ms = span(claim.Begin, claim.End);
+				if (ms < 0.0f || claim.Name >= frame.size())
+					continue;
+				frame[claim.Name].GpuMs += ms;
+				frame[claim.Name].Calls++;
+			}
+			named.clear();
+
+			// Smoothed against the previous answer, matched by name so a frame
+			// that skipped a pass does not restart its average.
+			for (const PassTiming& sample : frame)
+			{
+				if (sample.Calls == 0)
+					continue;
+				auto it = std::find_if(s_LivePasses.begin(), s_LivePasses.end(),
+					[&](const PassTiming& live) { return live.Name == sample.Name; });
+				if (it == s_LivePasses.end())
+				{
+					s_LivePasses.push_back(sample);
+					continue;
+				}
+				Smooth(it->GpuMs, sample.GpuMs);
+				it->Calls = sample.Calls;
+			}
+			std::sort(s_LivePasses.begin(), s_LivePasses.end(),
+					  [](const PassTiming& a, const PassTiming& b) { return a.GpuMs > b.GpuMs; });
 		}
 
 		s_GpuTotal = span(kWholeFrameBeginSlot, kWholeFrameEndSlot);
@@ -424,6 +509,19 @@ namespace RageV
 		// were GPU timings, what it was waiting *for* was a guess.
 		RV_CORE_INFO("[benchmark]   {0:<22} {1:>9.3f}  -- CPU idle: the GPU, the "
 					 "present, or the vsync wait", "unaccounted", mean - accounted);
+
+		if (s_PassTimings && !s_LivePasses.empty())
+		{
+			RV_CORE_INFO("[benchmark]   --- render graph, by pass ---");
+			float listed = 0.0f;
+			for (const PassTiming& entry : s_LivePasses)
+			{
+				listed += entry.GpuMs;
+				RV_CORE_INFO("[benchmark]   {0:<34} {1:>8.3f} ms{2}", entry.Name, entry.GpuMs,
+							 entry.Calls > 1 ? fmt::format("  x{0}", entry.Calls) : std::string());
+			}
+			RV_CORE_INFO("[benchmark]   {0:<34} {1:>8.3f} ms", "(sum of passes)", listed);
+		}
 
 		if (gpu && gpuFrame >= 0.0f)
 		{
