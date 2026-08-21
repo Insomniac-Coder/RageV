@@ -233,7 +233,7 @@ void EditorLayer::OnLoaded()
 	// can be checked without somebody clicking the hierarchy first.
 	if (!config.SelectEntity.empty() && m_Scene)
 	{
-		for (auto handle : m_Scene->GetRegistry().view<TagComponent>())
+		for (auto handle : m_Scene->GetRegistry().GetView<TagComponent>())
 		{
 			Entity entity{ handle, m_Scene.get() };
 			if (entity.GetName() == config.SelectEntity)
@@ -1013,11 +1013,11 @@ void EditorLayer::DrawEmitterVolumes()
 	// come out of rather than a solid, which is the same class of thing.
 	constexpr Vec4 kColor{ 0.95f, 0.68f, 0.20f, 1.0f };
 
-	auto view = m_Scene->GetRegistry().view<ParticleEmitterComponent, TransformComponent>();
+	auto view = m_Scene->GetRegistry().GetView<ParticleEmitterComponent, TransformComponent>();
 	for (auto handle : view)
 	{
 		auto [emitter, transform] =
-			view.get<ParticleEmitterComponent, TransformComponent>(handle);
+			view.Get<ParticleEmitterComponent, TransformComponent>(handle);
 		if (emitter.Shape != EmitterShape::Box)
 			continue;
 

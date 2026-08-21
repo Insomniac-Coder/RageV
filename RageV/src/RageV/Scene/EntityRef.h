@@ -14,7 +14,7 @@ namespace RageV
 	// browser's drop target instead of the hierarchy's. The wrapper is what
 	// makes `FieldType::Entity` deducible at all.
 	//
-	// It stores the UUID and never an `entt::entity`. A handle is an index into
+	// It stores the UUID and never an `ECS::Entity`. A handle is an index into
 	// one scene's pool: it means nothing after a save, after a reload, or after
 	// the snapshot restore that Play and Stop perform every single time. The
 	// UUID is the reference that survives all three, which is why it is what

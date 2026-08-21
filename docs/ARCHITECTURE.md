@@ -31,7 +31,7 @@ ones.
 ## Layers
 
 ```
-Application / Layers / Scene (EnTT)
+Application / Layers / Scene (ECS)
         |
    Renderer2D
         |

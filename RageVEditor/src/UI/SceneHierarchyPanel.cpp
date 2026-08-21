@@ -131,10 +131,10 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 	}
 
 	// Roots only; children are drawn by the recursion.
-	auto view = m_SceneRef->m_Registry.view<TagComponent, RelationshipComponent>();
+	auto view = m_SceneRef->m_Registry.GetView<TagComponent, RelationshipComponent>();
 	for (auto& item : view)
 	{
-		if (!view.get<RelationshipComponent>(item).Parent.IsValid())
+		if (!view.Get<RelationshipComponent>(item).Parent.IsValid())
 			DrawEntityNode(Entity{ item, m_SceneRef.get() });
 	}
 
@@ -148,7 +148,7 @@ void RageV::SceneHierarchyPanel::OnImGuiRender(bool* showHierarchy, bool* showPr
 	{
 		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ENTITY"))
 		{
-			m_PendingReparentChild = Entity{ *(const entt::entity*)payload->Data, m_SceneRef.get() };
+			m_PendingReparentChild = Entity{ *(const ECS::Entity*)payload->Data, m_SceneRef.get() };
 			m_PendingReparentParent = {};
 			m_PendingReparent = true;
 		}
@@ -418,7 +418,7 @@ void RageV::SceneHierarchyPanel::DrawEntityNode(Entity entity)
 	// --- drag and drop ------------------------------------------------------
 	if (ImGui::BeginDragDropSource())
 	{
-		const entt::entity handle = entity;
+		const ECS::Entity handle = entity;
 		ImGui::SetDragDropPayload("RAGEV_ENTITY", &handle, sizeof(handle));
 		ImGui::TextUnformatted(entity.GetName().c_str());
 		ImGui::EndDragDropSource();
@@ -428,7 +428,7 @@ void RageV::SceneHierarchyPanel::DrawEntityNode(Entity entity)
 	{
 		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ENTITY"))
 		{
-			m_PendingReparentChild = Entity{ *(const entt::entity*)payload->Data, m_SceneRef.get() };
+			m_PendingReparentChild = Entity{ *(const ECS::Entity*)payload->Data, m_SceneRef.get() };
 			m_PendingReparentParent = entity;
 			m_PendingReparent = true;
 		}

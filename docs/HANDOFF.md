@@ -1074,7 +1074,7 @@ Application  (fixed-step loop, InputMap, AssetRegistry/Manager, AudioEngine)
      |
    Layers -> EditorLayer | RuntimeLayer
      |
-   Scene (EnTT)  --  PhysicsWorld (Jolt)   ScriptRegistry
+   Scene (ECS)   --  PhysicsWorld (Jolt)   ScriptRegistry
      |                     |
      |                contact events
      |                     v
@@ -1382,7 +1382,7 @@ or silence rather than an obvious failure.
 ### Scene
 
 - **Anything rewritten every frame needs one instance per frame in flight.**
-- **Entities are addressed by UUID, never by `entt::entity`.** Handles are
+- **Entities are addressed by UUID, never by `ECS::Entity`.** Handles are
   recycled, and play-mode restore recreates every entity.
 - **`Entity`'s members are all `const`.** It is a handle, so const on it means
   "cannot be repointed", not "cannot be used" — the same reading that makes
@@ -1396,8 +1396,16 @@ or silence rather than an obvious failure.
 - Structural changes during a UI walk or a script pass are **deferred**. The
   script pass collects handles before stepping any of them.
 - Only the parent link is serialized; child lists are rebuilt on load.
-- EnTT iterates entities in **reverse creation order** — the serializer reverses
-  it, or the file's order flips on every save/load cycle.
+- **`Registry::Each` iterates in creation order**, and the serializer writes
+  that order straight out. It used to reverse, because EnTT iterated backwards
+  and writing its order directly flipped the file on every save/load cycle. The
+  reversal went when EnTT did — a correction for a dependency's quirk outlives
+  the dependency unless somebody looks for it (7by).
+- **A component reference survives an insertion and not a removal.** Pools are
+  paged, so adding a component never moves the ones already there; removing one
+  moves the last into the hole. `AddComponent` handing back a reference that the
+  next `AddComponent` invalidates is the bug this exists to prevent, and it was
+  found by a test that held one across two adds.
 
 ### Physics
 
@@ -2106,9 +2114,11 @@ not, which is the same mistake as the culling number, caught this time.
 - **A missing audio listener falls back to the primary camera** rather than
   producing silence. Requiring a component would mostly produce silent scenes
   and a confused user.
-- **EnTT stays** — sparse sets are the right trade for editor-scale scenes.
-- **A purpose-built component registry, not `entt::meta`** — EnTT identifies
-  members by hashed id, so a serializer must store the name anyway.
+- **A purpose-built ECS** (`Scene/ECS.h`, 2026-08-22) — sparse sets are the
+  right trade for editor-scale scenes, and the engine used twelve calls of the
+  library that provided them.
+- **A purpose-built component registry, not a reflection system** — reflection
+  identifies members by hashed id, so a serializer must store the name anyway.
 - **`ViewRank`, not an `isPrimary` flag** — a boolean can be true twice.
 - **Scene view stays on the editor camera during Play.**
 - **GPU-driven rendering and bindless are out of scope.** Bindless is where the
@@ -6219,7 +6229,7 @@ Four decisions in there:
   something that happens when a person types. Invariant specifically: a machine
   with a comma decimal separator would otherwise write `1,5` into a scene that
   then loads nowhere else.
-- **The handle is not copied and not serialized.** EnTT copies components when a
+- **The handle is not copied and not serialized.** Components are copied when a
   scene is duplicated, which is what play mode does on every press of Play, and
   two components owning one managed instance would both destroy it.
 
@@ -6464,8 +6474,6 @@ because the alternative is someone finding each one by being confused.
 
 - **`.meta` files belong in version control.** They are the identity, and they
   are tracked — checked, not assumed.
-- Vendored EnTT is 3.10.0, checked in as a single header rather than a
-  submodule. UTF-8 now; it was UTF-16LE, which defeated grep.
 - `Chunk`/`Perlin` are parked in `experiments/terrain/` and not built.
 - **`tools/scripts/make_sky_hdr.py` rebuilds the sample's sky, but not
   identically.** Whole-frame mean luminance 146.0 against the original's 149.1,

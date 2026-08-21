@@ -18,11 +18,12 @@ namespace RageV
 	// three places to forget when a field is added and the reason a light's
 	// intensity could exist in the inspector and not on disk for months.
 	//
-	// This is a purpose-built registry rather than entt::meta. EnTT identifies
-	// data members by hashed id, not by string, so a serializer needs the name
-	// stored alongside as a property -- at which point entt::meta is holding
-	// data it was handed rather than providing any. A typed descriptor avoids
-	// the meta_any round-trips and is what the C# layer will want anyway.
+	// A purpose-built registry rather than a general reflection system. The
+	// reflection libraries that come with an ECS identify data members by
+	// hashed id rather than by string, so a serializer needs the name stored
+	// alongside as a property -- at which point the reflection is holding data
+	// it was handed rather than providing any. A typed descriptor avoids the
+	// type-erased round trips and is what the C# layer wants anyway.
 
 	enum class FieldType
 	{

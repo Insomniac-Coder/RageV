@@ -73,10 +73,10 @@ namespace RageV::UI
 		// consumed by EndFixedStep on the same terms as an action press --
 		// clearing it per frame would drop the click whenever a frame ran no
 		// simulation step.
-		auto buttons = scene.GetRegistry().view<UIButtonComponent>();
+		auto buttons = scene.GetRegistry().GetView<UIButtonComponent>();
 		for (auto handle : buttons)
 		{
-			UIButtonComponent& button = buttons.get<UIButtonComponent>(handle);
+			UIButtonComponent& button = buttons.Get<UIButtonComponent>(handle);
 			button.Hovered = false;
 			button.Pressed = false;
 		}
@@ -150,10 +150,10 @@ namespace RageV::UI
 	{
 		ResetPointer();
 
-		auto buttons = scene.GetRegistry().view<UIButtonComponent>();
+		auto buttons = scene.GetRegistry().GetView<UIButtonComponent>();
 		for (auto handle : buttons)
 		{
-			UIButtonComponent& button = buttons.get<UIButtonComponent>(handle);
+			UIButtonComponent& button = buttons.Get<UIButtonComponent>(handle);
 			button.Hovered = false;
 			button.Pressed = false;
 			button.Clicked = false;
@@ -162,9 +162,9 @@ namespace RageV::UI
 
 	void EndFixedStep(Scene& scene)
 	{
-		auto buttons = scene.GetRegistry().view<UIButtonComponent>();
+		auto buttons = scene.GetRegistry().GetView<UIButtonComponent>();
 		for (auto handle : buttons)
-			buttons.get<UIButtonComponent>(handle).Clicked = false;
+			buttons.Get<UIButtonComponent>(handle).Clicked = false;
 	}
 
 	std::string BindingProblem::Describe() const
@@ -185,10 +185,10 @@ namespace RageV::UI
 	{
 		std::vector<BindingProblem> problems;
 
-		auto view = scene.GetRegistry().view<UIButtonComponent>();
+		auto view = scene.GetRegistry().GetView<UIButtonComponent>();
 		for (auto handle : view)
 		{
-			const UIButtonComponent& button = view.get<UIButtonComponent>(handle);
+			const UIButtonComponent& button = view.Get<UIButtonComponent>(handle);
 
 			// No method named is not a broken binding -- it is a button read by
 			// polling, and most of them are. Reporting these would put a line

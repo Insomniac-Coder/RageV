@@ -257,41 +257,41 @@ namespace RageV::Assets
 
 		auto& registry = scene.GetRegistry();
 
-		for (auto handle : registry.view<MeshComponent>())
+		for (auto handle : registry.GetView<MeshComponent>())
 		{
-			const auto& mesh = registry.get<MeshComponent>(handle);
+			const auto& mesh = registry.Get<MeshComponent>(handle);
 			Want(mesh.Mesh, WantKind::Mesh, pending, seen);
 			WantMaterial(mesh.Material, pending, seen);
 		}
 
-		for (auto handle : registry.view<UIImageComponent>())
+		for (auto handle : registry.GetView<UIImageComponent>())
 		{
-			Want(registry.get<UIImageComponent>(handle).Texture,
+			Want(registry.Get<UIImageComponent>(handle).Texture,
 				 WantKind::StandaloneTexture, pending, seen);
 		}
 
-		for (auto handle : registry.view<ParticleEmitterComponent>())
+		for (auto handle : registry.GetView<ParticleEmitterComponent>())
 		{
-			const auto& emitter = registry.get<ParticleEmitterComponent>(handle);
+			const auto& emitter = registry.Get<ParticleEmitterComponent>(handle);
 			Want(emitter.Texture, WantKind::StandaloneTexture, pending, seen);
 			Want(emitter.SizeCurve, WantKind::Curve, pending, seen);
 			Want(emitter.ColorGradient, WantKind::Curve, pending, seen);
 			Want(emitter.AlphaCurve, WantKind::Curve, pending, seen);
 		}
 
-		for (auto handle : registry.view<UITextComponent>())
-			Want(registry.get<UITextComponent>(handle).Font, WantKind::Font, pending, seen);
+		for (auto handle : registry.GetView<UITextComponent>())
+			Want(registry.Get<UITextComponent>(handle).Font, WantKind::Font, pending, seen);
 
-		for (auto handle : registry.view<WorldTextComponent>())
-			Want(registry.get<WorldTextComponent>(handle).Font, WantKind::Font, pending, seen);
+		for (auto handle : registry.GetView<WorldTextComponent>())
+			Want(registry.Get<WorldTextComponent>(handle).Font, WantKind::Font, pending, seen);
 
 		// A terrain's heights, and the four layers it is drawn with (7aq). The
 		// chunk meshes are built on the first frame that draws it -- they need
 		// the component's dimensions, which the preloader does not resolve --
 		// but the file, which is the bytes, is read here.
-		for (auto handle : registry.view<TerrainComponent>())
+		for (auto handle : registry.GetView<TerrainComponent>())
 		{
-			const auto& terrain = registry.get<TerrainComponent>(handle);
+			const auto& terrain = registry.Get<TerrainComponent>(handle);
 			Want(terrain.Terrain, WantKind::Terrain, pending, seen);
 			WantMaterial(terrain.Material, pending, seen);
 			WantMaterial(terrain.Layer1, pending, seen);
@@ -303,8 +303,8 @@ namespace RageV::Assets
 		// nothing to upload -- but it is listed anyway, because a clip still
 		// has to be found and a scene whose audio is missing should say so
 		// during loading rather than the first time something plays.
-		for (auto handle : registry.view<AudioSourceComponent>())
-			Want(registry.get<AudioSourceComponent>(handle).Clip, WantKind::Nothing, pending, seen);
+		for (auto handle : registry.GetView<AudioSourceComponent>())
+			Want(registry.Get<AudioSourceComponent>(handle).Clip, WantKind::Nothing, pending, seen);
 
 		// The sky. Not cookable today -- an `.hdr` still becomes cube faces
 		// and an irradiance convolution on every load -- but naming it here

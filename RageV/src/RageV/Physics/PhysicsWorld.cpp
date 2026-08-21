@@ -754,7 +754,7 @@ namespace RageV::Physics
 		std::vector<JPH::BodyID> pending;
 		pending.reserve(64);
 
-		auto view = scene.GetRegistry().view<RigidBodyComponent, ColliderComponent, TransformComponent>();
+		auto view = scene.GetRegistry().GetView<RigidBodyComponent, ColliderComponent, TransformComponent>();
 		for (auto handle : view)
 		{
 			Entity entity{ handle, &scene };
@@ -778,7 +778,7 @@ namespace RageV::Physics
 
 		// Terrains, in the same batch: static bodies the broad phase wants in
 		// its tree before anything falls on them.
-		auto terrains = scene.GetRegistry().view<TerrainComponent, TransformComponent>();
+		auto terrains = scene.GetRegistry().GetView<TerrainComponent, TransformComponent>();
 		for (auto handle : terrains)
 		{
 			Entity entity{ handle, &scene };

@@ -9,7 +9,7 @@ namespace RageV
 	{
 	public:
 		Entity() = default;
-		Entity(entt::entity entity, Scene* scene) : m_Entity(entity), m_Scene(scene) {}
+		Entity(ECS::Entity entity, Scene* scene) : m_Entity(entity), m_Scene(scene) {}
 		Entity(const Entity& entity) = default;
 
 		// Every member is const, because an Entity is a handle rather than the
@@ -29,7 +29,7 @@ namespace RageV
 		{
 			if (HasComponent<T>())
 				RV_CORE_WARN("Entity already has this component!");
-			return m_Scene->m_Registry.emplace<T>(m_Entity, std::forward<Args>(args)...);
+			return m_Scene->m_Registry.Emplace<T>(m_Entity, std::forward<Args>(args)...);
 		}
 
 		template<typename T>
@@ -37,13 +37,13 @@ namespace RageV
 		{
 			if (!HasComponent<T>())
 				RV_CORE_WARN("Entity does not have the requested component");
-			return m_Scene->m_Registry.get<T>(m_Entity);
+			return m_Scene->m_Registry.Get<T>(m_Entity);
 		}
 
 		template<typename T>
 		bool HasComponent() const
 		{
-			if (m_Scene->m_Registry.try_get<T>(m_Entity) != nullptr)
+			if (m_Scene->m_Registry.TryGet<T>(m_Entity) != nullptr)
 				return true;
 			return false;
 		}
@@ -53,17 +53,17 @@ namespace RageV
 		{
 			if (!HasComponent<T>())
 				RV_CORE_WARN("Entity does not have the component that you want to remove!");
-			m_Scene->m_Registry.remove<T>(m_Entity);
+			m_Scene->m_Registry.Remove<T>(m_Entity);
 		}
 
 
 		operator unsigned int() const { return (unsigned int)m_Entity; }
-		operator bool() const { return m_Entity != entt::null; }
-		operator entt::entity() const { return m_Entity; }
+		operator bool() const { return m_Entity != ECS::Null; }
+		operator ECS::Entity() const { return m_Entity; }
 		bool operator ==(const Entity& other) const { return m_Entity == other.m_Entity && m_Scene == other.m_Scene; }
 		bool operator !=(const Entity& other) const { return !(*this == other); }
 	private:
-		entt::entity m_Entity{entt::null};
+		ECS::Entity m_Entity{ECS::Null};
 		Scene* m_Scene = nullptr;
 	};
 }

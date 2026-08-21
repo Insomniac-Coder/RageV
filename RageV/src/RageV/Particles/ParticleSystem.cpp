@@ -192,7 +192,7 @@ namespace RageV::Particles
 		if (dt <= 0.0f)
 			return;
 
-		auto view = scene.GetRegistry().view<ParticleEmitterComponent, TransformComponent>();
+		auto view = scene.GetRegistry().GetView<ParticleEmitterComponent, TransformComponent>();
 
 		// Nothing here touches anything but an emitter component, so a scene
 		// with no emitters has no work -- and should not pay a full hierarchy
@@ -208,7 +208,7 @@ namespace RageV::Particles
 
 		for (auto handle : view)
 		{
-			auto [emitter, transform] = view.get<ParticleEmitterComponent, TransformComponent>(handle);
+			auto [emitter, transform] = view.Get<ParticleEmitterComponent, TransformComponent>(handle);
 
 			// The GPU path owns everything per-particle; the component only
 			// carries the settings across.
@@ -268,10 +268,10 @@ namespace RageV::Particles
 
 	bool System::HasWeightedEmitters(Scene& scene)
 	{
-		auto view = scene.GetRegistry().view<ParticleEmitterComponent>();
+		auto view = scene.GetRegistry().GetView<ParticleEmitterComponent>();
 		for (auto handle : view)
 		{
-			if (view.get<ParticleEmitterComponent>(handle).Blend == ParticleBlend::WeightedBlended)
+			if (view.Get<ParticleEmitterComponent>(handle).Blend == ParticleBlend::WeightedBlended)
 				return true;
 		}
 		return false;
@@ -280,9 +280,9 @@ namespace RageV::Particles
 	uint32_t System::Count(Scene& scene)
 	{
 		uint32_t count = 0;
-		auto view = scene.GetRegistry().view<ParticleEmitterComponent>();
+		auto view = scene.GetRegistry().GetView<ParticleEmitterComponent>();
 		for (auto handle : view)
-			count += (uint32_t)view.get<ParticleEmitterComponent>(handle).Pool.size();
+			count += (uint32_t)view.Get<ParticleEmitterComponent>(handle).Pool.size();
 		return count;
 	}
 }

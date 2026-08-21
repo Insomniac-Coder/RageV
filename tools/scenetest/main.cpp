@@ -24,6 +24,7 @@
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Renderer/GpuCull.h"
+#include "RageV/Scene/ECS.h"
 #include "RageV/Scene/Scene.h"
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
@@ -227,7 +228,7 @@ namespace
 	void CheckHierarchyPreserved(const std::shared_ptr<Scene>& scene)
 	{
 		Entity root, child, grandchild;
-		auto view = scene->GetRegistry().view<TagComponent>();
+		auto view = scene->GetRegistry().GetView<TagComponent>();
 		for (auto handle : view)
 		{
 			Entity entity{ handle, scene.get() };
@@ -268,10 +269,10 @@ namespace
 		bool unique = true;
 		bool allValid = true;
 
-		auto view = scene->GetRegistry().view<IDComponent>();
+		auto view = scene->GetRegistry().GetView<IDComponent>();
 		for (auto handle : view)
 		{
-			const UUID id = view.get<IDComponent>(handle).ID;
+			const UUID id = view.Get<IDComponent>(handle).ID;
 			allValid = allValid && id.IsValid();
 			unique = unique && seen.insert((uint64_t)id).second;
 		}
@@ -393,9 +394,9 @@ namespace
 		reader.DeserializeFromString(saved);
 
 		bool resolved = false;
-		for (auto entity : reloaded->GetRegistry().view<MeshComponent>())
+		for (auto entity : reloaded->GetRegistry().GetView<MeshComponent>())
 			resolved = resolved || Assets::Manager::GetMesh(
-				reloaded->GetRegistry().get<MeshComponent>(entity).Mesh) != nullptr;
+				reloaded->GetRegistry().Get<MeshComponent>(entity).Mesh) != nullptr;
 
 		Check(resolved, "a saved scene's mesh handle still resolves after a reload");
 	}
@@ -499,7 +500,7 @@ namespace
 
 		Check(first.GetUUID() != second.GetUUID(), "two instances have different ids");
 		Check(first.GetName() == "Turret", "the instance keeps the prefab's root name");
-		Check(target->GetRegistry().view<IDComponent>().size() == 6,
+		Check(target->GetRegistry().GetView<IDComponent>().Size() == 6,
 			  "three entities per instance, twice");
 
 		// Each copy's hierarchy must point at its own entities. Sharing an id
@@ -593,9 +594,9 @@ namespace
 
 		// Everything a running game might do: move things, add and remove
 		// components, delete an entity, spawn new ones, change the environment.
-		for (auto handle : scene->GetRegistry().view<TransformComponent>())
+		for (auto handle : scene->GetRegistry().GetView<TransformComponent>())
 		{
-			auto& transform = scene->GetRegistry().get<TransformComponent>(handle);
+			auto& transform = scene->GetRegistry().Get<TransformComponent>(handle);
 			transform.Position += Vec3(11.0f, -4.0f, 7.5f);
 			transform.Rotation.y += 1.25f;
 		}
@@ -603,7 +604,7 @@ namespace
 		Entity spawned = scene->CreateEntity("Spawned At Runtime");
 		spawned.AddComponent<MeshComponent>(PrimitiveType::Sphere);
 
-		for (auto handle : scene->GetRegistry().view<TagComponent>())
+		for (auto handle : scene->GetRegistry().GetView<TagComponent>())
 		{
 			Entity entity{ handle, scene.get() };
 			if (entity.GetName() == "Grandchild")
@@ -769,7 +770,7 @@ namespace
 			entity.AddComponent<NativeScriptComponent>("ProbeScript");
 
 			spawner->OnFixedUpdateRuntime(1.0f / 60.0f);
-			Check(spawner->GetRegistry().view<IDComponent>().size() == 2,
+			Check(spawner->GetRegistry().GetView<IDComponent>().Size() == 2,
 				  "a script can spawn an entity mid-step without corrupting the pass");
 		}
 
@@ -782,7 +783,7 @@ namespace
 			entity.AddComponent<NativeScriptComponent>("ProbeScript");
 
 			suicide->OnFixedUpdateRuntime(1.0f / 60.0f);
-			Check(suicide->GetRegistry().view<IDComponent>().size() == 0,
+			Check(suicide->GetRegistry().GetView<IDComponent>().Size() == 0,
 				  "a script can destroy itself; the delete lands after the pass");
 			Check(ProbeScript::Destroyed == 1, "self-destruction still runs OnDestroy once");
 		}
@@ -802,10 +803,10 @@ namespace
 			reader.DeserializeFromString(yaml);
 
 			bool found = false;
-			for (auto handle : reloaded->GetRegistry().view<NativeScriptComponent>())
+			for (auto handle : reloaded->GetRegistry().GetView<NativeScriptComponent>())
 			{
 				found = found || reloaded->GetRegistry()
-									.get<NativeScriptComponent>(handle).ScriptName == "ProbeScript";
+									.Get<NativeScriptComponent>(handle).ScriptName == "ProbeScript";
 			}
 			Check(found, "a script assignment survives save and load");
 		}
@@ -881,7 +882,7 @@ namespace
 
 			doomed->OnFixedUpdateRuntime(1.0f / 60.0f);
 			doomed->OnUpdateRuntime(1.0f / 60.0f);
-			Check(doomed->GetRegistry().view<IDComponent>().size() == 0,
+			Check(doomed->GetRegistry().GetView<IDComponent>().Size() == 0,
 				  "a script can destroy itself from OnFrame; the delete lands after the pass");
 			Check(ProbeScript::Destroyed == 1,
 				  "destroying from OnFrame still runs OnDestroy once");
@@ -1399,9 +1400,9 @@ namespace
 			Check(reader.DeserializeFromString(yaml), "a scene with curve handles reloads");
 
 			bool found = false;
-			for (auto handle : reloaded->GetRegistry().view<ParticleEmitterComponent>())
+			for (auto handle : reloaded->GetRegistry().GetView<ParticleEmitterComponent>())
 			{
-				const auto& read = reloaded->GetRegistry().get<ParticleEmitterComponent>(handle);
+				const auto& read = reloaded->GetRegistry().Get<ParticleEmitterComponent>(handle);
 				found = read.SizeCurve == authored.SizeCurve
 					 && read.ColorGradient == authored.ColorGradient
 					 && read.AlphaCurve == authored.AlphaCurve;
@@ -1418,6 +1419,215 @@ namespace
 	// alone passes for an emitter that never left the origin, which is the bug
 	// this feature exists to fix -- so every bound check here is paired with a
 	// fill check.
+	// The entity-component store itself (roadmap 10.2), tested away from the
+	// scene so a failure here says "the container is wrong" rather than
+	// "something in the engine is wrong".
+	//
+	// These are the twelve operations the engine actually uses, plus the two
+	// properties that are easy to get wrong and impossible to notice: a stale
+	// handle must not address a recycled index, and a view must iterate the
+	// intersection rather than whichever pool it happened to start from.
+	namespace EcsFixture
+	{
+		struct Position { float X = 0.0f, Y = 0.0f; };
+		struct Velocity { float X = 0.0f, Y = 0.0f; };
+		struct Tag { int Value = 0; };
+
+		struct Watcher
+		{
+			int Count = 0;
+			ECS::Entity Last = ECS::Null;
+			void OnGone(ECS::Registry&, ECS::Entity entity) { Count++; Last = entity; }
+		};
+	}
+
+	void CheckEcs()
+	{
+		using namespace EcsFixture;
+
+		// --- create, emplace, get ---------------------------------------
+		{
+			ECS::Registry registry;
+			ECS::Entity a = registry.Create();
+			ECS::Entity b = registry.Create();
+
+			Check(registry.Valid(a) && registry.Valid(b), "a created entity is valid");
+			Check(a != b, "and two of them are different handles");
+
+			registry.Emplace<Position>(a, Position{ 1.0f, 2.0f });
+			Check(registry.Get<Position>(a).X == 1.0f, "a component reads back what was put in it");
+			Check(registry.TryGet<Position>(b) == nullptr,
+				  "and an entity without one answers null rather than asserting");
+			Check(registry.TryGet<Velocity>(a) == nullptr,
+				  "as does a component type no entity has ever had");
+
+			// Emplacing twice overwrites; the alternative is two of one type on
+			// one entity and no way to say which is meant.
+			registry.Emplace<Position>(a, Position{ 5.0f, 6.0f });
+			Check(registry.Get<Position>(a).X == 5.0f, "emplacing over a component replaces it");
+		}
+
+		// --- remove and all_of ------------------------------------------
+		{
+			ECS::Registry registry;
+			ECS::Entity e = registry.Create();
+			registry.Emplace<Position>(e);
+			registry.Emplace<Velocity>(e);
+
+			Check(registry.AllOf<Position, Velocity>(e), "AllOf sees every component present");
+			Check(!registry.AllOf<Position, Velocity, Tag>(e), "and refuses when one is missing");
+
+			registry.Remove<Velocity>(e);
+			Check(registry.TryGet<Velocity>(e) == nullptr, "a removed component is gone");
+			Check(registry.TryGet<Position>(e) != nullptr, "and its neighbour is not");
+		}
+
+		// --- the stale handle -------------------------------------------
+		//
+		// The one that matters. An index is recycled; a handle kept across the
+		// destruction must not address whatever took its place, or an old
+		// reference silently becomes a live one somewhere else.
+		{
+			ECS::Registry registry;
+			ECS::Entity first = registry.Create();
+			registry.Emplace<Tag>(first, Tag{ 7 });
+
+			registry.Destroy(first);
+			Check(!registry.Valid(first), "a destroyed entity stops being valid");
+
+			ECS::Entity second = registry.Create();
+			Check(registry.Valid(second), "and its index is handed out again");
+			Check(ECS::IndexOf(second) == ECS::IndexOf(first),
+				  "-- the same index, which is what makes the next check the point");
+			Check(second != first, "but a different handle, because the version moved");
+			Check(!registry.Valid(first), "so the old handle is still invalid");
+			Check(registry.TryGet<Tag>(second) == nullptr,
+				  "and the recycled entity did not inherit the old one's components");
+		}
+
+		// --- views ------------------------------------------------------
+		{
+			ECS::Registry registry;
+			ECS::Entity both = registry.Create();
+			ECS::Entity onlyP = registry.Create();
+			ECS::Entity onlyV = registry.Create();
+
+			registry.Emplace<Position>(both, Position{ 1.0f, 0.0f });
+			registry.Emplace<Velocity>(both, Velocity{ 2.0f, 0.0f });
+			registry.Emplace<Position>(onlyP);
+			registry.Emplace<Velocity>(onlyV);
+
+			int single = 0;
+			for (ECS::Entity e : registry.GetView<Position>())
+			{
+				(void)e;
+				single++;
+			}
+			Check(single == 2, "a one-component view sees every entity that has it");
+
+			int pairs = 0;
+			ECS::Entity seen = ECS::Null;
+			auto view = registry.GetView<Position, Velocity>();
+			for (ECS::Entity e : view)
+			{
+				pairs++;
+				seen = e;
+			}
+			Check(pairs == 1 && seen == both,
+				  "and a two-component view sees the intersection, not either pool");
+
+			auto [position, velocity] = view.Get<Position, Velocity>(both);
+			Check(position.X == 1.0f && velocity.X == 2.0f,
+				  "a view hands back every component it was asked for");
+
+			position.X = 9.0f;
+			Check(registry.Get<Position>(both).X == 9.0f,
+				  "and by reference, so writing through it reaches the store");
+
+			// An empty view must be an empty loop rather than a fault: a scene
+			// with no lights asks for one on every frame.
+			int none = 0;
+			for (ECS::Entity e : registry.GetView<Tag>())
+			{
+				(void)e;
+				none++;
+			}
+			Check(none == 0, "a view over a component nothing has iterates nothing");
+		}
+
+		// --- destruction listeners --------------------------------------
+		{
+			ECS::Registry registry;
+			Watcher watcher;
+			registry.OnDestroy<Tag>(&Watcher::OnGone, &watcher);
+
+			ECS::Entity e = registry.Create();
+			registry.Emplace<Tag>(e);
+
+			registry.Remove<Tag>(e);
+			Check(watcher.Count == 1 && watcher.Last == e,
+				  "removing a component tells the listener which entity lost it");
+
+			ECS::Entity f = registry.Create();
+			registry.Emplace<Tag>(f);
+			registry.Destroy(f);
+			Check(watcher.Count == 2, "and destroying the entity counts too");
+
+			ECS::Entity g = registry.Create();
+			registry.Emplace<Tag>(g);
+			registry.Clear();
+			Check(watcher.Count == 3,
+				  "as does clearing the registry -- the case that leaked script instances");
+		}
+
+		// --- swap-and-pop keeps the sparse index honest ------------------
+		//
+		// Removing from the middle moves the last element into the hole. If the
+		// moved entity's index is not updated it addresses the wrong component
+		// from then on, which reads as one object wearing another's data.
+		{
+			ECS::Registry registry;
+			std::vector<ECS::Entity> made;
+			for (int i = 0; i < 8; i++)
+			{
+				ECS::Entity e = registry.Create();
+				registry.Emplace<Tag>(e, Tag{ i });
+				made.push_back(e);
+			}
+
+			registry.Remove<Tag>(made[2]);
+			registry.Remove<Tag>(made[0]);
+
+			bool intact = true;
+			for (int i = 0; i < 8; i++)
+			{
+				if (i == 0 || i == 2)
+				{
+					if (registry.TryGet<Tag>(made[i]) != nullptr)
+						intact = false;
+					continue;
+				}
+				const Tag* tag = registry.TryGet<Tag>(made[i]);
+				if (!tag || tag->Value != i)
+					intact = false;
+			}
+			Check(intact, "removing from the middle of a pool leaves every other component where it was");
+		}
+
+		// --- Each -------------------------------------------------------
+		{
+			ECS::Registry registry;
+			ECS::Entity a = registry.Create();
+			ECS::Entity b = registry.Create();
+			registry.Destroy(a);
+
+			int live = 0;
+			registry.Each([&](ECS::Entity) { live++; });
+			Check(live == 1, "Each visits the living and skips the destroyed");
+			(void)b;
+		}
+	}
+
 	// The transform walk compares instead of recomputing (roadmap 8.15), and
 	// this is the check that says it still gets the same answer.
 	//
@@ -4023,9 +4233,9 @@ void main()
 			// reacted to it -- the two failures look identical from outside and
 			// have nothing to do with each other.
 			bool anyClicked = false;
-			auto view = scene->GetRegistry().view<UIButtonComponent>();
+			auto view = scene->GetRegistry().GetView<UIButtonComponent>();
 			for (auto handle : view)
-				anyClicked = anyClicked || view.get<UIButtonComponent>(handle).Clicked;
+				anyClicked = anyClicked || view.Get<UIButtonComponent>(handle).Clicked;
 			Check(anyClicked, "the click reaches a button in the demo scene");
 
 			// The step the handlers run in. EndFixedStep consumes the edge at
@@ -7554,9 +7764,9 @@ void main()
 		Check((bool)root, "fox.glb instantiates");
 
 		AssetHandle material = AssetHandle::Invalid();
-		for (auto handle : scene->GetRegistry().view<MeshComponent>())
+		for (auto handle : scene->GetRegistry().GetView<MeshComponent>())
 		{
-			const auto& mesh = scene->GetRegistry().get<MeshComponent>(handle);
+			const auto& mesh = scene->GetRegistry().Get<MeshComponent>(handle);
 			if (mesh.Material.IsValid())
 			{
 				material = mesh.Material;
@@ -8027,8 +8237,8 @@ void main()
 
 		// Find the entity the importer gave a mesh to.
 		Entity textured;
-		scene->GetRegistry().view<MeshComponent>().each(
-			[&](entt::entity handle, MeshComponent&) { textured = Entity(handle, scene.get()); });
+		scene->GetRegistry().GetView<MeshComponent>().Each(
+			[&](ECS::Entity handle, MeshComponent&) { textured = Entity(handle, scene.get()); });
 
 		Check((bool)textured, "and it has a mesh");
 		if (!textured)
@@ -8107,8 +8317,8 @@ void main()
 		Check(reader.Deserialize(scenePath.string()), "and deserializes");
 
 		Entity after;
-		reloaded->GetRegistry().view<MeshComponent>().each(
-			[&](entt::entity handle, MeshComponent&) { after = Entity(handle, reloaded.get()); });
+		reloaded->GetRegistry().GetView<MeshComponent>().Each(
+			[&](ECS::Entity handle, MeshComponent&) { after = Entity(handle, reloaded.get()); });
 
 		Check((bool)after, "the reloaded scene still has the mesh");
 		if (after)
@@ -9289,7 +9499,7 @@ void main()
 		// --- a binding survives a save ------------------------------------------
 		//
 		// This is the one that would fail if EntityRef were stored as an
-		// `entt::entity`, and it would fail *only after a reload* -- a handle is
+		// `ECS::Entity`, and it would fail *only after a reload* -- a handle is
 		// an index into one scene's pool, so it points at something plausible
 		// and wrong rather than at nothing. The UUID is the whole reason the
 		// wrapper exists.
@@ -10856,7 +11066,7 @@ void main()
 		SceneSerializer serializer(scene);
 		Check(serializer.Deserialize(scenePath.string()), "and loads");
 
-		Check(scene->GetRegistry().view<IDComponent>().size() > 0,
+		Check(scene->GetRegistry().GetView<IDComponent>().Size() > 0,
 			  "into a scene with something in it");
 		Check((bool)scene->GetPrimaryCameraEntity(),
 			  "including a camera, without which a game renders nothing");
@@ -12402,9 +12612,9 @@ void main()
 				SceneSerializer reader(reloaded);
 				reader.DeserializeFromString(saved);
 				bool same = false;
-				for (auto entity : reloaded->GetRegistry().view<TerrainComponent>())
+				for (auto entity : reloaded->GetRegistry().GetView<TerrainComponent>())
 				{
-					const auto& t = reloaded->GetRegistry().get<TerrainComponent>(entity);
+					const auto& t = reloaded->GetRegistry().Get<TerrainComponent>(entity);
 					if (t.Terrain == flatHandle)
 						same = t.Size == 64.0f && t.Height == 10.0f && t.TextureScale == 4.0f && t.Collision &&
 							   t.Layer1 == AssetHandle(0x1111ull) && !t.Layer2.IsValid() &&
@@ -12595,8 +12805,8 @@ void main()
 
 				// The ramp at local x = 16 stands at 7.5 m; the entity is at x = 200.
 				const RayHit onRamp = physics->CastRay({ 216.0f, 30.0f, 4.0f }, { 0.0f, -60.0f, 0.0f });
-				const float expected = scene->GetRegistry().get<TerrainComponent>(slope).Runtime
-					? scene->GetRegistry().get<TerrainComponent>(slope).Runtime->HeightAt(16.0f, 4.0f) : -1.0f;
+				const float expected = scene->GetRegistry().Get<TerrainComponent>(slope).Runtime
+					? scene->GetRegistry().Get<TerrainComponent>(slope).Runtime->HeightAt(16.0f, 4.0f) : -1.0f;
 				Check(onRamp.Hit && onRamp.Entity == slope.GetUUID() &&
 					  Math::Abs(onRamp.Position.y - 7.5f) < 0.02f && Math::Abs(expected - 7.5f) < 1e-3f,
 					  "the collider and HeightAt agree on the ramp to the centimetre");
@@ -13377,7 +13587,7 @@ void main()
 
 	size_t EntityCount(const std::shared_ptr<Scene>& scene)
 	{
-		return scene->GetRegistry().view<IDComponent>().size();
+		return scene->GetRegistry().GetView<IDComponent>().Size();
 	}
 
 	// The property that matters for undo is not "it changes something back" but
@@ -13407,13 +13617,13 @@ void main()
 		CommandStack stack;
 
 		// Held as ids, not as Entity handles. Undoing a delete recreates the
-		// entity with the same UUID but a *different* entt handle, so a stored
+		// entity with the same UUID but a *different* ECS handle, so a stored
 		// handle is stale the moment anything is deleted -- which is exactly
 		// why the commands themselves address entities by UUID.
 		UUID rootID = UUID::Invalid();
 		UUID childID = UUID::Invalid();
 
-		for (auto handle : scene->GetRegistry().view<TagComponent>())
+		for (auto handle : scene->GetRegistry().GetView<TagComponent>())
 		{
 			Entity entity{ handle, scene.get() };
 			if (entity.GetName() == "Root")       rootID = entity.GetUUID();
@@ -13652,7 +13862,7 @@ void main()
 	void CheckSceneDirty(const std::shared_ptr<Scene>& scene)
 	{
 		UUID rootID = UUID::Invalid();
-		for (auto handle : scene->GetRegistry().view<TagComponent>())
+		for (auto handle : scene->GetRegistry().GetView<TagComponent>())
 		{
 			Entity entity{ handle, scene.get() };
 			if (entity.GetName() == "Root")
@@ -13909,6 +14119,7 @@ int RunTests(int argc, char** argv)
 	CheckCurveAsset();
 	CheckParticleCurves();
 	CheckParticles();
+	CheckEcs();
 	CheckTransformCache();
 	CheckGpuCull();
 	CheckEmitterVolumes();
@@ -14041,9 +14252,9 @@ int RunTests(int argc, char** argv)
 		auto scene = std::make_shared<Scene>();
 		SceneSerializer serializer(scene);
 		serializer.DeserializeFromString(a);
-		const size_t first = scene->GetRegistry().view<IDComponent>().size();
+		const size_t first = scene->GetRegistry().GetView<IDComponent>().Size();
 		serializer.DeserializeFromString(a);
-		const size_t second = scene->GetRegistry().view<IDComponent>().size();
+		const size_t second = scene->GetRegistry().GetView<IDComponent>().Size();
 
 		Check(first == second, "loading a scene replaces the current one rather than merging");
 	}

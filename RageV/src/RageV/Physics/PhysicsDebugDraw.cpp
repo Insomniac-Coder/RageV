@@ -45,11 +45,11 @@ namespace RageV::Physics
 		// something is simulating.
 		World* physics = scene.GetPhysics();
 
-		auto view = scene.GetRegistry().view<ColliderComponent, TransformComponent>();
+		auto view = scene.GetRegistry().GetView<ColliderComponent, TransformComponent>();
 		for (auto handle : view)
 		{
 			Entity entity{ handle, &scene };
-			auto [collider, transform] = view.get<ColliderComponent, TransformComponent>(handle);
+			auto [collider, transform] = view.Get<ColliderComponent, TransformComponent>(handle);
 
 			Vec3 position, worldScale;
 			Quat rotation;
@@ -58,7 +58,7 @@ namespace RageV::Physics
 
 			const ScaledCollider sized = ScaleCollider(collider, worldScale);
 
-			const auto* body = scene.GetRegistry().try_get<RigidBodyComponent>(handle);
+			const auto* body = scene.GetRegistry().TryGet<RigidBodyComponent>(handle);
 			const bool isSelected = selected.IsValid() && entity.GetUUID() == selected;
 
 			Vec4 color = isSelected ? style.Selected : ColorFor(body, collider.IsTrigger, style);

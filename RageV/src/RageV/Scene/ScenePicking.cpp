@@ -179,10 +179,10 @@ namespace RageV
 		};
 
 		// --- meshes, triangle-exact -------------------------------------------
-		auto meshes = scene.GetRegistry().view<MeshComponent, TransformComponent>();
+		auto meshes = scene.GetRegistry().GetView<MeshComponent, TransformComponent>();
 		for (auto handle : meshes)
 		{
-			auto [mesh, transform] = meshes.get<MeshComponent, TransformComponent>(handle);
+			auto [mesh, transform] = meshes.Get<MeshComponent, TransformComponent>(handle);
 
 			RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh);
 			if (!resolved || resolved->GetPositions().empty())
@@ -270,13 +270,13 @@ namespace RageV
 		// --- colliders with no mesh -------------------------------------------
 		// A trigger volume is invisible by construction, so without this the
 		// only way to select one is to find it in the hierarchy.
-		auto colliders = scene.GetRegistry().view<ColliderComponent, TransformComponent>();
+		auto colliders = scene.GetRegistry().GetView<ColliderComponent, TransformComponent>();
 		for (auto handle : colliders)
 		{
-			if (scene.GetRegistry().all_of<MeshComponent>(handle))
+			if (scene.GetRegistry().AllOf<MeshComponent>(handle))
 				continue;   // already tested, and its geometry is the better answer
 
-			auto [collider, transform] = colliders.get<ColliderComponent, TransformComponent>(handle);
+			auto [collider, transform] = colliders.Get<ColliderComponent, TransformComponent>(handle);
 
 			Vec3 position, worldScale;
 			Quat rotation;

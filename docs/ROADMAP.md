@@ -771,7 +771,7 @@ preference wearing a number.
 | glTF import | **fastgltf** | Spec-complete glTF 2.0, C++17, SIMD-accelerated, minimal deps, MIT. Assimp is a large dependency that mostly handles formats we've decided not to support. fastgltf deliberately doesn't decode images — `stb_image` is already in tree for that. |
 | Physics | **Jolt** | Modern, multithreaded, deterministic, MIT, shipped in *Horizon Forbidden West* — and **Godot made it their default in 4.6**, which is the strongest possible endorsement given Godot is the scope benchmark. PhysX 5 is BSD-3 now but the API is heavy and NVIDIA-shaped; Bullet is the incumbent by inertia. |
 | Audio | **miniaudio** | Single-file, public-domain-equivalent, zero dependencies, built-in 3D spatialisation and node graph. OpenAL Soft is LGPL (dynamic-link constraint on a packaged game). FMOD cannot be redistributed — every user would need their own licence, which is disqualifying for an engine. |
-| Reflection | **`entt::meta`** | Already vendored with EnTT. No new dependency for the highest-leverage item in Phase 0. |
+| Reflection | **hand-rolled `ComponentRegistry`** | A typed descriptor rather than a reflection library: a serializer needs the field's *name*, and reflection systems identify members by hashed id, so the name would have to be stored alongside anyway. |
 | C# host | **CoreCLR via `nethost`/`hostfxr`** | Mono's embedding API is friendlier but Mono is legacy. .NET 8+ gives collectible `AssemblyLoadContext` (real hot reload) and `[UnmanagedCallersOnly]` + function pointers (near-native interop without `mono_add_internal_call`). Note the constraint: **once loaded, the runtime lives until the process dies** — reload means swapping load contexts, never the runtime. |
 | Render graph | **hand-rolled** | Small, and it needs to know this RHI's barrier model. Not a dependency. |
 
@@ -817,9 +817,10 @@ compare against.*
 - ~~**`Scene::OnUpdate` both simulates and renders.**~~ **Fixed by 2.1.**
   `OnUpdateEditor` and `OnUpdateRuntime` are separate, which is what play mode
   was built on.
-- **Vendored EnTT is not a submodule.** Half closed: the header is UTF-8 now, so
-  grep works on it, but it is still a vendored copy where the other eleven
-  dependencies are submodules. The remaining half is a pin, not an encoding.
+- **Vendored EnTT is not a submodule.** ✅ Closed 2026-08-22 by removing EnTT
+  rather than by pinning it: the engine used twelve registry calls and four view
+  operations of it, and `Scene/ECS.h` provides those in a few hundred lines
+  (ENGINE-NOTES 7by).
 
 Carried over from HANDOFF and now dated by phase: fake entity IDs (0.2), no
 hierarchy (0.3), `Camera.h`/`Cameranew.h` duplication (0.1), legacy `.glsl`

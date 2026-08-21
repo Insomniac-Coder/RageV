@@ -485,7 +485,7 @@ namespace RageV::UI
 				{
 					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("RAGEV_ENTITY"))
 					{
-						Entity dropped{ *(const entt::entity*)payload->Data, scene };
+						Entity dropped{ *(const ECS::Entity*)payload->Data, scene };
 						if (dropped)
 						{
 							reference = EntityRef(dropped.GetUUID());
@@ -874,10 +874,10 @@ namespace RageV::UI
 		if (scene)
 		{
 			int users = 0;
-			auto view = scene->GetRegistry().view<CameraComponent>();
+			auto view = scene->GetRegistry().GetView<CameraComponent>();
 			for (auto entity : view)
 			{
-				if (view.get<CameraComponent>(entity).PostProfile == handle)
+				if (view.Get<CameraComponent>(entity).PostProfile == handle)
 					users++;
 			}
 

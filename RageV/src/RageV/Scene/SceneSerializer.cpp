@@ -174,15 +174,19 @@ namespace RageV
 
 		emitter << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 
-		// EnTT iterates its entity storage in reverse creation order. Writing
-		// that directly would flip the file's entity order on every save/load
-		// cycle, so the round trip would never be stable. Reversing restores
-		// creation order, which the deserializer then reproduces exactly.
-		std::vector<entt::entity> handles;
-		m_SceneRef->m_Registry.each([&](auto handle) { handles.push_back(handle); });
-		std::reverse(handles.begin(), handles.end());
+		// Creation order, which is the order the deserializer reproduces, so a
+		// save -> load -> save round trip is byte-identical.
+		//
+		// **This used to reverse**, and the reason is worth keeping: EnTT
+		// iterated its entity storage backwards, so writing its order directly
+		// flipped the file on every cycle and the round trip never settled.
+		// The store this replaced it with (ECS.h) walks forwards, so the
+		// correction has to go with it -- a compensation for a dependency's
+		// quirk outlives the dependency unless somebody looks for it.
+		std::vector<ECS::Entity> handles;
+		m_SceneRef->m_Registry.Each([&](auto handle) { handles.push_back(handle); });
 
-		for (entt::entity handle : handles)
+		for (ECS::Entity handle : handles)
 		{
 			Entity entity = { handle, m_SceneRef.get() };
 			if (!entity)
@@ -358,7 +362,7 @@ namespace RageV
 		// the opposite and adds to what is there.
 		if (mode == ReadMode::Replace)
 		{
-			m_SceneRef->m_Registry.clear();
+			m_SceneRef->m_Registry.Clear();
 			m_SceneRef->m_EntityMap.clear();
 			m_SceneRef->m_Environment = SceneEnvironment{};
 

@@ -370,7 +370,7 @@ namespace RageV::Particles
 			return;
 
 		std::unordered_set<UUID> present;
-		auto view = scene.GetRegistry().view<ParticleEmitterComponent>();
+		auto view = scene.GetRegistry().GetView<ParticleEmitterComponent>();
 		for (auto handle : view)
 			present.insert(Entity{ handle, &scene }.GetUUID());
 
@@ -417,11 +417,11 @@ namespace RageV::Particles
 		// Collected first, dispatched together. See the barrier note below.
 		std::vector<Resident*> ready;
 
-		auto view = scene.GetRegistry().view<ParticleEmitterComponent, TransformComponent>();
+		auto view = scene.GetRegistry().GetView<ParticleEmitterComponent, TransformComponent>();
 		for (auto handle : view)
 		{
 			auto [emitter, transform] =
-				view.get<ParticleEmitterComponent, TransformComponent>(handle);
+				view.Get<ParticleEmitterComponent, TransformComponent>(handle);
 
 			Entity entity{ handle, &scene };
 

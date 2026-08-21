@@ -167,6 +167,11 @@ nearly does.
 
 ## 4. ECS: stay on EnTT, and know what it costs
 
+> **Superseded 2026-08-22 (7by).** EnTT was replaced by `Scene/ECS.h`,
+> for the reason this section itself gives: the engine wanted a sparse-set
+> store and used twelve calls of one. The analysis below is why a sparse
+> set is the right shape, and it still is -- only the supplier changed.
+
 EnTT is a **sparse-set** ECS. Component add/remove is O(1) and cheap;
 iteration is good but not archetype-good, because each component type has its
 own array and a multi-component view chases the smallest pool.
@@ -11688,6 +11693,97 @@ already the model matrices the lit pass writes out again every frame.
 So this is scaffolding with one of its two users built: the indirect draw, the
 compute cull, the object table, and the two-half caster pass that exists
 because a dispatch may not be recorded inside a render pass and a draw must be.
+
+### 7by. Replacing EnTT, and the four things it was quietly doing
+
+The engine used **twelve registry calls and four view operations** of a
+thirty-thousand-line library: create, destroy, valid, clear, emplace, get,
+try_get, remove, all_of, view, each and a destruction signal. `Scene/ECS.h`
+provides those in a few hundred lines -- a sparse set per component type, a
+dense array of entities beside its components, and an index from one to the
+other. No groups, no owning views, no reflection, no snapshot.
+
+The migration itself was mechanical: 20 files, and the API surface was small
+enough that the whole thing is a rename plus one signature change. **What was
+not mechanical is the four behaviours nobody had written down**, each of which
+broke something and none of which is visible in a call site.
+
+### 1. Component references survive an insertion
+
+The one that matters. EnTT's storage is *paged*, so adding a component never
+moves the ones already there. A contiguous `std::vector` is simpler, marginally
+faster to walk, and reallocates -- which invalidates every reference anyone is
+holding.
+
+The engine holds them constantly. `AddComponent` hands one back and callers
+configure it over the next several lines; the draw list borrows a
+`TransformComponent*` for a whole frame; the transform walk binds `auto&` while
+it recurses. A test that did
+
+    auto& terrain = ground.AddComponent<TerrainComponent>();
+    ...
+    auto& slope = other.AddComponent<TerrainComponent>();   // reallocates
+    Terrain::Resolve(terrain);                              // dangling
+
+is what found it, and it is the only reason it was found at all -- the failure
+is silent and intermittent everywhere else. Pools are paged now, 1024 elements
+to a page. Removal still moves one element, the last into the hole, which is
+the single documented way a reference goes stale and was EnTT's rule too.
+
+### 2. Iteration order is *creation* order, and the compensation for that outlived the dependency
+
+EnTT iterated its entity storage backwards, so `SceneSerializer` reversed the
+handles to get creation order back -- otherwise the file's order flipped on
+every save/load cycle and a round trip never settled. The replacement walks
+forwards, so the reversal became the bug it was written to fix. Three
+serialization checks caught it.
+
+**A correction for a dependency's quirk survives the dependency unless somebody
+goes looking**, and nothing points from the reversal to the reason for it
+except a comment that named EnTT.
+
+### 3. A range-for evaluates `end()` once
+
+An early version of the view iterator re-read the pool's size on every step,
+so that a pool growing mid-iteration would be followed. That is not a longer
+loop -- it is an *infinite* one: the range-for is comparing against the index
+`end()` returned when the loop began, and a cursor that walks past it never
+equals it again. It presented as the test tool hanging with audio still
+playing, which is a hang inside a fixed step and reads as a deadlock rather
+than as an off-by-one.
+
+The iterator now holds the vector, so a reallocation cannot dangle it, *and* a
+fixed end, so growth cannot run past it. Each half was wrong on its own.
+
+### 4. A destruction listener can already have removed the thing
+
+`Pool::Clear` looped on `m_Dense.back()` until the pool was empty. The script
+listener destroys the entity it is told about, which removes the component on
+the way -- so the erase found nothing, removed nothing, and the loop asked
+about the same entity forever. Both `Clear` and `Erase` now re-check after
+notifying.
+
+### What it cost, and what it did not
+
+Nothing, on both counts. 2246 checks on Vulkan and 2199 on OpenGL, the same
+count as before plus the 26 the store's own tests add. The scale curve is
+unchanged: 2053 FPS at a thousand objects, 76 at sixty thousand, 34 at a
+hundred and twenty -- within noise of the numbers EnTT produced, and twenty
+thousand measured slightly *better* (245 to 252).
+
+The type identity is the one design decision worth stating. A component's pool
+index cannot come from a counter, because a counter incremented in an inline
+template is per module and the engine DLL, the editor, the runtime and a
+project's script module would each start their own -- the trap this codebase
+was already caught by once, with ImGui. So the type's *hash* crosses the
+boundary, computed from `__FUNCSIG__` and therefore identical everywhere, and
+one exported function turns it into an index every module shares.
+
+**And the migration re-taught the stale-artefact lesson twice in one evening**
+(see the handoff's section on it): `Sample.dll` is compiled against these
+headers, and after every change to `ECS.h`'s layout it has to be rebuilt or the
+engine and the script module disagree about what a pool looks like. The first
+time it hung; the second it crashed. Neither said anything about the DLL.
 
 ---
 

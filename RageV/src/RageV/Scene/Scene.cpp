@@ -40,9 +40,9 @@ namespace RageV
 
 	Scene::Scene()
 	{
-		m_Registry.on_destroy<NativeScriptComponent>().connect<&Scene::OnNativeScriptDestroyed>(this);
-		m_Registry.on_destroy<AudioSourceComponent>().connect<&Scene::OnAudioSourceDestroyed>(this);
-		m_Registry.on_destroy<IDComponent>().connect<&Scene::OnIDDestroyed>(this);
+		m_Registry.OnDestroy<NativeScriptComponent>(&Scene::OnNativeScriptDestroyed, this);
+		m_Registry.OnDestroy<AudioSourceComponent>(&Scene::OnAudioSourceDestroyed, this);
+		m_Registry.OnDestroy<IDComponent>(&Scene::OnIDDestroyed, this);
 	}
 
 	Scene::~Scene()
@@ -51,12 +51,12 @@ namespace RageV
 		// own destructor: this way the on_destroy handlers run while every
 		// member is still alive. Without it script instances leaked -- nothing
 		// in the engine ever called the destroy hooks at all.
-		m_Registry.clear();
+		m_Registry.Clear();
 	}
 
-	void Scene::OnNativeScriptDestroyed(entt::registry& registry, entt::entity handle)
+	void Scene::OnNativeScriptDestroyed(ECS::Registry& registry, ECS::Entity handle)
 	{
-		auto& component = registry.get<NativeScriptComponent>(handle);
+		auto& component = registry.Get<NativeScriptComponent>(handle);
 		if (!component.Instance)
 			return;
 
@@ -71,14 +71,14 @@ namespace RageV
 	// clearing the registry all have to stop the sound, and a signal cannot be
 	// forgotten at one of three call sites. A looping source on a destroyed
 	// entity would otherwise play until the process ended.
-	void Scene::OnAudioSourceDestroyed(entt::registry& registry, entt::entity handle)
+	void Scene::OnAudioSourceDestroyed(ECS::Registry& registry, ECS::Entity handle)
 	{
-		Audio::Engine::Stop(registry.get<AudioSourceComponent>(handle).Voice);
+		Audio::Engine::Stop(registry.Get<AudioSourceComponent>(handle).Voice);
 	}
 
-	void Scene::OnIDDestroyed(entt::registry& registry, entt::entity handle)
+	void Scene::OnIDDestroyed(ECS::Registry& registry, ECS::Entity handle)
 	{
-		m_EntityMap.erase(registry.get<IDComponent>(handle).ID);
+		m_EntityMap.erase(registry.Get<IDComponent>(handle).ID);
 	}
 
 	// -------------------------------------------------------------------------
@@ -91,7 +91,7 @@ namespace RageV
 
 	Entity Scene::CreateEntityWithUUID(UUID id, const std::string& name)
 	{
-		Entity entity = { m_Registry.create(), this };
+		Entity entity = { m_Registry.Create(), this };
 		entity.AddComponent<IDComponent>(id);
 		entity.AddComponent<TransformComponent>();
 		entity.AddComponent<RelationshipComponent>();
@@ -112,10 +112,10 @@ namespace RageV
 
 	Entity Scene::FindEntityByName(const std::string& name)
 	{
-		auto view = m_Registry.view<TagComponent>();
+		auto view = m_Registry.GetView<TagComponent>();
 		for (auto handle : view)
 		{
-			if (view.get<TagComponent>(handle).Name == name)
+			if (view.Get<TagComponent>(handle).Name == name)
 				return { handle, this };
 		}
 		return {};
@@ -124,10 +124,10 @@ namespace RageV
 	std::vector<Entity> Scene::FindEntitiesByName(const std::string& name)
 	{
 		std::vector<Entity> found;
-		auto view = m_Registry.view<TagComponent>();
+		auto view = m_Registry.GetView<TagComponent>();
 		for (auto handle : view)
 		{
-			if (view.get<TagComponent>(handle).Name == name)
+			if (view.Get<TagComponent>(handle).Name == name)
 				found.push_back({ handle, this });
 		}
 		return found;
@@ -178,7 +178,7 @@ namespace RageV
 		}
 
 		UnlinkFromParent(entity);
-		m_Registry.destroy(entity);
+		m_Registry.Destroy(entity);
 	}
 
 	// -------------------------------------------------------------------------
@@ -291,10 +291,10 @@ namespace RageV
 		return GetParentWorldTransform(entity) * transform.GetLocalTransform();
 	}
 
-	bool Scene::PropagateTransform(entt::entity handle, const Mat4& parentWorld,
+	bool Scene::PropagateTransform(ECS::Entity handle, const Mat4& parentWorld,
 								   bool parentChanged)
 	{
-		auto& transform = m_Registry.get<TransformComponent>(handle);
+		auto& transform = m_Registry.Get<TransformComponent>(handle);
 
 		// **Compared rather than reported.** Nothing in the engine has to
 		// remember to say it moved something -- the inspector, the gizmo, the
@@ -330,7 +330,7 @@ namespace RageV
 		// Descended into regardless of `changed`, because a child may have
 		// moved under a parent that did not. What the flag saves is the
 		// arithmetic at each node, not the visit.
-		for (UUID childID : m_Registry.get<RelationshipComponent>(handle).Children)
+		for (UUID childID : m_Registry.Get<RelationshipComponent>(handle).Children)
 		{
 			if (Entity child = GetEntityByUUID(childID))
 				PropagateTransform(child, world, changed);
@@ -349,7 +349,7 @@ namespace RageV
 		// leave it stale in a way no transform comparison can see.
 		m_DrawListDirty = true;
 
-		auto view = m_Registry.view<TransformComponent, RelationshipComponent>();
+		auto view = m_Registry.GetView<TransformComponent, RelationshipComponent>();
 		for (auto handle : view)
 		{
 			// Roots only; children are reached by recursion, and starting from
@@ -357,7 +357,7 @@ namespace RageV
 			//
 			// A root has no parent, so nothing above it can have moved -- which
 			// is what the `false` says.
-			if (!view.get<RelationshipComponent>(handle).Parent.IsValid())
+			if (!view.Get<RelationshipComponent>(handle).Parent.IsValid())
 				PropagateTransform(handle, Mat4(1.0f), false);
 		}
 	}
@@ -374,11 +374,11 @@ namespace RageV
 		int bestRank = std::numeric_limits<int>::max();
 		uint64_t bestID = std::numeric_limits<uint64_t>::max();
 
-		auto view = m_Registry.view<CameraComponent, IDComponent>();
+		auto view = m_Registry.GetView<CameraComponent, IDComponent>();
 		for (auto item : view)
 		{
-			const int rank = view.get<CameraComponent>(item).ViewRank;
-			const uint64_t id = view.get<IDComponent>(item).ID;
+			const int rank = view.Get<CameraComponent>(item).ViewRank;
+			const uint64_t id = view.Get<IDComponent>(item).ID;
 
 			if (rank < bestRank || (rank == bestRank && id < bestID))
 			{
@@ -444,11 +444,11 @@ namespace RageV
 
 	void Scene::OnViewportResize(float width, float height)
 	{
-		auto view = m_Registry.view<CameraComponent>();
+		auto view = m_Registry.GetView<CameraComponent>();
 
 		for (auto& item : view)
 		{
-			CameraComponent& cam = view.get<CameraComponent>(item);
+			CameraComponent& cam = view.Get<CameraComponent>(item);
 
 			if (!cam.fixedAspectRatio)
 			{
@@ -467,11 +467,11 @@ namespace RageV
 		int bestRank = std::numeric_limits<int>::max();
 		uint64_t bestID = std::numeric_limits<uint64_t>::max();
 
-		auto view = m_Registry.view<AudioListenerComponent, IDComponent>();
+		auto view = m_Registry.GetView<AudioListenerComponent, IDComponent>();
 		for (auto item : view)
 		{
-			const int rank = view.get<AudioListenerComponent>(item).ListenerRank;
-			const uint64_t id = view.get<IDComponent>(item).ID;
+			const int rank = view.Get<AudioListenerComponent>(item).ListenerRank;
+			const uint64_t id = view.Get<IDComponent>(item).ID;
 
 			if (rank < bestRank || (rank == bestRank && id < bestID))
 			{
@@ -488,10 +488,10 @@ namespace RageV
 	{
 		UpdateWorldTransforms();
 
-		auto view = m_Registry.view<AudioSourceComponent, TransformComponent>();
+		auto view = m_Registry.GetView<AudioSourceComponent, TransformComponent>();
 		for (auto handle : view)
 		{
-			auto [source, transform] = view.get<AudioSourceComponent, TransformComponent>(handle);
+			auto [source, transform] = view.Get<AudioSourceComponent, TransformComponent>(handle);
 
 			// Whatever was left in the component is not this run's. A scene
 			// saved while playing would otherwise start believing it already
@@ -519,10 +519,10 @@ namespace RageV
 
 	void Scene::StopAudioSources()
 	{
-		auto view = m_Registry.view<AudioSourceComponent>();
+		auto view = m_Registry.GetView<AudioSourceComponent>();
 		for (auto handle : view)
 		{
-			AudioSourceComponent& source = view.get<AudioSourceComponent>(handle);
+			AudioSourceComponent& source = view.Get<AudioSourceComponent>(handle);
 			Audio::Engine::Stop(source.Voice);
 			source.Voice = 0;
 		}
@@ -547,10 +547,10 @@ namespace RageV
 
 		// Positions follow the entity every frame, so a sound attached to
 		// something moving is heard where it is rather than where it started.
-		auto view = m_Registry.view<AudioSourceComponent, TransformComponent>();
+		auto view = m_Registry.GetView<AudioSourceComponent, TransformComponent>();
 		for (auto handle : view)
 		{
-			auto [source, transform] = view.get<AudioSourceComponent, TransformComponent>(handle);
+			auto [source, transform] = view.Get<AudioSourceComponent, TransformComponent>(handle);
 
 			if (source.Voice != 0 && source.Spatial)
 				Audio::Engine::SetVoicePosition(source.Voice, Vec3(transform.World[3]));
@@ -582,10 +582,10 @@ namespace RageV
 
 	void Scene::AdvanceMotionHistory()
 	{
-		auto view = m_Registry.view<TransformComponent>();
+		auto view = m_Registry.GetView<TransformComponent>();
 		for (auto handle : view)
 		{
-			TransformComponent& transform = view.get<TransformComponent>(handle);
+			TransformComponent& transform = view.Get<TransformComponent>(handle);
 			transform.PreviousWorld = transform.World;
 		}
 	}
@@ -704,13 +704,13 @@ namespace RageV
 		// would have scripts editing the scene that is no longer running.
 		Managed::Interop::SetScene(this);
 
-		std::vector<entt::entity> scripted;
-		m_Registry.view<ManagedScriptComponent>().each(
+		std::vector<ECS::Entity> scripted;
+		m_Registry.GetView<ManagedScriptComponent>().Each(
 			[&](auto handle, ManagedScriptComponent&) { scripted.push_back(handle); });
 
-		for (entt::entity handle : scripted)
+		for (ECS::Entity handle : scripted)
 		{
-			auto* script = m_Registry.try_get<ManagedScriptComponent>(handle);
+			auto* script = m_Registry.TryGet<ManagedScriptComponent>(handle);
 			if (!script)
 				continue;
 
@@ -750,7 +750,7 @@ namespace RageV
 
 						// OnCreate may have destroyed something, including this
 						// entity.
-						script = m_Registry.try_get<ManagedScriptComponent>(handle);
+						script = m_Registry.TryGet<ManagedScriptComponent>(handle);
 						if (!script)
 							continue;
 					}
@@ -776,14 +776,14 @@ namespace RageV
 		// Collected before stepping, for the same reason the fixed pass does it:
 		// a script may spawn or destroy, and either restructures the pool a view
 		// is walking.
-		std::vector<entt::entity> scripted;
-		m_Registry.view<NativeScriptComponent>().each(
+		std::vector<ECS::Entity> scripted;
+		m_Registry.GetView<NativeScriptComponent>().Each(
 			[&](auto handle, NativeScriptComponent&) { scripted.push_back(handle); });
 
-		for (entt::entity handle : scripted)
+		for (ECS::Entity handle : scripted)
 		{
 			// May have been destroyed by an earlier script this frame.
-			auto* script = m_Registry.try_get<NativeScriptComponent>(handle);
+			auto* script = m_Registry.TryGet<NativeScriptComponent>(handle);
 			if (!script || !script->Instance)
 				continue;
 
@@ -801,13 +801,13 @@ namespace RageV
 				// one that is no longer running.
 				Managed::Interop::SetScene(this);
 
-				std::vector<entt::entity> handles;
-				m_Registry.view<ManagedScriptComponent>().each(
+				std::vector<ECS::Entity> handles;
+				m_Registry.GetView<ManagedScriptComponent>().Each(
 					[&](auto handle, ManagedScriptComponent&) { handles.push_back(handle); });
 
-				for (entt::entity handle : handles)
+				for (ECS::Entity handle : handles)
 				{
-					auto* script = m_Registry.try_get<ManagedScriptComponent>(handle);
+					auto* script = m_Registry.TryGet<ManagedScriptComponent>(handle);
 					if (!script || script->Handle == 0)
 						continue;
 
@@ -834,7 +834,7 @@ namespace RageV
 		if (!managed.Destroy)
 			return;
 
-		m_Registry.view<ManagedScriptComponent>().each(
+		m_Registry.GetView<ManagedScriptComponent>().Each(
 			[&](auto, ManagedScriptComponent& script)
 			{
 				if (script.Handle != 0)
@@ -869,7 +869,7 @@ namespace RageV
 		// otherwise mistake for a fresh spawn and resurrect.
 		if (m_Physics)
 		{
-			auto simulated = m_Registry.view<RigidBodyComponent, ColliderComponent>();
+			auto simulated = m_Registry.GetView<RigidBodyComponent, ColliderComponent>();
 			for (auto handle : simulated)
 			{
 				Entity entity{ handle, this };
@@ -887,14 +887,14 @@ namespace RageV
 		// The handles are collected before stepping any of them. A script may
 		// spawn an entity, attach a script to it, or remove one -- any of which
 		// restructures the pool a view is iterating.
-		std::vector<entt::entity> scripted;
-		m_Registry.view<NativeScriptComponent>().each(
+		std::vector<ECS::Entity> scripted;
+		m_Registry.GetView<NativeScriptComponent>().Each(
 			[&](auto handle, NativeScriptComponent&) { scripted.push_back(handle); });
 
-		for (entt::entity handle : scripted)
+		for (ECS::Entity handle : scripted)
 		{
 			// May have been destroyed by an earlier script in this same step.
-			auto* script = m_Registry.try_get<NativeScriptComponent>(handle);
+			auto* script = m_Registry.TryGet<NativeScriptComponent>(handle);
 			if (!script)
 				continue;
 
@@ -933,7 +933,7 @@ namespace RageV
 
 						// OnCreate may have destroyed something, including this
 						// entity.
-						script = m_Registry.try_get<NativeScriptComponent>(handle);
+						script = m_Registry.TryGet<NativeScriptComponent>(handle);
 						if (!script)
 							continue;
 					}
@@ -1001,18 +1001,18 @@ namespace RageV
 		// destroy one, or add a component -- each of which restructures the
 		// pool a view is iterating, which is the same reason the script pass
 		// collects its handles first.
-		std::vector<entt::entity> clicked;
-		m_Registry.view<UIButtonComponent>().each(
+		std::vector<ECS::Entity> clicked;
+		m_Registry.GetView<UIButtonComponent>().Each(
 			[&](auto handle, UIButtonComponent& button)
 			{
 				if (button.Clicked && !button.OnClickMethod.empty())
 					clicked.push_back(handle);
 			});
 
-		for (entt::entity handle : clicked)
+		for (ECS::Entity handle : clicked)
 		{
 			// May have been destroyed by an earlier handler in this same pass.
-			auto* button = m_Registry.try_get<UIButtonComponent>(handle);
+			auto* button = m_Registry.TryGet<UIButtonComponent>(handle);
 			if (!button)
 				continue;
 
@@ -1056,7 +1056,7 @@ namespace RageV
 		// Native first, then managed -- the defined order the step already runs
 		// them in, so a handler present in both languages behaves the same way
 		// a contact delivered to both does.
-		if (auto* script = m_Registry.try_get<NativeScriptComponent>(entity);
+		if (auto* script = m_Registry.TryGet<NativeScriptComponent>(entity);
 			script && script->Instance)
 		{
 			for (const ScriptMethod& candidate : ScriptRegistry::MethodsOf(script->ActiveScript))
@@ -1074,10 +1074,10 @@ namespace RageV
 		// destroy things, and one of the things it may destroy is this entity.
 		// The managed component's storage would have moved underneath a
 		// pointer taken before the call.
-		if (!m_Registry.valid(entity))
+		if (!m_Registry.Valid(entity))
 			return invoked;
 
-		if (auto* managed = m_Registry.try_get<ManagedScriptComponent>(entity);
+		if (auto* managed = m_Registry.TryGet<ManagedScriptComponent>(entity);
 			managed && managed->Handle != 0 && Managed::Interop::IsReady())
 		{
 			if (Managed::Interop::Managed().InvokeMethod(managed->Handle, method.c_str()) != 0)
@@ -1092,7 +1092,7 @@ namespace RageV
 		if (!entity || method.empty())
 			return false;
 
-		if (auto* script = m_Registry.try_get<NativeScriptComponent>(entity))
+		if (auto* script = m_Registry.TryGet<NativeScriptComponent>(entity))
 		{
 			for (const ScriptMethod& candidate : ScriptRegistry::MethodsOf(script->ScriptName))
 			{
@@ -1101,7 +1101,7 @@ namespace RageV
 			}
 		}
 
-		if (auto* managed = m_Registry.try_get<ManagedScriptComponent>(entity);
+		if (auto* managed = m_Registry.TryGet<ManagedScriptComponent>(entity);
 			managed && Managed::Interop::IsReady() && Managed::Interop::Managed().ListMethods)
 		{
 			// Length first, then the copy -- the GetEntityName contract. A
@@ -1162,7 +1162,7 @@ namespace RageV
 		// them in. An entity may carry both, and each is delivered regardless
 		// of the other: a destroy queued by the native handler is deferred, so
 		// the managed one still runs against a consistent scene.
-		if (auto* script = m_Registry.try_get<NativeScriptComponent>(entity);
+		if (auto* script = m_Registry.TryGet<NativeScriptComponent>(entity);
 			script && script->Instance)
 		{
 			ScriptableEntity* instance = script->Instance;
@@ -1187,7 +1187,7 @@ namespace RageV
 			}
 		}
 
-		auto* managed = m_Registry.try_get<ManagedScriptComponent>(entity);
+		auto* managed = m_Registry.TryGet<ManagedScriptComponent>(entity);
 		if (!managed || managed->Handle == 0 || !Managed::Interop::IsReady())
 			return;
 
@@ -1266,8 +1266,8 @@ namespace RageV
 
 	uint32_t Scene::ProbeCount()
 	{
-		auto view = m_Registry.view<const ReflectionProbeComponent>();
-		return (uint32_t)view.size();
+		auto view = m_Registry.GetView<const ReflectionProbeComponent>();
+		return (uint32_t)view.Size();
 	}
 
 	uint32_t Scene::ProbeFaceSize() const
@@ -1289,10 +1289,10 @@ namespace RageV
 		if (const RHI::Ref<RHI::RHITexture> sky = ResolveSky())
 			largest = Math::Max(largest, sky->GetWidth());
 
-		auto view = m_Registry.view<const ReflectionProbeComponent>();
+		auto view = m_Registry.GetView<const ReflectionProbeComponent>();
 		for (auto& item : view)
 		{
-			const auto& probe = view.get<const ReflectionProbeComponent>(item);
+			const auto& probe = view.Get<const ReflectionProbeComponent>(item);
 			largest = Math::Max(largest, (uint32_t)Math::Clamp(probe.Resolution, 16, 1024));
 		}
 
@@ -1309,10 +1309,10 @@ namespace RageV
 	void Scene::ForEachTerrain(const std::function<void(Entity, TransformComponent&,
 													TerrainComponent&, Terrain&)>& fn)
 	{
-		auto view = m_Registry.view<TransformComponent, TerrainComponent>();
+		auto view = m_Registry.GetView<TransformComponent, TerrainComponent>();
 		for (auto& item : view)
 		{
-			auto [transform, component] = view.get<TransformComponent, TerrainComponent>(item);
+			auto [transform, component] = view.Get<TransformComponent, TerrainComponent>(item);
 			const RHI::Ref<Terrain>& terrain = Terrain::Resolve(component);
 			if (!terrain)
 				continue;
@@ -1422,10 +1422,10 @@ namespace RageV
 
 	bool Scene::HasTerrain()
 	{
-		auto view = m_Registry.view<TransformComponent, TerrainComponent>();
+		auto view = m_Registry.GetView<TransformComponent, TerrainComponent>();
 		for (auto& item : view)
 		{
-			if (Terrain::Resolve(view.get<TerrainComponent>(item)))
+			if (Terrain::Resolve(view.Get<TerrainComponent>(item)))
 				return true;
 		}
 		return false;
@@ -1539,13 +1539,13 @@ namespace RageV
 		m_CpuDraws.clear();
 		m_CullObjectCount = 0;
 
-		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
+		auto meshView = m_Registry.GetView<TransformComponent, MeshComponent>();
 
 		// Reserving on the view's size rather than growing: at sixty thousand
 		// objects the reallocations alone are a measurable share of the build,
 		// and the capacity survives the clear above so this is a no-op after
 		// the first frame.
-		const size_t count = meshView.size_hint();
+		const size_t count = meshView.SizeHint();
 		m_DrawBounds.reserve(count);
 		m_DrawItems.reserve(count);
 		if (buildTable)
@@ -1586,7 +1586,7 @@ namespace RageV
 
 		for (auto& item : meshView)
 		{
-			auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
+			auto [transform, mesh] = meshView.Get<TransformComponent, MeshComponent>(item);
 
 			// Null when the handle points at nothing loadable -- a deleted
 			// model, or a scene opened without its assets. Skipped rather than
@@ -1705,7 +1705,7 @@ namespace RageV
 
 		// Nothing to shadow, and a shadow pass over an empty scene is a render
 		// pass that clears and stops.
-		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
+		auto meshView = m_Registry.GetView<TransformComponent, MeshComponent>();
 		if (meshView.begin() == meshView.end() && !HasTerrain())
 			return;
 
@@ -1764,7 +1764,7 @@ namespace RageV
 				// one, and is why the depth pass has a skinned shader at all.
 				if (entry.Skinned)
 				{
-					const auto* animator = m_Registry.try_get<AnimatorComponent>(entry.Entity);
+					const auto* animator = m_Registry.TryGet<AnimatorComponent>(entry.Entity);
 
 					if (animator && !animator->Skinning.empty())
 					{
@@ -1846,10 +1846,10 @@ namespace RageV
 		uint32_t pointSlot = 0;
 		Vec3 direction(0.0f, -1.0f, 0.0f);
 
-		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
+		auto lightView = m_Registry.GetView<TransformComponent, LightComponent>();
 		for (auto& item : lightView)
 		{
-			auto [transform, light] = lightView.get<TransformComponent, LightComponent>(item);
+			auto [transform, light] = lightView.Get<TransformComponent, LightComponent>(item);
 			const int lightIndex = index++;
 
 			if (!light.Light.CastShadows)
@@ -1999,7 +1999,7 @@ namespace RageV
 			RayShadows::ClearInstances();
 			for (auto& item : meshView)
 			{
-				auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
+				auto [transform, mesh] = meshView.Get<TransformComponent, MeshComponent>(item);
 				RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh);
 				if (!resolved)
 					continue;
@@ -2007,7 +2007,7 @@ namespace RageV
 				const std::vector<Mat4>* bones = nullptr;
 				if (resolved->IsSkinned())
 				{
-					const auto* animator = m_Registry.try_get<AnimatorComponent>(item);
+					const auto* animator = m_Registry.TryGet<AnimatorComponent>(item);
 					if (animator && !animator->Skinning.empty())
 						bones = &animator->Skinning;
 				}
@@ -2075,12 +2075,12 @@ namespace RageV
 
 	LightList Scene::CollectLights()
 	{
-		auto lightView = m_Registry.view<TransformComponent, LightComponent>();
+		auto lightView = m_Registry.GetView<TransformComponent, LightComponent>();
 		LightList lights;
 
 		for (auto& item : lightView)
 		{
-			auto [transform, light] = lightView.get<TransformComponent, LightComponent>(item);
+			auto [transform, light] = lightView.Get<TransformComponent, LightComponent>(item);
 
 			LightRenderData data;
 			data.Position = Vec3(transform.World[3]);
@@ -2144,7 +2144,7 @@ namespace RageV
 		settings.Bounces = ResolveGiBounces(post);
 		settings.ShadowNormalOffset = Project::Render().ShadowNormalOffset;
 
-		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
+		auto meshView = m_Registry.GetView<TransformComponent, MeshComponent>();
 
 		// The walk: every static mesh whose world box overlaps the outermost
 		// cascade, with its material and parameters resolved the way the
@@ -2163,7 +2163,7 @@ namespace RageV
 
 				for (auto& item : meshView)
 				{
-					auto [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(item);
+					auto [transform, mesh] = meshView.Get<TransformComponent, MeshComponent>(item);
 					RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh);
 					if (!resolved || resolved->IsSkinned())
 						continue;
@@ -2213,7 +2213,7 @@ namespace RageV
 		if (!cmd)
 			return;
 
-		auto view = m_Registry.view<TransformComponent, ReflectionProbeComponent>();
+		auto view = m_Registry.GetView<TransformComponent, ReflectionProbeComponent>();
 		if (view.begin() == view.end())
 		{
 			// Not merely nothing to capture: the selection table has to be
@@ -2232,7 +2232,7 @@ namespace RageV
 
 		for (auto& item : view)
 		{
-			auto [transform, probe] = view.get<TransformComponent, ReflectionProbeComponent>(item);
+			auto [transform, probe] = view.Get<TransformComponent, ReflectionProbeComponent>(item);
 
 			const bool realtime = probe.Update == ProbeUpdate::Realtime;
 			const bool captured = probe.Probe && probe.Probe->IsComplete();
@@ -2313,10 +2313,10 @@ namespace RageV
 
 		uint32_t slot = ProbeArray::kSkySlot + 1;
 
-		auto view = m_Registry.view<TransformComponent, ReflectionProbeComponent>();
+		auto view = m_Registry.GetView<TransformComponent, ReflectionProbeComponent>();
 		for (auto& item : view)
 		{
-			auto [transform, probe] = view.get<TransformComponent, ReflectionProbeComponent>(item);
+			auto [transform, probe] = view.Get<TransformComponent, ReflectionProbeComponent>(item);
 
 			// An incomplete probe is black on the faces it has not reached. The
 			// sky is a better answer than a hole, and it is what an object gets
@@ -2388,11 +2388,11 @@ namespace RageV
 
 	void Scene::UpdateAnimators(Timestep ts, bool editing)
 	{
-		auto view = m_Registry.view<MeshComponent, AnimatorComponent>();
+		auto view = m_Registry.GetView<MeshComponent, AnimatorComponent>();
 
 		for (auto& item : view)
 		{
-			auto [mesh, animator] = view.get<MeshComponent, AnimatorComponent>(item);
+			auto [mesh, animator] = view.Get<MeshComponent, AnimatorComponent>(item);
 
 			// Editing, and this animator did not ask to preview: hold still.
 			//
@@ -2600,7 +2600,7 @@ namespace RageV
 		// and the flag makes the second call free when it was not.
 		RefreshDrawList();
 
-		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
+		auto meshView = m_Registry.GetView<TransformComponent, MeshComponent>();
 		const bool anyTerrain = Renderer::HasDevice() && HasTerrain();
 		if ((meshView.begin() != meshView.end() || anyTerrain) && Renderer::HasDevice())
 		{
@@ -2712,7 +2712,7 @@ namespace RageV
 				// pose.
 				if (entry.Skinned)
 				{
-					const auto* animator = m_Registry.try_get<AnimatorComponent>(entry.Entity);
+					const auto* animator = m_Registry.TryGet<AnimatorComponent>(entry.Entity);
 
 					// A skinned mesh with no animator still needs a full pose,
 					// not an empty one: its vertices name bones by index, and a
@@ -2825,7 +2825,7 @@ namespace RageV
 
 		// Last, so a blended particle has the whole scene to blend against --
 		// including the sky.
-		auto emitters = m_Registry.view<ParticleEmitterComponent, TransformComponent>();
+		auto emitters = m_Registry.GetView<ParticleEmitterComponent, TransformComponent>();
 		if (emitters.begin() != emitters.end() && ParticleRenderer::IsReady())
 		{
 			ParticleRenderer::BeginScene(camera, cameraTransform);
@@ -2833,7 +2833,7 @@ namespace RageV
 			for (auto handle : emitters)
 			{
 				auto [emitter, transform] =
-					emitters.get<ParticleEmitterComponent, TransformComponent>(handle);
+					emitters.Get<ParticleEmitterComponent, TransformComponent>(handle);
 
 				// Same draw either way; only who filled the instances differs.
 				if (emitter.SimulateOnGpu)

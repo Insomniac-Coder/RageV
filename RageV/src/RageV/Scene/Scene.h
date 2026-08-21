@@ -1,5 +1,5 @@
 #pragma once
-#include "EnTT/entt.hpp"
+#include "ECS.h"
 #include "RageV/Core/Timestep.h"
 #include "RageV/Core/UUID.h"
 #include "RageV/Physics/PhysicsWorld.h"
@@ -88,7 +88,7 @@ namespace RageV
 		// **Everything drawable, resolved once a frame and tested by every
 		// view.** A frame draws the scene five times over -- once for the
 		// camera and once per shadow cascade -- and each of those used to be a
-		// full walk: an `entt` view, a hash lookup for the mesh, a second for
+		// full walk: a view, a hash lookup for the mesh, a second for
 		// the material, a bounds transform and a frustum test, per object per
 		// view. Measured at twenty thousand objects that is 100,004 tests and
 		// 14.5 ms a frame against 0.78 ms of GPU work, and the same scene with
@@ -124,7 +124,7 @@ namespace RageV
 		// bytes wide.
 		struct DrawItem
 		{
-			entt::entity Entity = entt::null;
+			ECS::Entity Entity = ECS::Null;
 			TransformComponent* Transform = nullptr;
 			MeshComponent* Source = nullptr;
 			RHI::Ref<Mesh> Resolved;
@@ -347,7 +347,7 @@ namespace RageV
 		// For tools and tests that need to iterate arbitrary component sets.
 		// The editor panels reach it through friendship instead; this exists so
 		// that code outside the engine does not have to.
-		entt::registry& GetRegistry() { return m_Registry; }
+		ECS::Registry& GetRegistry() { return m_Registry; }
 
 		// Which cube of the probe arrays an object at `position` reflects: the
 		// nearest probe whose influence reaches it, and slot 0 -- the sky --
@@ -449,7 +449,7 @@ namespace RageV
 		// actually changed, which is what lets its children skip: a child's
 		// world is its parent's world times its own local, so if neither
 		// moved, neither did the child's.
-		bool PropagateTransform(entt::entity handle, const Mat4& parentWorld,
+		bool PropagateTransform(ECS::Entity handle, const Mat4& parentWorld,
 								bool parentChanged);
 		void UnlinkFromParent(Entity entity);
 
@@ -457,9 +457,9 @@ namespace RageV
 		// DeleteEntity. Destroying an entity, removing a component and clearing
 		// the registry all have to run these; a signal cannot be forgotten at
 		// one of those call sites.
-		void OnNativeScriptDestroyed(entt::registry& registry, entt::entity handle);
-		void OnAudioSourceDestroyed(entt::registry& registry, entt::entity handle);
-		void OnIDDestroyed(entt::registry& registry, entt::entity handle);
+		void OnNativeScriptDestroyed(ECS::Registry& registry, ECS::Entity handle);
+		void OnAudioSourceDestroyed(ECS::Registry& registry, ECS::Entity handle);
+		void OnIDDestroyed(ECS::Registry& registry, ECS::Entity handle);
 
 		// Hands what the simulation reported to the scripts on both entities.
 		void DispatchContactEvents();
@@ -474,8 +474,8 @@ namespace RageV
 		void DeliverContact(const ContactEvent& event, UUID to, UUID other, bool flip);
 
 	private:
-		entt::registry m_Registry;
-		std::unordered_map<UUID, entt::entity> m_EntityMap;
+		ECS::Registry m_Registry;
+		std::unordered_map<UUID, ECS::Entity> m_EntityMap;
 		// See SetPaused. Runtime state, deliberately not serialized: a saved
 		// scene is not "a scene somebody had paused".
 		bool m_Paused = false;

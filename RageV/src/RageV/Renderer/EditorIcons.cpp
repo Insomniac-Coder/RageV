@@ -60,21 +60,21 @@ namespace RageV
 	std::vector<EditorIcon> EditorIcons::Collect(Scene& scene)
 	{
 		std::vector<EditorIcon> icons;
-		entt::registry& registry = scene.GetRegistry();
+		ECS::Registry& registry = scene.GetRegistry();
 
-		auto view = registry.view<TransformComponent>();
+		auto view = registry.GetView<TransformComponent>();
 		for (auto handle : view)
 		{
 			EditorIconKind kind;
 
 			// First match wins; see the enum's note.
-			if (registry.all_of<LightComponent>(handle))
+			if (registry.AllOf<LightComponent>(handle))
 				kind = EditorIconKind::Light;
-			else if (registry.all_of<CameraComponent>(handle))
+			else if (registry.AllOf<CameraComponent>(handle))
 				kind = EditorIconKind::Camera;
-			else if (registry.all_of<ReflectionProbeComponent>(handle))
+			else if (registry.AllOf<ReflectionProbeComponent>(handle))
 				kind = EditorIconKind::Probe;
-			else if (registry.all_of<AudioSourceComponent>(handle))
+			else if (registry.AllOf<AudioSourceComponent>(handle))
 				kind = EditorIconKind::Audio;
 			else
 				continue;
@@ -82,7 +82,7 @@ namespace RageV
 			EditorIcon icon;
 			icon.Entity = Entity{ handle, &scene }.GetUUID();
 			icon.Kind = kind;
-			icon.Position = Vec3(view.get<TransformComponent>(handle).World[3]);
+			icon.Position = Vec3(view.Get<TransformComponent>(handle).World[3]);
 
 			icons.push_back(icon);
 		}

@@ -183,12 +183,6 @@ target_compile_definitions(glm INTERFACE
     GLM_FORCE_DEPTH_ZERO_TO_ONE
     GLM_ENABLE_EXPERIMENTAL)
 
-# ---------------------------------------------------------------------------
-# EnTT -- header only
-# ---------------------------------------------------------------------------
-add_library(entt INTERFACE)
-target_include_directories(entt INTERFACE EnTT/include)
-
 # PerlinNoise (vendor/PerlinNoise) is kept on disk beside the parked terrain
 # experiment that used it (experiments/terrain), and is deliberately not a
 # target: nothing in the engine includes it (ENGINE-NOTES 7ap).

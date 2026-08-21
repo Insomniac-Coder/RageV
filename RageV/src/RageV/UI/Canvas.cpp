@@ -118,7 +118,7 @@ namespace RageV::UI
 		struct CanvasEntry { Entity Root; int32_t SortOrder; };
 		std::vector<CanvasEntry> canvases;
 
-		auto view = scene.GetRegistry().view<UICanvasComponent>();
+		auto view = scene.GetRegistry().GetView<UICanvasComponent>();
 		for (auto handle : view)
 		{
 			Entity entity{ handle, &scene };
@@ -300,7 +300,7 @@ namespace RageV::UI
 		if (!UIRenderer::IsReady())
 			return;
 
-		auto view = scene.GetRegistry().view<WorldTextComponent, TransformComponent>();
+		auto view = scene.GetRegistry().GetView<WorldTextComponent, TransformComponent>();
 		if (view.begin() == view.end())
 			return;
 

@@ -21,7 +21,7 @@ namespace RageV
 	class Terrain;
 
 	// Stable identity. Added to every entity at creation, preserved across
-	// save/load, and the only durable way to name an entity -- entt::entity
+	// save/load, and the only durable way to name an entity -- ECS::Entity
 	// handles are recycled and mean nothing outside one registry instance.
 	struct IDComponent
 	{
