@@ -1226,13 +1226,28 @@ namespace RageV::Vk
 			if (!blas || blas->GetDeviceAddress() == 0)
 				continue;
 
-			VkAccelerationStructureInstanceKHR& out = packed[written++];
+			// **Built on the stack, then stored once.** This used to take a
+			// reference into `packed` -- which is mapped device memory,
+			// uncached and write-combining -- and assign the fields through
+			// it. Four of those fields are C bitfields (`instanceCustomIndex`
+			// is 24 bits and `mask` the other 8 of the same word), and writing
+			// a bitfield is a read-modify-write of the word containing it. A
+			// read from write-combined memory over PCIe is not a cache hit, it
+			// is a round trip, and there were four of them per instance.
+			//
+			// Measured on the camp's 1021 instances: 2.96 ms of CPU per frame
+			// packing 64 KB, which is 2.9 us an instance. The struct is 64
+			// bytes; assembling it in cached memory and storing it whole makes
+			// every access to the mapped page a sequential write, which is the
+			// only thing that memory is good at.
+			VkAccelerationStructureInstanceKHR out{};
 			out.transform = ToVkTransform(instances[i].Transform);
 			out.instanceCustomIndex = instances[i].CustomIndex & 0x00FFFFFFu;
 			out.mask = instances[i].Mask;
 			out.instanceShaderBindingTableRecordOffset = 0;
 			out.flags = 0;
 			out.accelerationStructureReference = blas->GetDeviceAddress();
+			packed[written++] = out;
 
 			// The registry, used forwards. A reference to a structure whose
 			// backing has been freed is the one way this build can hand
