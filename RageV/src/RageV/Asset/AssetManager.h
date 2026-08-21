@@ -346,5 +346,20 @@ namespace RageV::Assets
 		static bool UploadPrepared(Boot::Progress& progress, float budgetSeconds);
 
 		static void ClearCache();
+
+		// Drop everything one source file produced, so the next request for it
+		// loads from disk again. What the editor's asset watcher calls when a
+		// file changes underneath a running session.
+		//
+		// **By path rather than by handle**, and that is not a convenience. A
+		// model file holds several primitives and each gets a handle of its
+		// own, so invalidating "the mesh" by the file's handle would drop the
+		// first primitive and leave the rest of the model as it was -- a half
+		// reloaded model, which is worse than one that did not reload at all
+		// because it looks like the reload worked.
+		//
+		// Returns how many cached objects it dropped; zero means the file was
+		// not loaded, which is not a failure.
+		static size_t Invalidate(const std::filesystem::path& absoluteSource);
 	};
 }

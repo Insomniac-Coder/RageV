@@ -95,6 +95,11 @@ void EditorLayer::OnAttach()
 
 	EditorTheme::Apply(m_Theme);
 
+	// The project is already open by the time a layer attaches -- the runtime
+	// needs it to find the start scene -- so this is the first moment the
+	// asset root is both known and stable.
+	WatchProjectAssets();
+
 	auto& device = Renderer::GetDevice();
 
 	RHI::RenderTargetDesc targetDesc;
@@ -343,6 +348,12 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// on this thread, before anything else reads them.
 	FinishBuild();
 	m_FrameSeconds = ts.GetSeconds();
+
+	// Before anything draws, so a mesh that changed on disk is already out of
+	// the cache by the time this frame's scene walk asks for it -- rather than
+	// one frame later, which is a frame of the old asset after the bar has said
+	// it reloaded.
+	PollAssetChanges(ts.GetSeconds());
 	m_TerrainTool.Playing = m_SceneState != SceneState::Edit;
 
 	// --brush, once, after the scene has loaded and the renderer can build
@@ -827,6 +838,121 @@ bool EditorLayer::ViewportMouseRay(const ImVec2& imageOrigin, const ImVec2& imag
 	return true;
 }
 
+namespace
+{
+	// Milliseconds, at a precision somebody can read at a glance. Two decimals
+	// under ten, one above: the difference between 0.83 and 0.91 matters and
+	// the difference between 22.3 and 22.4 does not.
+	std::string FormatMs(float ms)
+	{
+		char text[32];
+		std::snprintf(text, sizeof(text), ms < 10.0f ? "%.2f ms" : "%.1f ms", ms);
+		return text;
+	}
+}
+
+// Points the watcher at whatever project is now open, and says so.
+//
+// Called from every place the registry is pointed somewhere -- startup, New
+// Project, Open Project. Three call sites rather than one because there is no
+// single "the project changed" moment to hang it on, and a watcher left aimed
+// at the previous project reports its files as this one's.
+void EditorLayer::WatchProjectAssets()
+{
+	const std::filesystem::path root = Project::AssetRoot();
+	m_AssetWatcher.Begin(root);
+
+	if (!m_AssetWatcher.IsWatching())
+	{
+		m_StatusBar.Post(EditorUI::StatusBar::Kind::Warning,
+						 "Not watching the asset folder",
+						 root.empty() ? "no project is open" : root.string());
+		return;
+	}
+
+	m_StatusBar.SetStanding(std::to_string(m_AssetWatcher.WatchedCount()) + " files watched");
+	m_StatusBar.Post(EditorUI::StatusBar::Kind::Info, "Watching " + Project::Config().Name,
+					 "first scan " + FormatMs(m_AssetWatcher.LastScanMs()));
+}
+
+// The project folder, once a frame -- which the watcher turns into a scan twice
+// a second, and into work only when something has actually moved.
+//
+// **Reloading is dropping, not loading.** Nothing is read here: the caches are
+// emptied of whatever the changed file produced and the next frame's draw asks
+// for it again, which puts the read on the path that already knows how to do it
+// and keeps this function free of a second, subtly different loader.
+void EditorLayer::PollAssetChanges(float deltaSeconds)
+{
+	m_StatusBar.Tick(deltaSeconds);
+
+	if (!m_AssetWatcher.IsWatching())
+		return;
+
+	const std::vector<Assets::AssetWatcher::Change> changes =
+		m_AssetWatcher.Poll(deltaSeconds);
+
+	// The count *and* what it costs to keep it. A watcher is a background tax
+	// and the only honest place for the bill is where the thing it pays for is
+	// reported -- if this number ever stops being small, it says so itself.
+	m_StatusBar.SetStanding(std::to_string(m_AssetWatcher.WatchedCount()) + " files  " +
+							FormatMs(m_AssetWatcher.LastScanMs()));
+
+	if (changes.empty())
+		return;
+
+	// A rescan first, and only once however many files moved: a new file has no
+	// handle until the registry has seen it, and a deleted one still has one.
+	// Doing it per change would re-walk the folder once per file in a batch
+	// copy, which is the case that produces batches.
+	Assets::Registry::Refresh();
+
+	size_t reloaded = 0;
+	size_t dropped = 0;
+	std::string last;
+
+	for (const Assets::AssetWatcher::Change& change : changes)
+	{
+		const std::filesystem::path absolute = m_AssetWatcher.Root() / change.Path;
+		last = change.Path;
+
+		if (change.What == Assets::AssetWatcher::Change::Kind::Removed)
+		{
+			dropped += Assets::Manager::Invalidate(absolute);
+			continue;
+		}
+
+		const size_t count = Assets::Manager::Invalidate(absolute);
+		dropped += count;
+		// Only files the session had actually loaded are worth calling a
+		// reload. A texture nobody has opened changing on disk is news the
+		// registry wants and the status bar does not.
+		if (count > 0)
+			reloaded++;
+	}
+
+	if (reloaded == 1)
+	{
+		m_StatusBar.Post(EditorUI::StatusBar::Kind::Info, "Reloaded", last);
+	}
+	else if (reloaded > 1)
+	{
+		m_StatusBar.Post(EditorUI::StatusBar::Kind::Info,
+						 "Reloaded " + std::to_string(reloaded) + " assets",
+						 std::to_string(dropped) + " cached objects dropped");
+	}
+	else
+	{
+		// Changed, catalogued, and not in use. Said quietly rather than not at
+		// all: "the editor noticed" is the whole point of the bar, and silence
+		// here is indistinguishable from the watcher not running.
+		const bool one = changes.size() == 1;
+		m_StatusBar.Post(EditorUI::StatusBar::Kind::Info,
+						 one ? "Asset changed" : std::to_string(changes.size()) + " assets changed",
+						 one ? last : std::string());
+	}
+}
+
 // The collider overlay, drawn through whichever camera the scene view is using.
 //
 // It has to agree with that camera rather than always using the editor one:
@@ -1152,9 +1278,18 @@ void EditorLayer::OnImGuiRender()
 	// kind of duplication that reads as clutter without anybody being able to
 	// say why. The tab's own X is the one that stays -- it names what it
 	// closes.
-	ImGui::DockSpace(dockspaceID, ImVec2(0.0f, 0.0f),
+	// **The dockspace is shortened rather than the bar overlaid.** A strip
+	// drawn on top of the docked panels covers whatever is underneath it --
+	// the bottom row of the content browser, usually -- and no amount of
+	// padding elsewhere gets that row back. Reserving the height means every
+	// panel is laid out inside what is left, which is what "permanent" has to
+	// mean for a bar nothing is allowed to hide behind.
+	const float barHeight = EditorUI::StatusBar::Height();
+	ImGui::DockSpace(dockspaceID, ImVec2(0.0f, -barHeight),
 					 ImGuiDockNodeFlags_NoCloseButton | ImGuiDockNodeFlags_NoWindowMenuButton);
 	style.WindowMinSize.x = minWindowSize;
+
+	m_StatusBar.Draw();
 
 	DrawMenuBar();
 
@@ -3764,6 +3899,7 @@ void EditorLayer::CreateProjectAt(const std::filesystem::path& picked)
 	// nothing here.
 	Assets::Manager::ClearCache();
 	Assets::Registry::Init(Project::AssetRoot());
+	WatchProjectAssets();
 
 	NewScene();
 	PopulateStarterScene();
@@ -3855,6 +3991,7 @@ void EditorLayer::OpenProject()
 	// something else -- or nothing -- in the new one.
 	Assets::Manager::ClearCache();
 	Assets::Registry::Init(Project::AssetRoot());
+	WatchProjectAssets();
 
 	const std::string& start = Project::Config().StartScene;
 	if (!start.empty() && std::filesystem::exists(Project::AssetPath(start)))

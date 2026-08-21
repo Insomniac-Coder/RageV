@@ -540,6 +540,96 @@ namespace RageV::Assets
 		ProbeArray::ClearCache();
 	}
 
+	size_t Manager::Invalidate(const std::filesystem::path& absoluteSource)
+	{
+		std::error_code error;
+		const std::filesystem::path wanted =
+			std::filesystem::weakly_canonical(absoluteSource, error);
+		const std::filesystem::path& target = error ? absoluteSource : wanted;
+
+		size_t dropped = 0;
+
+		// Whether a cached handle came out of this file. Asked of the registry
+		// rather than remembered here, because the registry is the only thing
+		// that knows -- and the alternative is a second index to keep in step
+		// with it, which is a second thing to get wrong.
+		auto isOurs = [&](AssetHandle handle)
+		{
+			std::error_code cmp;
+			const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+			if (path.empty())
+				return false;
+			return std::filesystem::equivalent(path, target, cmp) && !cmp;
+		};
+
+		// Erase-if over every cache a source file can end up in. Written out
+		// rather than looped over a list of type-erased maps: they hold
+		// different types, and the day one of them needs different treatment
+		// is the day a clever loop has to be unpicked.
+		// Three of these are sets of handles rather than maps -- the "this one
+		// failed" and "this one is dirty" notes -- so the key is the element
+		// itself. One helper either way, because forgetting a set is how a
+		// failure outlives the file that caused it.
+		auto sweep = [&](auto& cache)
+		{
+			for (auto it = cache.begin(); it != cache.end();)
+			{
+				const AssetHandle handle = [&]
+				{
+					if constexpr (requires { it->first; })
+						return it->first;
+					else
+						return *it;
+				}();
+
+				if (!isOurs(handle))
+				{
+					++it;
+					continue;
+				}
+				it = cache.erase(it);
+				dropped++;
+			}
+		};
+
+		sweep(s_Meshes);
+		sweep(s_Skeletons);
+		sweep(s_Clips);
+		sweep(s_Cubemaps);
+		sweep(s_Irradiance);
+		sweep(s_Textures);
+		sweep(s_DataTextures);
+		sweep(s_Materials);
+		sweep(s_Curves);
+		sweep(s_BakedCurves);
+		sweep(s_ScriptGraphs);
+		sweep(s_ScriptGraphErrors);
+		sweep(s_Fonts);
+		sweep(s_FontFailed);
+		sweep(s_FontAtlases);
+		sweep(s_Terrains);
+		sweep(s_TerrainFailed);
+		sweep(s_TerrainDirty);
+		sweep(s_ColorLuts);
+		sweep(s_LutRecipes);
+		sweep(s_PostProfiles);
+
+		// The by-path and by-pointer caches underneath cannot be swept one
+		// entry at a time -- the filter and the probe arrays remember their
+		// sources by address, and an address whose owner has just been dropped
+		// is exactly the dangling case ClearCache's comment describes. A
+		// changed environment map is rare enough that clearing all three is
+		// the honest answer.
+		if (dropped > 0)
+		{
+			TextureLoader::ClearCache();
+			EnvironmentIBL::ClearCache();
+			ProbeArray::ClearCache();
+		}
+
+		return dropped;
+	}
+
 	std::string Manager::GetDisplayName(AssetHandle handle)
 	{
 		if (!handle.IsValid())

@@ -62,6 +62,7 @@
 #include "RageV/Renderer/RayShadows.h"
 #include "RageV/Renderer/VoxelGI.h"
 #include "RageV/Renderer/EditorCamera.h"
+#include "RageV/Asset/AssetWatcher.h"
 #include "RageV/Renderer/Skybox.h"
 #include "RageV/Renderer/ViewportGrid.h"
 #include "RageV/Asset/FontSerializer.h"
@@ -1701,6 +1702,135 @@ namespace
 			Check(camera.GetMoveSpeed() >= 0.5f,
 				  "the fly throttle cannot be turned down to a standstill");
 		}
+	}
+
+	// The asset watcher, against a real folder on disk.
+	//
+	// Against a real one rather than a fake filesystem because every property
+	// worth asserting here is a property of *the filesystem's* answers -- when
+	// a write time changes, what an iterator does with a file that is locked,
+	// what a deletion looks like. A fake would be asserting my own model of
+	// those, which is the thing most likely to be wrong.
+	void CheckAssetWatcher()
+	{
+		namespace fs = std::filesystem;
+
+		std::error_code error;
+		const fs::path root = fs::temp_directory_path(error) / "rv_watch_check";
+		fs::remove_all(root, error);
+		fs::create_directories(root / "nested", error);
+		if (error)
+		{
+			Check(false, "a temporary folder to watch");
+			return;
+		}
+
+		auto write = [](const fs::path& path, const char* text)
+		{
+			std::ofstream out(path, std::ios::binary | std::ios::trunc);
+			out << text;
+		};
+
+		// The write time has one-second resolution on some filesystems, so a
+		// modification has to be *stamped* rather than merely made. Sleeping a
+		// second per edit would make this the slowest check in the suite;
+		// setting the time is exact and instant.
+		auto touch = [&](const fs::path& path, int secondsLater)
+		{
+			std::error_code stamp;
+			const fs::file_time_type now = fs::last_write_time(path, stamp);
+			fs::last_write_time(path, now + std::chrono::seconds(secondsLater), stamp);
+		};
+
+		write(root / "one.txt", "one");
+		write(root / "nested" / "two.txt", "two");
+		write(root / "one.txt.meta", "handle");
+
+		Assets::AssetWatcher watcher;
+		watcher.Begin(root);
+
+		// **The opening snapshot is not news.** An editor that reported every
+		// file in the project the moment it opened one would be an editor
+		// whose status bar is useless on the frame it matters most.
+		Check(watcher.IsWatching(), "the watcher takes a folder");
+		Check(watcher.WatchedCount() == 2,
+			  "and counts the files in it, ignoring the .meta the importer owns");
+		Check(watcher.Poll(10.0f).empty(), "an untouched folder reports nothing");
+
+		// A modification is reported once it has stopped moving, which is one
+		// poll after it is first seen to differ.
+		touch(root / "one.txt", 5);
+		const auto first = watcher.Poll(10.0f);
+		Check(first.empty(),
+			  "a file that has just changed is not reported on the same scan -- "
+			  "it may still be being written");
+
+		const auto second = watcher.Poll(10.0f);
+		Check(second.size() == 1 && second[0].Path == "one.txt" &&
+			  second[0].What == Assets::AssetWatcher::Change::Kind::Modified,
+			  "and is reported once it holds still");
+
+		Check(watcher.Poll(10.0f).empty(), "and is not reported again after that");
+
+		// Nested paths come back with forward slashes, which is what the
+		// registry names an asset by -- a caller that has to fix the
+		// separators is a caller that will forget on one platform.
+		touch(root / "nested" / "two.txt", 5);
+		watcher.Poll(10.0f);
+		const auto nested = watcher.Poll(10.0f);
+		Check(nested.size() == 1 && nested[0].Path == "nested/two.txt",
+			  "a nested file comes back relative, with forward slashes");
+
+		// A new file is Added rather than Modified. The difference is free
+		// while the watcher still remembers, and unrecoverable afterwards.
+		write(root / "three.txt", "three");
+		watcher.Poll(10.0f);
+		const auto added = watcher.Poll(10.0f);
+		Check(added.size() == 1 && added[0].Path == "three.txt" &&
+			  added[0].What == Assets::AssetWatcher::Change::Kind::Added,
+			  "a file that appears is Added, not Modified");
+
+		// A deletion needs no settling: it is not going to finish being
+		// deleted.
+		fs::remove(root / "three.txt", error);
+		const auto removed = watcher.Poll(10.0f);
+		Check(removed.size() == 1 && removed[0].Path == "three.txt" &&
+			  removed[0].What == Assets::AssetWatcher::Change::Kind::Removed,
+			  "and one that disappears is Removed, on the next scan");
+
+		Check(watcher.WatchedCount() == 2, "and is forgotten rather than kept as a ghost");
+
+		// The interval is what keeps this off the frame. Below it, nothing is
+		// scanned at all -- not "scanned and found nothing", which is the
+		// difference between a cost of zero and a cost of one walk.
+		touch(root / "one.txt", 5);
+		Check(watcher.Poll(0.01f, 5.0f).empty() && watcher.Poll(0.01f, 5.0f).empty(),
+			  "nothing is scanned before the interval has passed");
+
+		// **Deferred, not dropped.** Asserting only the silence above would
+		// pass just as happily for a watcher that had thrown the change away,
+		// which is the failure that matters -- and this check originally left
+		// this very edit pending and then asserted silence somewhere else,
+		// where it surfaced as the *next* check failing.
+		watcher.Poll(10.0f);
+		const auto deferred = watcher.Poll(10.0f);
+		Check(deferred.size() == 1 && deferred[0].Path == "one.txt",
+			  "and the change it was holding is still reported afterwards");
+
+		// Two `.meta` files and a `.partial` are the importer's own output.
+		// Watching them is a loop: importing rewrites them, the rewrite is a
+		// change, the change asks for an import.
+		write(root / "four.txt.meta", "handle");
+		write(root / "five.rvmesh.partial", "half");
+		watcher.Poll(10.0f);
+		Check(watcher.Poll(10.0f).empty(),
+			  "the importer's own output is not a change worth reporting");
+
+		watcher.Stop();
+		Check(!watcher.IsWatching() && watcher.Poll(10.0f).empty(),
+			  "a stopped watcher watches nothing");
+
+		fs::remove_all(root, error);
 	}
 
 	// Particles, checked by counting rather than by looking. The simulation
@@ -13548,6 +13678,7 @@ int RunTests(int argc, char** argv)
 	CheckParticles();
 	CheckEmitterVolumes();
 	CheckViewportZoom();
+	CheckAssetWatcher();
 	CheckColliderOverlay();
 	CheckAnimationBlend();
 	CheckEditorIcons();

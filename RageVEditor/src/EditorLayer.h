@@ -9,6 +9,8 @@
 #include "UI/ContentBrowserPanel.h"
 #include "UI/ScriptGraphPanel.h"
 #include "UI/EditorTheme.h"
+#include "UI/StatusBar.h"
+#include "RageV/Asset/AssetWatcher.h"
 #include "Tools/TerrainBrushTool.h"
 #include "RageV/Scene/SceneCommands.h"
 #include "RageV/Renderer/RenderGraph.h"
@@ -352,6 +354,11 @@ private:
 	void ApplyPendingResizes();
 	void DrawColliderOverlay();
 	void DrawEmitterVolumes();
+
+	// Polls the asset folder and reloads whatever changed. Called once a frame;
+	// the watcher decides how often that turns into a scan.
+	void PollAssetChanges(float deltaSeconds);
+	void WatchProjectAssets();
 	void HandleViewportPicking(const ImVec2& imageOrigin, const ImVec2& imageSize);
 	bool m_IsViewportFocused = false, m_IsViewportHovered = false;
 
@@ -401,6 +408,14 @@ private:
 	// overlay, and a scene that always draws one is a scene nobody looks at
 	// properly. Scene view only -- the game view is meant to be what a player
 	// would see.
+	// The project folder, watched. An editor that shows a stale mesh after a
+	// tool rewrites it is not obviously wrong -- it is just wrong quietly,
+	// which is worse -- and before this there was nothing at all: loaded
+	// assets were dropped only when a project was opened, so *reopening the
+	// scene did not help either*.
+	RageV::Assets::AssetWatcher m_AssetWatcher;
+	RageV::EditorUI::StatusBar m_StatusBar;
+
 	bool m_ShowColliders = false;
 
 	// The spawn volume of every box emitter, in the scene view. Off by default

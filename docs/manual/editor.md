@@ -79,6 +79,48 @@ button was held — scroll up with it held to wind it back.
 Light and camera entities draw billboard icons so they can be found and clicked
 without being visible geometry.
 
+## The status bar
+
+The strip along the bottom of the window says what the project folder is doing.
+It is always there — one line, and it does not appear and disappear, because a
+bar that comes and goes moves every panel underneath it by its own height.
+
+The left is what just happened; the right is what is standing. Hover the bar to
+see the last few messages, which is the case where something was said and has
+already been replaced.
+
+A message fades toward the resting colour after a few seconds rather than
+clearing. "What did it just say" is usually asked a little late.
+
+## Assets that change on disk
+
+The editor **watches the project's asset folder** and reloads anything that
+changes while it is open. Rebuild a mesh from a script, re-export a texture from
+another tool, and the scene picks it up within about a second — the status bar
+says what it reloaded.
+
+> [!NOTE]
+> Before this existed, loaded assets were dropped only when a project was
+> opened, so an editor left open across an export kept showing the old asset —
+> and **reopening the scene did not help either**, because scene loading does
+> not clear them. Restarting was the only way, and nothing said so.
+
+Some details worth knowing:
+
+- **A change is reported once it stops moving**, one scan after it is first
+  seen. A tool writing a mesh puts it on disk long before it has finished, and
+  importing half a file fails and caches the failure.
+- **`.meta` files are not watched.** They are the importer's own output, so
+  watching them is a loop: importing rewrites one, the rewrite is a change, the
+  change asks for an import. Editing import settings by hand is therefore not
+  noticed.
+- **Reloading is dropping.** The changed asset is emptied from the caches and
+  the next frame asks for it again, so it goes through the same loader
+  everything else does.
+- It is a **poll**, twice a second: `<filesystem>` has no change notification,
+  and the three platform APIs that do are three different things. The cost is
+  reported in the bar — 340 files in the sample project scan in about 0.8 ms.
+
 ## Play mode
 
 **Play** steps the scene: physics runs, scripts run, animations advance.
