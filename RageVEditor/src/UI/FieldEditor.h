@@ -100,5 +100,15 @@ namespace RageV::UI
 	// single description of what a setting is, and a panel that enumerates the
 	// same fields by hand is the drift §7s exists to close -- in the panel
 	// rather than on disk, but the same shape of bug and just as silent.
-	bool DrawFields(const std::vector<FieldDesc>& fields, void* block);
+	//
+	// **`scene` is what an entity field needs, and forgetting it does not fail
+	// loudly.** A settings block held nothing but numbers until the post
+	// profile gained a focus target, so this handed `DrawField` no scene and
+	// every caller was right. The moment one of these lists contained an
+	// `EntityRef`, that default turned into a slot that drew "Missing entity"
+	// in red whatever it pointed at, above a dropdown with nothing in it to
+	// pick -- because both halves of that drawer ask the scene and there was
+	// none. Pass one wherever there is one.
+	bool DrawFields(const std::vector<FieldDesc>& fields, void* block,
+					Scene* scene = nullptr);
 }

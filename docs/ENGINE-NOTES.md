@@ -12513,6 +12513,38 @@ by name. **Car sharpness 11.38, identical to the render where the profile itself
 names it, against 7.40 for the same frame with no override.** The stale profile
 fell back, the script took over, and the picture is the one the scene wanted.
 
+#### And then it drew "Missing entity" against a perfectly good reference
+
+Reported by the owner with two symptoms: the focus target slot was red, and the
+dropdown had nothing in it to search. One cause, and it is the one worth writing
+down.
+
+`DrawFields(fields, block)` -- the drawer every *settings block* goes through,
+as opposed to the entity inspector -- called `DrawField(field, block)` and let
+the `Scene*` parameter take its default of `nullptr`. Every caller had been
+right to: a settings block held nothing but numbers, from the render settings to
+the LUT recipe, and there was no scene to pass and nothing that wanted one.
+
+The post profile's focus target is **the first `EntityRef` ever to appear in
+one**, and both halves of that drawer ask the scene. With none it could not
+resolve what the slot held, so it drew the "deleted target" state; and it could
+not enumerate anything, so the list was empty. Two symptoms, one defaulted
+argument, and neither symptom pointed at it.
+
+**What made it expensive is that the wrong answer was a plausible one.** "Missing
+entity" is a specific claim -- *this id names nothing in this scene* -- and it
+was being made by something in no position to check. So the drawer now has a
+fourth state: no scene at all is drawn disabled, in warning colour, saying so,
+with a tooltip that names it as a bug in whoever drew the row rather than in the
+value. A wrong answer that explains itself is worth more than a right-looking one
+that does not.
+
+The general shape: **a defaulted parameter is a decision nobody makes.** It was
+correct at every call site for as long as the types flowing through were a
+subset of what it served, and it went wrong silently the moment one of them
+grew. Nothing in the language or the build could have caught it -- only the
+first `EntityRef` in a settings block could, and it did, by looking broken.
+
 ---
 
 ## 8. What this changes

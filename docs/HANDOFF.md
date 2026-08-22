@@ -51,7 +51,14 @@ corner of its own range.
    numbers are solved — the plane from where it is, the aperture from how deep
    it is — because putting the plane on a subject fixes *where* the sharpness
    is and not *how much* of it there is. (7ce)
-5. **A fallback that renders the right picture can still be the wrong
+5. **A defaulted parameter is a decision nobody makes.** `DrawFields` let
+   `DrawField`'s `Scene*` default to null, which was correct at every call site
+   until a settings block gained its first `EntityRef` — and then the slot drew
+   "Missing entity" against a perfectly good reference, above an empty
+   dropdown. Two symptoms, one default, neither pointing at it. The entity
+   drawer now has a fourth state for "no scene", because the old one made a
+   specific claim from a position where it could not check. (7ce)
+6. **A fallback that renders the right picture can still be the wrong
    answer.** A post profile is an asset and a focus target is an entity, so a
    shared profile names a UUID the second scene has never heard of. That case
    falls back to `Manual` — the *mode*, not just the same numbers, because the

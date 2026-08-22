@@ -454,16 +454,33 @@ namespace RageV::UI
 				EntityRef& reference = *(EntityRef*)value;
 				Entity target = scene ? scene->GetEntityByUUID(reference.Value) : Entity();
 
-				// Three states, and the third is the one worth drawing
+				// Four states, and the last two are the ones worth drawing
 				// carefully. An empty slot is ordinary. A resolved one shows a
 				// name. A slot that *names* something the scene does not have
 				// is a broken reference -- deleting the target leaves exactly
 				// this -- and if it drew as "None" nobody would ever find out
 				// why the button stopped working.
-				const bool missing = reference.IsValid() && !target;
+				//
+				// **And a drawer with no scene at all cannot say either.** That
+				// state used to be folded into "Missing entity", which is a
+				// specific claim -- *this id names nothing here* -- made by
+				// something in no position to check. It cost an hour: the post
+				// profile's focus target drew red against a perfectly good
+				// reference, above a dropdown with nothing in it, because
+				// `DrawFields` passed no scene and every settings block until
+				// then had held nothing but numbers. Two symptoms, one cause,
+				// and neither pointed at it.
+				//
+				// So the fourth state says what is actually wrong. A wrong
+				// answer that explains itself is worth more than a right-looking
+				// one that does not.
+				const bool detached = !scene;
+				const bool missing = !detached && reference.IsValid() && !target;
 
 				std::string label;
-				if (!reference.IsValid())
+				if (detached)
+					label = reference.IsValid() ? "No scene to resolve it" : "No scene";
+				else if (!reference.IsValid())
 					label = "None";
 				else if (target)
 					label = target.GetName();
@@ -472,6 +489,13 @@ namespace RageV::UI
 
 				if (missing)
 					ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().Danger);
+				else if (detached)
+					ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().Warning);
+
+				// Nothing to pick from and nothing to drop onto, so the control
+				// is disabled rather than drawn as though it might work.
+				if (detached)
+					ImGui::BeginDisabled();
 
 				// **A dropdown rather than a drop target alone.** Dragging from
 				// the Hierarchy is the fast gesture when you can already see
@@ -483,7 +507,10 @@ namespace RageV::UI
 				// and this is that same control.
 				const bool opened = ImGui::BeginCombo("##pick", label.c_str());
 
-				if (missing)
+				if (detached)
+					ImGui::EndDisabled();
+
+				if (missing || detached)
 					ImGui::PopStyleColor();
 
 				// Before the popup body, so a drop lands on the closed control.
@@ -507,7 +534,14 @@ namespace RageV::UI
 
 				if (!opened && ImGui::IsItemHovered())
 				{
-					if (missing)
+					if (detached)
+					{
+						ImGui::SetTooltip("This panel was not given a scene, so it can "
+										  "neither resolve what this slot holds nor offer "
+										  "anything to replace it with.\nThat is a bug in "
+										  "whatever drew this row, not in the value.");
+					}
+					else if (missing)
 					{
 						ImGui::SetTooltip("This slot names entity %llu, which is not in the "
 										  "scene.\nIt was probably deleted, or this asset is "
@@ -971,6 +1005,7 @@ namespace RageV::UI
 			const bool found = scene && named
 							&& scene->GetEntityByUUID(profile->FocusTarget.Value);
 
+
 			profile->TargetResolved = found;
 
 			if (!found)
@@ -1009,7 +1044,10 @@ namespace RageV::UI
 		// picture halfway through a frame; a post profile is read once when
 		// the frame graph is built, before any of this runs, so writing
 		// through is what makes the preview live.
-		if (DrawFields(PostSettingsRegistry::Fields(), profile))
+		// The scene, threaded through: the focus target is an entity, and an
+		// entity slot with no scene behind it can neither resolve what it holds
+		// nor offer anything to replace it with.
+		if (DrawFields(PostSettingsRegistry::Fields(), profile, scene))
 		{
 			const std::filesystem::path file = Assets::Registry::GetAbsolutePath(handle);
 			if (!file.empty())
@@ -1088,7 +1126,7 @@ namespace RageV::UI
 		ImGui::Unindent();
 	}
 
-	bool DrawFields(const std::vector<FieldDesc>& fields, void* block)
+	bool DrawFields(const std::vector<FieldDesc>& fields, void* block, Scene* scene)
 	{
 		bool changed = false;
 
@@ -1109,7 +1147,7 @@ namespace RageV::UI
 			if (disabled)
 				ImGui::BeginDisabled();
 
-			changed |= DrawField(field, block);
+			changed |= DrawField(field, block, scene);
 
 			if (disabled)
 			{
