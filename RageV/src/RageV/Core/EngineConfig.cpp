@@ -95,6 +95,9 @@ namespace RageV
 		if (key == "vsync")
 			return ParseBool(value, config.VSync);
 
+		if (key == "reveal-after-build" || key == "revealafterbuild")
+			return ParseBool(value, config.RevealAfterBuild);
+
 		if (key == "validation")
 		{
 			// "gpu" is the layers plus GPU-assisted validation: the only thing
@@ -592,6 +595,11 @@ namespace RageV
 	bool EngineConfig::SaveVSyncPreference(bool enabled)
 	{
 		return SaveSetting("vsync", enabled ? "on" : "off");
+	}
+
+	bool EngineConfig::SaveRevealAfterBuildPreference(bool enabled)
+	{
+		return SaveSetting("reveal-after-build", enabled ? "on" : "off");
 	}
 
 	void EngineConfig::SetAntiAliasingOverride(AntiAliasing aa)

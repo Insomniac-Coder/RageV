@@ -185,10 +185,10 @@ public:
 
 	// Show the finished build in the file manager.
 	//
-	// Off by default and remembered for the session. A build that opens a
-	// window nobody asked for is a surprise the first time and an interruption
-	// every time after, and this runs on a worker -- so the window would
-	// arrive minutes later, over whatever was being done by then.
+	// Off until somebody asks for it, then remembered **across restarts** in
+	// ragev.ini -- it is a preference about how a person likes to work, not
+	// about the project, and having to re-tick it every launch is how a
+	// preference stops being one. Seeded from the config at attach.
 	bool m_RevealAfterBuild = false;
 	std::mutex m_BuildLogMutex;
 	std::string m_BuildLiveLog;

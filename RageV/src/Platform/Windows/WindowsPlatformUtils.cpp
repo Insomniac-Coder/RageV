@@ -3,6 +3,7 @@
 #include "RageV/Core/Application.h"
 
 #include <commdlg.h>
+#include <objbase.h>
 #include <shellapi.h>
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -67,6 +68,24 @@ namespace RageV
 		const bool directory = std::filesystem::is_directory(path, error);
 		const std::wstring native = path.native();
 
+		// **ShellExecute documents that COM must be initialised on the calling
+		// thread, and nothing in this engine ever initialised it.**
+		//
+		// That is why the folder opened some of the time and not others: the
+		// process picks COM up as a side effect of other things -- the common
+		// file dialog initialises OLE, so a build started through
+		// "Build Game As..." had it and a build started through "Build Game"
+		// might not. An API used outside its documented contract is not a
+		// coin toss anybody should be reading results from.
+		//
+		// RPC_E_CHANGED_MODE means COM is already up in the other apartment
+		// model, which is fine to call through; it is the one case that must
+		// *not* be balanced with CoUninitialize, since this call did not
+		// initialise anything.
+		const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED
+												  | COINIT_DISABLE_OLE1DDE);
+		const bool balance = SUCCEEDED(com);
+
 		HINSTANCE result;
 		if (directory)
 		{
@@ -80,12 +99,16 @@ namespace RageV
 								   select.c_str(), nullptr, SW_SHOWNORMAL);
 		}
 
+		if (balance)
+			CoUninitialize();
+
 		// ShellExecute returns a fake HINSTANCE; anything over 32 is success.
 		// The cast is what the API documents, odd as it looks.
 		if ((INT_PTR)result <= 32)
 		{
-			RV_CORE_WARN("Could not open {0} in the file manager ({1})",
-						 path.string(), (INT_PTR)result);
+			RV_CORE_WARN("Could not open {0} in the file manager: ShellExecute "
+						 "returned {1}, CoInitializeEx returned 0x{2:08X}",
+						 path.string(), (INT_PTR)result, (uint32_t)com);
 			return false;
 		}
 		return true;

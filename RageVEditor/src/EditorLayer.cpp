@@ -95,6 +95,7 @@ void EditorLayer::OnAttach()
 		m_Theme = EditorTheme::Parse(EngineConfig::Get().Theme.c_str());
 
 	EditorTheme::Apply(m_Theme);
+	m_RevealAfterBuild = EngineConfig::Get().RevealAfterBuild;
 
 	// The project is already open by the time a layer attaches -- the runtime
 	// needs it to find the start scene -- so this is the first moment the
@@ -3831,7 +3832,6 @@ void EditorLayer::OpenSceneFile(const std::filesystem::path& filepath)
 		m_ScenePath = filepath;
 	else
 		m_ScenePath.clear();
-
 }
 
 // What the Game panel is showing, as a PNG in the project's captures folder.
@@ -4717,8 +4717,14 @@ void EditorLayer::DrawBuildGamePanel()
 	//
 	// What happens *after*, next to the button that starts it, because that is
 	// when somebody is deciding what they are about to do.
-	ImGui::Checkbox("Show the build in File Explorer when it finishes",
-					&m_RevealAfterBuild);
+	if (ImGui::Checkbox("Show the build in File Explorer when it finishes",
+						&m_RevealAfterBuild))
+	{
+		// Written the moment it changes rather than on exit: a preference
+		// saved at shutdown is a preference lost to a crash, and this one is
+		// two words in an ini file.
+		EngineConfig::SaveRevealAfterBuildPreference(m_RevealAfterBuild);
+	}
 
 	//
 	// Centred at the bottom, and the only way out other than closing the

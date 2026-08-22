@@ -15935,6 +15935,8 @@ int RunTests(int argc, char** argv)
 
 		Check(EngineConfig::SaveBackendPreference(Backend::Vulkan), "the backend preference writes");
 		Check(EngineConfig::SaveVSyncPreference(false), "the vsync preference writes");
+		Check(EngineConfig::SaveRevealAfterBuildPreference(true),
+			  "and so does the Build Game dialog's reveal checkbox");
 
 		std::string written;
 		{
@@ -15948,6 +15950,16 @@ int RunTests(int argc, char** argv)
 			  "and the old value is gone, not merely shadowed by a later line");
 		Check(written.find("vsync=off") != std::string::npos,
 			  "a key that was absent is appended");
+
+		// A preference that saves and does not load is indistinguishable from
+		// one that never saved -- and the checkbox it belongs to is off by
+		// default, so that failure would look exactly like somebody forgetting
+		// to tick it. The reading half runs through the same key table every
+		// other setting uses and cannot be reached from here without making a
+		// private function public for a test; what is checkable is that the
+		// key written is spelled the way the table expects.
+		Check(written.find("reveal-after-build=on") != std::string::npos,
+			  "the reveal preference is written, under the name the loader reads");
 		Check(written.find("audio=off") != std::string::npos &&
 			  written.find("width=1280") != std::string::npos,
 			  "every other setting survives the rewrite");

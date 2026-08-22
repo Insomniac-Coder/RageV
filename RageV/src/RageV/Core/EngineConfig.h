@@ -316,6 +316,10 @@ namespace RageV
 		// EngineConfig::Init.
 		bool         HasRenderDefaults = false;
 
+		// Whether Build Game opens the finished build in the file manager.
+		// Written by the dialog's checkbox; see SaveRevealAfterBuildPreference.
+		bool RevealAfterBuild = false;
+
 		// --msaa=N. Zero leaves the scene's count alone.
 		int          MsaaOverride = 0;
 
@@ -407,6 +411,14 @@ namespace RageV
 		// Writes `vsync=` the same way, so the editor's checkbox survives a
 		// plain restart rather than only the session it was clicked in.
 		static bool SaveVSyncPreference(bool enabled);
+
+		// And `reveal-after-build=`, for the Build Game dialog's checkbox.
+		//
+		// A preference about how this person likes to work rather than
+		// anything about the project, which is exactly what ragev.ini is for:
+		// somebody who wants the folder every time should tick it once, not
+		// once per launch.
+		static bool SaveRevealAfterBuildPreference(bool enabled);
 
 		// And `aa=`, for the same reason and with one difference worth
 		// stating: anti-aliasing is *also* a project property, so writing it
