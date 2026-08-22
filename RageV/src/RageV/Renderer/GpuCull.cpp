@@ -23,6 +23,22 @@ namespace RageV
 		};
 		static_assert(sizeof(CullParams) == 72, "Must match Params in cull_casters.rvshader");
 
+		// The lit variant's own block, because it carries two words the depth
+		// cull has no use for -- and because CullParams is asserted against
+		// cull_casters.rvshader, so growing it would move a layout that shader
+		// reflects.
+		struct LitCullParams
+		{
+			Mat4     ViewProjection{ 1.0f };
+			uint32_t ObjectCount = 0;
+			uint32_t SlotCount = 0;
+			// Where this table's rows begin in the lit pass's instance buffer,
+			// which the opaque and blended tables share. See CullLit.
+			uint32_t InstanceBase = 0;
+			uint32_t Pad0 = 0;
+		};
+		static_assert(sizeof(LitCullParams) == 80, "Must match Params in cull_lit.rvshader");
+
 		struct ResetParams
 		{
 			uint32_t SlotCount = 0;
@@ -56,18 +72,30 @@ namespace RageV
 			Ref<RHIShader>          LitShader;
 			Ref<RHIComputePipeline> LitPipeline;
 
-			// The frame's table, shared by every view. Host-visible: the CPU
-			// writes them once a frame and the GPU only reads them.
-			Ref<RHIBuffer> Objects;
-			uint32_t       ObjectCapacity = 0;
-			Ref<RHIBuffer> Template;
-			uint32_t       TemplateCapacity = 0;
+			// One frame's table, shared by every view that culls it.
+			// Host-visible: the CPU writes it once a frame and the GPU only
+			// reads it.
+			//
+			// **A struct rather than loose fields**, because there are two of
+			// them now -- opaque and blended -- and the alternative was a
+			// second set of six members whose names differ by a prefix. Every
+			// place that used to name `s_Data->Objects` names a table's, and
+			// which table is an argument.
+			struct Table
+			{
+				Ref<RHIBuffer> Objects;
+				uint32_t       ObjectCapacity = 0;
+				Ref<RHIBuffer> Template;
+				uint32_t       TemplateCapacity = 0;
 
-			uint32_t ObjectCount = 0;
-			uint32_t SlotCount = 0;
-			bool     HaveObjects = false;
-			// Who built the table this frame; null when nobody has.
-			const void* Owner = nullptr;
+				uint32_t ObjectCount = 0;
+				uint32_t SlotCount = 0;
+				bool     HaveObjects = false;
+				// Who built it this frame; null when nobody has.
+				const void* Owner = nullptr;
+			};
+
+			Table Tables[(uint32_t)GpuCull::Pass::Count];
 
 			// One ring per frame in flight: the previous frame's views may
 			// still be reading theirs.
@@ -272,9 +300,13 @@ namespace RageV
 		return s_Enabled && s_Data && s_Data->CullPipeline && s_Data->ResetPipeline;
 	}
 
-	bool GpuCull::HasObjects(const void* owner)
+	bool GpuCull::HasObjects(const void* owner, Pass pass)
 	{
-		return s_Data && s_Data->HaveObjects && s_Data->Owner == owner;
+		if (!s_Data || pass >= Pass::Count)
+			return false;
+
+		const GpuCullData::Table& table = s_Data->Tables[(uint32_t)pass];
+		return table.HaveObjects && table.Owner == owner;
 	}
 
 	uint32_t GpuCull::GetViewCount()
@@ -294,20 +326,25 @@ namespace RageV
 		// a probe capture, a frame before the first RenderShadows -- must not
 		// cull against the last frame's table, which is where everything has
 		// moved since.
-		s_Data->HaveObjects = false;
-		s_Data->Owner = nullptr;
-		s_Data->ObjectCount = 0;
-		s_Data->SlotCount = 0;
+		for (GpuCullData::Table& table : s_Data->Tables)
+		{
+			table.HaveObjects = false;
+			table.Owner = nullptr;
+			table.ObjectCount = 0;
+			table.SlotCount = 0;
+		}
 	}
 
 	bool GpuCull::SetObjects(const void* owner, const std::vector<Object>& objects,
-							 const std::vector<SlotCommand>& slots)
+							 const std::vector<SlotCommand>& slots, Pass pass)
 	{
-		if (!IsAvailable())
+		if (!IsAvailable() || pass >= Pass::Count)
 			return false;
 
-		s_Data->HaveObjects = false;
-		s_Data->Owner = nullptr;
+		GpuCullData::Table& table = s_Data->Tables[(uint32_t)pass];
+
+		table.HaveObjects = false;
+		table.Owner = nullptr;
 
 		if (objects.empty() || slots.empty())
 			return false;
@@ -336,33 +373,39 @@ namespace RageV
 			return false;
 		}
 
-		if (!EnsureBuffer(s_Data->Objects, s_Data->ObjectCapacity, objectCount,
+		if (!EnsureBuffer(table.Objects, table.ObjectCapacity, objectCount,
 						  sizeof(Object), BufferUsage::Storage, MemoryDomain::HostVisible,
 						  "GpuCull.objects"))
 		{
 			return false;
 		}
 
-		if (!EnsureBuffer(s_Data->Template, s_Data->TemplateCapacity, slotCount,
+		if (!EnsureBuffer(table.Template, table.TemplateCapacity, slotCount,
 						  sizeof(SlotCommand), BufferUsage::Storage, MemoryDomain::HostVisible,
 						  "GpuCull.template"))
 		{
 			return false;
 		}
 
-		s_Data->Objects->Upload(objects.data(), (uint64_t)objectCount * sizeof(Object));
-		s_Data->Template->Upload(slots.data(), (uint64_t)slotCount * sizeof(SlotCommand));
+		table.Objects->Upload(objects.data(), (uint64_t)objectCount * sizeof(Object));
+		table.Template->Upload(slots.data(), (uint64_t)slotCount * sizeof(SlotCommand));
 
-		s_Data->ObjectCount = objectCount;
-		s_Data->SlotCount = slotCount;
-		s_Data->HaveObjects = true;
-		s_Data->Owner = owner;
+		table.ObjectCount = objectCount;
+		table.SlotCount = slotCount;
+		table.HaveObjects = true;
+		table.Owner = owner;
 		return true;
 	}
 
-	GpuCull::View GpuCull::CullLit(RHICommandList& cmd, const Mat4& viewProjection)
+	GpuCull::View GpuCull::CullLit(RHICommandList& cmd, const Mat4& viewProjection, Pass pass,
+								   uint32_t instanceBase)
 	{
 		View view;
+
+		if (!s_Data || pass >= Pass::Count)
+			return view;
+
+		GpuCullData::Table& table = s_Data->Tables[(uint32_t)pass];
 
 		// **The lit path needs bindless materials, and this is not a
 		// preference.**
@@ -383,7 +426,7 @@ namespace RageV
 		//
 		// The depth views are unaffected either way: a depth pass has no
 		// material at all.
-		if (!s_LitEnabled || !IsAvailable() || !s_Data->HaveObjects || !s_Data->LitPipeline
+		if (!s_LitEnabled || !IsAvailable() || !table.HaveObjects || !s_Data->LitPipeline
 			|| !Renderer3D::IsBindless())
 		{
 			return view;
@@ -396,7 +439,7 @@ namespace RageV
 
 		ViewSlot& slot = slots[s_Data->LitCursor++];
 
-		if (!EnsureBuffer(slot.Commands, slot.CommandCapacity, s_Data->SlotCount,
+		if (!EnsureBuffer(slot.Commands, slot.CommandCapacity, table.SlotCount,
 						  sizeof(SlotCommand), BufferUsage::Storage | BufferUsage::Indirect,
 						  MemoryDomain::DeviceLocal, "GpuCull.litCommands"))
 		{
@@ -406,7 +449,7 @@ namespace RageV
 		// Four bytes an object, not sixty-four: this holds indices into the
 		// lit pass's instance table rather than finished matrices. The slot
 		// ranges together are exactly the object count, whatever survives.
-		if (!EnsureBuffer(slot.Instances, slot.InstanceCapacity, s_Data->ObjectCount,
+		if (!EnsureBuffer(slot.Instances, slot.InstanceCapacity, table.ObjectCount,
 						  sizeof(uint32_t), BufferUsage::Storage,
 						  MemoryDomain::DeviceLocal, "GpuCull.litVisible"))
 		{
@@ -420,44 +463,45 @@ namespace RageV
 		if (!slot.ResetSet || !slot.CullSet)
 			return view;
 
-		slot.ResetSet->SetStorageBuffer(0, s_Data->Template);
+		slot.ResetSet->SetStorageBuffer(0, table.Template);
 		slot.ResetSet->SetStorageBuffer(1, slot.Commands);
 		slot.ResetSet->Commit();
 
-		slot.CullSet->SetStorageBuffer(0, s_Data->Objects);
+		slot.CullSet->SetStorageBuffer(0, table.Objects);
 		slot.CullSet->SetStorageBuffer(1, slot.Commands);
 		slot.CullSet->SetStorageBuffer(2, slot.Instances);
 		slot.CullSet->Commit();
 
 		ResetParams reset;
-		reset.SlotCount = s_Data->SlotCount;
+		reset.SlotCount = table.SlotCount;
 
 		cmd.BindComputePipeline(s_Data->ResetPipeline);
 		cmd.BindResourceSet(0, slot.ResetSet);
 		cmd.PushConstants(ShaderStage::Compute, 0, sizeof(reset), &reset);
-		cmd.Dispatch(s_Data->ResetPipeline->GroupsFor(s_Data->SlotCount));
+		cmd.Dispatch(s_Data->ResetPipeline->GroupsFor(table.SlotCount));
 
 		// Two, for the reason Cull gives: the pass reads each slot's base and
 		// increments each slot's count, and BufferBarrier names one use a side.
 		cmd.BufferBarrier(slot.Commands, BufferSync::ComputeWrite, BufferSync::ComputeWrite);
 		cmd.BufferBarrier(slot.Commands, BufferSync::ComputeWrite, BufferSync::ComputeRead);
 
-		CullParams params;
+		LitCullParams params;
 		params.ViewProjection = viewProjection;
-		params.ObjectCount = s_Data->ObjectCount;
-		params.SlotCount = s_Data->SlotCount;
+		params.InstanceBase = instanceBase;
+		params.ObjectCount = table.ObjectCount;
+		params.SlotCount = table.SlotCount;
 
 		cmd.BindComputePipeline(s_Data->LitPipeline);
 		cmd.BindResourceSet(0, slot.CullSet);
 		cmd.PushConstants(ShaderStage::Compute, 0, sizeof(params), &params);
-		cmd.Dispatch(s_Data->LitPipeline->GroupsFor(s_Data->ObjectCount));
+		cmd.Dispatch(s_Data->LitPipeline->GroupsFor(table.ObjectCount));
 
 		cmd.BufferBarrier(slot.Commands, BufferSync::ComputeWrite, BufferSync::IndirectRead);
 		cmd.BufferBarrier(slot.Instances, BufferSync::ComputeWrite, BufferSync::ShaderRead);
 
 		view.Commands = slot.Commands;
 		view.Instances = slot.Instances;
-		view.SlotCount = s_Data->SlotCount;
+		view.SlotCount = table.SlotCount;
 		s_Data->ViewsThisFrame++;
 		return view;
 	}
@@ -466,7 +510,13 @@ namespace RageV
 	{
 		View view;
 
-		if (!IsAvailable() || !s_Data->HaveObjects)
+		GpuCullData::Table& table = s_Data->Tables[(uint32_t)Pass::Opaque];
+
+		// The depth passes only ever cull the opaque table. Blended geometry
+		// casts no shadow here -- glass that shadows like a wall is worse than
+		// glass that does not shadow at all, which is the same call every
+		// renderer makes.
+		if (!IsAvailable() || !table.HaveObjects)
 			return view;
 
 		const uint32_t frame = s_Data->Device->GetFrameIndex();
@@ -478,7 +528,7 @@ namespace RageV
 
 		// The commands are read by the backend as indirect arguments *and*
 		// written by the cull pass, so they carry both usages.
-		if (!EnsureBuffer(slot.Commands, slot.CommandCapacity, s_Data->SlotCount,
+		if (!EnsureBuffer(slot.Commands, slot.CommandCapacity, table.SlotCount,
 						  sizeof(SlotCommand), BufferUsage::Storage | BufferUsage::Indirect,
 						  MemoryDomain::DeviceLocal, "GpuCull.commands"))
 		{
@@ -489,7 +539,7 @@ namespace RageV
 		// it, so the ranges together are exactly the object count -- however
 		// the culling goes. Sized to the whole scene rather than to what
 		// survives, which is the price of not sorting.
-		if (!EnsureBuffer(slot.Instances, slot.InstanceCapacity, s_Data->ObjectCount,
+		if (!EnsureBuffer(slot.Instances, slot.InstanceCapacity, table.ObjectCount,
 						  sizeof(Mat4), BufferUsage::Storage, MemoryDomain::DeviceLocal,
 						  "GpuCull.instances"))
 		{
@@ -506,22 +556,22 @@ namespace RageV
 		// Rebound every view rather than once: the shared buffers are
 		// recreated when the scene outgrows them, and a set still pointing at
 		// the old one reads a scene that has been freed.
-		slot.ResetSet->SetStorageBuffer(0, s_Data->Template);
+		slot.ResetSet->SetStorageBuffer(0, table.Template);
 		slot.ResetSet->SetStorageBuffer(1, slot.Commands);
 		slot.ResetSet->Commit();
 
-		slot.CullSet->SetStorageBuffer(0, s_Data->Objects);
+		slot.CullSet->SetStorageBuffer(0, table.Objects);
 		slot.CullSet->SetStorageBuffer(1, slot.Commands);
 		slot.CullSet->SetStorageBuffer(2, slot.Instances);
 		slot.CullSet->Commit();
 
 		ResetParams reset;
-		reset.SlotCount = s_Data->SlotCount;
+		reset.SlotCount = table.SlotCount;
 
 		cmd.BindComputePipeline(s_Data->ResetPipeline);
 		cmd.BindResourceSet(0, slot.ResetSet);
 		cmd.PushConstants(ShaderStage::Compute, 0, sizeof(reset), &reset);
-		cmd.Dispatch(s_Data->ResetPipeline->GroupsFor(s_Data->SlotCount));
+		cmd.Dispatch(s_Data->ResetPipeline->GroupsFor(table.SlotCount));
 
 		// **Two barriers, because the cull does two things to this buffer.**
 		// It reads each slot's instance base, which is the read-after-write;
@@ -534,20 +584,20 @@ namespace RageV
 
 		CullParams params;
 		params.ViewProjection = viewProjection;
-		params.ObjectCount = s_Data->ObjectCount;
-		params.SlotCount = s_Data->SlotCount;
+		params.ObjectCount = table.ObjectCount;
+		params.SlotCount = table.SlotCount;
 
 		cmd.BindComputePipeline(s_Data->CullPipeline);
 		cmd.BindResourceSet(0, slot.CullSet);
 		cmd.PushConstants(ShaderStage::Compute, 0, sizeof(params), &params);
-		cmd.Dispatch(s_Data->CullPipeline->GroupsFor(s_Data->ObjectCount));
+		cmd.Dispatch(s_Data->CullPipeline->GroupsFor(table.ObjectCount));
 
 		cmd.BufferBarrier(slot.Commands, BufferSync::ComputeWrite, BufferSync::IndirectRead);
 		cmd.BufferBarrier(slot.Instances, BufferSync::ComputeWrite, BufferSync::ShaderRead);
 
 		view.Commands = slot.Commands;
 		view.Instances = slot.Instances;
-		view.SlotCount = s_Data->SlotCount;
+		view.SlotCount = table.SlotCount;
 		s_Data->ViewsThisFrame++;
 		return view;
 	}

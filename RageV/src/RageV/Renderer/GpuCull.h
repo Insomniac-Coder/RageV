@@ -49,6 +49,24 @@ namespace RageV
 	class GpuCull
 	{
 	public:
+		// Which table an object belongs to.
+		//
+		// **A table is culled once and issued once**, so the pass a draw ends
+		// up in is a property of the table it was put in rather than something
+		// decided later. That is why blended geometry needs a second one: the
+		// opaque table is issued inside the opaque pass with the opaque
+		// pipeline, and a windscreen in it is a windscreen you cannot see
+		// through.
+		//
+		// Two rather than N because two is what exists. A third would be a
+		// third enumerator and no other change -- the tables are an array.
+		enum class Pass : uint32_t
+		{
+			Opaque = 0,
+			Blended = 1,
+			Count = 2,
+		};
+
 		// One object, as the cull pass reads it. Ninety-six bytes: a model
 		// matrix and the world-space box the frustum test needs.
 		//
@@ -144,7 +162,8 @@ namespace RageV
 		// Returns false if the table could not be uploaded, in which case no
 		// view will cull and the callers take the CPU path.
 		static bool SetObjects(const void* owner, const std::vector<Object>& objects,
-							   const std::vector<SlotCommand>& slots);
+							   const std::vector<SlotCommand>& slots,
+							   Pass pass = Pass::Opaque);
 
 		// Whether `owner` has already given a usable table this frame.
 		//
@@ -155,7 +174,7 @@ namespace RageV
 		// ninety-six bytes an object each time, which at sixty thousand
 		// objects costs more than the walks the table exists to remove. The
 		// first build of a frame is the one that counts.
-		static bool HasObjects(const void* owner);
+		static bool HasObjects(const void* owner, Pass pass = Pass::Opaque);
 
 		// Records one view's reset and cull dispatches, and the barriers that
 		// make the result readable as indirect arguments and as vertex-stage
@@ -189,7 +208,11 @@ namespace RageV
 		// than the early-z it buys past a few thousand objects, so this is a
 		// deliberate trade rather than an omission, and sorting the survivors
 		// is the next piece.
-		static View CullLit(RHI::RHICommandList& cmd, const Mat4& viewProjection);
+		// `instanceBase` is where this table's rows begin in the lit pass's
+		// instance buffer, which the two tables share -- the opaque one at
+		// zero and the blended one after it.
+		static View CullLit(RHI::RHICommandList& cmd, const Mat4& viewProjection,
+							Pass pass = Pass::Opaque, uint32_t instanceBase = 0);
 
 		// How many views culled this frame, for the statistics line.
 		static uint32_t GetViewCount();

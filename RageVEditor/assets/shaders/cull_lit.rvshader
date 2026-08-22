@@ -75,6 +75,16 @@ layout(push_constant) uniform Params
 	mat4 ViewProjection;
 	uint ObjectCount;
 	uint SlotCount;
+	// Where this table's objects begin in the instance buffer.
+	//
+	// **Two tables share one instance buffer**, because the vertex stage reads
+	// one and a draw cannot bind two. The opaque table starts at zero and the
+	// blended one after it, so an object's row in its own table plus this is
+	// its row in the buffer -- and without it the blended table's row 0 would
+	// address the same instance as the opaque table's row 0, which is a
+	// windscreen drawn with a wheel's matrix.
+	uint InstanceBase;
+	uint _pad0;
 } u_Params;
 
 // Gribb-Hartmann, unnormalised, near plane at z = 0. Identical to
@@ -126,5 +136,5 @@ void main()
 		return;
 
 	uint place = atomicAdd(u_Commands.Items[slot].InstanceCount, 1u);
-	u_Visible.Items[u_Commands.Items[slot].InstanceBase + place] = i;
+	u_Visible.Items[u_Commands.Items[slot].InstanceBase + place] = u_Params.InstanceBase + i;
 }
