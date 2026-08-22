@@ -688,7 +688,7 @@ def build(profile_handle, mat):
 
 def write_material(path, maps, tiling, height_scale=0.03, metallic=0.0,
                    roughness=1.0, base_color=(1, 1, 1, 1),
-                   emissive=(0, 0, 0, 1), uv_offset=(0, 0)):
+                   emissive=(0, 0, 0, 1), uv_offset=(0, 0), blend=False):
     """A `.rmat` over shared maps, tiled for a surface of a known size.
 
     **Tiling is a property of the surface, not of the texture.** A brick map at
@@ -722,8 +722,15 @@ def write_material(path, maps, tiling, height_scale=0.03, metallic=0.0,
         # atlas turned up whose V ran the other way -- see the showroom's
         # livery.
         f"UvOffset: [{uv_offset[0]:g}, {uv_offset[1]:g}]",
-        "Maps:",
     ]
+
+    # Only when it is not the default, which is what MaterialSerializer writes
+    # too -- so a material this produces and one the engine saves are the same
+    # file.
+    if blend:
+        lines.append("Blend: Blend")
+
+    lines.append("Maps:")
     for key, value in maps.items():
         lines.append(f"  {key}: {value}")
 

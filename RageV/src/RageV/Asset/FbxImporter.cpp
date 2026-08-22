@@ -219,6 +219,43 @@ namespace RageV::Assets
 			if (out.MetallicRoughnessTexture >= 0)
 				out.Params.MapFlags |= MaterialMap_Roughness | MaterialMap_Metallic;
 
+			// **Transparency, which FBX states two ways and glTF states one.**
+			// A PBR material carries an `opacity`; the two FBX builtins carry a
+			// `transparency_factor`, which is the same number the other way up.
+			// Either below one means the surface is not opaque.
+			//
+			// Read from both kinds, unlike roughness and metalness: an opacity
+			// is not a derived quantity that ufbx has invented from a shininess
+			// exponent -- it is a number the artist set, and it means the same
+			// thing in every shading model. That is the same test the colour
+			// and the maps above pass and the PBR scalars fail.
+			//
+			// The threshold is 0.999 rather than 1.0 because exporters write
+			// 0.9999999 for "opaque" often enough to matter, and a scene full
+			// of blended draws that did not need to be is a real cost.
+			auto opacityOf = [&]() -> float
+			{
+				if (isPbr && pbr.opacity.has_value)
+					return (float)pbr.opacity.value_real;
+				if (source.fbx.transparency_factor.has_value)
+					return 1.0f - (float)source.fbx.transparency_factor.value_real;
+				return 1.0f;
+			};
+
+			const float opacity = opacityOf();
+			const bool hasOpacityMap = (isPbr && pbr.opacity.texture) != 0
+									|| source.fbx.transparency_color.texture != nullptr;
+
+			if (opacity < 0.999f || hasOpacityMap)
+			{
+				out.Blend = BlendMode::Blend;
+
+				// The scalar goes into the base colour's alpha, which is where
+				// the renderer reads it from -- BaseColor.a is the alpha for
+				// every material in this engine, textured or not.
+				out.Params.BaseColor.w *= Math::Clamp(opacity, 0.0f, 1.0f);
+			}
+
 			if (!isPbr)
 			{
 				RV_CORE_WARN("FBX material '{0}' is a {1} material, which has no PBR "
@@ -681,8 +718,19 @@ namespace RageV::Assets
 			if (MeshCook::Deserialize(out, bytes.data(), bytes.size()))
 				return true;
 
-			RV_CORE_ERROR("Cooked mesh '{0}' will not parse", path.string());
-			return false;
+			// **Fall through to the source rather than fail.** A cooked file
+			// this refuses is overwhelmingly a *stale* one -- the cook format
+			// gained a field and its version went up -- and that is the one
+			// case a version number exists to survive. Returning false here
+			// turned a version bump into "the model produced nothing" for
+			// every asset already in the cache, with no way to act on it
+			// except deleting the folder by hand.
+			//
+			// Re-parsing costs the import once, and the cache is rewritten
+			// with it. A file that is genuinely corrupt takes the same path
+			// and fails on the source, which is where the error belongs.
+			RV_CORE_WARN("Cooked mesh '{0}' will not parse -- re-importing from source",
+						 path.string());
 		}
 
 		return ImportSource(path, out);

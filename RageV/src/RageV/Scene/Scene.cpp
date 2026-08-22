@@ -1606,11 +1606,22 @@ namespace RageV
 			entry.Source = &mesh;
 			entry.Skinned = resolved->IsSkinned();
 
+			// **And never a blended one.** The GPU path draws its table with the
+			// opaque pipeline in the opaque pass; a windscreen in it is a
+			// windscreen you cannot see through, and the wheel-blur discs that
+			// are meant to vanish become solid plates over the rims. Blended
+			// materials take the CPU path, which is where the transparent list
+			// is built.
+			const RHI::Ref<Material> resolvedMaterial =
+				Assets::Manager::GetMaterial(mesh.Material);
+			const bool blended = resolvedMaterial
+							  && resolvedMaterial->GetBlendMode() != BlendMode::Opaque;
+
 			// Static meshes only, and only when there is a pass to read them.
 			// A skinned caster is posed from bones the CPU composed this
 			// frame, and an indexless mesh has nothing for an indexed draw to
 			// draw.
-			if (gpuCull && !entry.Skinned && resolved->GetIndexCount() >= 3)
+			if (gpuCull && !entry.Skinned && !blended && resolved->GetIndexCount() >= 3)
 			{
 				uint32_t slot = slotFor(resolved.get());
 				if (slot == kNoCullSlot)

@@ -60,6 +60,12 @@ namespace RageV::Assets
 		emitter << YAML::Key << "Specular"    << YAML::Value << params.Specular;
 		emitter << YAML::Key << "HeightScale" << YAML::Value << params.HeightScale;
 
+		// Only when it is not the default, so every material written before
+		// transparency existed still round-trips byte for byte -- which is what
+		// keeps a regenerated scene's diff to what actually changed.
+		if (material.Blend != BlendMode::Opaque)
+			emitter << YAML::Key << "Blend" << YAML::Value << "Blend";
+
 		// Written as a pair of pairs rather than a raw vec4, because "Tiling:
 		// [8, 8]" is what somebody editing this by hand is looking for.
 		emitter << YAML::Key << "Tiling" << YAML::Value << YAML::Flow
@@ -146,6 +152,12 @@ namespace RageV::Assets
 		if (root["NormalScale"]) params.NormalScale = root["NormalScale"].as<float>();
 		if (root["Specular"])    params.Specular = root["Specular"].as<float>();
 		if (root["HeightScale"]) params.HeightScale = root["HeightScale"].as<float>();
+
+		if (const YAML::Node blend = root["Blend"])
+		{
+			material.Blend = blend.as<std::string>() == "Blend" ? BlendMode::Blend
+															   : BlendMode::Opaque;
+		}
 
 		auto readPair = [](const YAML::Node& node, float& x, float& y)
 		{

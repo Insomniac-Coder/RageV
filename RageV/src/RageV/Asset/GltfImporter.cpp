@@ -221,6 +221,25 @@ namespace RageV::Assets
 		{
 			out.Name = source.name ? source.name : "Material";
 
+			// **`alphaMode`, which this dropped until something needed it.**
+			// MASK is read as BLEND rather than as its own mode: a cutout is
+			// cheaper and sharper than a blend, but it needs the cutoff in the
+			// shader and a discard, and until something in this project has
+			// foliage in it that is a pass and a variant for nobody. Blending a
+			// cutout is a soft edge where there should be a hard one, which is
+			// a much smaller wrong than ignoring the alpha entirely.
+			if (source.alpha_mode != cgltf_alpha_mode_opaque)
+			{
+				out.Blend = BlendMode::Blend;
+
+				if (source.alpha_mode == cgltf_alpha_mode_mask)
+				{
+					RV_CORE_WARN("Material '{0}' is alphaMode MASK, which is read as "
+								 "BLEND: its cutout edge will be soft rather than hard",
+								 out.Name);
+				}
+			}
+
 			if (source.has_pbr_metallic_roughness)
 			{
 				const auto& pbr = source.pbr_metallic_roughness;
@@ -688,8 +707,19 @@ namespace RageV::Assets
 			if (MeshCook::Deserialize(out, bytes.data(), bytes.size()))
 				return true;
 
-			RV_CORE_ERROR("Cooked mesh '{0}' will not parse", path.string());
-			return false;
+			// **Fall through to the source rather than fail.** A cooked file
+			// this refuses is overwhelmingly a *stale* one -- the cook format
+			// gained a field and its version went up -- and that is the one
+			// case a version number exists to survive. Returning false here
+			// turned a version bump into "the model produced nothing" for
+			// every asset already in the cache, with no way to act on it
+			// except deleting the folder by hand.
+			//
+			// Re-parsing costs the import once, and the cache is rewritten
+			// with it. A file that is genuinely corrupt takes the same path
+			// and fails on the source, which is where the error belongs.
+			RV_CORE_WARN("Cooked mesh '{0}' will not parse -- re-importing from source",
+						 path.string());
 		}
 
 		return ImportSource(path, out);

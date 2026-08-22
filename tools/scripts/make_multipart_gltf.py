@@ -132,8 +132,11 @@ def main():
             {"name": "Sides", "pbrMetallicRoughness": {
                 "baseColorFactor": [0.72, 0.24, 0.18, 1.0],
                 "metallicFactor": 0.0, "roughnessFactor": 0.7}},
-            {"name": "Caps", "pbrMetallicRoughness": {
-                "baseColorFactor": [0.18, 0.42, 0.68, 1.0],
+            # Blended, so the fixture also carries the one thing an importer can
+            # silently drop: `alphaMode`. Its alpha is 0.45, which is a number
+            # a check can assert rather than "not one".
+            {"name": "Caps", "alphaMode": "BLEND", "pbrMetallicRoughness": {
+                "baseColorFactor": [0.18, 0.42, 0.68, 0.45],
                 "metallicFactor": 0.0, "roughnessFactor": 0.35}},
         ],
         "bufferViews": views,

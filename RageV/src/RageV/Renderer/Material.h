@@ -14,6 +14,26 @@
 
 namespace RageV
 {
+	// How a material's fragments reach the frame.
+	//
+	// **A routing decision, not a shading one**, which is why it lives on the
+	// Material rather than in the parameter block: it decides which draw list a
+	// mesh joins and which pipeline that list is issued with, and the shader
+	// never asks it anything. What the fragment itself needs -- the alpha -- is
+	// already in BaseColor.
+	enum class BlendMode : int32_t
+	{
+		// Alpha ignored. Every material in this project was this until the
+		// showroom's car arrived wanting glass.
+		Opaque = 0,
+
+		// Weighted-blended order-independent transparency: the fragment goes
+		// into the accumulate/revealage pair the transparent pass owns and is
+		// resolved over the opaque image. Depth-tested and not depth-written,
+		// because two panes of glass both have to survive.
+		Blend = 1,
+	};
+
 	// Mirrors the std140 MaterialData block in pbr.rvshader.
 	struct MaterialParams
 	{
@@ -136,6 +156,12 @@ namespace RageV
 		MaterialParams& GetParams() { return m_Params; }
 		const MaterialParams& GetParams() const { return m_Params; }
 
+		// Which pass this material's meshes are drawn in. Deliberately *not*
+		// part of the batch key: two materials differing only in this are never
+		// in one run anyway, because they are in different lists.
+		BlendMode GetBlendMode() const { return m_Blend; }
+		void SetBlendMode(BlendMode mode) { m_Blend = mode; }
+
 		// Passing nullptr clears the map and reverts to the scalar parameter.
 		void SetBaseColorMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetNormalMap(const RHI::Ref<RHI::RHITexture>& texture);
@@ -223,6 +249,7 @@ namespace RageV
 		RHI::RHIDevice& m_Device;
 		std::string m_Name;
 		MaterialParams m_Params;
+		BlendMode m_Blend = BlendMode::Opaque;
 
 		RHI::Ref<RHI::RHITexture> m_BaseColor;
 		RHI::Ref<RHI::RHITexture> m_Normal;

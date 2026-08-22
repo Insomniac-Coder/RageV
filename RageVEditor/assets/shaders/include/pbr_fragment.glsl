@@ -376,6 +376,23 @@ layout(location = 8) in vec4 v_PrevClipPos;
 // bindless variant; declared in both so the two stages agree.
 layout(location = 9) flat in float v_MaterialIndex;
 
+#ifdef RV_TRANSPARENT
+
+// **The transparent variant writes two targets and nothing else.** The pass it
+// is drawn in binds attachments 1 and 2 of the scene target -- accumulation and
+// revealage -- and a shader that declared four outputs would be writing into
+// attachments that pass has not bound.
+//
+// So velocity, the surface description and the traced indirect are all absent
+// here, and that is a statement about what transparency costs rather than an
+// omission: a blended fragment has no single depth, so it cannot be reprojected
+// for TAA, cannot be a screen-space reflection's surface, and cannot be a
+// denoiser's sample. Glass is drawn, composited, and not otherwise known about.
+layout(location = 0) out vec4 o_Accumulate;
+layout(location = 1) out float o_Revealage;
+
+#else
+
 layout(location = 0) out vec4 o_Color;
 
 // Screen-space motion, in UV units: where this pixel is now minus where the
@@ -404,6 +421,8 @@ layout(location = 2) out vec4 o_Surface;
 // cannot be filtered without filtering the frame. Zero in every variant that
 // does not trace.
 layout(location = 3) out vec4 o_Indirect;
+
+#endif   // RV_TRANSPARENT
 #endif   // !RV_TRACE_ONLY
 
 // Octahedral encoding, unit vector to [0,1]^2. Two 8-bit channels give about a
@@ -1276,7 +1295,11 @@ void main()
 		vec2 nowNDC = v_ClipPos.xy     / max(abs(v_ClipPos.w), 1e-6)     * sign(v_ClipPos.w);
 		thenNDC     = v_PrevClipPos.xy / max(abs(v_PrevClipPos.w), 1e-6) * sign(v_PrevClipPos.w);
 
+#ifndef RV_TRANSPARENT
+		// `thenNDC` is computed either way -- the reflection trace below reads
+		// it -- but only the opaque variant has an attachment to put it in.
 		o_Velocity = ((nowNDC - u_Scene.Jitter.xy) - (thenNDC - u_Scene.Jitter.zw)) * 0.5;
+#endif
 	}
 
 	vec3 Ngeo = normalize(v_Normal);
@@ -1298,7 +1321,9 @@ void main()
 	// flat plane. Written here, as soon as all three are final, and
 	// unconditionally -- an unwritten attachment holds whatever the target
 	// last held.
+#ifndef RV_TRANSPARENT
 	o_Surface = vec4(OctEncode(N), roughness, metallic);
+#endif
 
 
 	// Dielectrics reflect ~4% at normal incidence; metals use their albedo as
@@ -1443,7 +1468,9 @@ void main()
 	// not write holds whatever the last frame left in it, and this one is read
 	// by nothing now -- but "read by nothing" is a property of today's graph,
 	// and undefined memory is a property of forever.
+#ifndef RV_TRANSPARENT
 	o_Indirect = vec4(0.0, 0.0, 0.0, 1.0);
+#endif
 #endif
 
 	// Last frame's indirect diffuse (ENGINE-NOTES 7av), added to the probe's
@@ -1491,7 +1518,9 @@ void main()
 	// are mutually exclusive -- 7at's claim 5 is the check that keeps them so.
 	// Every other shader that draws into this target writes zero here, which
 	// is right: none of them received indirect light.
+#ifndef RV_TRANSPARENT
 	o_Indirect = vec4(kD * albedo * indirectTerm * occlusion, 1.0);
+#endif
 #endif
 
 	// The environment, reflected. Roughness selects a mip rather than driving
@@ -1595,12 +1624,58 @@ void main()
 
 	vec3 color = ambient + Lo + surface.Emissive;
 
+#ifdef RV_TRANSPARENT
+
+	// Weighted-blended OIT, the same estimator the particles use and with the
+	// same unit-weight distance, so a pane of glass and a plume of smoke at one
+	// depth carry the same authority in the sum.
+	//
+	// **The weight is a depth ramp and it has to be one.** A constant weight
+	// cancels in the resolve and turns the whole thing into a flat average,
+	// which is the defect particle_weighted.rvshader records finding: near
+	// glass would not cover far glass and a windscreen would show the far side
+	// of the cabin as strongly as the near.
+	const float kUnitWeightDistance = 20.0;
+
+	// **Coverage is not transmission, and multiplying the highlight by alpha is
+	// where naive transparency dies.** A pane of glass at alpha 0.2 transmits
+	// four fifths of what is behind it *and still reflects the ceiling at full
+	// strength* -- the two are different terms and only the first is what alpha
+	// describes. Weighted-blended OIT has one coverage number per fragment, so
+	// the reflectance has to be folded into it rather than kept separate:
+	//
+	//     coverage = alpha + reflectance * (1 - alpha)
+	//
+	// which is exactly "what it transmits, plus what it mirrors of the rest".
+	// It also gives the Fresnel behaviour for nothing, because the reflectance
+	// below already carries it: glass seen head-on stays mostly transparent and
+	// glass at a grazing angle goes to a mirror, which is the single cue that
+	// makes a windscreen read as glass rather than as a tinted hole.
+	//
+	// Without this the car's screen and lamp lenses came back flat and dull --
+	// correctly lit and then attenuated to nothing.
+	vec2 blendBRDF = EnvBRDF(NdotV, roughness);
+	vec3 blendF = F0 * blendBRDF.x + blendBRDF.y;
+	float reflectance = clamp(max(blendF.r, max(blendF.g, blendF.b)), 0.0, 1.0);
+
+	float alpha = clamp(baseColor.a, 0.0, 1.0);
+	alpha = clamp(alpha + reflectance * (1.0 - alpha), 0.0, 1.0);
+	float viewDepth = length(v_WorldPos - u_Scene.CameraPosition.xyz);
+	float weight = alpha * clamp(kUnitWeightDistance / max(viewDepth, 1e-3), 1e-2, 3e3);
+
+	o_Accumulate = vec4(color * alpha, alpha) * weight;
+	o_Revealage = alpha;
+
+#else
+
 	// Linear, unbounded, untouched. Tone mapping and the transfer function
 	// moved to the tonemap pass, for two reasons: bloom needs these values
 	// before the curve compresses them, and every shader that wrote to the
 	// screen used to have to agree on the display transform -- which only this
 	// one did, so quads and meshes were being shown through different ones.
 	o_Color = vec4(color, baseColor.a);
+
+#endif
 }
 
 #endif   // !RV_TRACE_ONLY

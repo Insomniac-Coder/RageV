@@ -56,12 +56,13 @@
   },
   {
    "name": "Caps",
+   "alphaMode": "BLEND",
    "pbrMetallicRoughness": {
     "baseColorFactor": [
      0.18,
      0.42,
      0.68,
-     1.0
+     0.45
     ],
     "metallicFactor": 0.0,
     "roughnessFactor": 0.35

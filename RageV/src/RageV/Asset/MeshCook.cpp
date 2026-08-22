@@ -9,7 +9,14 @@ namespace RageV::Assets
 	namespace
 	{
 		constexpr char kMagic[4] = { 'R', 'V', 'M', 'S' };
-		constexpr uint32_t kVersion = 1;
+		// 2: a material's blend mode. **Bumping this is the whole reason a
+		// version is here**: a cached `.rvmesh` from version 1 carries no blend
+		// mode, so a re-import of a model with glass in it silently answered
+		// "opaque" out of the cache and the importer's new code never ran. The
+		// symptom was a windscreen that stayed solid however many times the
+		// model was re-imported, which points at the importer and not at a file
+		// beside it.
+		constexpr uint32_t kVersion = 2;
 
 		// --- writing --------------------------------------------------------
 
@@ -119,6 +126,7 @@ namespace RageV::Assets
 		{
 			PutString(out, material.Name);
 			Put(out, material.Params);
+			Put(out, (int32_t)material.Blend);
 			Put(out, (int32_t)material.BaseColorTexture);
 			Put(out, (int32_t)material.NormalTexture);
 			Put(out, (int32_t)material.MetallicRoughnessTexture);
@@ -216,6 +224,12 @@ namespace RageV::Assets
 		{
 			reader.GetString(material.Name);
 			reader.Get(material.Params);
+
+			int32_t blend = 0;
+			reader.Get(blend);
+			material.Blend = blend == (int32_t)BlendMode::Blend ? BlendMode::Blend
+															   : BlendMode::Opaque;
+
 			int32_t indices[5] = { -1, -1, -1, -1, -1 };
 			for (int32_t& index : indices)
 				reader.Get(index);

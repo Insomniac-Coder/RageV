@@ -1,0 +1,14 @@
+Material: showroom_car_ext_rim_blur
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 0.85
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Blend: Blend
+Maps:
+  BaseColor: 13241132594135038574

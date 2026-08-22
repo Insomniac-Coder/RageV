@@ -36,6 +36,13 @@ namespace RageV::Assets
 		std::string Name = "Material";
 		MaterialParams Params;
 
+		// glTF's `alphaMode`, and FBX's transparency where a file states one.
+		// **Dropped on the floor until the showroom's car arrived**, which is
+		// why its windscreen, its lights and its four wheel-blur planes all
+		// came in opaque -- the blur planes being the ones that gave it away,
+		// since an opaque disc over a rim is a wheel with no spokes.
+		BlendMode Blend = BlendMode::Opaque;
+
 		// Indices into ImportedModel::Textures, or -1.
 		int BaseColorTexture = -1;
 		int NormalTexture = -1;

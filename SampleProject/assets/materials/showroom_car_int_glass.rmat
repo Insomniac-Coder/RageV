@@ -1,0 +1,16 @@
+Material: showroom_car_int_glass
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 0.04
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Blend: Blend
+Maps:
+  BaseColor: 1552675389888268190
+  Roughness: 16150678842337565838
+  Metallic: 16591865354019298597

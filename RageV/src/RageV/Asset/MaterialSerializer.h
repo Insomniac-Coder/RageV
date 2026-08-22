@@ -24,6 +24,12 @@ namespace RageV::Assets
 		std::string Name = "Material";
 		MaterialParams Params;
 
+		// Opaque or Blend. In the desc rather than in Params because it is not
+		// a shading parameter -- see the enum in Material.h. Written as a name
+		// so a `.rmat` reads as one, and absent from a file means Opaque, which
+		// is what every material written before this existed is.
+		BlendMode Blend = BlendMode::Opaque;
+
 		// Null means "no map", which is not the same as a missing file: the
 		// shader falls back to the scalar parameter, and MapFlags says which.
 		//

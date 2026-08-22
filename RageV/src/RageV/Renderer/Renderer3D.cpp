@@ -234,6 +234,14 @@ namespace RageV
 			// a run has to be one of them.
 			DrawKind Kind = DrawKind::Static;
 
+			// **Above the kind in the sort key**, so the transparent draws land
+			// in one contiguous block at the end of the list and the opaque
+			// pass can simply stop where it begins. Nothing else about the
+			// record differs -- the same instance table, the same material,
+			// the same batching -- which is what keeps the second pass a second
+			// loop rather than a second renderer.
+			bool Transparent = false;
+
 			Ref<Mesh> MeshRef;
 			Ref<Material> MaterialRef;
 			// The layered kind's set 1, which binds itself; null otherwise.
@@ -309,6 +317,15 @@ namespace RageV
 			// is the layered block and its samplers instead of a material's.
 			Ref<RHIShader>   LayeredShader;
 			Ref<RHIPipeline> LayeredPipeline;
+			// The same lighting written into the accumulate and revealage pair
+			// instead of the colour target, for materials whose blend mode is
+			// not Opaque. Drawn in a pass of its own, after everything opaque.
+			Ref<RHIShader>   TransparentShader;
+			Ref<RHIPipeline> TransparentPipeline;
+			// Where the transparent block begins in Pending, which the sort put
+			// at the end. Equal to the size when there is nothing blended,
+			// which is every scene this project had until the showroom.
+			uint32_t         TransparentBegin = 0;
 			// The traced bounce, as a fullscreen pass rather than part of the
 			// lit fragment (7bs). The same set 0 and the same material heap --
 			// it includes the lit shader with RV_TRACE_ONLY -- plus a set of
@@ -824,6 +841,27 @@ namespace RageV
 		}
 		s_Data->Shader = s_Data->Device->CreateShader(*compiled);
 
+		// **The same shader, compiled to write two attachments instead of
+		// four.** Not a second material model and not a second lighting path:
+		// a blended fragment is shaded exactly as an opaque one and then put
+		// somewhere else, which is the only version of this that cannot drift.
+		{
+			std::vector<std::string> blended = defines;
+			blended.push_back("RV_TRANSPARENT");
+
+			if (auto transparent = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader",
+																   blended))
+			{
+				s_Data->TransparentShader = s_Data->Device->CreateShader(*transparent);
+			}
+			else
+			{
+				RV_CORE_ERROR("Renderer3D: the transparent variant of pbr.rvshader did not "
+							  "compile; blended materials will not be drawn at all");
+				s_Data->TransparentShader = nullptr;
+			}
+		}
+
 		if (auto skinned = ShaderCompiler::CompileFromFile("assets/shaders/pbr_skinned.rvshader", defines))
 			s_Data->SkinnedShader = s_Data->Device->CreateShader(*skinned);
 		else
@@ -1104,6 +1142,41 @@ namespace RageV
 			desc.Name = "Renderer3D.pbr.layered";
 			desc.Shader = s_Data->LayeredShader;
 			s_Data->LayeredPipeline = s_Data->Device->CreatePipeline(desc);
+		}
+
+		// The transparent variant, drawn in a later pass into the accumulate
+		// and revealage attachments the frame graph clears for it.
+		//
+		// **Depth-tested and not depth-written**, which is the whole of
+		// order-independent transparency's contract: glass is hidden by the
+		// wall in front of it and does not hide the glass behind it. And
+		// two-sided, because the far side of a windscreen is as real as the
+		// near one and back-face culling would delete half of it.
+		//
+		// The formats are stated rather than taken from SetTargetFormats: they
+		// are the frame graph's own choice for those two attachments and
+		// ParticleRenderer names the same two literals for the same pass.
+		if (s_Data->TransparentShader)
+		{
+			GraphicsPipelineDesc blended;
+			blended.Name = "Renderer3D.pbr.transparent";
+			blended.Shader = s_Data->TransparentShader;
+			blended.Topology = PrimitiveTopology::TriangleList;
+			blended.Rasterizer.Cull = CullMode::None;
+			blended.Rasterizer.Front = FrontFace::CounterClockwise;
+			blended.Rasterizer.Polygon = s_Data->Wireframe ? PolygonMode::Line : PolygonMode::Fill;
+			blended.DepthStencil.DepthTestEnable = true;
+			blended.DepthStencil.DepthWriteEnable = false;
+			blended.ColorFormats = { Format::R16G16B16A16_SFLOAT, Format::R8_UNORM };
+			blended.Samples = s_Data->TargetSamples;
+			blended.BlendPerAttachment = { BlendPreset::WeightedAccumulate,
+										   BlendPreset::WeightedRevealage };
+			blended.DepthFormat = s_Data->TargetDepth;
+			s_Data->TransparentPipeline = s_Data->Device->CreatePipeline(blended);
+		}
+		else
+		{
+			s_Data->TransparentPipeline = nullptr;
 		}
 
 		// The traced bounce: a fullscreen triangle with no depth of its own and
@@ -1749,6 +1822,18 @@ namespace RageV
 
 		// 15 bits each. A scene past this is not one this packing can order, so
 		// it takes the comparator below instead of being ordered wrongly.
+		// **The mesh id lost a bit to transparency**, and it is the one that
+		// could afford it: sixteen thousand distinct meshes in one frame is
+		// already far past where the unpacked comparator takes over, and the
+		// alternative was a bit off the depth, which is a float and has no
+		// spare.
+		//
+		//   63     transparent
+		//   61-62  kind
+		//   47-60  mesh
+		//   32-46  material
+		//   0-31   depth, or the submission index with depth sorting off
+		constexpr uint32_t kMaxPackedMeshId = (1u << 14) - 1;
 		constexpr uint32_t kMaxPackedId = (1u << 15) - 1;
 		bool packable = true;
 
@@ -1801,7 +1886,7 @@ namespace RageV
 				lastMaterialValid = true;
 			}
 
-			if (meshId > kMaxPackedId || materialId > kMaxPackedId)
+			if (meshId > kMaxPackedMeshId || materialId > kMaxPackedId)
 			{
 				packable = false;
 				break;
@@ -1817,7 +1902,8 @@ namespace RageV
 				memcpy(&low, &depth, sizeof(low));
 			}
 
-			const uint64_t key = ((uint64_t)draw.Kind << 62)
+			const uint64_t key = ((uint64_t)(draw.Transparent ? 1 : 0) << 63)
+							   | ((uint64_t)draw.Kind << 61)
 							   | ((uint64_t)meshId << 47)
 							   | ((uint64_t)materialId << 32)
 							   | (uint64_t)low;
@@ -1866,6 +1952,11 @@ namespace RageV
 					  {
 						  const PendingDraw& a = pending[lhs];
 						  const PendingDraw& b = pending[rhs];
+						  // The same order the packed key produces, field for
+						  // field. Two orderings of one list that disagree is a
+						  // picture that changes with the mesh count.
+						  if (a.Transparent != b.Transparent)
+							  return !a.Transparent;
 						  if (a.Kind != b.Kind)
 							  return a.Kind < b.Kind;
 						  if (a.MeshKey != b.MeshKey)
@@ -2235,12 +2326,29 @@ namespace RageV
 			anyPipelineBound = false;
 		}
 
+		// **Where the opaque list ends.** The sort put every blended draw in one
+		// block at the end, so this is a scan for the first of them rather than
+		// a partition -- and when there are none it is `count`, which is the
+		// loop the renderer has always run.
+		s_Data->TransparentBegin = count;
+		for (uint32_t i = 0; i < count; i++)
+		{
+			if (s_Data->Pending[i].Transparent)
+			{
+				s_Data->TransparentBegin = i;
+				break;
+			}
+		}
+
+		const uint32_t opaqueCount = s_Data->TransparentBegin;
+
 		// One draw per run of identical mesh and bound material state.
 		uint32_t start = 0;
-		while (start < count)
+		while (start < opaqueCount)
 		{
 			uint32_t end = start + 1;
-			while (end < count &&
+			while (end < opaqueCount &&
+				   s_Data->Pending[end].Transparent == s_Data->Pending[start].Transparent &&
 				   s_Data->Pending[end].MeshKey == s_Data->Pending[start].MeshKey &&
 				   s_Data->Pending[end].MaterialKey == s_Data->Pending[start].MaterialKey &&
 				   s_Data->Pending[end].IndexCount == s_Data->Pending[start].IndexCount)
@@ -2318,8 +2426,98 @@ namespace RageV
 			start = end;
 		}
 
+		// **Kept, not cleared, when something blended is still waiting.** The
+		// transparent pass runs later in the same frame and reads the same
+		// records, the same instance table and the same bound sets -- all of
+		// which are alive until the next BeginScene, which clears them.
+		if (s_Data->TransparentBegin >= count)
+		{
+			s_Data->Pending.clear();
+			s_Data->Instances.clear();
+			s_Data->TransparentBegin = 0;
+		}
+	}
+
+	bool Renderer3D::HasTransparent()
+	{
+		return s_Data && s_Data->TransparentPipeline
+			&& s_Data->TransparentBegin < (uint32_t)s_Data->Pending.size();
+	}
+
+	// The blended block, drawn into the transparent pass's two attachments.
+	//
+	// The same loop the opaque issue runs, over the tail of the same array,
+	// with one pipeline instead of three. **One pipeline** because a skinned or
+	// layered blended mesh has nowhere to go yet: the transparent variant is
+	// compiled from pbr.rvshader only, so a skinned material marked Blend would
+	// need a second variant and a second pipeline for a case nothing in this
+	// project has. It is skipped and said rather than drawn through the static
+	// pipeline, which would read joint indices as texture coordinates.
+	void Renderer3D::FlushTransparent()
+	{
+		if (!HasTransparent() || !s_Data->ActiveScene)
+			return;
+
+		RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd)
+			return;
+
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!slot.Set)
+			return;
+
+		const uint32_t count = (uint32_t)s_Data->Pending.size();
+		bool bound = false;
+
+		uint32_t start = s_Data->TransparentBegin;
+		while (start < count)
+		{
+			uint32_t end = start + 1;
+			while (end < count &&
+				   s_Data->Pending[end].MeshKey == s_Data->Pending[start].MeshKey &&
+				   s_Data->Pending[end].MaterialKey == s_Data->Pending[start].MaterialKey &&
+				   s_Data->Pending[end].IndexCount == s_Data->Pending[start].IndexCount)
+			{
+				end++;
+			}
+
+			const PendingDraw& first = s_Data->Pending[start];
+
+			if (first.Kind != DrawKind::Static)
+			{
+				start = end;
+				continue;
+			}
+
+			if (!bound)
+			{
+				cmd->BindPipeline(s_Data->TransparentPipeline);
+				cmd->BindResourceSet(0, slot.Set);
+				if (s_Data->Bindless)
+					cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+				bound = true;
+			}
+
+			if (first.MaterialRef && !s_Data->Bindless)
+				first.MaterialRef->Bind(*cmd, s_Data->TransparentPipeline, 1);
+
+			ObjectPushConstants object;
+			object.BaseInstance = (int32_t)start;
+			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+
+			cmd->BindVertexBuffer(0, first.MeshRef->GetVertexBuffer());
+			cmd->BindIndexBuffer(first.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+			cmd->DrawIndexed(first.IndexCount, end - start);
+
+			s_Data->DrawCalls++;
+			s_Data->Triangles += (first.IndexCount / 3) * (end - start);
+
+			start = end;
+		}
+
 		s_Data->Pending.clear();
 		s_Data->Instances.clear();
+		s_Data->TransparentBegin = 0;
 	}
 
 	void Renderer3D::BeginShadow(const Mat4& viewProjection)
@@ -2739,6 +2937,7 @@ namespace RageV
 		draw.MeshRef = mesh;
 		draw.MaterialRef = effective;
 		draw.IndexCount = mesh->GetIndexCount();
+		draw.Transparent = effective->GetBlendMode() != BlendMode::Opaque;
 
 		InstanceData& instance = AllocateInstance(draw);
 		instance.Model = transform;

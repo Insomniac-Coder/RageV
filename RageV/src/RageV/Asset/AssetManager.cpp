@@ -898,6 +898,7 @@ namespace RageV::Assets
 
 		auto material = std::make_shared<Material>(*s_Device, desc.Name);
 		material->GetParams() = desc.Params;
+		material->SetBlendMode(desc.Blend);
 
 		// The maps, and with them the flags. Assigning a null texture clears
 		// the slot and its flag, so a handle that resolves to nothing lands on
@@ -1740,6 +1741,7 @@ namespace RageV::Assets
 			MaterialDesc desc;
 			desc.Name = source.Name.empty() ? "Material" : source.Name;
 			desc.Params = source.Params;
+			desc.Blend = source.Blend;
 
 			auto assign = [&](int index, AssetHandle& slot)
 			{

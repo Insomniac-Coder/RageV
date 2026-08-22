@@ -745,6 +745,47 @@ CAR_MATERIALS = (
 )
 
 
+# --- and what the model says wrongly ------------------------------------------
+#
+# **Every material in this model has roughness 0.9577.** Not the untextured
+# forty-five -- *all* of them, including the windscreen, the side glass and the
+# headlamp lenses. It is whatever the uploader's exporter wrote once and applied
+# everywhere.
+#
+# At 0.96 a dielectric's specular lobe is spread so wide that its highlight has
+# no peak at all, which is visually indistinguishable from having no specular:
+# the glass came out transparent and completely dead, reading as an empty hole
+# rather than as a pane. Glass is one of the smoothest things there is -- 0.03
+# to 0.06 -- and that difference is the entire look of it.
+#
+# Separate from CAR_MATERIALS because these keep every map they came with. The
+# maps are the artist's own work and are right; only the scalars beside them are
+# wrong, so only the scalars are replaced.
+CAR_SURFACES = (
+    # (matches, roughness, metallic)
+    #
+    # Window glass, inside and out. 0.04: a windscreen reflects the luminaire as
+    # a sheet with a hard edge, which is the cue that says "there is a surface
+    # here" before anything behind it is read.
+    (("EXT_Windows", "INT_Windows", "INT_Windshield", "INT_Glass"), 0.04, 0.0),
+
+    # Lamp lenses. A hair rougher than window glass, because a lens is moulded
+    # rather than float, and rougher still would lose the point.
+    (("EXT_Glass_Emissive",), 0.06, 0.0),
+
+    # What is behind the lens: reflector housings and the LED elements. Not
+    # glass, and not 0.96 either -- a headlamp reflector is a polished
+    # aluminised shell, and at 0.96 it is the matte black bowl that made the
+    # front of this car look empty.
+    (("EXT_Emissive_Light", "AUX_LIGHT"), 0.18, 0.55),
+
+    # The wheel-blur discs, which are transparent and want no highlight of
+    # their own -- they are a fake, and a fake that catches the light announces
+    # itself.
+    (("EXT_RIM_BLUR",), 0.85, 0.0),
+)
+
+
 def car_materials():
     """Re-materialise the parts the model left as flat grey.
 
@@ -760,22 +801,51 @@ def car_materials():
     directory = ASSETS / "materials"
     remap = {}
 
+    def read_scalar_colour(text):
+        for line in text.split("\n"):
+            if line.startswith("BaseColor: ["):
+                return tuple(float(v) for v in
+                             line.split("[", 1)[1].rstrip("]").split(","))
+        return (1, 1, 1, 1)
+
+    def read_uv(text):
+        tiling, offset = (1, 1), (0, 0)
+        for line in text.split("\n"):
+            if line.startswith("Tiling: ["):
+                tiling = tuple(float(v) for v in
+                               line.split("[", 1)[1].rstrip("]").split(","))
+            elif line.startswith("UvOffset: ["):
+                offset = tuple(float(v) for v in
+                               line.split("[", 1)[1].rstrip("]").split(","))
+        return tiling, offset
+
     for path in sorted(source.glob("porsche_992_gt3_r_*.rmat")):
         text = path.read_text(encoding="utf-8")
 
         head, _, maps = text.partition("Maps:")
-        # A material with a colour map is the artist's own and is left alone.
-        if "BaseColor:" in maps:
-            continue
-
         name = path.stem.split("_", 5)[-1]
 
-        override = next((entry for entry in CAR_MATERIALS
-                         if any(name.startswith(match) for match in entry[0])), None)
-        if override is None:
-            continue
+        # Two kinds of override, and which one applies is decided by whether
+        # the model gave the material any maps at all.
+        textured = "BaseColor:" in maps
 
-        _, base, metallic, roughness = override
+        if textured:
+            # The maps are the artist's own and are kept; only the scalars
+            # beside them are replaced, and only where they are wrong.
+            surface = next((entry for entry in CAR_SURFACES
+                            if any(name.startswith(match) for match in entry[0])), None)
+            if surface is None:
+                continue
+
+            _, roughness, metallic = surface
+            base = read_scalar_colour(text)
+        else:
+            override = next((entry for entry in CAR_MATERIALS
+                             if any(name.startswith(match) for match in entry[0])), None)
+            if override is None:
+                continue
+
+            _, base, metallic, roughness = override
 
         meta = path.with_name(path.name + ".meta")
         if not meta.exists():
@@ -791,7 +861,7 @@ def car_materials():
                 key, value = line.split(":", 1)
                 kept[key.strip()] = value.strip()
 
-        tiling, uv_offset = (1, 1), (0, 0)
+        tiling, uv_offset = read_uv(text)
 
         if name.startswith("EXT_Carpaint_Inst"):
             kept["BaseColor"] = texture(CAR_LIVERY)
@@ -813,7 +883,8 @@ def car_materials():
         target = directory / f"showroom_car_{name.lower()}.rmat"
         remap[old] = write_material(target, kept, tiling=tiling, uv_offset=uv_offset,
                                     height_scale=0.0, metallic=metallic,
-                                    roughness=roughness, base_color=base)
+                                    roughness=roughness, base_color=base,
+                                    blend="Blend: Blend" in text)
 
     return remap
 

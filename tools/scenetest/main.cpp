@@ -48,6 +48,7 @@
 #include "RageV/IO/TextureCook.h"
 #include "RageV/Asset/ImportCache.h"
 #include "RageV/Asset/MeshCook.h"
+#include "RageV/Asset/MaterialSerializer.h"
 #include "RageV/IO/VFS.h"
 #include "RageV/Core/KeyCodes.h"
 #include "RageV/Scene/ScriptRegistry.h"
@@ -8130,6 +8131,116 @@ void main()
 	// The claims worth testing are the ones that decide whether a *stale*
 	// asset can be served, because that is the failure this design could have
 	// and a slow load is not.
+	// Transparency, from the file to the draw list.
+	//
+	// **The renderer had no transparent path for meshes at all** until the
+	// showroom's car arrived: the frame graph's transparent pass existed and
+	// only particles ever fed it, so every mesh was drawn opaque whatever its
+	// material said. A windscreen was solid, and the four discs a race model
+	// uses to fake a spinning wheel were solid plates over the rims -- which is
+	// what actually gave it away, because an opaque blur disc looks like a
+	// wheel with no spokes rather than like a bug.
+	//
+	// Four links in the chain, and the file is the only one that had the
+	// information: glTF says `alphaMode`, ImportedMaterial has to carry it, the
+	// `.rmat` has to write it, and the Material has to reach the draw list with
+	// it. Each is checked, because a break anywhere reads identically -- opaque
+	// glass -- and points at none of them.
+	void CheckMaterialBlendMode()
+	{
+		Check(MaterialParams{}.BaseColor.w == 1.0f,
+			  "a material's alpha lives in its base colour, where the shader reads it");
+
+		// 1. The importer.
+		const std::filesystem::path path = Project::AssetPath("models/multipart.gltf");
+		Assets::ImportedModel model;
+
+		const bool read = std::filesystem::exists(path)
+					   && Assets::ModelImporter::ImportSource(path, model);
+		Check(read, "the two-material fixture imports");
+
+		if (read && model.Materials.size() == 2)
+		{
+			Check(model.Materials[0].Blend == BlendMode::Opaque,
+				  "a glTF material with no alphaMode is opaque");
+			Check(model.Materials[1].Blend == BlendMode::Blend,
+				  "and one with alphaMode BLEND is not -- which is the field the "
+				  "importer used to drop, and dropping it is invisible in every "
+				  "other respect");
+			Check(Math::Abs(model.Materials[1].Params.BaseColor.w - 0.45f) < 1e-4f,
+				  "its base colour keeps the alpha the file gave it");
+		}
+		else if (read)
+		{
+			Check(false, "the fixture has two materials");
+		}
+
+		// 2. The cooked form. **The version bump is the point**: a `.rvmesh`
+		// written before blend modes existed carries none, so a re-import
+		// answered "opaque" out of the cache and the importer's new code never
+		// ran at all.
+		if (read)
+		{
+			const std::vector<uint8_t> bytes = Assets::MeshCook::Serialize(model);
+
+			Assets::ImportedModel round;
+			const bool cooked = Assets::MeshCook::Deserialize(round, bytes.data(), bytes.size());
+			Check(cooked, "a cooked model round-trips");
+
+			if (cooked && round.Materials.size() == 2)
+			{
+				Check(round.Materials[1].Blend == BlendMode::Blend,
+					  "with its blend mode intact, which is what the cook version "
+					  "was bumped for");
+			}
+		}
+
+		// 3. The `.rmat`. Absent from a file means opaque, so every material
+		// written before this existed still loads as what it was.
+		{
+			const std::filesystem::path file =
+				std::filesystem::temp_directory_path() / "rv_blend_check.rmat";
+
+			Assets::MaterialDesc out;
+			out.Name = "Glass";
+			out.Blend = BlendMode::Blend;
+			out.Params.BaseColor = { 0.4f, 0.6f, 0.8f, 0.3f };
+
+			Check(Assets::MaterialSerializer::Save(out, file), "a blended material saves");
+
+			Assets::MaterialDesc back;
+			const bool loaded = Assets::MaterialSerializer::Load(back, file);
+			Check(loaded, "and loads");
+			Check(loaded && back.Blend == BlendMode::Blend, "still blended");
+			Check(loaded && Math::Abs(back.Params.BaseColor.w - 0.3f) < 1e-5f,
+				  "with its alpha");
+
+			// The absent case, written by hand rather than by Save -- which is
+			// exactly what every material in this project already on disk is.
+			{
+				std::ofstream legacy(file, std::ios::binary);
+				legacy << "Material: Old\nBaseColor: [1, 1, 1, 1]\nRoughness: 0.5\n";
+			}
+
+			Assets::MaterialDesc old;
+			Check(Assets::MaterialSerializer::Load(old, file)
+				  && old.Blend == BlendMode::Opaque,
+				  "and a file that never heard of blending loads as opaque");
+
+			std::error_code error;
+			std::filesystem::remove(file, error);
+		}
+
+		// 4. The renderer's own routing. Nothing is drawn here -- there is no
+		// scene open -- so what is checked is the state the pass reads: an
+		// engine that has recorded nothing has nothing to flush, and flushing
+		// anyway must not fault.
+		Check(!Renderer3D::HasTransparent(),
+			  "with no scene recorded there is nothing transparent to draw");
+		Renderer3D::FlushTransparent();
+		Check(true, "and asking for it anyway is harmless");
+	}
+
 	// A mesh handle that points *inside* a model, on a cold load.
 	//
 	// **This is what a saved scene stores.** A model with more than one
@@ -14389,6 +14500,7 @@ int RunTests(int argc, char** argv)
 	CheckEmbeddedGlbTexture();
 	CheckSrgbEncode();
 	CheckBootProgress();
+	CheckMaterialBlendMode();
 	CheckModelSubMeshHandles();
 	CheckImportCache();
 	CheckVfsAndPak();

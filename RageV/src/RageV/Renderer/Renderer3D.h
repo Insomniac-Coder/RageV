@@ -31,6 +31,13 @@ namespace RageV
 									 RHI::Format indirect = RHI::Format::Undefined);
 		static void SetWireframe(bool enabled);
 
+		// Whether this frame recorded any blended draws, and the pass that
+		// issues them. Called from the frame graph's transparent hook, beside
+		// ParticleRenderer::FlushWeighted -- the two write the same two
+		// attachments and resolve together.
+		static bool HasTransparent();
+		static void FlushTransparent();
+
 		// Resets the per-frame scene-slot pool. Called by Renderer::BeginFrame.
 		static void BeginFrame();
 

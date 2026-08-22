@@ -276,7 +276,13 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	// before anything draws, so the renderer would answer for last frame.
 	if (Particles::System::HasWeightedEmitters(*m_Scene))
 	{
-		frame.DrawTransparent = [](RGPassContext&) { ParticleRenderer::FlushWeighted(); };
+		frame.DrawTransparent = [](RGPassContext&)
+		{
+			// Meshes then particles -- the same order and the same reason as
+			// the editor's two graphs. See EditorLayer.
+			Renderer3D::FlushTransparent();
+			ParticleRenderer::FlushWeighted();
+		};
 		frame.ResolveTransparent = [](RGPassContext&, const RHI::Ref<RHI::RHITexture>& accumulate,
 									  const RHI::Ref<RHI::RHITexture>& revealage)
 		{

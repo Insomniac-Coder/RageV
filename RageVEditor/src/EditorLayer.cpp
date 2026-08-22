@@ -613,7 +613,16 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// this is what keeps that true.
 	if (Particles::System::HasWeightedEmitters(*m_Scene))
 	{
-		scene.DrawTransparent = [](RGPassContext&) { ParticleRenderer::FlushWeighted(); };
+		scene.DrawTransparent = [](RGPassContext&)
+			{
+				// Meshes first, then particles: both write the same two
+				// attachments and the resolve is order-independent, but a
+				// windscreen is a surface and a plume is not -- putting the
+				// surfaces down first keeps the depth test doing the work it
+				// can do before the unsorted half arrives.
+				Renderer3D::FlushTransparent();
+				ParticleRenderer::FlushWeighted();
+			};
 		scene.ResolveTransparent = [](RGPassContext&, const RHI::Ref<RHI::RHITexture>& accumulate,
 									  const RHI::Ref<RHI::RHITexture>& revealage)
 		{
@@ -697,7 +706,16 @@ void EditorLayer::OnUpdate(Timestep ts)
 
 		if (Particles::System::HasWeightedEmitters(*m_Scene))
 		{
-			game.DrawTransparent = [](RGPassContext&) { ParticleRenderer::FlushWeighted(); };
+			game.DrawTransparent = [](RGPassContext&)
+			{
+				// Meshes first, then particles: both write the same two
+				// attachments and the resolve is order-independent, but a
+				// windscreen is a surface and a plume is not -- putting the
+				// surfaces down first keeps the depth test doing the work it
+				// can do before the unsorted half arrives.
+				Renderer3D::FlushTransparent();
+				ParticleRenderer::FlushWeighted();
+			};
 			game.ResolveTransparent = [](RGPassContext&, const RHI::Ref<RHI::RHITexture>& accumulate,
 										 const RHI::Ref<RHI::RHITexture>& revealage)
 			{
