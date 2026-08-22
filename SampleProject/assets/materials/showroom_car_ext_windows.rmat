@@ -5,7 +5,7 @@ Metallic: 0
 Roughness: 0.04
 Occlusion: 1
 NormalScale: 1
-Specular: 0.5
+Specular: 1.5
 HeightScale: 0
 Tiling: [1, 1]
 UvOffset: [0, 0]

@@ -611,7 +611,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// Only when something asked for it: the two extra attachments and the
 	// resolve cost nothing at all in a frame with no weighted emitters, and
 	// this is what keeps that true.
-	if (Particles::System::HasWeightedEmitters(*m_Scene))
+	if (Particles::System::HasWeightedEmitters(*m_Scene) || m_Scene->HasBlendedMeshes())
 	{
 		scene.DrawTransparent = [](RGPassContext&)
 			{
@@ -704,7 +704,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 			UI::DrawScene(*m_Scene, context.Width, context.Height);
 		};
 
-		if (Particles::System::HasWeightedEmitters(*m_Scene))
+		if (Particles::System::HasWeightedEmitters(*m_Scene) || m_Scene->HasBlendedMeshes())
 		{
 			game.DrawTransparent = [](RGPassContext&)
 			{

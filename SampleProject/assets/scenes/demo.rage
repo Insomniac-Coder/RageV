@@ -738,6 +738,10 @@ Entities:
   - EntityID: 6839532879447133962
     TagComponent:
       Tag: Gate Chime
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
     RelationshipComponent:
       Parent: 16506985614832233903
     AudioSourceComponent:
@@ -754,6 +758,10 @@ Entities:
   - EntityID: 5299056818474671526
     TagComponent:
       Tag: HUD
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
     UICanvasComponent:
       ScaleMode: ScaleWithScreen
       ReferenceResolution: [1920, 1080]
@@ -762,6 +770,10 @@ Entities:
   - EntityID: 63513746661606319
     TagComponent:
       Tag: Banner
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
     RelationshipComponent:
       Parent: 5299056818474671526
     UIRectComponent:
@@ -778,6 +790,10 @@ Entities:
   - EntityID: 8344511681258289233
     TagComponent:
       Tag: Banner Title
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
     RelationshipComponent:
       Parent: 63513746661606319
     UIRectComponent:
@@ -799,6 +815,10 @@ Entities:
   - EntityID: 17419852750097771761
     TagComponent:
       Tag: Banner Subtitle
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
     RelationshipComponent:
       Parent: 63513746661606319
     UIRectComponent:
@@ -820,6 +840,10 @@ Entities:
   - EntityID: 10658505924121428188
     TagComponent:
       Tag: Bell Button
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
     RelationshipComponent:
       Parent: 5299056818474671526
     UIRectComponent:
@@ -843,6 +867,10 @@ Entities:
   - EntityID: 17023910194610238134
     TagComponent:
       Tag: Bell Label
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
     RelationshipComponent:
       Parent: 10658505924121428188
     UIRectComponent:
@@ -864,6 +892,10 @@ Entities:
   - EntityID: 11830581832271630367
     TagComponent:
       Tag: Anvil Button
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
     RelationshipComponent:
       Parent: 5299056818474671526
     UIRectComponent:
@@ -887,6 +919,10 @@ Entities:
   - EntityID: 10707009537871225111
     TagComponent:
       Tag: Anvil Label
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
     RelationshipComponent:
       Parent: 11830581832271630367
     UIRectComponent:

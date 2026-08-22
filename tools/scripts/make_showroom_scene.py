@@ -762,27 +762,36 @@ CAR_MATERIALS = (
 # maps are the artist's own work and are right; only the scalars beside them are
 # wrong, so only the scalars are replaced.
 CAR_SURFACES = (
-    # (matches, roughness, metallic)
+    # (matches, roughness, metallic, specular)
+    #
+    # **Specular is the fourth number and it is the one that decides whether
+    # glass reads as glass.** F0 = 0.08 * Specular, so the engine's 0.5 default
+    # is the 4% a bare dielectric reflects -- correct, and at 4% the reflection
+    # of even a very bright ceiling is a faint veil rather than a highlight.
+    # Real automotive glazing is not bare: a windscreen is laminated and coated,
+    # and a race screen is anti-glare treated on top of that. 1.5 is 12%, which
+    # is what those coatings actually do and what makes the luminaire appear in
+    # the screen instead of merely tinting it.
     #
     # Window glass, inside and out. 0.04: a windscreen reflects the luminaire as
     # a sheet with a hard edge, which is the cue that says "there is a surface
     # here" before anything behind it is read.
-    (("EXT_Windows", "INT_Windows", "INT_Windshield", "INT_Glass"), 0.04, 0.0),
+    (("EXT_Windows", "INT_Windows", "INT_Windshield", "INT_Glass"), 0.04, 0.0, 1.5),
 
     # Lamp lenses. A hair rougher than window glass, because a lens is moulded
     # rather than float, and rougher still would lose the point.
-    (("EXT_Glass_Emissive",), 0.06, 0.0),
+    (("EXT_Glass_Emissive",), 0.06, 0.0, 1.7),
 
     # What is behind the lens: reflector housings and the LED elements. Not
     # glass, and not 0.96 either -- a headlamp reflector is a polished
     # aluminised shell, and at 0.96 it is the matte black bowl that made the
     # front of this car look empty.
-    (("EXT_Emissive_Light", "AUX_LIGHT"), 0.18, 0.55),
+    (("EXT_Emissive_Light", "AUX_LIGHT"), 0.18, 0.55, 0.9),
 
     # The wheel-blur discs, which are transparent and want no highlight of
     # their own -- they are a fake, and a fake that catches the light announces
     # itself.
-    (("EXT_RIM_BLUR",), 0.85, 0.0),
+    (("EXT_RIM_BLUR",), 0.85, 0.0, 0.3),
 )
 
 
@@ -837,7 +846,7 @@ def car_materials():
             if surface is None:
                 continue
 
-            _, roughness, metallic = surface
+            _, roughness, metallic, specular = surface
             base = read_scalar_colour(text)
         else:
             override = next((entry for entry in CAR_MATERIALS
@@ -846,6 +855,7 @@ def car_materials():
                 continue
 
             _, base, metallic, roughness = override
+            specular = 0.5
 
         meta = path.with_name(path.name + ".meta")
         if not meta.exists():
@@ -884,6 +894,7 @@ def car_materials():
         remap[old] = write_material(target, kept, tiling=tiling, uv_offset=uv_offset,
                                     height_scale=0.0, metallic=metallic,
                                     roughness=roughness, base_color=base,
+                                    specular=specular,
                                     blend="Blend: Blend" in text)
 
     return remap

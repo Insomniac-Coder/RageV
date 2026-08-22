@@ -421,6 +421,14 @@ namespace RageV
 				// set 0 of a different pipeline object, and a set is allocated
 				// against one layout.
 				Ref<RHIResourceSet> LayeredSet;
+				// **And one for the transparent pipeline**, which is a fourth
+				// layout and therefore a fourth set. Sharing the opaque one
+				// looked like it worked -- the geometry drew, the lighting was
+				// right -- and quietly returned nothing for the bindings past
+				// the basics, so blended surfaces reflected pure black. A
+				// windscreen with no reflection in it reads as a material
+				// problem, which is where two hours went.
+				Ref<RHIResourceSet> TransparentSet;
 				// One GpuMaterial per distinct material this scene drew, on the
 				// bindless path only (ENGINE-NOTES 7al). Rebuilt every frame;
 				// materials x 64 bytes, and it means no second free list.
@@ -1228,6 +1236,10 @@ namespace RageV
 				slot.SkinnedSet.reset();
 				slot.LayeredSet.reset();
 				slot.GpuSet.reset();
+				// Every set in the slot. Forgetting one is a crash on resize
+				// rather than a wrong picture -- which is the note above, and
+				// is exactly how GpuSet was found.
+				slot.TransparentSet.reset();
 			}
 		}
 	}
@@ -1577,6 +1589,8 @@ namespace RageV
 			slot.SkinnedSet = s_Data->Device->CreateResourceSet(s_Data->SkinnedPipeline, 0);
 		if (s_Data->LayeredPipeline && !slot.LayeredSet)
 			slot.LayeredSet = s_Data->Device->CreateResourceSet(s_Data->LayeredPipeline, 0);
+		if (s_Data->TransparentPipeline && !slot.TransparentSet)
+			slot.TransparentSet = s_Data->Device->CreateResourceSet(s_Data->TransparentPipeline, 0);
 
 		// The GPU-driven path's set: the same set 0 in every binding but the
 		// visible indices, so it is populated alongside the others here and
@@ -1585,7 +1599,7 @@ namespace RageV
 			slot.GpuSet = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0);
 
 		Ref<RHIResourceSet> targets[] = { slot.Set, slot.SkinnedSet, slot.LayeredSet,
-										  slot.GpuSet };
+										  slot.GpuSet, slot.TransparentSet };
 
 		for (const Ref<RHIResourceSet>& sceneSet : targets)
 		{
@@ -2251,6 +2265,22 @@ namespace RageV
 			slot.SkinnedSet->Commit();
 		}
 
+		if (slot.TransparentSet)
+		{
+			slot.TransparentSet->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
+												  (uint64_t)Math::Max(count, 1u) * sizeof(uint32_t));
+			slot.TransparentSet->SetStorageBuffer(7, slot.Instances, 0,
+												  (uint64_t)instanceRows * sizeof(InstanceData));
+			if (s_Data->Bindless)
+			{
+				slot.TransparentSet->SetStorageBuffer(13, slot.Materials, 0,
+													  (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
+					slot.TransparentSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+			}
+			slot.TransparentSet->Commit();
+		}
+
 		if (slot.LayeredSet)
 		{
 			slot.LayeredSet->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
@@ -2341,6 +2371,7 @@ namespace RageV
 		}
 
 		const uint32_t opaqueCount = s_Data->TransparentBegin;
+
 
 		// One draw per run of identical mesh and bound material state.
 		uint32_t start = 0;
@@ -2463,7 +2494,7 @@ namespace RageV
 			return;
 
 		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
-		if (!slot.Set)
+		if (!slot.TransparentSet)
 			return;
 
 		const uint32_t count = (uint32_t)s_Data->Pending.size();
@@ -2492,7 +2523,7 @@ namespace RageV
 			if (!bound)
 			{
 				cmd->BindPipeline(s_Data->TransparentPipeline);
-				cmd->BindResourceSet(0, slot.Set);
+				cmd->BindResourceSet(0, slot.TransparentSet);
 				if (s_Data->Bindless)
 					cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
 				bound = true;

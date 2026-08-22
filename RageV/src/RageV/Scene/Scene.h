@@ -81,6 +81,15 @@ namespace RageV
 		// One top-down pass writing TransformComponent::World. Called by the
 		// render entry points; call it directly after mutating transforms if a
 		// world value is needed before the next frame.
+		// Whether anything in the draw list wears a blended material.
+		//
+		// **Asked of the scene rather than of the renderer**, and for the
+		// reason the particles' own version already gives: the frame graph is
+		// described before anything draws, so a renderer would be answering
+		// for last frame. Answered from the draw-list refresh, which resolves
+		// every material anyway to decide what may go in the GPU cull table.
+		bool HasBlendedMeshes() const { return m_HasBlended; }
+
 		void UpdateWorldTransforms();
 
 		// --- the draw list ----------------------------------------------------
@@ -566,6 +575,7 @@ namespace RageV
 		// not static, which is exactly the streaming the two arrays exist to
 		// avoid.
 		std::vector<uint32_t> m_CpuDraws;
+		bool m_HasBlended = false;
 
 		// What the camera's cull pass decided, for the lit pass to draw
 		// through (roadmap 8.3). Produced in the frame's prepare phase --

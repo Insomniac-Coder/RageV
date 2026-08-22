@@ -274,7 +274,7 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 
 	// Asked of the scene rather than of the renderer: the graph is described
 	// before anything draws, so the renderer would answer for last frame.
-	if (Particles::System::HasWeightedEmitters(*m_Scene))
+	if (Particles::System::HasWeightedEmitters(*m_Scene) || m_Scene->HasBlendedMeshes())
 	{
 		frame.DrawTransparent = [](RGPassContext&)
 		{

@@ -1537,6 +1537,7 @@ namespace RageV
 		m_CullMeshes.clear();
 		m_CullCounts.clear();
 		m_CpuDraws.clear();
+		m_HasBlended = false;
 		m_CullObjectCount = 0;
 
 		auto meshView = m_Registry.GetView<TransformComponent, MeshComponent>();
@@ -1616,6 +1617,7 @@ namespace RageV
 				Assets::Manager::GetMaterial(mesh.Material);
 			const bool blended = resolvedMaterial
 							  && resolvedMaterial->GetBlendMode() != BlendMode::Opaque;
+			m_HasBlended = m_HasBlended || blended;
 
 			// Static meshes only, and only when there is a pass to read them.
 			// A skinned caster is posed from bones the CPU composed this

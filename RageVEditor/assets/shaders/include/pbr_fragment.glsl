@@ -1654,17 +1654,39 @@ void main()
 	//
 	// Without this the car's screen and lamp lenses came back flat and dull --
 	// correctly lit and then attenuated to nothing.
-	vec2 blendBRDF = EnvBRDF(NdotV, roughness);
-	vec3 blendF = F0 * blendBRDF.x + blendBRDF.y;
-	float reflectance = clamp(max(blendF.r, max(blendF.g, blendF.b)), 0.0, 1.0);
+	// **The reflection is not attenuated by the transmission**, and folding it
+	// into the coverage alone was not enough. A dielectric reflects about four
+	// percent head-on, so a coverage lifted by four percent is a four percent
+	// change to a thing that was already invisible -- and the *reflected
+	// radiance itself* was still being multiplied by alpha, which is what
+	// deleted it.
+	//
+	// So the two terms are separated. What the glass reflects is added at full
+	// strength; only what is seen *through* it is scaled by how much of it
+	// there is:
+	//
+	//     premultiplied = transmitted * alpha + reflected
+	//     coverage      = alpha + reflectance * (1 - alpha)
+	//
+	// Work the resolve through with one layer and it comes out as
+	// `transmitted * alpha + reflected + background * (1 - coverage)`, which is
+	// the thing a pane of glass actually does.
+	//
+	// `reflected` is the environment specular exactly as the line above
+	// computed it, not an approximation of it -- so an opaque surface and a
+	// blended one reflect the same room by construction.
+	vec3 reflected = prefiltered * (F0 * envBRDF.x + envBRDF.y) * occlusion;
+	vec3 transmitted = max(color - reflected, vec3(0.0));
+
+	float reflectance = clamp(max(reflected.r, max(reflected.g, reflected.b)), 0.0, 1.0);
 
 	float alpha = clamp(baseColor.a, 0.0, 1.0);
-	alpha = clamp(alpha + reflectance * (1.0 - alpha), 0.0, 1.0);
+	float coverage = clamp(alpha + reflectance * (1.0 - alpha), 0.0, 1.0);
 	float viewDepth = length(v_WorldPos - u_Scene.CameraPosition.xyz);
-	float weight = alpha * clamp(kUnitWeightDistance / max(viewDepth, 1e-3), 1e-2, 3e3);
+	float weight = coverage * clamp(kUnitWeightDistance / max(viewDepth, 1e-3), 1e-2, 3e3);
 
-	o_Accumulate = vec4(color * alpha, alpha) * weight;
-	o_Revealage = alpha;
+	o_Accumulate = vec4(transmitted * alpha + reflected, coverage) * weight;
+	o_Revealage = coverage;
 
 #else
 
