@@ -1257,8 +1257,8 @@ compiling inside the very struct that needs it.
 
 ## 2a. The application icon
 
-`tools/scripts/make_icon.py` draws it — a two-tone V taken from the manual's
-wordmark, red half and light half, on the site's near-black. Regenerate with:
+`tools/scripts/make_icon.py` draws it — a chamfered tile holding a two-tone V,
+red half and light half, on the site's near-black. Regenerate with:
 
 ```bash
 python tools/scripts/make_icon.py
@@ -1277,6 +1277,33 @@ well-behaved `.ico` does.
 > `WindowsWindow::SetWindowIcon` loads `assets/icon-32.png` and `icon-48.png`
 > through GLFW, which is what the title bar and alt-tab use. Setting only the
 > first gives a correct icon in Explorer and a blank default in alt-tab.
+
+**Redrawn 2026-08-22, and the reason is worth keeping.** The first mark was a
+rounded square holding a V built from two thick *segments*, which gave it
+rounded corners and rounded stroke caps — soft at every size, which is what the
+owner said and what a look at it confirms. This one has **no curve anywhere**:
+the tile is a square with two opposite corners cut, the V is two straight-sided
+quads with mitred ends and a real point, and every test in the file is
+point-in-convex-polygon rather than distance-to-a-segment. A distance to a
+segment has a round cap whether or not anybody wanted one, and the old icon had
+four of them.
+
+Two things in there are derived rather than chosen, and both matter if the
+proportions are ever nudged:
+
+- **Where the V's inner edges meet** (`_MEET`) follows from the top, the apex,
+  the outset and the stroke width, because the inner edges are parallel to the
+  outer ones. Pick it by hand and the inside of the V stops short of its
+  outside the first time the stroke changes.
+- **`SUPERSAMPLE` is 8, not 4.** Coverage here is a count of samples inside the
+  shape rather than a distance, so the number of levels an edge can take *is*
+  the supersample squared. A chamfer is a long diagonal across the whole tile,
+  which is exactly where 16 levels show as steps. The whole set renders in
+  seven seconds either way.
+
+The red is `#e03030`, which is the manual's `--accent` and is shared on
+purpose — `tools/rvdoc/main.cpp` emits the same value into the stylesheet, so
+the mark and the docs cannot drift apart.
 
 The PNGs live in `RageVEditor/assets/` only — that is the engine's asset root.
 The runtime stages them explicitly alongside shaders and fonts, because its

@@ -2,9 +2,12 @@
 
 Kept as a script rather than a checked-in binary somebody drew once, for the
 same reason the sky.hdr generator is: an icon that can be regenerated can be
-changed. The mark is the manual's wordmark reduced to what survives at 16
-pixels -- a two-tone V, the red half from `Rage` and the light half from the
-`V`, on the site's near-black.
+changed. And it was: the first mark was a rounded square holding a V drawn as
+two thick segments, which gave it rounded corners *and* rounded stroke caps and
+read as soft at every size. The owner asked for minimalist and edgy, picked
+this one out of six, and the difference is that **there is no curve anywhere in
+it** -- a chamfered tile and a V built from straight-sided quads with mitred
+ends and a real point.
 
 No third-party imaging library. zlib and struct are enough to write a PNG, and
 an ICO is a header plus a list of images. Adding Pillow as a build-time
@@ -16,59 +19,83 @@ from a clone with nothing but a compiler.
 Writes RageVEditor/icon.ico, RageVRuntime/icon.ico, and the PNGs the window
 uses at runtime.
 """
-import math
 import os
 import struct
 import zlib
 
 # --- the mark ---------------------------------------------------------------
+#
+# **Coordinates are y-down**, the way an image is stored and the way the mark
+# was drawn, so the numbers below read in the same direction as the picture.
+# The old mark was y-up and `render` flipped for it; nothing flips now.
+#
+# Every shape is a *convex* polygon, listed clockwise, and everything is a
+# point-in-polygon test. That is what makes the edges hard: a distance to a
+# segment has a rounded cap whether or not anybody wanted one, and the first
+# icon had four of them.
 
 BACKGROUND = (0x0E, 0x0E, 0x12)
-ACCENT     = (0xE0, 0x30, 0x30)   # the manual's --accent
+ACCENT     = (0xE0, 0x30, 0x30)   # the manual's --accent, shared deliberately
 LIGHT      = (0xF2, 0xF2, 0xF6)
 
-CORNER_RADIUS = 0.20              # of the icon's width
-STROKE_HALF   = 0.072             # half the V's stroke width
+# The tile: a square with the top-left and bottom-right corners cut off.
+# Opposite corners rather than adjacent ones, so the cuts read as a single
+# diagonal gesture through the mark rather than as a bevel on one end.
+CHAMFER = 0.26
+TILE = ((CHAMFER, 0.0), (1.0, 0.0), (1.0, 1.0 - CHAMFER),
+        (1.0 - CHAMFER, 1.0), (0.0, 1.0), (0.0, CHAMFER))
 
-# The V, as two segments meeting at a point. Coordinates are y-up: the apex is
-# the low number. Sitting a touch above the true centre, because a V is
-# bottom-heavy and an optically centred one has to be nudged up.
-APEX  = (0.500, 0.272)
-LEFT  = (0.250, 0.752)
-RIGHT = (0.750, 0.752)
+# The V, as a letter rather than a wedge: `TOP` and `APEX` are where it starts
+# and ends, `OUTER` is how far in the outer edges begin and `WIDTH` is the
+# stroke.
+TOP, APEX = 0.24, 0.78
+OUTER, WIDTH = 0.18, 0.155
 
-SUPERSAMPLE = 4
+# Where the two inner edges meet on the centre line. **Derived, not chosen**:
+# they are parallel to the outer edges, so this follows from the four numbers
+# above -- and deriving it is what keeps the apex a real point when any of them
+# is nudged. A hand-picked value gives a V whose inside stops short of its
+# outside the first time the stroke changes.
+_INNER = OUTER + WIDTH
+_MEET = TOP + (0.5 - _INNER) * (APEX - TOP) / (0.5 - OUTER)
+
+V_LEFT  = ((OUTER, TOP), (_INNER, TOP), (0.5, _MEET), (0.5, APEX))
+V_RIGHT = ((1.0 - _INNER, TOP), (1.0 - OUTER, TOP), (0.5, APEX), (0.5, _MEET))
+
+# 8 rather than 4. The coverage here is a count of samples inside the shape
+# rather than a distance, so the number of levels an edge can take *is* the
+# supersample squared -- and a chamfer is a long diagonal across the whole
+# tile, which is where 16 levels show as steps. 64 does not, and the whole set
+# renders in about a second either way.
+SUPERSAMPLE = 8
 
 
-def _rounded_rect_coverage(x, y, radius):
-    """Signed coverage of the unit square with rounded corners."""
-    cx = min(max(x, radius), 1.0 - radius)
-    cy = min(max(y, radius), 1.0 - radius)
-    dx, dy = x - cx, y - cy
-    if dx == 0.0 and dy == 0.0:
-        return True
-    return (dx * dx + dy * dy) <= radius * radius
+def _inside(x, y, points):
+    """Whether a point is inside a convex polygon listed clockwise, y-down.
 
-
-def _distance_to_segment(px, py, ax, ay, bx, by):
-    vx, vy = bx - ax, by - ay
-    wx, wy = px - ax, py - ay
-    length = vx * vx + vy * vy
-    t = 0.0 if length == 0.0 else max(0.0, min(1.0, (wx * vx + wy * vy) / length))
-    dx, dy = px - (ax + t * vx), py - (ay + t * vy)
-    return math.sqrt(dx * dx + dy * dy)
+    The cross product of each edge with the vector to the point keeps its sign
+    all the way round a convex polygon, so one loop and no special cases.
+    """
+    for i in range(len(points)):
+        ax, ay = points[i]
+        bx, by = points[(i + 1) % len(points)]
+        if (bx - ax) * (y - ay) - (by - ay) * (x - ax) < 0.0:
+            return False
+    return True
 
 
 def _sample(x, y):
     """Colour and alpha at a point in the unit square, or None for outside."""
-    if not _rounded_rect_coverage(x, y, CORNER_RADIUS):
+    if not _inside(x, y, TILE):
         return None
 
-    # Right stroke drawn second so the light half wins the join at the apex,
-    # which is what keeps the point from muddying at small sizes.
-    if _distance_to_segment(x, y, *RIGHT, *APEX) <= STROKE_HALF:
+    # The light half tested first so it wins the seam at the apex, which is
+    # what keeps the point from muddying at small sizes. The two quads share
+    # the centre line exactly, so this decides a boundary rather than an
+    # overlap.
+    if _inside(x, y, V_RIGHT):
         return LIGHT
-    if _distance_to_segment(x, y, *LEFT, *APEX) <= STROKE_HALF:
+    if _inside(x, y, V_LEFT):
         return ACCENT
     return BACKGROUND
 
@@ -85,8 +112,7 @@ def render(size):
             for sy in range(SUPERSAMPLE):
                 for sx in range(SUPERSAMPLE):
                     x = (px * SUPERSAMPLE + sx + 0.5) * step
-                    # Image rows run top-down; the mark is defined y-up.
-                    y = 1.0 - (py * SUPERSAMPLE + sy + 0.5) * step
+                    y = (py * SUPERSAMPLE + sy + 0.5) * step
                     colour = _sample(x, y)
                     if colour is None:
                         continue
