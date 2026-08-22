@@ -1339,7 +1339,12 @@ def main():
         # 28 clears the front lamps at 24 and nothing else in the room is
         # within a factor of five of it.
         "BloomEnabled": True,
-        "BloomThreshold": 1.05,
+        # **2.28 is the owner's, set in the editor, and this line exists so a
+        # regeneration keeps it.** The generator rewrites this file wholesale,
+        # so a value tuned by hand in the inspector survives exactly until
+        # somebody runs the script -- which is a way to lose an afternoon's
+        # taste to a command that looks like it only rebuilds the room.
+        "BloomThreshold": 2.28,
         "BloomKnee": 0.7,
         "BloomIntensity": 0.12,
         "BloomClamp": 28.0,
@@ -1388,7 +1393,8 @@ def main():
         # which is what a car photographer shooting a three-quarter view
         # actually does. It also holds the aperture inside the range where the
         # bokeh still has a shape.
-        "SubjectCoverage": 0.55,
+        # 0.684, the owner's, for the reason BloomThreshold above gives.
+        "SubjectCoverage": 0.684,
 
         "FocusDistance": START_DISTANCE,
         "FocalLength": 60.0,

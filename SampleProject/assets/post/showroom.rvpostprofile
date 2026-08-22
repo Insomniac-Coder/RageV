@@ -1,7 +1,7 @@
 PostProfile: 1
 Exposure: 0.45
 BloomEnabled: true
-BloomThreshold: 1.05
+BloomThreshold: 2.28
 BloomKnee: 0.7
 BloomIntensity: 0.12
 BloomClamp: 28
@@ -15,7 +15,7 @@ ColorLutStrength: 0.9
 DepthOfField: true
 Focus: Target
 FocusTarget: 16167290979463119363
-SubjectCoverage: 0.55
+SubjectCoverage: 0.684
 FocusDistance: 7.3
 FocalLength: 60
 Aperture: 8
