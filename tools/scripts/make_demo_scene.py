@@ -688,7 +688,7 @@ def build(profile_handle, mat):
 
 def write_material(path, maps, tiling, height_scale=0.03, metallic=0.0,
                    roughness=1.0, base_color=(1, 1, 1, 1),
-                   emissive=(0, 0, 0, 1)):
+                   emissive=(0, 0, 0, 1), uv_offset=(0, 0)):
     """A `.rmat` over shared maps, tiled for a surface of a known size.
 
     **Tiling is a property of the surface, not of the texture.** A brick map at
@@ -717,7 +717,11 @@ def write_material(path, maps, tiling, height_scale=0.03, metallic=0.0,
         "Specular: 0.5",
         f"HeightScale: {height_scale:g}",
         f"Tiling: [{tiling[0]:g}, {tiling[1]:g}]",
-        "UvOffset: [0, 0]",
+        # The shader applies `uv * Tiling + UvOffset`, so a negative tile with
+        # a matching offset mirrors an axis. Nothing here needed that until an
+        # atlas turned up whose V ran the other way -- see the showroom's
+        # livery.
+        f"UvOffset: [{uv_offset[0]:g}, {uv_offset[1]:g}]",
         "Maps:",
     ]
     for key, value in maps.items():

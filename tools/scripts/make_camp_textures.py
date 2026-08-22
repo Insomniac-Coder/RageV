@@ -113,19 +113,22 @@ def png(path, image):
     height, width, channels = data.shape
     colour_type = {1: 0, 3: 2, 4: 6}[channels]
 
-    raw = bytearray()
-    for row in range(height):
-        # Filter 1, "sub": predict each pixel from the one to its left. On a
-        # map made of flat patches almost every pixel equals its neighbour, so
-        # this turns whole runs into zeroes and the file collapses. The old
-        # noise maps used filter 0 because there was nothing to predict.
-        raw.append(1)
-        row_bytes = data[row].tobytes()
-        previous = bytes(channels)
-        for start in range(0, len(row_bytes), channels):
-            pixel = row_bytes[start:start + channels]
-            raw.extend((pixel[i] - previous[i]) & 0xFF for i in range(channels))
-            previous = pixel
+    # Filter 1, "sub": predict each pixel from the one to its left. On a map
+    # made of flat patches almost every pixel equals its neighbour, so this
+    # turns whole runs into zeroes and the file collapses. The old noise maps
+    # used filter 0 because there was nothing to predict.
+    #
+    # In numpy rather than a byte loop, and the difference is not cosmetic: a
+    # 2048-square RGB map is twelve million iterations of the loop this
+    # replaces, which is minutes. The bytes are identical -- a sub filter is
+    # defined per byte and this computes the same subtraction.
+    filtered = np.empty_like(data)
+    filtered[:, 0, :] = data[:, 0, :]
+    filtered[:, 1:, :] = data[:, 1:, :] - data[:, :-1, :]
+
+    rows = np.hstack([np.ones((height, 1), np.uint8),
+                      filtered.reshape(height, width * channels)])
+    raw = rows.tobytes()
 
     def chunk(tag, payload):
         out = struct.pack(">I", len(payload)) + tag + payload
@@ -134,7 +137,7 @@ def png(path, image):
     header = struct.pack(">IIBBBBB", width, height, 8, colour_type, 0, 0, 0)
     blob = (b"\x89PNG\r\n\x1a\n"
             + chunk(b"IHDR", header)
-            + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+            + chunk(b"IDAT", zlib.compress(raw, 9))
             + chunk(b"IEND", b""))
 
     path = pathlib.Path(path)

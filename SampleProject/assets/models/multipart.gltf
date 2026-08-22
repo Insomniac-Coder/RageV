@@ -1,0 +1,139 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "RageV tools/scripts/make_multipart_gltf.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "Multipart",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "MultipartMesh",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 2,
+     "material": 0
+    },
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1
+     },
+     "indices": 3,
+     "material": 1
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "Sides",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     0.72,
+     0.24,
+     0.18,
+     1.0
+    ],
+    "metallicFactor": 0.0,
+    "roughnessFactor": 0.7
+   }
+  },
+  {
+   "name": "Caps",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     0.18,
+     0.42,
+     0.68,
+     1.0
+    ],
+    "metallicFactor": 0.0,
+    "roughnessFactor": 0.35
+   }
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 288,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 288,
+   "byteLength": 288,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 576,
+   "byteLength": 48,
+   "target": 34963
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 624,
+   "byteLength": 24,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 24,
+   "type": "VEC3",
+   "min": [
+    -0.4,
+    0.0,
+    -0.25
+   ],
+   "max": [
+    0.4,
+    0.6,
+    0.25
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 24,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5123,
+   "count": 24,
+   "type": "SCALAR"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 12,
+   "type": "SCALAR"
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 648,
+   "uri": "data:application/octet-stream;base64,zczMvgAAAAAAAIA+zczMPgAAAAAAAIA+zczMPpqZGT8AAIA+zczMvpqZGT8AAIA+zczMPgAAAAAAAIC+zczMvgAAAAAAAIC+zczMvpqZGT8AAIC+zczMPpqZGT8AAIC+zczMvgAAAAAAAIC+zczMvgAAAAAAAIA+zczMvpqZGT8AAIA+zczMvpqZGT8AAIC+zczMPgAAAAAAAIA+zczMPgAAAAAAAIC+zczMPpqZGT8AAIC+zczMPpqZGT8AAIA+zczMvpqZGT8AAIA+zczMPpqZGT8AAIA+zczMPpqZGT8AAIC+zczMvpqZGT8AAIC+zczMvgAAAAAAAIC+zczMPgAAAAAAAIC+zczMPgAAAAAAAIA+zczMvgAAAAAAAIA+AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAABAAIAAAACAAMABAAFAAYABAAGAAcACAAJAAoACAAKAAsADAANAA4ADAAOAA8AEAARABIAEAASABMAFAAVABYAFAAWABcA"
+  }
+ ]
+}

@@ -8130,6 +8130,83 @@ void main()
 	// The claims worth testing are the ones that decide whether a *stale*
 	// asset can be served, because that is the failure this design could have
 	// and a slow load is not.
+	// A mesh handle that points *inside* a model, on a cold load.
+	//
+	// **This is what a saved scene stores.** A model with more than one
+	// material is not one entity: the importer splits it into a primitive per
+	// (mesh, material) pair, InstantiateModel turns that into a tree, and only
+	// the first primitive wears the model file's own handle. The rest are
+	// `modelHandle + 1 + index`, and those are the numbers the scene file gets
+	// written with.
+	//
+	// Nothing had ever asked for one without the import having run first, so
+	// nothing noticed that GetMesh could not answer: it looked the handle up in
+	// the registry, found no file, and returned null. Reopening a scene with an
+	// imported car in it drew one hundred and fiftieth of a car.
+	//
+	// Every other model in this project is single-primitive, which is why this
+	// needed a fixture of its own -- see tools/scripts/make_multipart_gltf.py.
+	void CheckModelSubMeshHandles()
+	{
+		const std::filesystem::path path = Project::AssetPath("models/multipart.gltf");
+		if (!std::filesystem::exists(path))
+		{
+			Check(false, "the multi-primitive fixture is in the project");
+			return;
+		}
+
+		const AssetHandle model = Assets::Registry::GetHandle("models/multipart.gltf");
+		Check(model.IsValid(), "a two-material model is a registered asset");
+		if (!model.IsValid())
+			return;
+
+		// Nothing has instantiated it this session, which is the whole point:
+		// the cache is cold and the registry knows only the file's own handle.
+		Assets::Manager::ClearCache();
+
+		// **The derived handle first, and the order is the check.** Asking for
+		// the model's own handle would import the file and cache every
+		// primitive on the way, so a later question about `+ 2` would be
+		// answered out of the cache whether or not the cold path works at all.
+		// This one has to be resolved from nothing but the number.
+		//
+		// `+ 2` is `model + 1 + 1`: primitive one, at a handle no `.meta`
+		// contains and the registry has never heard of.
+		const RHI::Ref<Mesh> second =
+			Assets::Manager::GetMesh(AssetHandle((uint64_t)model + 2));
+		Check(second != nullptr,
+			  "and its second primitive resolves from a handle that is in no "
+			  "sidecar anywhere -- which is what a scene file saved after an "
+			  "import actually holds");
+
+		const RHI::Ref<Mesh> first = Assets::Manager::GetMesh(model);
+		Check(first != nullptr, "while the first still answers to the file's own handle");
+
+		if (first && second)
+		{
+			// **Different meshes, not the same one twice.** Resolving the owner
+			// and then handing back primitive zero would pass every check above
+			// and draw the wrong geometry, so the fixture's two halves have
+			// different triangle counts on purpose: eight and four.
+			Check(first != second, "and they are not the same mesh");
+			Check(first->GetIndexCount() == 24 && second->GetIndexCount() == 12,
+				  "each with its own share of the geometry, eight triangles and four");
+		}
+
+		// `model + 1` is primitive zero by the same arithmetic, so it has to be
+		// the mesh the file's own handle gives -- the two names for one thing
+		// that InstantiateModel has always minted.
+		Check(Assets::Manager::GetMesh(AssetHandle((uint64_t)model + 1)) == first,
+			  "the model's handle and its first derived handle are one mesh");
+
+		// And the negative, which is the half that makes the search safe: an
+		// offset past the end of the model is a miss rather than the nearest
+		// primitive. Without it, every unknown handle in the project would
+		// silently resolve to whichever model happened to sit below it.
+		Check(Assets::Manager::GetMesh(AssetHandle((uint64_t)model + 900)) == nullptr,
+			  "and an offset past the model's last primitive resolves to nothing");
+	}
+
 	void CheckImportCache()
 	{
 		using Assets::ImportCache;
@@ -14312,6 +14389,7 @@ int RunTests(int argc, char** argv)
 	CheckEmbeddedGlbTexture();
 	CheckSrgbEncode();
 	CheckBootProgress();
+	CheckModelSubMeshHandles();
 	CheckImportCache();
 	CheckVfsAndPak();
 	CheckMaterialAssets();

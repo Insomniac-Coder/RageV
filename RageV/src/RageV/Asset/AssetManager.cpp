@@ -647,6 +647,115 @@ namespace RageV::Assets
 		return slash == std::string::npos ? metadata.Path : metadata.Path.substr(slash + 1);
 	}
 
+	namespace
+	{
+		// One primitive of a parsed model, uploaded.
+		//
+		// Pulled out of GetMesh because two callers need it now -- the cold
+		// path and the import -- and because the skinned case is the whole
+		// reason it is not two lines.
+		RHI::Ref<Mesh> BuildPrimitive(const ImportedModel& model, size_t index)
+		{
+			const Assets::ImportedPrimitive& source = model.Primitives[index];
+
+			if (!source.IsSkinned())
+			{
+				return std::make_shared<Mesh>(*s_Device, source.Vertices,
+											  source.Indices, source.Name);
+			}
+
+			std::vector<SkinnedVertex> skinned;
+			skinned.reserve(source.Vertices.size());
+
+			for (size_t i = 0; i < source.Vertices.size(); i++)
+			{
+				const MeshVertex& vertex = source.Vertices[i];
+
+				SkinnedVertex out;
+				out.Position = vertex.Position;
+				out.Normal = vertex.Normal;
+				out.TexCoord = vertex.TexCoord;
+				out.Joints = source.Joints[i];
+				out.Weights = source.Weights[i];
+
+				skinned.push_back(out);
+			}
+
+			auto mesh = std::make_shared<Mesh>(*s_Device, skinned, source.Indices, source.Name);
+
+			// Bounds that cover the animation rather than the bind pose (7.6).
+			// Done here because this is the only place that has the mesh, the
+			// skeleton and the clips at once -- the mesh cannot compute it and
+			// the animation module cannot reach the mesh.
+			std::vector<Vec3> positions;
+			positions.reserve(source.Vertices.size());
+			for (const MeshVertex& vertex : source.Vertices)
+				positions.push_back(vertex.Position);
+
+			AABB animated;
+			Anim::SkinnedBounds(model.Skeleton, model.Clips, positions,
+								source.Joints, source.Weights,
+								animated.Min, animated.Max);
+
+			// Only when it produced something: a model whose weights this could
+			// not read keeps the box its vertices gave it.
+			if (animated.Min.x <= animated.Max.x)
+				mesh->SetBounds(animated);
+
+			return mesh;
+		}
+	}
+
+	namespace
+	{
+		// The model a derived mesh handle belongs to, and which primitive of it.
+		//
+		// A model file holds several primitives, and only the first wears the
+		// file's own handle -- the rest are `modelHandle + 1 + index`, minted by
+		// InstantiateModel. **A saved scene stores exactly those numbers**, so
+		// they have to resolve on a cold load or reopening a scene loses every
+		// part of an imported model except one piece.
+		//
+		// The owner is the nearest registered mesh *below* the handle. Handles
+		// are hashes, so "below" is not "nearby" in general -- but a derived
+		// handle is its model's plus a small offset, and no other asset can have
+		// been minted into that gap. The candidate is still checked by importing
+		// it: a model with fewer primitives than the offset asks for is not the
+		// owner, and the answer is then a miss rather than a guess.
+		AssetHandle OwningModel(AssetHandle handle, uint32_t& primitiveIndex)
+		{
+			AssetHandle best = AssetHandle::Invalid();
+
+			for (const auto& [path, metadata] : Registry::All())
+			{
+				if (metadata.Type != AssetType::Mesh)
+					continue;
+
+				const uint64_t candidate = (uint64_t)metadata.Handle;
+				if (candidate >= (uint64_t)handle)
+					continue;
+
+				if (!best.IsValid() || candidate > (uint64_t)best)
+					best = metadata.Handle;
+			}
+
+			if (!best.IsValid())
+				return AssetHandle::Invalid();
+
+			const uint64_t offset = (uint64_t)handle - (uint64_t)best;
+
+			// Offset 0 is the model itself and would not be here; the ceiling
+			// is what stops an unrelated model half the handle space away from
+			// being imported to prove it is unrelated.
+			constexpr uint64_t kMaxPrimitives = 1u << 20;
+			if (offset == 0 || offset > kMaxPrimitives)
+				return AssetHandle::Invalid();
+
+			primitiveIndex = (uint32_t)(offset - 1);
+			return best;
+		}
+	}
+
 	RHI::Ref<Mesh> Manager::GetMesh(AssetHandle handle)
 	{
 		if (!s_Device || !handle.IsValid())
@@ -660,83 +769,64 @@ namespace RageV::Assets
 		if (cached != s_Meshes.end())
 			return cached->second;
 
-		// A model file holds several primitives; only the first is addressable
-		// by the file's own handle. InstantiateModel is the entry point that
-		// reaches the rest, and it populates this cache as it goes.
-		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
-		if (path.empty())
-			return nullptr;
+		// The model's own handle addresses its first primitive; anything else
+		// is a handle *inside* a model and has to be traced back to it.
+		AssetHandle model = handle;
+		uint32_t wanted = 0;
 
-		ImportedModel model;
-		if (!ModelImporter::Import(path, model) || model.Primitives.empty())
+		std::filesystem::path path = Registry::GetAbsolutePath(handle);
+		if (path.empty())
+		{
+			model = OwningModel(handle, wanted);
+			path = model.IsValid() ? Registry::GetAbsolutePath(model)
+								   : std::filesystem::path();
+		}
+
+		if (path.empty())
+		{
+			s_Meshes[handle] = nullptr;
+			return nullptr;
+		}
+
+		ImportedModel imported;
+		if (!ModelImporter::Import(path, imported) || imported.Primitives.empty())
 		{
 			// Cached as null so a broken file is not re-parsed every frame.
 			s_Meshes[handle] = nullptr;
 			return nullptr;
 		}
 
-		// A skinned primitive becomes a skinned mesh, and the skeleton it is
-		// posed by is remembered under the same handle.
-		if (model.HasSkeleton())
+		if (wanted >= imported.Primitives.size())
 		{
-			s_Skeletons[handle] = model.Skeleton;
-			s_Clips[handle] = model.Clips;
+			// The nearest model below is not the owner after all.
+			s_Meshes[handle] = nullptr;
+			return nullptr;
 		}
 
-		if (model.Primitives[0].IsSkinned())
+		// The skeleton and the clips hang off the *model's* handle, since that
+		// is what an AnimatorComponent names.
+		if (imported.HasSkeleton())
 		{
-			std::vector<SkinnedVertex> skinned;
-			skinned.reserve(model.Primitives[0].Vertices.size());
-
-			for (size_t i = 0; i < model.Primitives[0].Vertices.size(); i++)
-			{
-				const MeshVertex& source = model.Primitives[0].Vertices[i];
-
-				SkinnedVertex vertex;
-				vertex.Position = source.Position;
-				vertex.Normal = source.Normal;
-				vertex.TexCoord = source.TexCoord;
-				vertex.Joints = model.Primitives[0].Joints[i];
-				vertex.Weights = model.Primitives[0].Weights[i];
-
-				skinned.push_back(vertex);
-			}
-
-			auto skinnedMesh = std::make_shared<Mesh>(*s_Device, skinned,
-													  model.Primitives[0].Indices,
-													  model.Primitives[0].Name);
-
-			// Bounds that cover the animation rather than the bind pose (7.6).
-			// Done here because this is the only place that has the mesh, the
-			// skeleton and the clips at once -- the mesh cannot compute it and
-			// the animation module cannot reach the mesh.
-			{
-				std::vector<Vec3> positions;
-				positions.reserve(model.Primitives[0].Vertices.size());
-				for (const MeshVertex& vertex : model.Primitives[0].Vertices)
-					positions.push_back(vertex.Position);
-
-				AABB animated;
-				Anim::SkinnedBounds(model.Skeleton, model.Clips, positions,
-									model.Primitives[0].Joints,
-									model.Primitives[0].Weights,
-									animated.Min, animated.Max);
-
-				// Only when it produced something: a model whose weights this
-				// could not read keeps the box its vertices gave it.
-				if (animated.Min.x <= animated.Max.x)
-					skinnedMesh->SetBounds(animated);
-			}
-
-			s_Meshes[handle] = skinnedMesh;
-			return skinnedMesh;
+			s_Skeletons[model] = imported.Skeleton;
+			s_Clips[model] = imported.Clips;
 		}
 
-		auto mesh = std::make_shared<Mesh>(*s_Device, model.Primitives[0].Vertices,
-										   model.Primitives[0].Indices, model.Primitives[0].Name);
-		s_Meshes[handle] = mesh;
-		return mesh;
+		// **Every primitive, in one parse.** A car is a hundred and fifty of
+		// them, and building only the one that was asked for would re-read a
+		// thirty-megabyte file once per piece.
+		for (size_t i = 0; i < imported.Primitives.size(); i++)
+		{
+			const RHI::Ref<Mesh> built = BuildPrimitive(imported, i);
+
+			s_Meshes[AssetHandle((uint64_t)model + 1 + i)] = built;
+			if (i == 0)
+				s_Meshes[model] = built;
+		}
+
+		const auto found = s_Meshes.find(handle);
+		return found != s_Meshes.end() ? found->second : nullptr;
 	}
+
 
 	const Skeleton* Manager::GetSkeleton(AssetHandle handle)
 	{
@@ -1683,14 +1773,24 @@ namespace RageV::Assets
 		}
 
 		// Every primitive gets a handle derived from the file's, so a mesh
-		// inside a model is addressable and the cache can hold it.
+		// inside a model is addressable and the cache can hold it. GetMesh
+		// mints the same numbers from the other direction, for a scene that
+		// stored them and is being opened without this having run.
 		std::vector<RHI::Ref<Mesh>> meshes(model.Primitives.size());
 		for (size_t i = 0; i < model.Primitives.size(); i++)
 		{
-			meshes[i] = std::make_shared<Mesh>(*s_Device, model.Primitives[i].Vertices,
-											   model.Primitives[i].Indices,
-											   model.Primitives[i].Name);
+			meshes[i] = BuildPrimitive(model, i);
 			s_Meshes[AssetHandle((uint64_t)handle + 1 + i)] = meshes[i];
+		}
+
+		// The skeleton and its clips under the model's own handle, which is
+		// what an AnimatorComponent names. GetMesh does the same on its own
+		// path; without it here, importing a rig and *then* asking for its
+		// clips answers that a perfectly good one has none.
+		if (model.HasSkeleton())
+		{
+			s_Skeletons[handle] = model.Skeleton;
+			s_Clips[handle] = model.Clips;
 		}
 
 		// One root, so the import is a single thing to move, delete or undo.
