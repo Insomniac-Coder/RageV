@@ -1,0 +1,13 @@
+Material: showroom_car_ext_mechanics
+BaseColor: [0.155, 0.16, 0.165, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0.75
+Roughness: 0.4
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  Normal: 2501930392177721738

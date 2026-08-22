@@ -1,0 +1,15 @@
+Material: showroom_wall_back
+BaseColor: [0.026, 0.027, 0.03, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [2.29167, 0.770833]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 2303515297440905929
+  Normal: 11026372221442278111
+  Roughness: 10666504736278673107

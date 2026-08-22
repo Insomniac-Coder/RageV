@@ -1,0 +1,17 @@
+Material: showroom_floor
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.008
+Tiling: [1.22222, 1.94444]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 9062732491834030055
+  Normal: 8269178234074032137
+  Roughness: 8136062281283119529
+  Occlusion: 4905725525019311226
+  Height: 3406132413930155497

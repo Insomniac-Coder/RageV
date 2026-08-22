@@ -1,0 +1,12 @@
+Material: showroom_downlight
+BaseColor: [1, 1, 1, 1]
+Emissive: [2.2, 2, 1.7, 1]
+Metallic: 0
+Roughness: 0.8
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:

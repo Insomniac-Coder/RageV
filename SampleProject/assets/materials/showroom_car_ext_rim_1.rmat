@@ -1,0 +1,12 @@
+Material: showroom_car_ext_rim_1
+BaseColor: [0.185, 0.19, 0.2, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0.85
+Roughness: 0.3
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:

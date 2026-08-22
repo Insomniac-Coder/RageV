@@ -1,0 +1,15 @@
+Material: showroom_ceiling
+BaseColor: [0.034, 0.035, 0.038, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [2.29167, 3.64583]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 2303515297440905929
+  Normal: 11026372221442278111
+  Roughness: 10666504736278673107

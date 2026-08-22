@@ -1,0 +1,15 @@
+Material: showroom_bayfloor
+BaseColor: [0.42, 0.42, 0.43, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [2.13333, 2.13333]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 8545304356734474208
+  Normal: 1279161567386463246
+  Roughness: 14352740090392507668

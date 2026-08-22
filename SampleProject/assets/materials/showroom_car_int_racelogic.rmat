@@ -1,0 +1,13 @@
+Material: showroom_car_int_racelogic
+BaseColor: [0.028, 0.028, 0.03, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 0.62
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  Normal: 13788882971881161807

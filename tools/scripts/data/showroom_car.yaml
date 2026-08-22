@@ -1,0 +1,5299 @@
+Scene: Subtree
+Version: 6
+Entities:
+  - EntityID: 16167290979463119363
+    TagComponent:
+      Tag: porsche_992_gt3_r
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12816054667500884276
+    RelationshipComponent:
+      Parent: 16167290979463119363
+    TagComponent:
+      Tag: Sketchfab_model
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-1.5707961, 0, 0]
+      Scale: [1, 0.99999994, 0.99999994]
+  - EntityID: 4992326995988626712
+    RelationshipComponent:
+      Parent: 12816054667500884276
+    TagComponent:
+      Tag: porsche_992_gt3_r.fbx
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [3.1415925, -0, 0]
+      Scale: [0.01, 0.01, 0.01]
+  - EntityID: 11212547060931978965
+    RelationshipComponent:
+      Parent: 4992326995988626712
+    TagComponent:
+      Tag: RootNode
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-1.5707964, 0, 0]
+      Scale: [100, 100.00001, 100.00001]
+  - EntityID: 679977155573939517
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: WHEEL_LF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 5949489002199626886
+    RelationshipComponent:
+      Parent: 679977155573939517
+    TagComponent:
+      Tag: RIM_BLUR_LF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 13828599093456180326
+    RelationshipComponent:
+      Parent: 5949489002199626886
+    TagComponent:
+      Tag: GEO_RIM_BLUR_LF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 13243826384583196878
+    RelationshipComponent:
+      Parent: 13828599093456180326
+    TagComponent:
+      Tag: GEO_RIM_BLUR_LF_EXT_RIM_BLUR_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328038
+      Material: 6117290393949339555
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 2020171076882024135
+    RelationshipComponent:
+      Parent: 5949489002199626886
+    TagComponent:
+      Tag: GEO_RIM_STATIC_LF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 8397509729843178601
+    RelationshipComponent:
+      Parent: 2020171076882024135
+    TagComponent:
+      Tag: GEO_RIM_STATIC_LF_EXT_RIM_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328039
+      Material: 8418682826096737411
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 15167466659338978383
+    RelationshipComponent:
+      Parent: 679977155573939517
+    TagComponent:
+      Tag: RIM_LF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 3463993421697491140
+    RelationshipComponent:
+      Parent: 15167466659338978383
+    TagComponent:
+      Tag: GEO_RIM_LF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 14778522872239900071
+    RelationshipComponent:
+      Parent: 3463993421697491140
+    TagComponent:
+      Tag: GEO_RIM_LF_EXT_RIM_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328040
+      Material: 8363876525975169292
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 8550138787453167986
+    RelationshipComponent:
+      Parent: 679977155573939517
+    TagComponent:
+      Tag: GEO_TIRE_LF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 14694568916068251355
+    RelationshipComponent:
+      Parent: 8550138787453167986
+    TagComponent:
+      Tag: GEO_TIRE_LF_MI_Tyre_Flex_Dry_R_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328041
+      Material: 2179402113545288960
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 2713465647252164078
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: WHEEL_LR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 9188406990555685795
+    RelationshipComponent:
+      Parent: 2713465647252164078
+    TagComponent:
+      Tag: RIM_BLUR_LR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7558743925986306946
+    RelationshipComponent:
+      Parent: 9188406990555685795
+    TagComponent:
+      Tag: GEO_RIM_BLUR_LR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 1741993700712827346
+    RelationshipComponent:
+      Parent: 7558743925986306946
+    TagComponent:
+      Tag: GEO_RIM_BLUR_LR_EXT_RIM_BLUR_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328042
+      Material: 2274223553451335639
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 2356820583593895682
+    RelationshipComponent:
+      Parent: 9188406990555685795
+    TagComponent:
+      Tag: GEO_RIM_STATIC_LR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 3677551529216394245
+    RelationshipComponent:
+      Parent: 2356820583593895682
+    TagComponent:
+      Tag: GEO_RIM_STATIC_LR_EXT_RIM_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328043
+      Material: 18122425383605698775
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 10777714060721615663
+    RelationshipComponent:
+      Parent: 2713465647252164078
+    TagComponent:
+      Tag: RIM_LR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 8738853023668216908
+    RelationshipComponent:
+      Parent: 10777714060721615663
+    TagComponent:
+      Tag: GEO_RIM_LR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 17425820548486038446
+    RelationshipComponent:
+      Parent: 8738853023668216908
+    TagComponent:
+      Tag: GEO_RIM_LR_EXT_RIM_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328044
+      Material: 3423784342331521528
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 9768697913741389559
+    RelationshipComponent:
+      Parent: 2713465647252164078
+    TagComponent:
+      Tag: GEO_TIRE_LR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 8054302734383191197
+    RelationshipComponent:
+      Parent: 9768697913741389559
+    TagComponent:
+      Tag: GEO_TIRE_LR_MI_Tyre_Flex_Dry_R_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328045
+      Material: 12451671288989957718
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 16420606400694261406
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: WHEEL_RR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 17565281948045759795
+    RelationshipComponent:
+      Parent: 16420606400694261406
+    TagComponent:
+      Tag: RIM_BLUR_RR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 2453246818745116758
+    RelationshipComponent:
+      Parent: 17565281948045759795
+    TagComponent:
+      Tag: GEO_RIM_STATIC_RR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 3719802540559383657
+    RelationshipComponent:
+      Parent: 2453246818745116758
+    TagComponent:
+      Tag: GEO_RIM_STATIC_RR_EXT_RIM_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328046
+      Material: 8299793384710792329
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 14819156270329597923
+    RelationshipComponent:
+      Parent: 17565281948045759795
+    TagComponent:
+      Tag: GEO_RIM_BLUR_RR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7244331184724162113
+    RelationshipComponent:
+      Parent: 14819156270329597923
+    TagComponent:
+      Tag: GEO_RIM_BLUR_RR_EXT_RIM_BLUR_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328047
+      Material: 14941991231635447774
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 7968549222475720445
+    RelationshipComponent:
+      Parent: 16420606400694261406
+    TagComponent:
+      Tag: RIM_RR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 11306163798151303724
+    RelationshipComponent:
+      Parent: 7968549222475720445
+    TagComponent:
+      Tag: GEO_RIM_RR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 6931457941776728509
+    RelationshipComponent:
+      Parent: 11306163798151303724
+    TagComponent:
+      Tag: GEO_RIM_RR_EXT_RIM_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328048
+      Material: 1081412002339108607
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 12624239599607566699
+    RelationshipComponent:
+      Parent: 16420606400694261406
+    TagComponent:
+      Tag: GEO_TIRE_RR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7614791295761146688
+    RelationshipComponent:
+      Parent: 12624239599607566699
+    TagComponent:
+      Tag: GEO_TIRE_RR_MI_Tyre_Flex_Dry_R_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328049
+      Material: 8362761441163183276
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 13703220267833938117
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: WHEEL_RF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 2000060037443535279
+    RelationshipComponent:
+      Parent: 13703220267833938117
+    TagComponent:
+      Tag: RIM_BLUR_RF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 2651553788378908722
+    RelationshipComponent:
+      Parent: 2000060037443535279
+    TagComponent:
+      Tag: GEO_RIM_BLUR_RF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 14094797487206293737
+    RelationshipComponent:
+      Parent: 2651553788378908722
+    TagComponent:
+      Tag: GEO_RIM_BLUR_RF_EXT_RIM_BLUR_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328050
+      Material: 13905709732990670451
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 6734052730369715170
+    RelationshipComponent:
+      Parent: 2000060037443535279
+    TagComponent:
+      Tag: GEO_RIM_STATIC_RF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 10903826462383294260
+    RelationshipComponent:
+      Parent: 6734052730369715170
+    TagComponent:
+      Tag: GEO_RIM_STATIC_RF_EXT_RIM_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328051
+      Material: 8706231030524497820
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 4063418126583988699
+    RelationshipComponent:
+      Parent: 13703220267833938117
+    TagComponent:
+      Tag: RIM_RF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 5532328120170985207
+    RelationshipComponent:
+      Parent: 4063418126583988699
+    TagComponent:
+      Tag: GEO_RIM_RF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 394095369651043079
+    RelationshipComponent:
+      Parent: 5532328120170985207
+    TagComponent:
+      Tag: GEO_RIM_RF_EXT_RIM_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328052
+      Material: 4167161949193660922
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 9337204760536907415
+    RelationshipComponent:
+      Parent: 13703220267833938117
+    TagComponent:
+      Tag: GEO_TIRE_RF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 11728806208462384941
+    RelationshipComponent:
+      Parent: 9337204760536907415
+    TagComponent:
+      Tag: GEO_TIRE_RF_MI_Tyre_Flex_Dry_R_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328053
+      Material: 16957303627429152682
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 14374251430878972348
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: MAIN_BODY
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 13123381459876867085
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB10
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4785166768688496691
+    RelationshipComponent:
+      Parent: 13123381459876867085
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB10_EXT_Glass_Emissive_Rear_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328054
+      Material: 4450224099322177048
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 9023866533832667511
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB9
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 18415708774429643440
+    RelationshipComponent:
+      Parent: 9023866533832667511
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB9_EXT_Glass_Emissive_Front_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328055
+      Material: 6897503550434008017
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 9472816443232584170
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB8
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 17659441738978040086
+    RelationshipComponent:
+      Parent: 9472816443232584170
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB8_EXT_Emissive_Light_Rear_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328056
+      Material: 11209394962050481992
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 2242738937686225180
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB7
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12300361234449434756
+    RelationshipComponent:
+      Parent: 2242738937686225180
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB7_EXT_Emissive_Light_Front_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328057
+      Material: 4017185872878792982
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 1143478090590124850
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB6
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 14369535437799095328
+    RelationshipComponent:
+      Parent: 1143478090590124850
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB6_EXT_Windows_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328058
+      Material: 16140757876965091235
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 15523209542967599119
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB5
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 18050503769142784502
+    RelationshipComponent:
+      Parent: 15523209542967599119
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB5_EXT_Banner_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328059
+      Material: 5674491357153536737
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 1008489360147718453
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB3
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4191478679147796007
+    RelationshipComponent:
+      Parent: 1008489360147718453
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB3_EXT_Grid_2_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328060
+      Material: 11996101020053800886
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 3578342310585956132
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB2
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4806750860164719194
+    RelationshipComponent:
+      Parent: 3578342310585956132
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB2_EXT_Details_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328061
+      Material: 11995927068327895899
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 4310042378801245157
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB1
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4714458504700868826
+    RelationshipComponent:
+      Parent: 4310042378801245157
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB1_EXT_Mechanics_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328062
+      Material: 8640423545510372001
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 13205767545069424729
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 14219269235790294
+    RelationshipComponent:
+      Parent: 13205767545069424729
+    TagComponent:
+      Tag: porsche_992_gt3_r_exterior_SUB0_EXT_Carpaint_Inst_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328063
+      Material: 3672934942671463010
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 13605281186681638747
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: RAIN_LIGHTS
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 17277804864223928686
+    RelationshipComponent:
+      Parent: 13605281186681638747
+    TagComponent:
+      Tag: RAIN_LIGHTS_EXT_Emissive_Light_Rear_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328064
+      Material: 9604283340189060020
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 10216078490930198183
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: ST_FRONT_LF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 5410624075423626157
+    RelationshipComponent:
+      Parent: 10216078490930198183
+    TagComponent:
+      Tag: ST_FRONT_LF_AUX_LIGHT_Porsche992_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328065
+      Material: 6028835892018173954
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 15823304376744601219
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: ST_FRONT_RF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4003802490956512131
+    RelationshipComponent:
+      Parent: 15823304376744601219
+    TagComponent:
+      Tag: ST_FRONT_RF_AUX_LIGHT_Porsche992_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328066
+      Material: 6028835892018173954
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 2664745634425021161
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: ST_REAR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 1839849187033759337
+    RelationshipComponent:
+      Parent: 2664745634425021161
+    TagComponent:
+      Tag: ST_REAR_EXT_Emissive_Light_Rear_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328067
+      Material: 9604283340189060020
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 5626779795279587432
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: ST_REAR_LR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 2151042765051899759
+    RelationshipComponent:
+      Parent: 5626779795279587432
+    TagComponent:
+      Tag: ST_REAR_LR_EXT_Emissive_Light_Rear_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328068
+      Material: 9604283340189060020
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 6440207237651903753
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: ST_REAR_RR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12008891048096523285
+    RelationshipComponent:
+      Parent: 6440207237651903753
+    TagComponent:
+      Tag: ST_REAR_RR_EXT_Emissive_Light_Rear_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328069
+      Material: 9604283340189060020
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 13048770162303656795
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_auxlight_b
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 18289024271502940077
+    RelationshipComponent:
+      Parent: 13048770162303656795
+    TagComponent:
+      Tag: porsche_992_gt3_r_auxlight_b_AUX_LIGHT_Porsche992_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328070
+      Material: 6028835892018173954
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 4092290764864173259
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_auxlight_c
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 3233614344687550318
+    RelationshipComponent:
+      Parent: 4092290764864173259
+    TagComponent:
+      Tag: porsche_992_gt3_r_auxlight_c_AUX_LIGHT_Porsche992_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328071
+      Material: 6028835892018173954
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 4921624042088912953
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_auxlight_d
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 17854974963772838175
+    RelationshipComponent:
+      Parent: 4921624042088912953
+    TagComponent:
+      Tag: porsche_992_gt3_r_auxlight_d_AUX_LIGHT_Porsche992_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328072
+      Material: 6028835892018173954
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 4856754765096781779
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_auxlight_e
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 2934775867664774232
+    RelationshipComponent:
+      Parent: 4856754765096781779
+    TagComponent:
+      Tag: porsche_992_gt3_r_auxlight_e_AUX_LIGHT_Porsche992_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328073
+      Material: 6028835892018173954
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 4921522137644792153
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_auxlight_f
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 18386366934517325642
+    RelationshipComponent:
+      Parent: 4921522137644792153
+    TagComponent:
+      Tag: porsche_992_gt3_r_auxlight_f_AUX_LIGHT_Porsche992_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328074
+      Material: 6028835892018173954
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 14331499929443279010
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: porsche_992_gt3_r_auxlight_g
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12942469470151079372
+    RelationshipComponent:
+      Parent: 14331499929443279010
+    TagComponent:
+      Tag: porsche_992_gt3_r_auxlight_g_AUX_LIGHT_Porsche992_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328075
+      Material: 6028835892018173954
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 1531846686428425606
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: GEO_CHASSIS_RADIATOR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 6474643633113182893
+    RelationshipComponent:
+      Parent: 1531846686428425606
+    TagComponent:
+      Tag: GEO_CHASSIS_RADIATOR_EXT_RADIATOR_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328076
+      Material: 6644595363155479282
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 10809889993106960635
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: GEO_CHASSIS_KEVLAR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 10294164418858380249
+    RelationshipComponent:
+      Parent: 10809889993106960635
+    TagComponent:
+      Tag: GEO_CHASSIS_KEVLAR_CHASSIS_KEVLAR_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328077
+      Material: 643866718606648756
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 3005821129137560426
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: GEO_EXALST
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 9530336131635810638
+    RelationshipComponent:
+      Parent: 3005821129137560426
+    TagComponent:
+      Tag: GEO_EXALST_EXT_EXALTS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328078
+      Material: 4810923536259406155
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 7502317008777325469
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: B0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 5321703194109821616
+    RelationshipComponent:
+      Parent: 7502317008777325469
+    TagComponent:
+      Tag: B0_EXT_Emissive_Light_Rear_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328079
+      Material: 9604283340189060020
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 5864657618238769846
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: L0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 5205862080181962190
+    RelationshipComponent:
+      Parent: 5864657618238769846
+    TagComponent:
+      Tag: L0_EXT_Emissive_Light_Front_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328080
+      Material: 608784732109445886
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 858188944304408481
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: L1
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 11960545898439617014
+    RelationshipComponent:
+      Parent: 858188944304408481
+    TagComponent:
+      Tag: L1_EXT_Emissive_Light_Front_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328081
+      Material: 608784732109445886
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 6248323367024338784
+    RelationshipComponent:
+      Parent: 14374251430878972348
+    TagComponent:
+      Tag: EXT_TAMP_FUEL
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 11786810149334796368
+    RelationshipComponent:
+      Parent: 6248323367024338784
+    TagComponent:
+      Tag: EXT_TAMP_FUEL_EXT_TAMP_FUEL_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328082
+      Material: 5759689933163618321
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 17184505190881763476
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: CINTURE_ON
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 9156645035415546740
+    RelationshipComponent:
+      Parent: 17184505190881763476
+    TagComponent:
+      Tag: porsche_992_gt3_r_net
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 1226742860671059447
+    RelationshipComponent:
+      Parent: 9156645035415546740
+    TagComponent:
+      Tag: porsche_992_gt3_r_net_INT_NET_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328083
+      Material: 12716106525025966347
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 8081514664534082946
+    RelationshipComponent:
+      Parent: 17184505190881763476
+    TagComponent:
+      Tag: porsche_992_gt3_r_belt_on
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12929238693955802025
+    RelationshipComponent:
+      Parent: 8081514664534082946
+    TagComponent:
+      Tag: porsche_992_gt3_r_belt_on_BELT_Schroth_2_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328084
+      Material: 7753536040554747301
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 10618301369346214788
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: DISC_LF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 3772622061388817162
+    RelationshipComponent:
+      Parent: 10618301369346214788
+    TagComponent:
+      Tag: GEO_DISC_LF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 13151838865211968808
+    RelationshipComponent:
+      Parent: 3772622061388817162
+    TagComponent:
+      Tag: GEO_DISC_LF_EXT_Disc_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328085
+      Material: 14080597599109782491
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 4902237491812688731
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: DISC_LR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 4908868222663164929
+    RelationshipComponent:
+      Parent: 4902237491812688731
+    TagComponent:
+      Tag: GEO_DISC_LR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 10625037168004123459
+    RelationshipComponent:
+      Parent: 4908868222663164929
+    TagComponent:
+      Tag: GEO_DISC_LR_EXT_Disc_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328086
+      Material: 12533532725747813278
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 15737793700839387635
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: DISC_RF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 13449213400063766658
+    RelationshipComponent:
+      Parent: 15737793700839387635
+    TagComponent:
+      Tag: GEO_DISC_RF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 6145771559112198360
+    RelationshipComponent:
+      Parent: 13449213400063766658
+    TagComponent:
+      Tag: GEO_DISC_RF_EXT_Disc_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328087
+      Material: 14608781586472789677
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 11387335382519606594
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: DISC_RR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 17332780362414041177
+    RelationshipComponent:
+      Parent: 11387335382519606594
+    TagComponent:
+      Tag: GEO_DISC_RR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 580440672428577984
+    RelationshipComponent:
+      Parent: 17332780362414041177
+    TagComponent:
+      Tag: GEO_DISC_RR_EXT_Disc_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328088
+      Material: 16045132305560908992
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 2809932284313027726
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: SUSP_LF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 11519498828384185285
+    RelationshipComponent:
+      Parent: 2809932284313027726
+    TagComponent:
+      Tag: EXT_CALIPER_MARK_LF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 17708892268697456363
+    RelationshipComponent:
+      Parent: 11519498828384185285
+    TagComponent:
+      Tag: EXT_CALIPER_MARK_LF_EXT_Details_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328089
+      Material: 13431416436011678568
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 2616361046462960518
+    RelationshipComponent:
+      Parent: 2809932284313027726
+    TagComponent:
+      Tag: GEO_CALIPER_LF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4719908226298591844
+    RelationshipComponent:
+      Parent: 2616361046462960518
+    TagComponent:
+      Tag: GEO_CALIPER_LF_EXT_CALIPER_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328090
+      Material: 5103179895199389434
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 8794137805854196624
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: SUSP_LR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 11106504131384420259
+    RelationshipComponent:
+      Parent: 8794137805854196624
+    TagComponent:
+      Tag: EXT_CALIPER_MARK_LR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4062020737705550928
+    RelationshipComponent:
+      Parent: 11106504131384420259
+    TagComponent:
+      Tag: EXT_CALIPER_MARK_LR_EXT_Details_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328091
+      Material: 16885140967017558098
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 16598054227796691116
+    RelationshipComponent:
+      Parent: 8794137805854196624
+    TagComponent:
+      Tag: GEO_CALIPER_LR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 463285343294904861
+    RelationshipComponent:
+      Parent: 16598054227796691116
+    TagComponent:
+      Tag: GEO_CALIPER_LR_EXT_CALIPER_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328092
+      Material: 10917402212710935771
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 10550276467532618045
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: SUSP_RR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 4928487151068829276
+    RelationshipComponent:
+      Parent: 10550276467532618045
+    TagComponent:
+      Tag: GEO_CALIPER_RR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 9899250448066319086
+    RelationshipComponent:
+      Parent: 4928487151068829276
+    TagComponent:
+      Tag: GEO_CALIPER_RR_EXT_CALIPER_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328093
+      Material: 11764666456584982222
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 17453689141010177849
+    RelationshipComponent:
+      Parent: 10550276467532618045
+    TagComponent:
+      Tag: EXT_CALIPER_MARK_RR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7925733932329337485
+    RelationshipComponent:
+      Parent: 17453689141010177849
+    TagComponent:
+      Tag: EXT_CALIPER_MARK_RR_EXT_Details_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328094
+      Material: 16885140967017558098
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 5401554970646640437
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: SUSP_RF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 11143062879443160918
+    RelationshipComponent:
+      Parent: 5401554970646640437
+    TagComponent:
+      Tag: GEO_CALIPER_RF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12855158921912886707
+    RelationshipComponent:
+      Parent: 11143062879443160918
+    TagComponent:
+      Tag: GEO_CALIPER_RF_EXT_CALIPER_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328095
+      Material: 11764666456584982222
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 15043650235294751835
+    RelationshipComponent:
+      Parent: 5401554970646640437
+    TagComponent:
+      Tag: EXT_CALIPER_MARK_RF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7799368787715112376
+    RelationshipComponent:
+      Parent: 15043650235294751835
+    TagComponent:
+      Tag: EXT_CALIPER_MARK_RF_EXT_Details_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328096
+      Material: 16885140967017558098
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 8885510034617488965
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: DOOR_L
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 4016977943177159183
+    RelationshipComponent:
+      Parent: 8885510034617488965
+    TagComponent:
+      Tag: GEO_DOOR_L
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7587688117536327334
+    RelationshipComponent:
+      Parent: 4016977943177159183
+    TagComponent:
+      Tag: GEO_DOOR_L_EXT_Carpaint_Inst_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328097
+      Material: 3672934942671463010
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 1213444292266976657
+    RelationshipComponent:
+      Parent: 8885510034617488965
+    TagComponent:
+      Tag: GEO_EXT_GLASS_DOOR_L
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12941245972424471983
+    RelationshipComponent:
+      Parent: 1213444292266976657
+    TagComponent:
+      Tag: GEO_EXT_GLASS_DOOR_L_EXT_Windows_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328098
+      Material: 8957984612559725461
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 2979092840839171651
+    RelationshipComponent:
+      Parent: 8885510034617488965
+    TagComponent:
+      Tag: GEO_INT_GLASS_DOOR_L
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 13038163827946898614
+    RelationshipComponent:
+      Parent: 2979092840839171651
+    TagComponent:
+      Tag: GEO_INT_GLASS_DOOR_L_INT_Windows_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328099
+      Material: 12446766086753463846
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 15396077749462643952
+    RelationshipComponent:
+      Parent: 8885510034617488965
+    TagComponent:
+      Tag: GEO_INT_PARTS_DOOR_L
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 15198467866947005055
+    RelationshipComponent:
+      Parent: 15396077749462643952
+    TagComponent:
+      Tag: GEO_INT_PARTS_DOOR_L_INT_ELECTRONICS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328100
+      Material: 2692626569650674009
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 381720348121629149
+    RelationshipComponent:
+      Parent: 8885510034617488965
+    TagComponent:
+      Tag: GEO_INT_REBITS_DOOR_L
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 15697412179090548904
+    RelationshipComponent:
+      Parent: 381720348121629149
+    TagComponent:
+      Tag: GEO_INT_REBITS_DOOR_L_INT_DECALS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328101
+      Material: 18006628464930216262
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 12175953186781401260
+    RelationshipComponent:
+      Parent: 8885510034617488965
+    TagComponent:
+      Tag: GEO_REBIT_DOOR_L
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 16570798551067783305
+    RelationshipComponent:
+      Parent: 12175953186781401260
+    TagComponent:
+      Tag: GEO_REBIT_DOOR_L_EXT_Details_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328102
+      Material: 16885140967017558098
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 8685100705638118593
+    RelationshipComponent:
+      Parent: 8885510034617488965
+    TagComponent:
+      Tag: GEO_TRAV_DOOR_L
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 10316248768349267550
+    RelationshipComponent:
+      Parent: 8685100705638118593
+    TagComponent:
+      Tag: GEO_TRAV_DOOR_L_INT_ELECTRONICS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328103
+      Material: 1575314712550854490
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 6376472606203735569
+    RelationshipComponent:
+      Parent: 8885510034617488965
+    TagComponent:
+      Tag: GEO_CARBON_DOOR_L
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 6953517552626668750
+    RelationshipComponent:
+      Parent: 6376472606203735569
+    TagComponent:
+      Tag: GEO_CARBON_DOOR_L_INT_Carbon_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328104
+      Material: 15312775780008807505
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 5766434992308707298
+    RelationshipComponent:
+      Parent: 8885510034617488965
+    TagComponent:
+      Tag: MIRROR_L
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 2466398301811790610
+    RelationshipComponent:
+      Parent: 5766434992308707298
+    TagComponent:
+      Tag: MIRROR_L_MIRROR_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328105
+      Material: 13587639289113789212
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 3575549791338139688
+    RelationshipComponent:
+      Parent: 8885510034617488965
+    TagComponent:
+      Tag: DOBRADICA_DOOR_L
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 14943891852275934130
+    RelationshipComponent:
+      Parent: 3575549791338139688
+    TagComponent:
+      Tag: DOBRADICA_DOOR_L_INT_Occlusion_Inst_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328106
+      Material: 13945100512489364312
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 714590034277377730
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: DOOR_R
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 7809091352123078126
+    RelationshipComponent:
+      Parent: 714590034277377730
+    TagComponent:
+      Tag: GEO_CARBON_DOOR_R
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 16446969548620095970
+    RelationshipComponent:
+      Parent: 7809091352123078126
+    TagComponent:
+      Tag: GEO_CARBON_DOOR_R_INT_Carbon_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328107
+      Material: 14637634353772753634
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 10874389216271313750
+    RelationshipComponent:
+      Parent: 714590034277377730
+    TagComponent:
+      Tag: GEO_DOOR_R
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 1754004037950092118
+    RelationshipComponent:
+      Parent: 10874389216271313750
+    TagComponent:
+      Tag: GEO_DOOR_R_EXT_Carpaint_Inst_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328108
+      Material: 3672934942671463010
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 16733766896267544841
+    RelationshipComponent:
+      Parent: 714590034277377730
+    TagComponent:
+      Tag: GEO_EXT_GLASS_DOOR_R
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4508042905943499795
+    RelationshipComponent:
+      Parent: 16733766896267544841
+    TagComponent:
+      Tag: GEO_EXT_GLASS_DOOR_R_EXT_Windows_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328109
+      Material: 8957984612559725461
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 10319424453770791531
+    RelationshipComponent:
+      Parent: 714590034277377730
+    TagComponent:
+      Tag: GEO_INT_GLASS_DOOR_R
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 16994689426142999416
+    RelationshipComponent:
+      Parent: 10319424453770791531
+    TagComponent:
+      Tag: GEO_INT_GLASS_DOOR_R_INT_Windows_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328110
+      Material: 12446766086753463846
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 3445613010401438955
+    RelationshipComponent:
+      Parent: 714590034277377730
+    TagComponent:
+      Tag: GEO_INT_PARTS_DOOR_R
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 15102972131972512699
+    RelationshipComponent:
+      Parent: 3445613010401438955
+    TagComponent:
+      Tag: GEO_INT_PARTS_DOOR_R_INT_ELECTRONICS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328111
+      Material: 11182711065345117602
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 5573949583157025600
+    RelationshipComponent:
+      Parent: 714590034277377730
+    TagComponent:
+      Tag: GEO_INT_REBITS_DOOR_R
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 163371840119237095
+    RelationshipComponent:
+      Parent: 5573949583157025600
+    TagComponent:
+      Tag: GEO_INT_REBITS_DOOR_R_INT_DECALS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328112
+      Material: 18006628464930216262
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 13406145001619394051
+    RelationshipComponent:
+      Parent: 714590034277377730
+    TagComponent:
+      Tag: GEO_REBIT_DOOR_R
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 15019458752731622454
+    RelationshipComponent:
+      Parent: 13406145001619394051
+    TagComponent:
+      Tag: GEO_REBIT_DOOR_R_EXT_Details_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328113
+      Material: 16885140967017558098
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 15396757879215802469
+    RelationshipComponent:
+      Parent: 714590034277377730
+    TagComponent:
+      Tag: MIRROR_R
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12447977775328582000
+    RelationshipComponent:
+      Parent: 15396757879215802469
+    TagComponent:
+      Tag: MIRROR_R_MIRROR_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328114
+      Material: 13587639289113789212
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 15241033629122915476
+    RelationshipComponent:
+      Parent: 714590034277377730
+    TagComponent:
+      Tag: GEO_TRAV_DOOR_R
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 8244561608305328094
+    RelationshipComponent:
+      Parent: 15241033629122915476
+    TagComponent:
+      Tag: GEO_TRAV_DOOR_R_INT_ELECTRONICS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328115
+      Material: 5334139020603855858
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 2634783992068653059
+    RelationshipComponent:
+      Parent: 714590034277377730
+    TagComponent:
+      Tag: DOBRADICA_DOOR_R
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 6138395208511725521
+    RelationshipComponent:
+      Parent: 2634783992068653059
+    TagComponent:
+      Tag: DOBRADICA_DOOR_R_INT_Occlusion_Inst_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328116
+      Material: 13945100512489364312
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 391084939658644089
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: COCKPIT_HR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 8464052513172284174
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: porsche_992_gt3_r_cable
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 18031043687368907297
+    RelationshipComponent:
+      Parent: 8464052513172284174
+    TagComponent:
+      Tag: porsche_992_gt3_r_cable_INT_NET_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328117
+      Material: 12716106525025966347
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 16282826632535011676
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_METAL_PARTS
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 6908827011729173206
+    RelationshipComponent:
+      Parent: 16282826632535011676
+    TagComponent:
+      Tag: INT_METAL_PARTS_INT_METAL_PARTS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328118
+      Material: 18118156679512920106
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 4326231388718725239
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: STEER_HR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 1370442453745206021
+    RelationshipComponent:
+      Parent: 4326231388718725239
+    TagComponent:
+      Tag: porsche_992_gt3_r_steer_hr_SUB2
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 3515029148144612996
+    RelationshipComponent:
+      Parent: 1370442453745206021
+    TagComponent:
+      Tag: porsche_992_gt3_r_steer_hr_SUB2_INT_DECALS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328119
+      Material: 18006628464930216262
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 78002674280505719
+    RelationshipComponent:
+      Parent: 4326231388718725239
+    TagComponent:
+      Tag: porsche_992_gt3_r_steer_hr_SUB1
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 13858632481814274740
+    RelationshipComponent:
+      Parent: 78002674280505719
+    TagComponent:
+      Tag: porsche_992_gt3_r_steer_hr_SUB1_INT_Steer_Carbon_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328120
+      Material: 3664814089727704191
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 1775421932777631294
+    RelationshipComponent:
+      Parent: 4326231388718725239
+    TagComponent:
+      Tag: porsche_992_gt3_r_steer_hr_SUB0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 5750284096730817437
+    RelationshipComponent:
+      Parent: 1775421932777631294
+    TagComponent:
+      Tag: porsche_992_gt3_r_steer_hr_SUB0_SUB1
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 11013820706089604097
+    RelationshipComponent:
+      Parent: 5750284096730817437
+    TagComponent:
+      Tag: porsche_992_gt3_r_steer_hr_SUB0_SUB1_STEER_PLASTIC_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328121
+      Material: 2659892133765391427
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 11277719887337400225
+    RelationshipComponent:
+      Parent: 1775421932777631294
+    TagComponent:
+      Tag: porsche_992_gt3_r_steer_hr_SUB0_SUB0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 18181891971244055660
+    RelationshipComponent:
+      Parent: 11277719887337400225
+    TagComponent:
+      Tag: porsche_992_gt3_r_steer_hr_SUB0_SUB0_INT_Steer_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328122
+      Material: 12611380732894659784
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 2923312810242407478
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: lumirank_3
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 9177946739525077733
+    RelationshipComponent:
+      Parent: 2923312810242407478
+    TagComponent:
+      Tag: lumirank_3_WorldGridMaterial_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328123
+      Material: 17963515376714846239
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 8693465927434873596
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: racelogic_device
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 11948351742975559230
+    RelationshipComponent:
+      Parent: 8693465927434873596
+    TagComponent:
+      Tag: racelogic_device_INT_Racelogic_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328124
+      Material: 63173126107277072
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 16965997462482287516
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: sas_driver_info
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 13721043194970331207
+    RelationshipComponent:
+      Parent: 16965997462482287516
+    TagComponent:
+      Tag: sas_driver_info_INT_SAS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328125
+      Material: 11527048981535281825
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 1575112119708525504
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_GEO_FOAM_ROLLCAGE
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 14075961461228359381
+    RelationshipComponent:
+      Parent: 1575112119708525504
+    TagComponent:
+      Tag: INT_GEO_FOAM_ROLLCAGE_SPARCO_FOAM_ROLLCAGE_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328126
+      Material: 18425329370259995506
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 7832768246806275626
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LED_LIGHTS
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 6383517269029078187
+    RelationshipComponent:
+      Parent: 7832768246806275626
+    TagComponent:
+      Tag: LED_LIGHTS_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328127
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 11771134579696111210
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_ELECTRONICS_001
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4053505893105085378
+    RelationshipComponent:
+      Parent: 11771134579696111210
+    TagComponent:
+      Tag: INT_ELECTRONICS_001_INT_ELECTRONICS_2_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328128
+      Material: 9668569574638251676
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 704969336782663338
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_DECALS001
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 10082416533478567394
+    RelationshipComponent:
+      Parent: 704969336782663338
+    TagComponent:
+      Tag: INT_DECALS001_INT_DECALS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328129
+      Material: 18006628464930216262
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 7327200127400688321
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_Glass001
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 10462210159503622116
+    RelationshipComponent:
+      Parent: 7327200127400688321
+    TagComponent:
+      Tag: INT_Glass001_INT_Glass_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328130
+      Material: 4849477673160141060
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 11930670811909972648
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_ELECTRONICS001
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 5920762614626135632
+    RelationshipComponent:
+      Parent: 11930670811909972648
+    TagComponent:
+      Tag: INT_ELECTRONICS001_INT_ELECTRONICS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328131
+      Material: 3078980031764058014
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 18414596509425518899
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: GEO_INT_CARBON
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 11016501151441235888
+    RelationshipComponent:
+      Parent: 18414596509425518899
+    TagComponent:
+      Tag: GEO_INT_CARBON_SUB1
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 16762734505922565447
+    RelationshipComponent:
+      Parent: 11016501151441235888
+    TagComponent:
+      Tag: GEO_INT_CARBON_SUB1_INT_CARBON_BAGE_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328132
+      Material: 11102067005699501707
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 15812035084499868056
+    RelationshipComponent:
+      Parent: 18414596509425518899
+    TagComponent:
+      Tag: GEO_INT_CARBON_SUB0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12567081078988129043
+    RelationshipComponent:
+      Parent: 15812035084499868056
+    TagComponent:
+      Tag: GEO_INT_CARBON_SUB0_INT_Carbon_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328133
+      Material: 12735491183148595996
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 15930911246446753005
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_GEO_COCKPIT_SUB0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 2895591480207638307
+    RelationshipComponent:
+      Parent: 15930911246446753005
+    TagComponent:
+      Tag: INT_GEO_COCKPIT_SUB0_INT_Occlusion_Inst_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328134
+      Material: 13945100512489364312
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 7739778934541403249
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_Windows
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 11995513505651143714
+    RelationshipComponent:
+      Parent: 7739778934541403249
+    TagComponent:
+      Tag: INT_Windows_INT_Windows_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328135
+      Material: 12446766086753463846
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 5884904232422353269
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_Windshield
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12096152477920766957
+    RelationshipComponent:
+      Parent: 5884904232422353269
+    TagComponent:
+      Tag: INT_Windshield_INT_Windshield_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328136
+      Material: 9152257793748917099
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 4985623901304022291
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_WELDING
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 1539049389957481480
+    RelationshipComponent:
+      Parent: 4985623901304022291
+    TagComponent:
+      Tag: INT_WELDING_INT_WELDING_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328137
+      Material: 6351943775631513607
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 4767757376500520522
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_GEO_BORRACHA
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4229296989858325444
+    RelationshipComponent:
+      Parent: 4767757376500520522
+    TagComponent:
+      Tag: INT_GEO_BORRACHA_INT_BORRACHAS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328138
+      Material: 18127939629335350743
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 13496803678688394366
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_GEO_DASH_PANEL
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 2588211639692804455
+    RelationshipComponent:
+      Parent: 13496803678688394366
+    TagComponent:
+      Tag: INT_GEO_DASH_PANEL_INT_DASH_PANEL_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328139
+      Material: 488491866602751597
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 13153025446231734047
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_GEO_SPARCO_FOAM
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 17183592447470171947
+    RelationshipComponent:
+      Parent: 13153025446231734047
+    TagComponent:
+      Tag: INT_GEO_SPARCO_FOAM_SPARCO_FOAM_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328140
+      Material: 3977547640330044506
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 9460696983957891513
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_GEO_SEAT_ALCANTARA
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 8580454150735764928
+    RelationshipComponent:
+      Parent: 9460696983957891513
+    TagComponent:
+      Tag: INT_GEO_SEAT_ALCANTARA_SEAT_ALCANTARA_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328141
+      Material: 16184796215034680908
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 3756842899264387894
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_GEO_COCKPIT_SUB1
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12651911395298053625
+    RelationshipComponent:
+      Parent: 3756842899264387894
+    TagComponent:
+      Tag: INT_GEO_COCKPIT_SUB1_SEAT_ALCANTARA_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328142
+      Material: 16184796215034680908
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 3551291540942273407
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_BANNER
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 9920083349593046814
+    RelationshipComponent:
+      Parent: 3551291540942273407
+    TagComponent:
+      Tag: INT_BANNER_INT_BANNER_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328143
+      Material: 15608213960726821160
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 16692761464098455230
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: DISPLAY
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 13677990836920651217
+    RelationshipComponent:
+      Parent: 16692761464098455230
+    TagComponent:
+      Tag: DISPLAY_DISPLAY_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328144
+      Material: 10331916563706721157
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 9200130387476621432
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: DISPALY_RACELOGIC
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 5519830834130609404
+    RelationshipComponent:
+      Parent: 9200130387476621432
+    TagComponent:
+      Tag: DISPALY_RACELOGIC_INT_Racelogic_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328145
+      Material: 63173126107277072
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 12080490816179596650
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: DISPLAY_SASINFO
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 13727651895773866766
+    RelationshipComponent:
+      Parent: 12080490816179596650
+    TagComponent:
+      Tag: DISPLAY_SASINFO_DISPLAY_SAS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328146
+      Material: 1038939403186526791
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 3031715166943326081
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_CABLES
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 243217885831164622
+    RelationshipComponent:
+      Parent: 3031715166943326081
+    TagComponent:
+      Tag: INT_CABLES_INT_CABLES_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328147
+      Material: 7378342443613064094
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 13721903406984630416
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: MANG_AR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 15582693639726157760
+    RelationshipComponent:
+      Parent: 13721903406984630416
+    TagComponent:
+      Tag: MANG_AR_INT_MANG_AR_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328148
+      Material: 2031440137477588894
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 10434077831571121388
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_MANGUEIRAS
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 17198631882753751220
+    RelationshipComponent:
+      Parent: 10434077831571121388
+    TagComponent:
+      Tag: INT_MANGUEIRAS_INT_MANGUEIRAS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328149
+      Material: 8750995958785901848
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 16485124075318451361
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_ANEL
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 6409837717085527705
+    RelationshipComponent:
+      Parent: 16485124075318451361
+    TagComponent:
+      Tag: INT_ANEL_INT_ELECTRONICS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328150
+      Material: 7012621562225179038
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 5681746152002103317
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: SUPORTE_LED
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 10186720572959149267
+    RelationshipComponent:
+      Parent: 5681746152002103317
+    TagComponent:
+      Tag: SUPORTE_LED_INT_ELECTRONICS_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328151
+      Material: 7012621562225179038
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 620209820334482949
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: INT_PLASTIC_PARTS
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 1469719213290605707
+    RelationshipComponent:
+      Parent: 620209820334482949
+    TagComponent:
+      Tag: INT_PLASTIC_PARTS_INT_PLASTIC_BLACK_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328152
+      Material: 18435178762197842482
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 8272955823804369884
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LEDRPM_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7890206511500767868
+    RelationshipComponent:
+      Parent: 8272955823804369884
+    TagComponent:
+      Tag: LEDRPM_0_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328153
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 920287298157978555
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LEDRPM_1
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12296805633777098925
+    RelationshipComponent:
+      Parent: 920287298157978555
+    TagComponent:
+      Tag: LEDRPM_1_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328154
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 8675174027152708274
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LEDRPM_2
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 11231087823678533546
+    RelationshipComponent:
+      Parent: 8675174027152708274
+    TagComponent:
+      Tag: LEDRPM_2_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328155
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 15532343490750930398
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LEDRPM_3
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4177537716608262031
+    RelationshipComponent:
+      Parent: 15532343490750930398
+    TagComponent:
+      Tag: LEDRPM_3_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328156
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 16485890665627729953
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LEDRPM_4
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 1948819104105115287
+    RelationshipComponent:
+      Parent: 16485890665627729953
+    TagComponent:
+      Tag: LEDRPM_4_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328157
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 16843504644766362652
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LEDRPM_5
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 8846977408746999129
+    RelationshipComponent:
+      Parent: 16843504644766362652
+    TagComponent:
+      Tag: LEDRPM_5_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328158
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 16707537762270481012
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LEDRPM_6
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 704850627041685254
+    RelationshipComponent:
+      Parent: 16707537762270481012
+    TagComponent:
+      Tag: LEDRPM_6_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328159
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 3267190623197323851
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LEDRPM_7
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 18428012565889959375
+    RelationshipComponent:
+      Parent: 3267190623197323851
+    TagComponent:
+      Tag: LEDRPM_7_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328160
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 8079287568785569970
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LED_3
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 1183150866785135252
+    RelationshipComponent:
+      Parent: 8079287568785569970
+    TagComponent:
+      Tag: LED_3_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328161
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 12314464630332927784
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LED_8
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 3940141286283940569
+    RelationshipComponent:
+      Parent: 12314464630332927784
+    TagComponent:
+      Tag: LED_8_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328162
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 329511631937367289
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 11910956423135721849
+    RelationshipComponent:
+      Parent: 329511631937367289
+    TagComponent:
+      Tag: LED_0_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328163
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 3683927323360557116
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LED_5
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7581702986166702310
+    RelationshipComponent:
+      Parent: 3683927323360557116
+    TagComponent:
+      Tag: LED_5_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328164
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 17532417605103022613
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LED_1
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 3179585685018827569
+    RelationshipComponent:
+      Parent: 17532417605103022613
+    TagComponent:
+      Tag: LED_1_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328165
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 1881821078763407148
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LED_6
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 15384765580335301489
+    RelationshipComponent:
+      Parent: 1881821078763407148
+    TagComponent:
+      Tag: LED_6_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328166
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 5869881018113792894
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LED_PIT
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 16149215439180403136
+    RelationshipComponent:
+      Parent: 5869881018113792894
+    TagComponent:
+      Tag: LED_PIT_INT_LED_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328167
+      Material: 14726745610411783832
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 11940764726071778553
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: SPEED
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 14292884560578700741
+    RelationshipComponent:
+      Parent: 11940764726071778553
+    TagComponent:
+      Tag: SPEED_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328168
+      Material: 287747017206861762
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 11810610237007298914
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LAPCONT
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 6053379989920516480
+    RelationshipComponent:
+      Parent: 11810610237007298914
+    TagComponent:
+      Tag: LAPCONT_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328169
+      Material: 11337162226428579004
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 13527999371209453541
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LAPTIME
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 1645588131237302747
+    RelationshipComponent:
+      Parent: 13527999371209453541
+    TagComponent:
+      Tag: LAPTIME_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328170
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 1082236504538009171
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: DELTA
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 10725867942270695952
+    RelationshipComponent:
+      Parent: 1082236504538009171
+    TagComponent:
+      Tag: DELTA_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328171
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 18090811588823941663
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LASTLAP
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 11545225919294808630
+    RelationshipComponent:
+      Parent: 18090811588823941663
+    TagComponent:
+      Tag: LASTLAP_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328172
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 17365059767672512369
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: BRAKEBIAS
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 13477935954843183638
+    RelationshipComponent:
+      Parent: 17365059767672512369
+    TagComponent:
+      Tag: BRAKEBIAS_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328173
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 14883587358855583467
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: TRF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12264386206943794543
+    RelationshipComponent:
+      Parent: 14883587358855583467
+    TagComponent:
+      Tag: TRF_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328174
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 17788761974992037119
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: TLF
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 11512011165366221149
+    RelationshipComponent:
+      Parent: 17788761974992037119
+    TagComponent:
+      Tag: TLF_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328175
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 4713061192030912548
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: TLR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 16975482063885075381
+    RelationshipComponent:
+      Parent: 4713061192030912548
+    TagComponent:
+      Tag: TLR_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328176
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 10567864097654088711
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: TRR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 14920210088760941623
+    RelationshipComponent:
+      Parent: 10567864097654088711
+    TagComponent:
+      Tag: TRR_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328177
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 4535216780760201209
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: ABS
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12735514807720540534
+    RelationshipComponent:
+      Parent: 4535216780760201209
+    TagComponent:
+      Tag: ABS_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328178
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 1407038924548591842
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: FAKE2
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 15483059280081553435
+    RelationshipComponent:
+      Parent: 1407038924548591842
+    TagComponent:
+      Tag: FAKE2_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328179
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 3791597460961858445
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: FAKE1
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4814227708883974977
+    RelationshipComponent:
+      Parent: 3791597460961858445
+    TagComponent:
+      Tag: FAKE1_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328180
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 9844614802269320918
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: FAKE0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 9584856146966971570
+    RelationshipComponent:
+      Parent: 9844614802269320918
+    TagComponent:
+      Tag: FAKE0_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328181
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 9536912303431053005
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: WATERTEMP
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 453085569773630429
+    RelationshipComponent:
+      Parent: 9536912303431053005
+    TagComponent:
+      Tag: WATERTEMP_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328182
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 5134003718200335465
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: FUEL
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7752169607402475277
+    RelationshipComponent:
+      Parent: 5134003718200335465
+    TagComponent:
+      Tag: FUEL_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328183
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 13776439377598027537
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: GEAR
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 13399416560268017692
+    RelationshipComponent:
+      Parent: 13776439377598027537
+    TagComponent:
+      Tag: GEAR_PHISICS_DASH_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328184
+      Material: 10711879502584877328
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 3561085178316481854
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: LED_RACELOGIC
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 18080911465380643755
+    RelationshipComponent:
+      Parent: 3561085178316481854
+    TagComponent:
+      Tag: LED_RACELOGIC_LED_RACELOGIC_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328185
+      Material: 18083713429448479717
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 3812727312963636618
+    RelationshipComponent:
+      Parent: 391084939658644089
+    TagComponent:
+      Tag: MIRROR_C
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7318104337663885593
+    RelationshipComponent:
+      Parent: 3812727312963636618
+    TagComponent:
+      Tag: MIRROR_C_MIRROR_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328186
+      Material: 13587639289113789212
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 8274383613200776464
+    RelationshipComponent:
+      Parent: 11212547060931978965
+    TagComponent:
+      Tag: WIPER
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-8.7422805e-08, 0, 0]
+      Scale: [1, 1.0000001, 1.0000001]
+  - EntityID: 7087725546051781974
+    RelationshipComponent:
+      Parent: 8274383613200776464
+    TagComponent:
+      Tag: WIPER_BASE
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [7.1054274e-15, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 2878920214308538855
+    RelationshipComponent:
+      Parent: 7087725546051781974
+    TagComponent:
+      Tag: WIPER_RUBBER
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12443441983436079169
+    RelationshipComponent:
+      Parent: 2878920214308538855
+    TagComponent:
+      Tag: GEO_WIPER_RUBBER
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 13610580065654200101
+    RelationshipComponent:
+      Parent: 12443441983436079169
+    TagComponent:
+      Tag: GEO_WIPER_RUBBER_EXT_Mechanics_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328187
+      Material: 11290276753167327908
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 6240385469513919217
+    RelationshipComponent:
+      Parent: 7087725546051781974
+    TagComponent:
+      Tag: GEO_WIPER_BASE
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 3921782715211325186
+    RelationshipComponent:
+      Parent: 6240385469513919217
+    TagComponent:
+      Tag: GEO_WIPER_BASE_EXT_Mechanics_0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, -0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 1188120948367328188
+      Material: 16463403035747107743
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1

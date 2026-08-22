@@ -1,0 +1,15 @@
+Material: showroom_wall_side
+BaseColor: [0.03, 0.031, 0.034, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [3.64583, 0.770833]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 2303515297440905929
+  Normal: 11026372221442278111
+  Roughness: 10666504736278673107

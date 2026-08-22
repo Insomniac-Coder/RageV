@@ -11927,6 +11927,146 @@ the next time a format looks like it needs its own everything.
 
 ---
 
+### 7ca. A car in a showroom, and the four things it found
+
+The showroom scene (`scenes/showroom.rage`) is a 490,000-triangle Porsche 992
+GT3 R in a black studio under one very large soft ceiling. It is the first
+thing this project has rendered that came from outside it at full detail, and
+almost everything below was found by trying to render it rather than by
+reading anything.
+
+### 1. A saved scene lost every part of a model except one piece
+
+**The defect this scene exists to have caught.** A model with more than one
+material is not one entity: the importer splits it into a primitive per (mesh,
+material) pair, and `InstantiateModel` turns that into a tree. Only the *first*
+primitive wears the model file's own handle. The rest are
+`modelHandle + 1 + index`, minted during the import and cached.
+
+A saved scene stores exactly those numbers. And `GetMesh` could not answer
+them: it asked the registry for a file, found none, and returned null. So a
+scene with an imported multi-material model in it drew correctly until it was
+closed and reopened, at which point it drew **one primitive of a hundred and
+fifty-one**.
+
+Nothing had noticed because every model in the project was single-primitive.
+The fox, the anvil, the camp's props and both `spacecheck` twins are one
+material each, so the file's own handle was always the only handle anybody
+asked for.
+
+`GetMesh` now traces a derived handle back to its owner: the nearest registered
+mesh *below* it. Handles are hashes, so "below" is not "nearby" in general --
+but a derived handle is its model's plus a small offset, and nothing else can
+have been minted into that gap. The candidate is still checked by importing
+it, so a model with fewer primitives than the offset asks for is a miss rather
+than a guess. `make_multipart_gltf.py` is a two-primitive fixture that exists
+solely to ask the question, since nothing else in the project could.
+
+The check that matters is **the order of the two calls**: it asks for the
+derived handle *first*. Asking for the model's own handle first would import
+the file and cache every primitive on the way, and the later question would be
+answered out of the cache whether or not the cold path worked at all. The first
+version of the check did exactly that and would have passed against a
+completely broken implementation.
+
+### 2. Traced global illumination is a variance problem, not a quality setting
+
+The car came back covered in dark speckle. Isolating it by elimination: with
+ray-traced AO off it was still there, with traced reflections off as well it
+was still there, and with ray tracing off entirely it was clean. Raising the
+traced GI from Medium to High -- which is half resolution to full -- barely
+moved it.
+
+That last fact is the diagnosis. **The bounce is a Monte Carlo estimate and
+this room is close to its worst case**: the luminaire is emissive at 4.7 and
+everything else in the room is below 0.04, so a ray that hits the panel returns
+a huge value and a ray that misses returns nothing. A handful of samples of
+that distribution is a number that jumps from pixel to pixel. Variance falls as
+1/sqrt(N), so twice the rays is thirty percent less noise, which is why High
+looked almost the same as Medium.
+
+It was worst where the surface was *darkest*, which is the signature: that is
+where indirect light is the dominant term and its variance is not being hidden
+by anything direct.
+
+Fixing it properly means importance sampling toward the emitter, which the
+engine does not do, and the GI denoiser is an edge-preserving blur -- so it
+protects the speckle rather than removing it. **The scene runs traced
+reflections, traced AO and traced shadows, and takes the screen-space bounce**,
+which is the documented fallback and is clean here. Recorded rather than fixed:
+the fix is a real piece of work in the tracer and this is the first scene that
+has ever needed it.
+
+### 3. A downloaded model can be missing the thing it is famous for
+
+The Sketchfab page shows this car in a yellow E-TECK #91 Manthey wrap. The
+`.glb` does not contain it: `EXT_Carpaint_Inst` -- the entire body -- carries a
+`baseColorFactor` of [0.8, 0.8, 0.8] and no texture at all. **Forty-five of its
+eighty-nine materials are like that**, including the rims, the calipers, the
+carbon and the whole interior.
+
+So the body imported as flat grey at roughness 0.96, which is chalk: no
+specular to catch the luminaire, so under a large source it renders as a white
+silhouette with no shading in it. Reported as "the car has no textures", which
+is what it looks like and not what it was -- the importer read the file
+correctly.
+
+The wrap was in the archive all along, as a 4096-square `decals.png` that
+nothing in the glTF references. The viewer on the website applies it through
+Sketchfab's own material editor, and that assignment is what the glTF export
+dropped. The scene reattaches it by name, and gives the other forty-four
+materials physical values -- paint, alloy, anodised caliper, carbon,
+alcantara. **The model supplies the geometry and the livery; the showroom
+supplies the paint.**
+
+Two things worth keeping from that:
+
+- **Reattaching by name is the scene's job and not the importer's.** An
+  importer that went looking for unreferenced images in a folder and bound them
+  to materials by hope would be wrong far more often than it was right.
+- **The rewrite is on the reference, not on the file.** `rvimport` regenerates
+  those `.rmat`s from the glTF every time it runs, so an edit to one is a
+  change waiting to be overwritten. A new material beside them and a handle
+  swapped on the way into the scene is owned by the generator.
+
+And the mapping was upside down when first attached: the body's `TEXCOORD_0`
+runs V from 1.007 to 1.995, and the panels landed on the atlas mirrored -- the
+nose came out wearing the sill's lettering. The image was never referenced by
+the glTF, so nothing ever made it agree with glTF's top-left origin. Fixed with
+a `Tiling` of -1 and a `UvOffset` of 1 on that one material, since the shader
+computes `uv * Tiling + UvOffset`.
+
+### 4. A generated scene and an imported model meet in a file
+
+A Python generator can build a room, a light rig, a camera and a canvas. It
+cannot build three hundred and thirty-seven entities whose material files do
+not exist until something imports the model and whose handles are minted when
+they are written.
+
+`tools/rvimport` is that something: a device, a hidden window, and
+`InstantiateModel` into an empty scene, written out with `SerializeSubtree` in
+the same document shape a scene uses. The generator splices it in.
+
+**Run once and committed, rather than run by the generator.** The import mints
+fresh UUIDs every time, so regenerating the room would otherwise renumber three
+hundred and thirty-seven entities that had not changed -- which is the same
+argument the camp's generator makes for deriving entity ids from names.
+
+### What the room is, in one paragraph
+
+Nine point lights across the ceiling standing in for an area source, because
+one light in the middle of a four-metre luminaire puts one hot specular dot on
+the bonnet and the illusion dies at that dot. One spot straight down for the
+grounding shadow, and it is the only shadow caster -- the engine allows four
+local ones and the other three would each add a second contact shadow the eye
+reads as a second car. Black walls and a near-black ceiling on the owner's
+direction, which turned a showroom into a studio and was the stronger frame:
+the only bright things left are the source and the car. Exposure at 0.45, not
+1.0, because a white car two metres under a source that size receives several
+times what a sunlit surface does.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |

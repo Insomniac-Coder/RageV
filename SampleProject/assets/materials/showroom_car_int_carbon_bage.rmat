@@ -1,0 +1,12 @@
+Material: showroom_car_int_carbon_bage
+BaseColor: [0.034, 0.035, 0.039, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0.05
+Roughness: 0.28
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:

@@ -1,0 +1,15 @@
+Material: showroom_concrete
+BaseColor: [0.62, 0.62, 0.63, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [2.13333, 1.03333]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 8545304356734474208
+  Normal: 1279161567386463246
+  Roughness: 14352740090392507668

@@ -1,0 +1,11 @@
+Material: EXT_Carpaint_Inst
+BaseColor: [0.8, 0.8, 0.8, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 0.95770514
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]
