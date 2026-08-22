@@ -1344,6 +1344,8 @@ namespace
 		const char* const kAoDetailNames[] = { "Off", "Half", "Full" };
 		// Off, then the two the rasterised dial uses -- rays, then resolution.
 		const char* const kRayDetailNames[] = { "Off", "Low", "Medium", "High" };
+
+		const char* const kFocusModeNames[] = { "Manual", "Target" };
 		const char* const kAntiAliasingNames[] = { "None", "FXAA", "SMAA", "SSAA",
 												   "MSAA", "TAA" };
 		const char* const kSkyNames[] = { "Color", "Gradient", "Cubemap" };
@@ -1690,6 +1692,20 @@ namespace
 			return ((const PostSettings*)block)->DepthOfField;
 		}
 
+		bool FocusIsTarget(const void* block)
+		{
+			return ((const PostSettings*)block)->Focus == FocusMode::Target;
+		}
+
+		// The subject rows: present only when there is a subject to describe.
+		// Hidden rather than greyed, which is the distinction FieldHint draws
+		// -- these do not *apply* in Manual mode, as opposed to applying and
+		// being answered elsewhere, which is what the two rows below them do.
+		bool FocusTargetFields(const void* block)
+		{
+			return DepthOfFieldOn(block) && FocusIsTarget(block);
+		}
+
 		bool MotionBlurOn(const void* block)
 		{
 			return ((const PostSettings*)block)->MotionBlur;
@@ -1831,10 +1847,43 @@ namespace
 						"before bloom, so an out-of-focus highlight glows as "
 						"the disc it has become." })),
 
+				// **The mode first, because it decides what the rows under it
+				// mean.** Manual is every profile written before this existed,
+				// and is what one loads as.
+				Field<&PostSettings::Focus>("Focus",
+					Named("Focus", OnlyWhen(DepthOfFieldOn,
+						Enum(kFocusModeNames,
+							"Manual sets the focus distance and the aperture by "
+							"hand, which is right for a shot that does not move.\n\n"
+							"Target names an object instead and solves both from "
+							"it every frame -- the distance from where it is, the "
+							"aperture from how deep it is. A camera that travels "
+							"keeps its subject sharp without anybody animating a "
+							"slider.")))),
+
+				Field<&PostSettings::FocusTarget>("FocusTarget",
+					Named("Focus target", OnlyWhen(FocusTargetFields, FieldHint{ .Tooltip =
+						"The object the shot is focused on. Pick it from the list "
+						"or drag it in from the Hierarchy.\n\n"
+						"Its world bounds are what the solve reads, so a parent "
+						"covering a whole model is the right thing to name -- "
+						"naming one wheel focuses on that wheel." }))),
+
+				Field<&PostSettings::SubjectCoverage>("SubjectCoverage",
+					Named("Subject coverage", OnlyWhen(FocusTargetFields,
+						Slider(0.0f, 1.0f,
+							"How much of the subject has to be sharp, as a "
+							"fraction of its depth. 1 keeps all of it sharp, "
+							"which is the product-photograph answer. Lower opens "
+							"the aperture and throws the far end away: 0.2 is a "
+							"portrait, with the near fifth sharp.")))),
+
 				Field<&PostSettings::FocusDistance>("FocusDistance",
 					Named("Focus distance", OnlyWhen(DepthOfFieldOn,
+						DisabledWhen(FocusIsTarget,
+							"The focus target is answering this, from where it is.",
 						Drag(0.05f, 0.05f, 500.0f,
-							"Where the plane of sharp focus is, in metres.")))),
+							"Where the plane of sharp focus is, in metres."))))),
 
 				Field<&PostSettings::FocalLength>("FocalLength",
 					Named("Focal length", OnlyWhen(DepthOfFieldOn,
@@ -1845,10 +1894,13 @@ namespace
 
 				Field<&PostSettings::Aperture>("Aperture",
 					Named("Aperture (f)", OnlyWhen(DepthOfFieldOn,
+						DisabledWhen(FocusIsTarget,
+							"The focus target is answering this, from how deep "
+							"the subject is and the coverage above.",
 						Drag(0.02f, 0.7f, 32.0f,
 							"The f-number. Small is a wide aperture and a "
 							"shallow field: f/1.4 throws a background away, "
-							"f/16 keeps most of a scene sharp.")))),
+							"f/16 keeps most of a scene sharp."))))),
 
 				Field<&PostSettings::MaxBokehRadius>("MaxBokehRadius",
 					Named("Max blur", OnlyWhen(DepthOfFieldOn,

@@ -6126,6 +6126,291 @@ void main()
 		std::filesystem::remove(path, error);
 	}
 
+	// --- depth of field that follows a subject ------------------------------
+	//
+	// The arithmetic, against numbers worked out by hand. The picture this
+	// produces is a separate question and a render answers it; what a check can
+	// answer is whether the solve puts the plane where the subject is and picks
+	// an f-number that contains it, which is the whole of the feature.
+	void CheckFocusTarget()
+	{
+		if (!Renderer::HasDevice())
+			return;
+
+		auto scene = std::make_shared<Scene>();
+
+		// Looking down -Z from the origin, which is where every camera in this
+		// engine looks and what the solve assumes.
+		Entity camera = scene->CreateEntity("Camera");
+		camera.AddComponent<CameraComponent>();
+
+		// A unit cube -- the primitive's bounds are half a metre each way --
+		// scaled to four metres deep and placed ten metres down the view axis.
+		Entity subject = scene->CreateEntity("Subject");
+		subject.AddComponent<MeshComponent>(PrimitiveType::Cube);
+		subject.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, -10.0f };
+		subject.GetComponent<TransformComponent>().Scale = { 1.0f, 1.0f, 4.0f };
+		scene->UpdateWorldTransforms();
+
+		PostSettings settings;
+		settings.DepthOfField = true;
+		settings.FocalLength = 50.0f;      // millimetres
+		settings.FocusDistance = 5.0f;
+		settings.Aperture = 2.8f;
+
+		// --- Manual changes nothing ------------------------------------------
+		{
+			PostSettings manual = settings;
+			manual.Focus = FocusMode::Manual;
+			manual.FocusTarget = EntityRef(subject.GetUUID());
+			scene->ResolveFocus(manual, camera);
+
+			Check(manual.FocusDistance == 5.0f && manual.Aperture == 2.8f,
+				  "Manual focus leaves both numbers exactly as authored, even with a "
+				  "target named -- so switching modes back keeps the shot you had");
+		}
+
+		// --- the bounds the solve reads ---------------------------------------
+		{
+			Vec3 centre, extents;
+			Check(scene->GetSubtreeBounds(subject, centre, extents),
+				  "a subject with a mesh has bounds");
+			Check(Math::Abs(extents.z - 2.0f) < 1e-3f,
+				  "and they are the scaled ones -- a cube stretched to four metres "
+				  "deep measures two metres either side of its centre");
+
+			Entity empty = scene->CreateEntity("Empty");
+			Vec3 unused;
+			Check(!scene->GetSubtreeBounds(empty, unused, unused),
+				  "an entity with nothing drawable under it has none, which is an "
+				  "answer rather than a zero-sized box at the origin");
+
+			// A parent that draws nothing still measures its children, which is
+			// the case that matters: an imported model's root is an empty node
+			// with three hundred meshes under it.
+			Entity parent = scene->CreateEntity("Parent");
+			scene->SetParent(subject, parent);
+			scene->UpdateWorldTransforms();
+			Check(scene->GetSubtreeBounds(parent, centre, extents)
+				  && Math::Abs(extents.z - 2.0f) < 1e-3f,
+				  "and a parent that draws nothing itself still measures what is "
+				  "under it, which is what naming an imported model does");
+			scene->SetParent(subject, Entity());
+			scene->UpdateWorldTransforms();
+		}
+
+		// --- Target puts the plane on the subject ------------------------------
+		{
+			PostSettings target = settings;
+			target.Focus = FocusMode::Target;
+			target.FocusTarget = EntityRef(subject.GetUUID());
+			scene->ResolveFocus(target, camera);
+
+			Check(Math::Abs(target.FocusDistance - 10.0f) < 1e-3f,
+				  "Target focus puts the plane on the subject, at its own distance");
+
+			// f/8.1 by hand: r/(d-r) * f^2 / ((d-f) * c)
+			//   = 2/8 * 0.0025 / (9.95 * 0.00003)
+			const float expected = (2.0f / 8.0f) * (0.05f * 0.05f)
+								 / ((10.0f - 0.05f) * 0.00003f);
+			Check(Math::Abs(target.Aperture - expected) < 0.05f,
+				  "and an f-number solved from how deep the subject is, not a "
+				  "constant");
+		}
+
+		// --- and it is depth along the axis, not distance to the subject -------
+		//
+		// The one that a straight-line distance gets wrong, and the reason it
+		// is worth a check: the prepass compares against a depth buffer.
+		{
+			subject.GetComponent<TransformComponent>().Position = { 6.0f, 0.0f, -8.0f };
+			scene->UpdateWorldTransforms();
+
+			PostSettings target = settings;
+			target.Focus = FocusMode::Target;
+			target.FocusTarget = EntityRef(subject.GetUUID());
+			scene->ResolveFocus(target, camera);
+
+			Check(Math::Abs(target.FocusDistance - 8.0f) < 1e-3f,
+				  "an off-axis subject focuses at its depth along the view axis (8), "
+				  "not at the distance to it (10) -- which is what the depth buffer "
+				  "the prepass reads actually holds");
+
+			subject.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, -10.0f };
+			scene->UpdateWorldTransforms();
+		}
+
+		// --- coverage opens the aperture ---------------------------------------
+		{
+			PostSettings whole = settings, half = settings;
+			whole.Focus = half.Focus = FocusMode::Target;
+			whole.FocusTarget = half.FocusTarget = EntityRef(subject.GetUUID());
+			whole.SubjectCoverage = 1.0f;
+			half.SubjectCoverage = 0.4f;
+
+			scene->ResolveFocus(whole, camera);
+			scene->ResolveFocus(half, camera);
+
+			Check(half.Aperture < whole.Aperture,
+				  "less coverage is a wider aperture, so the far end of the subject "
+				  "falls away -- which is the shallow look, chosen rather than "
+				  "suffered");
+
+			PostSettings none = settings;
+			none.Focus = FocusMode::Target;
+			none.FocusTarget = EntityRef(subject.GetUUID());
+			none.SubjectCoverage = 0.0f;
+			scene->ResolveFocus(none, camera);
+			Check(none.Aperture == 2.8f && Math::Abs(none.FocusDistance - 10.0f) < 1e-3f,
+				  "and zero coverage moves the plane and leaves the aperture alone, "
+				  "rather than solving for an infinity");
+		}
+
+		// --- closer stops down --------------------------------------------------
+		{
+			auto apertureAt = [&](float z)
+			{
+				subject.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, z };
+				scene->UpdateWorldTransforms();
+
+				PostSettings target = settings;
+				target.Focus = FocusMode::Target;
+				target.FocusTarget = EntityRef(subject.GetUUID());
+				scene->ResolveFocus(target, camera);
+				return target.Aperture;
+			};
+
+			Check(apertureAt(-6.0f) > apertureAt(-14.0f),
+				  "walking towards the subject stops the lens down, because the same "
+				  "object takes up more of the depth of field the nearer it is -- the "
+				  "whole reason a fixed f-number went soft at the closest orbit");
+
+			Check(apertureAt(-4.0f) <= 32.0f && apertureAt(-40.0f) >= 0.7f,
+				  "and the answer stays inside the range a real lens has, at both ends");
+
+			subject.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, -10.0f };
+			scene->UpdateWorldTransforms();
+		}
+
+		// --- nothing to focus on -------------------------------------------------
+		{
+			PostSettings unset = settings;
+			unset.Focus = FocusMode::Target;
+			scene->ResolveFocus(unset, camera);
+			Check(unset.FocusDistance == 5.0f && unset.Aperture == 2.8f,
+				  "Target mode with no target named renders on the manual numbers "
+				  "rather than on nothing");
+
+			// The case a shared profile produces: the UUID names something real,
+			// in a scene that is not this one.
+			PostSettings stale = settings;
+			stale.Focus = FocusMode::Target;
+			stale.FocusTarget = EntityRef(UUID(0xFEEDFACEC0FFEEull));
+			scene->ResolveFocus(stale, camera);
+			Check(stale.FocusDistance == 5.0f && stale.Aperture == 2.8f,
+				  "and a target this scene has never heard of does the same -- which "
+				  "is what a post profile shared with another scene looks like");
+
+			PostSettings off = settings;
+			off.DepthOfField = false;
+			off.Focus = FocusMode::Target;
+			off.FocusTarget = EntityRef(subject.GetUUID());
+			scene->ResolveFocus(off, camera);
+			Check(off.FocusDistance == 5.0f,
+				  "and depth of field switched off solves nothing at all");
+		}
+
+		// --- behind the camera ----------------------------------------------------
+		{
+			subject.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, 12.0f };
+			scene->UpdateWorldTransforms();
+
+			PostSettings behind = settings;
+			behind.Focus = FocusMode::Target;
+			behind.FocusTarget = EntityRef(subject.GetUUID());
+			scene->ResolveFocus(behind, camera);
+
+			Check(behind.FocusDistance == 5.0f && behind.Aperture == 2.8f,
+				  "a subject behind the camera is not focused on at a negative "
+				  "distance, which the thin-lens expression would divide by");
+		}
+	}
+
+	// --- what the inspector shows, and when ---------------------------------
+	//
+	// The visibility rules *are* the feature's user interface: a mode dropdown
+	// whose choice decides which rows are there. Asserted here rather than
+	// looked at in a screenshot, because a predicate is a function and a
+	// function can be called -- and because the panel it draws into is docked
+	// above another one, so the rows in question are below the fold at any
+	// window size worth taking a picture of.
+	void CheckFocusFields()
+	{
+		const std::vector<FieldDesc>& fields = PostSettingsRegistry::Fields();
+
+		auto find = [&](const char* name) -> const FieldDesc*
+		{
+			for (const FieldDesc& field : fields)
+			{
+				if (field.Name && std::strcmp(field.Name, name) == 0)
+					return &field;
+			}
+			return nullptr;
+		};
+
+		const FieldDesc* mode = find("Focus");
+		const FieldDesc* target = find("FocusTarget");
+		const FieldDesc* coverage = find("SubjectCoverage");
+		const FieldDesc* distance = find("FocusDistance");
+		const FieldDesc* aperture = find("Aperture");
+
+		Check(mode && target && coverage && distance && aperture,
+			  "every depth-of-field row is registered, so all five are on disk and "
+			  "in front of a script as well as in the inspector");
+
+		if (!mode || !target || !coverage || !distance || !aperture)
+			return;
+
+		Check(mode->Type == FieldType::Enum && mode->Hint.EnumCount == 2,
+			  "the focus mode is a two-value dropdown rather than a checkbox, which "
+			  "is what leaves room for a third way of choosing a plane");
+		Check(target->Type == FieldType::Entity,
+			  "and the target is an entity reference, so it is picked rather than "
+			  "typed");
+
+		PostSettings settings;
+		settings.DepthOfField = true;
+
+		// --- Manual ----------------------------------------------------------
+		settings.Focus = FocusMode::Manual;
+		Check(!target->Hint.VisibleIf(&settings) && !coverage->Hint.VisibleIf(&settings),
+			  "in Manual the subject rows are not there at all -- they do not apply, "
+			  "which is a different thing from being answered elsewhere");
+		Check(distance->Hint.VisibleIf(&settings) && aperture->Hint.VisibleIf(&settings),
+			  "and the two optical rows are");
+		Check(!distance->Hint.DisabledIf(&settings) && !aperture->Hint.DisabledIf(&settings),
+			  "and are editable, which is the whole of what Manual means");
+
+		// --- Target -----------------------------------------------------------
+		settings.Focus = FocusMode::Target;
+		Check(target->Hint.VisibleIf(&settings) && coverage->Hint.VisibleIf(&settings),
+			  "picking Target brings the subject rows in");
+		Check(distance->Hint.VisibleIf(&settings) && aperture->Hint.VisibleIf(&settings),
+			  "and leaves the optical rows visible rather than hiding them: they are "
+			  "still exactly what the lens is doing");
+		Check(distance->Hint.DisabledIf(&settings) && aperture->Hint.DisabledIf(&settings),
+			  "greyed, because something else is answering them");
+		Check(distance->Hint.DisabledNote && aperture->Hint.DisabledNote,
+			  "and each says what is answering it, which is the difference between a "
+			  "control that is off and one that is being driven");
+
+		// --- and none of it exists without the effect ---------------------------
+		settings.DepthOfField = false;
+		Check(!mode->Hint.VisibleIf(&settings) && !target->Hint.VisibleIf(&settings)
+			  && !distance->Hint.VisibleIf(&settings),
+			  "with depth of field switched off the whole block goes, mode included");
+	}
+
 	void CheckPostProfileOnCamera()
 	{
 		const PostSettings neutral;
@@ -14587,6 +14872,8 @@ int RunTests(int argc, char** argv)
 	CheckAntiAliasingSwitch();
 	CheckRenderSettings();
 	CheckPostProfileOnCamera();
+	CheckFocusTarget();
+	CheckFocusFields();
 	CheckLutRecipe();
 	CheckCubeLut();
 	CheckShadowToggle();

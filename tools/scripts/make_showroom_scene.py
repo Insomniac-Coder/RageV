@@ -1207,6 +1207,20 @@ def car_materials():
     return remap
 
 
+def car_root_id():
+    """The subtree's own root entity, which is the car as one object.
+
+    Read from the committed import rather than written down here, because it is
+    rvimport's number and not this script's -- and a copy of somebody else's id
+    is a copy that goes stale silently.
+    """
+    for line in CAR_SUBTREE.read_text(encoding="utf-8").split("\n"):
+        if line.strip().startswith("- EntityID:"):
+            return int(line.split(":")[1])
+
+    raise SystemExit(f"{CAR_SUBTREE.relative_to(ROOT)} has no entities in it")
+
+
 def car_subtree(remap):
     """The imported car, as rvimport wrote it.
 
@@ -1346,13 +1360,36 @@ def main():
         "ColorLut": lut,
         "ColorLutStrength": 0.9,
 
-        # 60 mm at f/4.5, focused on the car. **The focus distance is the
-        # orbit's own radius**, so the subject stays sharp at every angle --
-        # which is the reason an orbit camera can have depth of field at all.
-        # It does drift if the wheel is used; the alternative is a script that
-        # rewrites a post profile every frame, which is a whole asset being
-        # mutated for a slider.
+        # **Focused on the car, by naming it.** This used to be a hand-set
+        # distance equal to the orbit's starting radius, and the comment here
+        # admitted the flaw it had: "it does drift if the wheel is used". It
+        # drifted badly. At the closest zoom the plane stayed at 7.3 m with the
+        # camera at 4.6, which put the *entire car* in front of the near limit
+        # -- the nose at six pixels of blur -- and the answer to "why does it
+        # go soft when I lean in" was that nothing was ever going to move it.
+        #
+        # Target mode names the subject and solves both numbers from it every
+        # frame: the distance from where the car is, the aperture from how deep
+        # it is. The aperture below is what Manual mode falls back to and what
+        # the solve overrides; it is left at the value it was tuned to by eye,
+        # because the solve independently arrives at f/8.1 at this distance and
+        # a number that agrees is worth keeping visible.
         "DepthOfField": True,
+        "Focus": "Target",
+        "FocusTarget": car_root_id(),
+
+        # **Not 1, and this is the aesthetic choice rather than the correct
+        # one.** Full coverage keeps the whole car sharp end to end, which at
+        # the closest orbit needs f/29 -- physically right, and it flattens the
+        # picture: no fall-off anywhere, which is the one thing separating a
+        # photograph of a car from an elevation drawing of one.
+        #
+        # 0.55 keeps the near half of the car crisp and lets the tail soften,
+        # which is what a car photographer shooting a three-quarter view
+        # actually does. It also holds the aperture inside the range where the
+        # bokeh still has a shape.
+        "SubjectCoverage": 0.55,
+
         "FocusDistance": START_DISTANCE,
         "FocalLength": 60.0,
         # **f/8, not f/4.5.** At the wider stop the back wall came back as a

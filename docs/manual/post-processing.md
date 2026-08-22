@@ -112,13 +112,26 @@ the relationship between them is not something to rediscover per scene.
 | Setting | Default | Range | What it does |
 |---|---|---|---|
 | `DepthOfField` | `false` | — | On adds three passes |
-| `FocusDistance` | `5.0` | metres | Where the plane of sharp focus is |
+| `Focus` | `Manual` | Manual, Target | Whether the two rows below are set by hand or solved from a subject |
+| `FocusTarget` | — | an entity | Target mode only: what the shot is focused on |
+| `SubjectCoverage` | `1.0` | 0 to 1 | Target mode only: how much of the subject has to be sharp |
+| `FocusDistance` | `5.0` | metres | Where the plane of sharp focus is. Solved in Target mode |
 | `FocalLength` | `50.0` | millimetres | 50 is normal on the 35 mm sensor these are measured against; longer is both narrower and shallower |
-| `Aperture` | `2.8` | f-number | f/1.4 throws a background away; f/16 keeps most of a scene sharp |
+| `Aperture` | `2.8` | f-number | f/1.4 throws a background away; f/16 keeps most of a scene sharp. Solved in Target mode |
 | `MaxBokehRadius` | `24.0` | pixels of output | Ceiling on the blur radius |
 
 Runs after the anti-aliasing resolve and before bloom, so a bright out-of-focus
 highlight glows as the disc it has become rather than as the point it was.
+
+`MaxBokehRadius` is not cosmetic: the gather's tap count is chosen against it.
+Let the radius grow without bound and the disc thins into a ring of separate
+dots, which reads as a broken effect rather than a shallow one.
+
+### Manual — the lens
+
+`FocusDistance` and `Aperture` mean exactly what they say and nothing moves
+them. Right for a fixed shot, and for anything where you want the focus itself
+to be the composition.
 
 > [!TRAP]
 > A long focal length at a wide aperture is a *very* shallow field — 85 mm at
@@ -126,9 +139,38 @@ highlight glows as the disc it has become rather than as the point it was.
 > numbers mean on a real camera too. **If nothing looks sharp, the focus
 > distance is wrong before the effect is.**
 
-`MaxBokehRadius` is not cosmetic: the gather's tap count is chosen against it.
-Let the radius grow without bound and the disc thins into a ring of separate
-dots, which reads as a broken effect rather than a shallow one.
+### Target — the photographer
+
+Name the object instead, and both numbers are solved from it every frame:
+
+- **`FocusDistance`** becomes the subject's depth along the camera's forward
+  axis. Depth, not distance — that is what the depth buffer the effect reads
+  actually holds, so a subject at the corner of a wide frame focuses where it
+  is rather than somewhere past it.
+- **`Aperture`** is solved so the subject *fits inside* the depth of field, from
+  its own measured bounds. Putting the plane on a subject fixes where the
+  sharpness is and not how much of it there is: a 4.8 m car seen from 4.6 m away
+  through a 60 mm lens does not fit in f/8, however perfectly you focus.
+
+`SubjectCoverage` is the knob between the two looks a target can have. At 1 the
+whole subject is sharp, which is the product-photograph answer. Lower opens the
+aperture and lets the far end fall away — 0.2 is a portrait, with the near fifth
+sharp. The solved f-number is clamped to the range the slider offers, so a
+subject too deep to contain simply gets the smallest opening a real lens has.
+
+Both rows stay visible while Target is picked, greyed with a note, because they
+still apply — something else is answering them. Switch back to Manual and the
+numbers you typed are still there.
+
+> [!NOTE]
+> **A profile is an asset and a target is an entity**, so a `.rvpostprofile`
+> shared between two scenes can only name something in one of them. The other
+> draws the slot in red as "Missing entity" and renders on the manual numbers
+> rather than on nothing — which is a shot that still works while you fix it.
+
+The showroom scene is the worked example: its camera orbits between 4.6 m and
+11 m, and before this the focus plane sat at the starting radius the whole time.
+At the closest zoom the entire car was in front of the near limit.
 
 ## Screen-space reflections — off by default
 

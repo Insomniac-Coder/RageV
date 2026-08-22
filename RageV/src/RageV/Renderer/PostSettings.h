@@ -1,5 +1,9 @@
 #pragma once
 #include "RageV/Core/UUID.h"
+// For FocusTarget. EntityRef is a UUID in a struct and nothing else, so this
+// costs no dependency worth the name -- and the struct is what stops an entity
+// reference being assignable from an asset handle by accident.
+#include "RageV/Scene/EntityRef.h"
 
 namespace RageV
 {
@@ -63,6 +67,24 @@ namespace RageV
 		Low,      // half resolution, 12 taps
 		Medium,   // half resolution, 24 taps
 		High,     // full resolution, 24 taps
+	};
+
+	// How the plane of sharp focus is chosen.
+	//
+	// **Manual is the lens and Target is the photographer.** In Manual the
+	// three optical controls mean exactly what they say and nothing moves them
+	// -- which is right for a fixed shot and wrong for anything that moves,
+	// because a focus distance is a distance to a *subject* and a camera that
+	// travels leaves its subject behind. The showroom's orbit did precisely
+	// that: focus nailed at the starting radius of 7.3 m, and at the closest
+	// zoom the entire car sat in front of the near limit.
+	//
+	// Target names the subject instead and lets the engine solve for it every
+	// frame. See PostSettings::FocusTarget for what it solves.
+	enum class FocusMode : uint32_t
+	{
+		Manual,
+		Target,
 	};
 
 	struct PostSettings
@@ -176,8 +198,65 @@ namespace RageV
 		// slider, so f/1.4 does what f/1.4 does and the relationship between
 		// the three is not something to rediscover per scene.
 		//
+		// Manual or driven by a subject. Manual is the default and is what
+		// every profile written before this existed loads as, which is the
+		// behaviour those profiles were authored against.
+		FocusMode Focus = FocusMode::Manual;
+
 		// Where the plane of sharp focus is, in metres.
+		//
+		// **Written by hand in Manual and computed in Target**, where it
+		// becomes the view-space depth of the focus target -- the depth along
+		// the camera's forward axis, which is what the circle-of-confusion
+		// prepass compares against, and not the straight-line distance to it.
+		// The two differ by the cosine of the angle off-axis, which is nothing
+		// for a subject in the middle of frame and 15% for one at the corner
+		// of a wide one.
 		float FocusDistance = 5.0f;
+
+		// What to focus on, in Target mode. Empty leaves the manual distance
+		// alone, so an unset target is a profile that still renders.
+		//
+		// **An entity reference living in an asset, which is a first for this
+		// project and is a real trade-off.** A `.rvpostprofile` is shared: two
+		// cameras can point at one, and the UUID in here only names something
+		// in the scene it was authored against. Opening the same profile in
+		// another scene draws "Missing entity" in the inspector rather than
+		// silently focusing on nothing.
+		//
+		// It is here anyway because the alternative is worse. Putting it on
+		// the CameraComponent keeps the reference scene-local and splits the
+		// depth-of-field controls across two inspectors -- the mode on the
+		// camera, the optics in the profile -- so a single question ("what is
+		// this shot focused on?") would be answered in two places that can
+		// disagree. A profile is already authored per scene in practice; a
+		// reference that can go stale, and says so, is the smaller cost.
+		EntityRef FocusTarget;
+
+		// How much of the subject has to be sharp, in Target mode: the
+		// fraction of its half-depth that must stay inside the depth of field.
+		//
+		// **This is what makes Target mode more than an autofocus.** Putting
+		// the plane on the subject fixes where the sharpness is and not how
+		// much of it there is -- at 4.6 m a 60 mm at f/8 has about three
+		// metres of field and the showroom's car is 4.8 m long, so focusing
+		// perfectly on its centre still leaves the nose soft. So the aperture
+		// is solved for as well, from the subject's own measured depth:
+		//
+		//     N = (r / (d - r)) * f^2 / (d - f) * frameHeight / (sensor * CoC)
+		//
+		// which is the thin-lens circle of confusion in the prepass, inverted
+		// for the f-number that puts the near edge of the subject exactly on
+		// the acceptable-blur threshold.
+		//
+		// 1 keeps the whole subject sharp, which is the product-photograph
+		// answer and the default. Lower stops *up* rather than down and throws
+		// the far end away -- 0.2 is the shallow portrait look, with the near
+		// fifth of the subject sharp and the rest falling off. The solved
+		// f-number is clamped to the range the aperture slider offers, so a
+		// subject that cannot be contained simply gets the smallest opening a
+		// real lens has.
+		float SubjectCoverage = 1.0f;
 
 		// In millimetres, the way lenses are sold. 50 is normal on the 35 mm
 		// sensor these are measured against; longer is both narrower and

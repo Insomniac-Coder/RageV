@@ -397,8 +397,156 @@ namespace RageV
 		if (!camera || !camera.HasComponent<CameraComponent>())
 			return PostSettings{};
 
-		return Assets::Manager::GetPostSettings(
+		PostSettings settings = Assets::Manager::GetPostSettings(
 			camera.GetComponent<CameraComponent>().PostProfile);
+
+		// **On the copy, and that is the whole reason this is here.** The
+		// caller gets a value; the profile on disk and the one in the asset
+		// cache keep the numbers a person typed. A solve that wrote back would
+		// mean opening a scene and looking at it edited the asset -- and the
+		// inspector would show a focus distance sliding about under the cursor
+		// with nobody dragging it.
+		ResolveFocus(settings, camera);
+		return settings;
+	}
+
+	// The circle of confusion a photograph is judged sharp by, in metres on the
+	// sensor. The 35 mm convention: roughly the film diagonal over 1500, and
+	// the number every depth-of-field table ever printed is computed against.
+	//
+	// **In millimetres of sensor rather than pixels of output, deliberately.**
+	// An f-number is a property of a lens and does not change when somebody
+	// resizes the window; defining "sharp" per pixel would stop a scene down
+	// at 4K and open it up at 720p, so the same shot would be a different
+	// photograph on two machines.
+	static constexpr float kCircleOfConfusion = 0.00003f;
+
+	void Scene::ResolveFocus(PostSettings& settings, Entity camera)
+	{
+		if (!settings.DepthOfField || settings.Focus != FocusMode::Target)
+			return;
+
+		// Three ways to have nothing to focus on, and all three leave the
+		// manual values in place: no target named, a target that is not in this
+		// scene (a profile shared with another one -- the inspector draws that
+		// slot in red), and a target with nothing drawable under it.
+		Entity target = GetEntityByUUID(settings.FocusTarget.Value);
+		if (!target)
+			return;
+
+		Vec3 centre{ 0.0f }, extents{ 0.0f };
+		if (!GetSubtreeBounds(target, centre, extents))
+			return;
+
+		const Mat4 view = GetWorldTransform(camera);
+		const Vec3 eye = Vec3(view[3]);
+
+		// The camera looks down its own -Z, the same axis every light and every
+		// camera in this engine aims along.
+		const Vec3 forward = Math::Normalize(-Vec3(view[2]));
+
+		// **Depth along the forward axis, not distance to the subject.** The
+		// prepass compares its linearised depth buffer against FocusDistance,
+		// and a depth buffer holds the first and not the second. For a subject
+		// in the middle of frame the two agree; for one at the corner of a wide
+		// lens they differ by the cosine of the angle off-axis, and focusing a
+		// long way past your subject is exactly the failure this feature is
+		// for.
+		const float depth = Math::Dot(centre - eye, forward);
+
+		// Behind the camera, or so close that the thin-lens denominator has
+		// nothing left in it. Neither is a state to solve in.
+		const float focal = settings.FocalLength * 0.001f;
+		if (depth <= focal * 1.05f)
+			return;
+
+		settings.FocusDistance = depth;
+
+		// How deep the subject is along that same axis. An axis-aligned box's
+		// extent along an arbitrary direction is the dot of its half-extents
+		// with the direction's absolute components -- the support function,
+		// which is exact for a box and is what the frustum test already uses in
+		// the other direction.
+		const float half = Math::Dot(extents, Math::Abs(forward))
+						 * Math::Clamp(settings.SubjectCoverage, 0.0f, 1.0f);
+
+		// Nothing to contain: a flat subject seen face on, or coverage at zero.
+		// The plane is on it and the aperture stays where the author left it,
+		// which is the useful answer rather than an infinity.
+		if (half <= 1.0e-4f)
+			return;
+
+		// The near edge is what decides the aperture, and this is not
+		// symmetry-blind laziness: the circle of confusion grows faster in
+		// front of the plane than behind it -- the `1/z` in the prepass -- so
+		// an aperture that keeps the near edge sharp keeps the far edge sharp
+		// with room to spare, and one solved from the far edge does not.
+		//
+		//     N = r / (d - r) * f^2 / ((d - f) * c)
+		//
+		// which is the prepass's own expression, set equal to `c` at
+		// `z = d - r` and rearranged for the f-number.
+		const float aperture = (half / (depth - half))
+							 * (focal * focal)
+							 / ((depth - focal) * kCircleOfConfusion);
+
+		// Clamped to the range the slider offers, which is the range a lens
+		// has. A subject too deep to contain gets the smallest opening there
+		// is and stays slightly soft at the ends, which is what a photographer
+		// standing where this camera is would also get.
+		settings.Aperture = Math::Clamp(aperture, 0.7f, 32.0f);
+	}
+
+	bool Scene::GetSubtreeBounds(Entity root, Vec3& centre, Vec3& extents)
+	{
+		if (!root)
+			return false;
+
+		Vec3 low(std::numeric_limits<float>::max());
+		Vec3 high(std::numeric_limits<float>::lowest());
+		bool any = false;
+
+		// Iterative rather than recursive. A model's node hierarchy is six or
+		// seven deep and would recurse perfectly well; a scene graph is
+		// author-controlled and has no bound at all, and a stack overflow in a
+		// focus solve is a poor way to find that out.
+		std::vector<UUID> pending;
+		pending.push_back(root.GetUUID());
+
+		while (!pending.empty())
+		{
+			Entity entity = GetEntityByUUID(pending.back());
+			pending.pop_back();
+			if (!entity)
+				continue;
+
+			for (UUID child : GetChildren(entity))
+				pending.push_back(child);
+
+			if (!entity.HasComponent<MeshComponent>() || !entity.HasComponent<TransformComponent>())
+				continue;
+
+			RHI::Ref<Mesh> resolved =
+				Assets::Manager::GetMesh(entity.GetComponent<MeshComponent>().Mesh);
+			if (!resolved)
+				continue;
+
+			Vec3 itemCentre, itemExtents;
+			Frustum::TransformBounds(resolved->GetBounds(),
+									 entity.GetComponent<TransformComponent>().World,
+									 itemCentre, itemExtents);
+
+			low = Math::Min(low, itemCentre - itemExtents);
+			high = Math::Max(high, itemCentre + itemExtents);
+			any = true;
+		}
+
+		if (!any)
+			return false;
+
+		centre = (low + high) * 0.5f;
+		extents = (high - low) * 0.5f;
+		return true;
 	}
 
 	Vec2 Scene::GetCameraClipPlanes()

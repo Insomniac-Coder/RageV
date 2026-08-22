@@ -24,8 +24,9 @@ corner of its own range.
 | **Protocol 10** | `IsUIButtonHovered` — a script could not read hover in *either* language. |
 | **`ShowroomLights.cs`** | The switch. Emissive on the lamp meshes, intensity on four spot lights. |
 | **A camera fix** | Full zoom plus full pitch put the camera through the wall. Black frame. |
+| **Target focus** | Depth of field can name a subject and solve the distance *and* the aperture from it. |
 
-2287 checks on Vulkan and on OpenGL, both green.
+2314 checks on Vulkan and on OpenGL, both green.
 
 ### The three things worth carrying forward
 
@@ -43,6 +44,13 @@ corner of its own range.
    flattening the pitch — which reaches further along the ground than the wall
    clamp was computed against. Order matters, and the failure needed both
    extremes at once, which is why it survived a whole session of use. (7cd)
+
+4. **A focus distance is a distance to a subject.** The showroom's was a
+   number in a file equal to the orbit's starting radius, so the car went soft
+   the moment you leaned in. `Focus: Target` names the car instead. **Both**
+   numbers are solved — the plane from where it is, the aperture from how deep
+   it is — because putting the plane on a subject fixes *where* the sharpness
+   is and not *how much* of it there is. (7ce)
 
 ### Where the showroom's numbers live
 

@@ -349,6 +349,30 @@ namespace RageV
 		// existed. ENGINE-NOTES 7s.
 		PostSettings GetPostSettings();
 
+		// The world bounds of everything drawable under `root`, the root
+		// included. False when there is nothing drawable there at all, which is
+		// the honest answer for an empty entity and is not an error -- a focus
+		// target that names one is simply a target with no size, and the caller
+		// leaves the manual values alone rather than solving from zero.
+		//
+		// Walked from the components rather than read out of `m_DrawBounds`,
+		// deliberately: the draw list is rebuilt inside the render entry points
+		// and this is called by the *layer* that fills the frame description,
+		// which happens first. Reading it here would use last frame's list, and
+		// on the first frame there is no list at all.
+		bool GetSubtreeBounds(Entity root, Vec3& centre, Vec3& extents);
+
+		// Target-mode depth of field: the focus distance and the aperture,
+		// solved from the subject and written into the caller's copy of the
+		// profile. A no-op unless depth of field is on and the mode is Target.
+		//
+		// **Public because it is arithmetic, and arithmetic is the part worth
+		// testing.** GetPostSettings calls it and nothing else has to; it is
+		// here so a check can hand it a camera, a subject and a known distance
+		// and assert the f-number, rather than looking at a render and
+		// agreeing that it seems sharper.
+		void ResolveFocus(PostSettings& settings, Entity camera);
+
 		// The primary camera's near and far planes, as (near, far).
 		//
 		// Resolved the same way the post settings are, and for the same

@@ -12372,6 +12372,109 @@ do not hold together when the first one moves the input the second one reads.
 The tell was that the failure needed *both* extremes at once, which is why it
 survived a session of being dragged around.
 
+### 7ce. Focus is a distance to a subject, not a number in a file
+
+Reported as "depth of field makes the car look blurry when I get close to it",
+which is a complaint about the effect and turned out to be about one field.
+
+`FocusDistance` was authored at 7.3 m -- the orbit's *starting* radius -- and
+the wheel moves the camera without moving it. The scene's own comment had
+predicted this and shipped anyway: *"It does drift if the wheel is used."*
+Running the prepass's own arithmetic at 60 mm and f/8:
+
+| orbit | nose | centre | tail |
+|---|---|---|---|
+| 7.3 m | -1.3 px | 0.0 | +0.7 px |
+| 4.6 m | **-6.1 px** | -1.6 px | -0.2 px |
+
+At the closest zoom the entire car is in front of the near limit.
+
+#### The one-line fix is not the fix
+
+`RenderSettings.Set("FocusDistance", m_Distance)` from the camera script gets
+the plane onto the subject, and the objection recorded against it -- "a whole
+asset being mutated for a slider" -- had already been designed away by protocol
+8, whose writes are runtime overrides that never reach the file.
+
+It still is not enough. **Focusing perfectly on the car's centre at 4.6 m
+leaves the nose at -4.5 px.** That is not a focus error; it is a 60 mm lens at
+f/8 having about three metres of depth of field pointed at a 4.8 m object. No
+choice of focus distance fixes it. Only the aperture does, and a photographer
+walking in would stop down as they went.
+
+So Target mode solves *both*, and the two are orthogonal in a way worth keeping
+straight:
+
+    coc = ((z - d) / z) * f^2 / (N * (d - f))
+
+`d` is where the sharp plane sits and every autofocus idea is a way of picking
+it. `N` is how fast blur grows either side. Depth-buffer autofocus, a focus
+target, a hand-set slider: all three are methods for `d` and none of them is a
+rule for `N`.
+
+#### The aperture solve, and the number that validated it
+
+Set the circle of confusion at the subject's near edge equal to the acceptable
+blur and rearrange for the f-number:
+
+    N = r / (d - r) * f^2 / ((d - f) * c)
+
+with `r` the subject's half-depth along the view axis and `c` the 35 mm
+convention, 0.03 mm **on the sensor** rather than a pixel count -- an f-number
+is a property of a lens and must not change when somebody resizes the window.
+
+The near edge and not the far one, and that is not laziness: the `1/z` in the
+prepass means blur grows faster in front of the plane than behind it, so an
+aperture that holds the near edge holds the far edge with room to spare and one
+solved from the far edge does not.
+
+**At 7.3 m the solve returns f/8.12.** The scene had been hand-tuned to f/8 by
+eye, months earlier, by somebody looking at renders. Independent agreement to
+1.5% is the strongest evidence available that the model is the right one.
+
+Measured on the closest orbit: the car's gradient energy went from 7.40 to
+11.38 (+54%) while the background fell from 1.30 to 1.14 -- subject sharper,
+room thrown further away, which is what stopping down *and* refocusing together
+should do.
+
+#### Three things the inspector already had
+
+The feature reads as a large one -- a mode dropdown, fields that appear and
+grey by mode, an entity picker with type-to-search -- and almost none of it was
+new:
+
+1. **`OnlyWhen` and `DisabledWhen`** have existed since spot cones and the SSR
+   rows, complete with the distinction that matters here: hidden means "does
+   not apply in this mode", greyed means "applies, and is being answered
+   elsewhere". `FocusDistance` and `Aperture` are greyed rather than hidden in
+   Target mode, because they are still exactly what the lens is doing.
+2. **`Enum(names)`** builds the dropdown, and a registered enum must be
+   int-sized, which the registry asserts at the registration.
+3. **The searchable combo** is the shape `DrawAssetPicker` and the clip picker
+   both already use. The entity slot was a drag target and nothing else, so
+   setting a reference to something inside a collapsed branch began with
+   expanding the tree; it is now that same combo, which every `EntityRef` field
+   in the project gets for free.
+
+#### The one real trade-off: an asset that names an entity
+
+`PostSettings` **is** a `.rvpostprofile`, so `FocusTarget` puts a scene UUID
+inside an asset -- a first here, and a profile shared between two scenes can
+only name something in one of them.
+
+The alternative was the CameraComponent, which keeps the reference scene-local
+and splits the depth-of-field controls across two inspectors: the mode on the
+camera, the optics in the profile. One question -- what is this shot focused
+on? -- answered in two places that can disagree. A stale reference that draws
+itself in red and falls back to the manual numbers is the smaller cost, and the
+entity drawer had already had that "Missing entity" state since the day it was
+written.
+
+Every failure leaves the manual values in place rather than solving from
+nothing: no target, a target from another scene, a target with nothing drawable
+under it, a subject behind the camera. **A shot that still works while you fix
+it.**
+
 ---
 
 ## 8. What this changes

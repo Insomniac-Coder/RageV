@@ -13,6 +13,9 @@ AutoExposureHighPercent: 0.93
 ColorLut: 9916686428105880856
 ColorLutStrength: 0.9
 DepthOfField: true
+Focus: Target
+FocusTarget: 16167290979463119363
+SubjectCoverage: 0.55
 FocusDistance: 7.3
 FocalLength: 60
 Aperture: 8

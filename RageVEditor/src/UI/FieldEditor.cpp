@@ -473,11 +473,21 @@ namespace RageV::UI
 				if (missing)
 					ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().Danger);
 
-				ImGui::Button(label.c_str(), ImVec2(-1.0f, 0.0f));
+				// **A dropdown rather than a drop target alone.** Dragging from
+				// the Hierarchy is the fast gesture when you can already see
+				// both ends of it, and it is the *only* gesture that used to
+				// exist -- which meant setting a reference to something in a
+				// collapsed branch of a three-hundred-entity tree began with
+				// expanding the tree to find it. Typing three letters is the
+				// answer the asset slot and the clip slot both already give,
+				// and this is that same control.
+				const bool opened = ImGui::BeginCombo("##pick", label.c_str());
 
 				if (missing)
 					ImGui::PopStyleColor();
 
+				// Before the popup body, so a drop lands on the closed control.
+				//
 				// The hierarchy is already a drag source and has been since
 				// reparenting was built, so this costs one target and no new
 				// payload type.
@@ -495,33 +505,84 @@ namespace RageV::UI
 					ImGui::EndDragDropTarget();
 				}
 
-				// Clearing needs to be possible and must not be the same
-				// gesture as opening something, so it is the context menu
-				// rather than a click.
-				if (ImGui::BeginPopupContextItem("##entity-ref"))
-				{
-					if (ImGui::MenuItem("Clear", nullptr, false, reference.IsValid()))
-					{
-						reference = EntityRef();
-						changed = true;
-					}
-					ImGui::EndPopup();
-				}
-
-				if (ImGui::IsItemHovered())
+				if (!opened && ImGui::IsItemHovered())
 				{
 					if (missing)
 					{
 						ImGui::SetTooltip("This slot names entity %llu, which is not in the "
-										  "scene.\nIt was probably deleted. Drag a "
-										  "replacement in, or right-click to clear.",
+										  "scene.\nIt was probably deleted, or this asset is "
+										  "shared with another scene.\nPick a replacement, or "
+										  "choose None.",
 										  (unsigned long long)(uint64_t)reference);
 					}
 					else
 					{
-						ImGui::SetTooltip("Drag an entity from the Hierarchy to set this.\n"
-										  "Right-click to clear.");
+						ImGui::SetTooltip("Pick from the list, or drag an entity in from the "
+										  "Hierarchy.");
 					}
+				}
+
+				if (opened)
+				{
+					// Filtered as you type, the same as the asset and clip
+					// slots. A scene of any size is a list nobody scrolls: the
+					// showroom's car alone is three hundred and thirty-seven
+					// entities, and a name is far easier to remember than a
+					// position in a tree.
+					static char s_Filter[64] = {};
+					if (ImGui::IsWindowAppearing())
+					{
+						s_Filter[0] = '\0';
+						ImGui::SetKeyboardFocusHere();
+					}
+					ImGui::SetNextItemWidth(-FLT_MIN);
+					ImGui::InputTextWithHint("##filter", "Search", s_Filter, sizeof(s_Filter));
+					ImGui::Separator();
+
+					const std::string needle = ToLower(s_Filter);
+
+					if (ImGui::Selectable("None", !reference.IsValid()))
+					{
+						reference = EntityRef();
+						changed = true;
+					}
+
+					if (scene)
+					{
+						// Walked in registry order rather than hierarchy order,
+						// which is deliberate: a search result is a flat list
+						// of names and indenting it by a tree the filter has
+						// already cut through would be indentation that means
+						// nothing.
+						auto view = scene->GetRegistry().GetView<TagComponent>();
+						for (auto handle : view)
+						{
+							Entity candidate{ handle, scene };
+							const std::string& name = view.Get<TagComponent>(handle).Name;
+
+							if (!needle.empty() && ToLower(name).find(needle) == std::string::npos)
+								continue;
+
+							// Names are not unique and never have been, so the
+							// id disambiguates two entities that read alike.
+							// Pushed rather than baked into the label, so the
+							// list still shows the name and only the name.
+							ImGui::PushID((int)(uint32_t)(uint64_t)candidate.GetUUID());
+
+							const bool selected = reference.IsValid()
+											   && candidate.GetUUID() == reference.Value;
+
+							if (ImGui::Selectable(name.c_str(), selected))
+							{
+								reference = EntityRef(candidate.GetUUID());
+								changed = true;
+							}
+
+							ImGui::PopID();
+						}
+					}
+
+					ImGui::EndCombo();
 				}
 
 				EndField();
