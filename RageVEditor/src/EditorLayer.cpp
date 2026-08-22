@@ -4160,8 +4160,35 @@ void EditorLayer::BuildGameAs()
 	BuildInto(std::filesystem::path(chosen).parent_path());
 }
 
+// Package the project, on a worker, into the same console the script build
+// uses.
+//
+// **It used to run on the main thread and it showed.** Packaging cooks every
+// texture and imports every model in the project -- tens of seconds on
+// anything real -- and the editor sat inside one call for all of it: no
+// repaint, no input, and Windows painting "Not Responding" over the window
+// after five. There was no way to tell a long build from a hung one.
+//
+// The split that makes a worker safe is in the packager itself: PlanPackage
+// reads the open project and asks the C# runtime what methods a script has,
+// both of which belong on this thread; WritePackage touches no globals and is
+// handed a snapshot. See ProjectPackager.h.
 void EditorLayer::BuildInto(const std::filesystem::path& output)
 {
+	if (!Project::GetActive())
+		return;
+
+	// One build at a time, shared with Build Scripts. A package copies what a
+	// script build produces, so the two overlapping would ship whichever half
+	// had finished -- and pressing the item during a build brings the console
+	// to front rather than queueing a second one behind the first.
+	if (m_BuildInFlight)
+	{
+		m_ShowScriptBuild = true;
+		m_FocusBuildLog = 4;
+		return;
+	}
+
 	PackageDesc desc;
 	desc.OutputDirectory = output;
 	// The target usually already holds the previous build. Refusing here would
@@ -4170,21 +4197,81 @@ void EditorLayer::BuildInto(const std::filesystem::path& output)
 	// at.
 	desc.Overwrite = true;
 
-	const PackageResult result = PackageProject(desc);
+	// **Planned here, written there.** This half reads the project and the
+	// script runtime, so it stays on the main thread; what crosses to the
+	// worker is the plan, which is a snapshot and owns everything in it.
+	PackagePlan plan = PlanPackage(desc);
 
-	for (const std::string& warning : result.Warnings)
+	// **The scene is the one thing that does not save itself**, and packaging
+	// reads it from disk. A post profile writes through the moment it is
+	// edited and Render Settings write the project file on their own, so both
+	// of those are already current -- but an unsaved scene ships as whatever
+	// was last written, and the difference is invisible in the result.
+	//
+	// A warning rather than a refusal: packaging the last saved state is a
+	// legitimate thing to want, and this build is not the moment to argue.
+	if (m_Commands.IsSceneDirty())
+	{
+		plan.Warnings.push_back("the open scene has unsaved changes; the package "
+								"contains the last saved version of it");
+	}
+
+	for (const std::string& warning : plan.Warnings)
 		RV_WARN("{0}", warning);
 
-	if (!result.Success)
+	if (!plan.Ok)
 	{
-		for (const std::string& error : result.Errors)
+		// Reported without ever starting a thread, and shown in the console
+		// like any other build result -- a refusal is an outcome, not a
+		// silence.
+		for (const std::string& error : plan.Errors)
 			RV_ERROR("{0}", error);
+
+		m_PackageBuild = PackageResult{};
+		m_PackageBuild.Errors = plan.Errors;
+		m_PackageBuild.Warnings = plan.Warnings;
+		m_PackageBuildRan = true;
+		m_ShowScriptBuild = true;
+		m_FocusBuildLog = 4;
+		m_StatusBar.Post(EditorUI::StatusBar::Kind::Error, "Build Game failed",
+						 plan.Errors.front());
 		return;
 	}
 
-	RV_INFO("Built '{0}': {1} files, {2} MB -> {3}", Project::Config().Name,
-			result.FilesCopied, result.BytesCopied / (1024 * 1024),
-			result.Executable.string());
+	m_ShowScriptBuild = true;
+	m_FocusBuildLog = 4;
+	m_BuildInFlight = true;
+	m_BuildCancel = false;
+	m_BuildDone = false;
+	m_WorkerRanModule = false;
+	m_WorkerRanScripts = false;
+	m_WorkerRanPackage = false;
+	{
+		std::lock_guard<std::mutex> lock(m_BuildLogMutex);
+		m_BuildLiveLog.clear();
+	}
+
+	m_StatusBar.Post(EditorUI::StatusBar::Kind::Working, "Building game",
+					 output.string());
+
+	// The console's supply line, and the cancel the packager checks between
+	// files. Both are the same mechanisms Build Scripts uses.
+	desc.Log = [this](const std::string& line)
+	{
+		std::lock_guard<std::mutex> lock(m_BuildLogMutex);
+		m_BuildLiveLog.append(line);
+	};
+	desc.Cancel = &m_BuildCancel;
+
+	m_BuildThread = std::thread([this, desc, plan]()
+	{
+		m_WorkerRanPackage = true;
+		m_WorkerPackage = WritePackage(desc, plan);
+
+		// Last, after the result is in place: this is what tells the main
+		// thread it may read it.
+		m_BuildDone = true;
+	});
 }
 
 
@@ -4206,10 +4293,12 @@ void EditorLayer::BuildScripts()
 	if (m_BuildInFlight)
 	{
 		m_ShowScriptBuild = true;
+		m_FocusBuildLog = 4;
 		return;
 	}
 
 	m_ShowScriptBuild = true;
+	m_FocusBuildLog = 4;
 	m_BuildInFlight = true;
 	m_BuildCancel = false;
 	m_BuildDone = false;
@@ -4317,6 +4406,39 @@ void EditorLayer::FinishBuild()
 	const bool resume = m_ResumePlayAfterBuild;
 	m_ResumePlayAfterBuild = false;
 
+	if (m_WorkerRanPackage)
+	{
+		m_PackageBuild = std::move(m_WorkerPackage);
+		m_PackageBuildRan = true;
+
+		for (const std::string& warning : m_PackageBuild.Warnings)
+			RV_WARN("{0}", warning);
+
+		if (m_PackageBuild.Cancelled)
+		{
+			RV_INFO("Game build cancelled");
+			m_StatusBar.Post(EditorUI::StatusBar::Kind::Info, "Game build cancelled");
+		}
+		else if (!m_PackageBuild.Success)
+		{
+			for (const std::string& error : m_PackageBuild.Errors)
+				RV_ERROR("{0}", error);
+
+			m_StatusBar.Post(EditorUI::StatusBar::Kind::Error, "Game build failed",
+							 m_PackageBuild.Errors.empty() ? std::string()
+														   : m_PackageBuild.Errors.front());
+		}
+		else
+		{
+			RV_INFO("Built '{0}': {1} files, {2} MB -> {3}", Project::Config().Name,
+					m_PackageBuild.FilesCopied, m_PackageBuild.BytesCopied / (1024 * 1024),
+					m_PackageBuild.Executable.string());
+
+			m_StatusBar.Post(EditorUI::StatusBar::Kind::Info, "Game built",
+							 m_PackageBuild.Executable.string());
+		}
+	}
+
 	if (m_WorkerRanModule)
 	{
 		m_ModuleBuild = std::move(m_WorkerModule);
@@ -4420,6 +4542,14 @@ void EditorLayer::DrawScriptBuildPanel()
 	if (!m_ShowScriptBuild)
 		return;
 
+	// Raised once, on the frame a build starts. Every frame would fight
+	// anybody who clicked another tab while it ran.
+	if (m_FocusBuildLog > 0)
+	{
+		m_FocusBuildLog--;
+		ImGui::SetNextWindowFocus();
+	}
+
 	if (!ImGui::Begin("Build Log", &m_ShowScriptBuild))
 	{
 		ImGui::End();
@@ -4436,13 +4566,27 @@ void EditorLayer::DrawScriptBuildPanel()
 		// has no idea a light theme exists.
 		ImGui::TextColored(EditorTheme::Colors().Warning, "Building%.*s",
 						   1 + (int)(ImGui::GetTime() * 2.0) % 3, "...");
-		ImGui::SameLine();
-		if (ImGui::SmallButton("Cancel"))
-			m_BuildCancel = true;
+
 		if (m_BuildCancel)
 		{
 			ImGui::SameLine();
 			ImGui::TextDisabled("stopping...");
+		}
+
+		// **Pinned to the right edge, not laid out after the label.** The
+		// label animates from one dot to three, so a button placed after it
+		// slid back and forth twice a second -- and the thing that moves is the
+		// one control in the panel somebody might be trying to hit. Its
+		// position is now a property of the window rather than of the
+		// animation.
+		{
+			const float width = ImGui::CalcTextSize("Cancel").x
+							  + ImGui::GetStyle().FramePadding.x * 2.0f;
+
+			ImGui::SameLine();
+			ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - width);
+			if (ImGui::SmallButton("Cancel"))
+				m_BuildCancel = true;
 		}
 
 		ImGui::Separator();
@@ -4464,11 +4608,42 @@ void EditorLayer::DrawScriptBuildPanel()
 		return;
 	}
 
-	if (!m_ScriptBuildRan && !m_ModuleBuildRan)
+	if (!m_ScriptBuildRan && !m_ModuleBuildRan && !m_PackageBuildRan)
 	{
 		ImGui::TextDisabled("Nothing built yet.");
 		ImGui::End();
 		return;
+	}
+
+	// The game build, when one was the last thing that ran. Its own section
+	// rather than a line in the script one: it produces a folder rather than a
+	// binary, and the thing anybody wants from it is the path.
+	if (m_PackageBuildRan)
+	{
+		ImGui::SeparatorText("Game build");
+
+		if (m_PackageBuild.Cancelled)
+		{
+			ImGui::TextDisabled("Cancelled.");
+		}
+		else if (m_PackageBuild.Success)
+		{
+			ImGui::TextColored(EditorTheme::Colors().Success, "Built");
+			ImGui::SameLine();
+			ImGui::TextDisabled("%llu files, %llu MB",
+								(unsigned long long)m_PackageBuild.FilesCopied,
+								(unsigned long long)(m_PackageBuild.BytesCopied / (1024 * 1024)));
+			ImGui::TextWrapped("%s", m_PackageBuild.Executable.string().c_str());
+		}
+		else
+		{
+			ImGui::TextColored(EditorTheme::Colors().Danger, "Failed");
+			for (const std::string& error : m_PackageBuild.Errors)
+				ImGui::TextWrapped("%s", error.c_str());
+		}
+
+		for (const std::string& warning : m_PackageBuild.Warnings)
+			ImGui::TextColored(EditorTheme::Colors().Warning, "%s", warning.c_str());
 	}
 
 	// The C++ module, when one was built. First for the same reason it builds

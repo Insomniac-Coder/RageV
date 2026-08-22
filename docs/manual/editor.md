@@ -49,6 +49,29 @@ WCAG 2.2 AA contrast by a script, so neither is a guess.
 > also while the right mouse button is held — S is the fly-backward key, so
 > sprinting backwards must not fill a folder with screenshots.
 
+## Building
+
+**Scene ▸ Build Game** packages the project into `<project>/bin/<Name>`;
+**Build Game As...** picks somewhere else. Both run on a worker, so the editor
+stays usable while it happens — the Build Log panel comes to front with live
+output and a Cancel button, exactly as Build Scripts does. One build at a time:
+packaging copies what a script build produces, so the two cannot overlap.
+
+The packaged game carries the state the editor is in:
+
+| | |
+|---|---|
+| **Render Settings** | Written into the packaged `.rvproject`, so ray tracing, anti-aliasing and shadows ship as authored |
+| **Graphics backend** | `ragev.ini` names whichever backend the editor is running |
+| **Post profiles** | Ship as assets; the inspector writes them through the moment they are edited |
+| **Scenes** | Read from disk — a scene with unsaved changes warns, and ships as last saved |
+
+> [!NOTE]
+> Packaging validates every UI button binding in every scene before it writes
+> anything, because a method name in a scene file has no compiler behind it.
+> That means parsing every scene in the project, which is the slowest part of a
+> build on a large one.
+
 ## Screenshots
 
 **Shift+S**, or **Scene ▸ Screenshot**, writes what the Game panel is showing

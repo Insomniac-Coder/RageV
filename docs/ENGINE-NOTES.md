@@ -12545,6 +12545,84 @@ subset of what it served, and it went wrong silently the moment one of them
 grew. Nothing in the language or the build could have caught it -- only the
 first `EntityRef` in a settings block could, and it did, by looking broken.
 
+### 7cf. Build Game froze the editor, and the slow half was not the one being moved
+
+Reported as "Not Responding", against a menu item that packaged the project on
+the main thread from start to finish.
+
+#### Moving the writing half was not enough
+
+The obvious fix is the one Build Scripts already had: a worker, a live console,
+a cancel, results published on the main thread. Done, and the editor still
+froze for **25 seconds** before the first frame came back.
+
+Measured rather than guessed: a probe printing the wall clock every forty
+frames from the moment the build started.
+
+    frame 160 at 25.20s, build still running
+    frame 200 at 25.42s
+    frame 240 at 25.63s
+
+Forty frames in 25.2 seconds, then forty in 0.22. The stall was **entirely
+before the worker started**, in the validation the packager does first -- and
+that had been left on the main thread deliberately, because it reads
+`Project::*` and asks the C# runtime which methods a script has.
+
+**The reason it costs 25 seconds is nothing to do with .NET.** Validating UI
+button bindings means parsing every `.rage` in the project: ninety-one scenes,
+92 MB, one of which is the hundred-and-twenty-thousand-object stress scene at
+1.8 million lines. The CLR calls are a handful; the YAML is all of it.
+
+So the split is not "validate here, write there" but **"ask the runtime here,
+walk the scenes there"**. `UI::CollectScriptMethods()` takes every script type
+and its methods once, on the main thread, and `ValidateBindings` gained an
+optional table to answer from instead of calling into .NET per binding. The
+walk moved to the worker with everything else.
+
+The whole build, measured end to end afterwards:
+
+    build finished: 37.4s, 6823 frames drawn during it, worst single frame 15 ms
+
+15 ms is one vsync interval. There is no stall left to find.
+
+**The lesson is the measurement.** "It is slow because it does a lot of work"
+was true and useless; the useful fact was *which* work, and one timestamp
+answered it. The first fix moved the half that looked expensive -- copying and
+cooking twelve hundred files -- and the expensive half was the validation
+nobody thought of as work at all.
+
+#### What a worker is allowed to touch
+
+`WritePackage` takes a `PackagePlan` and reads no globals. That is not
+tidiness: the main thread can close or switch projects while a build runs, and
+half of one project with half of another is worse than a build against a stale
+snapshot. It is the same rule the script build wrote down for itself.
+
+#### And two things the packaged game was quietly losing
+
+Found while checking that a build reflects the editor's current state, which
+the owner asked about:
+
+1. **`ragev.ini` hardcoded `rhi = vulkan`.** A project built by an editor
+   running OpenGL shipped a game that started on Vulkan -- and on a machine
+   without it, a game that did not start. It now ships the backend the editor
+   is running. A headless `rvpack` has no such answer, so it passes one
+   explicitly rather than inheriting `EngineConfig`'s defaults, which would
+   have silently changed what every packaging script produced.
+2. **The packaged `.rvproject` had no `RenderSettings` block at all.**
+   `Project::Save` writes one and `Project::Load` reads one; the packager wrote
+   four keys and stopped. So a shipped game loaded the *defaults* -- ray
+   tracing off, TAA off -- and a project authored with traced reflections
+   shipped without them, silently. It now writes the block through the
+   registry, for the reason `Project::Save` gives at the identical call: a
+   field added to the struct but not to a writer is a field that resets on
+   every load, and enumerating them by hand is how these two diverged.
+
+Post profiles were already correct and worth stating: the inspector writes a
+`.rvpostprofile` through the moment it is edited, so the file the packager
+reads is current. The scene is the one thing that does not save itself, so a
+build with unsaved scene changes now warns.
+
 ---
 
 ## 8. What this changes

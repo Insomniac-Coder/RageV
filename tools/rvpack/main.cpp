@@ -35,6 +35,10 @@ namespace
 			"  --runtime=<exe>    the runtime to ship; found automatically otherwise\n"
 			"  --engine-assets=<dir>\n"
 			"                     shaders and fonts; taken from beside the runtime otherwise\n"
+			"  --rhi=<backend>    what the packaged ragev.ini names: vulkan or opengl.\n"
+			"                     Defaults to vulkan. The editor ships whichever\n"
+			"                     backend it is running instead -- a headless tool\n"
+			"                     has no such answer to give.\n"
 			"  --loose            ship content/ as a folder instead of content.pak,\n"
 			"                     so single files can be swapped while debugging\n"
 			"  --raw              pack source bytes without cooking them; a raw pak\n"
@@ -49,6 +53,13 @@ int main(int argc, char** argv)
 	std::filesystem::path projectPath;
 	std::filesystem::path outputPath;
 	PackageDesc desc;
+
+	// **Stated rather than inherited.** Left empty the packager asks
+	// EngineConfig, which in a tool with no engine running answers with defaults
+	// and warns -- so the CLI would ship whatever the default happened to be,
+	// silently, and a packaging script would change behaviour the day that
+	// default moved. Vulkan is what this wrote before it was a choice.
+	desc.Backend = "vulkan";
 
 	for (int i = 1; i < argc; i++)
 	{

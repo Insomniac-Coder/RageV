@@ -1,6 +1,9 @@
 #pragma once
 #include <RageV.h>
 #include "RageV/Managed/ScriptBuild.h"
+// For PackageResult, held as the game build's result the same way
+// Managed::BuildResult is held as the script build's.
+#include "RageV/Project/ProjectPackager.h"
 #include <atomic>
 #include <chrono>
 #include <mutex>
@@ -114,6 +117,19 @@ public:
 	bool m_ScriptBuildRan = false;
 	bool m_ShowScriptBuild = false;
 
+	// **Showing a docked panel is not the same as bringing it to front.**
+	// `m_ShowScriptBuild` makes the window exist; if it is a tab behind Content
+	// -- which is where the default layout puts it -- it stays behind Content,
+	// and a build that says nothing is a build that looks like it did nothing.
+	// Consumed by the panel, which is the only place that may call
+	// SetNextWindowFocus.
+	// Counted down rather than a single flag: another panel appearing on a
+	// later frame -- the content browser is the one that does it -- takes
+	// focus after this has already asked for it, so one request is not
+	// reliably the last word. A few frames is, and it is still short enough
+	// not to fight somebody who deliberately clicks another tab.
+	int m_FocusBuildLog = 0;
+
 	// The C++ module's build, kept apart from the C# one because they fail
 	// independently and the panel says which half is broken.
 	RageV::Managed::BuildResult m_ModuleBuild;
@@ -131,6 +147,15 @@ public:
 	RageV::Managed::BuildResult m_WorkerScripts;
 	bool m_WorkerRanModule = false;
 	bool m_WorkerRanScripts = false;
+
+	// The game build, on the same worker and through the same console. It
+	// shares m_BuildInFlight with the script build deliberately: packaging
+	// copies the module and the assembly a script build produces, so the two
+	// running at once would ship whichever half had finished.
+	RageV::PackageResult m_WorkerPackage;
+	bool m_WorkerRanPackage = false;
+	RageV::PackageResult m_PackageBuild;
+	bool m_PackageBuildRan = false;
 	std::mutex m_BuildLogMutex;
 	std::string m_BuildLiveLog;
 

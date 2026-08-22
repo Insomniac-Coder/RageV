@@ -4,6 +4,7 @@
 #include "RageV/Scene/Scene.h"
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
+#include "RageV/Scene/ScriptRegistry.h"
 #include "RageV/Managed/Interop.h"
 
 namespace RageV::UI
@@ -181,7 +182,110 @@ namespace RageV::UI
 			   "one needs it public, with no arguments, returning void.";
 	}
 
-	std::vector<BindingProblem> ValidateBindings(Scene& scene)
+	namespace
+	{
+		// One binding, answered either by asking the runtime or by reading a
+		// table taken earlier. The *policy* above -- what counts as a problem --
+		// is the same either way; only the lookup moves.
+		bool Answers(Scene& scene, Entity target, const std::string& method,
+					 const MethodTable* methods)
+		{
+			if (!methods)
+				return scene.CanInvokeScriptMethod(target, method);
+
+			auto answers = [&](const std::string& script)
+			{
+				if (script.empty())
+					return false;
+
+				const auto found = methods->find(script);
+				if (found == methods->end())
+					return false;
+
+				return std::find(found->second.begin(), found->second.end(), method)
+					!= found->second.end();
+			};
+
+			if (target.HasComponent<NativeScriptComponent>()
+				&& answers(target.GetComponent<NativeScriptComponent>().ScriptName))
+			{
+				return true;
+			}
+
+			if (target.HasComponent<ManagedScriptComponent>()
+				&& answers(target.GetComponent<ManagedScriptComponent>().ScriptName))
+			{
+				return true;
+			}
+
+			return false;
+		}
+	}
+
+	MethodTable CollectScriptMethods()
+	{
+		MethodTable table;
+
+		// The C++ registry needs nothing running, so these are always
+		// answerable -- the same reason ValidateBindings never treats a native
+		// binding as unknown.
+		for (const std::string& name : ScriptRegistry::GetNames())
+		{
+			std::vector<std::string>& methods = table[name];
+			for (const ScriptMethod& method : ScriptRegistry::MethodsOf(name))
+				methods.push_back(method.Name);
+		}
+
+		if (!Managed::Interop::IsReady() || !Managed::Interop::Managed().ListScriptTypes
+			|| !Managed::Interop::Managed().ListMethods)
+		{
+			return table;
+		}
+
+		// Length first, then the copy -- the GetEntityName contract, which
+		// every string crossing this boundary uses.
+		auto read = [](auto&& call) -> std::string
+		{
+			const int32_t needed = call(nullptr, 0);
+			if (needed <= 0)
+				return {};
+
+			std::string text((size_t)needed + 1, '\0');
+			call(text.data(), (int32_t)text.size());
+			return std::string(text.c_str());
+		};
+
+		const std::string types = read([](char* buffer, int32_t capacity)
+		{
+			return Managed::Interop::Managed().ListScriptTypes(buffer, capacity);
+		});
+
+		std::stringstream typeStream(types);
+		std::string type;
+		while (std::getline(typeStream, type))
+		{
+			if (type.empty())
+				continue;
+
+			const std::string listing = read([&type](char* buffer, int32_t capacity)
+			{
+				return Managed::Interop::Managed().ListMethods(type.c_str(), buffer, capacity);
+			});
+
+			std::vector<std::string>& methods = table[type];
+			std::stringstream methodStream(listing);
+			std::string method;
+			while (std::getline(methodStream, method))
+			{
+				if (!method.empty())
+					methods.push_back(method);
+			}
+		}
+
+		return table;
+	}
+
+	std::vector<BindingProblem> ValidateBindings(Scene& scene, const MethodTable* methods)
 	{
 		std::vector<BindingProblem> problems;
 
@@ -231,7 +335,7 @@ namespace RageV::UI
 			if (managedUnknown)
 				continue;
 
-			if (!scene.CanInvokeScriptMethod(target, button.OnClickMethod))
+			if (!Answers(scene, target, button.OnClickMethod, methods))
 			{
 				problems.push_back({ self.GetName(), button.OnClickMethod,
 									 target.GetName(), false });

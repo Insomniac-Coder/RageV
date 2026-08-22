@@ -11,6 +11,9 @@
 #include "RageV/IO/TextureCook.h"
 #include "RageV/IO/VFS.h"
 #include "stb_image.h"
+#include "RageV/Core/EngineConfig.h"
+#include "RageV/Scene/ComponentRegistry.h"
+#include "RageV/Scene/FieldSerializer.h"
 #include "RageV/Scene/Scene.h"
 #include "RageV/Scene/SceneSerializer.h"
 #include "RageV/UI/Interaction.h"
@@ -32,6 +35,20 @@ namespace RageV
 		// A project may legitimately be called "Bob's Game: Reloaded"; a file
 		// may not. Substituting rather than rejecting, because the name is the
 		// user's to choose and the filename is ours to derive.
+		// A line to whoever is watching, if anyone is. Newline included, so a
+		// console can append the string it is handed and nothing has to agree
+		// about who adds it.
+		void Say(const PackageDesc& desc, const std::string& line)
+		{
+			if (desc.Log)
+				desc.Log(line + "\n");
+		}
+
+		bool Cancelled(const PackageDesc& desc)
+		{
+			return desc.Cancel && desc.Cancel->load();
+		}
+
 		std::string SafeFileName(const std::string& name)
 		{
 			std::string out;
@@ -62,10 +79,10 @@ namespace RageV
 		// C++ module and the C# assembly -- so both languages resolve here the
 		// same way they will at runtime. That is the whole reason this can live
 		// in the packager rather than needing a running game.
-		void CheckSceneBindings(const PackageDesc& desc, PackageResult& result)
+		void CheckSceneBindings(const PackageDesc& desc, const fs::path& assets,
+								const UI::MethodTable& methods, PackageResult& result)
 		{
 			std::error_code error;
-			const fs::path assets = Project::AssetRoot();
 			if (!fs::is_directory(assets, error))
 				return;
 
@@ -86,7 +103,7 @@ namespace RageV
 				const std::string name = error ? entry.path().filename().string()
 											   : relative.generic_string();
 
-				for (const UI::BindingProblem& problem : UI::ValidateBindings(*scene))
+				for (const UI::BindingProblem& problem : UI::ValidateBindings(*scene, &methods))
 				{
 					const std::string message = name + ": " + problem.Describe();
 
@@ -170,6 +187,23 @@ namespace RageV
 			out << YAML::Key << "AssetDirectory" << YAML::Value << kContentDirectory;
 			out << YAML::Key << "StartScene" << YAML::Value << config.StartScene;
 			out << YAML::Key << "FixedHz" << YAML::Value << config.FixedHz;
+
+			// **Every render setting, and this was missing entirely.** The
+			// packaged `.rvproject` carried four keys, so a shipped game loaded
+			// the *defaults* for ray tracing, anti-aliasing, shadows and the
+			// rest -- a project authored with traced reflections shipped
+			// without them, and nothing said so at any point.
+			//
+			// Through the registry, not a list, for the reason Project::Save
+			// gives at the identical call: a field added to the struct and to
+			// the registry but not to a writer is a field that resets on every
+			// load, and enumerating them here is how this diverged in the first
+			// place.
+			out << YAML::Key << "RenderSettings" << YAML::Value << YAML::BeginMap;
+			WriteFields(out, RenderSettingsRegistry::Fields(),
+						const_cast<RenderSettings*>(&config.Render));
+			out << YAML::EndMap;
+
 			out << YAML::EndMap;
 			out << YAML::EndMap;
 
@@ -183,7 +217,8 @@ namespace RageV
 		// come back as the import, serialized. Anything that fails to cook
 		// ships raw with a warning -- a shipped game that loads slowly beats
 		// one missing an asset.
-		std::vector<uint8_t> CookForPak(const std::string& relative,
+		std::vector<uint8_t> CookForPak(const fs::path& assetRoot,
+										const std::string& relative,
 										std::vector<uint8_t> bytes,
 										PackageResult& result)
 		{
@@ -224,7 +259,7 @@ namespace RageV
 			if (Assets::ModelImporter::IsModelExtension(extension))
 			{
 				Assets::ImportedModel model;
-				if (!Assets::ModelImporter::Import(Project::AssetRoot() / relative, model))
+				if (!Assets::ModelImporter::Import(assetRoot / relative, model))
 				{
 					result.Warnings.push_back(relative + " would not import; shipped raw");
 					return bytes;
@@ -241,15 +276,15 @@ namespace RageV
 			return bytes;
 		}
 
-		void WriteConfigFile(const fs::path& file)
+		void WriteConfigFile(const fs::path& file, const PackagePlan& plan)
 		{
 			std::ofstream stream(file);
 			stream << "# Settings for this game. Edit and restart to change.\n"
 				   << "\n"
 				   << "# Graphics backend: vulkan | opengl\n"
-				   << "rhi = vulkan\n"
+				   << "rhi = " << plan.Backend << "\n"
 				   << "\n"
-				   << "vsync = on\n"
+				   << "vsync = " << (plan.VSync ? "on" : "off") << "\n"
 				   << "\n"
 				   << "# Validation layers cost real performance and are of no use to a\n"
 				   << "# player. On only for diagnosing a problem.\n"
@@ -278,85 +313,152 @@ namespace RageV
 		return {};
 	}
 
-	PackageResult PackageProject(const PackageDesc& desc)
+	PackagePlan PlanPackage(const PackageDesc& desc)
 	{
 		std::error_code error;
-		PackageResult result;
+		PackagePlan plan;
 
-		// --- validate, completely, before writing anything --------------------
+		// --- validate, completely, before anything is written -----------------
 		// Every problem at once. A packager that reports one, gets fixed, then
 		// reports the next wastes the time it was meant to save.
+		//
+		// **And all of it here rather than in the writing half**, because this
+		// is the half that runs on the main thread: it reads the open project,
+		// and the binding check below asks the C# runtime what methods a script
+		// has. Neither is a thing to do from a worker.
 		if (!Project::GetActive())
-			result.Errors.push_back("no project is open");
+			plan.Errors.push_back("no project is open");
 
 		if (desc.OutputDirectory.empty())
-			result.Errors.push_back("no output directory");
+			plan.Errors.push_back("no output directory");
 
-		const fs::path runtime = desc.RuntimeExecutable.empty() ? FindRuntime()
-																: desc.RuntimeExecutable;
-		if (runtime.empty())
-			result.Errors.push_back("could not find RageVRuntime.exe; pass one explicitly");
-		else if (!fs::exists(runtime, error))
-			result.Errors.push_back("no runtime at " + runtime.string());
+		plan.Runtime = desc.RuntimeExecutable.empty() ? FindRuntime()
+													  : desc.RuntimeExecutable;
+		if (plan.Runtime.empty())
+			plan.Errors.push_back("could not find RageVRuntime.exe; pass one explicitly");
+		else if (!fs::exists(plan.Runtime, error))
+			plan.Errors.push_back("no runtime at " + plan.Runtime.string());
 
 		// The engine is a DLL, so it is part of the build rather than something
 		// the player's machine is assumed to have. Checked here, with the other
 		// refusals, so a package that cannot start is never half-written: the
 		// failure would otherwise surface on the first machine that is not the
 		// one it was built on.
-		const fs::path engineDll = runtime.empty() ? fs::path()
-												   : runtime.parent_path() / "RageV.dll";
-		if (!runtime.empty() && !fs::exists(engineDll, error))
+		plan.EngineDll = plan.Runtime.empty() ? fs::path()
+											  : plan.Runtime.parent_path() / "RageV.dll";
+		if (!plan.Runtime.empty() && !fs::exists(plan.EngineDll, error))
 		{
-			result.Errors.push_back("no RageV.dll beside " + runtime.filename().string() +
-									"; the packaged game would not start");
+			plan.Errors.push_back("no RageV.dll beside " + plan.Runtime.filename().string() +
+								  "; the packaged game would not start");
 		}
 
-		const fs::path engineAssets = desc.EngineAssets.empty()
-									? runtime.parent_path() / "assets"
-									: desc.EngineAssets;
-		if (!runtime.empty() && !fs::is_directory(engineAssets, error))
+		// The backend and vsync the packaged game starts on. Read here rather
+		// than in the writing half, which is not allowed globals.
+		//
+		// Lower case, because that is what the file's own comment tells a
+		// player to type. The reader lowercases anyway, so this is legibility
+		// rather than correctness.
+		if (!desc.Backend.empty())
 		{
-			result.Errors.push_back("no engine assets at " + engineAssets.string() +
-									"; the renderer will not start without shaders");
+			plan.Backend = desc.Backend;
+		}
+		else
+		{
+			plan.Backend = EngineConfig::BackendName(EngineConfig::Get().Backend);
+			for (char& c : plan.Backend)
+				c = (char)std::tolower((unsigned char)c);
+		}
+		plan.VSync = EngineConfig::Get().VSync;
+
+		plan.EngineAssets = desc.EngineAssets.empty()
+						  ? plan.Runtime.parent_path() / "assets"
+						  : desc.EngineAssets;
+		if (!plan.Runtime.empty() && !fs::is_directory(plan.EngineAssets, error))
+		{
+			plan.Errors.push_back("no engine assets at " + plan.EngineAssets.string() +
+								  "; the renderer will not start without shaders");
 		}
 
 		if (Project::GetActive())
 		{
-			const ProjectConfig& config = Project::Config();
+			// The snapshot. Copied rather than referenced: by the time the
+			// writing half runs, the main thread may have moved on.
+			plan.Config = Project::Config();
+			plan.ProjectRoot = Project::Root();
+			plan.AssetRoot = Project::AssetRoot();
+			plan.Name = SafeFileName(plan.Config.Name);
 
-			if (config.StartScene.empty())
+			if (plan.Config.StartScene.empty())
 			{
 				// Fatal, not a warning: a runtime with no start scene reports
 				// the problem and exits, so packaging one produces something
 				// that cannot possibly work.
-				result.Errors.push_back("the project has no start scene; set one with "
-										"File > Set Start Scene");
+				plan.Errors.push_back("the project has no start scene; set one with "
+									  "File > Set Start Scene");
 			}
-			else if (!fs::exists(Project::AssetPath(config.StartScene), error))
+			else if (!fs::exists(Project::AssetPath(plan.Config.StartScene), error))
 			{
-				result.Errors.push_back("the start scene " + config.StartScene +
-										" does not exist");
+				plan.Errors.push_back("the start scene " + plan.Config.StartScene +
+									  " does not exist");
 			}
 
-			if (!fs::is_directory(Project::AssetRoot(), error))
-				result.Errors.push_back("the project's asset folder is missing");
+			if (!fs::is_directory(plan.AssetRoot, error))
+				plan.Errors.push_back("the project's asset folder is missing");
 
-			CheckSceneBindings(desc, result);
+			// The answers, not the walk. See PackagePlan::ScriptMethods.
+			plan.ScriptMethods = UI::CollectScriptMethods();
 		}
 
 		if (!desc.Overwrite && DirectoryHasContent(desc.OutputDirectory))
 		{
-			result.Errors.push_back(desc.OutputDirectory.string() +
-									" is not empty; pass overwrite to build into it anyway");
+			plan.Errors.push_back(desc.OutputDirectory.string() +
+								  " is not empty; pass overwrite to build into it anyway");
 		}
 
-		if (!result.Errors.empty())
-			return result;
+		plan.Ok = plan.Errors.empty();
+		return plan;
+	}
 
-		// --- write ------------------------------------------------------------
-		const ProjectConfig& config = Project::Config();
-		const std::string name = SafeFileName(config.Name);
+	PackageResult WritePackage(const PackageDesc& desc, const PackagePlan& plan)
+	{
+		std::error_code error;
+		PackageResult result;
+		result.Warnings = plan.Warnings;
+
+		if (!plan.Ok)
+		{
+			result.Errors = plan.Errors;
+			return result;
+		}
+
+		const std::string& name = plan.Name;
+
+		Say(desc, "Packaging " + plan.Config.Name + " into " +
+				  desc.OutputDirectory.string());
+
+		// **Before anything is written, and on this thread.** A dead binding is
+		// a reason not to ship, so it has to be found before the first file
+		// lands -- and finding it means parsing every scene in the project,
+		// which is why this is here rather than beside the rest of the
+		// validation in PlanPackage. The answers it needs came from there.
+		Say(desc, "  checking scene bindings");
+		CheckSceneBindings(desc, plan.AssetRoot, plan.ScriptMethods, result);
+
+		if (!result.Errors.empty())
+		{
+			// Into the console as well as into the result. A build that stops
+			// should say why in the place somebody is already looking, rather
+			// than only in a summary that replaces the log.
+			for (const std::string& error : result.Errors)
+				Say(desc, "  error: " + error);
+			return result;
+		}
+
+		if (Cancelled(desc))
+		{
+			result.Cancelled = true;
+			return result;
+		}
 
 		fs::create_directories(desc.OutputDirectory, error);
 		if (error)
@@ -370,12 +472,13 @@ namespace RageV
 		// thing a player double-clicks, and "RageVRuntime.exe" tells them
 		// nothing about what they are running.
 		const fs::path executable = desc.OutputDirectory / (name + ".exe");
-		if (!CopyOne(runtime, executable, result))
+		Say(desc, "  runtime -> " + executable.filename().string());
+		if (!CopyOne(plan.Runtime, executable, result))
 			return result;
 
 		// Named as the engine names it, not after the game: the import table in
 		// the executable says "RageV.dll", and Windows resolves that by name.
-		if (!CopyOne(engineDll, desc.OutputDirectory / "RageV.dll", result))
+		if (!CopyOne(plan.EngineDll, desc.OutputDirectory / "RageV.dll", result))
 			return result;
 
 		// The game module -- the project's C++ scripts -- goes beside the
@@ -384,13 +487,14 @@ namespace RageV
 		// Source/ and no built module gets a warning, because its scenes may
 		// name scripts the shipped game will not have.
 		{
-			const fs::path module = ModuleBuild::ModuleFor(Project::Root(), name);
+			const fs::path module = ModuleBuild::ModuleFor(plan.ProjectRoot, name);
 			if (fs::exists(module, error))
 			{
+				Say(desc, "  C++ module -> " + name + ".dll");
 				if (!CopyOne(module, desc.OutputDirectory / (name + ".dll"), result))
 					return result;
 			}
-			else if (fs::exists(Project::Root() / "Source" / "CMakeLists.txt", error))
+			else if (fs::exists(plan.ProjectRoot / "Source" / "CMakeLists.txt", error))
 			{
 				result.Warnings.push_back("this project has C++ scripts but no built "
 										  + std::string(ModuleBuild::Configuration())
@@ -407,17 +511,18 @@ namespace RageV
 		// the editor keeps its copy.
 		{
 			const fs::path assembly =
-				Project::Root() / "Scripts" / "bin" / (name + ".dll");
+				plan.ProjectRoot / "Scripts" / "bin" / (name + ".dll");
 			if (fs::exists(assembly, error))
 			{
-				const fs::path managed = runtime.parent_path() / "managed";
+				Say(desc, "  C# assembly -> managed/" + name + ".dll");
+				const fs::path managed = plan.Runtime.parent_path() / "managed";
 				if (!CopyTree(managed, desc.OutputDirectory / "managed", result))
 					return result;
 				if (!CopyOne(assembly, desc.OutputDirectory / "managed" / (name + ".dll"),
 							 result))
 					return result;
 			}
-			else if (fs::exists(Project::Root() / "Scripts" / (name + ".csproj"), error))
+			else if (fs::exists(plan.ProjectRoot / "Scripts" / (name + ".csproj"), error))
 			{
 				result.Warnings.push_back("this project has C# scripts but no built "
 										  "assembly; entities using them will do nothing "
@@ -425,8 +530,15 @@ namespace RageV
 			}
 		}
 
-		if (!CopyTree(engineAssets, desc.OutputDirectory / "assets", result))
+		Say(desc, "  engine assets");
+		if (!CopyTree(plan.EngineAssets, desc.OutputDirectory / "assets", result))
 			return result;
+
+		if (Cancelled(desc))
+		{
+			result.Cancelled = true;
+			return result;
+		}
 
 		// .meta sidecars come with it. They are the identity: a scene refers to
 		// an asset by handle and the handle lives in the sidecar, so a build
@@ -438,31 +550,57 @@ namespace RageV
 		// forms carry exactly the tree the VFS enumeration sees.
 		if (desc.LooseContent)
 		{
-			if (!CopyTree(Project::AssetRoot(), desc.OutputDirectory / kContentDirectory, result))
+			Say(desc, "  content (loose)");
+			if (!CopyTree(plan.AssetRoot, desc.OutputDirectory / kContentDirectory, result))
 				return result;
 		}
 		else
 		{
 			IO::PakWriter writer;
-			for (const std::string& relative : IO::VFS::Enumerate(Project::AssetRoot()))
+			const std::vector<std::string> files = IO::VFS::Enumerate(plan.AssetRoot);
+
+			Say(desc, "  content: " + std::to_string(files.size()) + " files" +
+					  (desc.RawContent ? " (raw)" : " (cooking)"));
+
+			uint64_t done = 0;
+			for (const std::string& relative : files)
 			{
+				// Between files rather than inside one: a half-cooked texture
+				// is not a state anything downstream would know what to do
+				// with, and the granularity is already fine enough that a
+				// cancel lands within a moment.
+				if (Cancelled(desc))
+				{
+					result.Cancelled = true;
+					return result;
+				}
+
 				// Bytes through the VFS, not fopen: the project being packed
 				// may itself be running from a pak, and the enumeration just
 				// promised these paths resolve.
 				std::vector<uint8_t> bytes;
-				if (!IO::VFS::ReadBytes(Project::AssetRoot() / relative, bytes))
+				if (!IO::VFS::ReadBytes(plan.AssetRoot / relative, bytes))
 				{
 					result.Errors.push_back("could not pack " + relative);
 					return result;
 				}
 
 				if (!desc.RawContent)
-					bytes = CookForPak(relative, std::move(bytes), result);
+					bytes = CookForPak(plan.AssetRoot, relative, std::move(bytes), result);
 
 				if (!writer.AddBytes(relative, std::move(bytes)))
 				{
 					result.Errors.push_back("could not pack " + relative);
 					return result;
+				}
+
+				// Every fiftieth, not every one. The console is read by a
+				// person and a line per file on a project of any size is a
+				// wall nobody looks at -- and the lock it takes is per line.
+				if (++done % 50 == 0)
+				{
+					Say(desc, "    " + std::to_string(done) + " / " +
+							  std::to_string(files.size()));
 				}
 			}
 
@@ -478,12 +616,12 @@ namespace RageV
 			result.BytesCopied += writer.TotalBytes();
 		}
 
-		WriteProjectFile(desc.OutputDirectory / (name + Project::kExtension), config);
-		WriteConfigFile(desc.OutputDirectory / "ragev.ini");
+		WriteProjectFile(desc.OutputDirectory / (name + Project::kExtension), plan.Config);
+		WriteConfigFile(desc.OutputDirectory / "ragev.ini", plan);
 		result.FilesCopied += 2;
 
 		// --- warn about things that work but should not ship ------------------
-		const std::string runtimeName = runtime.string();
+		const std::string runtimeName = plan.Runtime.string();
 		if (runtimeName.find("\\Debug\\") != std::string::npos ||
 			runtimeName.find("/Debug/") != std::string::npos)
 		{
@@ -492,11 +630,23 @@ namespace RageV
 									  "package that.");
 		}
 
-		if (fs::exists(runtime.parent_path() / "RageVRuntime.pdb", error))
+		if (fs::exists(plan.Runtime.parent_path() / "RageVRuntime.pdb", error))
 			result.Warnings.push_back("a .pdb sits beside the runtime; it is not copied");
 
 		result.Executable = executable;
 		result.Success = true;
+
+		for (const std::string& warning : result.Warnings)
+			Say(desc, "  warning: " + warning);
+
+		Say(desc, "Done: " + std::to_string(result.FilesCopied) + " files, " +
+				  std::to_string(result.BytesCopied / (1024 * 1024)) + " MB");
+		Say(desc, "  " + executable.string());
 		return result;
+	}
+
+	PackageResult PackageProject(const PackageDesc& desc)
+	{
+		return WritePackage(desc, PlanPackage(desc));
 	}
 }

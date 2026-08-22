@@ -1,4 +1,5 @@
 #pragma once
+#include <unordered_map>
 
 #include "RageV/UI/Canvas.h"
 
@@ -131,5 +132,23 @@ namespace RageV::UI
 	//
 	// A button with no method named is not a problem: that is a button read by
 	// polling, and most are.
-	std::vector<BindingProblem> ValidateBindings(Scene& scene);
+	// Which methods each script type answers to, by type name.
+	//
+	// **This exists so the check can run off the main thread.** Asking whether
+	// a C# script has a method means calling into the .NET runtime, and the
+	// packager walks every scene in the project to do it -- 92 MB of YAML on
+	// the sample project, one of whose scenes is a hundred and twenty thousand
+	// objects. That parse belongs on a worker; the runtime call does not. So
+	// the caller takes this once on the main thread and the worker consults it.
+	using MethodTable = std::unordered_map<std::string, std::vector<std::string>>;
+
+	// Every script type the engine can currently answer for, native and
+	// managed. Main thread: it asks the C# runtime.
+	MethodTable CollectScriptMethods();
+
+	// `methods` null asks the runtime per binding, which is what the editor's
+	// own inspector wants. Non-null answers from the table instead, and is the
+	// only form safe on a worker.
+	std::vector<BindingProblem> ValidateBindings(Scene& scene,
+												 const MethodTable* methods = nullptr);
 }
