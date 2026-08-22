@@ -1,12 +1,143 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-21.
+**Read this first.** Updated 2026-08-22.
 
 Work on **`main`**, which is pushed and clean.
 
 ---
 
-## Start here: the frame got 4.35x cheaper, and EnTT is gone
+## Start here: 8.9 is closed, and the engine can draw glass
+
+**Updated 2026-08-22 (second session).** Work on `main`, which is clean and
+**fifteen commits ahead of what has been pushed**. Pushing is the owner's.
+
+The day closed roadmap **8.9** — the last ordinary feature in phase 8 — and then
+built a showroom scene, which turned into a renderer feature and five real
+defects because the car in it needed things the engine did not have.
+
+### What is new, in the order it was built
+
+| | |
+|---|---|
+| **8.9 stage 2** | FBX skinning and animation. Phase 8 has no ordinary feature left. |
+| **`tools/rvimport`** | A model instantiated into a scene file without the editor. |
+| **Transparent meshes** | The renderer had no path for them at all. |
+| **A second cull table** | Blended geometry is culled and drawn on the GPU, CPU as fallback. |
+| **Next-event estimation** | The traced bounce aims at emitters instead of finding them by luck. |
+| **A spatial GI filter** | The denoiser had never had one. |
+| **`scenes/showroom.rage`** | The project's start scene. A Porsche under a ceiling luminaire. |
+
+2282 checks on Vulkan and 2235 on OpenGL, both green.
+
+### The showroom, and how to regenerate it
+
+Three steps, and the middle one takes a minute:
+
+```
+python tools/scripts/make_showroom_textures.py
+build/bin/Release/rvimport/rvimport.exe models/showroom/porsche_992_gt3_r.glb \
+    --out=tools/scripts/data/showroom_car.yaml
+python tools/scripts/make_showroom_scene.py
+```
+
+**The car is not generated and must not be.** A model with eighty-nine materials
+is three hundred and thirty-seven entities, each with a mesh handle and a
+`.rmat` that only exist once something has imported it — so `rvimport` runs
+once, its output is committed as `tools/scripts/data/showroom_car.yaml`, and
+regenerating the room does not renumber three hundred entities that did not
+change. Re-run `rvimport` only when the model or the importer changes.
+
+**Eighty-five of its hundred and fifty-one draws are re-authored** by the
+generator. That is not a hack, it is the scene doing its job: the model's
+uploader set **every material in the file to roughness 0.9577**, glass and lamp
+lenses included. At 0.96 a dielectric's specular lobe has no peak, which is
+visually identical to having no specular at all.
+
+### Five defects the scene found, and every one was general
+
+Each of these was in the engine, not the scene, and each presented as something
+else:
+
+1. **A saved scene lost every part of a multi-material model but one.** Mesh
+   handles inside a model are `modelHandle + 1 + index` and only the model's own
+   handle resolved. Reopening a scene silently dropped the rest. (7ca)
+2. **The transparent pass only existed when the scene had particles.** Both
+   layers gated it on weighted emitters, so the car's glass was never drawn —
+   and *a windscreen that is not drawn and one that is perfectly transparent are
+   the same picture*, which is why four fixes in a row appeared to do nothing.
+   (7cb)
+3. **A stale cooked mesh failed hard instead of re-importing.** A `MeshCook`
+   version bump made every cached model answer "produced nothing". Now it falls
+   through to the source. And **`ImportCache::kVersion` has to move with it** —
+   bumping only the first left every load reading a v1 file, refusing it,
+   re-importing, and never writing the result anywhere. (7cb)
+4. **The reflection probe was inside the car.** At the car's centre, so it
+   photographed a black cabin. Invisible on Vulkan, where traced reflections
+   replace the probe; dead on OpenGL, which has neither ray queries nor a
+   g-buffer for SSR to trace a blended fragment from.
+5. **Blended surfaces were in the ray-tracing structure.** Every ray treats it
+   as opaque, so glass stopped shadow, bounce and reflection rays alike — the
+   cabin and every lamp interior were unlit. It looked like a backend
+   difference: OpenGL fell back to shadow maps, whose resolution *leaked* light
+   into the cavity the exact test correctly refused. **The one that looked wrong
+   was the one that was right about its own inputs.**
+
+### The lesson that would have saved the most time
+
+**A change that produces no change is worth more than another hypothesis.**
+
+Defect 2 survived four rounds of fixing — material roughness, specular, the
+coverage maths, a descriptor set — because every one of them was reasonable and
+none of them could work. What settled it in one render was forcing the
+transparent shader to emit flat red and watching the glass stay grey. That
+partitions the problem; another hypothesis only explores it.
+
+The same shape appeared twice more the same day: the GI emitter list handed over
+in `RenderShadows`' submit branch, where it compiled, ran on some frames, and
+left the count at zero on the ones that mattered — three renders were compared
+before anyone printed the count.
+
+### Where the remaining known problems are
+
+- **The headlamp has no lens mesh.** Settled by tinting each candidate material
+  a different colour and rendering once: the LED elements appear, the roof light
+  bar appears, and `EXT_Glass_Emissive_Front` never appears on the lamp. The
+  aperture is open geometry. What is there now is a glossy reflector standing in
+  for a cover — 0.22 roughness, 0.62 metalness. **Adding a real lens means two
+  blended entities placed over the apertures from the scene**, which risks
+  clipping through the curved wing and wants iterating on with the owner.
+- **GI noise is better, not solved.** Three stages now — next-event estimation
+  removes the emitter's variance exactly, a clamp bounds what the car's own
+  bodywork spikes to, and the new spatial filter averages what is left. The
+  residue is on downward-facing surfaces lit only by bounce off the car itself,
+  and closing that needs rays rather than filtering. **In order of value: blue
+  noise instead of a per-pixel hash** (the spatial filter is currently averaging
+  partly-correlated samples), then à-trous with variance guidance, then adaptive
+  ray counts.
+- **The clamp is a bias**, stated rather than hidden: the brightest
+  inter-reflections come back slightly dimmer than they should.
+
+### Two traps that are still live
+
+**The staged assets, again.** The runtime and the editor load `assets/` beside
+their own executable, and the POST_BUILD copy only runs when the target
+relinks — so a shader edit plus `cmake --build --target RageVRuntime` can leave
+the old shader staged and the change looking like it did nothing. Check the
+staged file, not the source:
+
+```
+grep -c "<the thing you added>" build/bin/Release/RageVRuntime/assets/shaders/<file>
+```
+
+**The editor writes Render Settings back to the `.rvproject`.** Opening it to
+look at something is enough to change the file. Check `git diff` on the project
+before committing — and do not assume a change there was accidental: it was the
+owner's, twice.
+
+
+---
+
+### The session before this one: the frame got 4.35x cheaper, and EnTT is gone
 
 **Updated 2026-08-22.** Work on `main`, which is clean. The day closed roadmap
 8.3, 8.15, 8.16 and 10.2.
