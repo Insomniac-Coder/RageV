@@ -29,6 +29,18 @@ namespace RageV
 									 RHI::Format velocity = RHI::Format::Undefined,
 									 RHI::Format normal = RHI::Format::Undefined,
 									 RHI::Format indirect = RHI::Format::Undefined);
+		// At most this many emissive rectangles reach the shader. Past the cap
+		// the bounce falls back to finding emitters by hemisphere sampling,
+		// which is what it did before -- noisier, and still correct, which is
+		// the right way round for a cap to fail. See AreaEmitter in Light.h.
+		static constexpr uint32_t kMaxAreaEmitters = 16;
+
+		// Handed over by the scene each frame, before EndScene. Copied rather
+		// than referenced: the upload happens later, and a span into the
+		// scene's own vector is a span into something a probe capture may have
+		// refreshed in between (7bw).
+		static void SetAreaEmitters(const std::vector<AreaEmitter>& emitters);
+
 		static void SetWireframe(bool enabled);
 
 		// Whether this frame recorded any blended draws, and the pass that

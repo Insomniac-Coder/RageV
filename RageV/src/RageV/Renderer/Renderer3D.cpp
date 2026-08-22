@@ -332,6 +332,18 @@ namespace RageV
 			// its own holding the depth and surface it reconstructs from.
 			Ref<RHIShader>   GiShader;
 			Ref<RHIPipeline> GiPipeline;
+
+			// The emissive rectangles the bounce aims at, as the shader reads
+			// them: centre and area, the two half-extents, and the radiance.
+			// Mirrors GiEmitter in rtgi_trace.rvshader, std430.
+			struct GpuEmitter
+			{
+				Vec4 CentreArea{ 0.0f };
+				Vec4 TangentU{ 0.0f };
+				Vec4 TangentV{ 0.0f };
+				Vec4 Radiance{ 0.0f };
+			};
+			std::vector<GpuEmitter> Emitters;
 			Format           GiTargetColor = Format::Undefined;
 			Ref<RHISampler>  PointSampler;
 			Format TargetColor = Format::R8G8B8A8_UNORM;
@@ -387,6 +399,11 @@ namespace RageV
 				// Its depth and surface inputs, which change per view rather
 				// than per scene.
 				Ref<RHIResourceSet> GiInputs;
+				// The emissive rectangles, uploaded per frame. On the GI pass's
+				// own set rather than set 0, which four other shaders reflect
+				// and which the comment on GiInputs is about.
+				Ref<RHIBuffer> GiEmitters;
+				uint32_t GiEmitterCapacity = 0;
 				// The batch's per-instance array. Grows to the largest scene
 				// this slot has drawn and stays there, so a steady scene stops
 				// allocating after its first frame.
@@ -941,12 +958,41 @@ namespace RageV
 
 		slot.GiInputs->SetTexture(0, depth, s_Data->PointSampler);
 		slot.GiInputs->SetTexture(1, surface, s_Data->PointSampler);
+
+		// The emitters. **At least one row even when the scene has none**: a
+		// binding the layout declares and the set leaves unwritten is a
+		// validation error rather than a harmless omission, which is the rule
+		// the instance buffers above already follow.
+		const uint32_t emitterRows = Math::Max((uint32_t)s_Data->Emitters.size(), 1u);
+		if (EnsureInstanceBuffer(slot.GiEmitters, slot.GiEmitterCapacity, emitterRows,
+								 sizeof(Renderer3DData::GpuEmitter), "Renderer3D.giemitters"))
+		{
+			if (s_Data->Emitters.empty())
+			{
+				const Renderer3DData::GpuEmitter none{};
+				slot.GiEmitters->Upload(&none, sizeof(none));
+			}
+			else
+			{
+				slot.GiEmitters->Upload(s_Data->Emitters.data(),
+										(uint64_t)s_Data->Emitters.size()
+											* sizeof(Renderer3DData::GpuEmitter));
+			}
+
+			slot.GiInputs->SetStorageBuffer(2, slot.GiEmitters, 0,
+											(uint64_t)emitterRows
+												* sizeof(Renderer3DData::GpuEmitter));
+		}
+
 		slot.GiInputs->Commit();
 
 		struct GiParams
 		{
 			float NearClip, FarClip, InvP0, InvP1;
-			float FlipY, Rays, Pad0, Pad1;
+			// Pad0 is the emitter count now. Kept in the padding rather than
+			// appended, so the block stays the size every other trace pass's
+			// does and nothing about the layout moves.
+			float FlipY, Rays, Emitters, Pad1;
 			Vec4  CameraRow0, CameraRow1, CameraRow2, CameraPosition;
 		} params{};
 
@@ -959,6 +1005,7 @@ namespace RageV
 		// up on one of them. The same rule every post pass carries.
 		params.FlipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
 		params.Rays = (float)Math::Clamp(rays, 1, 32);
+		params.Emitters = (float)s_Data->Emitters.size();
 
 		// The camera transform is the view's inverse; the rotation part of an
 		// inverse is the transpose, so the camera's rows are the view's
@@ -1093,6 +1140,38 @@ namespace RageV
 		s_Data->TargetIndirect = indirect;
 		s_Data->TargetDepth = depth;
 		s_Data->PipelineDirty = true;
+	}
+
+	void Renderer3D::SetAreaEmitters(const std::vector<AreaEmitter>& emitters)
+	{
+		if (!s_Data)
+			return;
+
+		s_Data->Emitters.clear();
+
+		for (const AreaEmitter& source : emitters)
+		{
+			if (s_Data->Emitters.size() >= kMaxAreaEmitters)
+				break;
+
+			// The rectangle spans centre +/- U +/- V, so its area is that of a
+			// parallelogram with sides 2U and 2V.
+			const float area = 4.0f * Math::Length(Math::Cross(source.TangentU, source.TangentV));
+
+			// A degenerate rectangle has no solid angle to sample and would
+			// divide by its own area. Dropped rather than clamped: an emitter
+			// with no extent is a modelling accident, and giving it a
+			// pretend size puts light where there is no surface.
+			if (area <= 1e-6f)
+				continue;
+
+			Renderer3DData::GpuEmitter row;
+			row.CentreArea = Vec4(source.Centre, area);
+			row.TangentU = Vec4(source.TangentU, 0.0f);
+			row.TangentV = Vec4(source.TangentV, 0.0f);
+			row.Radiance = Vec4(source.Radiance, 0.0f);
+			s_Data->Emitters.push_back(row);
+		}
 	}
 
 	void Renderer3D::SetWireframe(bool enabled)

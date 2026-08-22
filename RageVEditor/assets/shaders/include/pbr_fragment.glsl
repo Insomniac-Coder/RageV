@@ -713,6 +713,18 @@ uint GiHash(uint x)
 	return x;
 }
 
+// One uniform draw in [0, 1), advancing the seed.
+//
+// Pulled out because next-event estimation needs single draws -- which emitter,
+// and where on it -- rather than the pairs CosineDirection consumes, and two
+// samplers drawing from one stream have to advance it the same way or they
+// correlate.
+float GiRandom(inout uint seed)
+{
+	seed = GiHash(seed);
+	return float(seed & 0x00FFFFFFu) / 16777216.0;
+}
+
 // One cosine-weighted direction about `n`, advancing the seed by two draws.
 //
 // Cosine-weighted is the distribution the diffuse integral wants, so the mean

@@ -40,6 +40,34 @@ namespace RageV
 		bool CastShadows = true;
 	};
 
+	// One emissive surface, as a rectangle a traced bounce can aim at.
+	//
+	// **This is what turns the bounce from a lottery into an integral.** A
+	// cosine-sampled hemisphere finds a ceiling luminaire by accident: most
+	// rays hit a wall at three percent albedo and return almost nothing, a few
+	// hit the panel and return several hundred times that, and the average of
+	// four such samples is a number that jumps from pixel to pixel. That is
+	// speckle -- variance, not a bug -- and it falls only as 1/sqrt(N), which
+	// is why raising the ray count barely moves it.
+	//
+	// Sampling the emitter directly removes it: every sample sees the panel,
+	// so the estimate stops depending on whether a ray happened to find one.
+	//
+	// A rectangle because a luminaire is one. TangentU and TangentV are
+	// half-extents, so it spans centre +/- U +/- V, its area is 4|U x V| and
+	// its normal falls out of their cross product. A non-planar emissive mesh
+	// is approximated by the flattest rectangle of its own bounds.
+	//
+	// Here rather than in Renderer3D.h because it is a light, and because the
+	// scene builds these and has no business including the renderer.
+	struct AreaEmitter
+	{
+		Vec3 Centre{ 0.0f };
+		Vec3 TangentU{ 1.0f, 0.0f, 0.0f };
+		Vec3 TangentV{ 0.0f, 0.0f, 1.0f };
+		Vec3 Radiance{ 0.0f };
+	};
+
 	// What the renderers actually consume. A struct rather than the tuple this
 	// used to be: PBR needs six fields per light and positional arguments stop
 	// being readable well before that.

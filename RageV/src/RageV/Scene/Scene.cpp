@@ -1538,6 +1538,7 @@ namespace RageV
 		m_CullCounts.clear();
 		m_CpuDraws.clear();
 		m_HasBlended = false;
+		m_Emitters.clear();
 		m_CullObjectCount = 0;
 
 		auto meshView = m_Registry.GetView<TransformComponent, MeshComponent>();
@@ -1618,6 +1619,53 @@ namespace RageV
 			const bool blended = resolvedMaterial
 							  && resolvedMaterial->GetBlendMode() != BlendMode::Opaque;
 			m_HasBlended = m_HasBlended || blended;
+
+			// **Emissive geometry becomes something the traced bounce can aim
+			// at** (7cb). Collected here because this is the one place that
+			// already has the world transform, the mesh's bounds and the
+			// resolved material at once -- and because it is the draw-list
+			// refresh, so it costs nothing on a frame where nothing moved.
+			//
+			// The emitter is the *flattest rectangle* of the mesh's own
+			// bounds: the shortest axis of the box is taken as the normal and
+			// the other two as the extent. Exact for a plane, which is what
+			// every light fitting in a scene is, and a bounded approximation
+			// for anything else.
+			if (resolvedMaterial)
+			{
+				const Vec3 emissive = Vec3(resolvedMaterial->GetParams().EmissiveColor);
+				const float strength = Math::Max(emissive.x, Math::Max(emissive.y, emissive.z));
+
+				// Above one, not above zero. A surface emitting a fifth of what
+				// it reflects is a glow rather than a light source, and putting
+				// it in the emitter list spends a shadow ray per pixel on
+				// something that changes nothing.
+				if (strength > 1.0f)
+				{
+					const AABB local = resolved->GetBounds();
+					const Vec3 halfExtent = (local.Max - local.Min) * 0.5f;
+					const Vec3 localCentre = (local.Max + local.Min) * 0.5f;
+
+					// Which axis is the thin one.
+					int normalAxis = 0;
+					if (halfExtent.y < halfExtent[normalAxis]) normalAxis = 1;
+					if (halfExtent.z < halfExtent[normalAxis]) normalAxis = 2;
+
+					const int axisU = (normalAxis + 1) % 3;
+					const int axisV = (normalAxis + 2) % 3;
+
+					Vec3 u(0.0f), v(0.0f);
+					u[axisU] = halfExtent[axisU];
+					v[axisV] = halfExtent[axisV];
+
+					AreaEmitter emitter;
+					emitter.Centre = Vec3(transform.World * Vec4(localCentre, 1.0f));
+					emitter.TangentU = Vec3(transform.World * Vec4(u, 0.0f));
+					emitter.TangentV = Vec3(transform.World * Vec4(v, 0.0f));
+					emitter.Radiance = emissive;
+					m_Emitters.push_back(emitter);
+				}
+			}
 
 			// Static meshes only, and only when there is a pass to read them.
 			// A skinned caster is posed from bones the CPU composed this
@@ -2682,6 +2730,16 @@ namespace RageV
 
 				Renderer3D::DrawSceneIndirect(m_CulledLit, m_CullMeshes);
 			}
+
+			// **The emitters this frame's bounce may aim at.** Handed over here
+			// rather than at the draw-list refresh, because the refresh is
+			// cached across frames and the renderer's copy is per frame.
+			//
+			// It went into RenderShadows' own submit branch first, where it
+			// compiled, ran on some frames, and left the count at zero on the
+			// ones that mattered -- which looked exactly like the estimator not
+			// working.
+			Renderer3D::SetAreaEmitters(m_Emitters);
 
 			// Everything the table does not hold: the skinned meshes, anything
 			// with too few indices to draw indexed, and -- when there is no

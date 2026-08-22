@@ -51,6 +51,34 @@ layout(location = 0) out vec4 o_Indirect;
 layout(set = 3, binding = 0) uniform sampler2D u_GiDepth;
 layout(set = 3, binding = 1) uniform sampler2D u_GiSurface;
 
+// **The emissive rectangles, so the bounce can aim at them instead of hoping.**
+//
+// A cosine-sampled hemisphere finds a ceiling luminaire by accident. Most rays
+// hit a wall at three percent albedo and return almost nothing; a few hit the
+// panel and return several hundred times that. The mean of four such samples is
+// right and its *variance* is enormous, which is the speckle -- and variance
+// falls as 1/sqrt(N), so twice the rays is thirty percent less noise. That is
+// why raising the quality level barely moved it.
+//
+// Next-event estimation instead: every sample also draws a point on an emitter
+// and traces a shadow ray to it. Now every sample sees the panel, and the
+// estimate stops depending on whether a ray happened to find it.
+//
+// Centre and area in the first row, the two half-extents next -- the rectangle
+// spans centre +/- U +/- V -- and the radiance last.
+struct GiEmitter
+{
+	vec4 CentreArea;
+	vec4 TangentU;
+	vec4 TangentV;
+	vec4 Radiance;
+};
+
+layout(std430, set = 3, binding = 2) readonly buffer GiEmitterBlock
+{
+	GiEmitter u_Emitters[];
+};
+
 layout(push_constant) uniform GiParams
 {
 	float NearClip;
@@ -63,7 +91,11 @@ layout(push_constant) uniform GiParams
 	// define: a fork earns its place by removing work from the inner loop
 	// (8.2), and a loop bound does not.
 	float Rays;
-	float _pad0;
+	// How many rows of u_Emitters are real. Zero falls back to finding
+	// emitters by hemisphere sampling, which is what this did before -- so a
+	// scene with no emissive geometry, or more of it than the cap allows,
+	// still gets correct light and merely a noisier estimate of it.
+	float Emitters;
 	float _pad1;
 
 	// The camera-to-world rotation as three rows, and where the camera is:
@@ -137,10 +169,78 @@ void main()
 	const float reach = u_Scene.GlobalIllumination.w > 0.0
 					  ? u_Scene.GlobalIllumination.w : 1.0e4;
 
+	const int emitters = clamp(int(u_Gi.Emitters + 0.5), 0, 16);
+
 	vec3 bounced = vec3(0.0);
 	for (int i = 0; i < rays; ++i)
 	{
 		seed += uint(i) * 0x9E3779B9u;
+
+		// --- next event: aim at an emitter --------------------------------
+		//
+		// One emitter per sample, chosen uniformly, so `count` appears in the
+		// estimator below: picking one of N with probability 1/N makes the
+		// area density 1/(area * N).
+		if (emitters > 0)
+		{
+			const int pick = int(GiRandom(seed) * float(emitters));
+			const GiEmitter light = u_Emitters[min(pick, emitters - 1)];
+
+			// A point on the rectangle. Uniform in area, which is what makes
+			// the density constant and the conversion below exact.
+			const float su = GiRandom(seed) * 2.0 - 1.0;
+			const float sv = GiRandom(seed) * 2.0 - 1.0;
+			const vec3 point = light.CentreArea.xyz
+							 + light.TangentU.xyz * su
+							 + light.TangentV.xyz * sv;
+
+			vec3 toLight = point - world;
+			const float distance2 = max(dot(toLight, toLight), 1e-6);
+			const float distance = sqrt(distance2);
+			toLight /= distance;
+
+			const float NdotL = dot(N, toLight);
+			// The emitter's own facing. Two-sided, because a light fitting
+			// recessed into a ceiling is modelled as a single plane and which
+			// way its winding runs is not something a scene should have to
+			// know.
+			const vec3 lightNormal = normalize(cross(light.TangentU.xyz, light.TangentV.xyz));
+			const float cosLight = abs(dot(lightNormal, toLight));
+
+			if (NdotL > 0.0 && cosLight > 1e-4)
+			{
+				// The visibility term, and it is the whole reason this is a
+				// ray rather than an analytic form: a luminaire behind the car
+				// must not light the car's far side.
+				//
+				// Shortened by a hair so the ray ends *before* the emitter's
+				// own surface rather than in it, which would report itself as
+				// an occluder.
+				TracedSurface blocker = TraceSurface(world, N, toLight, distance * 0.999);
+				if (blocker.Missed)
+				{
+					// Area density to solid angle: pdf_w = pdf_A * d^2 / cos.
+					// The estimator is Li * cos_surface / pdf_w, and the 1/pi
+					// of the Lambert lobe is already outside this loop's
+					// convention -- ShadeTraced's callers integrate irradiance,
+					// not radiance, so no albedo appears here either.
+					//
+					// **And the 1/pi, which is this pass's convention rather
+					// than a physical constant.** The hemisphere estimator
+					// above averages radiance directly -- cosine sampling
+					// cancels the cosine and the pi with it -- so what this
+					// pass writes is E/pi and the lit shader multiplies by
+					// albedo alone. An area estimator has no such cancellation,
+					// so the pi has to be put back by hand or the emitters
+					// arrive three times too bright.
+					const float area = light.CentreArea.w;
+					bounced += light.Radiance.rgb * NdotL * cosLight
+							 * area * float(emitters) / distance2 * 0.31830989;
+				}
+			}
+		}
+
+		// --- and the hemisphere, for everything that is not an emitter -----
 		const vec3 direction = CosineDirection(N, seed);
 
 		TracedSurface first = TraceSurface(world, N, direction, reach);
@@ -165,7 +265,35 @@ void main()
 									 : ShadeTraced(second, ProbeIrradiance(second.Normal, 0.0));
 		}
 
-		bounced += ShadeTraced(first, arriving);
+		// **Emissive removed where the emitters answered for it.** A hit on
+		// the luminaire would otherwise be counted twice -- once by the shadow
+		// ray above and once here -- and the double count is exactly the
+		// high-variance term this is trying to be rid of. With no emitter list
+		// the subtraction does not happen and the old estimator is back,
+		// which is the fallback the cap needs.
+		vec3 shaded = max(ShadeTraced(first, arriving) - (emitters > 0 ? first.Emissive : vec3(0.0)),
+						  vec3(0.0));
+
+		// **And a bound on what is left, which is the honest half of this.**
+		//
+		// Next-event estimation integrates the *emitters* exactly, and that is
+		// most of the variance in a room lit by a ceiling. It does nothing for
+		// the rest: a white car under that ceiling is itself a bright secondary
+		// source, and a ray that happens to hit its bonnet returns thirty times
+		// what one that hits the floor does. Those spikes are what is left of
+		// the speckle, and no amount of emitter sampling touches them.
+		//
+		// Clamping trades a little energy for a lot of variance, and it is a
+		// *bias* -- the brightest inter-reflections come back slightly dimmer
+		// than they should. That is the trade every real-time path tracer
+		// makes, and the number is chosen to sit above anything the direct
+		// lighting produces so it only ever catches the outliers.
+		const float kIndirectClamp = 4.0;
+		const float peak = max(shaded.r, max(shaded.g, shaded.b));
+		if (peak > kIndirectClamp)
+			shaded *= kIndirectClamp / peak;
+
+		bounced += shaded;
 	}
 
 	o_Indirect = vec4(bounced / float(rays), 1.0);

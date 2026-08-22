@@ -576,6 +576,10 @@ namespace RageV
 		// avoid.
 		std::vector<uint32_t> m_CpuDraws;
 		bool m_HasBlended = false;
+		// Emissive rectangles the traced bounce aims at. Built with the draw
+		// list, since that is where the transform, the bounds and the material
+		// are all resolved together.
+		std::vector<AreaEmitter> m_Emitters;
 
 		// What the camera's cull pass decided, for the lit pass to draw
 		// through (roadmap 8.3). Produced in the frame's prepare phase --
