@@ -11700,6 +11700,43 @@ void main()
 		render.MsaaSamples = 4;
 		Check(build(1600, 900, render, post), "with MSAA it compiles");
 
+		// --- the two reflection paths agree about the same surface -----------
+		//
+		// A screen-space trace and a ray-traced one have to draw the line in
+		// the same place, because a surface either gets a mirror reflection or
+		// gets the probe's blur and it cannot depend on which backend is
+		// running. They did not: the SSR shader held its own 0.55-to-0.9 fade
+		// while Renderer::GetReflectionGloss said 0.25 to 0.6, so the
+		// showroom's walls at roughness 0.66 were entirely the probe's on
+		// Vulkan and 77% a screen-space trace on OpenGL -- and being screen
+		// space, that 77% came and went with the camera angle. ENGINE-NOTES
+		// 7cj.
+		//
+		// The shader no longer holds a window at all: it is pushed from the
+		// same function. What is worth asserting is the fallback that makes
+		// that safe, since screen-space reflections run precisely when the
+		// ray-traced ones are Off.
+		{
+			render.AA = AntiAliasing::None;
+			render.RayTracing = false;
+			render.RayTracedReflections = RayDetail::Off;
+			Check(build(1600, 900, render, post),
+				  "with ray-traced reflections off it still compiles");
+
+			const Vec2 gloss = Renderer::GetReflectionGloss();
+			Check(gloss.x > 0.0f && gloss.y > gloss.x,
+				  "and the gloss window is still a window, not zeroes -- "
+				  "screen-space reflections read this one, so 'Off' must not "
+				  "mean 'no window'");
+			Check(gloss.y <= 0.62f,
+				  "**and it still hands a surface rougher than about 0.6 to "
+				  "the probe** -- which is the whole claim: the showroom's "
+				  "0.66 walls are matte on both backends or on neither");
+
+			render.RayTracing = true;
+			render.RayTracedReflections = RayDetail::High;
+		}
+
 		// --- what a sample count may be -------------------------------------
 		//
 		// A sample count is a *bit flag* in both graphics APIs, not a number.

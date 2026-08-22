@@ -77,6 +77,13 @@ layout(push_constant) uniform Params
 	vec4 ViewRow0;
 	vec4 ViewRow1;
 	vec4 ViewRow2;
+
+	// Where a mirror ray stops being the answer. Sent by the CPU from the
+	// same place the ray-traced path reads it, so the two cannot disagree
+	// about which surfaces get a traced reflection -- see the note on
+	// SsrTraceParams and ENGINE-NOTES 7cj.
+	float GlossBegin;
+	float GlossEnd;
 } u_Params;
 
 #include "include/view_reconstruction.glsl"
@@ -161,7 +168,7 @@ void main()
 	// Fade the trace out toward roughness 1 rather than gating it, so the
 	// transition is not an edge.
 	const float roughness = surface.b;
-	const float roughFade = 1.0 - smoothstep(0.55, 0.9, roughness);
+	const float roughFade = 1.0 - smoothstep(u_Params.GlossBegin, u_Params.GlossEnd, roughness);
 	if (roughFade <= 0.0)
 	{
 		o_Color = vec4(0.0);
@@ -240,9 +247,9 @@ void main()
 
 	// A rough surface's reflection is a blur the trace only has to place,
 	// not resolve, and the fade to the probe past its budget is invisible
-	// under that blur; give it fewer steps. Roughness 0.55 and below keeps
-	// the whole budget, and it falls with the same curve the confidence
-	// does.
+	// under that blur; give it fewer steps. Anything at or below GlossBegin
+	// keeps the whole budget, and it falls with the same curve the confidence
+	// does -- both are roughFade, so moving the window moves them together.
 	const int budget = int(mix(float(kMaxIterations) * 0.3, float(kMaxIterations), roughFade));
 
 	// The origin is *on* its surface: neither in front nor behind, so a

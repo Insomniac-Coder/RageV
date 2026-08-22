@@ -952,6 +952,23 @@ namespace RageV
 			Vec4 ViewRow0{ 1.0f, 0.0f, 0.0f, 0.0f };
 			Vec4 ViewRow1{ 0.0f, 1.0f, 0.0f, 0.0f };
 			Vec4 ViewRow2{ 0.0f, 0.0f, 1.0f, 0.0f };
+
+			// Where a mirror ray stops being the answer: below the first the
+			// trace is taken whole, above the second the probe's blur is what
+			// many jittered rays would converge to anyway.
+			//
+			// **Sent rather than hardcoded, because the ray-traced path has
+			// the same window and the two must not drift.** They did: this
+			// shader held 0.55 to 0.9 while Renderer::GetReflectionGloss said
+			// 0.25 to 0.6, so a surface at roughness 0.66 was entirely the
+			// probe's on Vulkan and 77% a screen-space trace on OpenGL --
+			// which, being screen space, came and went with the camera. The
+			// showroom's walls are 0.66. ENGINE-NOTES 7cj.
+			//
+			// After the vec4s on purpose: ViewRow0 has to stay on a 16-byte
+			// boundary and two floats in front of it would have moved it.
+			float GlossBegin = 0.25f;
+			float GlossEnd = 0.60f;
 		};
 		static_assert(offsetof(SsrTraceParams, ViewRow0) % 16 == 0,
 					  "ViewRow0 must sit on a 16-byte boundary for the shader's vec4");
@@ -1050,6 +1067,11 @@ namespace RageV
 		params.MaxDistance = Math::Max(ssr.MaxDistance, 0.1f);
 		params.Thickness = Math::Max(ssr.Thickness, 0.01f);
 		ViewRows(ssr.View.View, params.ViewRow0, params.ViewRow1, params.ViewRow2);
+
+		// The same window the ray-traced reflections use, from the same place.
+		const Vec2 gloss = Renderer::GetReflectionGloss();
+		params.GlossBegin = gloss.x;
+		params.GlossEnd = gloss.y;
 
 		// All point sampled: the atlases are fetched by texel, and a filtered
 		// normal is a direction nothing faces.

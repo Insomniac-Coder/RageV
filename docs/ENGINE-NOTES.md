@@ -12843,6 +12843,62 @@ is the one that never let five be typed.
 types it wants to hear that five is not a thing, not to measure four while
 believing they measured five.
 
+### 7cj. Two reflection paths disagreed about the same wall
+
+The showroom's side walls shone at some camera angles on OpenGL and were matte
+on Vulkan. Neither backend was broken. They were reading **two different
+numbers for the same decision**.
+
+That decision is: at what roughness does a mirror ray stop being the answer and
+the probe's blur start being it? Both paths have a window for it, and the
+windows had drifted apart:
+
+| path | window | the wall at 0.66 |
+|---|---|---|
+| ray-traced, `High` | `Renderer::GetReflectionGloss` -> 0.25 to 0.60 | **0%** -- entirely the probe, a stable wash |
+| screen-space | `smoothstep(0.55, 0.9)`, in the shader | **77%** of a traced reflection |
+
+The wall sits in the gap. And OpenGL never takes the ray-traced path at all --
+it has no ray query, so `ResolveRayTracedReflections` returns Off and
+screen-space reflections are what run.
+
+#### Why it came and went
+
+A screen-space trace can only reflect **what is on screen**. So the 77% was not
+a constant error, it was a reflection that appeared when the floor or the car
+happened to lie along the reflection direction and vanished when they did not
+-- which is exactly what orbiting the camera does to it.
+
+It was also darker where the trace missed: measured over the left wall at a
+posed angle, OpenGL sat at mean luminance **35.2** against Vulkan's 46.8, and
+after the fix at **48.3** -- from 25% off to 3%. Losing the probe's wash and
+getting nothing back for it costs more than the spurious reflection does.
+
+#### The wall is matte, and that was already decided
+
+`make_showroom_textures.py` puts the panels at roughness **0.66** and the
+joints at 0.78, and carries a note recording that they used to be 0.42 and were
+raised because a black wall at 0.42 *"is not matte paint -- it is a dark
+mirror"*. The intended look is a wash of the room, not an image of it. Vulkan
+was right.
+
+#### One number, one place
+
+The shader no longer holds a window. `SsrTraceParams` carries `GlossBegin` and
+`GlossEnd`, filled from `Renderer::GetReflectionGloss()` -- the same function
+the ray-traced path reads -- so the two cannot drift again. They are pushed
+*after* the view rows, because `ViewRow0` has to stay on a 16-byte boundary and
+two floats in front of it would have moved it; the `static_assert` that guards
+that is what says so.
+
+The trace's step budget follows for free: it was already derived from the same
+`roughFade`, so moving the window moves both together.
+
+**What screen-space reflections run on is not a quality setting** -- it is
+whether the device has a ray query. So the window they read is the one the
+configured detail level would have used, and `RayDetail::Off` answers the same
+window rather than nothing, which is the case scenetest pins down.
+
 ---
 
 ## 8. What this changes
