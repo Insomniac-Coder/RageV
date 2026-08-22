@@ -1,0 +1,15 @@
+Material: showroom_car_ext_grid_2
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 0.07
+Occlusion: 1
+NormalScale: 1
+Specular: 1.4
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Blend: Blend
+Maps:
+  BaseColor: 8111071369583402092
+  Normal: 6561864637765069471

@@ -64,12 +64,26 @@ namespace RageV::Assets
 		// that: the files themselves are still perfectly readable, they are
 		// just no longer what this build would have produced.
 		//
-		// **The importer counts as an encode rule.** v2 is here because
+		// **The importer counts as an encode rule.** v2 was here because
 		// `GltfImporter` started extracting images that a `.glb` carries in
 		// its binary chunk: the source hash of the model has not moved, so a
 		// v1 `.rvmesh` would keep being served with the empty texture list it
 		// was cooked with, and the fix would look like it had not worked.
-		static constexpr const char* kVersion = "v2";
+		//
+		// **And v3 is here because `MeshCook::kVersion` went to 2 for the
+		// blend field and this did not follow it.** The two versions are not
+		// the same thing and both have to move: MeshCook's says what a
+		// `.rvmesh` contains, and this says which directory of them a build
+		// will look in. Bumping only the first left every load reading a v1
+		// file, refusing it, re-importing from source, and never writing the
+		// result anywhere -- so it happened again on the next launch, and
+		// again, with a red line in the log each time.
+		//
+		// The rule that follows: **a MeshCook version bump always bumps this
+		// too.** A cooked format that changed and a cache that still points at
+		// the old one is not a slow cache, it is a cache that cannot ever be
+		// right again.
+		static constexpr const char* kVersion = "v3";
 	};
 
 	// What must never be cooked. Shared by the cache and the packager so that

@@ -590,9 +590,25 @@ def build(profile, mat):
     # point and everything reflecting from it is guessing parallax, so the
     # place to put it is where the thing that matters most is -- and here that
     # is unambiguous.
-    s.entity("Showroom Probe", position=(0, 1.05, 0))
+    # **Above the roofline, not at the car's centre**, and that was a real
+    # defect rather than a tuning choice. A probe is a camera: one *inside* the
+    # car photographs the inside of the car, so every surface reflecting
+    # through it reflected a black cabin. On Vulkan that was hidden, because
+    # traced reflections replace the probe wherever a surface is glossy enough
+    # to earn a ray -- so the glass looked right there and was dead on OpenGL,
+    # which has no ray queries and nothing else to fall back to. Screen-space
+    # reflections cannot cover it either: a blended fragment writes no
+    # g-buffer, so SSR has no surface to trace from.
+    #
+    # 1.55 m clears the roof and the wing, so the capture is the room with the
+    # car below it -- which is what the car should be reflecting.
+    #
+    # 512 rather than 256: glass at roughness 0.04 samples the sharpest mip,
+    # and at 256 the luminaire's grid arrives as a smear. Baked, so this is
+    # six renders once and nothing per frame.
+    s.entity("Showroom Probe", position=(0, 1.55, 0))
     s.block("ReflectionProbeComponent", [
-        ("Update", "Baked"), ("Resolution", 256), ("Influence", 22),
+        ("Update", "Baked"), ("Resolution", 512), ("Influence", 22),
         ("NearClip", 0.05), ("FarClip", 60), ("Rate", "15Hz"),
         ("FacesPerFrame", 1),
     ])
@@ -781,6 +797,11 @@ CAR_SURFACES = (
     # Lamp lenses. A hair rougher than window glass, because a lens is moulded
     # rather than float, and rougher still would lose the point.
     (("EXT_Glass_Emissive",), 0.06, 0.0, 1.7),
+
+    # The bonnet outlet's grille and the roof vent. Perforated sheet over an
+    # opening, and on this car it is under a clear cover -- so it wants the
+    # glass treatment rather than the 0.96 the model gave everything.
+    (("EXT_Grid",), 0.07, 0.0, 1.4),
 
     # What is behind the lens: reflector housings and the LED elements. Not
     # glass, and not 0.96 either -- a headlamp reflector is a polished

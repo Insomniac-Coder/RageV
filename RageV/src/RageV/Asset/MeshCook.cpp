@@ -195,8 +195,13 @@ namespace RageV::Assets
 		uint32_t version = 0;
 		if (!reader.Get(version) || version != kVersion)
 		{
-			RV_CORE_ERROR("Cooked mesh is version {0}; this engine reads {1}",
-						  version, kVersion);
+			// A warning, not an error: since the importers fall through to the
+			// source on a refusal this is a handled condition, and the one it
+			// is handling is an ordinary version bump. It was an error, and a
+			// red line for something the engine recovers from perfectly is how
+			// a real failure stops being noticed.
+			RV_CORE_WARN("Cooked mesh is version {0}; this engine reads {1}",
+						 version, kVersion);
 			return false;
 		}
 
