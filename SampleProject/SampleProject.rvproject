@@ -1,7 +1,7 @@
 Project:
   Name: Sample
   AssetDirectory: assets
-  StartScene: scenes/camp.rage
+  StartScene: scenes/showroom.rage
   FixedHz: 60
   RenderSettings:
     AntiAliasing: TAA

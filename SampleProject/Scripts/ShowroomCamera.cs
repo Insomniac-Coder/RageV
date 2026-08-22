@@ -38,6 +38,28 @@ public class ShowroomCamera : Script
 	private float MinDistance = 4.6f;
 	private float MaxDistance = 11.0f;
 
+	// **The room, and the camera is not allowed out of it.** An orbit is a
+	// sphere and a showroom is a box, and the sphere does not fit: at seven
+	// metres out and ninety degrees round, the camera stands a metre and a
+	// half *inside* the left wall, which renders as a black frame. It is the
+	// obvious failure in hindsight and it is invisible from the front, which
+	// is the only angle a still ever shows.
+	//
+	// Four walls rather than a radius, because the room is not centred on the
+	// car: it runs from the portal behind to the wall behind the camera, and
+	// half of that is nearly twice the other half.
+	private float RoomMinX = -5.4f;
+	private float RoomMaxX = 5.4f;
+	private float RoomMinZ = -7.4f;
+	private float RoomMaxZ = 9.2f;
+
+	// And the ceiling, which the pitch clamp alone does not respect: thirty
+	// degrees at seven metres is four and a half metres up, and the luminaire
+	// is at 3.66. So the *height* is the limit and the pitch follows from it,
+	// which also gives the right behaviour for free -- you can look further
+	// down on the car the closer you stand to it.
+	private float RoomCeiling = 3.30f;
+
 	// Degrees per pixel of drag, and metres per wheel notch.
 	private float YawSpeed = 0.26f;
 	private float PitchSpeed = 0.16f;
@@ -122,10 +144,33 @@ public class ShowroomCamera : Script
 
 		// Yaw 0 stands in front of the car, on +Z, which is the way the model
 		// faces and the way the scene is framed.
-		float ground = m_Distance * MathF.Cos(pitch);
-		Vector3 offset = new Vector3(ground * MathF.Sin(yaw),
-									 m_Distance * MathF.Sin(pitch),
-									 ground * MathF.Cos(yaw));
+		float sinYaw = MathF.Sin(yaw);
+		float cosYaw = MathF.Cos(yaw);
+
+		// How far the camera may travel along this heading before it reaches a
+		// wall. Exact rather than a single radius: the answer is different in
+		// every direction because the room is a box the car is not centred in.
+		float reach = MathF.Min(WallDistance(sinYaw, TargetX, RoomMinX, RoomMaxX),
+								WallDistance(cosYaw, TargetZ, RoomMinZ, RoomMaxZ));
+
+		// The ceiling, as a height rather than an angle. Clamping the pitch to
+		// a constant cannot know how far out the camera is standing.
+		float headroom = MathF.Max(RoomCeiling - TargetY, 0.05f);
+
+		float distance = MathF.Min(m_Distance, reach / MathF.Max(MathF.Cos(pitch), 0.05f));
+
+		float rise = distance * MathF.Sin(pitch);
+		if (rise > headroom)
+		{
+			// Keep the camera on its sphere and slide it down the sphere
+			// rather than shortening the arm, so the framing does not jump as
+			// the drag reaches the limit.
+			pitch = MathF.Asin(Clamp(headroom / MathF.Max(distance, 0.01f), -1.0f, 1.0f));
+			rise = distance * MathF.Sin(pitch);
+		}
+
+		float ground = distance * MathF.Cos(pitch);
+		Vector3 offset = new Vector3(ground * sinYaw, rise, ground * cosYaw);
 
 		// A local copy, because `Script.Entity` is a property returning a
 		// struct and assigning through it is a write to a temporary. The copy
@@ -139,6 +184,18 @@ public class ShowroomCamera : Script
 		// also a second opinion about which way -Z points that nothing would
 		// check -- the same argument CampCamera makes.
 		self.LookAt(target);
+	}
+
+	// How far from `origin` a ray travelling at `component` along one axis can
+	// go before it leaves [low, high]. Infinity when it is not travelling along
+	// that axis at all, which is what makes the min of the two the answer.
+	private static float WallDistance(float component, float origin, float low, float high)
+	{
+		if (MathF.Abs(component) < 1e-4f)
+			return float.MaxValue;
+
+		float wall = component > 0.0f ? high : low;
+		return MathF.Max((wall - origin) / component, 0.1f);
 	}
 
 	private static float Clamp(float value, float low, float high) =>
