@@ -6,83 +6,114 @@ Work on **`main`**, which is pushed and clean.
 
 ---
 
-## Start here: what 8.3 turned out to be, and where the frame actually goes
+## Start here: the frame got 4.35x cheaper, and EnTT is gone
 
-**8.3's depth half is built, measured and committed. The measurement then
-pointed somewhere else, and that is the thing to pick up.**
+**Updated 2026-08-22.** Work on `main`, which is clean. The day closed roadmap
+8.3, 8.15, 8.16 and 10.2.
 
-### The short version
+### What the frame costs now
 
-`RHICommandList::DrawIndexedIndirect` exists on both backends. `GpuCull`
-uploads one table of every static object a frame and each depth view -- cascade,
-spot light, cube face -- costs two dispatches instead of a walk over every
-object. `--gpu-cull=on|off` switches between the two paths on one binary, which
-is the only way the numbers below mean anything.
+On the owner's scene: **28 ms to 6.44 ms**, which is 36 FPS to 155. On the
+scale fixtures, at constant density, Vulkan, 1280x720:
 
-| | 20,000 objects | 60,000 objects |
+| objects | this morning | now |
 |---|---|---|
-| frame, cull off | 14.53 ms | 53.37 ms |
-| frame, cull on | 13.95 ms | 52.51 ms |
-| depth-pass CPU | 2.31 -> 2.07 | 6.68 -> 6.13 |
+| 1,000 | 1220 FPS | **2053** |
+| 5,000 | 319 FPS | **701** |
+| 20,000 | 74 FPS | **253** |
+| 60,000 | 18 FPS | **78** |
+| 120,000 | -- | **34** |
 
-Four percent, then under two. It is kept because it is the scaffolding the lit
-pass needs, not because of what it measured. ENGINE-NOTES 7bx has the whole of
-it, including the version that was a *net loss* and why.
+Five changes, and **the two that mattered were not the ones the roadmap named**:
 
-### The thing to pick up: 8.15
+| change | worth |
+|---|---|
+| the transform walk compares instead of recomputing (8.15) | ~1.8x |
+| instance data out of the sorted record (8.16) | ~1.35x |
+| the GPU-driven lit pass (8.3) | ~1.38x |
+| one packed sort key (8.16) | ~1.1x |
+| GPU cull for the depth passes (8.3) | ~1.03x |
 
-A probe around the two per-object walks, at 60,000 objects in a 52 ms frame:
+The largest single piece was a function that appears in no roadmap row:
+`UpdateWorldTransforms` recomputed every entity's world matrix from scratch,
+four to seven times a frame, whether or not anything had moved -- 27.4 ms of a
+52 ms frame, against ~0.6 ms for all the frustum culling that 8.3 is about.
 
-| | calls a frame | ms a frame |
-|---|---|---|
-| `UpdateWorldTransforms` | **7** | **27.4** |
-| `RefreshDrawList` | 2 | 2.9 |
-| every depth view's culling together | 11 | ~0.6 |
+**The method is the transferable part.** Three times in one day a measurement
+contradicted a confident guess about where time went, and every one of those
+guesses would have produced a change worth nothing. Put a timer in before
+writing code. ENGINE-NOTES 7bx has each wrong turn beside its answer.
 
-**Half the frame is the hierarchy walk**, and the culling that 8.3 names is one
-percent of it. `Scene::UpdateWorldTransforms` recomputes every entity's world
-matrix from the root down with no notion of what changed, and the fixed-step
-loop calls it after every `OnTick` -- so a frame slow enough to run three steps
-walks three extra times, and the cost rises with the frame time it is causing.
-Four calls at 20,000 objects; seven at 60,000.
+### What is switchable, and what it depends on
 
-The fix is dirty tracking. The reason it is not trivial is written in `Scene.h`
-about the draw list's own flag: *a flag that has to be set at every write site
-is a flag one of them will forget*, and a missed one is an object frozen at
-last frame's transform -- which reads as a physics or a scripting bug. So the
-write sites want narrowing before the flag is worth having.
+- `--gpu-cull=on|off` -- the depth views' compute cull. On by default, both
+  backends.
+- `--gpu-lit=on|off` -- the camera's. On by default, **and it requires
+  bindless**, so it does nothing on OpenGL. That is not a limitation waiting to
+  be lifted: it draws one indirect call per mesh, so the material has to be
+  chosen per *instance*, which only bindless does. Without the guard OpenGL
+  rendered a courtyard of white boxes with one textured fox in it -- the fox
+  being skinned, and skinned meshes taking the CPU path.
 
-### The other half of 8.3, if the lit pass is the goal instead
+**The CPU path is a real fallback, not a stopgap.** OpenGL, a device without
+compute, and either flag set to off all take it, and it is the same picture:
+camp and demo match within each backend's own run-to-run noise.
 
-The depth pass alone cannot pay for the table: its own walk is 24 bytes an
-object and the table is 96. The lit pass is where the per-object cost lives --
-256 bytes of instance data per *visible* object, an inverse-transpose among
-them, a sort of 340-byte records, an upload -- about 16 ms of the 60,000-object
-frame. One table serves both, and it already holds the model matrices the lit
-pass writes out again every frame.
+### EnTT is gone (10.2)
 
-What that needs, beyond what exists: the cull writing a compacted *index* list
-rather than a finished matrix, `pbr.rvshader` reading its instance through that
-index, and somewhere for the material parameters and the probe choice to live
-that is not rebuilt per frame. The depth sort is the awkward part -- it orders
-runs by depth on the CPU, and the CPU no longer knows what survived.
+`Scene/ECS.h` replaces it in a few hundred lines against thirty thousand: a
+sparse set per component type, twelve registry calls and four view operations,
+because that is what the engine used. 2.4 MB of vendored header deleted, no
+change in checks or frame time. ENGINE-NOTES 7by.
 
-### How to measure any of it
+**Four behaviours it was quietly relying on**, none visible at a call site and
+all four of which broke something:
 
-`tools/scripts/make_scale_scenes.py` builds the fixtures;
-`tools/scripts/bench_scale.py` walks them. Run it before and after anything
-claiming to make scale cheaper. It passes `--vsync=off` for you, which is not
-optional -- with vsync on every number is the display's refresh, and the
-benchmark says so in as many words.
+1. **Component references survive an insertion.** Pools are paged for this. A
+   `std::vector` reallocates, and `AddComponent` hands back a reference that
+   callers configure over the next several lines -- and the draw list borrows a
+   `TransformComponent*` for a whole frame.
+2. **Iteration is creation order.** EnTT went backwards and the serializer
+   reversed to compensate; the reversal became the bug the moment EnTT left.
+3. **A range-for evaluates `end()` once.** An iterator that re-reads the pool's
+   size follows a pool that grows, which is not a longer loop but an infinite
+   one.
+4. **A destruction listener can already have removed the thing** it is being
+   told about, so `Erase` and `Clear` re-check after notifying.
 
-For an A/B on one build, `--gpu-cull=on|off` and read `shadow maps` and
-`render graph` in the phase table rather than the frame mean: the frame mean
-moves by less than the run-to-run spread at these sizes, and the phase lines
-do not.
+A component's pool index comes from a hash of `__FUNCSIG__` through one
+exported function, never a counter: a counter inside an inline template is per
+module, and the engine, the editor, the runtime and a project's script module
+would each start their own.
 
-**And the frame is not GPU-bound anywhere on that curve.** 0.9 ms of GPU work
-in a 14 ms frame at 20,000; 2.0 ms in 52 ms at 60,000. Nothing in this area
-should be reasoned about as a GPU cost.
+### The two traps that cost the most time
+
+**`SampleProject`'s `Sample.dll` is compiled against the engine headers.** Any
+change to a type's layout -- which the ECS swap was, comprehensively -- makes
+the engine and the script module disagree about memory. It cost hours today
+across three separate incidents and never once presented as a DLL problem: it
+hung inside a fixed step with audio still playing, then crashed, then rendered
+nothing. Rebuild it for both configurations:
+
+```
+cmake --build SampleProject/bin/module --config Debug
+cmake --build SampleProject/bin/module --config Release
+```
+
+**A capability the fast path depends on has to be asserted where the path is
+chosen.** The lit pass assumed bindless because that is what the machine it was
+written on has. No check caught it -- scenetest passes on OpenGL because
+nothing in it compares a *textured* render against a reference -- and it was
+visible only to somebody looking at the screen.
+
+### Where the remaining time goes, at 60,000 objects
+
+Roughly 12.8 ms: the lit pass's own walk and submission, the depth passes at
+2.9, the transform walk at 2.6, and 2.7 of GPU. **Nothing on this curve is
+GPU-bound**, and the real scenes are the opposite -- camp is 4.9 ms of which
+4.9 is the graphics card. Two regimes, and CPU work is worth nothing to the
+second one.
+
 
 ---
 
@@ -137,6 +168,14 @@ stale `RuntimeLayer.obj` was newer than the header it was stale against.
   in phase 6 is built.
 - **ENGINE-NOTES 7bs and 7bt are cited from four files and were never written.**
   `rvdoc --check` does not validate note cross-references, so nothing catches it.
+- **The check suite never looks at a textured render.** That is how the lit
+  path shipped for an evening drawing every static mesh with the default
+  material on OpenGL: 2199 checks passed while the courtyard was white boxes.
+  A reference-image check on one textured scene per backend would have caught
+  it in seconds, and would catch the next one of its kind.
+- **Meshlets** are 8.3's remaining half and are deliberately not started: they
+  make the GPU faster and this renderer's GPU is idle nine tenths of the frame
+  at scale. Revisit if mesh LOD ever lands and the balance moves.
 
 ---
 
