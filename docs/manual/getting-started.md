@@ -195,6 +195,43 @@ on the bindless path never crashes; it draws **magenta**, which is the colour
 of every unwritten slot in the heap, so a magenta object is a wrong index and
 not a look.
 
+### Reflections, and what OpenGL cannot do
+
+Vulkan traces reflection rays against the real geometry. **OpenGL 4.5 has no
+ray query**, so on that backend the engine falls back to screen-space
+reflections — and that is not a quality setting, it is a hard limit on what
+information exists.
+
+A screen-space trace can only reflect **what the camera is already drawing**.
+The depth buffer holds the surfaces facing the camera and nothing else, so a
+reflection needing anything else has no source:
+
+- geometry **off screen**, or behind the viewer
+- the **underside** of something whose top is what the camera sees
+- anything hidden behind a nearer object
+
+In the sample project's showroom, the car's reflection in the floor is the
+clear case. Measured over the floor in front of the car while orbiting the
+camera, mean luminance:
+
+| yaw | Vulkan | OpenGL |
+|---|---|---|
+| 0 | 123.0 | 123.5 |
+| 40 | 125.4 | 109.5 |
+| 80 | 112.6 | 125.3 |
+| **100** | 114.3 | **60.4** |
+
+Vulkan holds within ±6% at every angle. OpenGL swings by a factor of two,
+because at 100 degrees the reflection needs the car's underside and no pixel
+on screen contains it. The reflection does not go black — the lit pass keeps
+the reflection probe's radiance wherever the trace has no confidence — but a
+probe is a static capture of the *room*, and the room has no car in it.
+
+**Nothing is being culled** when this happens, and no setting turns it off. It
+is worth knowing which backend you are judging a scene on: for reflections,
+Vulkan is the reference and OpenGL is an approximation that is exact only where
+the camera happens to have the answer already.
+
 ## Where things live
 
 ```text
