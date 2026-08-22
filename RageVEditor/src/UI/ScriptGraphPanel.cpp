@@ -1,5 +1,6 @@
 #include "ScriptGraphPanel.h"
 #include "EditorTheme.h"
+#include "Widgets.h"
 
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/ScriptGraphGenerator.h"
@@ -528,16 +529,25 @@ namespace RageV::UI
 			const ImVec2 min = Add(origin, ToScreen(node.Position));
 			const ImVec2 max = Add(min, size);
 
-			const float rounding = 4.0f * m_Zoom;
+			// A node is the one thing in the editor shaped like the mark, so
+			// it gets the mark's shape. No zoom term: the rectangle is
+			// already zoomed and the cut is a fraction of it, so a node keeps
+			// the same *shape* at every magnification rather than losing its
+			// corners as it shrinks.
 
-			draw->AddRectFilled(min, max, ImGui::GetColorU32(colors.BgSurface), rounding);
+			const float cut = ChamferCut(min, max, EditorTheme::Corner::Chamfer);
+			ChamferedRect(draw, min, max, ImGui::GetColorU32(colors.BgSurface), cut);
 
-			// The header, in the category's colour, clipped to the top corners
-			// by drawing the body over it below.
+			// The header, in the category's colour. It takes the tile's
+			// top-left cut and nothing else: the other cut is on the far
+			// corner and belongs to the body. Clipped to its own height, and
+			// extended by the cut below that line so the shape being clipped
+			// is full width where it matters.
 			const ImVec2 headerMax(max.x, min.y + kHeaderHeight * m_Zoom);
-			draw->AddRectFilled(min, headerMax,
-								ImGui::GetColorU32(CategoryColor(desc.Category)),
-								rounding, ImDrawFlags_RoundCornersTop);
+			draw->PushClipRect(min, headerMax, true);
+			ChamferedRect(draw, min, ImVec2(max.x, headerMax.y + cut),
+						  ImGui::GetColorU32(CategoryColor(desc.Category)), cut);
+			draw->PopClipRect();
 
 			// The outline carries the verdict: selection is the accent, an
 			// error is danger, a warning is warning. Errors win over selection
@@ -557,7 +567,7 @@ namespace RageV::UI
 				outline = colors.Warning;
 				thickness = Math::Max(thickness, 2.0f);
 			}
-			draw->AddRect(min, max, ImGui::GetColorU32(outline), rounding, 0, thickness);
+			ChamferedRectOutline(draw, min, max, ImGui::GetColorU32(outline), cut, thickness);
 
 			if (showTitle)
 			{
@@ -1473,7 +1483,7 @@ namespace RageV::UI
 			ImGui::Text("'%s' has unsaved changes.", m_Name.c_str());
 			ImGui::Spacing();
 
-			if (ImGui::Button("Save and open"))
+			if (AccentButton("Save and open"))
 			{
 				Save();
 				const AssetHandle next = m_PendingOpen;

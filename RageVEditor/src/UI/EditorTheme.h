@@ -7,6 +7,27 @@ namespace RageV::EditorTheme
 	// The editor's design system: two themes, one set of names.
 	//
 	// ---------------------------------------------------------------------
+	// Where the values come from
+	// ---------------------------------------------------------------------
+	//
+	// The application mark -- see tools/scripts/make_icon.py -- is three
+	// colours and no fourth: a field at #0E0E12, a red at #E03030, a light at
+	// #F2F2F6. Those three are not *inspired by* the palette below, they are
+	// literally in it: the accent is the mark's red, and the two ends of each
+	// theme's grey ramp are the mark's other two values. Which of them is the
+	// ground and which is the ink is the whole difference between the themes.
+	//
+	// This is a correction as much as a design. Three surfaces claim to be
+	// RageV -- the icon, the generated manual, and this editor -- and they
+	// carried three different reds. The icon and the manual already agreed on
+	// #E03030; the editor was the one that did not.
+	//
+	// The mark's red is a **pure** red: its green and blue channels are equal,
+	// so the hue is exactly 0 and there is no blue in it. The accent this
+	// replaces had more blue than green, which is a lot of why it read as soft
+	// -- it was drifting toward pink. Every red here now holds G == B.
+	//
+	// ---------------------------------------------------------------------
 	// The one rule the palette follows
 	// ---------------------------------------------------------------------
 	//
@@ -32,23 +53,32 @@ namespace RageV::EditorTheme
 	//
 	// Inverting is the classic mistake in both directions. Two places it shows:
 	//
-	//  - **The accent.** A red tuned to sit on charcoal reads pink and washed
-	//    out on white, and white text on it fails contrast. The light theme
-	//    gets its own darker, more saturated red. Same meaning, different value.
+	//  - **The accent.** The mark's #E03030 on white reads pink and washed
+	//    out, and white on it misses 4.5:1. The light theme gets the same hue
+	//    darkened -- which is the value the manual's light stylesheet already
+	//    uses. Same red, different luminance, same meaning.
 	//  - **BgControl**, the surface of an input. In dark it sits *above* the
 	//    panel; in light it sits *below* it. That is not an inconsistency --
 	//    it is what a control you can type into looks like in each. The token
 	//    is named for the role, never for being lighter.
+	//  - **Danger.** It has to stay apart from the accent, because the script
+	//    graph outlines a selected node in one and a broken node in the other
+	//    and an error must win. Two reds cannot be told apart by hue, so it
+	//    separates by luminance, **moving away from the accent toward the ink
+	//    end of the ramp** -- lighter in dark, darker in light.
 	//
-	// The dark theme's deepest surface is deliberately **not** near-black.
-	// Reading speed drops measurably on pure-black themes, and a saturated red
-	// against #000 fringes badly enough to look out of focus.
+	// **Near-black, and not black.** A panel is the mark's own field, and the
+	// dockspace goes darker still so panels read as raised off it rather than
+	// cut into it. Neither is #000, and that is deliberate: reading speed
+	// drops measurably on pure-black themes, and a saturated red against #000
+	// fringes badly enough to look out of focus. #0E0E12 is dark enough to be
+	// the mark and far enough off black to avoid both.
 	//
 	// Every foreground/background pair the editor actually puts together is
 	// measured against WCAG 2.2 AA -- 4.5:1 for body text, 3:1 for large text
 	// and for the boundary or state of a control. `tools/scripts/
-	// check_theme_contrast.py` prints the table; scenetest asserts the same
-	// pairs so the header and the check cannot drift apart.
+	// check_theme_contrast.py` prints the table, and falsify.py breaks a
+	// colour to prove the table would catch it.
 
 	enum class Theme : int32_t
 	{
@@ -78,7 +108,10 @@ namespace RageV::EditorTheme
 		ImVec4 Accent;
 		ImVec4 AccentHover;
 		ImVec4 AccentPressed;
-		ImVec4 OnAccent;      // a label drawn *on* an accent fill
+		// A label drawn *on* an accent fill. The mark's red is saturated
+		// enough to be dark, so in the dark theme this is **pure black** --
+		// #0E0E12 against it manages only 4.25:1, and a label needs 4.5.
+		ImVec4 OnAccent;
 		ImVec4 AccentMuted;   // the accent at low alpha, for selection fills
 		ImVec4 AccentFaint;   // fainter still, for a hovered row
 
@@ -141,11 +174,33 @@ namespace RageV::EditorTheme
 		constexpr float Display = 1.55f;
 	}
 
-	namespace Radius
+	// Corners.
+	//
+	// There is no curve anywhere in the mark -- a chamfered tile, and a V of
+	// straight-sided quads with mitred ends and a real point. A radius is the
+	// one thing that would contradict it, so `Sharp` is what every framed
+	// thing in the editor gets, and it is zero.
+	//
+	// `Chamfer` is the tile's cut, and it is a separate number because it is a
+	// separate idea: a radius is a corner that curves, a chamfer is a corner
+	// that is *gone*. **ImGui's style has only the first**, so this one cannot
+	// be set globally -- it applies where the editor draws the shape itself.
+	// See UI::ChamferedRect.
+	//
+	// **A fraction of the shorter side, which is the mark's own logic** -- the
+	// tile's cut is 26% of a square. One number then gives the same shape at
+	// every size: three pixels off a toolbar button, seven off a graph node,
+	// and both of them larger by the same factor when the UI is scaled up. A
+	// pixel count cannot do that, because the UI scale reaches the font and
+	// the paddings and would never reach a constant in a header.
+	//
+	// A tenth rather than a quarter because a logo is looked at once at 512px
+	// and a button is 30px and looked at all day: 26% of 30px is a corner
+	// removed, not a corner cut.
+	namespace Corner
 	{
-		constexpr float Control = 5.0f;   // inputs, buttons, tabs
-		constexpr float Panel   = 7.0f;   // windows, popups, child frames
-		constexpr float Pill    = 99.0f;  // scrollbar grabs and other capsules
+		constexpr float Sharp   = 0.0f;
+		constexpr float Chamfer = 0.10f;
 	}
 
 	// The active theme's values. Call this; never name a colour at a call site.

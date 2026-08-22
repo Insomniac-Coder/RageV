@@ -12,6 +12,97 @@ namespace RageV::UI
 		// table rather than being asked for a negative width -- clipping is
 		// ugly, a negative width is an assertion failure.
 		constexpr float kMinControlWidth = 22.0f;
+
+		// The tile as points, clockwise, which is what AddConvexPolyFilled
+		// wants. Returns 4 for a cut of nothing, so a caller that turns the
+		// chamfer off gets a plain rectangle rather than a degenerate hexagon
+		// with two zero-length edges -- those show up as dark pixels at the
+		// corners once the polygon is antialiased.
+		int ChamferPoints(const ImVec2& min, const ImVec2& max, float cut, ImVec2 out[6])
+		{
+			if (cut <= 0.0f)
+			{
+				out[0] = min;
+				out[1] = { max.x, min.y };
+				out[2] = max;
+				out[3] = { min.x, max.y };
+				return 4;
+			}
+
+			out[0] = { min.x + cut, min.y };
+			out[1] = { max.x, min.y };
+			out[2] = { max.x, max.y - cut };
+			out[3] = { max.x - cut, max.y };
+			out[4] = { min.x, max.y };
+			out[5] = { min.x, min.y + cut };
+			return 6;
+		}
+
+		// A button filled with the accent and cut like the mark.
+		//
+		// **The fill is drawn, not styled**, because ImGui emits a button's
+		// frame and its label in one call and the chamfer has to go *under*
+		// the label. Two draw channels put it there. The obvious alternative
+		// -- let ImGui draw it square, then paint the background back over the
+		// two corners -- needs to know what is behind the button, which a
+		// widget has no business assuming and which is wrong the moment one
+		// sits on anything but a flat panel.
+		//
+		// Drawing the fill also means picking it, so the three states are
+		// read back off the item rather than handed to ImGui as style colours.
+		bool AccentFilledButton(const char* label, const ImVec2& size)
+		{
+			const auto& colors = EditorTheme::Colors();
+			const ImVec4 clear{ 0.0f, 0.0f, 0.0f, 0.0f };
+
+			ImGui::PushStyleColor(ImGuiCol_Button, clear);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, clear);
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, clear);
+			ImGui::PushStyleColor(ImGuiCol_Text, colors.OnAccent);
+
+			ImDrawList* draw = ImGui::GetWindowDrawList();
+			ImDrawListSplitter splitter;
+			splitter.Split(draw, 2);
+			splitter.SetCurrentChannel(draw, 1);
+
+			const bool pressed = ImGui::Button(label, size);
+			const bool held = ImGui::IsItemActive();
+			const bool hovered = ImGui::IsItemHovered();
+
+			splitter.SetCurrentChannel(draw, 0);
+			ChamferedRect(draw, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+						  ImGui::GetColorU32(held ? colors.AccentPressed
+												  : (hovered ? colors.AccentHover
+															 : colors.Accent)),
+						  ChamferCut(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+									 EditorTheme::Corner::Chamfer));
+			splitter.Merge(draw);
+
+			ImGui::PopStyleColor(4);
+			return pressed;
+		}
+	}
+
+	float ChamferCut(const ImVec2& min, const ImVec2& max, float fraction)
+	{
+		const float shorter = Math::Min(max.x - min.x, max.y - min.y);
+		return Math::Clamp(shorter * fraction, 0.0f, shorter * 0.5f);
+	}
+
+	void ChamferedRect(ImDrawList* draw, const ImVec2& min, const ImVec2& max,
+					   ImU32 fill, float cut)
+	{
+		ImVec2 points[6];
+		const int count = ChamferPoints(min, max, cut, points);
+		draw->AddConvexPolyFilled(points, count, fill);
+	}
+
+	void ChamferedRectOutline(ImDrawList* draw, const ImVec2& min, const ImVec2& max,
+							  ImU32 colour, float cut, float thickness)
+	{
+		ImVec2 points[6];
+		const int count = ChamferPoints(min, max, cut, points);
+		draw->AddPolyline(points, count, colour, ImDrawFlags_Closed, thickness);
 	}
 
 	bool BeginProperties(const char* id, float labelFraction, bool resizable)
@@ -195,8 +286,6 @@ namespace RageV::UI
 		float* components[3] = { &values.x, &values.y, &values.z };
 
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0.0f, 0.0f });
-		// A square badge wants its own radius, or the "X" sits in a lozenge.
-		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, EditorTheme::Radius::Control);
 
 		// The badge is about 20px wide and FramePadding.x is 8, which leaves an
 		// inner box of ~4px for a glyph that needs ~9. ImGui centres a label
@@ -246,7 +335,7 @@ namespace RageV::UI
 			ImGui::PopID();
 		}
 
-		ImGui::PopStyleVar(4);
+		ImGui::PopStyleVar(3);
 		ImGui::PopID();
 		return changed;
 	}
@@ -382,17 +471,7 @@ namespace RageV::UI
 
 	bool AccentButton(const char* label, const ImVec2& size)
 	{
-		const auto& colors = EditorTheme::Colors();
-
-		ImGui::PushStyleColor(ImGuiCol_Button, colors.Accent);
-		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.AccentHover);
-		ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.AccentPressed);
-		ImGui::PushStyleColor(ImGuiCol_Text, colors.OnAccent);
-
-		const bool pressed = ImGui::Button(label, size);
-
-		ImGui::PopStyleColor(4);
-		return pressed;
+		return AccentFilledButton(label, size);
 	}
 
 	bool IconButton(const char* id, IconKind kind, const char* tooltip, bool active)
@@ -400,19 +479,23 @@ namespace RageV::UI
 		const auto& colors = EditorTheme::Colors();
 		const float side = ImGui::GetFrameHeight();
 
+		const ImVec2 at = ImGui::GetCursorScreenPos();
+
+		// The active one is the mark's tile; the rest are ordinary buttons.
+		// Which is the point of the cut being reserved: in a row of seven, the
+		// one that is on is the only one shaped differently.
+		bool pressed = false;
+		bool hovered = false;
 		if (active)
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, colors.Accent);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.AccentHover);
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.AccentPressed);
+			pressed = AccentFilledButton(id, { side, side });
+			hovered = ImGui::IsItemHovered();
 		}
-
-		const ImVec2 at = ImGui::GetCursorScreenPos();
-		const bool pressed = ImGui::Button(id, { side, side });
-		const bool hovered = ImGui::IsItemHovered();
-
-		if (active)
-			ImGui::PopStyleColor(3);
+		else
+		{
+			pressed = ImGui::Button(id, { side, side });
+			hovered = ImGui::IsItemHovered();
+		}
 
 		// OnAccent while filled, for the same reason AccentButton exists: the
 		// glyph is the label here, and a label on an accent fill has to clear
@@ -440,7 +523,6 @@ namespace RageV::UI
 		if (count <= 0)
 			return current;
 
-		const auto& colors = EditorTheme::Colors();
 		int chosen = current;
 
 		ImGui::PushID(id);
@@ -456,19 +538,12 @@ namespace RageV::UI
 
 			// The selected segment is the one place a fill of the accent is
 			// right: it is state, and it is the state of a control.
-			if (selected)
-			{
-				ImGui::PushStyleColor(ImGuiCol_Button, colors.Accent);
-				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.AccentHover);
-				ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.AccentPressed);
-				ImGui::PushStyleColor(ImGuiCol_Text, colors.OnAccent);
-			}
+			const bool clicked = selected
+				? AccentFilledButton(labels[i], ImVec2(each, 0.0f))
+				: ImGui::Button(labels[i], ImVec2(each, 0.0f));
 
-			if (ImGui::Button(labels[i], ImVec2(each, 0.0f)))
+			if (clicked)
 				chosen = i;
-
-			if (selected)
-				ImGui::PopStyleColor(4);
 
 			if (i < count - 1)
 				ImGui::SameLine();

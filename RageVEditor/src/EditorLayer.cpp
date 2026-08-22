@@ -3775,7 +3775,7 @@ void EditorLayer::DrawUnsavedChangesPopup()
 
 	const float width = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
 
-	if (ImGui::Button("Save", ImVec2(width, 0.0f)))
+	if (UI::AccentButton("Save", ImVec2(width, 0.0f)))
 	{
 		ImGui::CloseCurrentPopup();
 		// Which runs the pending action itself, once the write succeeds. A
@@ -4703,7 +4703,7 @@ void EditorLayer::DrawBuildGamePanel()
 	ImGui::SetCursorPosX((ImGui::GetWindowWidth() - width) * 0.5f);
 
 	ImGui::BeginDisabled(!ready);
-	if (ImGui::Button("Build", ImVec2(width, 0.0f)))
+	if (UI::AccentButton("Build", ImVec2(width, 0.0f)))
 	{
 		std::vector<std::string> backends;
 		if (m_BuildVulkan) backends.push_back("vulkan");

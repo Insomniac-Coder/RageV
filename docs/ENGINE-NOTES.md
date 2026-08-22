@@ -12669,6 +12669,105 @@ with the reason written above it rather than in a tooltip nobody hovers.
 disabled, with a tooltip, for a scene that has never been saved and therefore
 has no path to match against.
 
+### 7ch. The editor wears the mark, and four things were wrong underneath
+
+The application mark is three colours and no fourth: a field at `#0E0E12`, a
+red at `#E03030`, a light at `#F2F2F6`, and **no curve anywhere in it** -- a
+chamfered tile and a V of straight-sided quads with mitred ends. The editor now
+takes all of that literally: the accent *is* the mark's red, the two ends of
+each theme's grey ramp are the mark's other two values, and the style's corner
+radius is zero everywhere.
+
+#### The editor was the odd one out
+
+Three surfaces claim to be RageV -- the icon, the generated manual, and the
+editor -- and they carried three different reds. The icon and the manual
+already agreed on `#E03030`. The editor was at `#E5484D`, which has **more blue
+than green**, and that is most of why it read soft: it was drifting toward
+pink. The mark's red is a pure one, green and blue equal, hue exactly 0, and
+every red in both palettes now holds that.
+
+Taking it costs something, and the contrast table names the cost: a saturated
+red is a *dark* red, so a label on an accent fill needs pure black to clear
+4.5:1 -- `#0E0E12` on it manages only 4.25.
+
+#### A fraction, not a pixel count
+
+The first attempt gave every chamfer one constant, 7px, and a toolbar button
+got a node-sized bite out of it. The fix is the mark's own logic: **the cut is
+a fraction of the shorter side**, a tenth. One number then gives three pixels
+off a 30px button and seven off a 72px node, and both grow correctly with the
+UI scale -- which reaches the font and the paddings and would never have
+reached a constant in a header.
+
+A tenth rather than the mark's own 26% because a logo is looked at once at
+512px and a button is 30px and looked at all day.
+
+#### Two signals that were nearly invisible
+
+- **The tab overline.** ImGui defaults `TabBarOverlineSize` to *one pixel*, and
+  it uses a separate dimmed colour when a dock node does not have focus --
+  which is most panels most of the time, since an editor has one focused node
+  and six that are not. The theme had that dimmed variant at 35%. So the mark
+  saying "this is the panel you are in" was a 1px line at a third strength in
+  the common case and full strength in the rare one. Now 3px at 75%.
+- **The selected row.** A 30% wash over a near-black panel is a few levels, and
+  it is only legible next to an unselected row -- which the first row in a
+  list, or the only one left after a filter, does not have. An accent edge-bar
+  down the row does not need a neighbour.
+
+#### A theme is only complete against the ImGui it was written for
+
+Every ticked checkbox in the editor was **blue**. The style was not at fault:
+probed live, `FrameBg` read `0.098 0.098 0.125` -- correct -- in the same style
+object the dialog was drawing from. ImGui had grown
+`ImGuiCol_CheckboxSelectedBg`, a separate colour used *only when a checkbox is
+checked*, and a theme that does not know the name gets ImGui's default. Empty
+boxes were grey and ticked ones were blue, and that asymmetry is what gave it
+away.
+
+Patching the one name would have been the wrong fix. Enumerating `ImGuiCol_`
+against the theme found **eight** colours sitting at defaults, several of them
+blue: `CheckboxSelectedBg`, `InputTextCursor`, `TextLink`, `TreeLines`,
+`DragDropTargetBg`, `NavWindowingHighlight`, `NavWindowingDimBg`,
+`UnsavedMarker`. **That enumeration is the thing to repeat after an ImGui
+upgrade**, because the failure mode is silent and looks like a design choice.
+
+#### Judging a 21-pixel icon at 21 pixels
+
+The toolbar's rotate and scale arrowheads were blobs -- the rotate head
+measured about two pixels by four. Two attempts to fix them by eye at 10x
+magnification made them worse in different ways, because 10x is not the size
+anybody sees them at. Rendering the candidates *at 21 pixels* and comparing
+picked different numbers than either guess, and picked them in one pass.
+
+The mesh cube was the same kind of error made in the other direction: 0.72
+across with 0.31 of vertical edge is not a cube, it is a slab, and in a column
+of otherwise square icons it looked like one. Isometric projection sends a cube
+to a **regular hexagon**, so the silhouette is taller than it is wide by
+exactly 2 : sqrt(3) and the near corner lands dead centre. Deriving it from one
+radius is what makes it right; six hand-picked pairs are what made it wrong
+without looking wrong to whoever typed them.
+
+The camera needed the metaphor changed rather than the numbers. A body with a
+barrel splaying off one side *is* a truncated pyramid -- it is what a camera
+gizmo draws in the viewport -- and at 21 pixels a truncated pyramid reads as a
+megaphone. It was also 0.74 by 0.38 in a column of square icons. A body, a
+viewfinder hump and a lens is 0.64 by 0.60 and survives being small, because a
+circle inside a rectangle does the work rather than a silhouette.
+
+#### Going darker costs structure before it costs text
+
+Asked whether the dark theme could drop another two steps, the answer is yes
+for the panel and the ground and **no for anything between them**. Contrast is
+a ratio of luminance plus a constant, so near black, equal hex steps stop being
+equal perceptual steps: shifting the whole ramp down four levels drops
+`LineStrong` on `BgSurface` to 1.91 and `BgControl` on `BgSurface` to 1.09,
+both below their floors. Solving for the minimums puts `BgControl` at `#17171B`
+and `LineStrong` at `#434349` -- within a hair of where they already are. A
+darker theme is therefore a darker *panel* with the same controls, which reads
+as more separation, not less.
+
 ---
 
 ## 8. What this changes

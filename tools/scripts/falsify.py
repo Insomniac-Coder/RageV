@@ -397,8 +397,8 @@ BREAKS = {
     # secondary grey that reads on charcoal, put on white unchanged -- the
     # exact mistake the file's own docstring names.
     'theme-light-secondary': [('check:check_theme_contrast.py',
-                               '"TextSecondary": "#55555F",',
-                               '"TextSecondary": "#A2A2B0",')],
+                               '"TextSecondary": "#51515B",',
+                               '"TextSecondary": "#8E8E9C",')],
 
     # --- check_smaa / check_taa_motion / check_taa_jitter ---------------------
     'smaa-passthrough': [('smaa_blend.rvshader',

@@ -78,11 +78,35 @@ namespace RageV::UI
 
 		// An isometric cube in wireframe, which is what a mesh looks like in
 		// the viewport with wireframe on.
+		//
+		// **Derived from the projection rather than typed in.** The outline
+		// this replaces was 0.72 across and gave its vertical edges 0.31 --
+		// which is not a cube, it is a slab, and in a column of otherwise
+		// square icons that is exactly what it looked like. Isometric
+		// projection sends a cube to a *regular hexagon*: the silhouette is
+		// taller than it is wide by exactly 2 : sqrt(3), the near corner lands
+		// dead centre, and the three visible faces meet there. All of that
+		// falls out of one radius instead of six hand-picked pairs, which is
+		// also why the old one could be wrong without looking wrong to
+		// whoever typed it.
 		void Mesh(const Canvas& c)
 		{
-			c.Path({ { 0.50f, 0.16f }, { 0.86f, 0.35f }, { 0.50f, 0.54f }, { 0.14f, 0.35f } }, true);
-			c.Path({ { 0.14f, 0.35f }, { 0.14f, 0.66f }, { 0.50f, 0.85f }, { 0.50f, 0.54f } }, false);
-			c.Path({ { 0.86f, 0.35f }, { 0.86f, 0.66f }, { 0.50f, 0.85f } }, false);
+			constexpr float radius = 0.345f;               // half the height
+			constexpr float wide   = radius * 0.866025f;   // cos 30
+			constexpr float tall   = radius * 0.5f;        // sin 30
+			constexpr float mid    = 0.5f;
+
+			const ImVec2 top    { mid,        mid - radius };
+			const ImVec2 upperR { mid + wide, mid - tall };
+			const ImVec2 lowerR { mid + wide, mid + tall };
+			const ImVec2 bottom { mid,        mid + radius };
+			const ImVec2 lowerL { mid - wide, mid + tall };
+			const ImVec2 upperL { mid - wide, mid - tall };
+			const ImVec2 corner { mid,        mid };        // the near corner
+
+			c.Path({ top, upperR, corner, upperL }, true);
+			c.Path({ upperL, lowerL, bottom, corner }, false);
+			c.Path({ upperR, lowerR, bottom }, false);
 		}
 
 		// The universal picture frame. A sun and a ridge, because a frame on
@@ -303,12 +327,28 @@ namespace RageV::UI
 				c.Line(ray[0], ray[1], ray[2], ray[3]);
 		}
 
-		// A camera: the body and the lens barrel sticking out of it, which is
-		// the shape a camera gizmo draws in the viewport.
+		// A camera: the thing itself, not the frustum it projects.
+		//
+		// **The metaphor changed, not just the numbers.** This was a body with
+		// a lens barrel splaying off one side -- which is the shape a camera
+		// *gizmo* draws in the viewport, and is therefore the shape of a
+		// truncated pyramid. At 21 pixels a truncated pyramid on the side of a
+		// box does not read as a camera, it reads as a megaphone; and being
+		// 0.74 across and 0.38 tall, it was also the one icon making the
+		// hierarchy's icon column look ragged.
+		//
+		// A body, a viewfinder hump and a lens is the drawing everything from
+		// a phone's status bar up uses, and it survives being small because
+		// the circle inside a rectangle is doing the work rather than a
+		// silhouette. It is 0.64 by 0.60 -- square, like its neighbours.
 		void Camera(const Canvas& c)
 		{
-			c.Rect(0.12f, 0.34f, 0.62f, 0.68f, 0.05f);
-			c.Path({ { 0.62f, 0.44f }, { 0.86f, 0.32f }, { 0.86f, 0.70f }, { 0.62f, 0.58f } }, true);
+			c.Rect(0.18f, 0.32f, 0.82f, 0.82f, 0.05f);
+			// Open at the bottom, so the hump does not draw a second line
+			// along the body's own top edge.
+			c.Path({ { 0.39f, 0.32f }, { 0.36f, 0.22f },
+					 { 0.58f, 0.22f }, { 0.55f, 0.32f } }, false);
+			c.Circle(0.50f, 0.57f, 0.16f);
 		}
 
 		// An emitter: a source and what has left it. The dots get smaller with
@@ -359,9 +399,19 @@ namespace RageV::UI
 		// angle the arc stops at is the only version that cannot drift.
 		void ToolRotate(const Canvas& c)
 		{
+			// A bigger arc and a head that stops earlier round it.
+			//
+			// Chosen by rendering the candidates at the size a toolbar icon is
+			// actually drawn -- about 21 pixels -- rather than by eye at 10x,
+			// which is how the previous numbers came to be a blob. At radius
+			// 0.30 the arc is 12 pixels across and *any* head large enough to
+			// read is large relative to it. Ending at 0.30 rather than 0.95
+			// also puts the head on the right-hand side pointing down, where
+			// it reads as travel; at 0.95 it sat under the arc and read as a
+			// foot the arc was standing on.
 			constexpr float begin = -2.35f;
-			constexpr float end = 0.95f;
-			constexpr float radius = 0.30f;
+			constexpr float end = 0.30f;
+			constexpr float radius = 0.36f;
 
 			c.Draw->PathArcTo(c.At(0.50f, 0.50f), radius * c.Size, begin, end, 0);
 			c.Draw->PathStroke(c.Color, ImDrawFlags_None, c.Stroke());
@@ -371,19 +421,25 @@ namespace RageV::UI
 			const float tx = -Math::Sin(end), ty = Math::Cos(end);   // along the sweep
 			const float nx = Math::Cos(end),  ny = Math::Sin(end);   // outward
 
-			c.Draw->AddTriangleFilled(c.At(ex + nx * 0.115f, ey + ny * 0.115f),
-									  c.At(ex + tx * 0.190f, ey + ty * 0.190f),
-									  c.At(ex - nx * 0.115f, ey - ny * 0.115f),
+			c.Draw->AddTriangleFilled(c.At(ex + nx * 0.120f, ey + ny * 0.120f),
+									  c.At(ex + tx * 0.210f, ey + ty * 0.210f),
+									  c.At(ex - nx * 0.120f, ey - ny * 0.120f),
 									  c.Color);
 		}
 
 		// Scale: a box with a corner being pulled away from it.
+		//
+		// The head used to be 0.28 across its base and 0.23 from base to tip
+		// -- wider than it was long, which is the shape of a blob rather than
+		// of an arrow -- and the shaft ran straight through it. The base now
+		// sits exactly where the shaft stops, so the two are one arrow, and
+		// the head is longer than it is wide.
 		void ToolScale(const Canvas& c)
 		{
-			c.Rect(0.16f, 0.50f, 0.50f, 0.84f, 0.04f);
-			c.Line(0.52f, 0.48f, 0.78f, 0.22f);
-			c.Draw->AddTriangleFilled(c.At(0.86f, 0.14f), c.At(0.60f, 0.20f),
-									  c.At(0.80f, 0.40f), c.Color);
+			c.Rect(0.14f, 0.52f, 0.52f, 0.86f, 0.04f);
+			c.Line(0.52f, 0.48f, 0.68f, 0.32f);
+			c.Draw->AddTriangleFilled(c.At(0.840f, 0.160f), c.At(0.599f, 0.239f),
+									  c.At(0.761f, 0.401f), c.Color);
 		}
 
 		// Snap: a lattice with one intersection marked. Says "positions land on

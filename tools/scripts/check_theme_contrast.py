@@ -25,63 +25,67 @@ import sys
 # --------------------------------------------------------------------------
 
 DARK = {
-    # Surfaces. Note the base is NOT near-black: reading speed drops
-    # measurably on pure-black themes, and a saturated accent fringes against
-    # #000 badly enough to look out of focus.
+    # A panel *is* the application mark's field, and the dockspace goes darker
+    # still so panels read as raised off it. Neither is #000: reading speed
+    # drops measurably on pure-black themes, and a saturated accent against
+    # #000 fringes badly enough to look out of focus.
     #
     # BgControl is the surface of an input. In dark it sits ABOVE the panel;
     # in light it sits BELOW it. That is not an inconsistency -- it is what
     # "a control you can type into" looks like in each, and it is why the
     # token is named for its role and not for being lighter.
-    "BgBase":        "#111116",
-    "BgSurface":     "#17171E",
-    "BgControl":     "#22222B",
-    "BgHover":       "#2C2C36",
-    "BgActive":      "#363642",
-    "Line":          "#30303B",
-    "LineStrong":    "#4E4E5C",
-    "TextPrimary":   "#E8E8ED",
-    "TextSecondary": "#A2A2B0",
-    "TextDisabled":  "#70707E",
-    # Desaturated relative to a pure red, which is what stops it vibrating
-    # against the dark surface.
-    "Accent":        "#E5484D",
-    "AccentHover":   "#F26669",
-    "AccentPressed": "#C13438",
-    "OnAccent":      "#12070A",
+    "BgBase":        "#08080B",
+    "BgSurface":     "#0E0E12",
+    "BgControl":     "#191920",
+    "BgHover":       "#23232C",
+    "BgActive":      "#2D2D38",
+    "Line":          "#26262F",
+    "LineStrong":    "#454553",
+    "TextPrimary":   "#F2F2F6",
+    "TextSecondary": "#8E8E9C",
+    "TextDisabled":  "#64646F",
+    # The mark's red, exactly, and a pure one: green and blue are equal, so
+    # the hue is 0 and there is no blue in it. It is saturated enough to be
+    # dark, which is why OnAccent is black rather than near-black -- #0E0E12
+    # on it manages 4.25:1 and a label needs 4.5.
+    "Accent":        "#E03030",
+    "AccentHover":   "#F04A4A",
+    "AccentPressed": "#B82525",
+    "OnAccent":      "#000000",
     "Success":       "#48BB78",
     "Warning":       "#E8A33D",
-    "Danger":        "#F2555A",
-    "AxisX":         "#E5686D",
+    "Danger":        "#FF7A7A",
+    "AxisX":         "#E05656",
     "AxisY":         "#5FBF6A",
     "AxisZ":         "#5B8DEF",
 }
 
 LIGHT = {
     # Not an inversion of the dark values -- an inversion is the single most
-    # common dark/light mistake in both directions. The light theme wants a
-    # softer base than white so that panels can be white and still read as
-    # raised.
-    "BgBase":        "#E7E7EE",
-    "BgSurface":     "#FBFBFD",
-    "BgControl":     "#ECECF3",
-    "BgHover":       "#E1E1EB",
-    "BgActive":      "#D4D4E0",
-    "Line":          "#DBDBE4",
-    "LineStrong":    "#A8A8B8",
-    "TextPrimary":   "#16161C",
-    "TextSecondary": "#55555F",
-    "TextDisabled":  "#8B8B98",
-    # Darker and more saturated than the dark theme's: the same red on white
-    # reads pink and washed out, and white text on it has to clear 4.5:1.
-    "Accent":        "#C4262C",
-    "AccentHover":   "#A81E24",
-    "AccentPressed": "#8C1319",
+    # common dark/light mistake in both directions. What the two share is
+    # their ends: the mark's light is the panel here and the ink there, the
+    # mark's field is the ink here and the ground there.
+    "BgBase":        "#DEDEE6",
+    "BgSurface":     "#F2F2F6",
+    "BgControl":     "#E6E6EE",
+    "BgHover":       "#DADAE4",
+    "BgActive":      "#CBCBD8",
+    "Line":          "#D2D2DC",
+    "LineStrong":    "#9E9EAE",
+    "TextPrimary":   "#0E0E12",
+    "TextSecondary": "#51515B",
+    "TextDisabled":  "#84848F",
+    # The same hue darkened: the mark's #E03030 on white reads pink and washed
+    # out, and white on it misses 4.5:1. This is the value the generated
+    # manual's light stylesheet already uses.
+    "Accent":        "#C81E1E",
+    "AccentHover":   "#A81818",
+    "AccentPressed": "#8C1212",
     "OnAccent":      "#FFFFFF",
     "Success":       "#1F7A45",
     "Warning":       "#8A5A00",
-    "Danger":        "#B3161C",
-    "AxisX":         "#B3262C",
+    "Danger":        "#7E0E0E",
+    "AxisX":         "#B02020",
     "AxisY":         "#1F7A3A",
     "AxisZ":         "#2B5BC4",
 }
@@ -138,6 +142,21 @@ PAIRS = [
     ("AxisX",         "BgControl",  3.0, "the X axis badge"),
     ("AxisY",         "BgControl",  3.0, "the Y axis badge"),
     ("AxisZ",         "BgControl",  3.0, "the Z axis badge"),
+
+    # The four below were missing, and three of them are the same oversight
+    # AccentButton was written to fix: a palette can be correct in every pair
+    # somebody thought to list and still fail in one nobody did. DragVec3 puts
+    # OnAccent on the axis badges, which are not the accent at all.
+    ("OnAccent",      "AccentHover", 4.5, "a label on a hovered accent button"),
+    ("OnAccent",      "AxisX",      4.5, "the X badge's letter"),
+    ("OnAccent",      "AxisY",      4.5, "the Y badge's letter"),
+    ("OnAccent",      "AxisZ",      4.5, "the Z badge's letter"),
+
+    # Not a WCAG number -- a separation. The script graph outlines a selected
+    # node in the accent and a broken one in Danger, and an error has to win
+    # while the node is still picked up. Two reds cannot be told apart by hue,
+    # so this is the luminance gap that keeps them distinguishable at all.
+    ("Danger",        "Accent",     1.75, "an error is not the selection colour"),
 ]
 
 

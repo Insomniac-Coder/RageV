@@ -22,60 +22,67 @@ namespace RageV::EditorTheme
 			return { color.x, color.y, color.z, alpha };
 		}
 
-		// ---- dark: red on charcoal --------------------------------------
+		// ---- dark: the mark, at editor scale ----------------------------
 		//
-		// Ratios against BgSurface, measured: primary text 14.6:1, secondary
-		// 7.1:1, accent 4.6:1. See tools/scripts/check_theme_contrast.py.
+		// A panel *is* the mark's field; the dockspace goes darker still so
+		// panels read as raised. Ratios against BgSurface, measured: primary
+		// text 17.2:1, secondary 6.9:1, accent 4.3:1, and black on the accent
+		// 4.6:1. See tools/scripts/check_theme_contrast.py.
 		constexpr Palette kDark = {
-			.BgBase = Hex(0x111116),
-			.BgSurface = Hex(0x17171E),
-			.BgControl = Hex(0x22222B),
-			.BgHover = Hex(0x2C2C36),
-			.BgActive = Hex(0x363642),
-			.Line = Hex(0x30303B),
-			.LineStrong = Hex(0x4E4E5C),
-			.TextPrimary = Hex(0xE8E8ED),
-			.TextSecondary = Hex(0xA2A2B0),
-			.TextDisabled = Hex(0x70707E),
-			.Accent = Hex(0xE5484D),
-			.AccentHover = Hex(0xF26669),
-			.AccentPressed = Hex(0xC13438),
-			.OnAccent = Hex(0x12070A),
-			.AccentMuted = Hex(0xE5484D, 0.30f),
-			.AccentFaint = Hex(0xE5484D, 0.14f),
+			.BgBase = Hex(0x08080B),
+			.BgSurface = Hex(0x0E0E12),
+			.BgControl = Hex(0x191920),
+			.BgHover = Hex(0x23232C),
+			.BgActive = Hex(0x2D2D38),
+			.Line = Hex(0x26262F),
+			.LineStrong = Hex(0x454553),
+			.TextPrimary = Hex(0xF2F2F6),
+			.TextSecondary = Hex(0x8E8E9C),
+			.TextDisabled = Hex(0x64646F),
+			.Accent = Hex(0xE03030),
+			.AccentHover = Hex(0xF04A4A),
+			.AccentPressed = Hex(0xB82525),
+			.OnAccent = Hex(0x000000),
+			.AccentMuted = Hex(0xE03030, 0.30f),
+			.AccentFaint = Hex(0xE03030, 0.14f),
 			.Success = Hex(0x48BB78),
 			.Warning = Hex(0xE8A33D),
-			.Danger = Hex(0xF2555A),
-			.AxisX = Hex(0xE5686D),
+			// Lighter than the accent, not another shade of it: see the note
+			// on Danger in the header.
+			.Danger = Hex(0xFF7A7A),
+			.AxisX = Hex(0xE05656),
 			.AxisY = Hex(0x5FBF6A),
 			.AxisZ = Hex(0x5B8DEF),
 		};
 
 		// ---- light: the same red, retuned so it still means the same thing
 		//
-		// Ratios against BgSurface: primary text 17.4:1, secondary 7.1:1,
-		// accent 5.6:1, and white on the accent 5.7:1.
+		// The two ends swap: the mark's light is the panel, the mark's field
+		// is the ink. Ratios against BgSurface: primary text 17.2:1,
+		// secondary 7.0:1, accent 5.1:1, and white on the accent 5.7:1.
 		constexpr Palette kLight = {
-			.BgBase = Hex(0xE7E7EE),
-			.BgSurface = Hex(0xFBFBFD),
-			.BgControl = Hex(0xECECF3),
-			.BgHover = Hex(0xE1E1EB),
-			.BgActive = Hex(0xD4D4E0),
-			.Line = Hex(0xDBDBE4),
-			.LineStrong = Hex(0xA8A8B8),
-			.TextPrimary = Hex(0x16161C),
-			.TextSecondary = Hex(0x55555F),
-			.TextDisabled = Hex(0x8B8B98),
-			.Accent = Hex(0xC4262C),
-			.AccentHover = Hex(0xA81E24),
-			.AccentPressed = Hex(0x8C1319),
+			.BgBase = Hex(0xDEDEE6),
+			.BgSurface = Hex(0xF2F2F6),
+			.BgControl = Hex(0xE6E6EE),
+			.BgHover = Hex(0xDADAE4),
+			.BgActive = Hex(0xCBCBD8),
+			.Line = Hex(0xD2D2DC),
+			.LineStrong = Hex(0x9E9EAE),
+			.TextPrimary = Hex(0x0E0E12),
+			.TextSecondary = Hex(0x51515B),
+			.TextDisabled = Hex(0x84848F),
+			.Accent = Hex(0xC81E1E),
+			.AccentHover = Hex(0xA81818),
+			.AccentPressed = Hex(0x8C1212),
 			.OnAccent = Hex(0xFFFFFF),
-			.AccentMuted = Hex(0xC4262C, 0.22f),
-			.AccentFaint = Hex(0xC4262C, 0.10f),
+			.AccentMuted = Hex(0xC81E1E, 0.22f),
+			.AccentFaint = Hex(0xC81E1E, 0.10f),
 			.Success = Hex(0x1F7A45),
 			.Warning = Hex(0x8A5A00),
-			.Danger = Hex(0xB3161C),
-			.AxisX = Hex(0xB3262C),
+			// Darker than the accent here, for the same reason it is lighter
+			// in the dark theme: away from the accent, toward the ink.
+			.Danger = Hex(0x7E0E0E),
+			.AxisX = Hex(0xB02020),
 			.AxisY = Hex(0x1F7A3A),
 			.AxisZ = Hex(0x2B5BC4),
 		};
@@ -141,6 +148,14 @@ namespace RageV::EditorTheme
 		colors[ImGuiCol_HeaderHovered]        = c.BgHover;
 		colors[ImGuiCol_HeaderActive]         = c.BgActive;
 
+		// **A checked box is not a different surface from an unchecked one.**
+		// ImGui grew a separate colour for it, and a theme that does not know
+		// the name gets ImGui's default -- which is blue, and which is why
+		// every ticked checkbox in this editor was blue while every empty one
+		// was correctly grey. The box stays structural either way; the check
+		// mark is the state, and the check mark is the accent.
+		colors[ImGuiCol_CheckboxSelectedBg]   = c.BgControl;
+
 		colors[ImGuiCol_Button]               = c.BgControl;
 		colors[ImGuiCol_ButtonHovered]        = c.BgHover;
 		colors[ImGuiCol_ButtonActive]         = c.BgActive;
@@ -176,7 +191,16 @@ namespace RageV::EditorTheme
 		colors[ImGuiCol_ResizeGripHovered]    = c.AccentMuted;
 		colors[ImGuiCol_ResizeGripActive]     = c.Accent;
 		colors[ImGuiCol_TabSelectedOverline]  = c.Accent;
-		colors[ImGuiCol_TabDimmedSelectedOverline] = Fade(c.Accent, 0.35f);
+		// 75%, not 35%.
+		//
+		// This is the overline on a panel whose dock node does not have focus,
+		// which is *most panels most of the time* -- an editor has one focused
+		// node and six that are not. At 35% over a near-black surface the mark
+		// that says which tab you are looking at had all but gone, so the
+		// thing carrying the accent's meaning was invisible in the common
+		// case and full strength in the rare one. Focus is still worth
+		// distinguishing; it is not worth that much.
+		colors[ImGuiCol_TabDimmedSelectedOverline] = Fade(c.Accent, 0.75f);
 		colors[ImGuiCol_TextSelectedBg]       = c.AccentMuted;
 		colors[ImGuiCol_NavCursor]            = c.Accent;
 		colors[ImGuiCol_DragDropTarget]       = c.Accent;
@@ -185,6 +209,23 @@ namespace RageV::EditorTheme
 		colors[ImGuiCol_PlotLines]            = c.Accent;
 		colors[ImGuiCol_PlotLinesHovered]     = c.AccentHover;
 
+		// The rest of what ImGui has grown since this palette was written.
+		// Every one of these was sitting at an ImGui default, and several of
+		// those defaults are blue -- the checkbox above is simply the one
+		// somebody noticed. A theme is only complete against the version of
+		// ImGui it was written for, so this list is worth re-deriving after
+		// an upgrade rather than assumed to still be exhaustive.
+		colors[ImGuiCol_InputTextCursor]      = c.TextPrimary;   // the caret is ink
+		colors[ImGuiCol_TextLink]             = c.Accent;        // a link is an action
+		colors[ImGuiCol_TreeLines]            = c.Line;          // structure
+		colors[ImGuiCol_DragDropTargetBg]     = c.AccentFaint;   // quieter than its outline
+		colors[ImGuiCol_NavWindowingHighlight] = c.Accent;
+		colors[ImGuiCol_NavWindowingDimBg]    = ImVec4{ 0.02f, 0.02f, 0.03f, 0.60f };
+		// Deliberately *not* red. An unsaved document is a state wanting
+		// attention, not something you are acting on, and the accent means the
+		// second of those.
+		colors[ImGuiCol_UnsavedMarker]        = c.Warning;
+
 		// A modal has to dim what it covers, and the veil is darker in a light
 		// theme than a dark one -- against near-white, 60% black is a hole.
 		colors[ImGuiCol_ModalWindowDimBg] =
@@ -192,20 +233,27 @@ namespace RageV::EditorTheme
 									  : ImVec4{ 0.02f, 0.02f, 0.03f, 0.60f };
 
 		// ---- geometry ------------------------------------------------------
-		// One radius family, applied everywhere. A mix of rounded and square
+		// Square, everywhere, without exception. A mix of rounded and square
 		// elements is most of what makes an editor look assembled rather than
-		// designed.
-		style.WindowRounding    = Radius::Panel;
-		style.ChildRounding     = Radius::Panel;
-		style.PopupRounding     = Radius::Panel;
-		style.FrameRounding     = Radius::Control;
-		style.GrabRounding      = Radius::Control;
-		style.TabRounding       = Radius::Control;
-		style.ScrollbarRounding = Radius::Pill;
+		// designed -- and one radius applied consistently was the old answer
+		// to that. This is the other one, and it is the mark's: no curve
+		// anywhere, so a corner is a corner.
+		style.WindowRounding    = Corner::Sharp;
+		style.ChildRounding     = Corner::Sharp;
+		style.PopupRounding     = Corner::Sharp;
+		style.FrameRounding     = Corner::Sharp;
+		style.GrabRounding      = Corner::Sharp;
+		style.TabRounding       = Corner::Sharp;
+		style.ScrollbarRounding = Corner::Sharp;
 
 		// Borders do real work at the window edge and nowhere else. A border
 		// on every frame is noise: the fill already says where the control is,
 		// and two signals for one fact is what makes dense UI feel busy.
+		// ImGui defaults this to a single pixel, which is a hairline rather
+		// than a mark -- and it is the one place the accent says "this is the
+		// panel you are in".
+		style.TabBarOverlineSize = 3.0f;
+
 		style.WindowBorderSize = 1.0f;
 		style.ChildBorderSize  = 1.0f;
 		style.PopupBorderSize  = 1.0f;
@@ -253,5 +301,6 @@ namespace RageV::EditorTheme
 		loading.Track      = packed(c.BgActive);
 		loading.Fill       = packed(c.Accent);
 		LoadingScreen::SetPalette(loading);
+
 	}
 }

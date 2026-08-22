@@ -384,6 +384,23 @@ void RageV::SceneHierarchyPanel::DrawEntityNode(Entity entity)
 													   : colors.TextSecondary);
 
 		ImDrawList* draw = ImGui::GetWindowDrawList();
+
+		// A hard accent edge down the selected row, which is the mark's other
+		// gesture after the cut.
+		//
+		// **The wash alone was a comparison, not a signal.** At 30% over a
+		// near-black panel it is a handful of levels, readable while there is
+		// an unselected row beside it to measure against -- and the first row
+		// in a list, or the only one left after a filter, has nothing to
+		// measure against. An edge does not need a neighbour.
+		if (selected)
+		{
+			const ImVec2 rowMin = ImGui::GetItemRectMin();
+			const ImVec2 rowMax = ImGui::GetItemRectMax();
+			draw->AddRectFilled(rowMin, { rowMin.x + 2.0f, rowMax.y },
+								ImGui::GetColorU32(colors.Accent));
+		}
+
 		UI::DrawIcon(draw, { labelX, rowStart.y }, iconSize, EntityIconKind(entity), tint);
 
 		// Ellipsised by hand, because a draw-list AddText does not clip the way
@@ -1479,7 +1496,7 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& c
 
 		const bool ok = valid && !exists;
 		ImGui::BeginDisabled(!ok);
-		if (ImGui::Button("Create") && ok)
+		if (UI::AccentButton("Create") && ok)
 		{
 			std::filesystem::create_directories(scripts, ec);
 			if (WriteNewNativeScript(file, name))
@@ -1528,7 +1545,7 @@ bool RageV::SceneHierarchyPanel::DrawNewScriptPopup(bool managed, std::string& c
 
 	const bool ok = valid && !exists;
 	ImGui::BeginDisabled(!ok);
-	if ((ImGui::Button("Create") || (submitted && ok)) && ok)
+	if ((UI::AccentButton("Create") || (submitted && ok)) && ok)
 	{
 		if (WriteNewScript(file, name))
 		{

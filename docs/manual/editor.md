@@ -21,6 +21,19 @@ Panels dock, tab and float — the layout is ImGui's, and it is saved to
 **Window → Theme** switches between dark and light. Both are checked against
 WCAG 2.2 AA contrast by a script, so neither is a guess.
 
+Both are also built from the application mark, which is three colours and no
+fourth: a field at `#0E0E12`, a red at `#E03030`, a light at `#F2F2F6`. The
+accent *is* the mark's red, and the two ends of each theme's grey ramp are the
+mark's other two values — which of them is the ground and which is the ink is
+the whole difference between the two themes.
+
+Two rules follow from the mark and are worth knowing when reading the editor:
+
+| | |
+|---|---|
+| **Red means you can act on this, or it is acting now** | Selection, hover, focus, check marks, the active tab. Structure stays grey, so the accent keeps its meaning |
+| **Nothing is rounded** | There is no curve anywhere in the mark, so there is none in the editor. The accent-filled controls and the script-graph nodes take the mark's chamfer instead — the corner is cut, not curved |
+
 ## Shortcuts
 
 | Key | Does |
