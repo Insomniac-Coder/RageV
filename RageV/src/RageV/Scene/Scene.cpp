@@ -1477,14 +1477,25 @@ namespace RageV
 		// built with it -- free when RenderShadowMaps has already done it, and
 		// necessary when it returned early because shadows are off.
 		m_CulledLit = {};
+		m_CulledBlend = {};
 		m_CulledLitFor = Mat4(0.0f);
 		RefreshDrawList();
 		if (RHI::RHICommandList* cull = Renderer::GetCommandList())
 		{
-			m_CulledLit = GpuCull::CullLit(
-				*cull, camera.GetProjection() * Math::Inverse(cameraTransform));
+			const Mat4 viewProjection = camera.GetProjection() * Math::Inverse(cameraTransform);
+
+			m_CulledLit = GpuCull::CullLit(*cull, viewProjection);
 			if (m_CulledLit.IsValid())
 				m_CulledLitFor = cameraTransform;
+
+			// **The blended table's rows sit after the opaque ones** in the
+			// instance buffer the two share, so its cull is told where they
+			// begin. The base is the opaque object count whether or not the
+			// opaque cull succeeded: the instance rows are reserved from the
+			// same count either way, and a base that moved when a cull failed
+			// would put the glass on top of the bodywork's matrices.
+			m_CulledBlend = GpuCull::CullLit(*cull, viewProjection,
+											 GpuCull::Pass::Blended, m_CullObjectCount);
 		}
 
 		// The voxel grid, after the maps it is lit from (ENGINE-NOTES 7bc).
@@ -1541,6 +1552,13 @@ namespace RageV
 		m_Emitters.clear();
 		m_CullObjectCount = 0;
 
+		m_BlendMeshes.clear();
+		m_BlendSlots.clear();
+		m_BlendCounts.clear();
+		if (buildTable)
+			m_BlendObjects.clear();
+		m_BlendObjectCount = 0;
+
 		auto meshView = m_Registry.GetView<TransformComponent, MeshComponent>();
 
 		// Reserving on the view's size rather than growing: at sixty thousand
@@ -1567,6 +1585,31 @@ namespace RageV
 		// *built* on the frame's first refresh -- later ones still have to
 		// number the objects the same way to point at it.
 		uint32_t cullRow = 0;
+
+		// The blended table's own cursor and slot cache. A second pair rather
+		// than reusing the first: the two tables number their rows
+		// independently, and a mesh may legitimately appear in both -- the same
+		// pane of glass wearing two materials, one of them opaque.
+		const Mesh* lastBlendMesh = nullptr;
+		uint32_t lastBlendSlot = kNoCullSlot;
+		uint32_t blendRow = 0;
+
+		auto blendSlotFor = [&](const Mesh* key) -> uint32_t
+		{
+			if (key == lastBlendMesh)
+				return lastBlendSlot;
+
+			for (uint32_t i = 0; i < (uint32_t)m_BlendMeshes.size(); i++)
+			{
+				if (m_BlendMeshes[i].MeshRef.get() == key)
+				{
+					lastBlendMesh = key;
+					lastBlendSlot = i;
+					return i;
+				}
+			}
+			return kNoCullSlot;
+		};
 
 		auto slotFor = [&](const Mesh* key) -> uint32_t
 		{
@@ -1705,6 +1748,43 @@ namespace RageV
 				entry.CullSlot = slot;
 				entry.CullIndex = cullRow++;
 			}
+			else if (gpuCull && blended && !entry.Skinned && resolved->GetIndexCount() >= 3)
+			{
+				// The same construction against the blended table. Drawn later,
+				// in the transparent pass, with the pipeline that writes
+				// accumulate and revealage instead of colour.
+				uint32_t slot = blendSlotFor(resolved.get());
+				if (slot == kNoCullSlot)
+				{
+					slot = (uint32_t)m_BlendMeshes.size();
+
+					GpuCull::Slot record;
+					record.MeshRef = resolved;
+					m_BlendMeshes.push_back(std::move(record));
+					m_BlendCounts.push_back(0);
+
+					GpuCull::SlotCommand command;
+					command.Draw.IndexCount = resolved->GetIndexCount();
+					m_BlendSlots.push_back(command);
+
+					lastBlendMesh = resolved.get();
+					lastBlendSlot = slot;
+				}
+
+				if (buildTable)
+				{
+					GpuCull::Object object;
+					object.Model = transform.World;
+					object.Centre = bounds.Centre;
+					object.Extents = bounds.Extents;
+					object.Slot = slot;
+					m_BlendObjects.push_back(object);
+				}
+
+				m_BlendCounts[slot]++;
+				entry.BlendSlot = slot;
+				entry.BlendIndex = blendRow++;
+			}
 			else if (gpuCull)
 			{
 				m_CpuDraws.push_back((uint32_t)m_DrawItems.size());
@@ -1743,6 +1823,41 @@ namespace RageV
 				m_CpuDraws.clear();
 				m_CullObjectCount = 0;
 			}
+		}
+
+		// And the blended table, laid out the same way.
+		m_BlendObjectCount = blendRow;
+
+		if (gpuCull && !m_BlendSlots.empty())
+		{
+			uint32_t base = 0;
+			for (uint32_t i = 0; i < (uint32_t)m_BlendSlots.size(); i++)
+			{
+				m_BlendSlots[i].InstanceBase = base;
+				m_BlendMeshes[i].InstanceBase = base;
+				base += m_BlendCounts[i];
+			}
+
+			if (!GpuCull::SetObjects(this, m_BlendObjects, m_BlendSlots,
+									 GpuCull::Pass::Blended))
+			{
+				// Back to the CPU list for the blended ones only. The opaque
+				// table is untouched: two tables fail independently, and one
+				// falling back must not drag the other with it.
+				for (DrawItem& entry : m_DrawItems)
+				{
+					if (entry.BlendSlot != kNoCullSlot)
+					{
+						entry.BlendSlot = kNoCullSlot;
+						m_CpuDraws.push_back((uint32_t)(&entry - m_DrawItems.data()));
+					}
+				}
+				m_BlendObjectCount = 0;
+			}
+		}
+		else if (gpuCull)
+		{
+			m_BlendObjectCount = 0;
 		}
 	}
 
@@ -2704,9 +2819,20 @@ namespace RageV
 					}
 
 			const bool gpuLit = sameCamera && m_CulledLit.IsValid() && m_CullObjectCount > 0;
-			if (gpuLit)
+
+			// The blended table rides the same conditions: it was culled for
+			// this camera in the same call, and its rows live in the same
+			// instance buffer after the opaque ones.
+			const bool gpuBlend = sameCamera && m_CulledBlend.IsValid()
+							   && m_BlendObjectCount > 0;
+
+			if (gpuLit || gpuBlend)
 			{
-				Renderer3D::ReserveSceneInstances(m_CullObjectCount);
+				// **Both tables' rows, in one reservation.** The vertex stage
+				// reads one instance buffer and a draw cannot bind two, so the
+				// blended rows are simply the ones after the opaque rows -- and
+				// the cull that wrote their indices was told the same base.
+				Renderer3D::ReserveSceneInstances(m_CullObjectCount + m_BlendObjectCount);
 
 				const size_t itemCount = m_DrawItems.size();
 				for (size_t index = 0; index < itemCount; index++)
@@ -2728,7 +2854,35 @@ namespace RageV
 												 params, ProbeSlotFor(m_DrawBounds[index].Centre));
 				}
 
-				Renderer3D::DrawSceneIndirect(m_CulledLit, m_CullMeshes);
+				// The blended rows, at their own base.
+				for (size_t index = 0; index < itemCount; index++)
+				{
+					const DrawItem& entry = m_DrawItems[index];
+					if (entry.BlendSlot == kNoCullSlot)
+						continue;
+
+					RHI::Ref<Material> material =
+						Assets::Manager::GetMaterial(entry.Source->Material);
+					if (!material)
+						material = Renderer3D::GetDefaultMaterial();
+
+					const MaterialParams params = entry.Source->ResolveParams(
+						material ? material->GetParams() : MaterialParams{});
+
+					Renderer3D::SetSceneInstance(m_CullObjectCount + entry.BlendIndex,
+												 entry.Transform->World,
+												 entry.Transform->PreviousWorld, material,
+												 params, ProbeSlotFor(m_DrawBounds[index].Centre));
+				}
+
+				if (gpuLit)
+					Renderer3D::DrawSceneIndirect(m_CulledLit, m_CullMeshes);
+
+				// Recorded, not issued: the transparent pass runs later in the
+				// graph and issues it there, exactly as the CPU transparent
+				// list is held until then.
+				if (gpuBlend)
+					Renderer3D::DrawTransparentIndirect(m_CulledBlend, m_BlendMeshes);
 			}
 
 			// **The emitters this frame's bounce may aim at.** Handed over here
@@ -2745,9 +2899,10 @@ namespace RageV
 			// with too few indices to draw indexed, and -- when there is no
 			// cull pass -- all of it.
 			const size_t drawCount = m_DrawBounds.size();
-			for (size_t step = 0; step < (gpuLit ? m_CpuDraws.size() : drawCount); step++)
+			const bool anyTable = gpuLit || gpuBlend;
+			for (size_t step = 0; step < (anyTable ? m_CpuDraws.size() : drawCount); step++)
 			{
-				const size_t index = gpuLit ? m_CpuDraws[step] : step;
+				const size_t index = anyTable ? m_CpuDraws[step] : step;
 
 				const DrawBounds& bounds = m_DrawBounds[index];
 				if (!frustum.Intersects(bounds.Centre, bounds.Extents))

@@ -47,6 +47,11 @@ namespace RageV
 		// issues them. Called from the frame graph's transparent hook, beside
 		// ParticleRenderer::FlushWeighted -- the two write the same two
 		// attachments and resolve together.
+		// The blended table's indirect draws, recorded for the transparent
+		// pass. Bindless only, exactly as DrawSceneIndirect is.
+		static void DrawTransparentIndirect(const GpuCull::View& view,
+											const std::vector<GpuCull::Slot>& slots);
+
 		static bool HasTransparent();
 		static void FlushTransparent();
 

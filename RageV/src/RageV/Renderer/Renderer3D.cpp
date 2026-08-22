@@ -326,6 +326,13 @@ namespace RageV
 			// at the end. Equal to the size when there is nothing blended,
 			// which is every scene this project had until the showroom.
 			uint32_t         TransparentBegin = 0;
+
+			// The blended table's cull result, held until the transparent pass
+			// runs -- the same arrangement DrawSceneIndirect has with the
+			// opaque pass, and for the same reason: the instance table cannot
+			// be filled until every submission is in.
+			GpuCull::View                TransparentView;
+			std::vector<GpuCull::Slot>   TransparentSlots;
 			// The traced bounce, as a fullscreen pass rather than part of the
 			// lit fragment (7bs). The same set 0 and the same material heap --
 			// it includes the lit shader with RV_TRACE_ONLY -- plus a set of
@@ -446,6 +453,12 @@ namespace RageV
 				// windscreen with no reflection in it reads as a material
 				// problem, which is where two hours went.
 				Ref<RHIResourceSet> TransparentSet;
+				// And the transparent pipeline's *GPU-driven* set: the same
+				// instance table read through the indices the blended cull
+				// wrote instead of the ones the sort produced. One binding
+				// apart from TransparentSet, which is the whole difference
+				// between the two paths at draw time.
+				Ref<RHIResourceSet> TransparentGpuSet;
 				// One GpuMaterial per distinct material this scene drew, on the
 				// bindless path only (ENGINE-NOTES 7al). Rebuilt every frame;
 				// materials x 64 bytes, and it means no second free list.
@@ -1319,6 +1332,7 @@ namespace RageV
 				// rather than a wrong picture -- which is the note above, and
 				// is exactly how GpuSet was found.
 				slot.TransparentSet.reset();
+				slot.TransparentGpuSet.reset();
 			}
 		}
 	}
@@ -1670,6 +1684,8 @@ namespace RageV
 			slot.LayeredSet = s_Data->Device->CreateResourceSet(s_Data->LayeredPipeline, 0);
 		if (s_Data->TransparentPipeline && !slot.TransparentSet)
 			slot.TransparentSet = s_Data->Device->CreateResourceSet(s_Data->TransparentPipeline, 0);
+		if (s_Data->TransparentPipeline && !slot.TransparentGpuSet)
+			slot.TransparentGpuSet = s_Data->Device->CreateResourceSet(s_Data->TransparentPipeline, 0);
 
 		// The GPU-driven path's set: the same set 0 in every binding but the
 		// visible indices, so it is populated alongside the others here and
@@ -1678,7 +1694,8 @@ namespace RageV
 			slot.GpuSet = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0);
 
 		Ref<RHIResourceSet> targets[] = { slot.Set, slot.SkinnedSet, slot.LayeredSet,
-										  slot.GpuSet, slot.TransparentSet };
+										  slot.GpuSet, slot.TransparentSet,
+										  slot.TransparentGpuSet };
 
 		for (const Ref<RHIResourceSet>& sceneSet : targets)
 		{
@@ -2360,6 +2377,23 @@ namespace RageV
 			slot.TransparentSet->Commit();
 		}
 
+		// The same table, through the blended cull's indices.
+		if (slot.TransparentGpuSet && s_Data->TransparentView.IsValid())
+		{
+			slot.TransparentGpuSet->SetStorageBuffer(7, slot.Instances, 0,
+													 (uint64_t)instanceRows * sizeof(InstanceData));
+			slot.TransparentGpuSet->SetStorageBuffer(kVisibleBinding,
+													 s_Data->TransparentView.Instances);
+			if (s_Data->Bindless)
+			{
+				slot.TransparentGpuSet->SetStorageBuffer(13, slot.Materials, 0,
+														 (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
+					slot.TransparentGpuSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+			}
+			slot.TransparentGpuSet->Commit();
+		}
+
 		if (slot.LayeredSet)
 		{
 			slot.LayeredSet->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
@@ -2550,8 +2584,11 @@ namespace RageV
 
 	bool Renderer3D::HasTransparent()
 	{
-		return s_Data && s_Data->TransparentPipeline
-			&& s_Data->TransparentBegin < (uint32_t)s_Data->Pending.size();
+		if (!s_Data || !s_Data->TransparentPipeline)
+			return false;
+
+		return s_Data->TransparentBegin < (uint32_t)s_Data->Pending.size()
+			|| (s_Data->TransparentView.IsValid() && !s_Data->TransparentSlots.empty());
 	}
 
 	// The blended block, drawn into the transparent pass's two attachments.
@@ -2575,6 +2612,39 @@ namespace RageV
 		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
 		if (!slot.TransparentSet)
 			return;
+
+		// **The GPU-driven half first**, so the CPU list's draws are laid over
+		// it rather than under. Both write the same two attachments and the
+		// resolve is order-independent, so this is a preference rather than a
+		// requirement -- but the table holds the surfaces and the CPU list
+		// holds what could not go in one, and surfaces first is the same order
+		// the frame graph's hook puts meshes before particles for.
+		if (s_Data->TransparentView.IsValid() && !s_Data->TransparentSlots.empty()
+			&& slot.TransparentGpuSet)
+		{
+			cmd->BindPipeline(s_Data->TransparentPipeline);
+			cmd->BindResourceSet(0, slot.TransparentGpuSet);
+			if (s_Data->Bindless)
+				cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+
+			for (uint32_t i = 0; i < (uint32_t)s_Data->TransparentSlots.size(); i++)
+			{
+				const GpuCull::Slot& entry = s_Data->TransparentSlots[i];
+				if (!entry.MeshRef)
+					continue;
+
+				ObjectPushConstants object;
+				object.BaseInstance = (int32_t)entry.InstanceBase;
+				cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+
+				cmd->BindVertexBuffer(0, entry.MeshRef->GetVertexBuffer());
+				cmd->BindIndexBuffer(entry.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+				cmd->DrawIndexedIndirect(s_Data->TransparentView.Commands,
+										 (uint64_t)i * sizeof(DrawIndexedIndirectCommand));
+
+				s_Data->DrawCalls++;
+			}
+		}
 
 		const uint32_t count = (uint32_t)s_Data->Pending.size();
 		bool bound = false;
@@ -2628,6 +2698,8 @@ namespace RageV
 		s_Data->Pending.clear();
 		s_Data->Instances.clear();
 		s_Data->TransparentBegin = 0;
+		s_Data->TransparentView = {};
+		s_Data->TransparentSlots.clear();
 	}
 
 	void Renderer3D::BeginShadow(const Mat4& viewProjection)
@@ -2781,6 +2853,25 @@ namespace RageV
 		// submission is in.
 		s_Data->IndirectView = view;
 		s_Data->IndirectSlots = slots;
+	}
+
+	// The blended table's indirect draws, held for the transparent pass.
+	//
+	// **Bindless only, exactly as the opaque indirect path is.** One indirect
+	// call covers a whole mesh slot, so every instance in it is shaded by
+	// whatever set is bound -- correct only when the material is per instance,
+	// which it is only under bindless. Without it the scene keeps its blended
+	// meshes on the CPU list and this is never called.
+	void Renderer3D::DrawTransparentIndirect(const GpuCull::View& view,
+											 const std::vector<GpuCull::Slot>& slots)
+	{
+		if (!s_Data || !s_Data->SceneActive || !view.IsValid() || slots.empty())
+			return;
+		if (!s_Data->Bindless || !s_Data->TransparentPipeline)
+			return;
+
+		s_Data->TransparentView = view;
+		s_Data->TransparentSlots = slots;
 	}
 
 	void Renderer3D::DrawShadowIndirect(const GpuCull::View& view,

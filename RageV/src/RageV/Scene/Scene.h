@@ -151,6 +151,14 @@ namespace RageV
 			// camera's cull pass hands back as a survivor. Meaningless when
 			// CullSlot is kNoCullSlot.
 			uint32_t CullIndex = 0;
+
+			// The same pair against the *blended* table, for a static mesh
+			// wearing a material that is not opaque. An entry is in one table
+			// or the other and never both, so these two and the two above are
+			// exclusive -- which is what lets the draw loop tell which pass
+			// already accounted for it.
+			uint32_t BlendSlot = kNoCullSlot;
+			uint32_t BlendIndex = 0;
 		};
 
 		static constexpr uint32_t kNoCullSlot = ~0u;
@@ -575,6 +583,18 @@ namespace RageV
 		// not static, which is exactly the streaming the two arrays exist to
 		// avoid.
 		std::vector<uint32_t> m_CpuDraws;
+
+		// **The blended table, which is the whole of the GPU transparent
+		// path.** Its own meshes, slots, counts and objects, because a table is
+		// culled once and issued once and these are issued in a different pass
+		// with a different pipeline. Everything about them is the opaque
+		// table's shape; what differs is which pass reads the result.
+		std::vector<GpuCull::Slot>        m_BlendMeshes;
+		std::vector<GpuCull::SlotCommand> m_BlendSlots;
+		std::vector<uint32_t>             m_BlendCounts;
+		std::vector<GpuCull::Object>      m_BlendObjects;
+		uint32_t                          m_BlendObjectCount = 0;
+		GpuCull::View                     m_CulledBlend;
 		bool m_HasBlended = false;
 		// Emissive rectangles the traced bounce aims at. Built with the draw
 		// list, since that is where the transform, the bounds and the material
