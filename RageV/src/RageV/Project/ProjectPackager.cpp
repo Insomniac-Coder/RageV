@@ -19,6 +19,7 @@
 #include "RageV/UI/Interaction.h"
 #include "yaml-cpp/yaml.h"
 #include <fstream>
+#include <unordered_set>
 
 namespace RageV
 {
@@ -80,15 +81,21 @@ namespace RageV
 		// same way they will at runtime. That is the whole reason this can live
 		// in the packager rather than needing a running game.
 		void CheckSceneBindings(const PackageDesc& desc, const fs::path& assets,
+								const std::vector<std::string>& scenes,
 								const UI::MethodTable& methods, PackageResult& result)
 		{
 			std::error_code error;
 			if (!fs::is_directory(assets, error))
 				return;
 
-			for (const auto& entry : fs::recursive_directory_iterator(assets, error))
+			// **Only what ships.** Refusing a build over a broken button in a
+			// scene it was never going to carry is a refusal nobody can act on
+			// -- and on a project with ninety scenes, checking the three that
+			// ship is most of what makes a narrowed build fast.
+			for (const std::string& relative : scenes)
 			{
-				if (error || !entry.is_regular_file() || entry.path().extension() != ".rage")
+				const fs::path file = assets / relative;
+				if (!fs::is_regular_file(file, error))
 					continue;
 
 				// A scene that will not parse is a separate problem, and one
@@ -96,16 +103,12 @@ namespace RageV
 				// twice.
 				auto scene = std::make_shared<Scene>();
 				SceneSerializer serializer(scene);
-				if (!serializer.Deserialize(entry.path().string()))
+				if (!serializer.Deserialize(file.string()))
 					continue;
-
-				const fs::path relative = fs::relative(entry.path(), assets, error);
-				const std::string name = error ? entry.path().filename().string()
-											   : relative.generic_string();
 
 				for (const UI::BindingProblem& problem : UI::ValidateBindings(*scene, &methods))
 				{
-					const std::string message = name + ": " + problem.Describe();
+					const std::string message = relative + ": " + problem.Describe();
 
 					if (desc.AllowDeadBindings)
 						result.Warnings.push_back(message);
@@ -278,11 +281,23 @@ namespace RageV
 
 		void WriteConfigFile(const fs::path& file, const PackagePlan& plan)
 		{
+			std::string list;
+			for (const std::string& backend : plan.Backends)
+				list += (list.empty() ? "" : ", ") + backend;
+
 			std::ofstream stream(file);
 			stream << "# Settings for this game. Edit and restart to change.\n"
 				   << "\n"
 				   << "# Graphics backend: vulkan | opengl\n"
-				   << "rhi = " << plan.Backend << "\n"
+				   << "rhi = " << (plan.Backends.empty() ? "vulkan" : plan.Backends.front())
+				   << "\n"
+				   << "\n"
+				   << "# Every backend this game was built for, in the order it tries\n"
+				   << "# them. `rhi` above picks which one goes first; if that one has\n"
+				   << "# no working driver the game falls through to the next rather\n"
+				   << "# than refusing to start. A single entry means exactly that:\n"
+				   << "# there is nothing to fall through to.\n"
+				   << "backends = " << list << "\n"
 				   << "\n"
 				   << "vsync = " << (plan.VSync ? "on" : "off") << "\n"
 				   << "\n"
@@ -352,22 +367,27 @@ namespace RageV
 								  "; the packaged game would not start");
 		}
 
-		// The backend and vsync the packaged game starts on. Read here rather
+		// The backends and vsync the packaged game starts on. Read here rather
 		// than in the writing half, which is not allowed globals.
 		//
 		// Lower case, because that is what the file's own comment tells a
 		// player to type. The reader lowercases anyway, so this is legibility
 		// rather than correctness.
-		if (!desc.Backend.empty())
+		plan.Backends = desc.Backends;
+		if (plan.Backends.empty())
 		{
-			plan.Backend = desc.Backend;
-		}
-		else
-		{
-			plan.Backend = EngineConfig::BackendName(EngineConfig::Get().Backend);
-			for (char& c : plan.Backend)
+			std::string current = EngineConfig::BackendName(EngineConfig::Get().Backend);
+			for (char& c : current)
 				c = (char)std::tolower((unsigned char)c);
+			plan.Backends.push_back(current);
 		}
+
+		for (const std::string& backend : plan.Backends)
+		{
+			if (backend != "vulkan" && backend != "opengl")
+				plan.Errors.push_back("unknown graphics backend '" + backend + "'");
+		}
+
 		plan.VSync = EngineConfig::Get().VSync;
 
 		plan.EngineAssets = desc.EngineAssets.empty()
@@ -407,6 +427,33 @@ namespace RageV
 
 			// The answers, not the walk. See PackagePlan::ScriptMethods.
 			plan.ScriptMethods = UI::CollectScriptMethods();
+
+			// --- which scenes ship ---------------------------------------
+			//
+			// **The start scene is folded in whatever was asked for.** A game
+			// whose first scene is missing cannot start, and a build option
+			// that silently produces one would be worse than no option.
+			plan.Scenes = desc.Scenes;
+
+			if (plan.Scenes.empty())
+			{
+				// Nothing named: every scene in the project, which is what the
+				// CLI does and what the editor did before there was a dialog.
+				for (const std::string& relative : IO::VFS::Enumerate(plan.AssetRoot))
+				{
+					if (fs::path(relative).extension() == ".rage")
+						plan.Scenes.push_back(relative);
+				}
+			}
+			else if (!plan.Config.StartScene.empty()
+					 && std::find(plan.Scenes.begin(), plan.Scenes.end(),
+								  plan.Config.StartScene) == plan.Scenes.end())
+			{
+				plan.Scenes.push_back(plan.Config.StartScene);
+				plan.Warnings.push_back("the start scene " + plan.Config.StartScene +
+										" was not selected; it ships anyway, because a "
+										"game cannot start without it");
+			}
 		}
 
 		if (!desc.Overwrite && DirectoryHasContent(desc.OutputDirectory))
@@ -433,6 +480,24 @@ namespace RageV
 
 		const std::string& name = plan.Name;
 
+		// A scene ships only if it was selected, and so does its sidecar --
+		// leaving a `.meta` behind for a scene that is not there would put a
+		// handle in the registry pointing at nothing.
+		//
+		// A set rather than a linear search: the enumeration below is every
+		// file in the project, and on a large one that is the difference
+		// between a filter and a quadratic.
+		const std::unordered_set<std::string> shipped(plan.Scenes.begin(), plan.Scenes.end());
+
+		auto excluded = [&](const std::string& relative)
+		{
+			std::string path = relative;
+			if (path.size() > 5 && path.compare(path.size() - 5, 5, ".meta") == 0)
+				path.resize(path.size() - 5);
+
+			return fs::path(path).extension() == ".rage" && !shipped.count(path);
+		};
+
 		Say(desc, "Packaging " + plan.Config.Name + " into " +
 				  desc.OutputDirectory.string());
 
@@ -441,8 +506,9 @@ namespace RageV
 		// lands -- and finding it means parsing every scene in the project,
 		// which is why this is here rather than beside the rest of the
 		// validation in PlanPackage. The answers it needs came from there.
-		Say(desc, "  checking scene bindings");
-		CheckSceneBindings(desc, plan.AssetRoot, plan.ScriptMethods, result);
+		Say(desc, "  checking scene bindings in " + std::to_string(plan.Scenes.size()) +
+				  " scene(s)");
+		CheckSceneBindings(desc, plan.AssetRoot, plan.Scenes, plan.ScriptMethods, result);
 
 		if (!result.Errors.empty())
 		{
@@ -550,17 +616,37 @@ namespace RageV
 		// forms carry exactly the tree the VFS enumeration sees.
 		if (desc.LooseContent)
 		{
+			// A loose build copies the tree wholesale and then removes what was
+			// not selected, rather than filtering the copy: CopyTree is the one
+			// used by every other target here, and a second filtered version of
+			// it is a second thing to keep correct.
 			Say(desc, "  content (loose)");
 			if (!CopyTree(plan.AssetRoot, desc.OutputDirectory / kContentDirectory, result))
 				return result;
+
+			for (const std::string& relative : IO::VFS::Enumerate(plan.AssetRoot))
+			{
+				if (excluded(relative))
+					fs::remove(desc.OutputDirectory / kContentDirectory / relative, error);
+			}
 		}
 		else
 		{
 			IO::PakWriter writer;
-			const std::vector<std::string> files = IO::VFS::Enumerate(plan.AssetRoot);
+
+			std::vector<std::string> files;
+			uint64_t skipped = 0;
+			for (const std::string& relative : IO::VFS::Enumerate(plan.AssetRoot))
+			{
+				if (excluded(relative))
+					skipped++;
+				else
+					files.push_back(relative);
+			}
 
 			Say(desc, "  content: " + std::to_string(files.size()) + " files" +
-					  (desc.RawContent ? " (raw)" : " (cooking)"));
+					  (desc.RawContent ? " (raw)" : " (cooking)") +
+					  (skipped ? ", " + std::to_string(skipped) + " left out" : ""));
 
 			uint64_t done = 0;
 			for (const std::string& relative : files)

@@ -65,7 +65,44 @@ namespace RageV {
 		deviceDesc.GpuAssistedValidation = config.ValidationGpuAssisted;
 		deviceDesc.FramesInFlight = config.FramesInFlight;
 
-		m_Device = RHI::RHIDevice::Create(deviceDesc);
+		// **The chosen backend first, then whatever else the build allows.**
+		//
+		// A packaged game's `ragev.ini` names every backend it was built for,
+		// and this is the whole of what that means: `RHIDevice::Create` returns
+		// null rather than falling back, so without this a game built for both
+		// would still die on a machine whose Vulkan driver is missing. Nothing
+		// but a package sets the list, so the editor and every command line
+		// still fail on the backend they asked for -- a developer who says
+		// `--api=vulkan` wants to hear that Vulkan failed, not to be moved
+		// quietly to OpenGL and left measuring the wrong renderer.
+		std::vector<RHI::Backend> order{ config.Backend };
+		for (RHI::Backend backend : config.Backends)
+		{
+			if (std::find(order.begin(), order.end(), backend) == order.end())
+				order.push_back(backend);
+		}
+
+		for (RHI::Backend backend : order)
+		{
+			deviceDesc.Backend = backend;
+			m_Device = RHI::RHIDevice::Create(deviceDesc);
+			if (m_Device)
+			{
+				if (backend != config.Backend)
+				{
+					// Said, not written back: EngineConfig is read-only once
+					// parsed, and anything that needs the backend actually in
+					// use has the device to ask -- GetCaps().APIName is what
+					// the title bar and the statistics panel already read.
+					RV_CORE_WARN("No {0} device; running on {1} instead, which this "
+								 "build also supports",
+								 EngineConfig::BackendName(config.Backend),
+								 EngineConfig::BackendName(backend));
+				}
+				break;
+			}
+		}
+
 		if (!m_Device)
 		{
 			RV_CORE_ERROR("Could not create a {0} device; the application cannot start",

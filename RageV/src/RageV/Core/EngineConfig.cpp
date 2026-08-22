@@ -68,6 +68,29 @@ namespace RageV
 			return false;
 		}
 
+		// The packaged fallback list, "vulkan, opengl". Order is meaning.
+		if (key == "backends")
+		{
+			config.Backends.clear();
+
+			std::stringstream stream(value);
+			std::string entry;
+			while (std::getline(stream, entry, ','))
+			{
+				const std::string lowered = ToLower(Trim(entry));
+				if (lowered.empty())
+					continue;
+
+				if (lowered == "vulkan" || lowered == "vk")
+					config.Backends.push_back(RHI::Backend::Vulkan);
+				else if (lowered == "opengl" || lowered == "gl")
+					config.Backends.push_back(RHI::Backend::OpenGL);
+				else
+					RV_CORE_WARN("Unknown graphics backend '{0}' in backends", entry);
+			}
+			return true;
+		}
+
 		if (key == "vsync")
 			return ParseBool(value, config.VSync);
 

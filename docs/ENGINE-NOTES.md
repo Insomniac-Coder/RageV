@@ -12623,6 +12623,52 @@ Post profiles were already correct and worth stating: the inspector writes a
 reads is current. The scene is the one thing that does not save itself, so a
 build with unsaved scene changes now warns.
 
+### 7cg. A build is a set of choices, and two of them were never asked
+
+Build Game shipped every scene in the project and one hard-coded backend. Both
+are defensible defaults and neither is a decision anybody made, so Build Game
+now opens a dialog: which graphics APIs, and which scenes.
+
+#### "Support both" only means something with a fallback
+
+`RHIDevice::Create` returns null when a device will not create -- there is no
+second attempt anywhere in it. So a package naming one backend is a package that
+dies on a machine without it, and ticking two boxes would have been decoration.
+
+`ragev.ini` gains `backends = vulkan, opengl`, ordered, and the application
+tries them in order. **Only a package sets it.** The editor and every command
+line still fail on the backend they asked for, which is the point: somebody who
+types `--api=vulkan` wants to hear that Vulkan failed, not to be moved quietly
+to OpenGL and left measuring the wrong renderer.
+
+#### Scenes are filtered out of the pak, sidecar included
+
+A `.rage` that is not selected does not ship, and neither does its `.meta` --
+leaving the sidecar behind would put a handle in the registry pointing at
+nothing. On the sample project, 91 scenes down to 2 is **1215 files and 364 MB
+down to 1037 and 273**, most of that being the three stress scenes.
+
+Two rules make the option safe rather than sharp:
+
+- **The start scene always ships.** A build option whose worst outcome is a game
+  that cannot start is a bad option; it is added back and the build says so.
+- **The binding check only walks what ships.** Refusing a build over a dead
+  button in a scene it was never going to carry is a refusal nobody can act on,
+  and it is also where most of a narrowed build's time is saved.
+
+#### The dialog
+
+A modal, because it is a question with an answer and there is nothing useful to
+do in the editor between opening it and deciding. Select all / none / current
+sit *outside* the scrolling list -- which is the whole reason a list of ninety
+needs them, since a button inside would scroll away from the person looking for
+it. Build is centred at the bottom, disabled while the answer is not yet valid,
+with the reason written above it rather than in a tooltip nobody hovers.
+
+**"Current" is the open scene**, resolved through its saved path -- so it is
+disabled, with a tooltip, for a scene that has never been saved and therefore
+has no path to match against.
+
 ---
 
 ## 8. What this changes

@@ -35,10 +35,13 @@ namespace
 			"  --runtime=<exe>    the runtime to ship; found automatically otherwise\n"
 			"  --engine-assets=<dir>\n"
 			"                     shaders and fonts; taken from beside the runtime otherwise\n"
-			"  --rhi=<backend>    what the packaged ragev.ini names: vulkan or opengl.\n"
-			"                     Defaults to vulkan. The editor ships whichever\n"
-			"                     backend it is running instead -- a headless tool\n"
-			"                     has no such answer to give.\n"
+			"  --rhi=<a,b>        which backends the game runs on, preferred first:\n"
+			"                     vulkan, opengl, or both. Defaults to vulkan; two\n"
+			"                     means the game falls back rather than failing on\n"
+			"                     a machine with no driver for the first.\n"
+			"  --scenes=<a,b>     only these scenes, asset-relative. Every scene\n"
+			"                     ships when this is left off; the start scene\n"
+			"                     always ships whatever this says.\n"
 			"  --loose            ship content/ as a folder instead of content.pak,\n"
 			"                     so single files can be swapped while debugging\n"
 			"  --raw              pack source bytes without cooking them; a raw pak\n"
@@ -59,7 +62,7 @@ int main(int argc, char** argv)
 	// and warns -- so the CLI would ship whatever the default happened to be,
 	// silently, and a packaging script would change behaviour the day that
 	// default moved. Vulkan is what this wrote before it was a choice.
-	desc.Backend = "vulkan";
+	desc.Backends = { "vulkan" };
 
 	for (int i = 1; i < argc; i++)
 	{
@@ -86,6 +89,32 @@ int main(int argc, char** argv)
 		else if (argument == "--allow-dead-bindings")
 		{
 			desc.AllowDeadBindings = true;
+		}
+		else if (argument.rfind("--rhi=", 0) == 0)
+		{
+			// Comma separated and ordered: the first is what the game starts
+			// on, the rest are what it falls through to. "vulkan,opengl" is a
+			// build that survives a machine with no Vulkan driver.
+			desc.Backends.clear();
+
+			std::stringstream stream(argument.substr(std::string("--rhi=").size()));
+			std::string entry;
+			while (std::getline(stream, entry, ','))
+			{
+				if (!entry.empty())
+					desc.Backends.push_back(entry);
+			}
+		}
+		else if (argument.rfind("--scenes=", 0) == 0)
+		{
+			// Asset-relative, comma separated. Left off, every scene ships.
+			std::stringstream stream(argument.substr(std::string("--scenes=").size()));
+			std::string entry;
+			while (std::getline(stream, entry, ','))
+			{
+				if (!entry.empty())
+					desc.Scenes.push_back(entry);
+			}
 		}
 		else if (argument.rfind("--runtime=", 0) == 0)
 		{

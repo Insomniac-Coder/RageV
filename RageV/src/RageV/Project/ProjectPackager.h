@@ -59,16 +59,36 @@ namespace RageV
 		// design and bounded by measurement.
 		bool RawContent = false;
 
-		// What the packaged game's `ragev.ini` should name as its backend:
-		// "vulkan", "opengl", or empty.
+		// Which graphics backends the packaged game may run on, **preferred
+		// first**: "vulkan", "opengl", or both.
 		//
-		// **Empty means "whatever this process is running"**, which is what the
-		// editor wants -- a project authored and looked at on one backend
-		// should ship with it. A headless tool has no such answer:
+		// Empty means "whatever this process is running", which is what the
+		// editor's own default is -- a project authored and looked at on one
+		// backend should ship with it. A headless tool has no such answer:
 		// `EngineConfig::Get()` there returns defaults and says so, so `rvpack`
 		// passes one explicitly rather than shipping whatever the default
 		// happened to be.
-		std::string Backend;
+		//
+		// **Listing two is not decoration.** `RHIDevice::Create` has no
+		// fallback of its own -- a Vulkan device that will not create returns
+		// null and the game stops -- so a package that names one backend is a
+		// package that fails on a machine without it. The runtime tries this
+		// list in order, and a game built for both survives a driver that only
+		// offers one.
+		std::vector<std::string> Backends;
+
+		// Which scenes ship, as asset-relative paths -- "scenes/level.rage".
+		//
+		// **Empty ships every one**, which is what the CLI does by default and
+		// what the editor did before there was a dialog to say otherwise. A
+		// non-empty list also narrows the binding check, so a build that ships
+		// three scenes does not refuse over a broken button in a fourth it was
+		// never going to carry.
+		//
+		// The start scene is always shipped whatever this says: a game whose
+		// first scene is missing is a game that cannot start, and silently
+		// producing one would be the worst outcome this option could have.
+		std::vector<std::string> Scenes;
 
 		// --- for a caller running this off the main thread --------------------
 
@@ -174,8 +194,14 @@ namespace RageV
 		// a machine without it, a game that did not start at all. The backend a
 		// project is being authored and looked at on is the one it should ship
 		// with, and the player can still edit the file.
-		std::string Backend = "vulkan";
+		std::vector<std::string> Backends;
 		bool VSync = true;
+
+		// The scenes that will ship, asset-relative and already resolved:
+		// PackageDesc::Scenes with the start scene folded in, or every scene in
+		// the project when that was empty. Empty here means the project has
+		// none, which validation has already refused.
+		std::vector<std::string> Scenes;
 	};
 
 	// Validates the open project and takes the snapshot. **Main thread**: it

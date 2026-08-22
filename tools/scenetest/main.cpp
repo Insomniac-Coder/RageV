@@ -4154,6 +4154,76 @@ void main()
 				  "answer rather than a path relative to the working directory");
 		}
 
+		// --- what a build is asked to contain ----------------------------------
+		//
+		// The plan is where a dialog's answers become a package's contents, and
+		// both defaults matter: nothing named ships everything, which is what
+		// the CLI and every build before the dialog existed did.
+		{
+			Project::Load(root / "Probe.rvproject");
+
+			const std::filesystem::path sceneDir = root / "assets" / "scenes";
+			std::filesystem::create_directories(sceneDir, error);
+			for (const char* name : { "level.rage", "menu.rage", "test.rage" })
+			{
+				std::ofstream file(sceneDir / name);
+				file << "Scene: Empty\nVersion: 6\nEntities:\n";
+			}
+
+			Project::Config().StartScene = "scenes/level.rage";
+
+			PackageDesc desc;
+			desc.OutputDirectory = root / "out";
+			desc.Overwrite = true;
+
+			{
+				const PackagePlan plan = PlanPackage(desc);
+				Check(plan.Scenes.size() == 3,
+					  "naming no scenes ships every one, which is what a build did "
+					  "before there was a dialog to say otherwise");
+			}
+
+			{
+				// The case the dialog's "Select current" produces.
+				desc.Scenes = { "scenes/menu.rage" };
+				const PackagePlan plan = PlanPackage(desc);
+
+				Check(plan.Scenes.size() == 2
+					  && std::find(plan.Scenes.begin(), plan.Scenes.end(),
+								   std::string("scenes/menu.rage")) != plan.Scenes.end(),
+					  "naming one ships that one");
+				Check(std::find(plan.Scenes.begin(), plan.Scenes.end(),
+								std::string("scenes/level.rage")) != plan.Scenes.end(),
+					  "**and the start scene as well, whatever was asked for** -- a "
+					  "game whose first scene is missing cannot start, and quietly "
+					  "producing one is the worst thing this option could do");
+				Check(!plan.Warnings.empty(),
+					  "and it says so rather than adding it silently");
+			}
+
+			// --- the backends -------------------------------------------------
+			{
+				desc.Scenes.clear();
+				desc.Backends = { "vulkan", "opengl" };
+				const PackagePlan plan = PlanPackage(desc);
+				Check(plan.Ok && plan.Backends.size() == 2
+					  && plan.Backends.front() == "vulkan",
+					  "two backends survive in order, because the order is which one "
+					  "the game starts on");
+
+				desc.Backends = { "direct3d" };
+				const PackagePlan bad = PlanPackage(desc);
+				Check(!bad.Ok,
+					  "and a backend the engine does not have is refused at the plan "
+					  "rather than written into a ragev.ini nothing can read");
+
+				desc.Backends.clear();
+			}
+
+			std::filesystem::remove_all(root / "assets" / "scenes", error);
+			Project::Close();
+		}
+
 		Check(Project::Load(root / "Probe.rvproject"), "and loaded back");
 		Check(Project::Config().Name == "Probe", "the name survives");
 		Check(Project::Config().StartScene == "scenes/level.rage", "as does the start scene");

@@ -52,17 +52,30 @@ WCAG 2.2 AA contrast by a script, so neither is a guess.
 ## Building
 
 **Scene ▸ Build Game** packages the project into `<project>/bin/<Name>`;
-**Build Game As...** picks somewhere else. Both run on a worker, so the editor
-stays usable while it happens — the Build Log panel comes to front with live
-output and a Cancel button, exactly as Build Scripts does. One build at a time:
-packaging copies what a script build produces, so the two cannot overlap.
+**Build Game As...** picks somewhere else. Both open a dialog first, because a
+package is slow and two of its answers are not in the project anywhere.
+
+| | |
+|---|---|
+| **Graphics API** | Vulkan, OpenGL, or both. Both means the game starts on the first and falls through to the other when there is no driver for it; one means a machine without it gets a game that will not start |
+| **Scenes** | A checkbox each, with **Select all**, **Select none** and **Select current** outside the list. Only the ticked ones ship |
+
+The start scene always ships, whatever the list says, and it says so when it
+has to add it back — a game whose first scene is missing cannot start. Narrowing
+the list also narrows the binding check, so a build shipping three scenes does
+not refuse over a broken button in a fourth.
+
+Press **Build** and the dialog closes; everything after that is in the Build
+Log. It runs on a worker, so the editor stays usable — live output and a Cancel
+button, exactly as Build Scripts does. One build at a time: packaging copies
+what a script build produces, so the two cannot overlap.
 
 The packaged game carries the state the editor is in:
 
 | | |
 |---|---|
 | **Render Settings** | Written into the packaged `.rvproject`, so ray tracing, anti-aliasing and shadows ship as authored |
-| **Graphics backend** | `ragev.ini` names whichever backend the editor is running |
+| **Graphics backend** | `ragev.ini` names what the dialog picked; `backends = ...` lists every one the build supports, in the order the game tries them |
 | **Post profiles** | Ship as assets; the inspector writes them through the moment they are edited |
 | **Scenes** | Read from disk — a scene with unsaved changes warns, and ships as last saved |
 

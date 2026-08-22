@@ -77,6 +77,21 @@ namespace RageV
 	struct EngineConfig
 	{
 		RHI::Backend Backend        = RHI::Backend::OpenGL;
+
+		// Every backend this build may use, in the order to try them.
+		//
+		// **A packaged game names this and nothing else does.** `Backend` above
+		// is the one to start with -- what `--api=` and `rhi =` set -- and this
+		// is what happens when its driver is not there. `RHIDevice::Create` has
+		// no fallback of its own: a Vulkan device that will not create returns
+		// null and the application stops, which for a player is a game that
+		// does not open and says nothing useful.
+		//
+		// Empty means "only Backend", which is what the editor and every
+		// command line get: a developer who asked for Vulkan wants to know that
+		// Vulkan failed, not to be quietly moved to OpenGL and left measuring
+		// the wrong renderer.
+		std::vector<RHI::Backend> Backends;
 		bool         VSync          = true;
 		uint32_t     FramesInFlight = 2;
 

@@ -95,7 +95,9 @@ public:
 	// Into the project's own bin/. BuildGameAs asks for somewhere else.
 	void BuildGame();
 	void BuildGameAs();
-	void BuildInto(const std::filesystem::path& output);
+	void BuildInto(const std::filesystem::path& output,
+				   const std::vector<std::string>& backends,
+				   const std::vector<std::string>& scenes);
 
 	// The scene a freshly created project opens on. Deliberately not empty --
 	// see the definition.
@@ -156,6 +158,30 @@ public:
 	bool m_WorkerRanPackage = false;
 	RageV::PackageResult m_PackageBuild;
 	bool m_PackageBuildRan = false;
+
+	// --- the Build Game dialog ------------------------------------------------
+	//
+	// What ships, chosen before anything runs. Held rather than asked for
+	// inline because the answer is several questions and a build is slow enough
+	// that getting one of them wrong costs a minute.
+	void DrawBuildGamePanel();
+	void OpenBuildGameDialog(std::filesystem::path output);
+
+	bool m_ShowBuildGame = false;
+
+	// Where the build goes, decided when the dialog opens: Build Game fills in
+	// the default, Build Game As... asks first. Kept so the dialog itself does
+	// not have to know which item opened it.
+	std::filesystem::path m_BuildOutput;
+
+	// Both may be on. Neither cannot: the Build button refuses, because a game
+	// with no backend is a game that cannot open a window.
+	bool m_BuildVulkan = true;
+	bool m_BuildOpenGL = false;
+
+	// Every scene in the project and whether it ships. Rebuilt each time the
+	// dialog opens, because the project may have gained scenes since.
+	std::vector<std::pair<std::string, bool>> m_BuildScenes;
 	std::mutex m_BuildLogMutex;
 	std::string m_BuildLiveLog;
 

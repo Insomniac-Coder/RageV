@@ -17,6 +17,7 @@
 #include "RageV/Managed/Interop.h"
 #include "RageV/Project/ModuleBuild.h"
 #include "RageV/Project/GameModule.h"
+#include "RageV/IO/VFS.h"
 #include "RageV/Project/ProjectPackager.h"
 #include "RageV/Core/FrameProfiler.h"
 #include "RageV/Core/EngineConfig.h"
@@ -1319,6 +1320,7 @@ void EditorLayer::OnImGuiRender()
 	if (m_ShowStatistics)      DrawStatisticsPanel();
 	if (m_ShowRenderSettings)  DrawRenderSettingsPanel();
 	DrawScriptBuildPanel();
+	DrawBuildGamePanel();
 	if (m_ShowViewport)        DrawViewportPanel();
 	if (m_ShowGameViewport)    DrawGameViewportPanel();
 	if (m_ShowContentBrowser)
@@ -4139,7 +4141,42 @@ void EditorLayer::BuildGame()
 	if (!Project::GetActive())
 		return;
 
-	BuildInto(Project::BinaryRoot() / Project::Config().Name);
+	OpenBuildGameDialog(Project::BinaryRoot() / Project::Config().Name);
+}
+
+// What a build is going to contain, asked before it starts.
+//
+// **Asked rather than assumed, because a package is slow and wrong is
+// expensive.** Shipping every scene in the project is right for a project whose
+// scenes are all part of the game and wrong for one that also carries ninety
+// test fixtures -- and the backend a game supports is a decision about the
+// machines it runs on, which nothing in the project says.
+//
+// The list is rebuilt on every open: the project may have gained scenes since
+// the last build, and a stale list would silently leave one out.
+void EditorLayer::OpenBuildGameDialog(std::filesystem::path output)
+{
+	m_BuildOutput = std::move(output);
+	m_BuildScenes.clear();
+
+	std::error_code error;
+	const std::filesystem::path assets = Project::AssetRoot();
+
+	for (const std::string& relative : IO::VFS::Enumerate(assets))
+	{
+		if (std::filesystem::path(relative).extension() == ".rage")
+			m_BuildScenes.emplace_back(relative, true);
+	}
+
+	std::sort(m_BuildScenes.begin(), m_BuildScenes.end());
+
+	// The backend the editor is running starts ticked, because that is the one
+	// the project has actually been looked at on.
+	const bool vulkan = EngineConfig::Get().Backend == RHI::Backend::Vulkan;
+	m_BuildVulkan = vulkan;
+	m_BuildOpenGL = !vulkan;
+
+	m_ShowBuildGame = true;
 }
 
 // Somewhere else, for when the default is not what is wanted -- a network share,
@@ -4157,7 +4194,7 @@ void EditorLayer::BuildGameAs()
 	if (chosen.empty())
 		return;
 
-	BuildInto(std::filesystem::path(chosen).parent_path());
+	OpenBuildGameDialog(std::filesystem::path(chosen).parent_path());
 }
 
 // Package the project, on a worker, into the same console the script build
@@ -4173,7 +4210,9 @@ void EditorLayer::BuildGameAs()
 // reads the open project and asks the C# runtime what methods a script has,
 // both of which belong on this thread; WritePackage touches no globals and is
 // handed a snapshot. See ProjectPackager.h.
-void EditorLayer::BuildInto(const std::filesystem::path& output)
+void EditorLayer::BuildInto(const std::filesystem::path& output,
+							const std::vector<std::string>& backends,
+							const std::vector<std::string>& scenes)
 {
 	if (!Project::GetActive())
 		return;
@@ -4196,6 +4235,8 @@ void EditorLayer::BuildInto(const std::filesystem::path& output)
 	// where a scripted build could otherwise flatten a directory nobody looked
 	// at.
 	desc.Overwrite = true;
+	desc.Backends = backends;
+	desc.Scenes = scenes;
 
 	// **Planned here, written there.** This half reads the project and the
 	// script runtime, so it stays on the main thread; what crosses to the
@@ -4534,6 +4575,157 @@ void EditorLayer::LoadScriptAssembly(const std::filesystem::path& assembly)
 		RV_ERROR("The script assembly built but could not be loaded");
 	else
 		RV_INFO("Loaded {0} script type(s) from {1}", scripts, assembly.filename().string());
+}
+
+// What a build will contain: which machines it runs on, and which scenes go in
+// it.
+//
+// A modal, because it is a question with an answer -- there is nothing useful
+// to do in the editor between opening this and deciding. It closes the moment
+// Build is pressed; everything after that is the Build Log's job.
+void EditorLayer::DrawBuildGamePanel()
+{
+	if (!m_ShowBuildGame)
+		return;
+
+	// Opened here rather than at the call site so the modal stack stays inside
+	// the frame that draws it -- ImGui refuses an OpenPopup for a window it has
+	// not begun.
+	if (!ImGui::IsPopupOpen("Build Game"))
+		ImGui::OpenPopup("Build Game");
+
+	ImGui::SetNextWindowSize(ImVec2(520.0f, 520.0f), ImGuiCond_Appearing);
+	ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(),
+							ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+	if (!ImGui::BeginPopupModal("Build Game", &m_ShowBuildGame,
+								ImGuiWindowFlags_NoSavedSettings))
+	{
+		return;
+	}
+
+	ImGui::TextDisabled("%s", m_BuildOutput.string().c_str());
+	ImGui::Spacing();
+
+	// --- the backends ---------------------------------------------------------
+	ImGui::SeparatorText("Graphics API");
+
+	ImGui::Checkbox("Vulkan", &m_BuildVulkan);
+	ImGui::SameLine(0.0f, 24.0f);
+	ImGui::Checkbox("OpenGL", &m_BuildOpenGL);
+
+	if (m_BuildVulkan && m_BuildOpenGL)
+	{
+		ImGui::TextDisabled("Ships for both. The game starts on Vulkan and falls back\n"
+							"to OpenGL if there is no driver for it.");
+	}
+	else if (m_BuildVulkan || m_BuildOpenGL)
+	{
+		ImGui::TextDisabled("One backend, so there is nothing to fall back to:\n"
+							"a machine without it gets a game that will not start.");
+	}
+	else
+	{
+		ImGui::TextColored(EditorTheme::Colors().Danger,
+						   "Pick at least one, or the game cannot open a window.");
+	}
+
+	// --- the scenes -----------------------------------------------------------
+	ImGui::Spacing();
+
+	int selected = 0;
+	for (const auto& [path, on] : m_BuildScenes)
+		selected += on ? 1 : 0;
+
+	ImGui::SeparatorText("Scenes");
+	ImGui::TextDisabled("%d of %d selected", selected, (int)m_BuildScenes.size());
+
+	// The buttons sit outside the scrolling list, so they stay reachable
+	// whatever is scrolled into view -- which is the whole reason a list this
+	// long needs them.
+	if (ImGui::SmallButton("Select all"))
+	{
+		for (auto& entry : m_BuildScenes)
+			entry.second = true;
+	}
+	ImGui::SameLine();
+	if (ImGui::SmallButton("Select none"))
+	{
+		for (auto& entry : m_BuildScenes)
+			entry.second = false;
+	}
+	ImGui::SameLine();
+
+	// "Current" is the scene open in the editor, which is the one somebody
+	// testing a single level almost always means.
+	const bool haveCurrent = !m_ScenePath.empty();
+	ImGui::BeginDisabled(!haveCurrent);
+	if (ImGui::SmallButton("Select current"))
+	{
+		std::error_code error;
+		const std::filesystem::path relative =
+			std::filesystem::relative(m_ScenePath, Project::AssetRoot(), error);
+		const std::string wanted = error ? std::string() : relative.generic_string();
+
+		for (auto& entry : m_BuildScenes)
+			entry.second = (entry.first == wanted);
+	}
+	ImGui::EndDisabled();
+
+	if (!haveCurrent && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+		ImGui::SetTooltip("The open scene has never been saved, so it has no path yet.");
+
+	// Room for the footer, taken off the list rather than left to overflow:
+	// the Build button is the one control here that must always be reachable.
+	const float footer = ImGui::GetFrameHeightWithSpacing()
+					   + ImGui::GetStyle().ItemSpacing.y * 2.0f;
+
+	ImGui::BeginChild("##scenes", ImVec2(0.0f, -footer), ImGuiChildFlags_Borders);
+	for (auto& [path, on] : m_BuildScenes)
+	{
+		ImGui::PushID(path.c_str());
+		ImGui::Checkbox(path.c_str(), &on);
+		ImGui::PopID();
+	}
+
+	if (m_BuildScenes.empty())
+		ImGui::TextDisabled("This project has no scenes.");
+	ImGui::EndChild();
+
+	// --- build ----------------------------------------------------------------
+	//
+	// Centred at the bottom, and the only way out other than closing the
+	// window. Disabled rather than absent when the answer is not yet valid, so
+	// the reason above it is what somebody reads.
+	const bool ready = (m_BuildVulkan || m_BuildOpenGL) && selected > 0;
+
+	const float width = 140.0f;
+	ImGui::SetCursorPosX((ImGui::GetWindowWidth() - width) * 0.5f);
+
+	ImGui::BeginDisabled(!ready);
+	if (ImGui::Button("Build", ImVec2(width, 0.0f)))
+	{
+		std::vector<std::string> backends;
+		if (m_BuildVulkan) backends.push_back("vulkan");
+		if (m_BuildOpenGL) backends.push_back("opengl");
+
+		std::vector<std::string> scenes;
+		for (const auto& [path, on] : m_BuildScenes)
+		{
+			if (on)
+				scenes.push_back(path);
+		}
+
+		m_ShowBuildGame = false;
+		ImGui::CloseCurrentPopup();
+
+		// After the popup is closed, so the dialog is gone by the time the
+		// Build Log takes the focus this asks for.
+		BuildInto(m_BuildOutput, backends, scenes);
+	}
+	ImGui::EndDisabled();
+
+	ImGui::EndPopup();
 }
 
 // The compiler's output, where somebody will actually read it.
