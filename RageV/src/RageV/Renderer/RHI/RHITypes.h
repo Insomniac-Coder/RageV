@@ -575,6 +575,16 @@ namespace RageV::RHI
 		uint32_t UniformBufferAlignment = 256;
 		uint64_t VideoMemoryBytes       = 0;
 
+		// The largest MSAA sample count the scene target can actually use --
+		// the intersection of what the device offers for a colour attachment,
+		// a depth attachment, and sampling both, since the scene target is all
+		// three at once. Always a power of two; 1 means no MSAA at all.
+		//
+		// **Queried rather than assumed.** Nothing used to ask, and the render
+		// setting's own comment claimed it was "clamped to what the hardware
+		// actually offers" while being clamped to a constant.
+		uint32_t MaxSampleCount       = 1;
+
 		bool SupportsAnisotropy       = false;
 		float MaxAnisotropy           = 1.0f;
 		bool SupportsDynamicRendering = false;

@@ -101,6 +101,24 @@ namespace RageV
 		// happens to match.
 		int LegacyTrue = -1;
 
+		// Marks an Int field as **one of a fixed set of values**, labelled by
+		// EnumNames, rather than a range.
+		//
+		// Distinct from FieldType::Enum, which stores an *index*: this stores
+		// the value itself, so `MsaaSamples: 8` on disk still means eight
+		// samples and `--msaa=8` still means what it says. Storing an index
+		// would have quietly redefined every saved project and the command
+		// line with it.
+		//
+		// It exists because a range is the wrong shape for some numbers. MSAA
+		// sample counts are 2, 4 and 8 -- a bit flag in both graphics APIs,
+		// not a count -- and offering a slider from 1 to 8 offered five, which
+		// is two bits set, which lost the device. A widget that cannot express
+		// the illegal value is a better guarantee than a check that rejects
+		// it afterwards.
+		const int* ChoiceValues = nullptr;
+		int ChoiceCount = 0;
+
 		// Marks an Int field as choosing an **animation clip of the mesh on
 		// this same entity**, so the inspector offers their names instead of
 		// asking for an index.

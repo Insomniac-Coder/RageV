@@ -51,7 +51,7 @@
 //                           its own command line (ENGINE-NOTES 7ba). The
 //                           overrides above still apply on top.
 //   --ssaa=N                how many times larger SSAA draws each axis
-//   --msaa=N                coverage samples per pixel for MSAA
+//   --msaa=N                coverage samples per pixel for MSAA: 2, 4 or 8
 //   --project=<path>        the .rvproject to open, or a folder containing one
 //   --screenshot=<file>     write a PNG of one frame and exit
 //   --loading-screenshot=<file>  write a PNG of a frame drawn while loading

@@ -184,6 +184,22 @@ namespace
 			return hint;
 		}
 
+		// An int field that is one of a fixed set of values rather than a
+		// range. `values` and `names` are parallel, and the compiler checks
+		// they are the same length.
+		template<size_t N>
+		FieldHint Choice(const int (&values)[N], const char* const (&names)[N],
+						 const char* tooltip = nullptr)
+		{
+			FieldHint hint;
+			hint.ChoiceValues = values;
+			hint.ChoiceCount = (int)N;
+			hint.EnumNames = names;
+			hint.EnumCount = (int)N;
+			hint.Tooltip = tooltip;
+			return hint;
+		}
+
 		// What a file's `true` meant, for a field that used to be a boolean.
 		// See FieldHint::LegacyTrue -- the mapping differs per field, so it is
 		// written at the field rather than guessed by the serializer.
@@ -1346,6 +1362,8 @@ namespace
 		const char* const kRayDetailNames[] = { "Off", "Low", "Medium", "High" };
 
 		const char* const kFocusModeNames[] = { "Manual", "Target" };
+		const char* const kMsaaCountNames[] = { "2x", "4x", "8x" };
+
 		const char* const kAntiAliasingNames[] = { "None", "FXAA", "SMAA", "SSAA",
 												   "MSAA", "TAA" };
 		const char* const kSkyNames[] = { "Color", "Gradient", "Cubemap" };
@@ -1522,11 +1540,15 @@ namespace
 
 				Field<&RenderSettings::MsaaSamples>("MsaaSamples",
 					Named("Samples", OnlyWhen(UsesMsaa,
-						Drag(0.05f, 1, 8,
+						Choice(MsaaCounts, kMsaaCountNames,
 							"Coverage samples per pixel under MSAA. Costs bandwidth "
 							"and a little rasterizer work rather than shading, so 4 "
 							"is an ordinary choice where supersampling at 4 is a "
-							"statement.")))),
+							"statement.\n\n"
+							"A list rather than a slider because these are the only "
+							"three that exist: a sample count is a bit flag in both "
+							"graphics APIs, and asking for five asks for two of them "
+							"at once.")))),
 
 				Field<&RenderSettings::SupersampleFactor>("SupersampleFactor",
 					Named("Supersample", OnlyWhen(UsesSsaa,

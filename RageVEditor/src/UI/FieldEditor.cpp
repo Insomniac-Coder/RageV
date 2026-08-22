@@ -145,6 +145,44 @@ namespace RageV::UI
 	// names that share a prefix ("run_forward", "run_left", "run_stop"), and a
 	// list that has to be scrolled past its own naming convention is a list
 	// that gets the wrong entry picked.
+	// An int constrained to a listed set of values.
+	//
+	// **The preview falls back to the raw number** when the stored value is
+	// not in the list, rather than showing the first entry. A file written
+	// before the list existed can hold anything, and a combo that silently
+	// reads "2x" while the field holds 5 hides exactly the problem the list
+	// was added to stop.
+	bool DrawChoiceField(int* value, const FieldHint& hint)
+	{
+		std::string preview = std::to_string(*value);
+		for (int i = 0; i < hint.ChoiceCount; i++)
+		{
+			if (hint.ChoiceValues[i] == *value)
+			{
+				preview = hint.EnumNames[i];
+				break;
+			}
+		}
+
+		bool changed = false;
+		if (ImGui::BeginCombo("##value", preview.c_str()))
+		{
+			for (int i = 0; i < hint.ChoiceCount; i++)
+			{
+				const bool selected = hint.ChoiceValues[i] == *value;
+				if (ImGui::Selectable(hint.EnumNames[i], selected))
+				{
+					*value = hint.ChoiceValues[i];
+					changed = true;
+				}
+				if (selected)
+					ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
+		return changed;
+	}
+
 	bool DrawClipField(int* value, Entity owner)
 	{
 		std::vector<std::string> names;
@@ -347,6 +385,12 @@ namespace RageV::UI
 				// re-exported with a clip inserted.
 				if (hint.ClipList)
 					changed = DrawClipField((int*)value, owner);
+				// A fixed set of values rather than a range. The stored number
+				// is the value, not its position in the list -- see
+				// FieldHint::ChoiceValues -- so nothing on disk changes by
+				// being offered this way.
+				else if (hint.ChoiceValues && hint.ChoiceCount > 0)
+					changed = DrawChoiceField((int*)value, hint);
 				else
 					changed = ImGui::DragInt("##value", (int*)value, hint.Speed,
 											 (int)hint.Min, (int)hint.Max);

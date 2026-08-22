@@ -667,6 +667,29 @@ namespace RageV::Vk
 		m_Caps.MaxTextureSize = properties.limits.maxImageDimension2D;
 		m_Caps.MaxPushConstantSize = properties.limits.maxPushConstantsSize;
 		m_Caps.UniformBufferAlignment = (uint32_t)properties.limits.minUniformBufferOffsetAlignment;
+		// **All four limits, intersected.** The scene target is a colour
+		// attachment, a depth attachment, and sampled by depth of field and
+		// the composite -- so a count is only usable if every one of those
+		// offers it. framebufferColorSampleCounts alone is the limit people
+		// reach for and the one that reports 8 on hardware whose
+		// sampledImageDepthSampleCounts stops at 4.
+		{
+			const VkSampleCountFlags usable =
+				properties.limits.framebufferColorSampleCounts
+				& properties.limits.framebufferDepthSampleCounts
+				& properties.limits.sampledImageColorSampleCounts
+				& properties.limits.sampledImageDepthSampleCounts;
+
+			// The flag bit for a count *is* the count, so this walks the enum
+			// upward and keeps the last one that is present.
+			m_Caps.MaxSampleCount = 1;
+			for (uint32_t count : { 2u, 4u, 8u, 16u, 32u, 64u })
+			{
+				if (usable & (VkSampleCountFlags)count)
+					m_Caps.MaxSampleCount = count;
+			}
+		}
+
 		m_Caps.SupportsAnisotropy = features.samplerAnisotropy == VK_TRUE;
 		m_Caps.MaxAnisotropy = properties.limits.maxSamplerAnisotropy;
 		m_Caps.SupportsDynamicRendering = true;

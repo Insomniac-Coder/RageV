@@ -34,7 +34,7 @@ motion.
 | Setting | Default | Range | Applies to |
 |---|---|---|---|
 | `AA` | `FXAA` | `None`, `FXAA`, `SMAA`, `SSAA`, `MSAA`, `TAA` | always |
-| `MsaaSamples` | `4` | 1 to 8, and what the hardware offers | MSAA |
+| `MsaaSamples` | `4` | `2`, `4` or `8`, capped by what the device reports | MSAA |
 | `SupersampleFactor` | `2` | 1 to 4 | SSAA |
 | `TemporalFeedback` | `0.6` | 0 to 1 | TAA |
 | `TemporalJitterScale` | `1.0` | 0 upward; over 1 is legal | TAA |
@@ -75,6 +75,16 @@ nothing at all.
 Costs bandwidth and a little rasterizer work -- **not** the square of
 anything. 4 is an ordinary choice, where supersampling at 4 would be a
 statement.
+
+**2, 4 or 8, and nothing between them.** A sample count is a *bit flag* in both
+Vulkan and OpenGL rather than a number, so five is not "one more than four" --
+it is two flags at once, and a value neither API has. The editor offers a list
+for that reason, and `--msaa=` refuses anything else by name.
+
+The list is also capped by the device: the engine takes the intersection of
+what the hardware reports for a colour attachment, a depth attachment, and
+sampling both, since the scene target is all three. A count above that is
+lowered, and the log says so.
 
 #### `SupersampleFactor` — SSAA only
 
@@ -141,7 +151,10 @@ Three layers, narrowest last:
 | `--aa=none\|fxaa\|smaa\|ssaa\|msaa\|taa` | This run | Checks, and comparing two modes back to back |
 
 `--msaa=N` and `--supersample=N` override their dials the same way. The Render
-Settings panel says so when one of the narrower layers is winning.
+Settings panel says so when one of the narrower layers is winning. `--msaa=`
+takes 2, 4 or 8 only, and refuses the rest rather than quietly rounding: a run
+that measures four while its author believes it measured five is worse than a
+run that stops.
 
 ## Shadows
 

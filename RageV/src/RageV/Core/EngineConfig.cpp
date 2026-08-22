@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "EngineConfig.h"
+#include "RageV/Renderer/RenderSettings.h"
 
 #include <fstream>
 #include <algorithm>
@@ -177,8 +178,26 @@ namespace RageV
 
 		if (key == "msaa" || key == "samples")
 		{
-			config.MsaaOverride = std::atoi(value.c_str());
-			return config.MsaaOverride > 0;
+			// Refused here rather than snapped later. A sample count is a bit
+			// flag, so an illegal one is not "a bit off" -- it is a value the
+			// enum does not have, and the frame graph would have to pick
+			// something else on the caller's behalf. Somebody who typed
+			// --msaa=5 wants to hear that five is not a thing, not to measure
+			// four while believing they measured five.
+			const int requested = std::atoi(value.c_str());
+			for (int count : MsaaCounts)
+			{
+				if (count == requested)
+				{
+					config.MsaaOverride = requested;
+					return true;
+				}
+			}
+
+			RV_CORE_ERROR("--msaa expects 2, 4 or 8; got '{0}'. A sample count is a "
+						  "bit flag in both graphics APIs, so those are the only "
+						  "values that exist.", value);
+			return false;
 		}
 
 		if (key == "ssaa" || key == "supersample")

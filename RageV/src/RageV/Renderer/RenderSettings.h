@@ -69,6 +69,59 @@ namespace RageV
 	// a project file, and `--aa=` on the command line, which is what the
 	// checks use to render the same scene six ways. `ResolveAntiAliasing`
 	// applies both, in one place, so nothing else has to know they exist.
+	// ---------------------------------------------------------------------
+	// Sample counts
+	// ---------------------------------------------------------------------
+	//
+	// **A sample count is a bit flag, not a number.** `VkSampleCountFlagBits`
+	// is 1, 2, 4, 8, 16, 32, 64 -- one bit each -- and OpenGL's is the same
+	// set by another name. Five is not "one more than four", it is
+	// `VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_4_BIT`: two bits, which is not
+	// a value the enum has.
+	//
+	// This mattered. The count used to be a slider from 1 to 8, so five was
+	// two pixels of mouse travel away, and it did not fail cleanly: every
+	// graphics pipeline failed to create with
+	// `VUID-VkPipelineMultisampleStateCreateInfo-rasterizationSamples-parameter`,
+	// the frame was recorded against pipelines that did not exist, and the
+	// submit took the **device** down -- an INVALID WRITE at address 0, and
+	// the application closing because a lost device cannot be recovered.
+	// OpenGL, meanwhile, quietly rounded five up to eight and rendered, so the
+	// same project worked on one backend and killed the other.
+	//
+	// Hence: the legal set is stated once, here, and everything that can
+	// produce a sample count goes through the function below.
+	inline constexpr int MsaaCounts[] = { 2, 4, 8 };
+
+	// The nearest legal count at or below `requested`, and never above
+	// `deviceMax`.
+	//
+	// Rounds **down** rather than to the nearest, because every step up is a
+	// step up in bandwidth and target memory: somebody who asked for five and
+	// silently got eight paid for something they did not choose. Five becomes
+	// four, which is the largest thing they asked for that exists.
+	//
+	// `deviceMax` is RHI::DeviceCaps::MaxSampleCount -- what the physical
+	// device reports for the scene target's colour, depth, and being sampled.
+	// Zero means "not known yet", which answers the smallest legal count
+	// rather than guessing at the hardware.
+	constexpr int SanitiseMsaaSamples(int requested, uint32_t deviceMax)
+	{
+		int best = MsaaCounts[0];
+		for (int count : MsaaCounts)
+		{
+			if (count <= requested && (deviceMax == 0 || (uint32_t)count <= deviceMax))
+				best = count;
+		}
+
+		// A device that cannot manage even the smallest is a device that does
+		// not get MSAA at all; the caller turns it off rather than asking for
+		// something the driver will refuse.
+		if (deviceMax != 0 && (uint32_t)best > deviceMax)
+			return 1;
+		return best;
+	}
+
 	struct RenderSettings
 	{
 		AntiAliasing AA = AntiAliasing::FXAA;
@@ -86,7 +139,10 @@ namespace RageV
 		int SupersampleFactor = 2;
 
 		// How many coverage samples per pixel when AA is MSAA. Ignored
-		// otherwise, and clamped to what the hardware actually offers.
+		// otherwise.
+		//
+		// **2, 4 or 8, and nothing else** -- MsaaCounts above is the list, and
+		// SanitiseMsaaSamples is the only way this reaches a render target.
 		//
 		// **Not the square of anything.** Unlike SupersampleFactor above, this
 		// costs bandwidth and a little rasterizer work rather than shading, so

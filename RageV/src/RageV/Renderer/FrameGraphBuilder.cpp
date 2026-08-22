@@ -39,10 +39,6 @@ namespace RageV
 		// filter stops meaning anything.
 		constexpr uint32_t kMinBloomSize = 8;
 
-		// The most coverage samples offered. Four is the point where the
-		// quality curve flattens on every measurement anyone publishes, and
-		// eight doubles the target's memory for the difference.
-		constexpr int kMaxMsaaSamples = 8;
 
 		// The largest SSAA factor offered. Four means sixteen times the pixels
 		// shaded, and at a 4K output a 16K scene target -- past what a lot of
@@ -343,10 +339,33 @@ namespace RageV
 		// ENGINE-NOTES 7q. What cannot be hidden is the pipeline state: a
 		// pipeline's sample count has to equal the attachment's, so the
 		// renderers are told before anything is recorded.
-		const int msaa = aa == AntiAliasing::MSAA
-			? Math::Clamp(config.MsaaOverride > 0 ? config.MsaaOverride
-												  : desc.Render.MsaaSamples, 1, kMaxMsaaSamples)
-			: 1;
+		//
+		// **Sanitised, not clamped.** A sample count is a bit flag in both
+		// APIs, so the failure mode for a bad one is not a bad picture -- five
+		// set two bits of VkSampleCountFlagBits, every pipeline failed to
+		// create, and the submit lost the device. Clamping to a range is no
+		// defence against that: five is inside every range anyone would pick.
+		// SanitiseMsaaSamples answers with a count that exists, and with one
+		// the *device* says it can do. ENGINE-NOTES 7ci.
+		int msaa = 1;
+		if (aa == AntiAliasing::MSAA)
+		{
+			const int asked = config.MsaaOverride > 0 ? config.MsaaOverride
+													  : desc.Render.MsaaSamples;
+			const uint32_t deviceMax = Renderer::GetDevice().GetCaps().MaxSampleCount;
+			msaa = SanitiseMsaaSamples(asked, deviceMax);
+
+			// Said once per change rather than every rebuild: this runs on
+			// every resize, and a line per frame is a line nobody reads.
+			static int s_LastSaid = 0;
+			if (msaa != asked && asked != s_LastSaid)
+			{
+				s_LastSaid = asked;
+				RV_CORE_WARN("MSAA at {0}x is not a sample count this device can use; "
+							 "using {1}x. Legal counts are 2, 4 and 8, and this device "
+							 "tops out at {2}x.", asked, msaa, deviceMax);
+			}
+		}
 		sceneDesc.Samples = (uint32_t)msaa;
 
 		// Depth of field reads this. Colour is always sampleable; depth costs

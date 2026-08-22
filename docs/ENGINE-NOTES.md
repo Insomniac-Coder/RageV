@@ -12768,6 +12768,81 @@ and `LineStrong` at `#434349` -- within a hair of where they already are. A
 darker theme is therefore a darker *panel* with the same controls, which reads
 as more separation, not less.
 
+### 7ci. A sample count is a bit flag, and five lost the device
+
+Setting MSAA to five samples killed the GPU. Not a bad picture -- the device.
+
+The chain, in order:
+
+1. `MsaaSamples` was an inspector **slider from 1 to 8**, so five was two
+   pixels of mouse travel away.
+2. `FrameGraphBuilder` clamped it with `Math::Clamp(asked, 1, 8)`. Five is
+   inside that range, so the clamp passed it straight through.
+3. `VulkanPipeline` cast it: `(VkSampleCountFlagBits)5`.
+4. Validation: *"rasterizationSamples contains multiple members of
+   VkSampleCountFlagBits when only a single value is allowed"* --
+   `VUID-VkPipelineMultisampleStateCreateInfo-rasterizationSamples-parameter`.
+   Every graphics pipeline failed to create.
+5. The frame was recorded anyway, against pipelines that did not exist, and
+   `vkQueueSubmit` returned device lost. The fault report: **INVALID WRITE at
+   address 0x0**. A lost device cannot be recovered, so the application closed.
+
+**`VkSampleCountFlagBits` is 1, 2, 4, 8, 16, 32, 64 -- one bit each.** Five is
+`VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_4_BIT`: two bits, which is not a value
+the enum has. A count is a *flag*, and the code was treating it as a number.
+
+#### A range is not a shape
+
+The clamp was not merely too loose, it was the wrong kind of check. Every range
+anybody would pick contains five. Guarding the magnitude of a bit flag says
+nothing about whether it is one bit, so no choice of bounds would have caught
+this.
+
+`SanitiseMsaaSamples` answers with a member of a stated list instead. It rounds
+**down**: five becomes four, not eight, because every step up is a step up in
+bandwidth and target memory and somebody who asked for five should not silently
+pay for eight.
+
+#### OpenGL made it worse by working
+
+The same project rendered fine on OpenGL. GL is permitted to round a request up
+to the next supported count, so five quietly became eight and drew. One backend
+produced a picture and the other took the GPU down, from one number in one
+file -- which is how a developer ships a build that dies on their players'
+machines and not on theirs.
+
+#### Nothing had ever asked the hardware
+
+`RenderSettings::MsaaSamples` carried the comment *"clamped to what the
+hardware actually offers"*. It was clamped to a constant. No sample-count limit
+was queried anywhere in either backend.
+
+`DeviceCaps::MaxSampleCount` now holds the **intersection of four Vulkan
+limits** -- `framebufferColorSampleCounts`, `framebufferDepthSampleCounts`,
+`sampledImageColorSampleCounts`, `sampledImageDepthSampleCounts` -- because the
+scene target is a colour attachment, a depth attachment, and sampled by depth
+of field and the composite. `framebufferColorSampleCounts` alone is the limit
+people reach for, and it reports 8 on hardware whose depth sampling stops at 4.
+OpenGL takes the same intersection as `GL_MAX_SAMPLES`,
+`GL_MAX_COLOR_TEXTURE_SAMPLES` and `GL_MAX_DEPTH_TEXTURE_SAMPLES`, rounded down
+to a power of two -- GL reports a maximum and is free to make it any number.
+
+#### The widget is the guarantee
+
+The inspector field is now a list of 2x / 4x / 8x. That needed a new field hint,
+`ChoiceValues`, distinct from `FieldType::Enum`: an enum stores an *index*, and
+storing an index here would have redefined every saved project and `--msaa=8`
+along with them. This stores the value and labels it.
+
+**A widget that cannot express the illegal value is worth more than a check
+that rejects it afterwards.** The check exists as well -- three of them, at the
+command line, at the field, and in the frame graph -- but the one that matters
+is the one that never let five be typed.
+
+`--msaa=5` is now refused by name rather than snapped, because somebody who
+types it wants to hear that five is not a thing, not to measure four while
+believing they measured five.
+
 ---
 
 ## 8. What this changes

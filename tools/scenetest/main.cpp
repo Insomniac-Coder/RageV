@@ -11699,6 +11699,68 @@ void main()
 		render.AA = AntiAliasing::MSAA;
 		render.MsaaSamples = 4;
 		Check(build(1600, 900, render, post), "with MSAA it compiles");
+
+		// --- what a sample count may be -------------------------------------
+		//
+		// A sample count is a *bit flag* in both graphics APIs, not a number.
+		// Five sets two bits of VkSampleCountFlagBits, and the way that failed
+		// was not a bad picture: every pipeline failed to create, the frame
+		// was recorded against pipelines that did not exist, and the submit
+		// lost the device. OpenGL rounded the same five up to eight and
+		// rendered, so one backend worked and the other died on the same
+		// project. ENGINE-NOTES 7ci.
+		{
+			for (int count : MsaaCounts)
+			{
+				Check(SanitiseMsaaSamples(count, 8) == count,
+					  "a legal count survives being sanitised");
+				Check((count & (count - 1)) == 0,
+					  "and every count offered is a single bit, which is the "
+					  "whole reason the list exists");
+			}
+
+			Check(SanitiseMsaaSamples(5, 8) == 4,
+				  "**five becomes four, not eight** -- rounding down means "
+				  "somebody who asked for five never silently pays the "
+				  "bandwidth of eight");
+			Check(SanitiseMsaaSamples(3, 8) == 2, "and three becomes two");
+			Check(SanitiseMsaaSamples(7, 8) == 4, "and seven becomes four");
+			Check(SanitiseMsaaSamples(16, 8) == 8,
+				  "past the top of the list answers the top of the list");
+
+			// The device has the last word, which is the half that was missing
+			// entirely: nothing used to ask the hardware anything.
+			Check(SanitiseMsaaSamples(8, 4) == 4,
+				  "a device that stops at 4 is not asked for 8");
+			Check(SanitiseMsaaSamples(8, 2) == 2, "or at 2, for 4");
+			Check(SanitiseMsaaSamples(8, 1) == 1,
+				  "and a device with no MSAA at all answers 1, which is MSAA "
+				  "off rather than a count it would refuse");
+			Check(SanitiseMsaaSamples(8, 0) == 8,
+				  "a device max of zero means 'not known yet' and does not "
+				  "cap anything -- a caller with no device must not be told "
+				  "the hardware is worse than it is");
+
+			// The claim that matters is not any single mapping: it is that
+			// nothing this function returns can reach vkCreateImage as a
+			// value the enum does not have.
+			bool everyAnswerLegal = true;
+			for (int asked = -4; asked <= 40; asked++)
+			{
+				for (uint32_t cap : { 0u, 1u, 2u, 4u, 8u, 16u })
+				{
+					const int answer = SanitiseMsaaSamples(asked, cap);
+					const bool single = answer > 0 && (answer & (answer - 1)) == 0;
+					const bool within = cap == 0 || (uint32_t)answer <= cap;
+					if (!single || !within)
+						everyAnswerLegal = false;
+				}
+			}
+			Check(everyAnswerLegal,
+				  "and across every count from -4 to 40 against six device "
+				  "limits, every answer is a single bit and none exceeds the "
+				  "device");
+		}
 		Check(!hasPass("FXAA") && !hasPass("SMAA") && !hasPass("SSAA resolve"),
 			  "and adds no resolve pass of its own, because the hardware does it");
 		Check(hasPass("Tonemap"), "with tone mapping writing the output directly");

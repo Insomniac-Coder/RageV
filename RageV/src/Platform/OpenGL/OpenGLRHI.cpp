@@ -1789,6 +1789,29 @@ namespace RageV::GL
 		glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &value);
 		m_Caps.UniformBufferAlignment = (uint32_t)value;
 
+		// The same intersection Vulkan takes, in GL's spelling. GL_MAX_SAMPLES
+		// governs renderbuffers; the two texture limits govern a multisampled
+		// texture, which is what the scene target is, and they can be lower.
+		{
+			GLint framebuffer = 1, colour = 1, depth = 1;
+			glGetIntegerv(GL_MAX_SAMPLES, &framebuffer);
+			glGetIntegerv(GL_MAX_COLOR_TEXTURE_SAMPLES, &colour);
+			glGetIntegerv(GL_MAX_DEPTH_TEXTURE_SAMPLES, &depth);
+
+			const GLint smallest = Math::Min(framebuffer, Math::Min(colour, depth));
+
+			// Rounded down to a power of two. GL reports a *maximum* and is
+			// free to make it any number; a sample count still has to be one
+			// of the legal ones, and reporting 6 here would hand the caller a
+			// count no target can be created with.
+			m_Caps.MaxSampleCount = 1;
+			for (uint32_t count : { 2u, 4u, 8u, 16u, 32u, 64u })
+			{
+				if (smallest >= (GLint)count)
+					m_Caps.MaxSampleCount = count;
+			}
+		}
+
 		m_Caps.SupportsAnisotropy = GLAD_GL_VERSION_4_6 != 0;
 		if (m_Caps.SupportsAnisotropy)
 		{
