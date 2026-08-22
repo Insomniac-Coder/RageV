@@ -603,6 +603,20 @@ public readonly unsafe struct Entity : IEquatable<Entity>
 	/// </remarks>
 	public bool WasButtonClicked() =>
 		Native.IsReady && Native.Api.WasUIButtonClicked(Id) != 0;
+
+	/// <summary>Whether the pointer is over this entity's UI Button right now.</summary>
+	/// <remarks>
+	/// A level rather than an edge, unlike <see cref="WasButtonClicked"/>:
+	/// it is true for as long as the pointer is on the button, so it is read
+	/// from <c>OnFrame</c> and written straight back to whatever it drives.
+	/// Holding the mouse down and sliding off clears it, the same way the
+	/// press itself is cancelled.
+	///
+	/// The canvas already tints a hovered button's own image. This is for the
+	/// rest of it — a label, an icon, a sibling — which the tint never reaches.
+	/// </remarks>
+	public bool IsButtonHovered() =>
+		Native.IsReady && Native.Api.IsUIButtonHovered(Id) != 0;
 }
 
 /// <summary>One raycast answer. Test with <c>if (hit)</c>.</summary>

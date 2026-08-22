@@ -182,6 +182,7 @@ what a game touches most.
 | `SetText` | A `UITextComponent`'s string, on this entity or another. Does nothing without the component. |
 | `GetText` | Reads it back; empty without the component. |
 | `WasButtonClicked` | A completed press — down and up, both on the same button. True for one simulation step, the same contract `WasActionPressed` has. A press dragged off the button before release is cancelled and never reported. |
+| `IsButtonHovered` | Whether the pointer is on it right now. A level, not an edge: read it every frame and write it straight back to whatever it drives. The canvas already tints a hovered button's own image — this is for the rest of it, a label or an icon or a sibling, which the tint never reaches. |
 
 ## Time
 

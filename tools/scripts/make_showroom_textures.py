@@ -11,7 +11,7 @@ flat-shaded low-poly and wants one colour map per surface; a showroom is
 manufactured panels under a large soft source, photographed, and it wants the
 whole set -- albedo, normal, roughness, occlusion and height.
 
-Four surfaces:
+Four surfaces and two overlays:
 
   * **floor** (2048) -- polished charcoal porcelain, 600 mm tiles. Albedo,
     normal, roughness, occlusion and height. This is the hero surface: it is
@@ -23,6 +23,9 @@ Four surfaces:
   * **concrete** (1024) -- the service bay behind. Dim, so it is smaller.
   * **panel** (1024) -- the luminaire itself. Its albedo doubles as its
     emissive map, so the mullions stay dark while the cells blow out.
+  * **button** (120x30) -- the lights switch's plate, RGBA. Not a surface at
+    all: it is drawn by the canvas, and the rule it follows is different (see
+    the overlay section below).
 
 **The roughness map is the one that decides whether this looks real.** A
 polished floor at a *uniform* roughness is a mirror, and a mirror shows a
@@ -339,6 +342,56 @@ def panel(size):
     }
 
 
+# --- the overlay -------------------------------------------------------------
+#
+# **Authored at the size they are drawn**, which is a rule the room's maps do
+# not follow and this one has to. UIRenderer's sampler is built with
+# `MaxLod = 0` -- there are no mips on the UI path, because a glyph atlas must
+# not have any -- so a UI image drawn smaller than it was authored is point
+# sampled from the top level and a one-pixel border crawls. The canvas is
+# 1920x1080 reference and these are the pixel sizes at that reference, so on a
+# 1080p screen every texel lands on a pixel and anything larger magnifies,
+# which bilinear does cleanly.
+
+def rounded_rect(width, height, radius, inset=0.0):
+    """Signed distance to a rounded rectangle, in pixels, negative inside."""
+    y, x = np.mgrid[0:height, 0:width].astype(np.float32)
+
+    # Texel centres. Off by half a pixel and the shape is asymmetric by one
+    # texel on two of its four sides, which on a thirty-pixel-tall plate is a
+    # visibly heavier bottom edge.
+    dx = np.abs(x + 0.5 - width * 0.5) - (width * 0.5 - inset - radius)
+    dy = np.abs(y + 0.5 - height * 0.5) - (height * 0.5 - inset - radius)
+
+    outside = np.hypot(np.maximum(dx, 0.0), np.maximum(dy, 0.0))
+    inside = np.minimum(np.maximum(dx, dy), 0.0)
+    return outside + inside - radius
+
+
+def button_plate(width, height):
+    """The lights switch's background: a pill, white, with the shape in alpha.
+
+    **White and nothing else, which is the whole design.** A UI Button
+    multiplies its Normal, Hover and Pressed tints into whatever image is on
+    the same entity, and multiplying white *is* the tint -- so grey at rest and
+    white under the pointer are one image and three numbers in the scene, with
+    no script involved and nothing to keep in step.
+
+    Colour baked into the plate would fight that: a dark fill tinted by 0.55
+    comes out near black rather than grey, and a lighter border tinted the same
+    way inverts when the plate goes white. The alpha carries the shape, the
+    scene carries the colour, and neither has an opinion about the other.
+    """
+    # Inset by a texel so the antialiased edge has somewhere to fall off. Run
+    # flush to the image border and the outermost texel is left half covered,
+    # which draws the pill with a hard clipped edge.
+    distance = rounded_rect(width, height, radius=height * 0.5 - 1.0, inset=1.0)
+    alpha = np.clip(0.5 - distance, 0.0, 1.0)
+
+    return np.concatenate([np.ones((height, width, 3), np.float32),
+                           alpha[..., None]], axis=-1)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", default=str(ASSETS / "textures"))
@@ -358,6 +411,12 @@ def main():
         "showroom_wall": wall(2048, rng),
         "showroom_concrete": concrete(1024, rng),
         "showroom_panel": panel(1024),
+
+        # One RGBA overlay rather than a map set, at the size it is drawn:
+        # 120x30 canvas units, which make_showroom_scene.py has as
+        # BUTTON_WIDTH and BUTTON_HEIGHT. The two files have to agree, for the
+        # reason given above -- there are no mips on the UI path.
+        "showroom_button": {"plate": button_plate(120, 30)},
     }
 
     total = 0

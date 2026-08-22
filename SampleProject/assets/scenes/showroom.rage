@@ -502,6 +502,66 @@ Entities:
       InnerCone: 16
       OuterCone: 40
       CastShadows: false
+  - EntityID: 9376295965415387509
+    TagComponent:
+      Tag: Headlamp Beam Left
+    TransformComponent:
+      Position: [-0.6, 0.66, 1.92]
+      Rotation: [-0.153, -3.14159, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [0.86, 0.91, 1]
+      Intensity: 0
+      Range: 8
+      InnerCone: 15
+      OuterCone: 30
+      CastShadows: false
+  - EntityID: 17043282302990482894
+    TagComponent:
+      Tag: Headlamp Beam Right
+    TransformComponent:
+      Position: [0.6, 0.66, 1.92]
+      Rotation: [-0.153, -3.14159, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [0.86, 0.91, 1]
+      Intensity: 0
+      Range: 8
+      InnerCone: 15
+      OuterCone: 30
+      CastShadows: false
+  - EntityID: 16933430478517993665
+    TagComponent:
+      Tag: Tail Glow Left
+    TransformComponent:
+      Position: [-0.6, 0.7, -2.3]
+      Rotation: [-0.0724536, -0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 0.1, 0.045]
+      Intensity: 0
+      Range: 7
+      InnerCone: 22
+      OuterCone: 46
+      CastShadows: false
+  - EntityID: 11454287864178063394
+    TagComponent:
+      Tag: Tail Glow Right
+    TransformComponent:
+      Position: [0.6, 0.7, -2.3]
+      Rotation: [-0.0724536, -0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 0.1, 0.045]
+      Intensity: 0
+      Range: 7
+      InnerCone: 22
+      OuterCone: 46
+      CastShadows: false
   - EntityID: 14459092172172403445
     TagComponent:
       Tag: Bay Floor
@@ -719,9 +779,9 @@ Entities:
       ReferenceResolution: [1920, 1080]
       MatchWidthOrHeight: 0.5
       SortOrder: 0
-  - EntityID: 2192895280129773956
+  - EntityID: 8970289143430244441
     TagComponent:
-      Tag: Credit
+      Tag: Credit Bar
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
@@ -731,11 +791,14 @@ Entities:
     UIRectComponent:
       AnchorMin: [0, 1]
       AnchorMax: [1, 1]
-      OffsetMin: [0, -40]
-      OffsetMax: [0, -12]
+      OffsetMin: [0, -44]
+      OffsetMax: [0, 0]
       SortOrder: 0
       Visible: true
       BlocksPointer: false
+    UIImageComponent:
+      Texture: 0
+      Color: [0, 0, 0, 0.85]
   - EntityID: 11490137062086526443
     TagComponent:
       Tag: Credit Text
@@ -744,11 +807,11 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     RelationshipComponent:
-      Parent: 2192895280129773956
+      Parent: 8970289143430244441
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 1]
-      OffsetMin: [0, 0]
+      OffsetMin: [0, 12]
       OffsetMax: [0, 0]
       SortOrder: 1
       Visible: true
@@ -758,6 +821,72 @@ Entities:
       Font: 12355000851502047045
       Size: 17
       Color: [0.82, 0.83, 0.86, 0.86]
+      Align: Center
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 12923420513844985912
+    TagComponent:
+      Tag: Lights Button
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 8970289143430244441
+    UIRectComponent:
+      AnchorMin: [1, 0]
+      AnchorMax: [1, 1]
+      OffsetMin: [-134, 7]
+      OffsetMax: [-14, -7]
+      SortOrder: 2
+      Visible: true
+      BlocksPointer: true
+    UIImageComponent:
+      Texture: 17907367730149364606
+      Color: [1, 1, 1, 1]
+    UIButtonComponent:
+      Interactable: true
+      NormalColor: [0.55, 0.56, 0.58, 1]
+      HoverColor: [1, 1, 1, 1]
+      PressedColor: [0.86, 0.87, 0.89, 1]
+      OnClickTarget: 0
+      OnClickMethod: Toggle
+    ManagedScriptComponent:
+      Script: ShowroomLights
+      Fields:
+        CarRoot: 'porsche_992_gt3_r'
+        FrontParts: 'EXT_Emissive_Light_Front,ST_FRONT_'
+        RearParts: 'EXT_Emissive_Light_Rear,EXT_Glass_Emissive_Rear'
+        FrontLamps: 'Headlamp Beam Left,Headlamp Beam Right'
+        RearLamps: 'Tail Glow Left,Tail Glow Right'
+        LabelName: 'Lights Label'
+        FrontEmissive: 19 21 24
+        RearEmissive: 16 0.7 0.35
+        FrontIntensity: 88
+        RearIntensity: 30
+        StartOn: false
+  - EntityID: 10360658189589823178
+    TagComponent:
+      Tag: Lights Label
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 12923420513844985912
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      OffsetMin: [0, 7]
+      OffsetMax: [0, 0]
+      SortOrder: 3
+      Visible: true
+      BlocksPointer: false
+    UITextComponent:
+      Text: LIGHTS ON
+      Font: 12355000851502047045
+      Size: 14
+      Color: [0.97, 0.97, 0.98, 1]
       Align: Center
       Wrap: false
       LineSpacing: 1

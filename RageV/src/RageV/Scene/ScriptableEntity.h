@@ -354,6 +354,13 @@ namespace RageV
 		bool WasButtonClicked();
 		bool WasButtonClicked(Entity entity);
 
+		// Whether the pointer is on it right now -- a level, not an edge, so
+		// it is read every frame and written straight back to whatever it
+		// drives. The canvas tints a hovered button's own image and nothing
+		// else, so a label or an icon that changes on hover needs this.
+		bool IsButtonHovered();
+		bool IsButtonHovered(Entity entity);
+
 		// --- time ------------------------------------------------------------
 		// The fixed step. The same number OnTick is handed, every call.
 		static float GetFixedDeltaTime();

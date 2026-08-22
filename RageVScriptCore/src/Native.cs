@@ -121,6 +121,11 @@ internal unsafe struct NativeApi
 	// float alone would be the rim's height for a point off the edge.
 	public delegate* unmanaged[Cdecl]<Vector3*, float*, int> GetTerrainHeight;
 	public delegate* unmanaged[Cdecl]<ulong, Vector3*, float*, int> GetTerrainHeightOn;
+
+	// --- appended for protocol 10: whether the pointer is on a button --------
+	// The companion to WasUIButtonClicked. The canvas tints a hovered button's
+	// image and nothing else, so a label that changes on hover needs this.
+	public delegate* unmanaged[Cdecl]<ulong, int> IsUIButtonHovered;
 }
 
 /// <summary>Mirrors <c>RageV::Managed::RayHitData</c>, field for field.</summary>

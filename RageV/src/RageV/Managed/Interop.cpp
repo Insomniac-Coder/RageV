@@ -586,6 +586,15 @@ namespace RageV::Managed
 			return UI::WantsPointer() ? 1 : 0;
 		}
 
+		int32_t __cdecl IsUIButtonHovered(uint64_t entity)
+		{
+			Entity found = Resolve(entity);
+			if (!found || !found.HasComponent<UIButtonComponent>())
+				return 0;
+
+			return found.GetComponent<UIButtonComponent>().Hovered ? 1 : 0;
+		}
+
 		// --- components, through the registry --------------------------------
 
 		// The component instance a name refers to on an entity, or null.
@@ -967,6 +976,7 @@ namespace RageV::Managed
 			api.SetRenderSetting = &SetRenderSetting;
 			api.GetTerrainHeight = &GetTerrainHeight;
 			api.GetTerrainHeightOn = &GetTerrainHeightOn;
+			api.IsUIButtonHovered = &IsUIButtonHovered;
 			return api;
 		}
 	}

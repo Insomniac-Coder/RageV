@@ -351,6 +351,27 @@ that runs, carried forward by a frame with none. A press dragged off the button
 before the release is cancelled and never reported. **Both** mechanisms honour
 that, so a bound method is also called exactly once per click.
 
+### And whether the pointer is on it
+
+```csharp
+public override void OnFrame(float dt)
+{
+    Entity self = Entity;
+    m_Label.SetComponentField("UITextComponent", "Color",
+                              self.IsButtonHovered() ? "0 0 0 1" : "1 1 1 1");
+}
+```
+
+A level rather than an edge, so this is read every frame and `OnFrame` is the
+right rate for it — hover is presentation, not gameplay.
+
+The canvas already tints a hovered button through its `HoverColor`, and that
+tint reaches **the image on the button's own entity and nothing else**. A child
+label, an icon, a sibling panel: none of them follow. `IsButtonHovered` is how
+a script covers the rest, and a button whose label inverts on hover — white on
+grey becoming black on white — needs exactly this and cannot be authored
+without it.
+
 Text is a property:
 
 ```csharp

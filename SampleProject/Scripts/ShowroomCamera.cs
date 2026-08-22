@@ -157,19 +157,39 @@ public class ShowroomCamera : Script
 		// a constant cannot know how far out the camera is standing.
 		float headroom = MathF.Max(RoomCeiling - TargetY, 0.05f);
 
-		float distance = MathF.Min(m_Distance, reach / MathF.Max(MathF.Cos(pitch), 0.05f));
+		// **Two limits, applied in order, and the order is the whole of it.**
+		//
+		// The ceiling comes first and it does its work by *flattening the
+		// pitch* -- which pushes the camera further out along the ground. So a
+		// wall clamp computed from the pitch the drag asked for is a clamp
+		// against a position the camera never takes: at full zoom and full
+		// pitch the ceiling dropped 32 degrees to 13.8, the arm swung out to
+		// 10.5 metres, and the camera stood a metre *through* the wall behind
+		// it with the room's unlit back faces filling the frame. Solid black,
+		// reachable by dragging up, and invisible at any other angle.
+		float distance = m_Distance;
 
-		float rise = distance * MathF.Sin(pitch);
-		if (rise > headroom)
+		if (distance * MathF.Sin(pitch) > headroom)
 		{
 			// Keep the camera on its sphere and slide it down the sphere
 			// rather than shortening the arm, so the framing does not jump as
 			// the drag reaches the limit.
 			pitch = MathF.Asin(Clamp(headroom / MathF.Max(distance, 0.01f), -1.0f, 1.0f));
-			rise = distance * MathF.Sin(pitch);
 		}
 
+		// The walls, against the pitch that survived. This one *does* shorten
+		// the arm: there is nowhere left to slide to, and standing closer is
+		// the only answer that keeps the camera in the room.
 		float ground = distance * MathF.Cos(pitch);
+		if (ground > reach)
+		{
+			distance = reach / MathF.Max(MathF.Cos(pitch), 1e-3f);
+			ground = reach;
+		}
+
+		// Safe in that order and not the other way round: shortening the arm
+		// only ever lowers the camera, so the ceiling cannot come back.
+		float rise = distance * MathF.Sin(pitch);
 		Vector3 offset = new Vector3(ground * sinYaw, rise, ground * cosYaw);
 
 		// A local copy, because `Script.Entity` is a property returning a

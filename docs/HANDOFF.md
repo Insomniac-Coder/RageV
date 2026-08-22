@@ -2,14 +2,71 @@
 
 **Read this first.** Updated 2026-08-22.
 
-Work on **`main`**, which is pushed and clean.
+Work on **`main`**, which is clean and **ahead of what has been pushed**.
+Pushing is the owner's.
 
 ---
 
-## Start here: 8.9 is closed, and the engine can draw glass
+## Start here: the showroom has a light switch, and scripts can read hover
 
-**Updated 2026-08-22 (second session).** Work on `main`, which is clean and
-**fifteen commits ahead of what has been pushed**. Pushing is the owner's.
+**Updated 2026-08-22 (third session).** Work on `main`, which is clean and
+**ahead of what has been pushed**. Pushing is the owner's.
+
+A small session on top of the showroom, and everything in it came from the
+owner looking at the picture: a black bar behind the attribution, a switch for
+the car's lights, and a camera bug they found by dragging the orbit into a
+corner of its own range.
+
+| | |
+|---|---|
+| **The credit bar** | A full-width black band along the bottom, the notice centred in it. |
+| **A lights switch** | Grey pill at the right-hand end; headlamps and tail lamps, on and off. |
+| **Protocol 10** | `IsUIButtonHovered` — a script could not read hover in *either* language. |
+| **`ShowroomLights.cs`** | The switch. Emissive on the lamp meshes, intensity on four spot lights. |
+| **A camera fix** | Full zoom plus full pitch put the camera through the wall. Black frame. |
+
+2287 checks on Vulkan and on OpenGL, both green.
+
+### The three things worth carrying forward
+
+1. **A lamp is two things.** Emissive makes the surface bright and feeds bloom
+   and **lights nothing** — there is no emissive GI. The pool on the floor and
+   the red in the service bay are four ordinary spot lights, authored at zero
+   intensity and raised by the script. Tuned separately, and neither is
+   optional.
+2. **The protocol version lives in two files.** `Managed::Interop::kProtocolVersion`
+   and `RageV.Interop.ProtocolVersion`. Bumping only one is not a build error —
+   it is `protocol mismatch` at load and every C# script in the scene silently
+   doing nothing.
+3. **Two clamps that each hold alone need not hold together.** The camera
+   clamped for the ceiling and for the walls, and the ceiling clamp works by
+   flattening the pitch — which reaches further along the ground than the wall
+   clamp was computed against. Order matters, and the failure needed both
+   extremes at once, which is why it survived a whole session of use. (7cd)
+
+### Where the showroom's numbers live
+
+`tools/scripts/make_showroom_scene.py` and `SampleProject/Scripts/ShowroomLights.cs`
+**both** carry the lamp colours and intensities — the generator writes them into
+the scene as script fields, and the script's defaults are the same values so a
+scene without them still behaves. Change one, change the other.
+
+The lamp positions are not guesses: they came out of the glTF's `POSITION`
+accessor bounds, walked through the node transforms
+(`EXT_Emissive_Light_Front` at z 1.64..1.86, the tail lamps at -2.17..-1.64).
+The same walk showed `EXT_Glass_Emissive_Front` *does* have a box over the
+headlamp aperture — so the missing lens 7ca went looking for is in the file
+after all, which is worth knowing before anyone adds one.
+
+**Do not match the car's lamps by material.** Nine meshes wear
+`AUX_LIGHT_Porsche992` and only three are lights; the rest is roll cage, roof
+trim and the front number-plate panel. Matching the material lights the cage.
+
+---
+
+## The session before this one: 8.9 closed, and the engine can draw glass
+
+**2026-08-22 (second session).**
 
 The day closed roadmap **8.9** — the last ordinary feature in phase 8 — and then
 built a showroom scene, which turned into a renderer feature and five real
@@ -137,7 +194,7 @@ owner's, twice.
 
 ---
 
-### The session before this one: the frame got 4.35x cheaper, and EnTT is gone
+### And the one before that: the frame got 4.35x cheaper, and EnTT is gone
 
 **Updated 2026-08-22.** Work on `main`, which is clean. The day closed roadmap
 8.3, 8.15, 8.16 and 10.2.
@@ -304,6 +361,12 @@ stale `RuntimeLayer.obj` was newer than the header it was stale against.
   material on OpenGL: 2199 checks passed while the courtyard was white boxes.
   A reference-image check on one textured scene per backend would have caught
   it in seconds, and would catch the next one of its kind.
+- **The showroom's headlamp lens.** 7ca concluded from a tint test that there
+  is no lens mesh over the aperture and dressed the reflector to stand in for
+  one. The glTF's accessor bounds say otherwise: `EXT_Glass_Emissive_Front` has
+  a box at x -0.84..0.85, y 0.57..0.76, z 1.68..1.94, which is exactly the
+  headlamp band. So the mesh is there and the tint test could not see it --
+  worth an hour before anyone adds geometry the model already has (7cd).
 - **Meshlets** are 8.3's remaining half and are deliberately not started: they
   make the GPU faster and this renderer's GPU is idle nine tenths of the frame
   at scale. Revisit if mesh LOD ever lands and the balance moves.

@@ -3,8 +3,8 @@ Exposure: 0.45
 BloomEnabled: true
 BloomThreshold: 1.05
 BloomKnee: 0.7
-BloomIntensity: 0.045
-BloomClamp: 22
+BloomIntensity: 0.12
+BloomClamp: 28
 AutoExposure: false
 AutoExposureKey: 0.17
 AutoExposureSpeed: 1.4

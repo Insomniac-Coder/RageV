@@ -44,7 +44,8 @@ public static unsafe class Interop
 	//    took the pointer.
 	// 8: the render settings, by name and as text.
 	// 9: the ground under a point -- terrain height (ENGINE-NOTES 7au).
-	public const int ProtocolVersion = 9;
+	// 10: a button's hover state, which nothing could read before.
+	public const int ProtocolVersion = 10;
 
 	/// <summary>
 	/// The first call the engine makes. Confirms the protocol and takes the
@@ -240,14 +241,14 @@ public static unsafe class Interop
 			});
 			result |= 1 << 8;
 
-			// The last entries in the table.
+			// The UI block, which is where the first append landed.
 			//
-			// This is where an appended entry lands, and where getting the
-			// order wrong on one side shows up: every field before it keeps its
-			// offset, so the *only* symptom is the tail calling the wrong
-			// function. Distinctive return values on purpose -- a length, a
-			// success flag and a -1 -- because three calls that all answer zero
-			// would agree whichever way round they were.
+			// Getting the order wrong on one side shows up here and nowhere
+			// else: every field before it keeps its offset, so the *only*
+			// symptom is the tail calling the wrong function. Distinctive
+			// return values on purpose -- a length, a success flag and a
+			// zero -- because calls that all answer zero would agree whichever
+			// way round they were.
 			byte* text = stackalloc byte[16];
 			if (Native.Api.GetUIText(entity, text, 16) == 3
 				&& Marshal.PtrToStringUTF8((IntPtr)text) == "hud"
@@ -258,6 +259,18 @@ public static unsafe class Interop
 			{
 				result |= 1 << 9;
 			}
+
+			// **The actual tail, which is a different claim from the one
+			// above.** The block checked there was the tail when it was
+			// written and has had two protocols appended after it since, so it
+			// no longer proves anything about where a *new* entry lands. This
+			// bit does, and the next appended entry belongs here rather than
+			// alongside it.
+			//
+			// The probe carries a hovered UI Button, so this answers 1 -- a
+			// value none of its neighbours in the table returns for it.
+			if (Native.Api.IsUIButtonHovered(entity) == 1)
+				result |= 1 << 10;
 
 			return result;
 		}
@@ -271,5 +284,5 @@ public static unsafe class Interop
 	}
 
 	/// <summary>Every bit <see cref="SelfTest"/> sets when nothing is wrong.</summary>
-	public const int SelfTestAllPassed = (1 << 10) - 1;
+	public const int SelfTestAllPassed = (1 << 11) - 1;
 }

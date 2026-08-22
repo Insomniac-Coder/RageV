@@ -12263,6 +12263,115 @@ thought to print the count.
 `RefreshDrawList` and the shadow pass and the lit pass all walk the same draw
 items, which is what made the wrong branch look right.
 
+### 7cd. A switch on the credit bar, and the hover a script could not read
+
+The showroom gained a light switch: the car's headlamps and tail lamps, turned
+on and off from a grey pill at the right-hand end of the attribution bar. Small
+feature, three things worth writing down.
+
+#### A lamp is two things and neither one is enough
+
+Emissive on the lamp elements makes those surfaces bright and feeds bloom, and
+**it lights nothing at all** -- the engine has no emissive global illumination,
+which the inspector tooltip has said all along. So a car with emissive lamps in
+a dark room casts exactly as much light as one with the lamps off: the beams
+throw no pool, the red never reaches the service bay, and the only thing that
+changed is the car.
+
+The other half is four ordinary spot lights, authored into the scene at zero
+intensity and raised by the script. **Intensity rather than spawning them**: a
+light at zero costs a row in a storage buffer and nothing else -- the renderer
+caps nothing and the term it feeds multiplies out -- while spawning would mean a
+script that knows how to build a light, which is a scene's job.
+
+Neither half is optional and they are tuned separately. The emissive decides
+what the lamp *looks* like from any angle; the spot decides what the room looks
+like.
+
+#### Where the lamps are came out of the glTF, not off a tape measure
+
+Every node in the model sits at the origin -- the geometry is baked into the
+vertices -- so the entity transforms say nothing about where anything is. What
+does say is the `POSITION` accessor's `min`/`max`, which glTF requires: walk the
+node transforms, push eight corners of each primitive's box through, and the
+world box of every material falls out.
+
+That put the headlamp band at y 0.57..0.73, z 1.64..1.86 and the tail lamps at
+y 0.64..0.73, z -2.17..-1.64, which is where the spot lights went. It also
+settled a question the scene had been guessing at: `EXT_Glass_Emissive_Front`
+does have a box over the headlamp aperture, so the lens mesh 7ca could not find
+by tinting is there.
+
+#### And what lights up is chosen by entity name, not by material
+
+Which looks like the lazier option and is the correct one. The model has an
+`AUX_LIGHT_Porsche992` material and **only three of the nine meshes wearing it
+are lights** -- the rest is roll cage, roof trim and the front number-plate
+panel, assigned that material by whoever built the file. Matching on the
+material lights the cage. The first cut of this matched `auxlight_g` along with
+the real lamps and turned the number plate into a glowing white rectangle.
+
+#### The hover a script could not read (protocol 10)
+
+The button is a grey pill that goes white under the pointer, with a white label
+that goes black. The first half is one image and three numbers: the plate
+texture is **white with the pill shape in its alpha**, and the canvas multiplies
+`NormalColor` / `HoverColor` / `PressedColor` into it, so grey and white are the
+tints and no script is involved.
+
+The second half could not be written at all. `ButtonTint` multiplies into the
+image on the button's own entity and reaches nothing else -- not a child label,
+not an icon, not a sibling -- and `Hovered` is deliberately absent from the
+ComponentRegistry, because it is what the pointer did rather than what the
+author chose and a registered field is a field written to the scene file. So the
+only readable state was `Clicked`, in both languages: `WasUIButtonClicked` on the
+managed table and `WasButtonClicked` on `ScriptableEntity`, with no companion.
+
+`IsUIButtonHovered` is protocol 10, with `ScriptableEntity::IsButtonHovered`
+beside it so the two languages stay equal. A level rather than an edge -- read
+every frame and written straight back to whatever it drives.
+
+**The version constant lives in two files and both have to move.** The C++
+`kProtocolVersion` and the C# `Interop.ProtocolVersion` are separate numbers,
+and bumping only the first is not a build error: it is
+`protocol mismatch -- the engine speaks 10, the script assembly speaks 9` at
+load, followed by every C# script in the scene doing nothing. Which is the check
+working exactly as designed, and still cost a render to notice.
+
+The self-test's tail check had also gone stale. It calls itself "the last
+entries in the table" and tests the protocol-7 UI block, which has had two
+protocols appended after it since -- so it proved nothing about where a new
+entry lands. It is now two bits: the UI block, and the actual tail.
+
+#### The camera bug the switch had nothing to do with
+
+Reported while this was being built: drag the orbit all the way out, then all
+the way up, and the frame goes black.
+
+`ShowroomCamera` clamps twice -- the ceiling as a height, the walls as a
+distance along the heading -- and it did them in the wrong order. The ceiling
+clamp works by **flattening the pitch**, and a flatter arm reaches further along
+the ground, so a wall clamp computed from the pitch the drag asked for is a
+clamp against a position the camera never takes:
+
+    m_Distance 11, pitch 32 degrees, yaw 0
+    reach 9.2 -> distance 10.85, rise 5.75, over the 2.58 headroom
+    ceiling clamp -> pitch 13.8 degrees
+    ground = 10.85 * cos(13.8) = 10.54     the wall face is at 9.5
+
+A metre through the wall, looking at the room's unlit back faces. The fix is to
+apply the wall clamp *after* the ceiling clamp, and to let it shorten the arm --
+there is nowhere left to slide to. Safe in that order and not the other:
+shortening the arm only ever lowers the camera, so the ceiling cannot come back.
+
+Checked by sweeping every yaw, every tenth of a degree of pitch and five
+distances: worst breach 9e-16.
+
+**The general shape is worth keeping.** Two clamps that each hold on their own
+do not hold together when the first one moves the input the second one reads.
+The tell was that the failure needed *both* extremes at once, which is why it
+survived a session of being dragged around.
+
 ---
 
 ## 8. What this changes

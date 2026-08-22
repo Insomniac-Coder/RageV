@@ -9676,6 +9676,112 @@ void main()
 				  "pointer is doing");
 		}
 
+		// --- hover, as a script sees it -------------------------------------------
+		//
+		// The tint above covers the button's own image and that is *all* it
+		// covers: `ButtonTint` multiplies into `UIImageComponent` on the button
+		// entity, so a child label, an icon or a sibling panel does not follow
+		// it anywhere. A control whose label inverts on hover -- white on grey
+		// going black on white, which the showroom's light switch is -- has to
+		// be driven from a script, and until protocol 10 no script in either
+		// language could ask.
+		//
+		// End to end here rather than by reading the flag: the flag is already
+		// checked above, and what this proves is that a script reading it every
+		// frame produces the right thing on the screen.
+		{
+			class HoverProbe : public ScriptableEntity
+			{
+			public:
+				void OnCreate() override
+				{
+					for (Entity child : GetChildren())
+					{
+						if (child.HasComponent<UITextComponent>())
+						{
+							m_Label = child;
+							break;
+						}
+					}
+				}
+
+				// OnFrame and not OnTick, deliberately: hover is a level rather
+				// than an edge and it is presentation, so it belongs on the
+				// rate the screen runs at.
+				void OnFrame(Timestep) override
+				{
+					if (!m_Label)
+						return;
+
+					m_Label.GetComponent<UITextComponent>().Color =
+						IsButtonHovered() ? Vec4(0.0f, 0.0f, 0.0f, 1.0f)
+										  : Vec4(1.0f, 1.0f, 1.0f, 1.0f);
+				}
+
+			private:
+				Entity m_Label;
+			};
+
+			ScriptRegistry::Register("HoverProbe",
+									 []() -> ScriptableEntity* { return new HoverProbe(); });
+
+			auto scene = std::make_shared<Scene>();
+			Entity canvas = build(scene, CanvasScaleMode::ConstantPixels);
+
+			Entity button = addRect(scene, "Button", canvas, 0.0f, 0.0f, 100.0f, 100.0f, 0);
+			button.AddComponent<UIButtonComponent>();
+			button.AddComponent<NativeScriptComponent>("HoverProbe");
+
+			Entity label = addRect(scene, "Label", canvas, 0.0f, 0.0f, 100.0f, 40.0f, 1);
+			label.AddComponent<UITextComponent>();
+			scene->SetParent(label, button);
+
+			auto move = [&](float x, float y)
+			{
+				UI::PointerInput pointer;
+				pointer.X = x;
+				pointer.Y = y;
+				pointer.Down = false;
+				UI::UpdatePointer(*scene, 400.0f, 400.0f, pointer);
+			};
+
+			auto labelColour = [&] { return label.GetComponent<UITextComponent>().Color.x; };
+
+			constexpr float dt = 1.0f / 60.0f;
+			UI::ResetPointer(*scene);
+			scene->OnRuntimeStart();
+
+			// One fixed step first: instances are created in the fixed pass and
+			// nowhere else, so OnCreate -- which is where the label is found --
+			// has not run before it.
+			scene->OnFixedUpdateRuntime(dt);
+
+			move(350.0f, 350.0f);
+			scene->OnUpdateRuntime(dt);
+			Check(labelColour() == 1.0f, "a script reads its own button as not hovered");
+
+			move(50.0f, 50.0f);
+			scene->OnUpdateRuntime(dt);
+			Check(labelColour() == 0.0f,
+				  "and as hovered the moment the pointer is on it, which is what "
+				  "recolours a label the button's own tint cannot reach");
+
+			// A level, not an edge. `Clicked` is consumed by the first step that
+			// runs; this must survive every frame the pointer stays put, or a
+			// label would flick back on the second one.
+			scene->OnUpdateRuntime(dt);
+			scene->OnUpdateRuntime(dt);
+			Check(labelColour() == 0.0f,
+				  "and stays hovered across frames rather than being consumed like "
+				  "a click");
+
+			move(350.0f, 350.0f);
+			scene->OnUpdateRuntime(dt);
+			Check(labelColour() == 1.0f, "and comes back the moment it leaves");
+
+			scene->OnRuntimeStop();
+		}
+
 		// --- an edge is consumed once, and never lost ----------------------------
 		//
 		// The same contract InputMap has, and the same reason: a frame that runs
@@ -15670,6 +15776,12 @@ int RunTests(int argc, char** argv)
 			// nothing else in the table happens to return.
 			probe.AddComponent<UITextComponent>().Text = "hud";
 
+			// Hovered, which is what makes the table's *last* entry answer 1
+			// rather than 0 -- see the self-test's closing bit. Written
+			// directly because Hovered is what the pointer did, so there is no
+			// registry field and no serialized form to set it through.
+			probe.AddComponent<UIButtonComponent>().Hovered = true;
+
 			Managed::Interop::SetScene(scene.get());
 			Check(Managed::Interop::Init(assembly), "the interop table is handed to managed code");
 
@@ -15698,13 +15810,16 @@ int RunTests(int argc, char** argv)
 						"a float return crosses, from a call with no arguments",
 						"a destroyed or unknown entity answers rather than faults",
 						"managed code can reach the engine log",
-						"the table's last entries line up, which is where an append goes wrong",
+						"the UI block lines up, where the first append landed",
+						"and so does the table's current tail, which is where the next "
+						"append will go",
 					};
 
 					for (int bit = 0; bit < (int)std::size(kShapes); bit++)
 						Check((result & (1 << bit)) != 0, kShapes[bit]);
 
-					Check(result == 1023, "every shape that crosses the boundary works");
+					Check(result == Managed::Interop::kSelfTestAllPassed,
+						  "every shape that crosses the boundary works");
 				}
 
 				// The engine's own view of the table, so a change to it is

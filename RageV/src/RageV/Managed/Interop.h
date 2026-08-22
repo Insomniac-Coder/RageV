@@ -261,6 +261,22 @@ namespace RageV::Managed
 		int32_t (__cdecl* GetTerrainHeight)(const Vec3* worldPosition, float* height);
 		int32_t (__cdecl* GetTerrainHeightOn)(uint64_t terrain, const Vec3* worldPosition,
 											  float* height);
+
+		// --- appended for protocol 10: whether the pointer is on a button ----
+		//
+		// The companion to WasUIButtonClicked, and it was missing on *both*
+		// sides -- a C++ script had no way to ask either. Without it the only
+		// hover a button can express is the tint the canvas multiplies into its
+		// own image, so a control whose *label* changes on hover -- white text
+		// on grey going black on white -- cannot be written at all: the tint
+		// reaches the image and nothing else.
+		//
+		// Like Clicked, this is what the pointer did rather than what the
+		// author chose, so it stays out of the ComponentRegistry and comes
+		// across here instead. Zero for an entity with no UI Button, which is
+		// the same answer as "not hovered" and is the honest one: a script
+		// asking this about the wrong entity wants a quiet false, not a throw.
+		int32_t (__cdecl* IsUIButtonHovered)(uint64_t entity);
 	};
 
 	// One raycast hit, as it crosses the boundary. Mirrors RageV::RayHit,
@@ -437,7 +453,13 @@ namespace RageV::Managed
 		//    behind one flat namespace.
 		// 9: the ground under a point: terrain height, from whichever terrain
 		//    covers it or from one named (ENGINE-NOTES 7au).
-		static constexpr int32_t kProtocolVersion = 9;
+		// 10: a button's hover state, which nothing could read before.
+		static constexpr int32_t kProtocolVersion = 10;
+
+		// Every bit RageV.Interop.SelfTest sets when nothing is wrong, mirrored
+		// here so scenetest asserts against a name rather than against a number
+		// that has to be edited in two files whenever a shape is added.
+		static constexpr int32_t kSelfTestAllPassed = (1 << 11) - 1;
 
 		// The editable fields of a script type, for the inspector. Empty when
 		// C# is not running or the type is unknown -- both of which the

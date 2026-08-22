@@ -337,4 +337,15 @@ namespace RageV
 		return entity && entity.HasComponent<UIButtonComponent>()
 			&& entity.GetComponent<UIButtonComponent>().Clicked;
 	}
+
+	bool ScriptableEntity::IsButtonHovered()
+	{
+		return IsButtonHovered(m_Entity);
+	}
+
+	bool ScriptableEntity::IsButtonHovered(Entity entity)
+	{
+		return entity && entity.HasComponent<UIButtonComponent>()
+			&& entity.GetComponent<UIButtonComponent>().Hovered;
+	}
 }

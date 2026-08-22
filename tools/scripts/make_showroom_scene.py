@@ -136,9 +136,111 @@ START_YAW = 0.0
 START_PITCH = 5.0
 START_DISTANCE = 7.3
 
+# --- the car's own lights -----------------------------------------------------
+#
+# Off in the file and switched on by the button in the bar; ShowroomLights.cs
+# is given these same numbers, so the two cannot drift.
+#
+# **Where they are came out of the model rather than off a tape measure.** The
+# glTF stores a min and a max on every POSITION accessor, so the world box of
+# each material is a walk of the node transforms and eight corners -- which put
+# the headlamp band at y 0.57 to 0.73 and z 1.64 to 1.86, and the tail lamps at
+# y 0.64 to 0.73 and z -2.17 to -1.64. A light guessed at from a photograph of
+# the car would be a few centimetres out and would light the inside of the
+# wing.
+LAMP_Y = 0.66
+LAMP_X = 0.60
+
+# Just clear of the lens on each end, so the cone starts outside the bodywork.
+# Inside it, the first thing a beam lights is the back of the panel it came
+# from.
+HEADLAMP_Z = 1.92
+TAILLAMP_Z = -2.30
+
+# Dipped, not on full: aimed at the floor four metres ahead, which is about
+# eight degrees down. A beam thrown flat travels the length of the room and
+# lands on the front wall as two bright discs, and the pool on the floor
+# between the car and the camera is the whole reason to have them.
+HEADLAMP_TARGET = (LAMP_X, 0.0, 6.2)
+TAILLAMP_TARGET = (LAMP_X, 0.25, -8.5)
+
+FRONT_INTENSITY = 88
+REAR_INTENSITY = 30
+
+# What the lamp elements themselves give off, which is a separate thing from
+# the lights above -- emissive lights nothing in this engine, it only makes the
+# surface bright and feeds bloom. Both are needed: one is the lamp being on and
+# the other is the lamp doing something.
+#
+# Well above 1, like the luminaire, and for the same reason: bloom thresholds
+# at 1.05 and the tone mapper is compressing everything near white, so a
+# surface meant to read as a source has to sit clear of both or it comes back
+# the same grey as the housing around it.
+FRONT_EMISSIVE = (19, 21, 24)
+REAR_EMISSIVE = (16, 0.7, 0.35)
+
 CREDIT = ('"2024 Porsche 992 GT3 R" (https://skfb.ly/pMLAu) by Dave Love '
           'SketchFab is licensed under Creative Commons Attribution '
           '(http://creativecommons.org/licenses/by/4.0/).')
+
+
+def font_metrics(path):
+    """A baked font's advances, kerning pairs and line height, in em units.
+
+    The `.rvfont` is a text file and this reads the three numbers a layout
+    needs, so the generator can size a box to the text that will go in it. The
+    alternative is a guess at an average character width, and a guess is what
+    puts a plate three quarters of the way along a line.
+    """
+    advances, kerning, line_height = {}, {}, 1.0
+    section, code = None, None
+
+    for raw in pathlib.Path(path).read_text(encoding="utf-8").splitlines():
+        row = raw.strip()
+        if row == "Glyphs:":
+            section = "glyphs"
+        elif row == "Kerning:":
+            section = "kerning"
+        elif row.startswith("LineHeight:"):
+            line_height = float(row.split(":")[1])
+        elif section == "glyphs":
+            if row.startswith("- C:"):
+                code = int(row.split(":")[1])
+            elif row.startswith("Advance:") and code is not None:
+                advances[code] = float(row.split(":")[1])
+        elif section == "kerning" and row.startswith("- ["):
+            left, right, amount = row[3:].rstrip("]").split(",")
+            kerning[(int(left), int(right))] = float(amount)
+
+    return advances, kerning, line_height
+
+
+FONT_ADVANCES, FONT_KERNING, FONT_LINE_HEIGHT = font_metrics(
+    ASSETS / "Fonts" / "roboto.rvfont")
+
+
+def text_width(text, size):
+    """How wide one line of it draws, in canvas units.
+
+    The same sum UI::TextLayout does: advances plus the kerning of each pair,
+    scaled by the em size. A character the face has no glyph for contributes
+    nothing, which is also what the layout does.
+    """
+    total, previous = 0.0, 0
+    for character in text:
+        code = ord(character)
+        if code not in FONT_ADVANCES:
+            continue
+        if previous:
+            total += FONT_KERNING.get((previous, code), 0.0)
+        total += FONT_ADVANCES[code]
+        previous = code
+    return total * size
+
+
+def line_height(size):
+    """The height of one line box, which is what a rectangle has to hold."""
+    return FONT_LINE_HEIGHT * size
 
 
 def texture(name):
@@ -517,6 +619,55 @@ def build(profile, mat):
             ("CastShadows", "false"),
         ])
 
+    # --- the car's own lamps ------------------------------------------------
+    #
+    # Four spots, all at zero intensity in the file. ShowroomLights.cs raises
+    # them when the switch in the bar is pressed and puts them back when it is
+    # pressed again -- so the scene as saved is the still it was framed as, and
+    # the lights are something the viewer turns on.
+    #
+    # **Intensity rather than deleting and spawning them**, because a light
+    # that exists at zero costs a row in a storage buffer and nothing else: the
+    # renderer caps nothing and the term it feeds multiplies out. Spawning
+    # would mean a script that knows how to build a light, which is a scene's
+    # job and not a script's.
+    #
+    # None of them casts a shadow. The engine allows four local casters and the
+    # key light overhead is the one that matters -- it is what puts the car on
+    # the floor. A headlamp caster would buy the splitter's shadow inside its
+    # own pool, which is a detail nobody looks for, at the price of the shadow
+    # that holds the whole picture together.
+    for name, x in (("Headlamp Beam Left", -LAMP_X), ("Headlamp Beam Right", LAMP_X)):
+        origin = (x, LAMP_Y, HEADLAMP_Z)
+        target = (x, HEADLAMP_TARGET[1], HEADLAMP_TARGET[2])
+        s.entity(name, position=origin, rotation=aim(origin, target))
+        s.block("LightComponent", [
+            # A cool white LED, which is what this car actually has and what
+            # separates the beam from the 5000 K room around it.
+            ("Type", "Spot"), ("Color", "[0.86, 0.91, 1]"), ("Intensity", 0),
+            # Eight metres reaches the pool and dies before the front wall at
+            # 9.5, which is behind the camera and should stay dark.
+            ("Range", 8), ("InnerCone", 15), ("OuterCone", 30),
+            ("CastShadows", "false"),
+        ])
+
+    # Backwards, into the portal. **The best thing the tail lights do is not on
+    # the car**: the bay behind is the darkest thing in the frame, and a red
+    # wash across its concrete is the only colour anywhere in a room built out
+    # of white, charcoal and black.
+    for name, x in (("Tail Glow Left", -LAMP_X), ("Tail Glow Right", LAMP_X)):
+        origin = (x, LAMP_Y + 0.04, TAILLAMP_Z)
+        target = (x, TAILLAMP_TARGET[1], TAILLAMP_TARGET[2])
+        s.entity(name, position=origin, rotation=aim(origin, target))
+        s.block("LightComponent", [
+            # Not pure red. A light with nothing at all in two channels lands
+            # on grey concrete as a flat clipped patch with no shading in it,
+            # because there is only one channel left to shade with.
+            ("Type", "Spot"), ("Color", "[1, 0.1, 0.045]"), ("Intensity", 0),
+            ("Range", 7), ("InnerCone", 22), ("OuterCone", 46),
+            ("CastShadows", "false"),
+        ])
+
     # --- the service bay ----------------------------------------------------
     #
     # Dark, and it is dark *on purpose*: it is the only low value in a high key
@@ -626,8 +777,20 @@ def build(profile, mat):
     return s
 
 
-def credit_ui(s):
-    """The attribution, along the bottom of the frame.
+# --- the overlay --------------------------------------------------------------
+#
+# Canvas units, at the 1920x1080 reference the canvas scales from.
+BAR_HEIGHT = 44
+CREDIT_SIZE = 17
+
+BUTTON_WIDTH = 120
+BUTTON_HEIGHT = 30
+BUTTON_INSET = 14              # from the right edge of the bar
+BUTTON_LABEL_SIZE = 14
+
+
+def overlay_ui(s):
+    """The attribution, the bar it sits on, and the lights switch at its end.
 
     **On the canvas rather than on a plaque in the room**, which is the
     opposite of the choice the courtyard's label made and is right for the
@@ -642,19 +805,45 @@ def credit_ui(s):
         ("MatchWidthOrHeight", 0.5), ("SortOrder", 0),
     ])
 
-    # Anchored to the bottom edge -- y runs down the screen, so 1 is the bottom
-    # -- and full width, so the line stays centred at any aspect ratio.
-    s.entity("Credit", parent="Showroom Canvas")
+    # **A bar rather than a plate sized to the text**, on the owner's
+    # direction, and running the full width is what makes it work: the orbit
+    # swings the notice across a black floor, a charcoal wall and the
+    # luminaire's reflection, and text alone loses one of those three every
+    # time round. A band that runs edge to edge reads as part of the frame --
+    # the way a broadcast lower third does -- rather than as a label stuck on
+    # the picture.
+    #
+    # Anchored to the bottom edge; y runs down the screen, so 1 is the bottom.
+    s.entity("Credit Bar", parent="Showroom Canvas")
     s.block("UIRectComponent", [
         ("AnchorMin", "[0, 1]"), ("AnchorMax", "[1, 1]"),
-        ("OffsetMin", "[0, -40]"), ("OffsetMax", "[0, -12]"),
+        ("OffsetMin", f"[0, {-BAR_HEIGHT}]"), ("OffsetMax", "[0, 0]"),
         ("SortOrder", 0), ("Visible", "true"), ("BlocksPointer", "false"),
     ])
+    s.block("UIImageComponent", [
+        ("Texture", 0),
+        # Not quite opaque. At 1.0 it is a letterbox and the frame stops at it;
+        # at 0.85 the brightest thing the room has -- the luminaire reflected
+        # in the polished floor -- comes through at 15%, which is far below the
+        # text and still enough that the bar reads as laid over a photograph
+        # rather than cut out of it.
+        ("Color", "[0, 0, 0, 0.85]"),
+    ])
 
-    s.entity("Credit Text", parent="Credit")
+    # Centred in the whole bar, not in the space left over beside the switch.
+    # The notice is the bar's subject and the switch is at its end; centring
+    # the text on the remaining room would put it visibly off the middle of the
+    # frame, which is the sort of asymmetry that reads as a mistake.
+    #
+    # The vertical inset is the arithmetic that centres it: text is drawn from
+    # the top of its rectangle downwards with no vertical alignment of its own,
+    # so the box is the thing that has to be centred.
+    top = round((BAR_HEIGHT - line_height(CREDIT_SIZE)) * 0.5)
+
+    s.entity("Credit Text", parent="Credit Bar")
     s.block("UIRectComponent", [
         ("AnchorMin", "[0, 0]"), ("AnchorMax", "[1, 1]"),
-        ("OffsetMin", "[0, 0]"), ("OffsetMax", "[0, 0]"),
+        ("OffsetMin", f"[0, {top}]"), ("OffsetMax", "[0, 0]"),
         ("SortOrder", 1), ("Visible", "true"), ("BlocksPointer", "false"),
     ])
     s.block("UITextComponent", [
@@ -669,13 +858,91 @@ def credit_ui(s):
         ("Font", FONT),
         # 17 at a 1080 reference: small, and still above the size the atlas was
         # baked sharp at. **A licence notice that cannot be read is not a
-        # licence notice**, which is the whole reason this is not smaller.
-        ("Size", 17),
-        # Held off pure white and off full opacity. It has to be legible over
-        # both the dark floor and the bright wall the orbit swings it across,
-        # and a hard white line along the bottom of a photograph is the one
-        # thing that would look like a watermark.
+        # licence notice**, which is the whole reason this is not smaller. At
+        # this size the line measures 1267 units and the bar is 1920 of them,
+        # so it clears the switch at the far end by a couple of hundred at 16:9
+        # and by rather less at 4:3 -- which is the aspect ratio to check if
+        # either number ever moves.
+        ("Size", CREDIT_SIZE),
+        # Held off pure white and off full opacity, which it can now afford to
+        # be: it is read against a known black rather than against whatever the
+        # orbit happened to put behind it.
         ("Color", "[0.82, 0.83, 0.86, 0.86]"),
+        ("Align", "Center"), ("Wrap", "false"), ("LineSpacing", 1),
+    ])
+
+    # --- the lights switch --------------------------------------------------
+    #
+    # At the far right of the bar and inside it, so it belongs to the same band
+    # as the notice instead of floating over the picture on its own.
+    #
+    # **Its whole look is one image and the button's three tints.** The plate
+    # texture is white with the pill shape in its alpha, so Normal at 0.55
+    # draws grey and Hover at 1.0 draws white, and no script is involved in
+    # either -- the canvas multiplies the tint into the image every frame. What
+    # a script *is* needed for is the label, because the tint reaches the image
+    # on the button and nothing else, children included.
+    label_top = round((BUTTON_HEIGHT - line_height(BUTTON_LABEL_SIZE)) * 0.5)
+    button_top = round((BAR_HEIGHT - BUTTON_HEIGHT) * 0.5)
+
+    s.entity("Lights Button", parent="Credit Bar")
+    s.block("UIRectComponent", [
+        ("AnchorMin", "[1, 0]"), ("AnchorMax", "[1, 1]"),
+        ("OffsetMin", f"[{-(BUTTON_WIDTH + BUTTON_INSET)}, {button_top}]"),
+        ("OffsetMax", f"[{-BUTTON_INSET}, {-button_top}]"),
+        ("SortOrder", 2), ("Visible", "true"),
+        # Redundant -- a live button takes the pointer whatever this says -- and
+        # written out anyway, because what it guarantees is that a click on the
+        # switch does not also spin the car.
+        ("BlocksPointer", "true"),
+    ])
+    s.block("UIImageComponent", [
+        ("Texture", texture("showroom_button_plate.png")),
+        # White: the plate's colour comes entirely from the tints below.
+        ("Color", "[1, 1, 1, 1]"),
+    ])
+    s.block("UIButtonComponent", [
+        ("Interactable", "true"),
+        ("NormalColor", "[0.55, 0.56, 0.58, 1]"),
+        ("HoverColor", "[1, 1, 1, 1]"),
+        # A hair below the hover rather than back down to grey. A press that
+        # darkens past the resting colour reads as the switch turning itself
+        # off under the finger.
+        ("PressedColor", "[0.86, 0.87, 0.89, 1]"),
+        # Empty: the script is on the button itself, which is the usual shape.
+        ("OnClickTarget", 0),
+        ("OnClickMethod", "Toggle"),
+    ])
+    s.managed_script(
+        "ShowroomLights",
+        CarRoot="'porsche_992_gt3_r'",
+        FrontParts="'EXT_Emissive_Light_Front,ST_FRONT_'",
+        RearParts="'EXT_Emissive_Light_Rear,EXT_Glass_Emissive_Rear'",
+        FrontLamps="'Headlamp Beam Left,Headlamp Beam Right'",
+        RearLamps="'Tail Glow Left,Tail Glow Right'",
+        LabelName="'Lights Label'",
+        FrontEmissive=" ".join(f"{v:g}" for v in FRONT_EMISSIVE),
+        RearEmissive=" ".join(f"{v:g}" for v in REAR_EMISSIVE),
+        FrontIntensity=FRONT_INTENSITY,
+        RearIntensity=REAR_INTENSITY,
+        StartOn="false")
+
+    s.entity("Lights Label", parent="Lights Button")
+    s.block("UIRectComponent", [
+        ("AnchorMin", "[0, 0]"), ("AnchorMax", "[1, 1]"),
+        ("OffsetMin", f"[0, {label_top}]"), ("OffsetMax", "[0, 0]"),
+        ("SortOrder", 3), ("Visible", "true"), ("BlocksPointer", "false"),
+    ])
+    s.block("UITextComponent", [
+        # What the press will do, not what the lights currently are. Both
+        # readings of a one-word switch are defensible and this is the one a
+        # person acts on -- and the beams themselves announce which state it is
+        # in far more loudly than a label could.
+        ("Text", "LIGHTS ON"),
+        ("Font", FONT), ("Size", BUTTON_LABEL_SIZE),
+        # White on the grey plate. The script takes it to black on hover, when
+        # the plate underneath has gone white.
+        ("Color", "[0.97, 0.97, 0.98, 1]"),
         ("Align", "Center"), ("Wrap", "false"), ("LineSpacing", 1),
     ])
 
@@ -1038,15 +1305,30 @@ def main():
         # was already right. This is the stop, not the lighting.
         "Exposure": 0.45,
 
-        # **Bloom, restrained.** The luminaire is the only thing above
-        # threshold and it should glow the way a fitting does through a
-        # camera -- a soft halo a few pixels wide, not a light leak. The knee
-        # is high so the near-white wall next to it stays out of the effect.
+        # **Bloom, and the headlamps are what it is set for now.** The
+        # luminaire used to be the only thing above threshold and this was at
+        # 0.045 to keep it to a soft halo rather than a light leak. Lit
+        # headlamps are a much smaller, much brighter source, and at that
+        # setting they read as flat white shapes with no glow at all.
+        #
+        # **The lever was the lamps, not this number.** The prefilter's
+        # contribution is `brightness - threshold`, so a source at 19 throws
+        # roughly six times the halo of the ceiling at 4.7 whatever the
+        # intensity is -- which is why raising the emissive gets a headlamp
+        # glow without turning the ceiling into fog. This went to 0.12 on top
+        # of that, which is the amount the tail lamps needed to show a red
+        # halo on black bodywork; the ceiling at 0.12 is still a halo and not
+        # a leak.
+        #
+        # The knee is high so the near-white wall next to the luminaire stays
+        # out of the effect. The clamp is what any one source may bleed at:
+        # 28 clears the front lamps at 24 and nothing else in the room is
+        # within a factor of five of it.
         "BloomEnabled": True,
         "BloomThreshold": 1.05,
         "BloomKnee": 0.7,
-        "BloomIntensity": 0.045,
-        "BloomClamp": 22.0,
+        "BloomIntensity": 0.12,
+        "BloomClamp": 28.0,
 
         # **Auto exposure off, and this is the one setting worth arguing
         # about.** Every other scene in this project has it on, because every
@@ -1128,7 +1410,7 @@ def main():
 
     mat = materials()
     s = build(profile, mat)
-    credit_ui(s)
+    overlay_ui(s)
 
     body = s.text() + "\n" + car_subtree(car_materials())
 
