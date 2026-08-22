@@ -1255,6 +1255,39 @@ compiling inside the very struct that needs it.
 
 ---
 
+## 2b. Screenshots from the editor
+
+**Shift+S** and **Scene ▸ Screenshot** write the Game panel's frame to
+`<project>/captures/`. `Project::CaptureRoot()` and `NextCapturePath()` own the
+path; the editor owns the trigger.
+
+**It needed a new RHI entry, and the reason is worth knowing before reaching
+for the old one.** `RHIDevice::RequestCapture` reads the *swapchain* — in the
+editor that is mostly editor. A screenshot of the game is the texture the
+game's own graph drew into, and nothing could read an arbitrary texture back
+before, on either backend. `RequestTextureCapture(texture, callback)` is that,
+with the same contract: armed now, satisfied at the next `EndFrame` once the
+frame's work has completed, disarmed after it fires, RGBA8 top row first.
+
+- **Vulkan** copies the image into a staging buffer between the frame's submit
+  and the present, transitioning from whatever layout the texture is in and
+  back to it — the panel samples that same texture next frame and expects to
+  find it as the graph left it.
+- **OpenGL** attaches it to its own scratch framebuffer and `glReadPixels`,
+  then flips the rows, because GL hands them back bottom-up and the contract is
+  top-first so a caller never has to know which backend produced it.
+- Both refuse anything that is not `R8G8B8A8_UNORM` rather than reinterpreting
+  the bits, which would produce a picture of noise.
+
+> [!TRAP]
+> **`Shift+S` needs three guards, not one.** `S` is the fly-backward key, so
+> without `!flying` a sprint backwards fills the captures folder; and an
+> unmodified letter must not fire while a text field has the caret. Both are
+> the same guards `W`/`E`/`R` already needed, for the same reason (§7 on the
+> gizmo keys).
+
+---
+
 ## 2a. The application icon
 
 `tools/scripts/make_icon.py` draws it — a chamfered tile holding a two-tone V,

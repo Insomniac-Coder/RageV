@@ -95,6 +95,30 @@ namespace RageV
 		// hash a cooked file is keyed by is in its name, so a copy arriving
 		// over a checkout claims to be current for a source it never saw.
 		static std::filesystem::path CacheRoot();
+		// Root() / "captures". Where a screenshot taken from the editor lands.
+		//
+		// Beside the project rather than beside the executable, and outside
+		// AssetRoot() for the reason CacheRoot() gives: the registry walks the
+		// asset directory and would mint a handle and a `.meta` for every
+		// screenshot, turning a picture *of* the project into content *in* it.
+		//
+		// Created on demand rather than by Create(), because a project that
+		// never takes one should not carry an empty folder around.
+		static std::filesystem::path CaptureRoot();
+
+		// A path inside CaptureRoot() that nothing is using yet:
+		// `<stem>_<yyyymmdd-hhmmss>.png`, with a counter appended if that name
+		// is taken.
+		//
+		// **The counter is not paranoia.** The timestamp has one-second
+		// resolution and the thing that produces these is a key somebody can
+		// press twice quickly, so two shots in the same second is the ordinary
+		// case rather than the unlucky one -- and losing the first to the
+		// second would be silent.
+		//
+		// Empty when there is no project open, because there is nowhere for it
+		// to go.
+		static std::filesystem::path NextCapturePath(const std::string& stem);
 		// Absolute path for something stored relative to the asset directory.
 		static std::filesystem::path AssetPath(const std::string& relative);
 

@@ -4112,6 +4112,48 @@ void main()
 		Project::Close();
 		Check(Project::GetActive() == nullptr, "and can be closed");
 
+		// --- where a screenshot goes ------------------------------------------
+		//
+		// The folder is *not* created here and that is the claim: a project
+		// that never takes a screenshot should not carry an empty captures
+		// folder around, so the editor makes it on the way to writing one.
+		{
+			Check(!std::filesystem::exists(root / "captures"),
+				  "a new project has no captures folder until something takes one");
+
+			Project::Load(root / "Probe.rvproject");
+
+			const std::filesystem::path first = Project::NextCapturePath("level");
+			Check(first.parent_path() == Project::CaptureRoot()
+				  && Project::CaptureRoot() == root / "captures",
+				  "a capture lands in <project>/captures, outside the asset directory "
+				  "-- inside it the registry would mint a handle and a .meta for every "
+				  "screenshot, turning a picture of the project into content in it");
+
+			Check(first.extension() == ".png"
+				  && first.stem().string().rfind("level_", 0) == 0,
+				  "named after the scene, so a folder of them can be read");
+
+			// The timestamp is one second wide and the thing producing these is
+			// a key somebody can press twice, so the collision case is ordinary
+			// rather than unlucky -- and losing the first shot to the second
+			// would be silent.
+			std::filesystem::create_directories(root / "captures");
+			{
+				std::ofstream taken(first);
+				taken << "x";
+			}
+			const std::filesystem::path second = Project::NextCapturePath("level");
+			Check(second != first && !std::filesystem::exists(second),
+				  "and two taken in the same second do not overwrite each other");
+
+			std::filesystem::remove_all(root / "captures", error);
+			Project::Close();
+			Check(Project::NextCapturePath("level").empty(),
+				  "with no project open there is nowhere to put one, which is an "
+				  "answer rather than a path relative to the working directory");
+		}
+
 		Check(Project::Load(root / "Probe.rvproject"), "and loaded back");
 		Check(Project::Config().Name == "Probe", "the name survives");
 		Check(Project::Config().StartScene == "scenes/level.rage", "as does the start scene");

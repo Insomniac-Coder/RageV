@@ -88,6 +88,24 @@ namespace RageV::RHI
 		using CaptureCallback = std::function<void(const uint8_t* rgba, uint32_t width,
 												   uint32_t height)>;
 		virtual void RequestCapture(CaptureCallback callback) = 0;
+
+		// The same one-shot readback aimed at a texture the caller names.
+		//
+		// **A separate entry rather than a defaulted argument on the one
+		// above**, because the two answer different questions and only one of
+		// them is a diagnostic. RequestCapture takes the window: everything
+		// presented, editor panels included. This takes what something drew
+		// into, which is the only way to photograph the game's own frame from
+		// an editor whose window is mostly not the game.
+		//
+		// Same contract otherwise: armed here, satisfied at the next EndFrame
+		// once the frame's work has completed, disarmed after it fires, RGBA8
+		// with the top row first. The texture must be R8G8B8A8_UNORM and must
+		// have been written this frame; a null one is ignored rather than
+		// treated as the swapchain, because "capture nothing" and "capture the
+		// window" are not the same mistake.
+		virtual void RequestTextureCapture(const Ref<RHITexture>& texture,
+										   CaptureCallback callback) = 0;
 		virtual void OnResize(uint32_t width, uint32_t height) = 0;
 		virtual void SetVSync(bool enabled) = 0;
 

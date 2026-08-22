@@ -33,6 +33,7 @@ WCAG 2.2 AA contrast by a script, so neither is a guess.
 | **Ctrl+Z** | Undo |
 | **Ctrl+Y** / **Ctrl+Shift+Z** | Redo |
 | **Ctrl+P** | Play, or stop if playing |
+| **Shift+S** | Screenshot the Game panel into the project's `captures` folder |
 | **W** | Translate gizmo |
 | **E** | Rotate gizmo |
 | **R** | Scale gizmo |
@@ -44,7 +45,31 @@ WCAG 2.2 AA contrast by a script, so neither is a guess.
 
 > [!NOTE]
 > The gizmo and view shortcuts are ignored while a text field has the caret, so
-> typing a name does not switch tools.
+> typing a name does not switch tools. **Shift+S** is ignored there too, and
+> also while the right mouse button is held — S is the fly-backward key, so
+> sprinting backwards must not fill a folder with screenshots.
+
+## Screenshots
+
+**Shift+S**, or **Scene ▸ Screenshot**, writes what the Game panel is showing
+to `<project>/captures/<scene>_<date>-<time>.png`.
+
+It is the *game's* frame and not the window: no panels, no menus, no gizmos —
+what the camera renders, HUD included, because a player sees the HUD. The
+resolution is the Game panel's own size, so a bigger panel is a bigger picture.
+
+The folder is made the first time you take one and is not under version
+control: these are pictures *of* the project rather than content in it. They
+also live outside the asset directory on purpose — inside it, the asset
+registry would mint a handle and a `.meta` for every screenshot.
+
+The status bar along the bottom says where it went, in the same place the asset
+watcher reports a reload.
+
+> [!NOTE]
+> The menu item is greyed while the Game panel is closed, and the shortcut says
+> so in the status bar. Nothing is rendering the camera's view then, so there is
+> genuinely no frame to take — the panel is what drives that render.
 
 ## The viewport
 

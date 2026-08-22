@@ -334,6 +334,8 @@ namespace RageV::GL
 		void EndFrame() override;
 		void WaitIdle() override;
 		void RequestCapture(CaptureCallback callback) override;
+		void RequestTextureCapture(const RHI::Ref<RHI::RHITexture>& texture,
+								   CaptureCallback callback) override;
 		void OnResize(uint32_t width, uint32_t height) override;
 		void SetVSync(bool enabled) override;
 		bool IsVSync() const override { return m_VSync; }
@@ -404,6 +406,12 @@ namespace RageV::GL
 		bool m_VSync = true;
 		DeviceCaps m_Caps;
 		Scope<OpenGLCommandListRHI> m_CommandList;
+
+		// Armed by RequestTextureCapture, consumed by the same EndFrame. The
+		// Ref holds the texture alive: a capture armed on a target the caller
+		// then drops would otherwise read a deleted name.
+		RHI::Ref<RHI::RHITexture> m_CaptureTexture;
+		CaptureCallback m_TextureCapture;
 
 		// Armed by RequestCapture, consumed and cleared by the next EndFrame.
 		CaptureCallback m_Capture;

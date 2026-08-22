@@ -16,6 +16,12 @@ __pycache__/
 # source asset and its .meta are the things under version control.
 Cache/
 
+# Screenshots taken from the editor (Shift+S, or Scene > Screenshot). Output
+# rather than content: they are pictures *of* the project, they are named by
+# the second they were taken, and nobody else's checkout wants them. Kept
+# outside the asset directory for a sharper reason -- see Project::CaptureRoot.
+captures/
+
 # .NET intermediates. The script assembly's *output* goes to build/ like
 # everything else; obj/ is what dotnet leaves beside the csproj regardless.
 obj/

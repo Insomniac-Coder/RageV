@@ -204,6 +204,10 @@ private:
 	// none to write.
 	std::filesystem::path m_ScenePath;
 
+	// Shift+S and Scene > Screenshot. Writes what the Game panel is showing
+	// into the project's captures folder.
+	void CaptureGameFrame();
+
 	RageV::EditorCamera m_EditorCamera;
 	bool m_UseEditorCamera = true;
 

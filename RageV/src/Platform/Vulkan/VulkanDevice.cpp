@@ -1331,6 +1331,11 @@ namespace RageV::Vk
 		if (m_Capture)
 			CaptureSwapchainImage();
 
+		// The same point in the frame, for the same reason: this submit is what
+		// wrote the target, and the capture waits on its fence.
+		if (m_TextureCapture && m_CaptureTexture)
+			CaptureTextureImage();
+
 		VkPresentInfoKHR present{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 		present.waitSemaphoreCount = 1;
 		present.pWaitSemaphores = &m_RenderFinished[m_ImageIndex];
@@ -1501,6 +1506,103 @@ namespace RageV::Vk
 	void VulkanDevice::RequestCapture(CaptureCallback callback)
 	{
 		m_Capture = std::move(callback);
+	}
+
+	void VulkanDevice::RequestTextureCapture(const RHI::Ref<RHI::RHITexture>& texture,
+											 CaptureCallback callback)
+	{
+		// A null texture disarms rather than falling back to the swapchain --
+		// see the contract on the interface. Silently photographing the whole
+		// editor window because a render target was missing is the kind of
+		// wrong answer that looks like a working feature.
+		if (!texture)
+			return;
+
+		m_CaptureTexture = texture;
+		m_TextureCapture = std::move(callback);
+	}
+
+	// The same readback CaptureSwapchainImage does, on an image the caller
+	// named. Deliberately unsubtle for the same reasons: it waits, it does its
+	// own one-shot submit, and it throws the staging buffer away.
+	void VulkanDevice::CaptureTextureImage()
+	{
+		FrameContext& frame = m_Frames[m_FrameIndex];
+		vkWaitForFences(m_Device, 1, &frame.InFlight, VK_TRUE, UINT64_MAX);
+
+		VulkanTexture* texture = static_cast<VulkanTexture*>(m_CaptureTexture.get());
+		const RHI::TextureDesc& desc = texture->GetDesc();
+
+		// The contract says RGBA8, and this is where a caller that ignored it
+		// is caught. Copying a float target into an RGBA8 buffer would
+		// reinterpret the bits and produce a picture of noise, which is a
+		// worse outcome than no picture.
+		if (desc.Format != RHI::Format::R8G8B8A8_UNORM)
+		{
+			RV_CORE_ERROR("Texture capture: '{0}' is not R8G8B8A8_UNORM, so it cannot "
+						  "be read back", desc.DebugName);
+			m_CaptureTexture.reset();
+			m_TextureCapture = nullptr;
+			return;
+		}
+
+		const uint32_t width = desc.Width;
+		const uint32_t height = desc.Height;
+		const VkDeviceSize size = (VkDeviceSize)width * height * 4;
+
+		VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+		bufferInfo.size = size;
+		bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo allocInfo{};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+						  VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+		VkBuffer buffer = VK_NULL_HANDLE;
+		VmaAllocation allocation = nullptr;
+		VmaAllocationInfo allocated{};
+
+		if (vmaCreateBuffer(m_Allocator, &bufferInfo, &allocInfo, &buffer, &allocation,
+							&allocated) != VK_SUCCESS)
+		{
+			RV_CORE_ERROR("Texture capture: could not allocate a staging buffer");
+			m_CaptureTexture.reset();
+			m_TextureCapture = nullptr;
+			return;
+		}
+
+		// Whatever layout it was left in, and back to it afterwards: this runs
+		// between the frame's work and the present, and the panel that samples
+		// this texture next frame expects to find it as the graph left it.
+		const VkImageLayout restore = texture->GetLayout();
+
+		ImmediateSubmit([&](VkCommandBuffer cmd)
+		{
+			texture->TransitionTo(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+			VkBufferImageCopy region{};
+			region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			region.imageSubresource.layerCount = 1;
+			region.imageExtent = { width, height, 1 };
+			vkCmdCopyImageToBuffer(cmd, texture->GetImage(),
+								   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+								   buffer, 1, &region);
+
+			texture->TransitionTo(cmd, restore);
+		});
+
+		std::vector<uint8_t> rgba((size_t)size);
+		memcpy(rgba.data(), allocated.pMappedData, (size_t)size);
+		vmaDestroyBuffer(m_Allocator, buffer, allocation);
+
+		// Moved out before invoking, so a callback that asks for another
+		// capture arms the next frame rather than being cleared by this one.
+		CaptureCallback callback;
+		callback.swap(m_TextureCapture);
+		m_CaptureTexture.reset();
+		callback(rgba.data(), width, height);
 	}
 
 	// Copies the presented image into host memory and hands it to the waiting

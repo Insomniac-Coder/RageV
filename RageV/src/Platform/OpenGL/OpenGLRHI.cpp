@@ -1987,6 +1987,75 @@ namespace RageV::GL
 			callback(flipped.data(), width, height);
 		}
 
+		// A named texture rather than the back buffer, so it does not care
+		// whether the swap has happened -- but kept here beside the other one
+		// so both captures are satisfied at the same point in the frame.
+		if (m_TextureCapture && m_CaptureTexture)
+		{
+			const RHI::TextureDesc& desc = m_CaptureTexture->GetDesc();
+
+			// The contract says RGBA8, and this is where a caller that ignored
+			// it is caught rather than handed a picture of reinterpreted bits.
+			if (desc.Format != RHI::Format::R8G8B8A8_UNORM)
+			{
+				RV_CORE_ERROR("Texture capture: '{0}' is not R8G8B8A8_UNORM, so it "
+							  "cannot be read back", desc.DebugName);
+				m_CaptureTexture.reset();
+				m_TextureCapture = nullptr;
+			}
+			else
+			{
+				const uint32_t width = desc.Width;
+				const uint32_t height = desc.Height;
+				const GLuint name = (GLuint)static_cast<OpenGLTextureRHI*>(
+					m_CaptureTexture.get())->GetHandle();
+
+				// Through a framebuffer, because glGetTexImage is not in the
+				// ES-shaped subset this backend keeps to and a read from an
+				// attachment is the portable spelling. Its own FBO rather than
+				// binding over whatever is current: this runs at the end of a
+				// frame that has already finished drawing, and leaving the
+				// binding changed is a hazard for the next one.
+				GLuint fbo = 0;
+				glGenFramebuffers(1, &fbo);
+				glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+				glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+									   GL_TEXTURE_2D, name, 0);
+
+				std::vector<uint8_t> pixels((size_t)width * height * 4);
+				if (glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
+				{
+					glPixelStorei(GL_PACK_ALIGNMENT, 1);
+					glReadBuffer(GL_COLOR_ATTACHMENT0);
+					glReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_RGBA,
+								 GL_UNSIGNED_BYTE, pixels.data());
+				}
+				else
+				{
+					RV_CORE_ERROR("Texture capture: '{0}' cannot be attached for reading",
+								  desc.DebugName);
+				}
+
+				glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+				glDeleteFramebuffers(1, &fbo);
+
+				// Bottom-up out of GL; the contract is top row first, so a
+				// caller never has to know which backend produced it.
+				std::vector<uint8_t> flipped((size_t)width * height * 4);
+				const size_t stride = (size_t)width * 4;
+				for (uint32_t y = 0; y < height; y++)
+				{
+					memcpy(flipped.data() + (size_t)y * stride,
+						   pixels.data() + (size_t)(height - 1 - y) * stride, stride);
+				}
+
+				CaptureCallback callback;
+				callback.swap(m_TextureCapture);
+				m_CaptureTexture.reset();
+				callback(flipped.data(), width, height);
+			}
+		}
+
 		glfwSwapBuffers(m_Window);
 
 		// After every command this frame issued. The next pass through this
@@ -2000,6 +2069,18 @@ namespace RageV::GL
 	void OpenGLDevice::RequestCapture(CaptureCallback callback)
 	{
 		m_Capture = std::move(callback);
+	}
+
+	void OpenGLDevice::RequestTextureCapture(const RHI::Ref<RHI::RHITexture>& texture,
+											 CaptureCallback callback)
+	{
+		// A null texture disarms rather than falling back to the swapchain --
+		// see the contract on the interface.
+		if (!texture)
+			return;
+
+		m_CaptureTexture = texture;
+		m_TextureCapture = std::move(callback);
 	}
 
 	void OpenGLDevice::WaitIdle()

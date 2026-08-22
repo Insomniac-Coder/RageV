@@ -1709,6 +1709,23 @@ void EditorLayer::DrawMenuBar()
 			OnScenePause(!paused);
 
 		ImGui::Separator();
+
+		// Greyed rather than absent when the Game panel is shut, with the
+		// reason on the tooltip: there is genuinely nothing to photograph, and
+		// a menu item that vanishes is a feature somebody decides was removed.
+		const bool capturable = m_ShowGameViewport && m_GameViewportVisible
+							 && m_GameViewportSize.y > 0.0f;
+
+		if (ImGui::MenuItem("Screenshot", "Shift+S", false, capturable))
+			CaptureGameFrame();
+
+		if (!capturable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+		{
+			ImGui::SetTooltip("The Game panel is closed, so nothing is rendering the "
+							  "camera's view.\nOpen it from Window to take a shot.");
+		}
+
+		ImGui::Separator();
 		ImGui::TextDisabled(running ? "Running -- changes are discarded on Stop"
 								    : "Editing");
 		ImGui::EndMenu();
@@ -3239,6 +3256,17 @@ bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 				else       SaveScene();
 				return true;
 			}
+
+			// **Shift+S, and the guards are the same three W/E/R needed.** S is
+			// the fly-backward key, so without `!flying` holding the right
+			// button and pressing Shift+S to sprint backwards would also fill
+			// the captures folder; and an unmodified letter must never fire
+			// while somebody is typing a name into a field.
+			if (shift && !flying && !ImGui::GetIO().WantTextInput)
+			{
+				CaptureGameFrame();
+				return true;
+			}
 			break;
 
 		// Gizmo modes, matching the convention most editors use. Ignored while
@@ -3801,6 +3829,83 @@ void EditorLayer::OpenSceneFile(const std::filesystem::path& filepath)
 		m_ScenePath = filepath;
 	else
 		m_ScenePath.clear();
+}
+
+// What the Game panel is showing, as a PNG in the project's captures folder.
+//
+// **The Game panel's target rather than the window**, and that is the whole
+// reason this needed a new RHI entry. `RequestCapture` reads the swapchain,
+// which in the editor is mostly editor: panels, menus, the hierarchy. A
+// screenshot of the game is the texture the game's own graph drew into, and
+// nothing could read one of those back before.
+//
+// It is also why this is not simply the runtime's `--screenshot` flag pointed
+// somewhere else: there, the swapchain *is* the game frame.
+void EditorLayer::CaptureGameFrame()
+{
+	if (!m_ShowGameViewport || !m_GameViewportVisible || m_GameViewportSize.y <= 0.0f)
+	{
+		m_StatusBar.Post(EditorUI::StatusBar::Kind::Warning,
+						 "No game frame to capture",
+						 "The Game panel is closed, so nothing is rendering the "
+						 "camera's view.");
+		return;
+	}
+
+	if (!m_GameTarget)
+		return;
+
+	// The captures folder lives beside the project, so without one there is
+	// nowhere to put it. Said rather than dropped.
+	const std::filesystem::path path =
+		Project::NextCapturePath(m_ScenePath.empty() ? std::string("untitled")
+													: m_ScenePath.stem().string());
+	if (path.empty())
+	{
+		m_StatusBar.Post(EditorUI::StatusBar::Kind::Error,
+						 "Nowhere to save a screenshot",
+						 "No project is open, so there is no captures folder.");
+		return;
+	}
+
+	std::error_code error;
+	std::filesystem::create_directories(path.parent_path(), error);
+	if (error)
+	{
+		m_StatusBar.Post(EditorUI::StatusBar::Kind::Error,
+						 "Could not create the captures folder", error.message());
+		return;
+	}
+
+	// Armed now, satisfied at the end of this frame -- so the picture is the
+	// frame the key was pressed on rather than the one after it.
+	//
+	// `this` is captured for the status line and outlives the callback by the
+	// whole run: the device is torn down with the application, after the
+	// layers. `path` is copied, because the member it came from may have moved
+	// on by the time this fires.
+	Application::Get().GetDevice().RequestTextureCapture(
+		m_GameTarget->GetColorTexture(),
+		[this, path](const uint8_t* rgba, uint32_t width, uint32_t height)
+		{
+			if (Application::WriteScreenshot(path.string(), rgba, width, height))
+			{
+				RV_INFO("Screenshot: {0} ({1}x{2})", path.string(), width, height);
+				// The same bar the asset watcher posts "Reloaded" to, and the
+				// same shape of message: a short headline, and the detail
+				// beside it in a dimmer colour. The file name rather than the
+				// full path, because the headline already says where it went
+				// and the bar is one line.
+				m_StatusBar.Post(EditorUI::StatusBar::Kind::Info,
+								 "Screenshot saved to captures",
+								 path.filename().string());
+			}
+			else
+			{
+				m_StatusBar.Post(EditorUI::StatusBar::Kind::Error,
+								 "Could not write the screenshot", path.string());
+			}
+		});
 }
 
 // Ctrl+S. Writes the file the scene came from, and only asks where when there

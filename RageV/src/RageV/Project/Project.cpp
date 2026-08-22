@@ -592,6 +592,41 @@ namespace RageV
 		return s_Active ? s_Active->Root / "Cache" : std::filesystem::path{};
 	}
 
+	std::filesystem::path Project::CaptureRoot()
+	{
+		return s_Active ? s_Active->Root / "captures" : std::filesystem::path{};
+	}
+
+	std::filesystem::path Project::NextCapturePath(const std::string& stem)
+	{
+		const std::filesystem::path directory = CaptureRoot();
+		if (directory.empty())
+			return {};
+
+		// Local time rather than UTC: these are looked at by the person who
+		// took them, on the machine they took them on, and "which of these is
+		// the one from just now" is the only question ever asked of the name.
+		const std::time_t now = std::time(nullptr);
+		std::tm parts{};
+#ifdef _WIN32
+		localtime_s(&parts, &now);
+#else
+		localtime_r(&now, &parts);
+#endif
+		char stamp[32]{};
+		std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &parts);
+
+		const std::string base = (stem.empty() ? std::string("untitled") : stem)
+							   + "_" + stamp;
+
+		std::error_code error;
+		std::filesystem::path candidate = directory / (base + ".png");
+		for (int index = 2; std::filesystem::exists(candidate, error) && index < 1000; index++)
+			candidate = directory / (base + "_" + std::to_string(index) + ".png");
+
+		return candidate;
+	}
+
 	bool Project::Save()
 	{
 		if (!s_Active)

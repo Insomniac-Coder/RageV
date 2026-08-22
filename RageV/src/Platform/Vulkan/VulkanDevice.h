@@ -59,6 +59,8 @@ namespace RageV::Vk
 		// from the first IsDeviceLost() that answers yes.
 		void ReportGpuCrashDetails() const;
 		void RequestCapture(CaptureCallback callback) override;
+		void RequestTextureCapture(const RHI::Ref<RHI::RHITexture>& texture,
+								   CaptureCallback callback) override;
 		void CaptureSwapchainImage();
 		void OnResize(uint32_t width, uint32_t height) override;
 		void SetVSync(bool enabled) override;
@@ -182,6 +184,14 @@ namespace RageV::Vk
 
 	private:
 		GLFWwindow* m_Window = nullptr;
+
+		// Armed by RequestTextureCapture, consumed by the same EndFrame that
+		// serves the swapchain one. The texture is held alive by the Ref: a
+		// capture armed on a target the caller then drops would otherwise read
+		// an image that has been destroyed.
+		RHI::Ref<RHI::RHITexture> m_CaptureTexture;
+		CaptureCallback m_TextureCapture;
+		void CaptureTextureImage();
 
 		// Armed by RequestCapture, consumed and cleared by the next EndFrame.
 		CaptureCallback m_Capture;
