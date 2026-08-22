@@ -105,7 +105,21 @@ void main()
 	// resumed history from being a lie -- the same contract taa_resolve has.
 	if (u_Params.HasHistory < 0.5 || u_Params.Feedback <= 0.0)
 	{
-		o_Color = vec4(current.rgb, 1.0);
+		// **Filtered even here**, which is the frame that needs it most: with
+		// no history there is nothing but four rays, and this is the frame a
+		// screenshot of a freshly loaded scene captures.
+		vec3 sum = current.rgb;
+		for (int y = -1; y <= 1; y++)
+		{
+			for (int x = -1; x <= 1; x++)
+			{
+				if (x == 0 && y == 0)
+					continue;
+				sum += texture(u_Current, uv + vec2(x, y) * u_Params.TexelSize).rgb;
+			}
+		}
+
+		o_Color = vec4(max(mix(current.rgb, sum / 9.0, 0.65), vec3(0.0)), 1.0);
 		return;
 	}
 
@@ -144,10 +158,32 @@ void main()
 	const vec3 centre = (lowest + highest) * 0.5;
 	const vec3 extent = max(highest - centre, vec3(1e-4)) * kClampScale;
 
+	// **The spatial half, which this pass did not have.**
+	//
+	// It accumulated across time and never filtered across space: the 3x3
+	// neighbourhood above was read only to *clamp* the history and then thrown
+	// away. That leaves the estimate as noisy as four rays make it on the
+	// frames after a disocclusion, and permanently noisy anywhere the history
+	// keeps being rejected -- which is exactly where the eye is looking, because
+	// disocclusion follows motion.
+	//
+	// Indirect light is the lowest-frequency thing in the frame and this buffer
+	// is already at half resolution, so nine taps two pixels wide cost almost
+	// nothing in accuracy and divide the variance by up to nine. The taps are
+	// the ones the clamp already fetched, so it is free.
+	//
+	// **Blended rather than replaced**, and the weight is not one: a box filter
+	// over a disocclusion boundary pulls in a neighbour that is looking at
+	// different geometry, and at full strength that is a halo. The clamp above
+	// bounds how far the *history* may stray; this bounds how far the current
+	// estimate may.
+	const float kSpatial = 0.65;
+	const vec3 filtered = mix(current.rgb, mean, kSpatial);
+
 	vec4 history = texture(u_History, historyUV);
 	history.rgb = ClipToBox(history.rgb, centre, extent);
 
-	vec3 result = mix(current.rgb, history.rgb, u_Params.Feedback);
+	vec3 result = mix(filtered, history.rgb, u_Params.Feedback);
 
 	// Negative irradiance is not a thing; a filtered read across a disocclusion
 	// can produce one, and it would darken the surface below unlit.
