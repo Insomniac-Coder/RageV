@@ -19,6 +19,32 @@ namespace RageV::Assets
 			return Vec3((float)v.x, (float)v.y, (float)v.z);
 		}
 
+		Quat ToQuat(const ufbx_quat& q)
+		{
+			// ufbx stores xyzw; Quat's constructor takes wxyz. The glTF
+			// importer says the same thing about the same mistake.
+			return Quat((float)q.w, (float)q.x, (float)q.y, (float)q.z);
+		}
+
+		Mat4 ToMat4(const ufbx_matrix& m)
+		{
+			// ufbx keeps an affine transform as four *columns* of three, which
+			// is the order Mat4 already uses -- so this fills columns and
+			// supplies the fourth row, and is not a transpose. Getting that
+			// backwards produces a bind matrix that is wrong only where the
+			// rotation is, which is invisible on a fixture with no rotation in
+			// it.
+			Mat4 out(1.0f);
+			for (int column = 0; column < 4; column++)
+			{
+				out[column] = Vec4((float)m.cols[column].x,
+								   (float)m.cols[column].y,
+								   (float)m.cols[column].z,
+								   column == 3 ? 1.0f : 0.0f);
+			}
+			return out;
+		}
+
 		// --- texture paths ----------------------------------------------------
 		//
 		// An FBX records the absolute path the artist had -- `C:\Users\someone
@@ -206,6 +232,333 @@ namespace RageV::Assets
 			}
 		}
 
+		// --- skinning (8.9 stage 2) -------------------------------------------
+		//
+		// **The skeleton is what the skin binds, not what looks like a bone.**
+		// A node carrying a `ufbx_bone` attribute is a hint the exporter left;
+		// the definition is the set of `ufbx_skin_cluster`s, because a cluster
+		// is the thing that owns a bind matrix and a list of weights. Rigs
+		// routinely carry bone-shaped nodes nothing is skinned to -- IK
+		// targets, twist helpers, a control rig the animator drives -- and
+		// importing those gives a skeleton whose indices address nothing.
+		struct SkinMapping
+		{
+			// ufbx cluster index to skeleton bone index, or -1 for a cluster
+			// whose bone was dropped.
+			std::vector<int> ToBone;
+			// Every bone node, so a baked animation channel can ask whether the
+			// node it moves is a bone of this skeleton.
+			std::unordered_map<const ufbx_node*, int> BoneOf;
+		};
+
+		bool ReadSkin(const ufbx_skin_deformer& skin, Skeleton& out, SkinMapping& mapping)
+		{
+			const size_t count = skin.clusters.count;
+			if (count == 0)
+				return false;
+
+			std::unordered_map<const ufbx_node*, int> clusterOf;
+			for (size_t i = 0; i < count; i++)
+			{
+				const ufbx_node* bone = skin.clusters.data[i]->bone_node;
+				if (bone)
+					clusterOf.emplace(bone, (int)i);
+			}
+
+			// **A bone's parent is its nearest bone *ancestor*, not its direct
+			// parent.** An FBX rig puts nodes between bones as a matter of
+			// course -- the armature, a namespace group, a scale helper ufbx
+			// inserted for a non-standard inherit mode -- and stopping at the
+			// first parent that is not a bone would make every bone in the file
+			// a root. The glTF path gets away with the simpler rule because its
+			// joints array is flat by construction.
+			std::vector<int> parentOf(count, -1);
+			for (size_t i = 0; i < count; i++)
+			{
+				const ufbx_node* bone = skin.clusters.data[i]->bone_node;
+				for (const ufbx_node* walk = bone ? bone->parent : nullptr;
+					 walk; walk = walk->parent)
+				{
+					const auto found = clusterOf.find(walk);
+					if (found != clusterOf.end())
+					{
+						parentOf[i] = found->second;
+						break;
+					}
+				}
+			}
+
+			// Depth first from the roots, so a parent is emitted before its
+			// children -- Skeleton requires that, and composition is one
+			// forward pass. The visited set makes a malformed cycle a dropped
+			// bone rather than a hang, which is the glTF path's rule too.
+			mapping.ToBone.assign(count, -1);
+			std::vector<int> order;
+			order.reserve(count);
+
+			std::vector<std::vector<int>> childrenOf(count);
+			for (size_t i = 0; i < count; i++)
+			{
+				if (parentOf[i] >= 0)
+					childrenOf[parentOf[i]].push_back((int)i);
+			}
+
+			std::vector<int> stack;
+			for (size_t i = 0; i < count; i++)
+			{
+				if (parentOf[i] < 0 && skin.clusters.data[i]->bone_node)
+					stack.push_back((int)i);
+			}
+			std::reverse(stack.begin(), stack.end());
+
+			while (!stack.empty())
+			{
+				const int cluster = stack.back();
+				stack.pop_back();
+
+				if (mapping.ToBone[cluster] >= 0)
+					continue;
+
+				mapping.ToBone[cluster] = (int)order.size();
+				order.push_back(cluster);
+
+				for (auto child = childrenOf[cluster].rbegin();
+					 child != childrenOf[cluster].rend(); ++child)
+				{
+					stack.push_back(*child);
+				}
+			}
+
+			const std::string skinName = skin.name.length
+									   ? std::string(skin.name.data, skin.name.length)
+									   : std::string("(unnamed)");
+
+			if (order.size() != count)
+			{
+				RV_CORE_WARN("Skin '{0}' has {1} cluster(s) but only {2} reach a root; "
+							 "the rest are dropped", skinName, count, order.size());
+			}
+
+			if (order.empty())
+				return false;
+
+			// **The rest pose comes from the bind matrices, not from where the
+			// nodes currently sit, and that is a real difference from glTF.**
+			//
+			// An FBX is routinely saved with the rig standing on an animated
+			// frame, so a bone node's transform is whatever pose the artist
+			// happened to leave -- while the bind matrix is the one thing in
+			// the file defined to be the bind pose. Deriving the rest from it
+			// also makes the property this whole path is tested on true *by
+			// construction*: a skeleton at rest composes to the identity for
+			// every bone, so the mesh renders exactly as it was modelled.
+			//
+			// `geometry_to_bone` is the mesh's *geometry* space to the bone,
+			// which is the space `mesh.vertex_position` is read in above, so
+			// the two agree without a conversion. `mesh_node_to_bone` is the
+			// same quantity through the node's own transform and is the wrong
+			// one here for exactly that reason.
+			out.Bones.clear();
+			out.Bones.resize(order.size());
+
+			std::vector<Mat4> globalRest(order.size(), Mat4(1.0f));
+
+			for (size_t bone = 0; bone < order.size(); bone++)
+			{
+				const int cluster = order[bone];
+				const ufbx_skin_cluster& source = *skin.clusters.data[cluster];
+				const ufbx_node* node = source.bone_node;
+
+				Bone& target = out.Bones[bone];
+				target.Name = node && node->name.length
+							? std::string(node->name.data, node->name.length)
+							: ("bone" + std::to_string(bone));
+				target.Parent = parentOf[cluster] >= 0 ? mapping.ToBone[parentOf[cluster]] : -1;
+				target.InverseBind = ToMat4(source.geometry_to_bone);
+
+				globalRest[bone] = Math::Inverse(target.InverseBind);
+
+				const Mat4 local = target.Parent >= 0
+								 ? Math::Inverse(globalRest[target.Parent]) * globalRest[bone]
+								 : globalRest[bone];
+
+				Quat rotation;
+				if (Math::Decompose(local, target.RestPosition, rotation, target.RestScale))
+				{
+					target.RestRotation = rotation;
+				}
+				else
+				{
+					// A singular bind matrix -- a bone flattened to nothing on
+					// one axis. Left at the identity rather than dropped,
+					// because the indices around it are already assigned.
+					RV_CORE_WARN("Bone '{0}' has a bind matrix that will not decompose; "
+								 "resting it at the identity", target.Name);
+					target.RestPosition = Vec3(0.0f);
+					target.RestScale = Vec3(1.0f);
+				}
+
+				if (node)
+					mapping.BoneOf.emplace(node, (int)bone);
+			}
+
+			if (!out.IsWellOrdered())
+			{
+				RV_CORE_ERROR("Skin '{0}' could not be ordered parents-first", skinName);
+				return false;
+			}
+
+			return true;
+		}
+
+		// One mesh vertex's influences, as the top four.
+		//
+		// ufbx sorts a vertex's weights by decreasing influence, so "the top
+		// four" is a prefix rather than a search. They are explicitly *not*
+		// normalised in the file, and a fifth influence dropped here unbalances
+		// them further -- so this renormalises, because weights that do not sum
+		// to one shrink the vertex towards the origin rather than failing
+		// visibly.
+		void ReadVertexSkin(const ufbx_skin_deformer& skin, const SkinMapping& mapping,
+							uint32_t vertex, UVec4& joints, Vec4& weights)
+		{
+			joints = UVec4(0);
+			weights = Vec4(0.0f);
+
+			if (vertex < skin.vertices.count)
+			{
+				const ufbx_skin_vertex& entry = skin.vertices.data[vertex];
+
+				uint32_t taken = 0;
+				float total = 0.0f;
+				for (uint32_t i = 0; i < entry.num_weights && taken < 4; i++)
+				{
+					const ufbx_skin_weight& influence =
+						skin.weights.data[entry.weight_begin + i];
+					if (influence.cluster_index >= mapping.ToBone.size())
+						continue;
+
+					const int bone = mapping.ToBone[influence.cluster_index];
+					if (bone < 0)
+						continue;
+
+					joints[taken] = (uint32_t)bone;
+					weights[taken] = (float)influence.weight;
+					total += (float)influence.weight;
+					taken++;
+				}
+
+				if (total > 1e-6f)
+				{
+					weights /= total;
+					return;
+				}
+			}
+
+			// No influence this skeleton can address. Bone 0 at full weight
+			// leaves the vertex wherever the root puts it, which is wrong in a
+			// way somebody can see and name; all-zero weights collapse it to the
+			// origin and streak the mesh across the screen.
+			joints = UVec4(0);
+			weights = Vec4(1.0f, 0.0f, 0.0f, 0.0f);
+		}
+
+		// --- animation (8.9 stage 2) ------------------------------------------
+		//
+		// **Baked, not read as curves, and that is the whole design.** An FBX
+		// node's transform is not a TRS triple: it is a chain of ten parts --
+		// translation, rotation offset, rotation pivot, pre-rotation, rotation,
+		// post-rotation, the two pivot inverses, scaling offset and scaling
+		// pivot -- composed in an order the node itself names. Reading the
+		// `Lcl Rotation` X, Y and Z curves and calling the result a quaternion
+		// track is the classic FBX importer bug, and it is wrong twice over:
+		// pre-rotation is where Maya keeps joint orientation, so every bone
+		// arrives rotated by its joint orient, and euler angles interpolated as
+		// if they were quaternion keys take a different path between the same
+		// two poses.
+		//
+		// `ufbx_bake_anim` composes that chain and hands back translation,
+		// rotation and scale keys that are *defined* to be linearly
+		// interpolatable, which is exactly the contract BoneTrack has. Key
+		// reduction is on, rotation included, because the runtime slerps them --
+		// that option is a claim about the sampler, and would be a lie if
+		// SamplePose lerped.
+		void ReadAnimation(const ufbx_scene& scene, const ufbx_anim_stack& stack,
+						   const SkinMapping& mapping, size_t boneCount,
+						   Anim::Clip& out)
+		{
+			out.Name = stack.name.length ? std::string(stack.name.data, stack.name.length)
+										 : "Clip";
+			out.Tracks.assign(boneCount, BoneTrack{});
+
+			ufbx_bake_opts opts = {};
+			// A clip authored on frames 30-60 starts at zero, as every glTF one
+			// does. Not the same as subtracting the start time afterwards: ufbx
+			// trims on the file's own integer ticks and does not accumulate the
+			// rounding.
+			opts.trim_start_time = true;
+			opts.key_reduction_enabled = true;
+			opts.key_reduction_rotation = true;
+
+			ufbx_error error;
+			ufbx_baked_anim* baked = ufbx_bake_anim(&scene, stack.anim, &opts, &error);
+			if (!baked)
+			{
+				char description[512];
+				ufbx_format_error(description, sizeof(description), &error);
+				RV_CORE_WARN("Animation '{0}' would not bake: {1}", out.Name, description);
+				return;
+			}
+
+			for (size_t i = 0; i < baked->nodes.count; i++)
+			{
+				const ufbx_baked_node& node = baked->nodes.data[i];
+				if (node.typed_id >= scene.nodes.count)
+					continue;
+
+				const auto found = mapping.BoneOf.find(scene.nodes.data[node.typed_id]);
+				if (found == mapping.BoneOf.end())
+					continue;   // moves something that is not a bone of this skin
+
+				BoneTrack& track = out.Tracks[found->second];
+
+				// A constant channel keeps its single key rather than being
+				// dropped. Dropping it would fall the bone back to its rest
+				// transform, and rest here is the *bind* pose -- so a bone the
+				// clip holds somewhere other than bind would snap to bind
+				// instead of staying where the animator put it.
+				track.Position.Times.reserve(node.translation_keys.count);
+				track.Position.Values.reserve(node.translation_keys.count);
+				for (size_t k = 0; k < node.translation_keys.count; k++)
+				{
+					const ufbx_baked_vec3& key = node.translation_keys.data[k];
+					track.Position.Times.push_back((float)key.time);
+					track.Position.Values.push_back(ToVec3(key.value));
+				}
+
+				track.Rotation.Times.reserve(node.rotation_keys.count);
+				track.Rotation.Values.reserve(node.rotation_keys.count);
+				for (size_t k = 0; k < node.rotation_keys.count; k++)
+				{
+					const ufbx_baked_quat& key = node.rotation_keys.data[k];
+					track.Rotation.Times.push_back((float)key.time);
+					track.Rotation.Values.push_back(ToQuat(key.value));
+				}
+
+				track.Scale.Times.reserve(node.scale_keys.count);
+				track.Scale.Values.reserve(node.scale_keys.count);
+				for (size_t k = 0; k < node.scale_keys.count; k++)
+				{
+					const ufbx_baked_vec3& key = node.scale_keys.data[k];
+					track.Scale.Times.push_back((float)key.time);
+					track.Scale.Values.push_back(ToVec3(key.value));
+				}
+			}
+
+			ufbx_free_baked_anim(baked);
+			out.RecomputeDuration();
+		}
+
 		// --- geometry ---------------------------------------------------------
 		//
 		// One `ImportedPrimitive` per (mesh, material) pair, which is the split
@@ -243,6 +596,7 @@ namespace RageV::Assets
 		};
 
 		void ReadMeshPart(const ufbx_mesh& mesh, const ufbx_mesh_part& part,
+						  const ufbx_skin_deformer* skin, const SkinMapping& mapping,
 						  ImportedPrimitive& out)
 		{
 			std::unordered_map<VertexKey, uint32_t, VertexKeyHash> seen;
@@ -291,6 +645,19 @@ namespace RageV::Assets
 					else
 					{
 						vertex.TexCoord = Vec2(0.0f, 0.0f);
+					}
+
+					// Influences follow the *mesh* vertex, which is what
+					// `key.Index` already is -- so the dedup key needs nothing
+					// added to it: two corners that share a position share
+					// their weights by definition.
+					if (skin)
+					{
+						UVec4 joints;
+						Vec4 weights;
+						ReadVertexSkin(*skin, mapping, key.Index, joints, weights);
+						out.Joints.push_back(joints);
+						out.Weights.push_back(weights);
 					}
 
 					const uint32_t position = (uint32_t)out.Vertices.size();
@@ -404,6 +771,31 @@ namespace RageV::Assets
 			out.Nodes.push_back(std::move(entry));
 		}
 
+		// **The skeleton before the geometry, because the geometry addresses
+		// it.** One skin, the first in the file: a file with two independent
+		// characters in it is a file that should have been two files, and
+		// supporting it would mean every skinned primitive carrying which
+		// skeleton it belongs to for a case nobody exports. `ImportedModel`
+		// says the same thing about glTF.
+		SkinMapping mapping;
+		const ufbx_skin_deformer* skeletonSkin = nullptr;
+
+		if (scene->skin_deformers.count > 0)
+		{
+			skeletonSkin = scene->skin_deformers.data[0];
+			if (!ReadSkin(*skeletonSkin, out.Skeleton, mapping))
+			{
+				out.Skeleton.Bones.clear();
+				skeletonSkin = nullptr;
+			}
+
+			if (scene->skin_deformers.count > 1)
+			{
+				RV_CORE_WARN("FBX '{0}' has {1} skins; only the first is imported",
+							 path.string(), scene->skin_deformers.count);
+			}
+		}
+
 		// Geometry, one primitive per (mesh, material) pair.
 		for (size_t i = 0; i < scene->nodes.count; i++)
 		{
@@ -413,6 +805,20 @@ namespace RageV::Assets
 
 			const ufbx_mesh& mesh = *node->mesh;
 			const auto owner = nodeIndex.find(node);
+
+			// Only the skin the skeleton came from. A second skin's cluster
+			// indices address a different bone list, so reading its weights
+			// through this mapping would produce plausible numbers pointing at
+			// the wrong bones -- which is worse than the mesh arriving static.
+			const ufbx_skin_deformer* skin = nullptr;
+			for (size_t d = 0; skeletonSkin && d < mesh.skin_deformers.count; d++)
+			{
+				if (mesh.skin_deformers.data[d] == skeletonSkin)
+				{
+					skin = skeletonSkin;
+					break;
+				}
+			}
 
 			for (size_t p = 0; p < mesh.material_parts.count; p++)
 			{
@@ -431,7 +837,7 @@ namespace RageV::Assets
 					primitive.Material = found == materialIndex.end() ? -1 : found->second;
 				}
 
-				ReadMeshPart(mesh, part, primitive);
+				ReadMeshPart(mesh, part, skin, mapping, primitive);
 				if (primitive.Vertices.empty())
 					continue;
 
@@ -442,14 +848,24 @@ namespace RageV::Assets
 			}
 		}
 
-		// Stage 1 stops here, and says so rather than importing a skeleton it
-		// would pose wrongly (7bn).
-		if (scene->skin_deformers.count > 0)
+		// Animations last: they address bones, which the skin above defined.
+		// An empty clip -- one whose every channel moved something that is not
+		// a bone of this skin -- is dropped rather than kept, because a clip
+		// that plays and does nothing is indistinguishable from a broken one.
+		if (!out.Skeleton.IsEmpty())
 		{
-			RV_CORE_WARN("FBX '{0}' has {1} skin(s); FBX skinning is not imported yet "
-						 "(ROADMAP 8.9 stage 2). The geometry comes in at its bind "
-						 "pose.",
-						 path.string(), scene->skin_deformers.count);
+			for (size_t i = 0; i < scene->anim_stacks.count; i++)
+			{
+				Anim::Clip clip;
+				ReadAnimation(*scene, *scene->anim_stacks.data[i], mapping,
+							  out.Skeleton.Size(), clip);
+
+				const bool moves = std::any_of(clip.Tracks.begin(), clip.Tracks.end(),
+											   [](const BoneTrack& track)
+											   { return !track.IsEmpty(); });
+				if (moves)
+					out.Clips.push_back(std::move(clip));
+			}
 		}
 
 		ufbx_free_scene(scene);
@@ -463,6 +879,13 @@ namespace RageV::Assets
 		RV_CORE_INFO("Imported FBX '{0}': {1} primitive(s), {2} material(s), {3} node(s)",
 					 path.filename().string(), out.Primitives.size(),
 					 out.Materials.size(), out.Nodes.size());
+
+		if (!out.Skeleton.IsEmpty())
+		{
+			RV_CORE_INFO("  with {0} bone(s) and {1} clip(s)",
+						 out.Skeleton.Size(), out.Clips.size());
+		}
+
 		return true;
 	}
 }

@@ -7081,6 +7081,224 @@ void main()
 			// The rotation is about +Z, so the axis leans towards -X.
 			Check(bentAxis.x < -0.05f, "leaning the way the clip says");
 		}
+
+		// --- FBX skinning and animation (8.9 stage 2, ENGINE-NOTES 7bz) ------
+		//
+		// The same rig in the other format, written from the same description
+		// by make_skinned_fbx.py -- so these are comparisons against an answer
+		// already checked above rather than against a model somebody exported
+		// once. What they are looking for is the three failures only the FBX
+		// path can have: a bind matrix read transposed, a rest pose taken from
+		// wherever the bone nodes were left rather than from the bind, and
+		// euler curves read as if they were a quaternion track.
+		{
+			Assets::ImportedModel skinnedFbx;
+			const bool readSkinnedFbx =
+				Assets::ModelImporter::Import(Project::AssetPath("models/limb.fbx"),
+											  skinnedFbx);
+
+			Check(readSkinnedFbx, "a skinned FBX imports");
+
+			if (readSkinnedFbx)
+			{
+				Check(skinnedFbx.HasSkeleton() && skinnedFbx.Skeleton.Size() == 2,
+					  "and brings the same two bones its twin does");
+				Check(skinnedFbx.Skeleton.IsWellOrdered(),
+					  "ordered parents first, out of a cluster list that has no order");
+
+				if (skinnedFbx.Skeleton.Size() == 2 && imported.Skeleton.Size() == 2)
+				{
+					Check(skinnedFbx.Skeleton.Bones[0].Parent == -1
+						  && skinnedFbx.Skeleton.Bones[1].Parent == 0,
+						  "with the chain intact -- an FBX bone's parent is its "
+						  "nearest bone *ancestor*, and stopping at the first "
+						  "non-bone parent would make both of these roots");
+
+					// **The rest pose, which the FBX path derives from the bind
+					// matrices rather than from the nodes.** The fixture is
+					// saved at bind, so the two sources agree there and this
+					// can be a comparison; a file saved on an animated frame is
+					// exactly where they would not, which is the reason for the
+					// rule.
+					float restError = 0.0f;
+					for (size_t i = 0; i < 2; i++)
+					{
+						restError = Math::Max(restError,
+							Math::Length(skinnedFbx.Skeleton.Bones[i].RestPosition -
+										 imported.Skeleton.Bones[i].RestPosition));
+					}
+					Check(restError < 1e-4f,
+						  "and each bone rests where the glTF twin says it does");
+
+					// **The bind matrices, element by element.** FBX writes a
+					// cluster's matrix as sixteen doubles in column-major
+					// order; read as rows it is wrong only where the rotation
+					// is, so this is the claim a fixture with an axis-aligned
+					// bind pose can still make -- the translation lands in the
+					// fourth column or it does not.
+					float bindError = 0.0f;
+					for (size_t i = 0; i < 2; i++)
+					{
+						const Mat4& mine = skinnedFbx.Skeleton.Bones[i].InverseBind;
+						const Mat4& theirs = imported.Skeleton.Bones[i].InverseBind;
+						for (int c = 0; c < 4; c++)
+						{
+							for (int r = 0; r < 4; r++)
+								bindError = Math::Max(bindError, Math::Abs(mine[c][r] - theirs[c][r]));
+						}
+					}
+					Check(bindError < 1e-4f,
+						  "and its inverse bind matches the twin's element for "
+						  "element, which a transposed read would not");
+				}
+
+				// Rest pose in, identity out -- on the FBX this is true by
+				// construction, since the rest is derived from the bind. Which
+				// makes it a check on the *derivation*, not on the file.
+				{
+					Pose rest;
+					RestPose(skinnedFbx.Skeleton, rest);
+
+					std::vector<Mat4> skinning;
+					ComposeSkinning(skinnedFbx.Skeleton, rest, skinning);
+
+					bool identity = !skinning.empty();
+					for (const Mat4& m : skinning)
+					{
+						for (int c = 0; c < 4 && identity; c++)
+						{
+							for (int r = 0; r < 4 && identity; r++)
+							{
+								const float expected = c == r ? 1.0f : 0.0f;
+								identity = Math::Abs(m[c][r] - expected) < 1e-4f;
+							}
+						}
+					}
+
+					Check(identity, "the FBX skeleton is the identity at its bind pose");
+				}
+
+				// The weights, matched by position against the twin. The FBX
+				// carries more vertices than the glTF -- its normals are
+				// per-corner, so nothing dedups -- which is why this is a
+				// lookup rather than an index comparison.
+				bool weighted = !skinnedFbx.Primitives.empty();
+				float weightError = 0.0f;
+				size_t unmatched = 0;
+
+				auto upperInfluence = [](const Assets::ImportedPrimitive& primitive, size_t i)
+				{
+					float upper = 0.0f;
+					for (int c = 0; c < 4; c++)
+					{
+						if (primitive.Joints[i][c] == 1)
+							upper += primitive.Weights[i][c];
+					}
+					return upper;
+				};
+
+				for (const Assets::ImportedPrimitive& mine : skinnedFbx.Primitives)
+				{
+					weighted = weighted && mine.IsSkinned();
+					if (!mine.IsSkinned())
+						continue;
+
+					for (size_t i = 0; i < mine.Vertices.size(); i++)
+					{
+						const Vec3 position = mine.Vertices[i].Position;
+
+						bool found = false;
+						for (size_t j = 0; j < primitive.Vertices.size() && !found; j++)
+						{
+							if (Math::Length(primitive.Vertices[j].Position - position) > 1e-4f)
+								continue;
+
+							found = true;
+							weightError = Math::Max(weightError,
+								Math::Abs(upperInfluence(mine, i) -
+										  upperInfluence(primitive, j)));
+						}
+
+						if (!found)
+							unmatched++;
+					}
+				}
+
+				Check(weighted, "its geometry is skinned");
+				Check(unmatched == 0,
+					  "and sits on the same vertices the twin does");
+				Check(weightError < 1e-4f,
+					  "with the same influence on every one of them -- a cluster's "
+					  "weights are indexed by *mesh vertex*, so an index taken from "
+					  "the triangle corner instead lands on a plausible wrong vertex");
+
+				// **The clip, which is the part that is baked rather than
+				// read.** FBX keys rotation as three euler channels in the
+				// node's own rotation order, through a transform chain with a
+				// pre-rotation in it; the importer composes that chain with
+				// ufbx and takes TRS keys out. Sampling both clips through the
+				// engine's own sampler and comparing the matrices is the
+				// end-to-end form of that claim: degrees left as radians, a
+				// rotation order misread, euler values shoved into a quaternion
+				// or a time base off by the file's tick rate all break it.
+				Check(skinnedFbx.Clips.size() == 1, "one clip came with it");
+
+				if (skinnedFbx.Clips.size() == 1 && !clip.Tracks.empty())
+				{
+					const Anim::Clip& mine = skinnedFbx.Clips[0];
+
+					Check(mine.Duration > 1.9f && mine.Duration < 2.1f,
+						  "two seconds long, out of a file that counts time in "
+						  "46186158000ths of a second");
+					Check(mine.Tracks.size() == skinnedFbx.Skeleton.Size(),
+						  "with a track for every bone");
+
+					float poseError = 0.0f;
+					float travelled = 0.0f;
+
+					for (int step = 0; step <= 16; step++)
+					{
+						const float time = 2.0f * step / 16.0f;
+
+						Pose ours, theirs;
+						SamplePose(skinnedFbx.Skeleton, mine, time, false, ours);
+						SamplePose(imported.Skeleton, clip, time, false, theirs);
+
+						std::vector<Mat4> a, b;
+						ComposeGlobal(skinnedFbx.Skeleton, ours, a);
+						ComposeGlobal(imported.Skeleton, theirs, b);
+
+						for (size_t bone = 0; bone < a.size() && bone < b.size(); bone++)
+						{
+							for (int c = 0; c < 4; c++)
+							{
+								for (int r = 0; r < 4; r++)
+								{
+									poseError = Math::Max(poseError,
+														  Math::Abs(a[bone][c][r] - b[bone][c][r]));
+								}
+							}
+						}
+
+						// How far the tip actually swings, so "they agree" cannot
+						// be satisfied by two clips that both do nothing.
+						if (!a.empty())
+						{
+							const Vec3 axis = Vec3(a[1] * Vec4(0.0f, 1.0f, 0.0f, 0.0f));
+							travelled = Math::Max(travelled, Math::Abs(axis.x));
+						}
+					}
+
+					Check(travelled > 0.5f,
+						  "the FBX clip swings the bone a long way -- sixty degrees, "
+						  "which is where euler and slerp differ enough between keys "
+						  "to tell them apart");
+					Check(poseError < 2e-3f,
+						  "and matches the glTF twin at every sixteenth of it, pose "
+						  "for pose");
+				}
+			}
+		}
 	}
 
 	// The skinned vertex path.

@@ -7,15 +7,16 @@
 // struct -- GPU upload, the entity tree, cooking to `.rvmesh`, packing, and
 // the checks -- is already written and does not know which parser ran.
 //
-// **Stage 1: static geometry, materials, textures and the node hierarchy.**
-// Skinning and animation are stage 2 and are stated as absent rather than
-// half-done: a skeleton that imports but poses wrongly is worse than one that
-// says it is not there.
+// Static geometry, materials, textures, the node hierarchy, skinning and
+// animation -- the whole row (stage 1 on 2026-08-20, stage 2 on the 22nd).
 //
-// What this format needs that glTF does not, all of it recorded in 7bn:
-// axes and units (an FBX carries its own, and the three common exporters
-// disagree), a material model that is Phong underneath, n-gon faces, and
-// texture paths recorded from the machine the artist was sitting at.
+// What this format needs that glTF does not, all of it recorded in 7bn and
+// 7bz: axes and units (an FBX carries its own, and the three common exporters
+// disagree), a material model that is Phong underneath, n-gon faces, texture
+// paths recorded from the machine the artist was sitting at -- and, for
+// animation, a node transform that is not a TRS triple but a ten-part chain
+// with pivots and a pre-rotation in it. That last one is why clips are baked
+// through `ufbx_bake_anim` rather than read off the curves.
 
 #include "GltfImporter.h"
 #include <filesystem>

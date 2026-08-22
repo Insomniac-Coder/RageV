@@ -11812,6 +11812,121 @@ time it hung; the second it crashed. Neither said anything about the DLL.
 
 ---
 
+### 7bz. FBX skinning: the transform that is not a transform
+
+Stage 2 of 8.9, and the last ordinary feature in phase 8. Stage 1 established
+that FBX is a *front end* and not a pipeline -- it fills `ImportedModel` and
+nothing downstream knows which parser ran -- so the work here is three
+questions the format answers differently from glTF, and only three.
+
+### 1. An FBX node's transform is not a TRS triple
+
+This is the whole design, and getting it wrong is the classic FBX importer bug.
+
+glTF stores a node's animation as translation, rotation and scale channels;
+they are what the format has, so reading them is a copy. FBX stores `Lcl
+Translation`, `Lcl Rotation` and `Lcl Scaling` too, and they look like the same
+thing, and they are not. The node's actual transform is a chain of **ten**
+parts:
+
+    T * Roff * Rp * Rpre * R * Rpost^-1 * Rp^-1 * Soff * Sp * S * Sp^-1
+
+composed in an order the node itself names -- `RotationOrder` is a per-node
+property with six legal values. Reading the three `Lcl Rotation` curves and
+calling the result a quaternion track fails twice over:
+
+- **`Rpre` is where Maya keeps joint orientation.** Every bone in a Maya rig
+  carries one, and an importer that ignores it produces a skeleton rotated by
+  its joint orient at every joint -- which looks like a rig that was exported
+  wrong rather than like an importer that was written wrong.
+- **Euler angles interpolated between keys are not a slerp.** Two poses with
+  the same endpoints take a different path through the middle, so a clip drifts
+  away from the authored motion between keys and meets it again at each one.
+
+`ufbx_bake_anim` composes the chain and hands back TRS keys that are *defined*
+to be linearly interpolatable, which is exactly the contract `BoneTrack` has.
+Key reduction is on including for rotation, because the engine slerps at
+runtime -- that option is a claim about the sampler and would be a lie if
+`SamplePose` lerped.
+
+**Baking is not a shortcut around reading the curves properly. It is the only
+faithful reading**, because the quantity the format stores is not the quantity
+an animation system wants, and the conversion is not per-key.
+
+### 2. The rest pose comes from the bind matrices, not from the nodes
+
+The glTF importer takes each bone's rest transform off its node, which is right
+there because a glTF is a scene description. An FBX is a *save file*: it is
+routinely written with the rig standing wherever the animator left it, so a
+bone node's transform is a pose and not the bind.
+
+The bind matrix is the one thing in the file defined to be the bind pose. So
+the skeleton's rest is derived from it -- `inverse(geometry_to_bone)` for the
+global, and the parent's inverse for the local -- which also makes the property
+the whole skinning path is tested on true **by construction**: a skeleton at
+rest composes to the identity for every bone, so the mesh renders exactly as it
+was modelled.
+
+That has a consequence worth stating, because it looks like an optimisation
+somebody could take: **a constant animation channel keeps its single key rather
+than being dropped**. Dropping it falls the bone back to rest, and rest is now
+the bind pose, so a bone the clip holds somewhere other than bind would snap to
+bind instead of staying where the animator put it.
+
+`geometry_to_bone` and not `mesh_node_to_bone`, incidentally: the first is the
+mesh's *geometry* space to the bone, which is the space `vertex_position` is
+read in, and the second is the same quantity through the node's own transform.
+The two are equal only when the mesh node is at the origin, which is exactly
+what a hand-written fixture would be.
+
+### 3. The skeleton is what the skin binds, not what looks like a bone
+
+A node carrying a `ufbx_bone` attribute is a hint the exporter left. The
+definition is the set of `ufbx_skin_cluster`s, because a cluster is the thing
+that owns a bind matrix and a list of weights. Rigs routinely carry bone-shaped
+nodes nothing is skinned to -- IK targets, twist helpers, the control rig the
+animator actually drives -- and importing those gives a skeleton whose indices
+address nothing.
+
+One thing FBX needs here that glTF does not: **a bone's parent is its nearest
+bone *ancestor*, not its direct parent**. An FBX rig puts nodes between bones as
+a matter of course -- the armature, a namespace group, a scale helper ufbx
+inserts for a non-standard inherit mode -- and stopping at the first parent that
+is not a bone would make every bone in the file a root. The glTF path gets away
+with the simpler rule because its joints array is flat by construction.
+
+### The fixture, and why it is a twin
+
+`make_skinned_fbx.py` imports `build_geometry` and `build_animation` out of
+`make_skinned_gltf.py` rather than restating them, so the two files cannot drift
+apart -- the pattern `make_fbx_fixture.py` established for static geometry, one
+step further. Fifteen claims, and what they are for is that a skinned model in
+one format looks like *something* and there is nothing to check it against.
+
+The strongest of them samples both clips through the engine's own sampler at
+every sixteenth of their length and compares the composed matrices. Degrees
+left as radians, a rotation order misread, euler values shoved into a
+quaternion, or a time base off by the file's tick rate -- 46186158000ths of a
+second, and that is the *old* tick rate, the one FBX versions below 8000 use --
+all break it in one place. Halving the fixture's bend was enough to make it
+fail, which is how it was checked for being live at all.
+
+The bind-matrix claim is element by element on purpose. FBX writes a cluster's
+matrix as sixteen doubles in column-major order, and read as rows it is wrong
+only where the rotation is -- so a fixture with an axis-aligned bind pose
+passes a "does it look right" test and fails this one.
+
+### What did not need doing
+
+Nothing downstream. The skinned vertex path, `SkinnedBounds`, the animator
+component, the cooked `.rvmesh` format and the packager were all already
+written against `ImportedModel`, and every one of them worked the first time
+the FBX filled it. Stage 1's claim -- that this was a front end and not a
+pipeline -- held for stage 2 as well, and that is the part worth remembering
+the next time a format looks like it needs its own everything.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
