@@ -72,6 +72,7 @@ package is slow and two of its answers are not in the project anywhere.
 |---|---|
 | **Graphics API** | Vulkan, OpenGL, or both. Both means the game starts on the first and falls through to the other when there is no driver for it; one means a machine without it gets a game that will not start |
 | **Scenes** | A checkbox each, with **Select all**, **Select none** and **Select current** outside the list. Only the ticked ones ship |
+| **Show the build in File Explorer when it finishes** | Opens the output folder once the build has succeeded, with the game's executable selected in it. Off by default and remembered until the editor closes -- a build runs on a worker, so the window would otherwise arrive minutes later over whatever you had moved on to |
 
 The start scene always ships, whatever the list says, and it says so when it
 has to add it back — a game whose first scene is missing cannot start. Narrowing

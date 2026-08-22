@@ -3,6 +3,7 @@
 #include "RageV/Core/Application.h"
 
 #include <commdlg.h>
+#include <shellapi.h>
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
@@ -45,6 +46,49 @@ namespace RageV
 			return ofn.lpstrFile;
 		}
 		return std::string();
+	}
+
+	bool Shell::ShowInFileManager(const std::filesystem::path& path)
+	{
+		std::error_code error;
+		if (path.empty() || !std::filesystem::exists(path, error))
+		{
+			RV_CORE_WARN("Cannot show {0}: there is nothing there", path.string());
+			return false;
+		}
+
+		// ShellExecute rather than spawning explorer.exe: it goes through the
+		// shell's own association, so it is the file manager the user actually
+		// has, and it does not leave a process handle to reap.
+		//
+		// `/select,` needs the *command line* form, which is why a file takes
+		// the other branch. Both are ShellExecute -- one opens a folder, one
+		// asks Explorer to open a folder with something highlighted.
+		const bool directory = std::filesystem::is_directory(path, error);
+		const std::wstring native = path.native();
+
+		HINSTANCE result;
+		if (directory)
+		{
+			result = ShellExecuteW(nullptr, L"open", native.c_str(),
+								   nullptr, nullptr, SW_SHOWNORMAL);
+		}
+		else
+		{
+			const std::wstring select = L"/select,\"" + native + L"\"";
+			result = ShellExecuteW(nullptr, L"open", L"explorer.exe",
+								   select.c_str(), nullptr, SW_SHOWNORMAL);
+		}
+
+		// ShellExecute returns a fake HINSTANCE; anything over 32 is success.
+		// The cast is what the API documents, odd as it looks.
+		if ((INT_PTR)result <= 32)
+		{
+			RV_CORE_WARN("Could not open {0} in the file manager ({1})",
+						 path.string(), (INT_PTR)result);
+			return false;
+		}
+		return true;
 	}
 
 	bool Process::RelaunchSelf(const std::string& arguments)

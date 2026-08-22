@@ -182,6 +182,14 @@ public:
 	// Every scene in the project and whether it ships. Rebuilt each time the
 	// dialog opens, because the project may have gained scenes since.
 	std::vector<std::pair<std::string, bool>> m_BuildScenes;
+
+	// Show the finished build in the file manager.
+	//
+	// Off by default and remembered for the session. A build that opens a
+	// window nobody asked for is a surprise the first time and an interruption
+	// every time after, and this runs on a worker -- so the window would
+	// arrive minutes later, over whatever was being done by then.
+	bool m_RevealAfterBuild = false;
 	std::mutex m_BuildLogMutex;
 	std::string m_BuildLiveLog;
 

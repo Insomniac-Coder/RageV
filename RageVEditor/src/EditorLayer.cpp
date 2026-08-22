@@ -3831,6 +3831,7 @@ void EditorLayer::OpenSceneFile(const std::filesystem::path& filepath)
 		m_ScenePath = filepath;
 	else
 		m_ScenePath.clear();
+
 }
 
 // What the Game panel is showing, as a PNG in the project's captures folder.
@@ -4238,6 +4239,7 @@ void EditorLayer::BuildInto(const std::filesystem::path& output,
 	desc.Backends = backends;
 	desc.Scenes = scenes;
 
+
 	// **Planned here, written there.** This half reads the project and the
 	// script runtime, so it stays on the main thread; what crosses to the
 	// worker is the plan, which is a snapshot and owns everything in it.
@@ -4477,6 +4479,21 @@ void EditorLayer::FinishBuild()
 
 			m_StatusBar.Post(EditorUI::StatusBar::Kind::Info, "Game built",
 							 m_PackageBuild.Executable.string());
+
+			// **The executable, not the folder it asked for.** Revealing a
+			// file selects it, so what opens is the output directory with the
+			// game highlighted in it rather than a directory listing to search
+			// -- and taking it from the result rather than from the request
+			// means it stays right if the packager ever moves where things
+			// land. On success they are the same directory; only one of them
+			// is guaranteed to keep being.
+			//
+			// **Only on success, and only if it was asked for.** A build that
+			// failed has already said so in the Build Log, which is where the
+			// answer is; opening a folder of half-copied files on top of that
+			// would be showing somebody the wrong thing at the worst moment.
+			if (m_RevealAfterBuild && !m_PackageBuild.Executable.empty())
+				Shell::ShowInFileManager(m_PackageBuild.Executable);
 		}
 	}
 
@@ -4677,7 +4694,11 @@ void EditorLayer::DrawBuildGamePanel()
 
 	// Room for the footer, taken off the list rather than left to overflow:
 	// the Build button is the one control here that must always be reachable.
-	const float footer = ImGui::GetFrameHeightWithSpacing()
+	//
+	// **Two rows, not one** -- the reveal checkbox sits between the list and
+	// the button, and a footer counted in one row would have pushed the button
+	// off the bottom of a window somebody had made short.
+	const float footer = ImGui::GetFrameHeightWithSpacing() * 2.0f
 					   + ImGui::GetStyle().ItemSpacing.y * 2.0f;
 
 	ImGui::BeginChild("##scenes", ImVec2(0.0f, -footer), ImGuiChildFlags_Borders);
@@ -4693,6 +4714,12 @@ void EditorLayer::DrawBuildGamePanel()
 	ImGui::EndChild();
 
 	// --- build ----------------------------------------------------------------
+	//
+	// What happens *after*, next to the button that starts it, because that is
+	// when somebody is deciding what they are about to do.
+	ImGui::Checkbox("Show the build in File Explorer when it finishes",
+					&m_RevealAfterBuild);
+
 	//
 	// Centred at the bottom, and the only way out other than closing the
 	// window. Disabled rather than absent when the answer is not yet valid, so
