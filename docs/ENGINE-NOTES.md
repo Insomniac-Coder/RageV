@@ -12067,6 +12067,204 @@ times what a sunlit surface does.
 
 ---
 
+### 7cb. Transparency, and the pass that only existed for particles
+
+The showroom's car arrived with twelve blended materials -- both windscreens,
+the side and rear glass, the lamp lenses, and the four discs a race model uses
+to fake a spinning wheel. **The renderer had no transparent path for meshes at
+all.** The frame graph's transparent pass had existed since particles needed
+one; nothing but particles ever fed it, and no scene had noticed because no
+scene had any glass in it.
+
+### The four links, and only the file had the information
+
+glTF says `alphaMode`. `ImportedMaterial` did not carry it, so it was dropped at
+the door. Now it carries it, the `.rmat` writes it, and the Material reaches the
+draw list with it. FBX states the same thing two ways -- a PBR `opacity` or a
+builtin's `transparency_factor` -- and both are read, because **an opacity is a
+number the artist set** rather than one ufbx derived. That is the same test the
+colour and the maps pass and the PBR scalars fail (7bn).
+
+The blend mode lives on the Material and not in the parameter block, because it
+is a *routing* decision: it decides which list a mesh joins and which pipeline
+that list is issued with, and the shader never asks it anything. The transparent
+variant is pbr.rvshader compiled with `RV_TRANSPARENT` -- the same lighting,
+written into two attachments instead of four. Velocity, the surface description
+and the traced indirect are absent from it, and that is a statement rather than
+an omission: a blended fragment has no single depth, so it cannot be reprojected
+for TAA, be a screen-space reflection's surface, or be a denoiser's sample.
+
+The sort key gained a bit at the top and the mesh id lost one to pay for it, so
+blended draws land in one contiguous block at the end and the opaque loop simply
+stops where it begins. No partition, no second instance buffer, no second scene
+set.
+
+### Coverage is not transmission
+
+The first cut multiplied the whole shaded colour by alpha, which is what naive
+transparency does and where it dies. **A pane at alpha 0.2 transmits four fifths
+of what is behind it and still reflects the ceiling at full strength.** Those
+are different terms and only the first is what alpha describes.
+
+Weighted-blended OIT has one coverage number per fragment, so the two are
+separated and recombined:
+
+    premultiplied = transmitted * alpha + reflected
+    coverage      = alpha + reflectance * (1 - alpha)
+
+Work the resolve through with one layer and it comes out as
+`transmitted * alpha + reflected + background * (1 - coverage)`, which is what a
+pane of glass does. Fresnel comes free, because the reflectance already carries
+it: glass head-on stays transparent and glass at a grazing angle goes to a
+mirror.
+
+The owner's word for the version without it was **hollow**, which is exactly
+right -- correctly lit and then attenuated to nothing.
+
+### The bug that hid all of it
+
+None of the above appeared to work. Roughness, specular, the coverage maths, a
+descriptor set -- four changes, no visible difference. Because the frame graph's
+transparent pass is only built when `DrawTransparent` and `ResolveTransparent`
+are both set, and both layers set them **only if the scene had weighted particle
+emitters**. The showroom has none. The pass was never in the graph and the glass
+was never drawn.
+
+**A windscreen that is not drawn and a windscreen that is perfectly transparent
+are the same picture**, which is why it read as working and every fix read as
+doing nothing.
+
+What settled it was forcing the transparent shader to emit flat red and watching
+the glass stay grey. That should have been the first thing tried and it was the
+fifth. **A change that produces no change is worth more than another
+hypothesis** -- it partitions the problem instead of exploring it.
+
+Two real defects were found underneath, either of which would have been the
+cause if this had not been:
+
+- **The transparent pipeline needed its own set 0.** A resource set is allocated
+  against one pipeline's layout, which is why there is already one per pipeline.
+  A fourth pipeline sharing the first's set drew geometry and lit it correctly
+  while quietly returning nothing for the bindings past the basics, so blended
+  surfaces reflected pure black.
+- **A stale cooked mesh failed hard instead of re-importing.** MeshCook's version
+  went to 2 for the blend field and every `.rvmesh` in a cache then answered "the
+  model produced nothing", with no way to act on it but deleting the folder. A
+  refused cooked file now falls through to the source, which is the one case a
+  version number exists to survive. It also hid the fix twice: re-importing the
+  car kept answering "opaque" because the answer came from a file written before
+  blend modes existed.
+
+### The model's own numbers, again
+
+**Every material in that car has roughness 0.9577** -- the windscreen and the
+lamp lenses included, not just the forty-five with no maps (7ca). At 0.96 a
+dielectric's lobe has no peak, which is visually identical to having no specular
+at all. The scene states glass at 0.04 and gives it the specular of a *coating*
+rather than of bare glass: F0 = 0.08 * Specular, so 1.5 is 12% where the default
+0.5 is the 4% bare glass reflects. Both are physically defensible; only one puts
+the luminaire in the screen instead of merely tinting it.
+
+### Why blended meshes take the CPU path
+
+Not parity -- the engine already forks on Vulkan-only features and falls back,
+and the owner was right to push back on that reasoning. Three real ones:
+
+1. **The GPU table has no concept of which pass a draw belongs to.** It is
+   culled once and issued once, with the opaque pipeline in the opaque pass. A
+   windscreen in it is a windscreen you cannot see through, which is why Scene
+   keeps them out.
+2. **The commands are written before the pass that would issue them**, and the
+   transparent pass runs later against different attachments. That is a second
+   `IndirectView` with its own buffer and lifetime.
+3. Fourteen draws against the sixty thousand the cull exists for.
+
+(1) and (2) say it is real work; (3) says the work buys nothing today. Foliage
+inverts (3) -- a forest of alpha-tested leaves is thousands of blended draws --
+and the split is already one bit in the sort key when it does.
+
+---
+
+### 7cc. Traced GI: variance is not a bug, and NEE is not all of it
+
+The showroom's bounce came back covered in speckle. Isolating it by elimination:
+ray-traced AO off, still there; traced reflections off as well, still there; ray
+tracing off entirely, clean. Moving the traced GI from Medium to High -- half
+resolution to full -- barely changed it.
+
+**That last fact is the diagnosis.** The bounce is a Monte Carlo estimate of
+
+    E = integral over the hemisphere of L cos(theta)
+
+sampled cosine-weighted, and this room is near the worst case for it: the
+luminaire is emissive at 4.7 and everything else is below 0.04. Most rays hit a
+wall and return almost nothing; a few hit the panel and return several hundred
+times that. The mean is right; the variance is enormous. **Variance falls as
+1/sqrt(N)**, so twice the rays is thirty percent less noise, which is exactly
+what High looked like.
+
+It was worst where the surface was *darkest*, which is the signature: that is
+where indirect light is the dominant term and nothing direct is hiding it.
+
+### Next-event estimation
+
+Sample the emitters directly. The scene collects its emissive geometry into a
+list of rectangles and every bounce sample also draws a point on one and traces
+a shadow ray to it. Every sample now sees the panel, so the estimate stops
+depending on whether a ray found it.
+
+An emitter is the **flattest rectangle of a mesh's own bounds**: the shortest
+axis of the box is the normal and the other two the extent. Exact for a plane,
+which is what every light fitting is, and bounded for anything else. Built
+during the draw-list refresh -- the one place with the world transform, the mesh
+bounds and the resolved material together -- and capped at sixteen, past which
+the old estimator is back. A cap that fails to *correct and noisy* is the right
+way round.
+
+Emissive is subtracted from hemisphere hits, because a luminaire found both ways
+is counted twice and the double count is precisely the high-variance term.
+
+**Two arithmetic points, both of which are easy to get silently wrong:**
+
+- **The pi.** The hemisphere estimator averages radiance directly, because
+  cosine sampling cancels the cosine and the pi with it -- so what this pass
+  writes is E/pi and the lit shader multiplies by albedo alone. An area
+  estimator beside it has no such cancellation and must put the pi back by hand,
+  or the emitters arrive three times too bright.
+- **The emitter count multiplies.** Picking one of N uniformly makes the area
+  density 1/(area * N), so N appears in the numerator of the estimator. Leaving
+  it out makes a scene dimmer the more lights it has.
+
+### And what it does not fix, which is the honest half
+
+NEE integrates the *emitters* exactly and does nothing for the rest. **A white
+car under that ceiling is itself a bright secondary source**: a ray that hits its
+bonnet returns thirty times what one hitting the floor does, and those spikes are
+what is left of the speckle.
+
+The residual hemisphere term is clamped. That trades a little energy for a lot
+of variance and it **is a bias** -- the brightest inter-reflections come back
+slightly dimmer than they should -- which is the trade every real-time path
+tracer makes. The number sits above anything the direct lighting produces, so it
+only ever catches outliers.
+
+Result: the surfaces that see the luminaire are visibly cleaner; the
+downward-facing ones lit only by bounce are better and not clean. Getting those
+needs more rays or a real denoiser, not a better estimator.
+
+### The bug that made it look like nothing worked
+
+The handover of the emitter list to the renderer went into `RenderShadows`' own
+submit branch first. It compiled. It ran on some frames. And it left the emitter
+count at **zero on the frames that mattered**, which is indistinguishable from
+an estimator that does not work -- three renders were compared before anyone
+thought to print the count.
+
+`RefreshDrawList` and the shadow pass and the lit pass all walk the same draw
+items, which is what made the wrong branch look right.
+
+---
+
 ## 8. What this changes
 
 | Item | Before | After |
