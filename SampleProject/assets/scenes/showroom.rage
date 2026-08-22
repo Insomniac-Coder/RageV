@@ -276,9 +276,9 @@ Entities:
     TagComponent:
       Tag: Luminaire
     TransformComponent:
-      Position: [0, 3.66, -0.5]
+      Position: [0, 3.66, 0.6]
       Rotation: [3.14159, 0, 0]
-      Scale: [7.8, 1, 8]
+      Scale: [7.8, 1, 11]
     MeshComponent:
       Mesh: 8241982477996916738
       Material: 10734442940267648324
@@ -286,9 +286,9 @@ Entities:
     TagComponent:
       Tag: Luminaire Reveal Left
     TransformComponent:
-      Position: [-3.9, 3.68, -0.5]
+      Position: [-3.9, 3.68, 0.6]
       Rotation: [0, 0, 0]
-      Scale: [0.1, 0.09, 8]
+      Scale: [0.1, 0.09, 11]
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 6962528961022338942
@@ -296,9 +296,9 @@ Entities:
     TagComponent:
       Tag: Luminaire Reveal Right
     TransformComponent:
-      Position: [3.9, 3.68, -0.5]
+      Position: [3.9, 3.68, 0.6]
       Rotation: [0, 0, 0]
-      Scale: [0.1, 0.09, 8]
+      Scale: [0.1, 0.09, 11]
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 6962528961022338942
@@ -306,7 +306,7 @@ Entities:
     TagComponent:
       Tag: Luminaire Reveal Front
     TransformComponent:
-      Position: [0, 3.68, 3.5]
+      Position: [0, 3.68, 6.1]
       Rotation: [0, 0, 0]
       Scale: [8, 0.09, 0.1]
     MeshComponent:
@@ -316,7 +316,7 @@ Entities:
     TagComponent:
       Tag: Luminaire Reveal Back
     TransformComponent:
-      Position: [0, 3.68, -4.5]
+      Position: [0, 3.68, -4.9]
       Rotation: [0, 0, 0]
       Scale: [8, 0.09, 0.1]
     MeshComponent:
@@ -326,7 +326,7 @@ Entities:
     TagComponent:
       Tag: Panel Light 00
     TransformComponent:
-      Position: [-2.6, 3.41, -3.2]
+      Position: [-2.6, 3.41, -2.1]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
@@ -341,7 +341,7 @@ Entities:
     TagComponent:
       Tag: Panel Light 01
     TransformComponent:
-      Position: [0, 3.41, -3.2]
+      Position: [0, 3.41, -2.1]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
@@ -356,7 +356,7 @@ Entities:
     TagComponent:
       Tag: Panel Light 02
     TransformComponent:
-      Position: [2.6, 3.41, -3.2]
+      Position: [2.6, 3.41, -2.1]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
@@ -371,7 +371,7 @@ Entities:
     TagComponent:
       Tag: Panel Light 10
     TransformComponent:
-      Position: [-2.6, 3.41, -0.5]
+      Position: [-2.6, 3.41, 0.6]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
@@ -386,7 +386,7 @@ Entities:
     TagComponent:
       Tag: Panel Light 11
     TransformComponent:
-      Position: [0, 3.41, -0.5]
+      Position: [0, 3.41, 0.6]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
@@ -401,7 +401,7 @@ Entities:
     TagComponent:
       Tag: Panel Light 12
     TransformComponent:
-      Position: [2.6, 3.41, -0.5]
+      Position: [2.6, 3.41, 0.6]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
@@ -416,7 +416,7 @@ Entities:
     TagComponent:
       Tag: Panel Light 20
     TransformComponent:
-      Position: [-2.6, 3.41, 2.2]
+      Position: [-2.6, 3.41, 3.3]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
@@ -431,7 +431,7 @@ Entities:
     TagComponent:
       Tag: Panel Light 21
     TransformComponent:
-      Position: [0, 3.41, 2.2]
+      Position: [0, 3.41, 3.3]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
@@ -446,7 +446,7 @@ Entities:
     TagComponent:
       Tag: Panel Light 22
     TransformComponent:
-      Position: [2.6, 3.41, 2.2]
+      Position: [2.6, 3.41, 3.3]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:

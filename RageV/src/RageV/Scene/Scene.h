@@ -159,6 +159,11 @@ namespace RageV
 			// already accounted for it.
 			uint32_t BlendSlot = kNoCullSlot;
 			uint32_t BlendIndex = 0;
+
+			// Whether its material is blended at all, which the two above only
+			// answer when there is a cull pass to have put it in a table.
+			// **Shadow casting reads this**: glass does not cast one.
+			bool Blended = false;
 		};
 
 		static constexpr uint32_t kNoCullSlot = ~0u;

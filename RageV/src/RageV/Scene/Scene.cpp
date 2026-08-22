@@ -1662,6 +1662,7 @@ namespace RageV
 			const bool blended = resolvedMaterial
 							  && resolvedMaterial->GetBlendMode() != BlendMode::Opaque;
 			m_HasBlended = m_HasBlended || blended;
+			entry.Blended = blended;
 
 			// **Emissive geometry becomes something the traced bounce can aim
 			// at** (7cb). Collected here because this is the one place that
@@ -1932,6 +1933,16 @@ namespace RageV
 				// Only what survives reads the item, which is the whole reason
 				// the two arrays are separate.
 				const DrawItem& entry = m_DrawItems[index];
+
+				// **Glass casts no shadow**, and this is not a shortcut. A
+				// windscreen that shadows like a wall puts the cabin in the
+				// dark, and a lamp lens that does it makes the lamp a black
+				// hole -- which is exactly what it did. A blended surface
+				// transmits most of what reaches it, and the honest choice
+				// between "all of the light" and "none of it" is all.
+				if (entry.Blended)
+					return;
+
 				const Mat4& world = entry.Transform->World;
 
 				// The same pose the lit pass will be given. Without this a
@@ -2191,6 +2202,27 @@ namespace RageV
 				RHI::Ref<Material> material = Assets::Manager::GetMaterial(mesh.Material);
 				if (!material)
 					material = Renderer3D::GetDefaultMaterial();
+
+				// **And not into the acceleration structure either**, which is
+				// where this actually showed. Every ray in the engine treats
+				// the structure as opaque -- `gl_RayFlagsOpaqueEXT` -- so a
+				// blended mesh in it stops a shadow ray, a bounce ray and a
+				// reflection ray alike.
+				//
+				// The symptom was a headlamp that was a black bowl on Vulkan
+				// and lit on OpenGL, which reads as a backend difference and is
+				// nothing of the kind: OpenGL has no ray queries, so it fell
+				// back to shadow maps, whose resolution let light leak into the
+				// cavity that the exact test correctly refused. The cabin
+				// behind the windscreen was the same bug and was reported much
+				// earlier as looking hollow.
+				//
+				// What is given up is a reflection seeing the glass -- a car
+				// reflected in the floor loses its windows. That is a smaller
+				// wrong than a car with no interior.
+				if (material->GetBlendMode() != BlendMode::Opaque)
+					continue;
+
 				const MaterialParams params =
 					mesh.ResolveParams(material ? material->GetParams() : MaterialParams{});
 

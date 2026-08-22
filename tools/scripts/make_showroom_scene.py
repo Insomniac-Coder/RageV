@@ -106,8 +106,18 @@ BAY_CEILING = 3.1
 # part of the ceiling is *behind* the car from the default camera and the car
 # reads against it rather than under it.
 PANEL_HALF_X = 3.9
-PANEL_Z = -0.5
-PANEL_HALF_Z = 4.0
+# **Extended forward, over the camera as well as over the car.** A headlamp
+# lens faces forward and slightly down, so what it reflects is the ceiling *in
+# front of* the car -- and with the luminaire stopping level with the nose there
+# was nothing there but dark ceiling. The lamps came out as open holes with the
+# internals visible and no cover on them, which reads as a missing mesh and is
+# not: the glass was there, correctly blended, reflecting black.
+#
+# Every showroom photograph has continuous lighting overhead for exactly this
+# reason. The fill lights stay where they were, so this changes what the car
+# *reflects* and not what lights it.
+PANEL_Z = 0.6
+PANEL_HALF_Z = 5.5
 PANEL_Y = 3.66
 
 # How many metres of surface one tile of each map covers. **These are
@@ -803,11 +813,20 @@ CAR_SURFACES = (
     # glass treatment rather than the 0.96 the model gave everything.
     (("EXT_Grid",), 0.07, 0.0, 1.4),
 
-    # What is behind the lens: reflector housings and the LED elements. Not
-    # glass, and not 0.96 either -- a headlamp reflector is a polished
-    # aluminised shell, and at 0.96 it is the matte black bowl that made the
-    # front of this car look empty.
-    (("EXT_Emissive_Light", "AUX_LIGHT"), 0.18, 0.55, 0.9),
+    # **The lamp internals, and they carry the whole look of the lamp on this
+    # model.** Tinting each candidate material a different colour and rendering
+    # once showed why nothing worked before: there is *no lens mesh over the
+    # headlamp aperture*. `EXT_Glass_Emissive_Front` never appears there --
+    # the opening is open, and what fills it is the reflector and the LED
+    # elements and nothing in front of them.
+    #
+    # So the glass has to come from these. A real headlamp reflector is a
+    # vacuum-aluminised shell -- a mirror, not a grey plastic bowl -- and at
+    # 0.08 and nearly full metalness it throws the luminaire back as a sharp
+    # highlight across the whole unit. That is the cue the eye reads as "there
+    # is a clear cover over this", and it is the only one available without
+    # adding geometry the model does not have.
+    (("EXT_Emissive_Light", "AUX_LIGHT"), 0.22, 0.62, 1.6),
 
     # The wheel-blur discs, which are transparent and want no highlight of
     # their own -- they are a fake, and a fake that catches the light announces
