@@ -426,17 +426,42 @@ namespace RageV
 		if (!settings.DepthOfField || settings.Focus != FocusMode::Target)
 			return;
 
-		// Three ways to have nothing to focus on, and all three leave the
-		// manual values in place: no target named, a target that is not in this
-		// scene (a profile shared with another one -- the inspector draws that
-		// slot in red), and a target with nothing drawable under it.
+		// **Nothing to focus on falls back to Manual, and says so.**
+		//
+		// Three ways to get here: no target named, a target that is not in this
+		// scene, and a target with nothing drawable under it. The middle one is
+		// the case worth designing for -- a `.rvpostprofile` is an asset and can
+		// be shared, so a profile authored against one scene's car names a UUID
+		// the *other* scene has never heard of.
+		//
+		// The mode on the copy is changed rather than merely left unsolved. The
+		// numbers would be the same either way: FocusDistance and Aperture keep
+		// what the author typed. What differs is that everything downstream --
+		// the inspector's greying, a script reading the mode back, anyone
+		// debugging a frame -- is told the truth about what this frame is
+		// actually doing, instead of reading "Target" from a profile that is
+		// behaving as Manual.
+		auto fallBackToManual = [&]
+		{
+			settings.Focus = FocusMode::Manual;
+			settings.TargetResolved = false;
+		};
+
 		Entity target = GetEntityByUUID(settings.FocusTarget.Value);
 		if (!target)
+		{
+			fallBackToManual();
 			return;
+		}
 
 		Vec3 centre{ 0.0f }, extents{ 0.0f };
 		if (!GetSubtreeBounds(target, centre, extents))
+		{
+			fallBackToManual();
 			return;
+		}
+
+		settings.TargetResolved = true;
 
 		const Mat4 view = GetWorldTransform(camera);
 		const Vec3 eye = Vec3(view[3]);
@@ -458,7 +483,14 @@ namespace RageV
 		// nothing left in it. Neither is a state to solve in.
 		const float focal = settings.FocalLength * 0.001f;
 		if (depth <= focal * 1.05f)
+		{
+			// A resolved target the solve cannot use, which is not the same as
+			// no target: the subject is real and the camera has been walked
+			// behind it. Manual numbers, and the mode stays Target so that
+			// turning back round picks the subject up again.
+			settings.Focus = FocusMode::Manual;
 			return;
+		}
 
 		settings.FocusDistance = depth;
 
@@ -474,7 +506,7 @@ namespace RageV
 		// The plane is on it and the aperture stays where the author left it,
 		// which is the useful answer rather than an infinity.
 		if (half <= 1.0e-4f)
-			return;
+			return;   // the plane is on it; the aperture stays where it was
 
 		// The near edge is what decides the aperture, and this is not
 		// symmetry-blind laziness: the circle of confusion grows faster in

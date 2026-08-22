@@ -1697,6 +1697,17 @@ namespace
 			return ((const PostSettings*)block)->Focus == FocusMode::Target;
 		}
 
+		// Greyed only while something is genuinely answering them. A profile
+		// shared with another scene names a target this one does not have, and
+		// a row greyed with "the focus target is answering this" beside a slot
+		// drawn in red as Missing entity is the panel contradicting itself --
+		// with the two controls that would fix the shot switched off.
+		bool FocusSolveAnswers(const void* block)
+		{
+			const PostSettings* post = (const PostSettings*)block;
+			return post->Focus == FocusMode::Target && post->TargetResolved;
+		}
+
 		// The subject rows: present only when there is a subject to describe.
 		// Hidden rather than greyed, which is the distinction FieldHint draws
 		// -- these do not *apply* in Manual mode, as opposed to applying and
@@ -1880,7 +1891,7 @@ namespace
 
 				Field<&PostSettings::FocusDistance>("FocusDistance",
 					Named("Focus distance", OnlyWhen(DepthOfFieldOn,
-						DisabledWhen(FocusIsTarget,
+						DisabledWhen(FocusSolveAnswers,
 							"The focus target is answering this, from where it is.",
 						Drag(0.05f, 0.05f, 500.0f,
 							"Where the plane of sharp focus is, in metres."))))),
@@ -1894,7 +1905,7 @@ namespace
 
 				Field<&PostSettings::Aperture>("Aperture",
 					Named("Aperture (f)", OnlyWhen(DepthOfFieldOn,
-						DisabledWhen(FocusIsTarget,
+						DisabledWhen(FocusSolveAnswers,
 							"The focus target is answering this, from how deep "
 							"the subject is and the coverage above.",
 						Drag(0.02f, 0.7f, 32.0f,

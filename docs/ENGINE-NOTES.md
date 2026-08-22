@@ -12475,6 +12475,44 @@ nothing: no target, a target from another scene, a target with nothing drawable
 under it, a subject behind the camera. **A shot that still works while you fix
 it.**
 
+#### And the fallback is a *mode*, not just the same numbers
+
+The first cut left `Focus` reading `Target` while quietly rendering on the
+manual values, which is the same picture and a worse description. The owner's
+correction was to make it Manual outright, and following that through found a
+defect the picture could not show:
+
+**The inspector greyed the two rows that would fix the shot.** `FocusDistance`
+and `Aperture` are greyed in Target mode with the note "the focus target is
+answering this" -- correct where it is, and in the borrowing scene it sat
+directly beneath a slot drawn in red as *Missing entity*. The panel contradicted
+itself and switched off the only controls that mattered.
+
+The greying could not simply read the mode, because `DisabledIf` is handed the
+settings block and nothing else: whether a target resolves is a property of the
+profile **and the scene looking at it**, and a shared profile resolves in one and
+not the other. So `PostSettings::TargetResolved` is runtime state on the same
+terms as `UIButtonComponent::Hovered` -- unregistered, therefore unserialized,
+because neither answer belongs on disk. `ResolveFocus` writes it for what the
+renderer is handed; the editor's profile drawer writes it for what the inspector
+shows, which is the same shape the canvas has with `Hovered`.
+
+#### Overriding it from a script
+
+The fallback keeps the frame sane and cannot know what the borrowing scene's
+subject *is*. Only that scene knows, so `Focus`, `FocusTarget` and
+`SubjectCoverage` are reachable over the render-settings bridge -- which needed
+no new plumbing at all, because that bridge is registry-driven and they are
+registered. Two typed C# properties follow the `AntiAliasing` convention already
+there, and `FocusTarget` crosses as an `Entity` rather than a name, because two
+entities can share a name and only one of them is the subject.
+
+Proved end to end rather than by inspection: the showroom's profile was pointed
+at a UUID nothing in the scene has, and `ShowroomCamera.OnCreate` set the target
+by name. **Car sharpness 11.38, identical to the render where the profile itself
+names it, against 7.40 for the same frame with no override.** The stale profile
+fell back, the script took over, and the picture is the one the scene wanted.
+
 ---
 
 ## 8. What this changes

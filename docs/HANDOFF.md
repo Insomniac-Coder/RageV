@@ -26,7 +26,7 @@ corner of its own range.
 | **A camera fix** | Full zoom plus full pitch put the camera through the wall. Black frame. |
 | **Target focus** | Depth of field can name a subject and solve the distance *and* the aperture from it. |
 
-2314 checks on Vulkan and on OpenGL, both green.
+2321 checks on Vulkan and on OpenGL, both green.
 
 ### The three things worth carrying forward
 
@@ -51,6 +51,15 @@ corner of its own range.
    numbers are solved — the plane from where it is, the aperture from how deep
    it is — because putting the plane on a subject fixes *where* the sharpness
    is and not *how much* of it there is. (7ce)
+5. **A fallback that renders the right picture can still be the wrong
+   answer.** A post profile is an asset and a focus target is an entity, so a
+   shared profile names a UUID the second scene has never heard of. That case
+   falls back to `Manual` — the *mode*, not just the same numbers, because the
+   same picture with a worse description leaves the next person debugging a
+   mode the frame is not in. Following that through found what the picture
+   could not show: the inspector greyed the two rows that would fix the shot,
+   with a note saying a target was answering them, directly beneath that
+   target drawn in red as missing. (7ce)
 
 ### Where the showroom's numbers live
 

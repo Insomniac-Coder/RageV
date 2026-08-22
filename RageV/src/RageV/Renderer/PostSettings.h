@@ -258,6 +258,25 @@ namespace RageV
 		// real lens has.
 		float SubjectCoverage = 1.0f;
 
+		// Whether the target above is actually in the scene being drawn.
+		//
+		// **Runtime state, not a setting**, on the same terms as
+		// UIButtonComponent::Hovered: it is not registered, so it is not in the
+		// scene file and not in the inspector, because a profile does not *have*
+		// a resolved target -- a profile plus a scene does. A shared profile is
+		// resolved in one scene and not in the other, and neither answer belongs
+		// on disk.
+		//
+		// Written by Scene::ResolveFocus for what the renderer is handed, and by
+		// the editor's profile drawer for what the inspector shows -- which is
+		// what stops the greyed rows underneath claiming a target is answering
+		// them when there is no target here to answer.
+		//
+		// True by default so that anything which never sets it behaves exactly
+		// as it did: a profile read cold, a C# script listing the fields, a
+		// PostSettings on the stack in a check.
+		bool TargetResolved = true;
+
 		// In millimetres, the way lenses are sold. 50 is normal on the 35 mm
 		// sensor these are measured against; longer is both narrower and
 		// shallower.

@@ -953,6 +953,49 @@ namespace RageV::UI
 			}
 		}
 
+		// **Whether the focus target is in this scene**, stamped onto the
+		// profile before its rows are drawn -- the same shape the canvas has
+		// with UIButtonComponent::Hovered, and for the same reason: it is not a
+		// property of the profile, it is a property of the profile *and the
+		// scene looking at it*, so it is runtime state rather than a field.
+		//
+		// The rows below read it to decide whether to grey themselves out. A
+		// profile shared between two scenes is resolved in one and not in the
+		// other, and a panel that greys the focus distance with "the target is
+		// answering this" beside a slot drawn in red as Missing entity is a
+		// panel contradicting itself -- while switching off the two controls
+		// that would fix the shot.
+		if (profile->DepthOfField && profile->Focus == FocusMode::Target)
+		{
+			const bool named = profile->FocusTarget.IsValid();
+			const bool found = scene && named
+							&& scene->GetEntityByUUID(profile->FocusTarget.Value);
+
+			profile->TargetResolved = found;
+
+			if (!found)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().Warning);
+				ImGui::TextWrapped(
+					named
+						? "This profile's focus target is not in this scene, so it "
+						  "renders on the manual focus distance and aperture below. "
+						  "A post profile is an asset and can be shared; a target is "
+						  "an entity and cannot. Pick one from this scene, or switch "
+						  "Focus to Manual."
+						: "Focus is set to Target with nothing named, so it renders "
+						  "on the manual focus distance and aperture below.");
+				ImGui::PopStyleColor();
+				ImGui::Spacing();
+			}
+		}
+		else
+		{
+			// Left true when the question does not arise, which is the default
+			// and is what keeps every other path behaving as it did.
+			profile->TargetResolved = true;
+		}
+
 		// Which file is being written, said plainly. A profile is an asset and
 		// an asset is shared: editing one from a camera's inspector looks
 		// exactly like editing that camera, and it is not.

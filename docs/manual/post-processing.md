@@ -162,11 +162,49 @@ Both rows stay visible while Target is picked, greyed with a note, because they
 still apply — something else is answering them. Switch back to Manual and the
 numbers you typed are still there.
 
-> [!NOTE]
-> **A profile is an asset and a target is an entity**, so a `.rvpostprofile`
-> shared between two scenes can only name something in one of them. The other
-> draws the slot in red as "Missing entity" and renders on the manual numbers
-> rather than on nothing — which is a shot that still works while you fix it.
+**Runtime state:**
+
+| Field | What it is |
+|---|---|
+| `TargetResolved` | Whether `FocusTarget` is in the scene being drawn. Not authored and not saved — a profile does not *have* a resolved target; a profile plus a scene does |
+
+### A shared profile falls back to Manual
+
+**A profile is an asset and a target is an entity**, so a `.rvpostprofile` shared
+between two scenes can only name something in one of them.
+
+The other scene **renders as Manual**. Not "renders wrong", and not "renders
+nothing": the mode reported to the renderer is Manual, the focus distance and
+aperture are the ones typed into the profile, and the two rows go back to being
+editable — because in that scene nothing is answering them. The inspector says
+so in as many words, and draws the target slot in red.
+
+That is the fallback, and it is deliberately the boring one. A shot that still
+works while you fix it.
+
+### Fixing it from a script
+
+The fallback keeps the frame sane; it does not know what the *right* subject is
+in the borrowing scene, and only that scene does. So name it at startup:
+
+```csharp
+public override void OnCreate()
+{
+    RenderSettings.FocusTarget = Entity.FindByName("Hero");
+    RenderSettings.Focus = FocusMode.Target;
+}
+```
+
+`Focus`, `FocusTarget` and `SubjectCoverage` are ordinary render settings, so
+they behave like every other one: the write reaches the profile the renderer
+reads on the next frame, and **is not written to the asset on disk**. Two scenes
+can borrow one profile and each point it at its own subject.
+
+> [!TRAP]
+> `RenderSettings.FocusTarget` takes an `Entity`, not a name — two entities can
+> share a name and only one of them is your subject. `Entity.FindByName` is
+> linear over the scene, so resolve it once in `OnCreate` rather than every
+> frame.
 
 The showroom scene is the worked example: its camera orbits between 4.6 m and
 11 m, and before this the focus plane sat at the starting radius the whole time.

@@ -6300,6 +6300,9 @@ void main()
 			Check(unset.FocusDistance == 5.0f && unset.Aperture == 2.8f,
 				  "Target mode with no target named renders on the manual numbers "
 				  "rather than on nothing");
+			Check(unset.Focus == FocusMode::Manual && !unset.TargetResolved,
+				  "and reports itself as Manual, so what is downstream is told what "
+				  "the frame is doing rather than what the profile hoped");
 
 			// The case a shared profile produces: the UUID names something real,
 			// in a scene that is not this one.
@@ -6310,6 +6313,19 @@ void main()
 			Check(stale.FocusDistance == 5.0f && stale.Aperture == 2.8f,
 				  "and a target this scene has never heard of does the same -- which "
 				  "is what a post profile shared with another scene looks like");
+			Check(stale.Focus == FocusMode::Manual && !stale.TargetResolved,
+				  "**and that one falls back to Manual too**, which is the whole of "
+				  "what a shared profile needs: an asset can be shared and an entity "
+				  "reference cannot, so the second scene renders rather than breaking");
+
+			// The target it *does* have keeps saying so, or the flag would be
+			// telling nobody anything.
+			PostSettings good = settings;
+			good.Focus = FocusMode::Target;
+			good.FocusTarget = EntityRef(subject.GetUUID());
+			scene->ResolveFocus(good, camera);
+			Check(good.Focus == FocusMode::Target && good.TargetResolved,
+				  "while a target that is here stays Target and says it resolved");
 
 			PostSettings off = settings;
 			off.DepthOfField = false;
@@ -6403,6 +6419,48 @@ void main()
 		Check(distance->Hint.DisabledNote && aperture->Hint.DisabledNote,
 			  "and each says what is answering it, which is the difference between a "
 			  "control that is off and one that is being driven");
+
+		// --- and a script can reach all three ------------------------------------
+		//
+		// Which is what makes a shared profile usable rather than merely
+		// survivable: the borrowing scene names its own subject at startup. The
+		// bridge is registry-driven, so this is asking whether the flat
+		// namespace resolves these three to the profile.
+		{
+			const SettingsLookup mode = FindSetting("Focus");
+			const SettingsLookup slot = FindSetting("FocusTarget");
+			const SettingsLookup cover = FindSetting("SubjectCoverage");
+
+			Check(mode && mode.Block == SettingsBlock::Post
+				  && slot && slot.Block == SettingsBlock::Post
+				  && cover && cover.Block == SettingsBlock::Post,
+				  "a script reaches the focus mode, the target and the coverage by "
+				  "name, all three resolving to the camera's profile");
+
+			// An entity reference crosses as its UUID, which is the one name for
+			// a target that means anything on the far side of the boundary.
+			PostSettings block;
+			Check(slot.Field->Type == FieldType::Entity,
+				  "and the target crosses as an entity rather than as a name, so two "
+				  "entities called the same thing are not the same target");
+			(void)block;
+		}
+
+		// --- a target nothing can find greys nothing ----------------------------
+		//
+		// The shared-profile case, in the panel. Greying the two rows that would
+		// fix the shot, with the note "the focus target is answering this", next
+		// to a slot drawn in red as Missing entity, is the inspector
+		// contradicting itself.
+		settings.Focus = FocusMode::Target;
+		settings.TargetResolved = false;
+		Check(!distance->Hint.DisabledIf(&settings) && !aperture->Hint.DisabledIf(&settings),
+			  "a focus target this scene does not have leaves the optical rows "
+			  "editable -- nothing is answering them, so nothing may claim to be");
+		Check(target->Hint.VisibleIf(&settings),
+			  "and the target slot stays visible, because it is the row you came "
+			  "here to fix");
+		settings.TargetResolved = true;
 
 		// --- and none of it exists without the effect ---------------------------
 		settings.DepthOfField = false;

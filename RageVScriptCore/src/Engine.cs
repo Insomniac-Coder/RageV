@@ -839,6 +839,22 @@ public abstract class Script
 /// The numbers are the scene file's, so this enum and a saved scene cannot
 /// drift apart.
 /// </remarks>
+/// <summary>How the plane of sharp focus is chosen. Mirrors the native enum.</summary>
+public enum FocusMode
+{
+	/// <summary>
+	/// <see cref="RenderSettings.FocusDistance"/> and
+	/// <see cref="RenderSettings.Aperture"/> mean exactly what they say.
+	/// </summary>
+	Manual = 0,
+
+	/// <summary>
+	/// Both are solved every frame from <see cref="RenderSettings.FocusTarget"/>:
+	/// the distance from where it is, the aperture from how deep it is.
+	/// </summary>
+	Target = 1,
+}
+
 public enum AntiAliasing
 {
 	/// <summary>None. Every pixel is wholly one side of every edge.</summary>
@@ -1052,6 +1068,76 @@ public static unsafe class RenderSettings
 		get => int.TryParse(Get("TemporalJitterPhase"), out int value) ? value : 8;
 		set => Set("TemporalJitterPhase",
 				   value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+	}
+
+	/// <summary>Whether the plane of sharp focus is set by hand or solved from a subject.</summary>
+	/// <remarks>
+	/// <para>
+	/// **The reason this is scriptable.** A post profile is an asset and can be
+	/// shared between scenes; a focus target is an entity and cannot, so a
+	/// profile authored against one scene's subject names a UUID the next scene
+	/// has never heard of. That case falls back to <see cref="FocusMode.Manual"/>
+	/// on its own and renders on the manual numbers — a shot that still works —
+	/// but the *right* answer is usually "focus on this scene's equivalent", and
+	/// only this scene knows what that is.
+	/// </para>
+	/// <para>
+	/// So a scene that borrows a profile names its own subject at startup:
+	/// <code>
+	/// public override void OnCreate()
+	/// {
+	///     RenderSettings.FocusTarget = Entity.FindByName("Hero");
+	///     RenderSettings.Focus = FocusMode.Target;
+	/// }
+	/// </code>
+	/// </para>
+	/// <para>
+	/// A runtime override, like every render setting: it reaches the profile the
+	/// renderer reads and is not written to the asset on disk.
+	/// </para>
+	/// </remarks>
+	public static FocusMode Focus
+	{
+		get => int.TryParse(Get("Focus"), out int value) ? (FocusMode)value : FocusMode.Manual;
+		set => Set("Focus", ((int)value).ToString(
+			System.Globalization.CultureInfo.InvariantCulture));
+	}
+
+	/// <summary>What <see cref="FocusMode.Target"/> focuses on.</summary>
+	/// <remarks>
+	/// The whole subtree under it is measured, so naming a model's root focuses
+	/// on the model and naming one of its wheels focuses on that wheel. An
+	/// invalid entity clears the slot, which falls back to Manual.
+	/// </remarks>
+	public static Entity FocusTarget
+	{
+		get => ulong.TryParse(Get("FocusTarget"), out ulong id) ? new Entity(id) : Entity.Invalid;
+		set => Set("FocusTarget", value.Id.ToString(
+			System.Globalization.CultureInfo.InvariantCulture));
+	}
+
+	/// <summary>
+	/// How much of the focus target has to be sharp, 0 to 1. 1 keeps all of it
+	/// sharp; lower opens the aperture and lets the far end fall away.
+	/// </summary>
+	public static float SubjectCoverage
+	{
+		get => GetFloat("SubjectCoverage");
+		set => SetFloat("SubjectCoverage", value);
+	}
+
+	/// <summary>Where the plane of sharp focus is, in metres. Solved in <see cref="FocusMode.Target"/>.</summary>
+	public static float FocusDistance
+	{
+		get => GetFloat("FocusDistance");
+		set => SetFloat("FocusDistance", value);
+	}
+
+	/// <summary>The f-number. Solved in <see cref="FocusMode.Target"/>.</summary>
+	public static float Aperture
+	{
+		get => GetFloat("Aperture");
+		set => SetFloat("Aperture", value);
 	}
 
 	/// <summary>Multiplies the scene before the tone curve. 1 is neutral.</summary>
