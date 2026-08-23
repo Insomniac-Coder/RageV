@@ -14609,6 +14609,15 @@ void main()
 		InputMap::LoadDefaults();
 		Check(!InputMap::GetActionNames().empty(), "defaults provide actions");
 		Check(!InputMap::GetAxisNames().empty(), "defaults provide axes");
+
+		// A diagnostic overlay is not a feature of one demo, so the binding it
+		// needs is a default rather than something the showroom invents. A key
+		// press cannot be simulated without a device, so what is checkable
+		// here is that the action exists to be pressed.
+		const std::vector<std::string> defaults = InputMap::GetActionNames();
+		Check(std::find(defaults.begin(), defaults.end(), std::string("ToggleStats"))
+			  != defaults.end(),
+			  "and ToggleStats among them, which F3 is bound to");
 	}
 
 	void CheckCameraRanking()

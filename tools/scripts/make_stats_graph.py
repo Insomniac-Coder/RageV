@@ -141,10 +141,21 @@ ROW = 150          # vertical step between rows
 # "do this, then carry on regardless" in this graph is a Sequence whose second
 # output is the rest of the program.
 on_frame = g.node("OnFrame", -1400, 0)
-root = g.node("Sequence", -1150, 0)
-g.link(on_frame, 0, root, 0)
 
-# --- the toggle -------------------------------------------------------------
+# --- the toggle, on the *step* and not the frame -----------------------------
+#
+# **Input edges belong to On Tick.** `WasActionPressed` is raised once per frame
+# by InputMap::Update and cleared by EndFixedStep, which runs inside the step
+# loop -- so the first fixed step consumes it and On Frame, which runs after,
+# sees nothing. A frame that happened to run no step let it through, which is
+# why F3 worked "sometimes": the odds are the ratio of frame rate to the fixed
+# 60 Hz, and at 70 FPS almost every frame runs a step.
+#
+# On Tick sees every press, exactly once, by design. ENGINE-NOTES 7cn.
+on_tick = g.node("OnTick", -1400, -700)
+root = g.node("Sequence", -1150, -700)
+g.link(on_tick, 0, root, 0)
+
 # The action's *name is a pin*, not the node's text -- the validator says so
 # plainly ("Action Pressed's Action has nothing feeding it") which is the kind
 # of message that turns a wrong graph into a fixed one in a single read.
@@ -202,9 +213,11 @@ visibility(show_check, 0, "true", -1400)
 visibility(show_check, 1, "false", -140)
 
 # --- is the overlay up? -----------------------------------------------------
+# The display half runs on the frame, because that is where the frame time is
+# and because a number redrawn 60 times a second is redrawn often enough.
 live = g.node("GetFlag", -1150, 1400, "shown")
 live_branch = g.node("Branch", -880, 1340)
-g.link(root, 1, live_branch, 0)
+g.link(on_frame, 0, live_branch, 0)
 g.link(live, 0, live_branch, 1)
 
 

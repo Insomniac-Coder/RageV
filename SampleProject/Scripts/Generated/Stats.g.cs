@@ -15,42 +15,14 @@ public class Stats : Script
 
 	public override void OnFrame(float deltaTime)
 	{
-		var value11 = "true";
-		var value34 = "false";
-		var value254 = "";
+		var value255 = "";
 
-		if (Input.WasActionPressed("ToggleStats"))
-		{
-			shown = (!shown);
-			if (shown)
-			{
-				Entity.SetComponentField("UIRectComponent", "Visible", value11);
-				Entity.FindByName("Stats Frame").SetComponentField("UIRectComponent", "Visible", value11);
-				Entity.FindByName("Stats Mode").SetComponentField("UIRectComponent", "Visible", value11);
-				Entity.FindByName("Stats Rule").SetComponentField("UIRectComponent", "Visible", value11);
-				Entity.FindByName("Stats Render Caption").SetComponentField("UIRectComponent", "Visible", value11);
-				Entity.FindByName("Stats Render").SetComponentField("UIRectComponent", "Visible", value11);
-				Entity.FindByName("Stats Post Caption").SetComponentField("UIRectComponent", "Visible", value11);
-				Entity.FindByName("Stats Post").SetComponentField("UIRectComponent", "Visible", value11);
-			}
-			else
-			{
-				Entity.SetComponentField("UIRectComponent", "Visible", value34);
-				Entity.FindByName("Stats Frame").SetComponentField("UIRectComponent", "Visible", value34);
-				Entity.FindByName("Stats Mode").SetComponentField("UIRectComponent", "Visible", value34);
-				Entity.FindByName("Stats Rule").SetComponentField("UIRectComponent", "Visible", value34);
-				Entity.FindByName("Stats Render Caption").SetComponentField("UIRectComponent", "Visible", value34);
-				Entity.FindByName("Stats Render").SetComponentField("UIRectComponent", "Visible", value34);
-				Entity.FindByName("Stats Post Caption").SetComponentField("UIRectComponent", "Visible", value34);
-				Entity.FindByName("Stats Post").SetComponentField("UIRectComponent", "Visible", value34);
-			}
-		}
 		if (shown)
 		{
-			var target74 = Entity.FindByName("Stats Frame");
-			target74.Text = Text.Join(Text.Join(Text.FromNumber((deltaTime * 1000.0f), 2.0f), " ms      "), Text.Join(Text.FromNumber((1.0f / deltaTime), 0.0f), " FPS"));
-			var target83 = Entity.FindByName("Stats Mode");
-			target83.Text = Text.Join(Text.Join(Graphics.Api, "      "), RenderSettings.Get("AntiAliasing"));
+			var target75 = Entity.FindByName("Stats Frame");
+			target75.Text = Text.Join(Text.Join(Text.FromNumber((deltaTime * 1000.0f), 2.0f), " ms      "), Text.Join(Text.FromNumber((1.0f / deltaTime), 0.0f), " FPS"));
+			var target84 = Entity.FindByName("Stats Mode");
+			target84.Text = Text.Join(Text.Join(Graphics.Api, "      "), RenderSettings.Get("AntiAliasing"));
 			feat = "";
 			if (Graphics.IsActive("Shadows"))
 			{
@@ -76,8 +48,8 @@ public class Stats : Script
 			{
 				feat = Text.Join(feat, "VoxelGI  ");
 			}
-			var target139 = Entity.FindByName("Stats Render");
-			target139.Text = feat;
+			var target140 = Entity.FindByName("Stats Render");
+			target140.Text = feat;
 			feat = "";
 			if (Text.Same(RenderSettings.Get("BloomEnabled"), "true"))
 			{
@@ -123,19 +95,52 @@ public class Stats : Script
 			{
 				feat = Text.Join(feat, "Grain  ");
 			}
-			var target253 = Entity.FindByName("Stats Post");
-			target253.Text = feat;
+			var target254 = Entity.FindByName("Stats Post");
+			target254.Text = feat;
 		}
 		else
 		{
-			var target257 = Entity.FindByName("Stats Frame");
-			target257.Text = value254;
-			var target260 = Entity.FindByName("Stats Mode");
-			target260.Text = value254;
-			var target263 = Entity.FindByName("Stats Render");
-			target263.Text = value254;
-			var target266 = Entity.FindByName("Stats Post");
-			target266.Text = value254;
+			var target258 = Entity.FindByName("Stats Frame");
+			target258.Text = value255;
+			var target261 = Entity.FindByName("Stats Mode");
+			target261.Text = value255;
+			var target264 = Entity.FindByName("Stats Render");
+			target264.Text = value255;
+			var target267 = Entity.FindByName("Stats Post");
+			target267.Text = value255;
+		}
+	}
+
+	public override void OnTick(float deltaTime)
+	{
+		var value12 = "true";
+		var value35 = "false";
+
+		if (Input.WasActionPressed("ToggleStats"))
+		{
+			shown = (!shown);
+			if (shown)
+			{
+				Entity.SetComponentField("UIRectComponent", "Visible", value12);
+				Entity.FindByName("Stats Frame").SetComponentField("UIRectComponent", "Visible", value12);
+				Entity.FindByName("Stats Mode").SetComponentField("UIRectComponent", "Visible", value12);
+				Entity.FindByName("Stats Rule").SetComponentField("UIRectComponent", "Visible", value12);
+				Entity.FindByName("Stats Render Caption").SetComponentField("UIRectComponent", "Visible", value12);
+				Entity.FindByName("Stats Render").SetComponentField("UIRectComponent", "Visible", value12);
+				Entity.FindByName("Stats Post Caption").SetComponentField("UIRectComponent", "Visible", value12);
+				Entity.FindByName("Stats Post").SetComponentField("UIRectComponent", "Visible", value12);
+			}
+			else
+			{
+				Entity.SetComponentField("UIRectComponent", "Visible", value35);
+				Entity.FindByName("Stats Frame").SetComponentField("UIRectComponent", "Visible", value35);
+				Entity.FindByName("Stats Mode").SetComponentField("UIRectComponent", "Visible", value35);
+				Entity.FindByName("Stats Rule").SetComponentField("UIRectComponent", "Visible", value35);
+				Entity.FindByName("Stats Render Caption").SetComponentField("UIRectComponent", "Visible", value35);
+				Entity.FindByName("Stats Render").SetComponentField("UIRectComponent", "Visible", value35);
+				Entity.FindByName("Stats Post Caption").SetComponentField("UIRectComponent", "Visible", value35);
+				Entity.FindByName("Stats Post").SetComponentField("UIRectComponent", "Visible", value35);
+			}
 		}
 	}
 }

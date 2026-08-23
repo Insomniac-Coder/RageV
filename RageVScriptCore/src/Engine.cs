@@ -53,6 +53,15 @@ public static unsafe class Input
 	/// <remarks>
 	/// Consumed by the first step that runs, and carried forward by a frame
 	/// with no steps — so a press is never missed and never seen twice.
+	///
+	/// <b>Read this in <see cref="Script.OnTick"/>, not
+	/// <see cref="Script.OnFrame"/>.</b> "Consumed by the first step" is
+	/// literal: the edge is cleared inside the step loop, which runs before
+	/// OnFrame does. An OnFrame that asks will see the press only on a frame
+	/// that happened to run no step at all — so it appears to work, at odds
+	/// that are the ratio of the frame rate to the fixed 60 Hz, and stops
+	/// working when the frame rate drops. <see cref="IsActionDown"/> is a
+	/// state rather than an edge and is safe anywhere.
 	/// </remarks>
 	public static bool WasActionPressed(string action) =>
 		Native.IsReady && Native.WithUtf8(action, utf8 => Native.Api.WasActionPressed(utf8)) != 0;

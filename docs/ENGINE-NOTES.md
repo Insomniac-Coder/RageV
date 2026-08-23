@@ -13151,6 +13151,55 @@ Worth recording because both wasted time and neither is visible from the code:
   failing for a reason unrelated to what it checks. It looks in the CMake
   output first now.
 
+### 7cn. F3 worked sometimes, and the odds were the frame rate
+
+The showroom's overlay toggled on some presses and not others. Not a race in
+the usual sense -- a deterministic rule that happened to look like one.
+
+`InputMap::Update` raises an action's pressed edge once per frame. It is
+cleared by `EndFixedStep`, and in `Application`'s loop that call sits **inside
+the step loop**:
+
+```
+InputMap::Update();                     // the edge is raised here
+for (int i = 0; i < steps; i++) {
+    layer->OnFixedUpdate(...);          // OnTick scripts run
+    InputMap::EndFixedStep();           // the edge is cleared here
+}
+...
+layer->OnUpdate(ts);                    // OnFrame scripts run, after
+```
+
+So an `OnFrame` that asks `WasActionPressed` sees the press only on a frame
+that ran **no** simulation step. That is not rare -- at 200 FPS against a fixed
+60 Hz, most frames run none -- which is exactly why it worked often enough to
+look broken rather than absent. At 70 FPS nearly every frame runs a step and it
+almost never works. **The reliability of the feature was the frame rate divided
+by 60**, which is a wonderful way to hide a bug.
+
+The graph's toggle now runs on `On Tick`, which is the callback the edge is
+kept for. The display half stays on `On Frame`, because that is where the frame
+time is.
+
+#### The design is fine; nothing said so
+
+`IsActionDown` is a state and safe anywhere. `WasActionPressed` and
+`WasActionReleased` are edges and belong to the step. The existing comment --
+"consumed by the first step that runs, and carried forward by a frame with no
+steps -- so a press is never missed and never seen twice" -- is *true*, and
+reads as a reassurance rather than as the restriction it is. Nothing warned an
+author away from the frame.
+
+Both the C# API and the visual scripting page now say plainly which callback
+the edge queries belong on, and why an OnFrame version appears to work.
+
+**There is a design question left open here, deliberately.** The edge could
+survive the whole frame so that OnTick and OnFrame each see it once, which
+would make the footgun impossible. That trades away "never seen twice", which
+is currently a guarantee across the several steps a single frame can run, and
+it changes input semantics for every existing script -- so it is the owner's
+call rather than a fix to make in passing.
+
 ---
 
 ## 8. What this changes

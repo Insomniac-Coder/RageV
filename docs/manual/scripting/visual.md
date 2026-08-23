@@ -145,6 +145,12 @@ it will name a feature that never ran.
 name.** The second exists because the first was the only one, and a graph could
 not touch anything but itself where a C# script always could.
 
+**Action Pressed and Action Released belong on On Tick.** The edge is raised
+once per frame and cleared inside the fixed-step loop, which runs *before* On
+Frame — so an On Frame that asks sees the press only on a frame that ran no
+step. It looks like it works, at odds that fall with the frame rate. **Action
+Down** is a state rather than an edge and is safe on either.
+
 **Variables are the one thing a graph cannot work without.** A node graph with
 no memory can only compute from its inputs, so anything that accumulates — a
 timer, a counter, a position being moved rather than set — needs one. Each
