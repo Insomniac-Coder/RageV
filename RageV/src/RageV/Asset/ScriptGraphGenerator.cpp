@@ -7,6 +7,7 @@
 #include <cctype>
 #include <fstream>
 #include <sstream>
+#include <map>
 
 namespace RageV::Assets
 {

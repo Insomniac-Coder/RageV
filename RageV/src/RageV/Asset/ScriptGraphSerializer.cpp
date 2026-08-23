@@ -5,7 +5,7 @@
 
 #include "yaml-cpp/yaml.h"
 
-#include <spdlog/fmt/fmt.h>
+#include <format>
 
 #include <algorithm>
 #include <fstream>
@@ -227,7 +227,7 @@ namespace RageV::Assets
 						continue;
 					}
 
-					return Refuse(outError, fmt::format(
+					return Refuse(outError, std::format(
 						"Script graph {0}: node {1} is of type '{2}', which this "
 						"build does not know. The graph is left untouched -- "
 						"opening or generating it would drop that node and save "
@@ -240,7 +240,7 @@ namespace RageV::Assets
 				// is a file that has been edited by hand or truncated.
 				if (node.Id == 0)
 				{
-					return Refuse(outError, fmt::format(
+					return Refuse(outError, std::format(
 						"Script graph {0}: a node of type '{1}' has no id. Ids "
 						"start at 1 and links name their endpoints by id, so "
 						"this file cannot be read as written.",
@@ -360,7 +360,7 @@ namespace RageV::Assets
 				names += "'" + type + "'";
 			}
 
-			*outMessage = fmt::format(
+			*outMessage = std::format(
 				"Opened without {0} node{1} this build cannot read ({2}), and "
 				"{3} link{4} that touched {5}.",
 				droppedTypes.size(), droppedTypes.size() == 1 ? "" : "s", names,

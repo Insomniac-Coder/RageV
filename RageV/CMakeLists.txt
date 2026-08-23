@@ -69,7 +69,6 @@ target_include_directories(RageV PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 # serves as the oracle those implementations are checked against.
 target_link_libraries(RageV
     PUBLIC
-        spdlog
         imgui
         imguizmo
         yaml-cpp
@@ -156,7 +155,7 @@ target_compile_definitions(RageV PUBLIC
 # targets defined in other directories, and the vendor targets are. Nothing
 # actually installs -- the EXPORT set is the point, and export(EXPORT) below
 # writes it into the build tree.
-install(TARGETS RageV spdlog imgui imguizmo yaml-cpp volk_headers glfw
+install(TARGETS RageV imgui imguizmo yaml-cpp volk_headers glfw
     EXPORT RageVTargets)
 export(EXPORT RageVTargets
     NAMESPACE RageV::

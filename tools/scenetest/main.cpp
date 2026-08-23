@@ -19,7 +19,6 @@
 #include "RageV/Core/Log.h"
 // For the counting sink in CheckAntiAliasingSwitch. Test-side only: the
 // engine did not have to grow a hook for a check to watch its warnings.
-#include "spdlog/sinks/base_sink.h"
 #include <atomic>
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "RageV/Renderer/Renderer.h"
@@ -4091,7 +4090,8 @@ void main()
 			Check(build.find("add_library(Probe SHARED") != std::string::npos,
 				  "as a DLL named after the project");
 			Check(build.find("/utf-8") != std::string::npos,
-				  "with /utf-8, which spdlog's fmt refuses to build without");
+				  "with /utf-8, so the source encoding is a property of the "
+				  "project rather than of the machine that compiles it");
 
 			std::ifstream script(root / "Source" / "Rotator.cpp");
 			std::stringstream starter;
@@ -5729,23 +5729,21 @@ void main()
 		if (!Renderer::HasDevice() || !PostProcess::IsReady())
 			return;
 
-		// A sink on the core logger, for the duration of this check. Nothing
-		// in the engine had to grow a hook for it.
-		struct CountingSink : spdlog::sinks::base_sink<std::mutex>
-		{
-			std::atomic<int> Warnings{ 0 };
-		protected:
-			void sink_it_(const spdlog::details::log_msg& message) override
-			{
-				if (message.level >= spdlog::level::warn)
-					Warnings++;
-			}
-			void flush_() override {}
-		};
+		// A sink on the log, for the duration of this check.
+		//
+		// The engine *did* have to grow a hook for this -- Log::SetSink -- and
+		// it is the only thing the old logger's sink machinery was ever used
+		// for here. One callback replaced a class hierarchy; the counter is
+		// atomic because the sink is called under the log's own lock but from
+		// whichever thread wrote the line.
+		struct Counter { std::atomic<int> Warnings{ 0 }; };
+		Counter counter;
 
-		auto counter = std::make_shared<CountingSink>();
-		auto& sinks = Log::GetCoreLogger()->sinks();
-		sinks.push_back(counter);
+		Log::SetSink([](Log::Channel, LogLevel level, std::string_view, void* user)
+		{
+			if (level >= LogLevel::Warn)
+				static_cast<Counter*>(user)->Warnings++;
+		}, &counter);
 
 		RenderGraph graph(Renderer::GetDevice());
 		TemporalHistory history;
@@ -5814,7 +5812,7 @@ void main()
 
 		Check(compiled, "every anti-aliasing mode compiles and executes a real frame");
 
-		const int warnings = counter->Warnings.load();
+		const int warnings = counter.Warnings.load();
 		Check(warnings == 0,
 			  "and switching between any two of them logs nothing -- a pooled "
 			  "descriptor set reused across two pipeline layouts drops the "
@@ -5824,7 +5822,7 @@ void main()
 		if (warnings != 0)
 			RV_CORE_ERROR("anti-aliasing switch produced {0} warning(s)", warnings);
 
-		sinks.pop_back();
+		Log::SetSink(nullptr, nullptr);
 	}
 
 	// The history pair on its own, away from the graph.

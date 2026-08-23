@@ -12899,6 +12899,92 @@ whether the device has a ray query. So the window they read is the one the
 configured detail level would have used, and `RayDetail::Off` answers the same
 window rather than nothing, which is the case scenetest pins down.
 
+### 7ck. The logger stopped needing a library
+
+spdlog is gone. 147 headers and 2.1 MB, included by `Log.h`, which the
+precompiled header includes, which means **every translation unit in the engine
+was compiling it**. What the engine asked of it was two named loggers, four
+levels, one pattern and a colour each.
+
+The formatting was the part worth keeping a library for, and C++20 put that in
+the standard library. So the reason expired rather than the requirement
+changing.
+
+#### What the removal actually cost
+
+Almost nothing, and the numbers are worth recording because "remove a
+dependency" usually is not:
+
+- **658 call sites, zero changed.** The eight `RV_*` macros kept their names
+  and their signatures.
+- **One call site had to change for a real reason**: `std::format` checks a
+  format string against its arguments at compile time, and `VulkanDevice.cpp`
+  picked between two literals with a runtime ternary. That is not a constant
+  the checker can see, so it became an `if`. Getting compile-time checking in
+  exchange for that is a good trade -- a `{2}` with two arguments is now a
+  build error.
+- **Nothing logged a custom type.** `spdlog/fmt/ostr.h` was included for a
+  capability no call site used.
+
+#### Five files were relying on it by accident
+
+The interesting cost. spdlog was transitively supplying `<algorithm>`, `<map>`,
+`<array>` and `<fstream>` to files that included none of them, through the PCH.
+Removing it turned four hidden dependencies into build errors in five files,
+which is the good outcome: they now include what they use.
+
+Worth resisting the temptation to add those four headers to `rvpch.h` instead.
+That would have been re-creating the accident deliberately.
+
+#### The design, and what it does not have
+
+Two channels, four levels, one mutex, two per-thread buffers. Specifically:
+
+- **Formatting happens before the lock, never under it.** The scratch buffer is
+  `thread_local` and cleared rather than freed, so the steady state allocates
+  nothing and logging threads contend on the write rather than on the work.
+- **One `fwrite` per line**, into a second per-thread buffer holding the stamp,
+  the escapes and the message. Five `fputs` calls would be five locks inside
+  the CRT and a line that can interleave with another thread's halfway
+  through.
+- **The clock is formatted once a second**, not once a line: `localtime` is a
+  call into the CRT with a lock behind it and the answer does not change within
+  a second.
+- **Colour only when stdout is a terminal.** Escapes written into a pipe are
+  not colour, they are corruption -- every check script in `tools/` greps this
+  output. On Windows that also means asking the console to interpret ANSI at
+  all, and if that request fails the answer is no colour rather than a best
+  effort that prints `[32m` as text.
+- **The colours are spdlog's**, to the escape: white, green, yellow bold, red
+  bold. Anybody who has run this engine has read those for years, and a logger
+  swap is not a reason to make them relearn a palette.
+- Flushed every line, as before. Not free, and not negotiable: the lines that
+  matter most are the ones written immediately before a crash.
+
+The one thing the engine had to grow is `Log::SetSink` -- a single function
+pointer and a `void*`. scenetest counts warnings during a check and used
+spdlog's sink machinery for it; a callback replaced a class hierarchy. Its
+comment used to read "Nothing in the engine had to grow a hook for it", and
+that is no longer true. It is the honest cost of the change and it is one
+function.
+
+#### It is an ABI change, and it will bite
+
+`Log::GetCoreLogger` is gone, and game modules call the log macros. A module
+built against the old engine now fails to load with **error 127** -- procedure
+not found -- and seven scenetest claims fail in a way that looks like the
+scripting system is broken rather than stale. Rebuild `SampleProject/bin/module`
+and `Knockdown/bin/module` after pulling this.
+
+#### The `/utf-8` flag stays, for a different reason
+
+It was on every target because spdlog's bundled fmt would not compile without
+it, which is why three CMakeLists said so. There is no non-ASCII anywhere in
+the engine's own sources, so that requirement really has gone -- but MSVC's
+default source charset is the *build machine's* ANSI codepage, and a project
+whose encoding depends on who compiled it is a bug waiting for its first
+non-ASCII character. The flag stays; only the reason for it changed.
+
 ---
 
 ## 8. What this changes

@@ -1376,7 +1376,7 @@ supported surfaces, the second is a record of decisions and traps.
   Nothing to fix.
 - GPU: NVIDIA RTX 5070 Ti Laptop, driver 591.91. RenderDoc installed; debug
   names and command-buffer labels are wired throughout.
-- 14 vendored submodules: spdlog, imgui, **glm (test-only)**, yaml-cpp, ImGuizmo, PerlinNoise,
+- 13 vendored submodules: imgui, **glm (test-only)**, yaml-cpp, ImGuizmo, PerlinNoise,
   GLFW, Vulkan-Headers, volk, VulkanMemoryAllocator, glslang, **cgltf**,
   **JoltPhysics** (v5.6.0), **miniaudio** (0.11.22).
 

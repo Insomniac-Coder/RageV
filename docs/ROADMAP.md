@@ -382,8 +382,11 @@ is, in my judgement, the single most likely way to stall this project.
 
 **5.0 is new, and it is first for that same reason.** No third-party type may
 appear in a public RageV header: `glm::vec3` becomes an engine type, and every
-other library the engine uses but did not write — EnTT, Jolt, miniaudio, spdlog,
-yaml-cpp — is checked for the same leakage. The engine should read as one engine
+other library the engine uses but did not write — EnTT, Jolt, miniaudio,
+yaml-cpp — is checked for the same leakage. spdlog used to be on that list and
+is the case that resolved itself: `Log.h` leaked `spdlog::logger` into every
+header through the PCH, and the answer turned out to be that the engine no
+longer needs it (ENGINE-NOTES 7ck). The engine should read as one engine
 rather than as an assembly of libraries, and nobody writing a script should have
 to learn glm's name to use it.
 

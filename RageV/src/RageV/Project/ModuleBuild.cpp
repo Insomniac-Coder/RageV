@@ -6,6 +6,7 @@
 #include <chrono>
 #include <regex>
 #include <sstream>
+#include <fstream>
 
 namespace RageV
 {

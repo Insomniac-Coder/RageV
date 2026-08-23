@@ -4,6 +4,7 @@
 #include "ReflectionProbe.h"
 #include "Cubemap.h"
 #include "RageV/Math/Math.h"
+#include <array>
 
 namespace RageV
 {

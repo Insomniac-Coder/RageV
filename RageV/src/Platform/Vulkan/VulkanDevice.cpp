@@ -275,8 +275,15 @@ namespace RageV::Vk
 		if (!layers.empty() && HasInstanceExtension(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME, validationLayer))
 		{
 			extensions.push_back(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
-			RV_CORE_INFO(gpuAssisted ? "Vulkan GPU-assisted validation enabled (synchronization validation off for this run)"
-									 : "Vulkan synchronization validation enabled");
+			// Two calls rather than one with a ternary: a format string is
+			// checked against its arguments at compile time now, and a
+			// runtime choice between two literals is not a constant the
+			// checker can see.
+			if (gpuAssisted)
+				RV_CORE_INFO("Vulkan GPU-assisted validation enabled "
+							 "(synchronization validation off for this run)");
+			else
+				RV_CORE_INFO("Vulkan synchronization validation enabled");
 		}
 		else
 		{

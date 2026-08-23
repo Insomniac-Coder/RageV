@@ -188,12 +188,6 @@ target_compile_definitions(glm INTERFACE
 # target: nothing in the engine includes it (ENGINE-NOTES 7ap).
 
 # ---------------------------------------------------------------------------
-# spdlog -- header only mode, no separate compilation
-# ---------------------------------------------------------------------------
-add_library(spdlog INTERFACE)
-target_include_directories(spdlog INTERFACE spdlog/include)
-
-# ---------------------------------------------------------------------------
 # yaml-cpp
 # ---------------------------------------------------------------------------
 set(YAML_CPP_BUILD_TOOLS     OFF CACHE BOOL "" FORCE)

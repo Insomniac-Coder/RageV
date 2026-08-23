@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "VulkanPipeline.h"
 #include "VulkanDevice.h"
+#include <algorithm>
 
 namespace RageV::Vk
 {

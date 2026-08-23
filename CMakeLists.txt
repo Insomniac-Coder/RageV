@@ -47,7 +47,9 @@ option(RAGEV_ENABLE_VALIDATION "Enable Vulkan validation layers in Debug builds"
 
 if(MSVC)
     add_compile_options(/MP)                 # parallel compilation
-    add_compile_options(/utf-8)              # required by spdlog's bundled fmt
+    # Was required by spdlog's bundled fmt, which is gone. It stays because
+    # MSVC's default source charset is the build machine's ANSI codepage, so this makes the encoding a property of the project rather than of whoever compiled it.
+    add_compile_options(/utf-8)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 

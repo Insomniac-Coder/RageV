@@ -3,7 +3,7 @@
 #include "EngineConfig.h"
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/Renderer.h"
-#include <spdlog/fmt/fmt.h>
+#include <format>
 #include <algorithm>
 
 namespace RageV
@@ -484,7 +484,7 @@ namespace RageV
 		auto column = [](float value)
 		{
 			// A phase with no GPU pair is not a phase that cost nothing.
-			return value >= 0.0f ? fmt::format("{:.3f}", value) : std::string("  --");
+			return value >= 0.0f ? std::format("{:.3f}", value) : std::string("  --");
 		};
 
 		float accounted = 0.0f;
@@ -518,7 +518,7 @@ namespace RageV
 			{
 				listed += entry.GpuMs;
 				RV_CORE_INFO("[benchmark]   {0:<34} {1:>8.3f} ms{2}", entry.Name, entry.GpuMs,
-							 entry.Calls > 1 ? fmt::format("  x{0}", entry.Calls) : std::string());
+							 entry.Calls > 1 ? std::format("  x{0}", entry.Calls) : std::string());
 			}
 			RV_CORE_INFO("[benchmark]   {0:<34} {1:>8.3f} ms", "(sum of passes)", listed);
 		}

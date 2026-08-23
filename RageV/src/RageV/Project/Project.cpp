@@ -437,8 +437,11 @@ set_target_properties()" << name << R"( PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../bin/$<CONFIG>")
 
 if(MSVC)
-    # /utf-8 is load-bearing: spdlog's bundled fmt refuses to compile without
-    # it, and Log.h reaches it from almost every engine header.
+    # /utf-8: MSVC's default source charset is the build machine's ANSI
+    # codepage, so this makes the encoding a property of your project rather
+    # than of whoever compiles it. It was originally here because spdlog's
+    # bundled fmt would not build without it; that dependency is gone and the
+    # flag is worth keeping on its own.
     target_compile_options()" << name << R"( PRIVATE /MP /W3 /utf-8)
 endif()
 )";
