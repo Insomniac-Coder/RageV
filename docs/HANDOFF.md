@@ -144,6 +144,54 @@ That names the broken pairing in one run.
 2560x1600 frame 60 under the committed profile -- across every feature
 toggle. If a change moves that number at all, it touched the mechanism.
 
+### BREAKTHROUGH (session end, 2026-08-23 late): the row probe ran, and it splits the mystery
+
+The v_DebugRow probe (described below) was executed. Decoded results at
+2560x1600 frame 60, stripped profile (decoder: sRGB^-1 then ACES^-1
+(Narkowicz, solve the quadratic), floor pixel validates exactly as row 0):
+
+- **GPU path: wall pixels decode cleanly to rows 2 and 3 = 'Left Wall' /
+  'Right Wall' -- the CORRECT opaque rows.** The gpu path's wall draws are
+  RIGHT. Portal pixel decodes to row ~29 (checksum noisy, 25-29): some other
+  object owns that pixel there.
+- **CPU path: the same pixels do NOT decode (channels disagree with the
+  checksum)** -- those pixels were NOT written by the opaque instanced
+  fragment. Floor decodes exactly on both paths, so the probe itself is
+  sound.
+- `showroom_wall_side.rmat` has NO Blend line: the walls are authored
+  OPAQUE. So the CPU path covering them with non-opaque-instanced output is
+  the anomaly on that side.
+
+**The working hypothesis that now fits every observation:** the showroom's
+walls carry COPLANAR surfaces (the authored white paint panels over the
+near-black wall_side boxes -- the generator's "white painted panel" over
+black side walls). Depth-tied coplanar geometry is resolved by draw order;
+the two paths draw in different orders; under MSAA the samples can even
+split between the two windows, which is exactly a pixel that decodes as
+garbage (CPU) versus one clean winner (GPU). It explains: determinism per
+path, difference between paths, feature independence, the white "interloper"
+(the white panel winning ties on the gpu path where the black wall wins on
+the cpu path), the max-215 white-vs-black deltas, the showroom-only trigger,
+and the roadmap's "flickers" (z-fighting under motion).
+
+**First moves next session:**
+1. Confirm coplanarity: read make_showroom_scene.py's wall construction
+   (~line 470-500) for a panel/box pair on the same plane; or decode the
+   FULL row map from the probe images (in the scratchpad as row_gpu.png /
+   row_cpu.png if it survives; regenerate otherwise -- the probe recipe is
+   below) and check whether wall pixels flip between two specific rows.
+2. If confirmed: the fix is not in gpu-lit at all -- it is depth-fighting
+   scene content (give the panel a real offset in the generator, regenerate
+   the scene) AND/OR a stable tie-break (polygon offset for decals). The
+   gpu-lit path may be entirely innocent of THIS diff; the unsorted
+   transparent table defect (below) remains real and separate.
+3. The row->entity map for rows 0..28 is: 0 Floor, 1 Ceiling, 2 Left Wall,
+   3 Right Wall, 4 Front Wall, 5/6 Portal Piers, 7 Portal Header, 8/9/10
+   Portal Reveals, 11-14 Skirtings, 15 Luminaire, 16-19 Luminaire Reveals,
+   20 Bay Floor, 21 Bay (2nd), 22 Bay Back Wall, 25-28 Bay Downlights.
+   Row 29/30: the two single-mesh objects after the quads (identify via a
+   GPUROW log -- probe recipe in the operational layer).
+
 ### How to reproduce in one minute
 
 ```
