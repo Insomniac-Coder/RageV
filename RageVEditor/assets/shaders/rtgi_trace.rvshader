@@ -216,8 +216,16 @@ void main()
 				// Shortened by a hair so the ray ends *before* the emitter's
 				// own surface rather than in it, which would report itself as
 				// an occluder.
-				TracedSurface blocker = TraceSurface(world, N, toLight, distance * 0.999);
-				if (blocker.Missed)
+				//
+				// **A visibility ray, and nothing more.** This asked
+				// TraceSurface, which finds the *closest* hit and then decodes
+				// the triangle, samples the material's maps and runs the whole
+				// light loop at it -- including a sun shadow ray of its own --
+				// and every bit of that was thrown away to read one bool. The
+				// question here is only whether anything blocks, which is what
+				// TraceShadowFrom asks: terminate-on-first-hit, no attributes,
+				// no shading. Identical answer, a fraction of the work.
+				if (TraceShadowFrom(world, N, toLight, distance * 0.999) > 0.0)
 				{
 					// Area density to solid angle: pdf_w = pdf_A * d^2 / cos.
 					// The estimator is Li * cos_surface / pdf_w, and the 1/pi
