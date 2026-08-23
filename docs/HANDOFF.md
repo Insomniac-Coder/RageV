@@ -103,20 +103,52 @@ a windscreen, and no headlamp glass, grille or side windows behind it.
 - FlushTransparent drops an armed indirect view it cannot draw instead of
   holding it across frames (a held view replays a dead camera's cull).
 
-### Still open, noticed on the way (none blocks anything)
+### The three follow-ups above, closed the same day
 
-- **`check_depth_sort.py`'s early-z floor reads 1.0x** (0.65 vs 0.62 ms on
-  the overdraw scene) where 7.8 measured 105x. Not this session's change
-  (pixels/draws identical, and it reads 1.0x with `--gpu-lit=off` too);
-  either the scene stopped overdrawing or early-z stopped mattering on this
-  GPU/driver. The script prints FAIL but exits 0. Worth its own session.
-- **VoxelGI voxelizes glass as a solid caster** (`Scene.cpp` caster walk has
-  no blend check) -- the shadow path's "glass casts no shadow" doctrine,
-  contradicted by the bounce. Voxel GI is off in every committed profile.
-- `RHICommandList::DrawIndexedIndirect`'s **default** stride is still the
-  bare 20-byte command while every real arguments buffer is 24-byte
-  `SlotCommand` rows. Every call site passes explicit stride today; the
-  default is a loaded gun for the next one.
+All three "still open" items from the first pass were fixed later on
+2026-08-24; what follows is what each turned out to be.
+
+- **The early-z floor was dead because its worst case had quietly become
+  its best case.** `make_overdraw_scene.py` emitted slabs near-to-far, and
+  "unsorted" draws in submission order -- which EnTT used to scramble
+  (arbitrary iteration) and 10.2's sparse-set ECS preserves (insertion
+  order). The day EnTT left, the unsorted case became perfectly sorted and
+  the floor read 1.0x forever. Measured: 0.62 ms "unsorted" as committed,
+  24.2 ms with the same slabs reversed. The fixture now emits **far to
+  near** -- worst case as a property the file guarantees, not one an
+  iteration order happens to provide -- and the floor reads **66x** (0.35
+  vs 23.4 ms). Second layer: the check ran without `--gpu-lit=off`, and
+  the indirect path never consults `--depth-sort` (its order is the cull's
+  atomicAdd), so both halves compared a flag-independent path to itself.
+  Every run in the check now pins `--gpu-lit=off`. Third layer, found by
+  the pinning: the pixel-exact half screenshotted an **unpinned warm-up
+  frame**, where the glass's legitimate 1-2 level OIT float-association
+  jitter amplifies through TAA/SSR/DoF history into hundreds of levels --
+  2,598,126 subpixels unpinned, 0 at `--aa=none --screenshot-frame=60`.
+  Falsified end to end: `falsify.py sort-writes-depth` (early-z killed by
+  a depth write) takes the floor to 1.0x and exit 1; restore, 67x, green.
+  (An earlier note here claimed the perf FAIL "exits 0" -- wrong: `$?`
+  after a pipe reads the tail's status. The script always exited 1.)
+  One number the exercise produced for the roadmap's "depth sort still on
+  the CPU" line: on the reversed fixture the gpu-lit path pays 6.3 ms
+  whatever the flag says, against the CPU path's 1.17 sorted.
+- **VoxelGI no longer voxelizes glass as a solid caster**: the caster walk
+  skips blended materials, mirroring the shadow walk's "glass casts no
+  shadow" rule for the same reason -- a windscreen that blocks the bounce
+  puts the cabin the shadow rule keeps lit into indirect darkness.
+  `check_gi.py` stays green end to end (its fixtures are opaque walls).
+  One asymmetry, accepted and recorded: skipping a blended caster also
+  skips its *emission* from the voxel bounce (injection only lights
+  occupied voxels), while the traced form keeps blended surfaces as area
+  emitters -- a blended emissive lens now bounces under one GI form and
+  not the other. No committed content has one; the day some does, the
+  voxelizer needs an emissive-only injection, not a solid caster.
+- **`DrawIndexedIndirect` lost its default arguments** -- base interface
+  and both backend overrides (defaults on virtual overrides bind
+  statically through base pointers, a second trap in the same signature).
+  The natural default stride is wrong for every arguments buffer the
+  engine fills, and a defaulted stride was exactly the bug that dropped
+  the blended table's glass. Callers now state their layout.
 
 ### How to reproduce the old defect's shape (for regression archaeology)
 

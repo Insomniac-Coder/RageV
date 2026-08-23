@@ -96,9 +96,17 @@ namespace RageV::RHI
 		// same reason BuildBottomLevelAS cannot order its vertex buffer.
 		//
 		// Recorded inside a render pass, like any other draw.
-		virtual void DrawIndexedIndirect(const Ref<RHIBuffer>& args, uint64_t offset = 0,
-										 uint32_t drawCount = 1,
-										 uint32_t stride = sizeof(DrawIndexedIndirectCommand)) = 0;
+		//
+		// **No defaults, deliberately.** The natural default stride -- the
+		// bare command size -- is wrong for every arguments buffer this
+		// engine actually fills: the cull writes 24-byte SlotCommand rows
+		// (the command plus InstanceBase), and a call site that trusted a
+		// defaulted 20 read slot 1 from the middle of slot 0 and quietly
+		// dropped every blended mesh after the first (HANDOFF, the gpu-lit
+		// defect). A caller that knows its buffer's layout states it; one
+		// that does not has no business issuing the draw.
+		virtual void DrawIndexedIndirect(const Ref<RHIBuffer>& args, uint64_t offset,
+										 uint32_t drawCount, uint32_t stride) = 0;
 
 		// Launches the bound *mesh-shading* pipeline over a grid of work
 		// groups -- what the groups mean is the shader's business (the

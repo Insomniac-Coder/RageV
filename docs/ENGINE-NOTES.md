@@ -1970,8 +1970,10 @@ scene overlaps itself. `tools/scripts/make_overdraw_scene.py` builds
 the worst case anyone could hand the renderer: 200 full-screen slabs
 along the view axis, depth complexity 200. Nearest-first against
 furthest-first there is **0.32 ms against 33.9 ms — a factor of about
-100.** On the 1500-mesh stress scene, which spreads its objects out,
-the same comparison is worth ~15%.
+100** (2026-08-13's reading; the floor later decayed to 1.0x and was
+restored at 66x — the addendum at the end of this section says how). On
+the 1500-mesh stress scene, which spreads its objects out, the same
+comparison is worth ~15%.
 
 So the answer is "yes, and it depends entirely on the content" — which
 is why `--depth-sort=off` exists rather than a remembered number.
@@ -2018,6 +2020,17 @@ didn't, every opaque run farther than the nearest glass fell into the OIT
 pass, and finding that took two sessions (HANDOFF, "the gpu-lit defect").
 The reorder now compares the transparent bit first; `check_gpu_lit.py`
 asserts the partition on a scene that actually has glass.)
+
+(A second decay, 2026-08-24: the overdraw fixture emitted its slabs
+near-to-far, and "unsorted" means submission order — which EnTT scrambled
+when 7.8 was measured and 10.2's insertion-order ECS preserves. So the
+floor's worst case silently became its best case and the 105x read 1.0x.
+The fixture now emits far-to-near, the check pins `--gpu-lit=off` (the
+indirect path never consults `--depth-sort`) and a settled `--aa=none`
+frame for the exactness half, and the floor reads 66x again — falsified
+back to 1.0x/exit 1 via `falsify.py sort-writes-depth`. The general
+lesson: a fixture whose "null case" depends on an iteration order is
+measuring the iteration order.)
 
 ### The trap that cost the most here
 
@@ -12211,9 +12224,11 @@ indirect consumer must offset AND stride by
 did; FlushTransparent's loop stepped by the bare 20-byte command, so slot 1
 read from the middle of slot 0 and only the first blended mesh ever drew.
 Fixed 2026-08-24; `check_gpu_lit.py` fails at 9.2% of pixels if it
-regresses. Note `RHICommandList::DrawIndexedIndirect`'s *default* stride is
-still the bare command size -- harmless at drawCount=1, a trap for the
-first multi-draw call site that trusts it.
+regresses. Note `RHICommandList::DrawIndexedIndirect`'s *default* stride was
+the bare command size -- harmless at drawCount=1, a trap for the first
+multi-draw call site that trusted it. Closed later on 2026-08-24: the
+defaults were removed outright, base and both overrides; callers state
+their layout.
 
 ---
 

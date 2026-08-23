@@ -45,9 +45,8 @@ namespace RageV::Vk
 		void DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1,
 						 uint32_t firstIndex = 0, int32_t vertexOffset = 0,
 						 uint32_t firstInstance = 0) override;
-		void DrawIndexedIndirect(const RHI::Ref<RHI::RHIBuffer>& args, uint64_t offset = 0,
-								 uint32_t drawCount = 1,
-								 uint32_t stride = sizeof(RHI::DrawIndexedIndirectCommand)) override;
+		void DrawIndexedIndirect(const RHI::Ref<RHI::RHIBuffer>& args, uint64_t offset,
+								 uint32_t drawCount, uint32_t stride) override;
 		void DrawMeshTasks(uint32_t groupsX, uint32_t groupsY = 1,
 						   uint32_t groupsZ = 1) override;
 

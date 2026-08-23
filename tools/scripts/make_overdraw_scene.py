@@ -97,7 +97,16 @@ def build(count, spacing):
     # Each slab is scaled so it still covers the view at its distance: the
     # frustum widens with depth, so a constant size would stop filling the
     # screen and the depth complexity would fall off with range.
-    for i in range(count):
+    #
+    # **Far to near, and the order is the fixture.** The unsorted case draws
+    # in submission order, and submission order is this file's entity order
+    # (the ECS iterates its sparse sets in insertion order since 10.2 --
+    # under EnTT it was arbitrary, which hid this). Emitted near-to-far, the
+    # "unsorted" case is already perfect and the check's early-z floor reads
+    # 1.0x forever: measured 2026-08-24, 0.62 ms "unsorted" against 24.2 ms
+    # once the order was reversed. Worst case must be a property the fixture
+    # guarantees, not one an iteration order happens to provide.
+    for i in reversed(range(count)):
         z = -spacing * (i + 1)
         distance = 4.0 - z
         # tan(30 degrees) either side of a 60 degree vertical field, widened

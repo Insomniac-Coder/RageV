@@ -2583,6 +2583,18 @@ namespace RageV
 					RHI::Ref<Material> material = Assets::Manager::GetMaterial(mesh.Material);
 					if (!material)
 						material = Renderer3D::GetDefaultMaterial();
+
+					// **Glass casts no shadow, and it bounces none either.**
+					// The shadow walk's rule, mirrored: a blended surface
+					// voxelised as a solid caster blocks the bounce through
+					// exactly the windscreen the shadow rule keeps direct
+					// light passing through, so the cabin would be lit
+					// directly and dark indirectly. The honest choice between
+					// "all of the light" and "none of it" is all, in both
+					// systems, for the same reason.
+					if (material && material->GetBlendMode() != BlendMode::Opaque)
+						continue;
+
 					const MaterialParams params =
 						mesh.ResolveParams(material ? material->GetParams() : MaterialParams{});
 					VoxelGI::Submit(resolved, transform.World, material, params);

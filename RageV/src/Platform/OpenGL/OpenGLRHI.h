@@ -272,9 +272,8 @@ namespace RageV::GL
 		void DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1,
 						 uint32_t firstIndex = 0, int32_t vertexOffset = 0,
 						 uint32_t firstInstance = 0) override;
-		void DrawIndexedIndirect(const Ref<RHIBuffer>& args, uint64_t offset = 0,
-								 uint32_t drawCount = 1,
-								 uint32_t stride = sizeof(DrawIndexedIndirectCommand)) override;
+		void DrawIndexedIndirect(const Ref<RHIBuffer>& args, uint64_t offset,
+								 uint32_t drawCount, uint32_t stride) override;
 		// Records nothing: no mesh shading on this backend, ever, and the
 		// caps said so before any caller got here.
 		void DrawMeshTasks(uint32_t, uint32_t = 1, uint32_t = 1) override {}
