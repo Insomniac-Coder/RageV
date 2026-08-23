@@ -42,6 +42,7 @@
 #include "RageV/Asset/ModelImporter.h"
 #include "RageV/Core/FixedStep.h"
 #include "RageV/Core/InputMap.h"
+#include "RageV/Core/FrameClock.h"
 #include "RageV/Core/Boot.h"
 #include "RageV/IO/PakFile.h"
 #include "RageV/IO/TextureCook.h"
@@ -4348,11 +4349,12 @@ void main()
 			bool anyClicked = false;
 			auto view = scene->GetRegistry().GetView<UIButtonComponent>();
 			for (auto handle : view)
-				anyClicked = anyClicked || view.Get<UIButtonComponent>(handle).Clicked;
+				anyClicked = anyClicked || view.Get<UIButtonComponent>(handle).Clicked.IsNow();
 			Check(anyClicked, "the click reaches a button in the demo scene");
 
-			// The step the handlers run in. EndFixedStep consumes the edge at
-			// the end of it, which is why the click is delivered before.
+			// The step the handlers run in. It is the step the click named
+			// when UpdatePointer stamped it, which is why one is enough and
+			// why the six that follow do not ring the bell again.
 			scene->OnFixedUpdateRuntime(1.0f / 60.0f);
 		};
 
@@ -10004,20 +10006,26 @@ void main()
 			UI::ResetPointer(*scene);
 
 			move(50.0f, 50.0f, false);
-			Check(buttonA.Hovered && !buttonA.Pressed && !buttonA.Clicked,
+			Check(buttonA.Hovered && !buttonA.Pressed && !buttonA.Clicked.IsNow(),
 				  "hovering a button hovers it and nothing else");
 			Check(!buttonB.Hovered, "and leaves the other one alone");
 
 			move(50.0f, 50.0f, true);
-			Check(buttonA.Pressed && !buttonA.Clicked,
+			Check(buttonA.Pressed && !buttonA.Clicked.IsNow(),
 				  "holding it down presses it, and a press is not yet a click");
 
 			move(50.0f, 50.0f, false);
-			Check(buttonA.Clicked, "releasing on it completes the click");
-			Check(!buttonB.Clicked, "and clicks nothing else");
+			Check(buttonA.Clicked.IsNow(), "releasing on it completes the click");
+			Check(!buttonB.Clicked.IsNow(), "and clicks nothing else");
 
-			UI::EndFixedStep(*scene);
-			Check(!buttonA.Clicked, "which the next simulation step consumes");
+			{
+				FrameClock::StepScope step;
+				Check(buttonA.Clicked.IsNow(), "which the simulation step it named sees");
+			}
+			{
+				FrameClock::StepScope step;
+				Check(!buttonA.Clicked.IsNow(), "and the step after it does not");
+			}
 
 			// The cancelled press. Every desktop toolkit does this, and it is
 			// the difference between a button and a tripwire.
@@ -10029,7 +10037,7 @@ void main()
 				  "and does not press the one it slid onto -- that press began elsewhere");
 
 			move(250.0f, 50.0f, false);
-			Check(!buttonA.Clicked && !buttonB.Clicked,
+			Check(!buttonA.Clicked.IsNow() && !buttonB.Clicked.IsNow(),
 				  "and releasing over a different button clicks neither of them");
 
 			// ...and coming back completes it, because the press was cancelled,
@@ -10040,15 +10048,16 @@ void main()
 			move(50.0f, 50.0f, true);
 			Check(buttonA.Pressed, "coming back to it presses it again");
 			move(50.0f, 50.0f, false);
-			Check(buttonA.Clicked, "and the release then counts");
+			Check(buttonA.Clicked.IsNow(), "and the release then counts");
 
 			// A press begun on nothing stays nothing, however it ends.
+			// ResetPointer clears the edge, so the click above cannot be
+			// mistaken for this one's.
 			UI::ResetPointer(*scene);
-			UI::EndFixedStep(*scene);
 			move(350.0f, 350.0f, true);
 			move(50.0f, 50.0f, true);
 			move(50.0f, 50.0f, false);
-			Check(!buttonA.Clicked,
+			Check(!buttonA.Clicked.IsNow(),
 				  "a press that began on empty space cannot click what it ends on");
 		}
 
@@ -10219,8 +10228,8 @@ void main()
 				  "and as hovered the moment the pointer is on it, which is what "
 				  "recolours a label the button's own tint cannot reach");
 
-			// A level, not an edge. `Clicked` is consumed by the first step that
-			// runs; this must survive every frame the pointer stays put, or a
+			// A level, not an edge. `Clicked` belongs to one step and one
+			// frame; this must survive every frame the pointer stays put, or a
 			// label would flick back on the second one.
 			scene->OnUpdateRuntime(dt);
 			scene->OnUpdateRuntime(dt);
@@ -10235,11 +10244,12 @@ void main()
 			scene->OnRuntimeStop();
 		}
 
-		// --- an edge is consumed once, and never lost ----------------------------
+		// --- an edge is seen once by each clock, and never lost ------------------
 		//
 		// The same contract InputMap has, and the same reason: a frame that runs
 		// three simulation steps must not fire a button three times, and a frame
-		// that runs none must not swallow the click.
+		// that runs none must not swallow the click. CheckInputEdges proves the
+		// rules on the stamp itself; this proves a real button obeys them.
 		{
 			auto scene = std::make_shared<Scene>();
 			Entity canvas = build(scene, CanvasScaleMode::ConstantPixels);
@@ -10259,22 +10269,41 @@ void main()
 			const UIButtonComponent& state = button.GetComponent<UIButtonComponent>();
 
 			UI::ResetPointer(*scene);
+			FrameClock::BeginFrame();
 			move(true);
 			move(false);
-			Check(state.Clicked, "a click is set on the release");
+			Check(state.Clicked.IsNow(), "a click is set on the release");
 
 			// Two frames of pointer movement with no step in between -- what a
 			// frame rate above the simulation rate does constantly.
+			FrameClock::BeginFrame();
 			move(false);
+			FrameClock::BeginFrame();
 			move(false);
-			Check(state.Clicked,
-				  "and survives frames that run no simulation step, rather than "
-				  "being lost between them");
 
-			UI::EndFixedStep(*scene);
-			Check(!state.Clicked, "the first step that runs consumes it");
-			UI::EndFixedStep(*scene);
-			Check(!state.Clicked, "and a second step in the same frame does not see it again");
+			{
+				FrameClock::StepScope step;
+				Check(state.Clicked.IsNow(),
+					  "and survives frames that run no simulation step, rather than "
+					  "being lost between them");
+			}
+			{
+				FrameClock::StepScope step;
+				Check(!state.Clicked.IsNow(),
+					  "while a second step does not see it again -- three steps in "
+					  "one frame click a button once");
+			}
+
+			// The other clock, which is what 7cn was about. A click made on a
+			// frame is that frame's to read as well, and the step above did not
+			// take it away -- but it is stale by the next frame, because
+			// "just clicked" is a claim about now.
+			FrameClock::BeginFrame();
+			move(true);
+			move(false);
+			Check(state.Clicked.IsNow(), "the frame it was made on reads it too");
+			FrameClock::BeginFrame();
+			Check(!state.Clicked.IsNow(), "and the frame after that does not");
 		}
 
 		// --- the whole chain, through a script -----------------------------------
@@ -14620,6 +14649,154 @@ void main()
 			  "and ToggleStats among them, which F3 is bound to");
 	}
 
+	// The two clocks, and the edge that answers against them.
+	//
+	// **A key press cannot be simulated headlessly** -- it is real device
+	// state, and there is no seam to push it through. What can be driven is
+	// the mechanism underneath: `InputEdge` is exactly what `WasActionPressed`
+	// consults, and `UI::UpdatePointer` stamps the identical thing. So the
+	// rules are proved here on the edge itself, and the click tests prove the
+	// same rules end to end through a real button.
+	//
+	// Nothing here resets the clock. Every claim is relative -- this frame
+	// against the next, this step against the one after -- because a clock
+	// that can be wound back is a clock an old stamp can collide with, and
+	// giving the tests a way to do it would be handing the engine one too.
+	void CheckInputEdges()
+	{
+		// --- an edge belongs to the frame it was raised on ---------------------
+		{
+			FrameClock::BeginFrame();
+
+			InputEdge edge;
+			Check(!edge.IsNow(), "an edge that never happened is never now");
+
+			edge.Raise();
+			Check(edge.IsNow(), "the frame it was raised on sees it");
+			Check(edge.IsNow(), "and asking twice in that frame answers the same "
+								"-- reading an edge does not spend it");
+
+			FrameClock::BeginFrame();
+			Check(!edge.IsNow(), "the next frame does not");
+		}
+
+		// --- and to exactly one step -------------------------------------------
+		//
+		// The guarantee the old consume-on-step design existed to provide, now
+		// falling out of the comparison instead of being defended by a clear.
+		{
+			FrameClock::BeginFrame();
+
+			InputEdge edge;
+			edge.Raise();
+
+			int seen = 0;
+			for (int i = 0; i < 3; i++)
+			{
+				FrameClock::StepScope step;
+				if (edge.IsNow())
+					seen++;
+			}
+
+			Check(seen == 1, "a frame that runs three steps fires it once");
+		}
+
+		// --- a frame that runs none does not swallow it ------------------------
+		//
+		// Above 60 Hz most frames run no step at all, which is why this is the
+		// half that matters in practice rather than the exotic one.
+		{
+			FrameClock::BeginFrame();
+
+			InputEdge edge;
+			edge.Raise();
+
+			// Two frames of nothing. The edge names the step that will run
+			// next, and that step has not run yet however long it takes.
+			FrameClock::BeginFrame();
+			FrameClock::BeginFrame();
+
+			bool seen = false;
+			{
+				FrameClock::StepScope step;
+				seen = edge.IsNow();
+			}
+
+			Check(seen, "a press made on a frame that runs no step is waiting for "
+						"the first one that does, however many frames later");
+
+			bool again = false;
+			{
+				FrameClock::StepScope step;
+				again = edge.IsNow();
+			}
+
+			Check(!again, "and the step after that has missed it");
+		}
+
+		// --- neither reader can spend the other's -------------------------------
+		//
+		// This is the whole point of the change, and the thing the old design
+		// could not do: 7cn was an OnFrame that silently lost every press to
+		// the step loop that ran before it.
+		{
+			FrameClock::BeginFrame();
+
+			InputEdge edge;
+			edge.Raise();
+
+			bool inStep = false;
+			{
+				FrameClock::StepScope step;
+				inStep = edge.IsNow();
+			}
+
+			// After the step loop, which is where OnFrame runs.
+			const bool inFrame = edge.IsNow();
+
+			Check(inStep && inFrame,
+				  "the step sees the press and so does the frame it was made on "
+				  "-- OnTick and OnFrame each get their own answer");
+		}
+
+		// --- a step is a step, however many people say so -----------------------
+		//
+		// Application's loop opens a step and Scene::OnFixedUpdateRuntime opens
+		// one inside it. Counting that as two would halve the rate at which
+		// edges expire, and every one of them would be seen twice.
+		{
+			FrameClock::BeginFrame();
+
+			InputEdge edge;
+			edge.Raise();
+
+			int seen = 0;
+			{
+				FrameClock::StepScope outer;
+				{
+					FrameClock::StepScope inner;
+					if (edge.IsNow())
+						seen++;
+				}
+
+				// Still the same step: the inner scope closing must not have
+				// ended the outer one's.
+				if (edge.IsNow())
+					seen++;
+			}
+
+			Check(seen == 2, "a nested step scope is the same step, not a second one");
+
+			bool after = false;
+			{
+				FrameClock::StepScope step;
+				after = edge.IsNow();
+			}
+
+			Check(!after, "and the pair of them advanced the clock exactly once");
+		}
+	}
+
 	void CheckCameraRanking()
 	{
 		auto scene = std::make_shared<Scene>();
@@ -15121,6 +15298,7 @@ int RunTests(int argc, char** argv)
 	// --- simulation loop -----------------------------------------------------
 	CheckFixedStep();
 	CheckInputMap();
+	CheckInputEdges();
 	CheckScriptApi();
 	CheckFrameHook();
 	CheckLiveScriptChanges();

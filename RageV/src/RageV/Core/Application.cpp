@@ -10,6 +10,7 @@
 #include "RageV/Asset/AssetRegistry.h"
 #include "RageV/Project/Project.h"
 #include "RageV/Core/InputMap.h"
+#include "RageV/Core/FrameClock.h"
 #include "RageV/Core/FrameProfiler.h"
 #include "RageV/Renderer/Renderer2D.h"
 #include "RageV/Renderer/GpuCull.h"
@@ -548,6 +549,10 @@ namespace RageV {
 
 			FrameProfiler::BeginFrame();
 
+			// Before input is sampled, because this is the number the frame's
+			// edges are stamped with.
+			FrameClock::BeginFrame();
+
 			// Sampled once per frame, not per step: several steps in one frame
 			// must see one press, not one each.
 			InputMap::Update();
@@ -555,12 +560,14 @@ namespace RageV {
 			const int steps = m_FixedStep.Advance(frameTime);
 			for (int i = 0; i < steps; i++)
 			{
+				// The engine's step, and the authoritative one -- opened here
+				// rather than inside the scene so that it advances even when
+				// the scene is paused, which is what keeps a press made during
+				// a pause from firing the moment play resumes.
+				FrameClock::StepScope step;
+
 				for (Layer* layer : m_LayerStack)
 					layer->OnFixedUpdate(m_FixedStep.Timestep);
-
-				// Edges are consumed by the first step that runs; a frame with
-				// no steps carries them forward rather than losing them.
-				InputMap::EndFixedStep();
 			}
 
 			// Null means the frame must be skipped -- a resized or minimised

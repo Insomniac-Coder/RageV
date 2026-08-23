@@ -278,9 +278,10 @@ float forward = Input.GetAxis("MoveForward");
 
 By action name, never by key code — there is deliberately no way to ask about
 a key. A script written against `"Jump"` keeps working when the player rebinds
-it. `WasActionPressed` is consumed by the first step that runs and carried
-forward by a frame that runs none, so a press is never missed and never seen
-twice.
+it. `WasActionPressed` records when the press happened rather than being spent
+by whoever reads it first, so **either callback may ask**: `OnTick` sees it in
+exactly one step, `OnFrame` on exactly the frame the key went down, and neither
+takes it from the other. A press is never missed and never seen twice.
 
 ### One extra line, once there is a UI
 
@@ -344,12 +345,13 @@ public override void OnTick(float dt)
 Reach for this when one manager reads several buttons, or when the click is one
 of a few things a step already checks.
 
-On the fixed step, not the frame: a click is an event the game acts on, and
-acting on it twice because one frame ran two steps is what the edge contract
-exists to prevent. Same terms as `WasActionPressed` — consumed by the first step
-that runs, carried forward by a frame with none. A press dragged off the button
-before the release is cancelled and never reported. **Both** mechanisms honour
-that, so a bound method is also called exactly once per click.
+Usually on the fixed step, because a click is an event the game acts on and it
+belongs with the rest of the simulation — but the frame may ask too. Same terms
+as `WasActionPressed`: the click is stamped with when it happened, so `OnTick`
+sees it in one step and `OnFrame` on one frame, and acting on it twice because
+a frame ran two steps cannot happen. A press dragged off the button before the
+release is cancelled and never reported. **Both** mechanisms honour that, so a
+bound method is also called exactly once per click.
 
 ### And whether the pointer is on it
 

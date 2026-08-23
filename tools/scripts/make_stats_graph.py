@@ -142,16 +142,17 @@ ROW = 150          # vertical step between rows
 # output is the rest of the program.
 on_frame = g.node("OnFrame", -1400, 0)
 
-# --- the toggle, on the *step* and not the frame -----------------------------
+# --- the toggle, on the step ------------------------------------------------
 #
-# **Input edges belong to On Tick.** `WasActionPressed` is raised once per frame
-# by InputMap::Update and cleared by EndFixedStep, which runs inside the step
-# loop -- so the first fixed step consumes it and On Frame, which runs after,
-# sees nothing. A frame that happened to run no step let it through, which is
-# why F3 worked "sometimes": the odds are the ratio of frame rate to the fixed
-# 60 Hz, and at 70 FPS almost every frame runs a step.
+# On Frame would work now: since 2026-08-23 an input edge is stamped with when
+# it happened rather than cleared by the first fixed step, so On Tick and On
+# Frame each see a press exactly once (ENGINE-NOTES 7co). This stays on On Tick
+# because that is where acting on a press belongs -- the display half below is
+# on On Frame, because that is where the frame time is.
 #
-# On Tick sees every press, exactly once, by design. ENGINE-NOTES 7cn.
+# It was not a preference when it was written. The edge was consumed inside the
+# step loop, which runs before On Frame, so the original On Frame toggle fired
+# at odds equal to the frame rate over 60 -- F3 "worked sometimes" (7cn).
 on_tick = g.node("OnTick", -1400, -700)
 root = g.node("Sequence", -1150, -700)
 g.link(on_tick, 0, root, 0)

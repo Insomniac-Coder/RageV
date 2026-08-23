@@ -30,17 +30,14 @@ namespace RageV
 		static void Shutdown();
 
 		// Samples devices and works out this frame's edges. Called once per
-		// frame by Application, before any simulation step.
+		// frame by Application, before any simulation step -- and after
+		// FrameClock::BeginFrame, because that is what the edges are stamped
+		// with.
 		static void Update();
 
 		// The wheel arrives as an event and has no queryable state, unlike
 		// every other input, so it has to be fed in.
 		static void OnScroll(float delta);
-
-		// Clears the pressed/released edges. Called after each fixed step, so
-		// a press is seen by exactly one step even when several run in a frame
-		// -- otherwise holding a key for one frame could fire Jump twice.
-		static void EndFixedStep();
 
 		// --- contexts --------------------------------------------------------
 		// A context is a named set of bindings that can be switched off as a
@@ -68,6 +65,13 @@ namespace RageV
 
 		// --- queries ---------------------------------------------------------
 		static bool IsActionDown(const std::string& action);
+
+		// The edges, answered against the caller's own clock: inside a fixed
+		// step, whether the edge belongs to *this* step; outside one, whether
+		// it belongs to this frame. So a frame running three steps fires Jump
+		// once, a frame running none does not lose the press, and OnFrame and
+		// OnTick each get their own answer instead of racing for one flag.
+		// Nothing is consumed. See Core/FrameClock.h and ENGINE-NOTES 7co.
 		static bool WasActionPressed(const std::string& action);
 		static bool WasActionReleased(const std::string& action);
 

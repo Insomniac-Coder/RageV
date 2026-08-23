@@ -579,7 +579,7 @@ namespace RageV::Managed
 			if (!found || !found.HasComponent<UIButtonComponent>())
 				return 0;
 
-			return found.GetComponent<UIButtonComponent>().Clicked ? 1 : 0;
+			return found.GetComponent<UIButtonComponent>().Clicked.IsNow() ? 1 : 0;
 		}
 
 		int32_t __cdecl IsPointerOverUI()

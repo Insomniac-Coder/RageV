@@ -3,6 +3,7 @@
 #include <vector>
 #include <algorithm>
 #include "RageV/Core/UUID.h"
+#include "RageV/Core/FrameClock.h"
 #include "RageV/Scene/EntityRef.h"
 #include "RageV/Audio/AudioEngine.h"
 #include "RageV/Physics/PhysicsTypes.h"
@@ -992,10 +993,15 @@ namespace RageV
 		// that slides off the button is a cancelled press, not a click.
 		bool Pressed = false;
 
-		// A completed press: down and up, both on this button. True for one
-		// simulation step, on the same terms as InputMap's action edges -- a
-		// frame that runs no step carries it forward rather than losing it.
-		bool Clicked = false;
+		// A completed press: down and up, both on this button.
+		//
+		// Stamped with when it happened, on the same terms as InputMap's
+		// action edges, and read with `Clicked.IsNow()` rather than as a bool:
+		// one step sees it if the reader is a step, one frame sees it if the
+		// reader is a frame, and neither takes it from the other. A frame that
+		// runs no step carries it forward rather than losing it.
+		// See Core/FrameClock.h.
+		InputEdge Clicked;
 
 		UIButtonComponent() = default;
 		UIButtonComponent(const UIButtonComponent&) = default;

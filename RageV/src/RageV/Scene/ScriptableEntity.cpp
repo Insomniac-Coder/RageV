@@ -335,7 +335,7 @@ namespace RageV
 	bool ScriptableEntity::WasButtonClicked(Entity entity)
 	{
 		return entity && entity.HasComponent<UIButtonComponent>()
-			&& entity.GetComponent<UIButtonComponent>().Clicked;
+			&& entity.GetComponent<UIButtonComponent>().Clicked.IsNow();
 	}
 
 	bool ScriptableEntity::IsButtonHovered()

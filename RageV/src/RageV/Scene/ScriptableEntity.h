@@ -314,6 +314,10 @@ namespace RageV
 
 		// --- input -----------------------------------------------------------
 		// By action name, never by keycode. See RageV/Core/InputMap.h.
+		//
+		// The edges answer against the caller's own clock, so OnTick and
+		// OnFrame may both ask: one step sees a press, one frame sees it, and
+		// neither spends the other's.
 		static bool IsActionDown(const std::string& action);
 		static bool WasActionPressed(const std::string& action);
 		static bool WasActionReleased(const std::string& action);
@@ -345,9 +349,9 @@ namespace RageV
 		std::string GetText();
 		std::string GetText(Entity entity);
 
-		// A completed press -- down and up, both on the same button. True for
-		// one simulation step, the same contract WasActionPressed has, so
-		// polling it from OnTick sees each click exactly once.
+		// A completed press -- down and up, both on the same button. The same
+		// contract WasActionPressed has, so polling it from OnTick sees each
+		// click exactly once, and so does polling it from OnFrame.
 		//
 		// The no-argument form is a script living on the button itself, which
 		// is the usual shape.

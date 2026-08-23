@@ -88,12 +88,6 @@ namespace RageV::UI
 	void ResetPointer(Scene& scene);
 	void ResetPointer();
 
-	// Consumes the click edges, exactly as InputMap::EndFixedStep consumes the
-	// action edges and for the same reason: a press must be seen by one
-	// simulation step, not by every step a slow frame happens to run. A frame
-	// with no steps carries the click forward rather than losing it.
-	void EndFixedStep(Scene& scene);
-
 	// Which tint a button is currently drawn with. Pure, and separate from the
 	// drawing so a test can assert the state machine without a GPU.
 	Vec4 ButtonTint(const UIButtonComponent& button);

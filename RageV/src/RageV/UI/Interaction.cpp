@@ -70,10 +70,10 @@ namespace RageV::UI
 		// the pointer has left has to stop being hovered, and nothing else in
 		// the frame would tell it so.
 		//
-		// Clicked is deliberately not cleared here. It is an edge, and it is
-		// consumed by EndFixedStep on the same terms as an action press --
-		// clearing it per frame would drop the click whenever a frame ran no
-		// simulation step.
+		// Clicked is deliberately not cleared here. It is an edge, stamped on
+		// the same terms as an action press -- clearing it per frame would
+		// drop the click whenever a frame ran no simulation step, which above
+		// 60 Hz is most of them.
 		auto buttons = scene.GetRegistry().GetView<UIButtonComponent>();
 		for (auto handle : buttons)
 		{
@@ -105,7 +105,7 @@ namespace RageV::UI
 		else if (!down && s_WasDown)
 		{
 			if (s_Captured != 0 && hitEntity == s_Captured && hovered)
-				hovered->Clicked = true;
+				hovered->Clicked.Raise();
 
 			s_Captured = 0;
 		}
@@ -157,15 +157,8 @@ namespace RageV::UI
 			UIButtonComponent& button = buttons.Get<UIButtonComponent>(handle);
 			button.Hovered = false;
 			button.Pressed = false;
-			button.Clicked = false;
+			button.Clicked.Clear();
 		}
-	}
-
-	void EndFixedStep(Scene& scene)
-	{
-		auto buttons = scene.GetRegistry().GetView<UIButtonComponent>();
-		for (auto handle : buttons)
-			buttons.Get<UIButtonComponent>(handle).Clicked = false;
 	}
 
 	std::string BindingProblem::Describe() const

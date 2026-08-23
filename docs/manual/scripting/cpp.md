@@ -480,9 +480,12 @@ This is not ceremony. A script written against `"Jump"` keeps working when the
 player rebinds it, when a gamepad is added, and when the same action is bound to
 two things at once. A script written against a key code does none of that.
 
-Edges — `WasActionPressed` and `WasActionReleased` — are consumed by the first
-step that runs, and a frame with no steps carries them forward rather than
-losing them. So a press is never missed and never seen twice.
+Edges — `WasActionPressed` and `WasActionReleased` — record when the press
+happened rather than being consumed by whoever reads them first, so **either
+callback may ask**. `OnTick` sees a press in exactly one step, however many the
+frame ran; `OnFrame` sees it on exactly the frame the key went down. So a press
+is never missed and never seen twice, and the two never take it from each
+other.
 
 ### One extra line, once there is a UI
 
@@ -555,12 +558,12 @@ reads several buttons — `if (WasButtonClicked(m_Start))` and
 `if (WasButtonClicked(m_Quit))` in one place is often clearer than two bindings
 pointing back at it.
 
-On the fixed step, not the frame: a click is an event the game acts on, and
-acting on it twice because one frame ran two steps is exactly what the edge
-contract exists to prevent. It is the same contract `WasActionPressed` has —
-consumed by the first step that runs, carried forward by a frame with none.
-**Both** mechanisms honour it, so a bound method is also called exactly once per
-click.
+Usually on the fixed step, because a click is an event the game acts on and it
+belongs with the rest of the simulation — but the frame may ask too. It is the
+same contract `WasActionPressed` has: the click is stamped with when it
+happened, so one step sees it and one frame sees it, and acting on it twice
+because a frame ran two steps cannot happen. **Both** mechanisms honour it, so
+a bound method is also called exactly once per click.
 
 Text is written the same way it is read:
 

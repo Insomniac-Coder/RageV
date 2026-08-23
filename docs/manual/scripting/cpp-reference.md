@@ -166,7 +166,7 @@ By action name, never by key code. See `RageV/Core/InputMap.h` for the bindings.
 | Member | Description |
 |---|---|
 | `IsActionDown` | Held this step. |
-| `WasActionPressed` | Went down since the last step. Consumed by the first step that runs, so it is never missed and never seen twice. |
+| `WasActionPressed` | Went down since the last step. Stamped with when it happened rather than consumed, so `OnTick` sees it in one step and `OnFrame` on one frame — never missed, never seen twice, either callback. |
 | `WasActionReleased` | Came up since the last step. |
 | `GetAxis` | Axis value. Unknown axes read zero rather than failing. |
 | `IsPointerOverUI` | Whether the game's UI has the pointer this frame. **Ask before acting on a click** — the action map does not know a canvas exists. Static. |
@@ -181,7 +181,7 @@ what a game touches most.
 |---|---|
 | `SetText` | A `UITextComponent`'s string, on this entity or another. Does nothing without the component. |
 | `GetText` | Reads it back; empty without the component. |
-| `WasButtonClicked` | A completed press — down and up, both on the same button. True for one simulation step, the same contract `WasActionPressed` has. A press dragged off the button before release is cancelled and never reported. |
+| `WasButtonClicked` | A completed press — down and up, both on the same button. The same contract `WasActionPressed` has: one step sees it, one frame sees it, either may ask. A press dragged off the button before release is cancelled and never reported. |
 | `IsButtonHovered` | Whether the pointer is on it right now. A level, not an edge: read it every frame and write it straight back to whatever it drives. The canvas already tints a hovered button's own image — this is for the rest of it, a label or an icon or a sibling, which the tint never reaches. |
 
 ## Time

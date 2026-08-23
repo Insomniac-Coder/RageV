@@ -7,135 +7,103 @@ Pushing is the owner's.
 
 ---
 
-## Start here: input edges, the Godot way
+## Start here: nothing to start
 
-**This is the next task, agreed with the owner and not yet begun.** Everything
-below it in this file is history.
+**The input-edge rework is done.** It was the task this file opened with, and
+the section it replaces described it as agreed and not yet begun. What follows
+is what it turned into; ENGINE-NOTES **7co** is the full account.
 
-### The job
+There is no next task agreed with the owner. Ask.
 
-Replace RageV's *consume-on-step* input edges with *timestamped* ones, the way
-Godot does it. Nothing gets cleared; each edge records **when** it happened and
-each caller asks whether that was during its own current frame or step.
+### What changed
 
-### Why — the whole situation
-
-An action's pressed edge lives in one bool:
+`InputMap`'s consume-on-step edges are gone, and so is the whole idea that an
+edge is state somebody clears. An edge now records *when* it happened, on two
+clocks, and each reader asks whether that was its own moment.
 
 ```cpp
-// RageV/src/RageV/Core/InputMap.cpp, the Action struct
-bool PressedPending = false;
-bool ReleasedPending = false;
+// RageV/src/RageV/Core/FrameClock.h  -- new
+struct InputEdge
+{
+    uint64_t Frame = 0;
+    uint64_t Step  = 0;
+
+    void Raise();          // stamp it with now
+    bool IsNow() const;    // ...was "now" the caller's frame, or its step?
+};
 ```
 
-`InputMap::Update()` raises it once per frame. `InputMap::EndFixedStep()` clears
-it, and in `Application`'s loop that call sits **inside the fixed-step loop**:
+| | |
+|---|---|
+| **`FrameClock`** | Two counters and an in-a-step flag. `Frame()`, `Step()`, `InFixedStep()`, `BeginFrame()`, and a `StepScope` guard. |
+| **`InputMap`** | `PressedPending`/`ReleasedPending` became `InputEdge Pressed`/`Released`. `EndFixedStep` deleted. |
+| **`UIButtonComponent`** | `bool Clicked` became `InputEdge Clicked`, read as `Clicked.IsNow()`. `UI::EndFixedStep` deleted. |
+| **`Application`** | `FrameClock::BeginFrame()` before input is sampled; a `StepScope` where the `EndFixedStep` call used to be. |
+| **`Scene`** | A `StepScope` at the top of `OnFixedUpdateRuntime`, *before* the pause guard. |
+| **The docs** | Four places warned authors to keep edge queries off `OnFrame`. All four now say either works. |
+
+**What is true now that was not:** `OnFrame` sees a press on the frame it was
+made. **What is still true:** a frame running three steps fires a jump once; a
+frame running none does not swallow it; `OnTick` behaves exactly as before.
+
+### The three things worth carrying forward
+
+1. **`FrameClock::Step()` outside a step is the step that has not run yet**,
+   and inside one it is that step -- deliberately the same number. It is what
+   lets an edge raised before the step loop name its step without knowing
+   whether the frame will run three or none. The counter advances at the *end*
+   of a step, so a step's own number is stable while it runs.
+
+2. **Two things run steps, and `StepScope` is opened in both.** `Application`'s
+   loop is one; anything calling `Scene::OnFixedUpdateRuntime` directly --
+   scenetest, any tool without a window -- is the other. **Nested scopes count
+   once**, so the pair is one step. Had only the loop advanced the clock, every
+   edge outside it would live forever, which is the bug being removed. The
+   loop's scope is also outside `Scene`'s pause guard, which is what stops a
+   press made during a pause from firing when play resumes.
+
+3. **A key press still cannot be driven headlessly, and it did not need to
+   be.** `InputEdge` is exactly what `WasActionPressed` consults, so the rules
+   are proved on the stamp itself (`CheckInputEdges`, 9 claims) and again end
+   to end through a real button (the UI click section, 3 more). None of them
+   resets the clock -- every claim is relative -- which is why `FrameClock` has
+   no `Reset()` for the engine to call either.
+
+### Verified
+
+`cmake --build build --config Debug`, then from **the executable's own
+directory** (the shaders are staged there, and a relative `assets/shaders/...`
+resolves against the working directory -- running it from the repo root fails
+50 checks that have nothing to do with the change):
 
 ```
-InputMap::Update();                 // RageV/src/RageV/Core/Application.cpp ~553
-for (int i = 0; i < steps; i++) {
-    layer->OnFixedUpdate(...);      // scripts' OnTick runs
-    InputMap::EndFixedStep();       // ~563, edge cleared here
-}
-layer->OnUpdate(ts);                // ~592, scripts' OnFrame runs
+build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan    2381 checks, 0 failed, exit 0
+build/bin/Debug/scenetest/scenetest.exe --rhi=opengl    2334 checks, 0 failed, exit 0
 ```
 
-That is deliberate, and it buys two real things: a frame running three steps
-must not fire a jump three times, and a frame running none must not swallow the
-press. **Physics never reads input** — the clear is in the step loop only
-because `OnTick` is.
+**Not verified: an actual F3 press.** That is real device state and there is no
+seam for it. The mechanism under it is covered twice over, but the keypress
+itself has not been tried since the change -- worth one press in the showroom.
 
-The cost is that anything running later in the frame silently loses the edge. A
-script reading `WasActionPressed` in `OnFrame` sees a press only on a frame
-that happened to run no step, so it works at odds equal to the frame rate over
-60. That is not hypothetical: the showroom's F3 overlay was written that way and
-worked about **one press in seven** at 70 FPS. ENGINE-NOTES 7cn has the full
-account.
+### Loose ends
 
-The current fix is that the overlay's toggle moved to `On Tick`. The underlying
-shape was left alone on purpose, because it is a design decision.
-
-### Why Godot's shape rather than the obvious repair
-
-The obvious repair is "clear it at the end of the frame instead, plus a second
-flag so the step loop still fires once." That works and it is still a
-consumption model — one caller deleting state another needs.
-
-Godot stores, per action, the **process frame** and the **physics frame** it was
-pressed on, and `is_action_just_pressed()` compares against whichever clock the
-caller is running under. Nobody consumes anything, so nobody can starve anyone
-else, and the three-steps-one-jump guarantee falls out of the comparison rather
-than needing to be defended.
-
-### What to change
-
-1. **`RageV/src/RageV/Core/InputMap.cpp`** — replace `PressedPending` /
-   `ReleasedPending` on `Action` with frame and step stamps (a `uint64_t` each,
-   pressed and released). `Update()` writes both stamps on the transition;
-   `WasActionPressed` / `WasActionReleased` compare against the current clock.
-   `EndFixedStep()` should end up doing nothing and being deleted, along with
-   its call in `Application.cpp`.
-
-2. **The clocks.** There is no app-level frame counter today.
-   `Renderer::GetFrameCount()` exists (`Renderer.h:31`) but is the *renderer's*
-   and does not advance on a frame that skips rendering — **check that before
-   using it**; a counter owned by `Application` next to the fixed step is
-   probably the right home. A step counter needs adding too.
-
-3. **UI clicks ride the identical contract and must move with it.**
-   `UIButtonComponent::Clicked` (`Components.h:998`) is consumed by
-   `UI::EndFixedStep` (`RageV/src/RageV/UI/Interaction.cpp:164`), called from
-   `Scene::OnFixedUpdateRuntime` (`Scene.cpp:1163`). Leaving it behind would
-   make two things that are documented as the same contract behave differently.
-   ENGINE-NOTES §6 (the UI section, "A click is an edge with the same contract
-   an action press has") is the text to update.
-
-4. **Then the docs stop being warnings.** The C# `WasActionPressed` remarks
-   (`RageVScriptCore/src/Engine.cs`), the visual scripting page
-   (`docs/manual/scripting/visual.md`) and ENGINE-NOTES 7cn all currently say
-   "edge queries belong on On Tick". After this they should say either works.
-
-### What must still be true afterwards
-
-- A frame running **three** steps fires a button/jump **once**.
-- A frame running **no** steps does not swallow the press.
-- `OnTick` behaves exactly as it does today.
-- `OnFrame` starts seeing presses instead of silently missing them.
-- Both halves are already asserted for UI clicks — `tools/scenetest/main.cpp`
-  around **4348** ("the click reaches a button in the demo scene", and the
-  lines below it about the step the handlers run in) and **10007** (the
-  hover/pressed/clicked sequence). Keep them green.
-
-### What cannot be tested headlessly
-
-A key press needs real device state, so `WasActionPressed` cannot be driven from
-scenetest. The wheel *can* be (`InputMap::OnScroll`), and UI clicks can be
-driven through `UI::Interaction`. The existing input claims are around
-`tools/scenetest/main.cpp:14576`. Expect to prove the action half by
-construction and the click half by test.
-
-### Loose ends from the session that produced this
-
-- The showroom's F3 overlay is **266 graph nodes and no C#** — regenerate with
-  `python tools/scripts/make_stats_graph.py`, and the scene around it with
-  `make_showroom_scene.py`. `check_graph.py` fails if a generated `.g.cs` is not
-  committed.
-- **Rebuild the game modules after any engine ABI change.** A stale one fails to
-  load with **error 127** and takes seven scenetest claims with it, looking
-  exactly like broken scripting: `cmake --build SampleProject/bin/module
-  --config Debug` and `--config Release`.
-- The managed assembly is built by the editor, not by CMake. By hand:
-  `dotnet build SampleProject/Scripts/Sample.csproj -c Release
-  -p:RageVScriptCore=<repo>/build/bin/Release/managed/RageV.ScriptCore.dll
-  -p:OutputPath=<repo>/SampleProject/Scripts/bin/` — note the OutputPath; the
-  engine loads `Scripts/bin/Sample.dll`, not the default `bin/Release/net8.0`.
-- **`SampleProject.rvproject` holds the owner's choices** — anti-aliasing is
-  **MSAA at 4 samples** deliberately. Running the engine with `--aa=`/`--msaa=`
-  persists the override into that file; restore only what your own flags wrote,
-  never `git checkout` the whole file.
+- **The interop protocol did not move.** No signature changed, so
+  `kProtocolVersion` is untouched and the managed assembly did not need
+  rebuilding. Do not bump it for this.
+- **`UIButtonComponent`'s layout changed** (a bool became 16 bytes), which is a
+  native-script ABI change. `SampleProject/bin/module` was rebuilt for Debug
+  *and* Release. Anything else linking the engine needs the same.
+- **`docs/site` was stale before this change.** Regenerating with
+  `build/bin/Debug/rvdoc/rvdoc.exe --in docs/manual --out docs/site` picked up
+  the particles, editor, post-processing and components pages, none of which
+  this touched. That drift is in the working tree with everything else.
+- The F3 overlay's toggle **stays on `On Tick`**. `On Frame` would work now;
+  On Tick is still where acting on a press belongs. `make_stats_graph.py` says
+  so, where it used to say On Tick was the only option that worked.
 - Recent commits:
 
 ```
+b77b550 Hand off the input-edge rework
 a6040d4 F3 worked sometimes, and the odds were the frame rate
 f6c18fa Left-drag moves the graph, and MSAA stays MSAA
 6dbcc29 An overlay built entirely from graph nodes, and what it found
@@ -143,7 +111,6 @@ f6c18fa Left-drag moves the graph, and MSAA stays MSAA
 92d48ee The logger stopped needing a library
 6ed2225 The reveal checkbox is a preference, and ShellExecute needed COM
 f54f6f1 Build Game can show you the result
-bc38911 Write down what OpenGL cannot reflect
 ```
 
 ---

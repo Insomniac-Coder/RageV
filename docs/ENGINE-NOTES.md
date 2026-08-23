@@ -644,10 +644,12 @@ clear of the button — otherwise one gesture is delivered to the menu *and* the
 world.
 
 **A click is an edge with the same contract an action press has.** `Clicked` is
-true for one simulation step and is consumed by `UI::EndFixedStep`, called at
-the end of `Scene::OnFixedUpdateRuntime` exactly as `InputMap::EndFixedStep` is
-called by the loop. A frame running three steps must not fire a button three
-times; a frame running none must not swallow it. Both halves are checked.
+stamped with the frame it was made on and the step it names, and read with
+`Clicked.IsNow()` — so one step sees it and one frame sees it, and neither
+consumes it. A frame running three steps must not fire a button three times; a
+frame running none must not swallow it. Both halves are checked. It was a bool
+cleared by `UI::EndFixedStep` until 2026-08-23; §7co is why that changed, and
+why the click half had to move with the action half rather than after it.
 
 The pointer is fed once a frame by whoever owns the layer, because only they can
 map it: the runtime's layer *is* the window, and the editor's is an image inside
@@ -13200,6 +13202,102 @@ is currently a guarantee across the several steps a single frame can run, and
 it changes input semantics for every existing script -- so it is the owner's
 call rather than a fix to make in passing.
 
+*Answered in §7co: the trade turned out not to be a trade.*
+
+---
+
+### 7co. Nobody has to clear an edge
+
+7cn left a question: let the pressed edge survive the whole frame so OnFrame and
+OnTick each see it, at the cost of "never seen twice" across the several steps
+one frame can run. Both halves turned out to be available. The cost was in the
+framing rather than in the problem.
+
+**The framing was that an edge is state somebody has to clear.** Once it is,
+every reader is a consumer, the first one wins, and a second reader is a bug
+waiting to be written -- which is exactly what 7cn was. Godot clears nothing: an
+action stores the process frame and the physics frame it was pressed on, and
+`is_action_just_pressed` compares against whichever clock the caller is running
+under. RageV now does the same.
+
+```cpp
+// RageV/src/RageV/Core/FrameClock.h
+struct InputEdge
+{
+    uint64_t Frame = 0;
+    uint64_t Step  = 0;
+
+    void Raise();          // stamp it with now
+    bool IsNow() const;    // ...was "now" the caller's frame, or its step?
+};
+```
+
+`InputMap::Update` raises the action stamps and `UI::UpdatePointer` raises the
+click's. `InputMap::EndFixedStep` and `UI::EndFixedStep` are gone, along with
+their calls. Reading an edge does not change it, so two readers cannot starve
+each other, and **"a frame running three steps fires jump once" stopped being a
+rule that had to be defended and became what the comparison says.**
+
+#### The step a press names is the step that has not run yet
+
+The one number that makes it work is what `FrameClock::Step()` means *outside* a
+step: the next one that will run. Inside a step it is that step. They are
+deliberately the same number, because an edge is raised before the step loop and
+has to name its step without knowing whether this frame will run three or none.
+
+- Three steps run: the first matches, the other two do not -- fired once.
+- No steps run: the number still names a step that has not happened, so the
+  first step of some later frame matches -- nothing is swallowed.
+- The frame clock answers separately, so OnFrame sees the same press on the
+  frame it was made and not on the next.
+
+The counter advances at the **end** of a step rather than the start, which is
+what keeps a step's own number stable while it runs. Advancing on entry would
+make an edge stop matching partway through the step it belongs to, and the
+symptom would be a jump that fires or does not depending on where in `OnTick`
+the script happened to ask.
+
+#### Two things run steps, and either may be the only one
+
+`Application`'s loop runs steps. So does anything holding a `Scene` and calling
+`OnFixedUpdateRuntime` -- scenetest, and any tool stepping a scene without a
+window. If only the loop advanced the clock, every edge outside it would live
+forever: a test would click a button once and watch its handler fire on every
+step that followed, which is precisely the class of bug being removed.
+
+So `FrameClock::StepScope` is opened in **both** places, and **nested scopes
+count once**. The loop's is the outer one when there is a loop; the scene's is
+the only one when there is not. Requiring the caller to remember a separate call
+is how the old design failed, and it would have failed the same way again.
+
+The loop's scope is also why a paused game still ages its edges. It sits outside
+`Scene`'s pause guard, exactly where `InputMap::EndFixedStep` used to be, so a
+press made during a pause does not fire the moment play resumes.
+
+#### What the tests could reach, and what they could not
+
+A key press is real device state and cannot be simulated headlessly, so
+`WasActionPressed` cannot be driven from scenetest -- which was the argument for
+proving the action half "by construction". It turned out not to be needed.
+`InputEdge` is exactly what `WasActionPressed` consults, and it is an ordinary
+struct: the rules are proved on the stamp itself, and the click half proves the
+same rules end to end through a real button, a real scene and a real step.
+
+Twelve claims, and not one of them resets the clock. Every one is relative --
+this frame against the next, this step against the one after -- because a clock
+that can be wound back is a clock an old stamp can collide with, and a `Reset()`
+for the tests would have been a `Reset()` the engine could call too.
+
+#### What it cost
+
+Nothing that was true before stopped being true. OnTick behaves exactly as it
+did; OnFrame started working. The documentation was the largest part of the
+change: the C# remarks, the C++ reference, the visual scripting page and the F3
+overlay's own generator each carried a warning to keep edge queries off the
+frame, and all four now say either works. **A warning that has gone false is
+worse than one that was never written**, because somebody has structured their
+code around it.
+
 ---
 
 ## 8. What this changes
@@ -13219,3 +13317,4 @@ call rather than a fix to make in passing.
 | Audio | "add miniaudio" | the null backend is the design, not a fallback (§7a) |
 | Runtime | "prove nothing leaked into the editor" | it found three defects nothing else could reach (§7b) |
 | Verification | zero validation lines | plus exit 0, plus the pixels (§7b) |
+| Input edges | consumed by the first fixed step | stamped with frame and step; nobody clears, and both callbacks see one (§7co) |

@@ -205,10 +205,11 @@ namespace RageV::Managed
 		// legitimately empty and returns 0.
 		int32_t (__cdecl* GetUIText)(uint64_t entity, char* buffer, int32_t capacity);
 
-		// A completed press on this entity's UIButtonComponent, true for one
-		// simulation step. Not a component field, because it describes what the
-		// pointer did rather than what the author chose, and a field is a thing
-		// the scene file stores.
+		// A completed press on this entity's UIButtonComponent, seen once by
+		// the step it names and once by the frame it was made on. Not a
+		// component field, because it describes what the pointer did rather
+		// than what the author chose, and a field is a thing the scene file
+		// stores.
 		int32_t (__cdecl* WasUIButtonClicked)(uint64_t entity);
 
 		// Whether the UI has the pointer. **The one every game needs**: without

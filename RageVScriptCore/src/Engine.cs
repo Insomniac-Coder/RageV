@@ -51,17 +51,22 @@ public static unsafe class Input
 
 	/// <summary>Went down since the last step.</summary>
 	/// <remarks>
-	/// Consumed by the first step that runs, and carried forward by a frame
-	/// with no steps — so a press is never missed and never seen twice.
+	/// <b>Either callback may ask.</b> The edge is not consumed by whoever
+	/// reads it first; it records when it happened, and the answer is against
+	/// your own clock. From <see cref="Script.OnTick"/> it is true in exactly
+	/// one step, so a frame that runs three of them fires a jump once and a
+	/// frame that runs none does not lose the press. From
+	/// <see cref="Script.OnFrame"/> it is true on exactly the frame the key
+	/// went down. Neither reader takes it from the other.
 	///
-	/// <b>Read this in <see cref="Script.OnTick"/>, not
-	/// <see cref="Script.OnFrame"/>.</b> "Consumed by the first step" is
-	/// literal: the edge is cleared inside the step loop, which runs before
-	/// OnFrame does. An OnFrame that asks will see the press only on a frame
-	/// that happened to run no step at all — so it appears to work, at odds
-	/// that are the ratio of the frame rate to the fixed 60 Hz, and stops
-	/// working when the frame rate drops. <see cref="IsActionDown"/> is a
-	/// state rather than an edge and is safe anywhere.
+	/// Pick by what the code is: acting on a press belongs on the step with
+	/// the rest of the simulation, and driving something you are about to
+	/// draw belongs on the frame. <see cref="IsActionDown"/> is a state rather
+	/// than an edge and is safe anywhere.
+	///
+	/// It was not always so — until 2026-08-23 an OnFrame that asked saw the
+	/// press only on a frame that ran no step, which looked like it worked at
+	/// odds equal to the frame rate over 60. ENGINE-NOTES 7cn and 7co.
 	/// </remarks>
 	public static bool WasActionPressed(string action) =>
 		Native.IsReady && Native.WithUtf8(action, utf8 => Native.Api.WasActionPressed(utf8)) != 0;
@@ -605,10 +610,11 @@ public readonly unsafe struct Entity : IEquatable<Entity>
 
 	/// <summary>A completed press on this entity's UI Button — down and up, both on it.</summary>
 	/// <remarks>
-	/// True for one simulation step, the same contract
-	/// <see cref="Input.WasActionPressed"/> has, so polling it from
-	/// <c>OnTick</c> sees each click exactly once. A press that slides off the
-	/// button before release is cancelled and never reported.
+	/// The same contract <see cref="Input.WasActionPressed"/> has, and it can
+	/// be polled from either callback: true in exactly one step for
+	/// <c>OnTick</c>, and on exactly one frame for <c>OnFrame</c>, so each
+	/// sees a click once however many steps the frame ran. A press that slides
+	/// off the button before release is cancelled and never reported.
 	/// </remarks>
 	public bool WasButtonClicked() =>
 		Native.IsReady && Native.Api.WasUIButtonClicked(Id) != 0;

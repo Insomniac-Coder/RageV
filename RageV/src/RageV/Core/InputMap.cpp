@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "InputMap.h"
+#include "FrameClock.h"
 #include "Input.h"
 #include "KeyCodes.h"
 #include "MouseButtonCodes.h"
@@ -35,12 +36,13 @@ namespace RageV
 			std::vector<KeyBinding> Bindings;
 			bool Down = false;
 
-			// Pending rather than instantaneous. A frame may run zero fixed
-			// steps -- normal above 60 Hz -- and an edge that was overwritten
-			// on the next frame's sample would simply be lost, so it is held
-			// until a step consumes it.
-			bool PressedPending = false;
-			bool ReleasedPending = false;
+			// Stamped rather than flagged. A frame may run zero fixed steps --
+			// normal above 60 Hz -- so an edge cannot simply describe "this
+			// frame"; it names the step that should see it as well, and each
+			// reader asks about its own clock. Nobody clears these. See
+			// Core/FrameClock.h.
+			InputEdge Pressed;
+			InputEdge Released;
 		};
 
 		struct AxisState
@@ -187,12 +189,13 @@ namespace RageV
 			for (const KeyBinding& binding : action.Bindings)
 				down = down || BindingDown(binding);
 
-			// Accumulated, not assigned: an edge raised on a frame that ran no
-			// simulation step has to survive until one does.
+			// Stamped with the frame this is, and with the step that will run
+			// next -- which is the step that should see it, whether it runs in
+			// a moment or three frames from now.
 			if (down && !action.Down)
-				action.PressedPending = true;
+				action.Pressed.Raise();
 			if (!down && action.Down)
-				action.ReleasedPending = true;
+				action.Released.Raise();
 
 			action.Down = down;
 		}
@@ -234,15 +237,6 @@ namespace RageV
 		s_WheelDelta = 0.0f;
 	}
 
-	void InputMap::EndFixedStep()
-	{
-		for (auto& [name, action] : s_Actions)
-		{
-			action.PressedPending = false;
-			action.ReleasedPending = false;
-		}
-	}
-
 	bool InputMap::IsActionDown(const std::string& action)
 	{
 		const auto it = s_Actions.find(action);
@@ -252,13 +246,13 @@ namespace RageV
 	bool InputMap::WasActionPressed(const std::string& action)
 	{
 		const auto it = s_Actions.find(action);
-		return it != s_Actions.end() && it->second.PressedPending;
+		return it != s_Actions.end() && it->second.Pressed.IsNow();
 	}
 
 	bool InputMap::WasActionReleased(const std::string& action)
 	{
 		const auto it = s_Actions.find(action);
-		return it != s_Actions.end() && it->second.ReleasedPending;
+		return it != s_Actions.end() && it->second.Released.IsNow();
 	}
 
 	float InputMap::GetAxis(const std::string& axis)

@@ -7,6 +7,7 @@
 #include "ScriptRegistry.h"
 #include "RageV/Physics/PhysicsWorld.h"
 #include "RageV/Core/Application.h"
+#include "RageV/Core/FrameClock.h"
 #include "RageV/Renderer/Renderer2D.h"
 #include "RageV/Renderer/EditorIcons.h"
 #include "RageV/Renderer/Renderer3D.h"
@@ -1031,6 +1032,18 @@ namespace RageV
 
 	void Scene::OnFixedUpdateRuntime(Timestep dt)
 	{
+		// A step is a step however it was reached. The engine's loop has
+		// already opened one, and this borrows that number rather than
+		// starting a second; a tool or a test stepping a scene directly gets
+		// the clock advanced anyway, which is what stops an input edge from
+		// living forever outside the loop. Core/FrameClock.h says why it is
+		// both places.
+		//
+		// Before the pause guard, so a paused step still ages the edges by
+		// exactly as much as an unpaused one -- otherwise a press made during
+		// a pause would be waiting for the first step after it.
+		FrameClock::StepScope step;
+
 		// Guarded here as well as at the callers, so pausing works for anyone
 		// holding a Scene -- a game's own pause menu reaches it through
 		// SetPaused without every layer having to know.
@@ -1157,12 +1170,6 @@ namespace RageV
 			// other script code is.
 			FlushDestroyQueue();
 		}
-
-		// Last, so everything this step could run -- scripts in both languages
-		// and the contact handlers -- has already had its look at the click.
-		// The same contract InputMap::EndFixedStep enforces for action edges:
-		// one press, one step.
-		UI::EndFixedStep(*this);
 	}
 
 	// Every button clicked this step calls what it was bound to.
@@ -1185,7 +1192,7 @@ namespace RageV
 		m_Registry.GetView<UIButtonComponent>().Each(
 			[&](auto handle, UIButtonComponent& button)
 			{
-				if (button.Clicked && !button.OnClickMethod.empty())
+				if (button.Clicked.IsNow() && !button.OnClickMethod.empty())
 					clicked.push_back(handle);
 			});
 
