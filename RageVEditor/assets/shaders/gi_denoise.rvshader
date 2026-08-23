@@ -108,18 +108,24 @@ void main()
 		// **Filtered even here**, which is the frame that needs it most: with
 		// no history there is nothing but four rays, and this is the frame a
 		// screenshot of a freshly loaded scene captures.
-		vec3 sum = current.rgb;
+		vec3 nbSum = vec3(0.0);
+		vec3 nbTop = vec3(0.0);
 		for (int y = -1; y <= 1; y++)
 		{
 			for (int x = -1; x <= 1; x++)
 			{
 				if (x == 0 && y == 0)
 					continue;
-				sum += texture(u_Current, uv + vec2(x, y) * u_Params.TexelSize).rgb;
+				const vec3 tap = texture(u_Current, uv + vec2(x, y) * u_Params.TexelSize).rgb;
+				nbSum += tap;
+				nbTop = max(nbTop, tap);
 			}
 		}
 
-		o_Color = vec4(max(mix(current.rgb, sum / 9.0, 0.65), vec3(0.0)), 1.0);
+		// The same firefly bound the accumulating path applies, for the same
+		// reason -- this is the frame with nothing to average against.
+		const vec3 first = min(current.rgb, nbTop * 1.25 + vec3(0.05));
+		o_Color = vec4(max(mix(first, (nbSum + first) / 9.0, 0.65), vec3(0.0)), 1.0);
 		return;
 	}
 
@@ -136,10 +142,12 @@ void main()
 		return;
 	}
 
-	// The 3x3 box this pixel's estimate sits in.
-	vec3 lowest = current.rgb;
-	vec3 highest = current.rgb;
-	vec3 mean = current.rgb;
+	// The eight neighbours, kept apart from the centre: the box below needs
+	// to know what the surroundings think *without* this pixel's own vote,
+	// because this pixel's vote may be the firefly being judged.
+	vec3 nbLowest = vec3(1e30);
+	vec3 nbHighest = vec3(0.0);
+	vec3 sum = vec3(0.0);
 	for (int y = -1; y <= 1; y++)
 	{
 		for (int x = -1; x <= 1; x++)
@@ -148,12 +156,42 @@ void main()
 				continue;
 			const vec3 tap = texture(u_Current,
 									 uv + vec2(x, y) * u_Params.TexelSize).rgb;
-			lowest = min(lowest, tap);
-			highest = max(highest, tap);
-			mean += tap;
+			nbLowest = min(nbLowest, tap);
+			nbHighest = max(nbHighest, tap);
+			sum += tap;
 		}
 	}
-	mean /= 9.0;
+
+	// **The firefly clamp, and it is on the current frame, not the history.**
+	//
+	// The trace bounds each *sample* at 4.0, but the average of four can still
+	// stand eighty times above every texel around it -- one ray grazing the
+	// luminaire's bright surround does it. Unbounded, that spike entered the
+	// blend at kSpatial's weight, spread into eight neighbours' means, blew
+	// the clamp box open so the history clip stopped clipping, and then took
+	// ten frames of feedback to fade: the white spots that show up near the
+	// showroom's ceiling panel, measured swinging up to 90 display levels
+	// frame to frame.
+	//
+	// A quarter above the brightest neighbour is the bound. Irradiance at
+	// this resolution has no legitimate feature one texel wide -- the pass's
+	// own argument for the spatial filter -- so anything further above its
+	// whole neighbourhood than this is variance, not light. The number was
+	// 2.0 first, and the showroom's ceiling kept flashing: beside the panel
+	// the neighbours are legitimately bright, so a spike needs to clear them
+	// by only a factor of two to read as an 85-level flash on screen. A real
+	// change in lighting -- the showroom's switch -- raises the whole
+	// neighbourhood together, so the bound rises with it and propagation is
+	// untouched.
+	const float kFireflyScale = 1.25;
+	const vec3 bounded = min(current.rgb, nbHighest * kFireflyScale + vec3(0.05));
+
+	// The box, built from the *bounded* centre: a spike allowed to vote here
+	// would widen the extent by exactly the amount it needed to survive the
+	// history clip below.
+	const vec3 lowest = min(nbLowest, bounded);
+	const vec3 highest = max(nbHighest, bounded);
+	const vec3 mean = (sum + bounded) / 9.0;
 
 	const vec3 centre = (lowest + highest) * 0.5;
 	const vec3 extent = max(highest - centre, vec3(1e-4)) * kClampScale;
@@ -178,7 +216,7 @@ void main()
 	// bounds how far the *history* may stray; this bounds how far the current
 	// estimate may.
 	const float kSpatial = 0.65;
-	const vec3 filtered = mix(current.rgb, mean, kSpatial);
+	const vec3 filtered = mix(bounded, mean, kSpatial);
 
 	vec4 history = texture(u_History, historyUV);
 	history.rgb = ClipToBox(history.rgb, centre, extent);

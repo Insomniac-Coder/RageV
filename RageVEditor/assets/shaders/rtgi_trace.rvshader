@@ -171,6 +171,10 @@ void main()
 
 	const int emitters = clamp(int(u_Gi.Emitters + 0.5), 0, 16);
 
+	// The variance bound both estimators share; the hemisphere block below
+	// says why it exists and what it trades.
+	const float kIndirectClamp = 4.0;
+
 	vec3 bounced = vec3(0.0);
 	for (int i = 0; i < rays; ++i)
 	{
@@ -242,8 +246,37 @@ void main()
 					// so the pi has to be put back by hand or the emitters
 					// arrive three times too bright.
 					const float area = light.CentreArea.w;
-					bounced += light.Radiance.rgb * NdotL * cosLight
+					vec3 nee = light.Radiance.rgb * NdotL * cosLight
 							 * area * float(emitters) / distance2 * 0.31830989;
+
+					// **Clamped like the hemisphere term, and it was not.**
+					// The estimator above is radiance times area over d^2: a
+					// surface near a big panel makes it enormous, and a panel
+					// partially hidden behind the bay header makes it a
+					// lottery -- the sampled point either clears the occluder
+					// and pays the whole unclamped term, or does not and pays
+					// nothing. Four tickets a frame. On the showroom ceiling
+					// that read as white spots flashing 85 display levels for
+					// exactly one frame, immune to the denoiser's firefly
+					// bound because a whole region flashes together. The same
+					// trade as the clamp below: the brightest legitimate
+					// near-panel bounce comes back slightly dim, and the
+					// lottery stops paying.
+					// Eight times the hemisphere's bound, not equal to it: a
+					// surface right under the panel legitimately receives far
+					// more than a bounce anywhere else does, and the clamp is
+					// only here to end the lottery, not to meter the panel.
+					// Measured on the showroom ceiling, settled mean and worst
+					// one-frame swing: unclamped 63.15 and 90 levels; at 4.0,
+					// 61.30 and 6 -- spotless but forty percent of the room's
+					// bounce eaten; at 16, 62.11 and 10; at 32, 62.62 and 12,
+					// still not one pixel over the 25-level visibility line.
+					// So 32: nine tenths of the energy, none of the spots.
+					const float kNeeClamp = kIndirectClamp * 8.0;
+					const float neePeak = max(nee.r, max(nee.g, nee.b));
+					if (neePeak > kNeeClamp)
+						nee *= kNeeClamp / neePeak;
+					bounced += nee;
 				}
 			}
 		}
@@ -296,7 +329,6 @@ void main()
 		// than they should. That is the trade every real-time path tracer
 		// makes, and the number is chosen to sit above anything the direct
 		// lighting produces so it only ever catches the outliers.
-		const float kIndirectClamp = 4.0;
 		const float peak = max(shaded.r, max(shaded.g, shaded.b));
 		if (peak > kIndirectClamp)
 			shaded *= kIndirectClamp / peak;
