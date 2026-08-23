@@ -21,6 +21,8 @@
 <tr><td style="text-align:left"><code>Emit</code>, <code>Rate</code></td><td style="text-align:left">Continuous emission, in particles per second.</td></tr>
 <tr><td style="text-align:left"><code>Burst</code></td><td style="text-align:left">Fired once and consumed. An explosion is <code>Emit</code> off and a burst.</td></tr>
 <tr><td style="text-align:left"><code>Lifetime</code>, <code>LifetimeJitter</code></td><td style="text-align:left">How long each lives, and how much that varies.</td></tr>
+<tr><td style="text-align:left"><code>Shape</code>, <code>Box size</code></td><td style="text-align:left">Where a particle is born: at the emitter, or anywhere inside a volume. See below.</td></tr>
+<tr><td style="text-align:left"><code>Motion</code></td><td style="text-align:left">Whether it then moves at all.</td></tr>
 <tr><td style="text-align:left"><code>Direction</code>, <code>Spread</code>, <code>Speed</code>, <code>SpeedJitter</code></td><td style="text-align:left">The cone they leave through. <code>Spread</code> is a half-angle in degrees; 180 is a sphere.</td></tr>
 <tr><td style="text-align:left"><code>Gravity</code>, <code>Drag</code></td><td style="text-align:left">The emitter&#39;s <strong>own</strong> gravity, not the physics world&#39;s.</td></tr>
 <tr><td style="text-align:left"><code>SizeStart</code>, <code>SizeEnd</code>, <code>ColorStart</code>, <code>ColorEnd</code></td><td style="text-align:left">Interpolated over each particle&#39;s life.</td></tr>
@@ -31,6 +33,25 @@
 </tbody></table></div>
 <p>Nothing collides. A particle is appearance: it has no rigid body, nothing can be hit by one, and no script is told about one.</p>
 <aside class="callout callout-note"><p class="callout-label">Note</p><p><strong>Particles advance per frame, not per simulation step.</strong> This is the opposite call from scripts and physics, and it is deliberate — appearance should move as smoothly as the display can show it. A hitch is forgiven rather than paid back, so a two-second stall does not produce two seconds of particles in one frame.</p>
+</aside>
+<h2 id="spawning-in-a-volume">Spawning in a volume<a class="anchor" href="#spawning-in-a-volume" aria-label="Link to this section">#</a></h2>
+<p><code>Shape: Point</code> puts every particle at the emitter&#39;s own position. That is right for anything with a source — a chimney, a muzzle, a wound — and wrong for anything spread over an area.</p>
+<p>The failure is worth recognising, because it is not fixed by tuning. Fireflies over a clearing, made from a point emitter with <code>Spread</code> at 180 and a lot of speed jitter, read as a slow fountain: there is a hole where the emitter is, because nothing has drifted away from it yet, and a shell where the oldest have got to. <strong>The tell is the empty space at the origin, not the speed</strong>, so making them slower makes it worse.</p>
+<p><code>Shape: Box</code> spawns each particle at a uniformly random point inside <code>Box size</code>, so the volume is full from the first frame and stays full.</p>
+<figure class="code"><pre><code>Shape        Box
+Box size     <span class="tok-number">15</span>, <span class="tok-number">2.6</span>, <span class="tok-number">11</span>
+Motion       Directional
+Speed        <span class="tok-number">0.13</span>
+</code></pre></figure>
+<p><code>Box size</code> is the box&#39;s <strong>full extents in metres</strong>, in the emitter&#39;s own frame. It is its own size rather than a multiple of the entity&#39;s scale — the rule <code>ColliderComponent</code> follows, so an emitter parented to something scaled is not scaled twice. It does turn with the emitter.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>A <strong>local-space</strong> emitter is the one exception, and cannot be otherwise. Its particles are stored in the emitter&#39;s frame and the transform is applied when they are drawn, so its box rides the entity&#39;s scale along with everything else it emits.</p>
+</aside>
+<h3 id="motion-whether-they-go-anywhere">Motion: whether they go anywhere<a class="anchor" href="#motion-whether-they-go-anywhere" aria-label="Link to this section">#</a></h3>
+<p><code>Motion: Directional</code> is the cone above, then <code>Gravity</code> and <code>Drag</code> — what every emitter has always done, and still the default.</p>
+<p><code>Motion: Stationary</code> gives a particle no velocity and applies neither force. It appears where it was born, lives out its lifetime and goes. With a box that is a field of things blinking on and off in place, which is a different effect from a slow drift and worth reaching for directly.</p>
+<aside class="callout callout-warning"><p class="callout-label">Warning</p><p><code>Stationary</code> is <strong>not</strong> the same as <code>Speed</code> at zero. Gravity would still take it, and turning gravity off as well spells one intention across two fields that have to be read together — and that the next person to open the inspector has to reverse-engineer.</p>
+</aside>
+<aside class="callout callout-tip"><p class="callout-label">Tip</p><p><strong>Window &gt; Show Emitters</strong> (F4) draws every box emitter&#39;s volume in the scene view, and nothing in the game view. It is off by default, like the collider overlay beside it. It is drawn from the same function the emitter spawns from, so it cannot show a box the particles do not use.</p>
 </aside>
 <h2 id="curves-when-two-endpoints-are-not-enough">Curves, when two endpoints are not enough<a class="anchor" href="#curves-when-two-endpoints-are-not-enough" aria-label="Link to this section">#</a></h2>
 <p>A start and an end can only say &quot;from this, to that, evenly&quot;. Plenty of effects need a shape: smoke that swells fast and then drifts, a spark that flashes and decays over a long tail, a puff that fades in <strong>and</strong> out. That last one is worth dwelling on — it needs three values, and a pair has two, so no amount of tuning <code>ColorStart</code> and <code>ColorEnd</code> will ever produce it.</p>
@@ -99,7 +120,7 @@
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="post-processing.html"><span class="pager-label">Previous</span><span class="pager-title">Post processing</span></a><a class="pager-link pager-next" href="physics.html"><span class="pager-label">Next</span><span class="pager-title">Physics</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#the-shape-of-an-emitter">The shape of an emitter</a><a class="toc-link toc-l2" href="#curves-when-two-endpoints-are-not-enough">Curves, when two endpoints are not enough</a><a class="toc-link toc-l2" href="#facing-3d-and-2d-from-one-component">Facing: 3D and 2D from one component</a><a class="toc-link toc-l2" href="#space-who-the-particles-belong-to">Space: who the particles belong to</a><a class="toc-link toc-l2" href="#blending-three-answers-to-one-hard-problem">Blending: three answers to one hard problem</a><a class="toc-link toc-l2" href="#simulating-on-the-gpu">Simulating on the GPU</a><a class="toc-link toc-l2" href="#firing-a-burst-from-a-script">Firing a burst from a script</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#the-shape-of-an-emitter">The shape of an emitter</a><a class="toc-link toc-l2" href="#spawning-in-a-volume">Spawning in a volume</a><a class="toc-link toc-l3" href="#motion-whether-they-go-anywhere">Motion: whether they go anywhere</a><a class="toc-link toc-l2" href="#curves-when-two-endpoints-are-not-enough">Curves, when two endpoints are not enough</a><a class="toc-link toc-l2" href="#facing-3d-and-2d-from-one-component">Facing: 3D and 2D from one component</a><a class="toc-link toc-l2" href="#space-who-the-particles-belong-to">Space: who the particles belong to</a><a class="toc-link toc-l2" href="#blending-three-answers-to-one-hard-problem">Blending: three answers to one hard problem</a><a class="toc-link toc-l2" href="#simulating-on-the-gpu">Simulating on the GPU</a><a class="toc-link toc-l2" href="#firing-a-burst-from-a-script">Firing a burst from a script</a><a class="toc-link toc-l2" href="#common-mistakes">Common mistakes</a></nav></aside>
 </div>
 <script src="search-index.js"></script>
 <script src="manual.js"></script>

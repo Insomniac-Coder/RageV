@@ -28,6 +28,12 @@
 </tbody></table></div>
 <p>Panels dock, tab and float — the layout is ImGui&#39;s, and it is saved to <code>panels.ini</code> on exit.</p>
 <p><strong>Window → Theme</strong> switches between dark and light. Both are checked against WCAG 2.2 AA contrast by a script, so neither is a guess.</p>
+<p>Both are also built from the application mark, which is three colours and no fourth: a field at <code>#0E0E12</code>, a red at <code>#E03030</code>, a light at <code>#F2F2F6</code>. The accent <em>is</em> the mark&#39;s red, and the two ends of each theme&#39;s grey ramp are the mark&#39;s other two values — which of them is the ground and which is the ink is the whole difference between the two themes.</p>
+<p>Two rules follow from the mark and are worth knowing when reading the editor:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left"></th><th style="text-align:left"></th></tr></thead><tbody>
+<tr><td style="text-align:left"><strong>Red means you can act on this, or it is acting now</strong></td><td style="text-align:left">Selection, hover, focus, check marks, the active tab. Structure stays grey, so the accent keeps its meaning</td></tr>
+<tr><td style="text-align:left"><strong>Nothing is rounded</strong></td><td style="text-align:left">There is no curve anywhere in the mark, so there is none in the editor. The accent-filled controls and the script-graph nodes take the mark&#39;s chamfer instead — the corner is cut, not curved</td></tr>
+</tbody></table></div>
 <h2 id="shortcuts">Shortcuts<a class="anchor" href="#shortcuts" aria-label="Link to this section">#</a></h2>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Key</th><th style="text-align:left">Does</th></tr></thead><tbody>
 <tr><td style="text-align:left"><strong>Ctrl+N</strong></td><td style="text-align:left">New scene</td></tr>
@@ -38,26 +44,73 @@
 <tr><td style="text-align:left"><strong>Ctrl+Z</strong></td><td style="text-align:left">Undo</td></tr>
 <tr><td style="text-align:left"><strong>Ctrl+Y</strong> / <strong>Ctrl+Shift+Z</strong></td><td style="text-align:left">Redo</td></tr>
 <tr><td style="text-align:left"><strong>Ctrl+P</strong></td><td style="text-align:left">Play, or stop if playing</td></tr>
+<tr><td style="text-align:left"><strong>Shift+S</strong></td><td style="text-align:left">Screenshot the Game panel into the project&#39;s <code>captures</code> folder</td></tr>
 <tr><td style="text-align:left"><strong>W</strong></td><td style="text-align:left">Translate gizmo</td></tr>
 <tr><td style="text-align:left"><strong>E</strong></td><td style="text-align:left">Rotate gizmo</td></tr>
 <tr><td style="text-align:left"><strong>R</strong></td><td style="text-align:left">Scale gizmo</td></tr>
 <tr><td style="text-align:left"><strong>F</strong></td><td style="text-align:left">Frame the selection</td></tr>
 <tr><td style="text-align:left"><strong>F2</strong></td><td style="text-align:left">Toggle the grid</td></tr>
 <tr><td style="text-align:left"><strong>F3</strong></td><td style="text-align:left">Toggle collider wireframes</td></tr>
+<tr><td style="text-align:left"><strong>F4</strong></td><td style="text-align:left">Toggle particle emitter volumes</td></tr>
 <tr><td style="text-align:left"><strong>Delete</strong></td><td style="text-align:left">Delete the selection</td></tr>
 </tbody></table></div>
-<aside class="callout callout-note"><p class="callout-label">Note</p><p>The gizmo and view shortcuts are ignored while a text field has the caret, so typing a name does not switch tools.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>The gizmo and view shortcuts are ignored while a text field has the caret, so typing a name does not switch tools. <strong>Shift+S</strong> is ignored there too, and also while the right mouse button is held — S is the fly-backward key, so sprinting backwards must not fill a folder with screenshots.</p>
+</aside>
+<h2 id="building">Building<a class="anchor" href="#building" aria-label="Link to this section">#</a></h2>
+<p><strong>Scene ▸ Build Game</strong> packages the project into <code>&lt;project&gt;/bin/&lt;Name&gt;</code>; <strong>Build Game As...</strong> picks somewhere else. Both open a dialog first, because a package is slow and two of its answers are not in the project anywhere.</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left"></th><th style="text-align:left"></th></tr></thead><tbody>
+<tr><td style="text-align:left"><strong>Graphics API</strong></td><td style="text-align:left">Vulkan, OpenGL, or both. Both means the game starts on the first and falls through to the other when there is no driver for it; one means a machine without it gets a game that will not start</td></tr>
+<tr><td style="text-align:left"><strong>Scenes</strong></td><td style="text-align:left">A checkbox each, with <strong>Select all</strong>, <strong>Select none</strong> and <strong>Select current</strong> outside the list. Only the ticked ones ship</td></tr>
+<tr><td style="text-align:left"><strong>Show the build in File Explorer when it finishes</strong></td><td style="text-align:left">Opens the output folder once the build has succeeded, with the game&#39;s executable selected in it. Off by default and <strong>remembered across restarts</strong>, in <code>ragev.ini</code> beside the editor -- it is a preference about how you work rather than anything about the project. A build runs on a worker, which is why it is not on by default: the window would otherwise arrive minutes later, over whatever you had moved on to</td></tr>
+</tbody></table></div>
+<p>The start scene always ships, whatever the list says, and it says so when it has to add it back — a game whose first scene is missing cannot start. Narrowing the list also narrows the binding check, so a build shipping three scenes does not refuse over a broken button in a fourth.</p>
+<p>Press <strong>Build</strong> and the dialog closes; everything after that is in the Build Log. It runs on a worker, so the editor stays usable — live output and a Cancel button, exactly as Build Scripts does. One build at a time: packaging copies what a script build produces, so the two cannot overlap.</p>
+<p>The packaged game carries the state the editor is in:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left"></th><th style="text-align:left"></th></tr></thead><tbody>
+<tr><td style="text-align:left"><strong>Render Settings</strong></td><td style="text-align:left">Written into the packaged <code>.rvproject</code>, so ray tracing, anti-aliasing and shadows ship as authored</td></tr>
+<tr><td style="text-align:left"><strong>Graphics backend</strong></td><td style="text-align:left"><code>ragev.ini</code> names what the dialog picked; <code>backends = ...</code> lists every one the build supports, in the order the game tries them</td></tr>
+<tr><td style="text-align:left"><strong>Post profiles</strong></td><td style="text-align:left">Ship as assets; the inspector writes them through the moment they are edited</td></tr>
+<tr><td style="text-align:left"><strong>Scenes</strong></td><td style="text-align:left">Read from disk — a scene with unsaved changes warns, and ships as last saved</td></tr>
+</tbody></table></div>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>Packaging validates every UI button binding in every scene before it writes anything, because a method name in a scene file has no compiler behind it. That means parsing every scene in the project, which is the slowest part of a build on a large one.</p>
+</aside>
+<h2 id="screenshots">Screenshots<a class="anchor" href="#screenshots" aria-label="Link to this section">#</a></h2>
+<p><strong>Shift+S</strong>, or <strong>Scene ▸ Screenshot</strong>, writes what the Game panel is showing to <code>&lt;project&gt;/captures/&lt;scene&gt;_&lt;date&gt;-&lt;time&gt;.png</code>.</p>
+<p>It is the <em>game&#39;s</em> frame and not the window: no panels, no menus, no gizmos — what the camera renders, HUD included, because a player sees the HUD. The resolution is the Game panel&#39;s own size, so a bigger panel is a bigger picture.</p>
+<p>The folder is made the first time you take one and is not under version control: these are pictures <em>of</em> the project rather than content in it. They also live outside the asset directory on purpose — inside it, the asset registry would mint a handle and a <code>.meta</code> for every screenshot.</p>
+<p>The status bar along the bottom says where it went, in the same place the asset watcher reports a reload.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>The menu item is greyed while the Game panel is closed, and the shortcut says so in the status bar. Nothing is rendering the camera&#39;s view then, so there is genuinely no frame to take — the panel is what drives that render.</p>
 </aside>
 <h2 id="the-viewport">The viewport<a class="anchor" href="#the-viewport" aria-label="Link to this section">#</a></h2>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Input</th><th style="text-align:left">Does</th></tr></thead><tbody>
 <tr><td style="text-align:left">Left-click</td><td style="text-align:left">Select. Clicking empty space deselects</td></tr>
 <tr><td style="text-align:left">Right-drag</td><td style="text-align:left">Look around</td></tr>
-<tr><td style="text-align:left">WASD while right-dragging</td><td style="text-align:left">Fly</td></tr>
+<tr><td style="text-align:left">WASD while right-dragging</td><td style="text-align:left">Fly. QE go down and up, Shift is 3×</td></tr>
 <tr><td style="text-align:left">Middle-drag</td><td style="text-align:left">Pan</td></tr>
 <tr><td style="text-align:left">Wheel</td><td style="text-align:left">Zoom</td></tr>
+<tr><td style="text-align:left">Wheel <strong>while right-dragging</strong></td><td style="text-align:left">Fly speed, not zoom</td></tr>
 </tbody></table></div>
+<blockquote><p>[!IMPORTANT] <strong>WASD only moves the camera while the right button is held.</strong> On its own W is the translate gizmo, E is rotate and R is scale — the same keys every editor uses, and they are ignored while you are flying so the two never fire together.</p>
+</blockquote>
 <p>The wheel is <strong>positional</strong> — it belongs to whatever the pointer is over, not to whatever has focus. Scrolling the Inspector after clicking an object does not zoom the scene behind it.</p>
+<p>Zoom is a <strong>ratio</strong>: one notch is the same fraction of the current distance whether you are a centimetre from a windscreen or a kilometre above the trees, so it never crawls when far out and never overshoots when close in. Roughly two dozen notches covers ten metres, and the same two dozen brings you back.</p>
+<p>The fly speed is separate, persists until changed, and floors at 0.5 m/s. If flying feels stuck, the wheel has probably been turned down while the right button was held — scroll up with it held to wind it back.</p>
 <p>Light and camera entities draw billboard icons so they can be found and clicked without being visible geometry.</p>
+<h2 id="the-status-bar">The status bar<a class="anchor" href="#the-status-bar" aria-label="Link to this section">#</a></h2>
+<p>The strip along the bottom of the window says what the project folder is doing. It is always there — one line, and it does not appear and disappear, because a bar that comes and goes moves every panel underneath it by its own height.</p>
+<p>The left is what just happened; the right is what is standing. Hover the bar to see the last few messages, which is the case where something was said and has already been replaced.</p>
+<p>A message fades toward the resting colour after a few seconds rather than clearing. &quot;What did it just say&quot; is usually asked a little late.</p>
+<h2 id="assets-that-change-on-disk">Assets that change on disk<a class="anchor" href="#assets-that-change-on-disk" aria-label="Link to this section">#</a></h2>
+<p>The editor <strong>watches the project&#39;s asset folder</strong> and reloads anything that changes while it is open. Rebuild a mesh from a script, re-export a texture from another tool, and the scene picks it up within about a second — the status bar says what it reloaded.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p>Before this existed, loaded assets were dropped only when a project was opened, so an editor left open across an export kept showing the old asset — and <strong>reopening the scene did not help either</strong>, because scene loading does not clear them. Restarting was the only way, and nothing said so.</p>
+</aside>
+<p>Some details worth knowing:</p>
+<ul>
+<li><strong>A change is reported once it stops moving</strong>, one scan after it is first seen. A tool writing a mesh puts it on disk long before it has finished, and importing half a file fails and caches the failure.</li>
+<li><strong><code>.meta</code> files are not watched.</strong> They are the importer&#39;s own output, so watching them is a loop: importing rewrites one, the rewrite is a change, the change asks for an import. Editing import settings by hand is therefore not noticed.</li>
+<li><strong>Reloading is dropping.</strong> The changed asset is emptied from the caches and the next frame asks for it again, so it goes through the same loader everything else does.</li>
+<li>It is a <strong>poll</strong>, twice a second: <code>&lt;filesystem&gt;</code> has no change notification, and the three platform APIs that do are three different things. The cost is reported in the bar — 340 files in the sample project scan in about 0.8 ms.</li>
+</ul>
 <h2 id="play-mode">Play mode<a class="anchor" href="#play-mode" aria-label="Link to this section">#</a></h2>
 <p><strong>Play</strong> steps the scene: physics runs, scripts run, animations advance. <strong>Stop</strong> restores the scene exactly as it was.</p>
 <p>That restore is a <strong>snapshot</strong>, and it is complete: a cube knocked over during play stands back up. Two consequences worth knowing:</p>
@@ -73,6 +126,7 @@
 <tr><td style="text-align:left">Render settings</td><td style="text-align:left">The moment they change</td></tr>
 <tr><td style="text-align:left">Post profiles, materials, curves, LUTs</td><td style="text-align:left">On edit</td></tr>
 <tr><td style="text-align:left">Panel layout, theme, window size, backend, vsync</td><td style="text-align:left">On exit</td></tr>
+<tr><td style="text-align:left">Build Game&#39;s &quot;show the build&quot; checkbox</td><td style="text-align:left">The moment you tick it</td></tr>
 </tbody></table></div>
 <p>The scene is the only one that waits, because a scene is work in progress and autosaving one takes away the freedom to try something. Everything else saves itself.</p>
 <p>The dot beside the scene name in the menu bar is lit whenever the scene has changes that are not on disk.</p>
@@ -104,7 +158,7 @@
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="concepts.html"><span class="pager-label">Previous</span><span class="pager-title">Core concepts</span></a><a class="pager-link pager-next" href="components.html"><span class="pager-label">Next</span><span class="pager-title">Component reference</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#panels">Panels</a><a class="toc-link toc-l2" href="#shortcuts">Shortcuts</a><a class="toc-link toc-l2" href="#the-viewport">The viewport</a><a class="toc-link toc-l2" href="#play-mode">Play mode</a><a class="toc-link toc-l2" href="#saving">Saving</a><a class="toc-link toc-l2" href="#scripts-from-the-editor">Scripts from the editor</a><a class="toc-link toc-l2" href="#choosing-a-backend">Choosing a backend</a><a class="toc-link toc-l2" href="#command-line">Command line</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#panels">Panels</a><a class="toc-link toc-l2" href="#shortcuts">Shortcuts</a><a class="toc-link toc-l2" href="#building">Building</a><a class="toc-link toc-l2" href="#screenshots">Screenshots</a><a class="toc-link toc-l2" href="#the-viewport">The viewport</a><a class="toc-link toc-l2" href="#the-status-bar">The status bar</a><a class="toc-link toc-l2" href="#assets-that-change-on-disk">Assets that change on disk</a><a class="toc-link toc-l2" href="#play-mode">Play mode</a><a class="toc-link toc-l2" href="#saving">Saving</a><a class="toc-link toc-l2" href="#scripts-from-the-editor">Scripts from the editor</a><a class="toc-link toc-l2" href="#choosing-a-backend">Choosing a backend</a><a class="toc-link toc-l2" href="#command-line">Command line</a><a class="toc-link toc-l2" href="#where-to-go-next">Where to go next</a></nav></aside>
 </div>
 <script src="search-index.js"></script>
 <script src="manual.js"></script>

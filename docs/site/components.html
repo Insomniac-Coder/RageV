@@ -47,10 +47,16 @@
 </tbody></table></div>
 <p><strong>Runtime state:</strong></p>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Field</th><th style="text-align:left">What it is</th></tr></thead><tbody>
-<tr><td style="text-align:left"><code>World</code></td><td style="text-align:left">The composed world matrix, recomputed top-down once per frame</td></tr>
+<tr><td style="text-align:left"><code>World</code></td><td style="text-align:left">The composed world matrix, derived top-down from the roots</td></tr>
 <tr><td style="text-align:left"><code>PreviousWorld</code></td><td style="text-align:left">Where <code>World</code> was last frame — what a motion vector is made of</td></tr>
+<tr><td style="text-align:left"><code>CachedPosition</code></td><td style="text-align:left">What <code>Position</code> was when <code>World</code> was last computed</td></tr>
+<tr><td style="text-align:left"><code>CachedRotation</code></td><td style="text-align:left">What <code>Rotation</code> was when <code>World</code> was last computed</td></tr>
+<tr><td style="text-align:left"><code>CachedScale</code></td><td style="text-align:left">What <code>Scale</code> was when <code>World</code> was last computed</td></tr>
+<tr><td style="text-align:left"><code>CacheValid</code></td><td style="text-align:left">False until the first walk, so a new entity always computes</td></tr>
 </tbody></table></div>
-<aside class="callout callout-note"><p class="callout-label">Note</p><p><code>World</code> is recomputed unconditionally rather than cached behind a dirty flag. A flag has to be set at every write site — inspector, gizmo, scripts, serializer, and everything added later — and one missed site leaves an object silently rendering in the wrong place.</p>
+<aside class="callout callout-note"><p class="callout-label">Note</p><p><strong><code>World</code> is not cached behind a dirty flag, and deliberately so.</strong> A flag has to be set at every write site — inspector, gizmo, scripts, serializer, and everything added later — and one missed site leaves an object silently rendering in the wrong place.</p>
+<p>Instead the walk <em>compares</em>. It keeps a copy of the three vectors it last composed from, and where they still agree — and the parent&#39;s world matrix did not move either — the existing <code>World</code> is already the answer. Nothing has to report that it moved something, because nothing is trusted to.</p>
+<p>The four cached fields exist for that comparison. They are derived state like <code>World</code> itself: not serialized, not shown in the inspector, and not part of what makes two transforms equal. Writing to them from outside the walk has no meaning beyond making it recompute once.</p>
 </aside>
 <h2 id="rendering">Rendering<a class="anchor" href="#rendering" aria-label="Link to this section">#</a></h2>
 <h3 id="meshcomponent">MeshComponent<a class="anchor" href="#meshcomponent" aria-label="Link to this section">#</a></h3>
@@ -192,6 +198,9 @@
 <tr><td style="text-align:left"><code>Burst</code></td><td style="text-align:left"><code>0</code></td><td style="text-align:left">Particles spawned at once when triggered from a script</td></tr>
 <tr><td style="text-align:left"><code>Lifetime</code></td><td style="text-align:left"><code>1.5</code></td><td style="text-align:left">Seconds a particle lives</td></tr>
 <tr><td style="text-align:left"><code>LifetimeJitter</code></td><td style="text-align:left"><code>0.25</code></td><td style="text-align:left">Fraction of random variation on the lifetime</td></tr>
+<tr><td style="text-align:left"><code>Shape</code></td><td style="text-align:left"><code>Point</code></td><td style="text-align:left">Where particles are born: <code>Point</code> is the emitter itself, <code>Box</code> is anywhere inside <code>BoxSize</code></td></tr>
+<tr><td style="text-align:left"><code>BoxSize</code></td><td style="text-align:left"><code>2, 1, 2</code></td><td style="text-align:left">The spawn box&#39;s full extents in metres, in the emitter&#39;s frame. <code>Box</code> only</td></tr>
+<tr><td style="text-align:left"><code>Motion</code></td><td style="text-align:left"><code>Directional</code></td><td style="text-align:left"><code>Directional</code> uses the cone below, then gravity and drag. <code>Stationary</code> gives no velocity and applies neither</td></tr>
 <tr><td style="text-align:left"><code>Direction</code></td><td style="text-align:left"><code>0, 1, 0</code></td><td style="text-align:left">Which way the cone points</td></tr>
 <tr><td style="text-align:left"><code>Spread</code></td><td style="text-align:left"><code>25.0</code></td><td style="text-align:left">Half-angle of the cone, in degrees. 0 is a beam, 180 is a sphere</td></tr>
 <tr><td style="text-align:left"><code>Speed</code></td><td style="text-align:left"><code>3.0</code></td><td style="text-align:left">Initial speed along the cone</td></tr>
@@ -220,6 +229,11 @@
 <tr><td style="text-align:left"><code>Rng</code></td><td style="text-align:left">The emitter&#39;s random seed</td></tr>
 </tbody></table></div>
 <aside class="callout callout-note"><p class="callout-label">Note</p><p>An unset curve means the start/end pair still decides that channel, so attaching one changes nothing until a key moves.</p>
+</aside>
+<p><strong>Spawning in a volume.</strong> A <code>Point</code> emitter puts every particle at the same place, which is right for anything with a source -- a chimney, a muzzle -- and wrong for anything spread over an area. Fireflies over a clearing leaving one point read as a fountain however slowly they move, because the tell is the empty space at the origin rather than the speed. <code>Shape: Box</code> spawns each particle at a uniformly random point inside <code>BoxSize</code>.</p>
+<p><code>BoxSize</code> is the box&#39;s own size in metres, not a multiple of the entity&#39;s scale -- the same rule <code>ColliderComponent</code> follows, so an emitter parented to something scaled is not scaled twice. A <strong>local-space</strong> emitter is the one exception and cannot be otherwise: its particles are stored in the emitter&#39;s frame and the transform is applied when they are drawn, so its box rides the entity&#39;s scale along with everything else it emits.</p>
+<p><code>Motion: Stationary</code> is not the same as <code>Speed</code> at zero -- gravity would still take it, and turning gravity off as well spells one intention across two fields that have to be read together. Stationary particles appear where they were born, live out their lifetime and go, which with a box is a field of things blinking on and off in place.</p>
+<aside class="callout callout-tip"><p class="callout-label">Tip</p><p><strong>Window &gt; Show Emitters</strong> (F4) draws every box emitter&#39;s volume in the scene view, and nothing in the game view. It is off by default, like the collider overlay beside it. It is drawn from the same function the emitter spawns from, so it cannot show a box the particles do not use.</p>
 </aside>
 <h2 id="user-interface">User interface<a class="anchor" href="#user-interface" aria-label="Link to this section">#</a></h2>
 <p>The canvas system is not ImGui — it is the game&#39;s own UI, drawn by the engine and saved in the scene.</p>

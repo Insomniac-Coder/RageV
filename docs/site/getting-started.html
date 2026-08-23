@@ -103,6 +103,23 @@
 <h3 id="bindless-materials">Bindless materials<a class="anchor" href="#bindless-materials" aria-label="Link to this section">#</a></h3>
 <p>On Vulkan, the lit pass reads material textures through one large array — the <em>bindless heap</em> — indexed per instance, rather than binding a descriptor set per material. It changes nothing about how a material is authored; what it changes is that objects sharing a mesh no longer split into separate draws when their materials differ. OpenGL 4.5 has no equivalent, so on that backend the engine binds per material as it always did, and says so in the log at startup (<code>Renderer3D: material textures ...</code>).</p>
 <p><code>--bindless=off</code> forces the bound path on Vulkan too. It exists for one reason: rendering the same scene both ways and comparing the pixels is the check that the whole feature is right — the two must be identical, and <code>tools/scripts/check_bindless.py</code> insists that they are. A wrong texture index on the bindless path never crashes; it draws <strong>magenta</strong>, which is the colour of every unwritten slot in the heap, so a magenta object is a wrong index and not a look.</p>
+<h3 id="reflections-and-what-opengl-cannot-do">Reflections, and what OpenGL cannot do<a class="anchor" href="#reflections-and-what-opengl-cannot-do" aria-label="Link to this section">#</a></h3>
+<p>Vulkan traces reflection rays against the real geometry. <strong>OpenGL 4.5 has no ray query</strong>, so on that backend the engine falls back to screen-space reflections — and that is not a quality setting, it is a hard limit on what information exists.</p>
+<p>A screen-space trace can only reflect <strong>what the camera is already drawing</strong>. The depth buffer holds the surfaces facing the camera and nothing else, so a reflection needing anything else has no source:</p>
+<ul>
+<li>geometry <strong>off screen</strong>, or behind the viewer</li>
+<li>the <strong>underside</strong> of something whose top is what the camera sees</li>
+<li>anything hidden behind a nearer object</li>
+</ul>
+<p>In the sample project&#39;s showroom, the car&#39;s reflection in the floor is the clear case. Measured over the floor in front of the car while orbiting the camera, mean luminance:</p>
+<div class="table-scroll"><table><thead><tr><th style="text-align:left">yaw</th><th style="text-align:left">Vulkan</th><th style="text-align:left">OpenGL</th></tr></thead><tbody>
+<tr><td style="text-align:left">0</td><td style="text-align:left">123.0</td><td style="text-align:left">123.5</td></tr>
+<tr><td style="text-align:left">40</td><td style="text-align:left">125.4</td><td style="text-align:left">109.5</td></tr>
+<tr><td style="text-align:left">80</td><td style="text-align:left">112.6</td><td style="text-align:left">125.3</td></tr>
+<tr><td style="text-align:left"><strong>100</strong></td><td style="text-align:left">114.3</td><td style="text-align:left"><strong>60.4</strong></td></tr>
+</tbody></table></div>
+<p>Vulkan holds within ±6% at every angle. OpenGL swings by a factor of two, because at 100 degrees the reflection needs the car&#39;s underside and no pixel on screen contains it. The reflection does not go black — the lit pass keeps the reflection probe&#39;s radiance wherever the trace has no confidence — but a probe is a static capture of the <em>room</em>, and the room has no car in it.</p>
+<p><strong>Nothing is being culled</strong> when this happens, and no setting turns it off. It is worth knowing which backend you are judging a scene on: for reflections, Vulkan is the reference and OpenGL is an approximation that is exact only where the camera happens to have the answer already.</p>
 <h2 id="where-things-live">Where things live<a class="anchor" href="#where-things-live" aria-label="Link to this section">#</a></h2>
 <figure class="code"><figcaption>text</figcaption><pre><code>RageV/            the engine library
 RageVEditor/      the editor
@@ -114,7 +131,7 @@ docs/             this manual, plus the engine<span class="tok-string">&#39;s ow
 </article>
 <nav class="pager"><a class="pager-link pager-prev" href="index.html"><span class="pager-label">Previous</span><span class="pager-title">Introduction</span></a><a class="pager-link pager-next" href="concepts.html"><span class="pager-label">Next</span><span class="pager-title">Core concepts</span></a></nav>
 </main>
-<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#what-you-need">What you need</a><a class="toc-link toc-l2" href="#build-it">Build it</a><a class="toc-link toc-l2" href="#run-the-editor">Run the editor</a><a class="toc-link toc-l2" href="#create-a-project">Create a project</a><a class="toc-link toc-l2" href="#run-a-project-without-the-editor">Run a project without the editor</a><a class="toc-link toc-l2" href="#package-a-project">Package a project</a><a class="toc-link toc-l2" href="#command-line-flags">Command-line flags</a><a class="toc-link toc-l3" href="#debugging-gpu-work-validation-layers">Debugging GPU work: validation layers</a><a class="toc-link toc-l3" href="#bindless-materials">Bindless materials</a><a class="toc-link toc-l2" href="#where-things-live">Where things live</a></nav></aside>
+<aside class="toc"><p class="toc-title">On this page</p><nav class="toc-links"><a class="toc-link toc-l2" href="#what-you-need">What you need</a><a class="toc-link toc-l2" href="#build-it">Build it</a><a class="toc-link toc-l2" href="#run-the-editor">Run the editor</a><a class="toc-link toc-l2" href="#create-a-project">Create a project</a><a class="toc-link toc-l2" href="#run-a-project-without-the-editor">Run a project without the editor</a><a class="toc-link toc-l2" href="#package-a-project">Package a project</a><a class="toc-link toc-l2" href="#command-line-flags">Command-line flags</a><a class="toc-link toc-l3" href="#debugging-gpu-work-validation-layers">Debugging GPU work: validation layers</a><a class="toc-link toc-l3" href="#bindless-materials">Bindless materials</a><a class="toc-link toc-l3" href="#reflections-and-what-opengl-cannot-do">Reflections, and what OpenGL cannot do</a><a class="toc-link toc-l2" href="#where-things-live">Where things live</a></nav></aside>
 </div>
 <script src="search-index.js"></script>
 <script src="manual.js"></script>

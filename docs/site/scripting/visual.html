@@ -36,9 +36,11 @@
 <p>Two nodes and a value — one execution wire and one data wire. That is the smallest graph that shows both kinds, and the difference between them is the one thing about a graph that cannot be guessed.</p>
 <h2 id="the-canvas">The canvas<a class="anchor" href="#the-canvas" aria-label="Link to this section">#</a></h2>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left"></th><th style="text-align:left"></th></tr></thead><tbody>
+<tr><td style="text-align:left"><strong>Left-drag empty space</strong></td><td style="text-align:left">pan -- the graph moves under the cursor</td></tr>
 <tr><td style="text-align:left"><strong>Right-click</strong></td><td style="text-align:left">add a node, from a menu grouped by category</td></tr>
 <tr><td style="text-align:left"><strong>Drag a pin</strong></td><td style="text-align:left">wire it to another; the canvas refuses a wire it cannot make and says why</td></tr>
-<tr><td style="text-align:left"><strong>Middle-drag</strong></td><td style="text-align:left">pan</td></tr>
+<tr><td style="text-align:left"><strong>Middle-drag</strong></td><td style="text-align:left">pan, the same thing, for a mouse that makes it comfortable</td></tr>
+<tr><td style="text-align:left"><strong>Ctrl or Shift + drag</strong></td><td style="text-align:left">box select, and add what it covers to the selection</td></tr>
 <tr><td style="text-align:left"><strong>Wheel</strong></td><td style="text-align:left">zoom, between 25% and 250%</td></tr>
 <tr><td style="text-align:left"><strong>Delete</strong></td><td style="text-align:left">remove what is selected</td></tr>
 <tr><td style="text-align:left"><strong>Ctrl+Z / Ctrl+Y</strong></td><td style="text-align:left">undo, redo</td></tr>
@@ -57,16 +59,23 @@
 <p><strong>On Create</strong>, <strong>On Tick</strong>, <strong>On Frame</strong>, <strong>On Destroy</strong>, <strong>On Collision Enter/Stay/Exit</strong>, <strong>On Trigger Enter/Stay/Exit</strong>.</p>
 <p>They mean exactly what they mean in <a href="cpp.html#the-lifecycle">C++</a> and <a href="csharp.html#the-lifecycle">C#</a> — On Tick is the fixed step, On Frame is the render frame. A graph may have as many events as it likes; each becomes one <code>override</code>.</p>
 <h2 id="what-you-can-reach">What you can reach<a class="anchor" href="#what-you-can-reach" aria-label="Link to this section">#</a></h2>
-<p>137 nodes across eighteen categories, covering the same surface a written script gets:</p>
+<p>146 nodes across nineteen categories, covering the same surface a written script gets:</p>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Category</th><th style="text-align:left"></th></tr></thead><tbody>
 <tr><td style="text-align:left">Events, Flow, Functions</td><td style="text-align:left">On Tick, Branch, Sequence, For Loop, While Loop, Break, Function, Call</td></tr>
 <tr><td style="text-align:left">Transform, Entity, Component</td><td style="text-align:left">position, rotation, scale, parenting, find, spawn, destroy, named fields</td></tr>
 <tr><td style="text-align:left">Physics</td><td style="text-align:left">forces, impulses, velocity, raycasts</td></tr>
 <tr><td style="text-align:left">Input, Time, Audio, UI, Output</td><td style="text-align:left">actions by name, the step, one-shots, Log</td></tr>
 <tr><td style="text-align:left">Maths, Vector, Logic, Values</td><td style="text-align:left">arithmetic, trigonometry, comparison, literals</td></tr>
+<tr><td style="text-align:left">Text</td><td style="text-align:left">a number as text, text as a number, joining and comparing</td></tr>
+<tr><td style="text-align:left">Render</td><td style="text-align:left">one setting by name, the graphics API, and whether an effect actually ran</td></tr>
 <tr><td style="text-align:left">Variables</td><td style="text-align:left">numbers, vectors, flags, text and entities that survive between events</td></tr>
 <tr><td style="text-align:left">Containers</td><td style="text-align:left">lists and string-keyed maps of numbers and entities</td></tr>
 </tbody></table></div>
+<p><strong>Text is how a graph says anything.</strong> Until these existed a graph could compute a frame rate and had no way whatsoever to display it: the only sources of a string in the whole node set were a literal, a text variable and an entity&#39;s name. <strong>Number To Text</strong> and <strong>Join Text</strong> are what turn a number into something <strong>Set UI Text</strong> can take.</p>
+<p><strong>Render Setting answers what was asked for; Feature Active answers what happened.</strong> They differ more often than they look: a project can ask for ray-traced reflections and get the screen-space chain instead, because the device has no ray query -- which is every OpenGL device, always. Anything reporting to a person what the renderer is doing wants <strong>Feature Active</strong>, or it will name a feature that never ran.</p>
+<p><strong>Set Field writes the entity the script runs on; Set Field On writes one you name.</strong> The second exists because the first was the only one, and a graph could not touch anything but itself where a C# script always could.</p>
+<p><strong>Action Pressed and Action Released work on either On Tick or On Frame.</strong> The edge is stamped with when it happened rather than cleared by whoever reads it first: On Tick sees a press in exactly one step, however many the frame ran, and On Frame sees it on exactly the frame the key went down. Put it wherever the rest of that logic lives. <strong>Action Down</strong> is a state rather than an edge and is safe on either too.</p>
+<p>Before 2026-08-23 the edge was cleared inside the fixed-step loop, which runs <em>before</em> On Frame, so an On Frame that asked saw a press only on a frame that ran no step — it looked like it worked, at odds that fell with the frame rate. A graph written that way now simply works.</p>
 <p><strong>Variables are the one thing a graph cannot work without.</strong> A node graph with no memory can only compute from its inputs, so anything that accumulates — a timer, a counter, a position being moved rather than set — needs one. Each becomes a private field on the generated class, which is exactly what makes it survive from one tick to the next.</p>
 <h2 id="public-private-and-what-the-inspector-shows">Public, private, and what the inspector shows<a class="anchor" href="#public-private-and-what-the-inspector-shows" aria-label="Link to this section">#</a></h2>
 <p>The sidebar lists the graph&#39;s variables and functions under <strong>Variables and functions</strong>, split into <strong>Public</strong> and <strong>Private</strong>. They are listed rather than created there: a variable exists because a Get or Set node carries its name, which is what makes the name mean anything. The section is where you say something <em>about</em> one.</p>

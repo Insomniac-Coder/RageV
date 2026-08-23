@@ -128,7 +128,7 @@
 <p>By action name, never by key code. See <code>RageV/Core/InputMap.h</code> for the bindings.</p>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
 <tr><td style="text-align:left"><code>IsActionDown</code></td><td style="text-align:left">Held this step.</td></tr>
-<tr><td style="text-align:left"><code>WasActionPressed</code></td><td style="text-align:left">Went down since the last step. Consumed by the first step that runs, so it is never missed and never seen twice.</td></tr>
+<tr><td style="text-align:left"><code>WasActionPressed</code></td><td style="text-align:left">Went down since the last step. Stamped with when it happened rather than consumed, so <code>OnTick</code> sees it in one step and <code>OnFrame</code> on one frame — never missed, never seen twice, either callback.</td></tr>
 <tr><td style="text-align:left"><code>WasActionReleased</code></td><td style="text-align:left">Came up since the last step.</td></tr>
 <tr><td style="text-align:left"><code>GetAxis</code></td><td style="text-align:left">Axis value. Unknown axes read zero rather than failing.</td></tr>
 <tr><td style="text-align:left"><code>IsPointerOverUI</code></td><td style="text-align:left">Whether the game&#39;s UI has the pointer this frame. <strong>Ask before acting on a click</strong> — the action map does not know a canvas exists. Static.</td></tr>
@@ -138,7 +138,8 @@
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
 <tr><td style="text-align:left"><code>SetText</code></td><td style="text-align:left">A <code>UITextComponent</code>&#39;s string, on this entity or another. Does nothing without the component.</td></tr>
 <tr><td style="text-align:left"><code>GetText</code></td><td style="text-align:left">Reads it back; empty without the component.</td></tr>
-<tr><td style="text-align:left"><code>WasButtonClicked</code></td><td style="text-align:left">A completed press — down and up, both on the same button. True for one simulation step, the same contract <code>WasActionPressed</code> has. A press dragged off the button before release is cancelled and never reported.</td></tr>
+<tr><td style="text-align:left"><code>WasButtonClicked</code></td><td style="text-align:left">A completed press — down and up, both on the same button. The same contract <code>WasActionPressed</code> has: one step sees it, one frame sees it, either may ask. A press dragged off the button before release is cancelled and never reported.</td></tr>
+<tr><td style="text-align:left"><code>IsButtonHovered</code></td><td style="text-align:left">Whether the pointer is on it right now. A level, not an edge: read it every frame and write it straight back to whatever it drives. The canvas already tints a hovered button&#39;s own image — this is for the rest of it, a label or an icon or a sibling, which the tint never reaches.</td></tr>
 </tbody></table></div>
 <h2 id="time">Time<a class="anchor" href="#time" aria-label="Link to this section">#</a></h2>
 <div class="table-scroll"><table><thead><tr><th style="text-align:left">Member</th><th style="text-align:left">Description</th></tr></thead><tbody>
