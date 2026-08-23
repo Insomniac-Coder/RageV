@@ -514,7 +514,18 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// for a zero-sized target, and compiling an empty graph reported "the graph
 	// has no passes" on every startup -- an error for something that is simply
 	// not ready yet.
-	if (m_ViewportSize.x >= 1.0f && m_ViewportSize.y >= 1.0f)
+	//
+	// **And only when it can be seen.** The size check alone let this draw a
+	// whole scene into a hidden target: the Game panel shares this dock node,
+	// so looking at the game meant rendering both. Worse, a hidden panel stops
+	// reporting its size, so the viewport kept whatever it last measured --
+	// which on startup is the *undocked* full window, captured on frame one
+	// before the dock layout resolves. Measured on a 1600x900 editor: the
+	// viewport stayed at 1600x768 while the game settled at 1091x512, so the
+	// invisible render was 2.2x the pixels of the visible one, and switching
+	// tabs once "fixed" the frame time by finally telling it the truth.
+	// ENGINE-NOTES 7cl.
+	if (m_ViewportVisible && m_ViewportSize.x >= 1.0f && m_ViewportSize.y >= 1.0f)
 	{
 	RV_PROFILE_PHASE(FramePhase::Graph);
 
@@ -2629,6 +2640,7 @@ void EditorLayer::DrawViewportPanel()
 		// and every reader of those flags is deciding who owns the input.
 		m_IsViewportFocused = false;
 		m_IsViewportHovered = false;
+		m_ViewportVisible = false;
 		Application::Get().GetImGuiLayer()->SetEventBlocker(true);
 
 		ImGui::End();
@@ -2636,6 +2648,7 @@ void EditorLayer::DrawViewportPanel()
 		return;
 	}
 
+	m_ViewportVisible = true;
 	m_IsViewportFocused = ImGui::IsWindowFocused();
 	m_IsViewportHovered = ImGui::IsWindowHovered();
 	Application::Get().GetImGuiLayer()->SetEventBlocker(!m_IsViewportFocused && !m_IsViewportHovered);

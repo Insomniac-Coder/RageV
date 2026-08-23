@@ -523,6 +523,14 @@ private:
 	// rendering the scene a second time for something nobody can see is a whole
 	// extra pass wasted.
 	bool m_GameViewportVisible = false;
+
+	// The same, for the scene viewport, and it did not used to exist.
+	//
+	// The Game panel has always checked whether it can be seen before drawing
+	// the scene into it; the viewport checked only whether it had a size. The
+	// two share a dock node, so looking at one meant the other was drawing a
+	// full scene -- shadows, graph and all -- into a target nobody could see.
+	bool m_ViewportVisible = false;
 	bool m_ShowDemoWindow = false;
 	bool m_ShowAbout = false;
 

@@ -12985,6 +12985,66 @@ default source charset is the *build machine's* ANSI codepage, and a project
 whose encoding depends on who compiled it is a bug waiting for its first
 non-ASCII character. The flag stays; only the reason for it changed.
 
+### 7cl. The editor drew every frame twice, and a tab switch half-fixed it
+
+Reported as: the editor opens at 14.5 ms, and switching to the Viewport tab and
+back to Game settles it at 11.4 ms. A tab switch is not a thing that should
+make frames cheaper.
+
+Both panels share a dock node, so only one is ever on screen. The Game panel
+checked that before drawing:
+
+```
+if (m_ShowGameViewport && m_GameViewportVisible && m_GameViewportSize.y > 0.0f)
+```
+
+The scene viewport checked only that it had a size. **So looking at the game
+rendered the scene twice** -- shadows, graph, post, all of it -- once into a
+target nobody could see.
+
+#### Why a tab switch changed anything
+
+A hidden ImGui panel stops reporting its size, and nothing zeroed the last one.
+Probed on a 1600x900 editor:
+
+```
+f1:  viewport 0x0    (req 1600x768)   game 0x0        vis=1
+f2:  viewport 1600x768                game 1600x768   vis=1
+f3:  viewport 1600x768                game 1091x512   vis=1
+f80: viewport 1600x768                game 1091x512   vis=1
+```
+
+Frame 1 is before the dock layout resolves, so the viewport measures itself as
+the **whole window**. Frame 3 the Game panel settles into its real docked size.
+The viewport never does, because by then it is hidden and has stopped
+measuring.
+
+So the invisible render was **2.2x the pixels of the visible one**, permanently.
+Visiting the tab once made it finally measure itself, and the waste shrank from
+full-window to panel-sized -- which is the entire mechanism behind "switching
+tabs makes it faster". It was never a fix, it was a smaller leak.
+
+#### The fix, and what it is worth
+
+`m_ViewportVisible`, set exactly where the Game panel sets its own, and checked
+before building the scene view's graph. Measured back to back in one binary,
+with the old behaviour behind an environment variable so both numbers came from
+the same build and the same scene:
+
+| | mean frame, 200 frames |
+|---|---|
+| rendering while hidden | **6.20 ms** |
+| gated on visibility | **4.30 ms** |
+
+**1.9 ms, ~31%**, and unlike the tab switch it removes the second render rather
+than shrinking it. Undock the two panels so both are genuinely visible and both
+render again, which is correct.
+
+The stale size is still there and is now harmless: a hidden panel that never
+renders can hold whatever size it likes. It costs one frame at the old size the
+first time the viewport is shown, because the size is recorded during the UI
+pass and applied at the start of the next frame.
+
 ---
 
 ## 8. What this changes
