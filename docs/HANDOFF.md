@@ -7,203 +7,126 @@ Pushing is the owner's.
 
 ---
 
-## Start here: the gpu-lit defect, investigated to the edge and not caught
+## Start here: the gpu-lit defect is dead, and the references were the broken ones
 
-**2026-08-23, late session. The defect is real, deterministic, and still at
-large.** This section is the map of everything already ruled out, so the next
-session starts at the frontier rather than at the beginning. Tree is clean;
-every probe described below was reverted.
+**2026-08-24. Found, fixed, falsified, committed.** The 1,643,738-pixel
+disagreement between `--gpu-lit` on and off was **two independent defects,
+both from 2026-08-22's transparent-mesh work, both in `Renderer3D.cpp`** --
+and the investigation's central assumption was backwards: the CPU path (and
+the meshlet and bound paths, which share its submission code) was the wrong
+picture. The gpu-lit path's opaque draws were right all along, and it was
+separately broken on glass.
 
-### The facts, all verified twice
+### Defect 1: the run reorder ignored the transparent bit (the 1.6M pixels)
 
-The showroom, `--gpu-lit` on (default) versus off, 2560x1600, still camera,
-frame 60: **1,643,738 pixels differ, max 215 levels** -- and that exact count
-survives every feature toggle: GI off, reflections off, RTAO off, shadow maps
-instead of rays, `--aa=none`. Both paths are perfectly deterministic against
-themselves (0 pixels run-to-run). Sync validation is silent. Camp and demo
-differ by only ~800 px; small fixtures (gi_corner, aa_edge43) by ~0. The
-showroom's complexity -- the 130-submesh car, ~140 mesh slots -- is required.
+EndScene's packed sort key carries `Transparent` at bit 63, so blended draws
+sort to a contiguous block at the end -- and `TransparentBegin`, the point
+where the opaque issue loop stops and the transparent pass takes over, is
+simply "the first transparent draw". But the **run reorder** added for 7.8's
+front-to-back ordering (2026-08-13, before any mesh could be transparent)
+re-sorted the runs by `(Kind, Nearest)` and knew nothing of the partition.
+The car's glass, nearer than the walls, sorted ahead of them, and **every
+opaque run farther than the nearest glass -- walls, portal piers, header,
+mirror, charge post, the whole service bay -- was handed to the OIT
+pipeline**: no depth write, so depth of field blurred them as "far"; no
+g-buffer, so SSR/SSAO/SSGI never saw them; weighted-blend shading where
+opaque was authored. Fix: the reorder compares `Transparent` first, and the
+run cut breaks at the boundary too (under bindless every material's batch
+key is zero, so the last opaque and first blended run of one mesh would
+otherwise merge into a single run = single pipeline).
 
-A debug shader (o_Color = varyings) proved the divergence is in what the
-fragment RECEIVES, not how it shades: at the same wall pixel the two paths see
-different v_MaterialIndex, v_Probe, v_TexCoord, and -- fingerprinted by
-amplified v_BaseColor -- **different owning objects entirely**. At the portal,
-the gpu path's pixel belongs to a white-based object where the cpu path (and
-the bound-materials path, which the cpu path matches byte for byte) has the
-authored dark portal. The gpu path is the wrong one.
+Two knock-ons made it look stranger than it was:
 
-### Ruled out, each by direct measurement
+- **Probe captures render through the CPU walk** (a probe face is never
+  `sameCamera`), so the baked showroom probe was itself rendered with the
+  bug -- every path's IBL, gpu-lit included, was lit by a poisoned cube map.
+- `--meshlets=on` and `--bindless=off` share the same EndScene partition,
+  which is why all three "references" agreed with each other byte for byte.
+  **Agreement between siblings that share code is not a reference.** The
+  gpu-lit indirect path was immune, which is exactly why it disagreed.
 
-- The compute cull's test: forcing `InFrustum = true` (keep everything)
-  reproduces the identical 1,643,738. Not the cull decision.
-- The visible-index buffer: made host-visible and dumped at a settled frame.
-  Slot bases, per-slot ranges, atomic packing, hole placement -- all correct
-  for the first 60 entries (rows 0..59). The car's rows 60+ were not dumped.
-- The instance fill: SetSceneInstance receives correct BaseColor, probe (=1),
-  and record for every named entity (walls 0.03 dark, bay 0.62, floor white);
-  the CPU submit receives the identical values. 184 rows reserved, **zero
-  never-filled holes** (instrumented).
-- The record tables: dumped at EndScene on both paths -- identical as sets,
-  differently numbered (first-seen order), each self-consistent.
-- Not materials-at-refresh staleness, not ProbeSlotFor, not slotFor pointer
-  collisions (Refs held), not AllocateInstance stomps (no pre-reserve
-  submissions), not maintenance/barriers (sync validation clean), not MSAA.
-- `--bindless=off` making the paths identical is a RED HERRING: bindless off
-  disables the gpu-lit path itself.
+### Defect 2: the blended table's indirect loop mis-strode (the glass)
 
-### The frontier: what is NOT yet checked
+`GpuCull::CullLit` writes 24-byte `SlotCommand` rows (the draw command plus
+`InstanceBase`) for **both** the opaque and blended tables -- one cull
+shader writes both. The opaque and shadow loops step by
+`sizeof(GpuCull::SlotCommand)`; FlushTransparent's GPU loop stepped by
+`sizeof(DrawIndexedIndirectCommand)` (20), so slot 1 read from the middle of
+slot 0 and **only the first blended mesh ever drew on the gpu-lit path**:
+a windscreen, and no headlamp glass, grille or side windows behind it.
 
-1. **Rows 60..168 of the visible buffer** -- the car's slots, where four
-   wheels/tyres/discs share meshes. The crossing may live only there, with
-   the wall/portal damage being *knock-on through screen-space history*
-   (reflections/AO read the frame) -- unverified either way.
-2. **The saturated-white interloper.** Something white-based covers the
-   portal on the gpu path. All reserved rows are filled, so it is not a
-   default-constructed row. Candidates: a blended-table draw landing in the
-   opaque pass; a command/mesh pairing off-by-one *within the car's slot
-   run*; the transparent indirect pass compositing over opaque wrongly.
-3. **The transparent gpu path is provably unordered** (atomicAdd placement =
-   GPU scheduling order) -- that one is a certain defect regardless: OIT is
-   order-independent only per-pass; the blended table's draw ORDER between
-   slots is not depth-sorted at all, where the CPU path sorts. Fixing the
-   opaque mystery first; this one is architectural (the roadmap's "depth
-   sort still on the CPU" line).
-4. The debug-shader approach works and is cheap: stage a modified
-   pbr_fragment (no rebuild needed), render both paths, read varyings as
-   colours. The next probe should output **gl_InstanceIndex or the visible
-   row** (pass it down as a varying from scene_vertex temporarily) at the
-   wall/portal pixels -- one run each path answers "which row is the
-   interloper" and its slot, which names the broken pairing directly.
+### What the last session got wrong, so the next one doesn't repeat it
 
-### The operational layer: exact places, probes, and decoded evidence
+- The "portal pixel" (1280, 300) that named the gpu path's "white-based
+  interloper" is the **convex chrome mirror** -- the gpu path drawing it
+  correctly. Decode locations against the scene before naming a culprit.
+- The BREAKTHROUGH's coplanar-panel / z-fighting hypothesis is falsified:
+  the generator builds single dark wall boxes, nothing coplanar. The CPU
+  wall pixels failed the row-probe decode because the OIT pipeline (not the
+  instanced opaque fragment) wrote them.
+- "The CPU path is the honest reference" -- backwards, see above. The +1 ms
+  cost gap died with the fix too: interleaved 3-pair A/B now reads 7.09-7.11
+  (on) vs 6.88-7.08 ms (off) whole-frame GPU on the showroom.
 
-**Files and lines (as of 46392d0):**
-- `Scene.cpp` — 1674 camera CullLit; 2094 shadow cull; ~3052 `gpuLit` decision
-  (`sameCamera && m_CulledLit.IsValid()`); ~3068 the SetSceneInstance fill
-  loop; ~3130 the CPU submit loop (frustum + DrawMesh); 1943
-  `entry.CullIndex = cullRow++`; ~2000 InstanceBase running totals (fills
-  BOTH m_CullSlots and m_CullMeshes); 2385 TLAS walk (path-independent).
-- `Renderer3D.cpp` — 676 AllocateInstance; 686 RegisterMaterial; ~1900
-  BeginScene clears (Pending/Instances/MaterialScratch+Index together); 2248
-  pending record fill (`Instances[draw.Instance].Indices.z`); ~2295 instance
-  upload; ~2526 the indirect draw loop (pushes entry.InstanceBase, draws
-  command i at offset i*24); 2982 SetSceneInstance; 3349 DrawMesh.
-- `GpuCull.cpp` — 400 CullLit (per-frame ViewSlot pools, reset->barrier->cull
-  ->barrier); 339 SetObjects (host-visible table, uploaded on refresh).
-- `cull_lit.rvshader` — the atomic write:
-  `place = atomicAdd(Commands[slot].InstanceCount, 1)`;
-  `Visible[Commands[slot].InstanceBase + place] = InstanceBase + i`.
-- `pbr_fragment.glsl:1728` — `o_Color = vec4(color, baseColor.a);` = the
-  debug-visualisation hook point.
+### Verified, and guarded
 
-**The probe workflow that works (no rebuild):** edit a copy of the shader,
-`cp` it over `build/bin/Release/RageVRuntime/assets/shaders/...`, run, then
-restore from `RageVEditor/assets/shaders/`. The runtime compiles staged
-shaders at startup. Profile edits additionally need `--import-cache=off`.
-For clean debug numbers, strip the profile first:
-`printf 'PostProfile: 1
-Exposure: 1.0
-BloomEnabled: false
-DepthOfField: false
-AutoExposure: false
-' > SampleProject/assets/post/showroom.rvpostprofile`
-(restore after; the file is committed).
+- Showroom, committed profile, 2560x1600 frame 60: 1,643,738 px max 215 →
+  **373 px max 1 level**, all in the car glass = weighted-blend accumulation
+  order between slots (atomicAdd vs submission order; float addition is not
+  associative). That residual is the only thing left of the old "unordered
+  transparent table" observation -- OIT needs no inter-slot order.
+- Under `--render-defaults=on --aa=none`: gpu-lit on/off, `--meshlets=on`,
+  and `--depth-sort=off` are **bit-identical** (the UI bar excluded: the
+  LIGHTS ON button's hover highlight follows the real mouse).
+- **`tools/scripts/check_gpu_lit.py`** (new) asserts that parity and fails
+  loudly with either bug reintroduced -- measured 73%/9.2% of pixels. Both
+  falsifications were actually run. `check_bindless.py` is an implicit
+  second guard (bindless off flips the whole submission family, zero
+  tolerance) and passes again.
+- scenetest 2390/2390 Vulkan + OpenGL, rhismoke both backends, check_oit
+  4/4, check_depth_sort pixel-exact 0 of 4.3M.
 
-**CPU-side probes used (all reverted, all reusable):** a temp
-`Renderer3D::DebugRecordOf(matPtr)` / `DebugDumpRecords()` pair reading
-MaterialIndex/MaterialScratch; Scene-side logs gated on
-`FrameClock::Frame() == 58`; the visible-buffer dump = flip `slot.Instances`
-in CullLit to `MemoryDomain::HostVisible` and read `GetMappedPointer()`.
+### Fixed in the same pass (found by the adversarial review of the fix)
 
-**Decoded evidence from the debug shaders** (stripped profile, frame 60,
-wall pixel y500 x300, portal y300 x1280; sRGB values):
-- `(v_MaterialIndex/32, v_Probe/4, uv-grid)`: gpu wall (72,163,137) = record
-  2, probe 1, proper grid — the CORRECT static-path values; cpu wall
-  (21,13,31) = index~0, probe~0.
-- `(v_BaseColor.r, idx, probe)`: cpu wall R=41 and gpu wall R=43 — the SAME
-  ~0.03 base — while idx/probe channels disagree as above. Tension: CPUSUB
-  logged probe=1 for every wall; the cpu pixel reads probe~0. Either the
-  cpu wall pixel is not 'Left Wall' proper, or small-channel values are
-  being skewed by the remaining post chain; the amplified fingerprint below
-  is the more trustworthy read.
-- `(v_BaseColor.rgb * 8)`: cpu wall (144,145,147) -> ~0.035 = wall_side's
-  authored (0.030,0.031,0.034); gpu wall (160,162,169) -> ~0.045 = NOT
-  wall_side; cpu portal (113,115,120) -> ~0.021 = the authored dark portal;
-  **gpu portal (254,255,255) = saturated: base >= 0.125, a white-based
-  interloper.** Floor identical on both paths in every debug run.
+- EndScene's empty-frame early-return now counts the **blended** table as a
+  frame, not just the opaque one -- a scene of nothing but glass used to
+  skip the uploads FlushTransparent draws from (the "empty pending list"
+  lesson, learned again by its twin).
+- `DrawSkinnedMesh` now sets `Transparent` from the material (the scene and
+  the renderer used to disagree: OIT attachments allocated, mesh drawn
+  opaque, shadows skipping it as glass) and carries `ViewDepth` like the
+  other submission paths. The transparent pass's skip of non-static blended
+  runs now warns once, as its contract comment always claimed it did.
+- Both flush merges cut runs on `Kind` (under bindless, material keys are
+  all zero and only the mesh pointer separated pipelines at a kind
+  boundary).
+- FlushTransparent drops an armed indirect view it cannot draw instead of
+  holding it across frames (a held view replays a dead camera's cull).
 
-**The next probe, concretely:** add to scene_vertex.glsl + scene_block a
-temp varying `flat out float v_DebugRow` = the visible row index
-(`float(u_Visible.Visible[u_Object.BaseInstance + gl_InstanceIndex])`), emit
-it in static_vertex, output `v_DebugRow/255` as o_Color in pbr_fragment.
-One gpu-path screenshot then reads, at the portal/wall pixels, WHICH ROW the
-interloper is; row -> GPUROW log (re-add the Scene probe) -> entity and slot.
-That names the broken pairing in one run.
+### Still open, noticed on the way (none blocks anything)
 
-**Constant of the defect:** 1,643,738 differing pixels, max 215, at
-2560x1600 frame 60 under the committed profile -- across every feature
-toggle. If a change moves that number at all, it touched the mechanism.
+- **`check_depth_sort.py`'s early-z floor reads 1.0x** (0.65 vs 0.62 ms on
+  the overdraw scene) where 7.8 measured 105x. Not this session's change
+  (pixels/draws identical, and it reads 1.0x with `--gpu-lit=off` too);
+  either the scene stopped overdrawing or early-z stopped mattering on this
+  GPU/driver. The script prints FAIL but exits 0. Worth its own session.
+- **VoxelGI voxelizes glass as a solid caster** (`Scene.cpp` caster walk has
+  no blend check) -- the shadow path's "glass casts no shadow" doctrine,
+  contradicted by the bounce. Voxel GI is off in every committed profile.
+- `RHICommandList::DrawIndexedIndirect`'s **default** stride is still the
+  bare 20-byte command while every real arguments buffer is 24-byte
+  `SlotCommand` rows. Every call site passes explicit stride today; the
+  default is a loaded gun for the next one.
 
-### BREAKTHROUGH (session end, 2026-08-23 late): the row probe ran, and it splits the mystery
-
-The v_DebugRow probe (described below) was executed. Decoded results at
-2560x1600 frame 60, stripped profile (decoder: sRGB^-1 then ACES^-1
-(Narkowicz, solve the quadratic), floor pixel validates exactly as row 0):
-
-- **GPU path: wall pixels decode cleanly to rows 2 and 3 = 'Left Wall' /
-  'Right Wall' -- the CORRECT opaque rows.** The gpu path's wall draws are
-  RIGHT. Portal pixel decodes to row ~29 (checksum noisy, 25-29): some other
-  object owns that pixel there.
-- **CPU path: the same pixels do NOT decode (channels disagree with the
-  checksum)** -- those pixels were NOT written by the opaque instanced
-  fragment. Floor decodes exactly on both paths, so the probe itself is
-  sound.
-- `showroom_wall_side.rmat` has NO Blend line: the walls are authored
-  OPAQUE. So the CPU path covering them with non-opaque-instanced output is
-  the anomaly on that side.
-
-**The working hypothesis that now fits every observation:** the showroom's
-walls carry COPLANAR surfaces (the authored white paint panels over the
-near-black wall_side boxes -- the generator's "white painted panel" over
-black side walls). Depth-tied coplanar geometry is resolved by draw order;
-the two paths draw in different orders; under MSAA the samples can even
-split between the two windows, which is exactly a pixel that decodes as
-garbage (CPU) versus one clean winner (GPU). It explains: determinism per
-path, difference between paths, feature independence, the white "interloper"
-(the white panel winning ties on the gpu path where the black wall wins on
-the cpu path), the max-215 white-vs-black deltas, the showroom-only trigger,
-and the roadmap's "flickers" (z-fighting under motion).
-
-**First moves next session:**
-1. Confirm coplanarity: read make_showroom_scene.py's wall construction
-   (~line 470-500) for a panel/box pair on the same plane; or decode the
-   FULL row map from the probe images (in the scratchpad as row_gpu.png /
-   row_cpu.png if it survives; regenerate otherwise -- the probe recipe is
-   below) and check whether wall pixels flip between two specific rows.
-2. If confirmed: the fix is not in gpu-lit at all -- it is depth-fighting
-   scene content (give the panel a real offset in the generator, regenerate
-   the scene) AND/OR a stable tie-break (polygon offset for decals). The
-   gpu-lit path may be entirely innocent of THIS diff; the unsorted
-   transparent table defect (below) remains real and separate.
-3. The row->entity map for rows 0..28 is: 0 Floor, 1 Ceiling, 2 Left Wall,
-   3 Right Wall, 4 Front Wall, 5/6 Portal Piers, 7 Portal Header, 8/9/10
-   Portal Reveals, 11-14 Skirtings, 15 Luminaire, 16-19 Luminaire Reveals,
-   20 Bay Floor, 21 Bay (2nd), 22 Bay Back Wall, 25-28 Bay Downlights.
-   Row 29/30: the two single-mesh objects after the quads (identify via a
-   GPUROW log -- probe recipe in the operational layer).
-
-### How to reproduce in one minute
+### How to reproduce the old defect's shape (for regression archaeology)
 
 ```
-RageVRuntime.exe --project=SampleProject --scene=Scenes/showroom.rage --rhi=vulkan   --render-defaults=off --width=2560 --height=1600 --frame-time=0.0166   --screenshot-frame=60 --screenshot=a.png            # gpu-lit (default)
-... --gpu-lit=off --screenshot=b.png                   # reference
+RageVRuntime.exe --project=SampleProject --scene=scenes/showroom.rage --rhi=vulkan   --render-defaults=off --width=2560 --height=1600 --frame-time=0.0166   --screenshot-frame=60 --screenshot=a.png            # gpu-lit (default)
+... --gpu-lit=off --screenshot=b.png                   # CPU submission
 ```
-Diff a against b. The meshlet path (`--meshlets=on`) equals b bit-for-bit and
-is unaffected -- it and the CPU path are the trustworthy references.
-
-**Interim stance:** gpu-lit stays on per the older roadmap decision ("the
-defect in front of whoever works on it"), but anyone compositing or measuring
-the showroom should pass `--gpu-lit=off` or `--meshlets=on`.
+Diff a against b: ≤ a few hundred pixels at 1 level is the OIT float floor;
+anything more means a submission path regressed -- run
+`python tools/scripts/check_gpu_lit.py` for the calibrated verdict.
 
 ---
 
@@ -401,7 +324,7 @@ defects because the car in it needed things the engine did not have.
 | **8.9 stage 2** | FBX skinning and animation. Phase 8 has no ordinary feature left. |
 | **`tools/rvimport`** | A model instantiated into a scene file without the editor. |
 | **Transparent meshes** | The renderer had no path for them at all. |
-| **A second cull table** | Blended geometry is culled and drawn on the GPU, CPU as fallback. |
+| **A second cull table** | Blended geometry is culled and drawn on the GPU, CPU as fallback. (Until 2026-08-24 its indirect loop mis-strode 24-byte SlotCommand rows and only the first blended mesh drew -- "Start here" above.) |
 | **Next-event estimation** | The traced bounce aims at emitters instead of finding them by luck. |
 | **A spatial GI filter** | The denoiser had never had one. |
 | **`scenes/showroom.rage`** | The project's start scene. A Porsche under a ceiling luminaire. |
@@ -567,7 +490,10 @@ writing code. ENGINE-NOTES 7bx has each wrong turn beside its answer.
 
 **The CPU path is a real fallback, not a stopgap.** OpenGL, a device without
 compute, and either flag set to off all take it, and it is the same picture:
-camp and demo match within each backend's own run-to-run noise.
+camp and demo match within each backend's own run-to-run noise, and as of
+2026-08-24 the showroom -- the scene with glass in it -- matches bit-for-bit
+under `check_gpu_lit.py`'s conditions (the OIT accumulation-order floor is
+the only residual under the committed profile).
 
 ### EnTT is gone (10.2)
 
@@ -705,16 +631,15 @@ stale `RuntimeLayer.obj` was newer than the header it was stale against.
   culling. Bit-identical to the CPU vertex path on all three scenes; cost
   identical to it too (showroom Scene 4.08 vs 4.11 ms).
 
-  **Found while verifying, worth its own session: the default GpuLit
-  indirect path draws the showroom wrong by 1.6 million pixels (max 215
-  levels) against the CPU path, and costs a millisecond more (Scene 5.0 vs
-  4.1 ms).** The roadmap has tracked the defect as "renders visibly
-  differently and flickers"; these are the first numbers on it, and they say
-  the default is both wrong and slower on real scenes -- its measured win
-  was on the 60k-object scale fixtures. Verifying meshlets against
-  `--gpu-lit=off` is what surfaced it: the honest reference for any lit-path
-  work is the CPU vertex path until that defect dies. Remaining meshlet
-  stage: a task stage fed from the cull table.
+  Verifying meshlets against `--gpu-lit=off` surfaced the 1.6M-pixel
+  disagreement that the "Start here" section above lays to rest
+  (2026-08-24): the CPU/meshlet side was the broken one -- opaque runs
+  handed to the OIT pass -- and the gpu path was separately missing glass.
+  The "5.0 vs 4.1 ms" cost gap measured then was two differently-broken
+  frames; post-fix the interleaved A/B reads even (7.09-7.11 on vs
+  6.88-7.08 off). `check_gpu_lit.py` now holds all four submission paths
+  bit-identical. Remaining meshlet stage: a task stage fed from the cull
+  table.
 
 ---
 

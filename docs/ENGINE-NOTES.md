@@ -2011,6 +2011,14 @@ Reordering opaque, depth-tested draws cannot change the image, and
 is identical either way — which is the evidence that the grouping
 survived, since a broken batch would show up as more draws.
 
+(Written before any mesh could be transparent. Once 10.6 landed, "opaque,
+depth-tested draws" stopped being all of them, and this reorder had to
+respect the opaque/blended partition the sort key's top bit creates — it
+didn't, every opaque run farther than the nearest glass fell into the OIT
+pass, and finding that took two sessions (HANDOFF, "the gpu-lit defect").
+The reorder now compares the transparent bit first; `check_gpu_lit.py`
+asserts the partition on a scene that actually has glass.)
+
 ### The trap that cost the most here
 
 The first full set of measurements showed **no difference at all**
@@ -8440,6 +8448,8 @@ half a minute, which is what made eight of them affordable):
 | | | `auto_exposure` | 1/255 and 6/255 (the *key*; a nudge on the adaptation *rate* read max 0, because by frame 30 any rate has converged) | the same |
 | | | `lens_effects` | grain 3/255 and 1/255 | "grain is seeded from the frame number" |
 | | | `bindless` | 663,530 and 226,019 px differ run to run | "each path reproduces" |
+| `gpu-lit parity` (2026-08-24, with `check_gpu_lit.py`) | the run reorder's transparent tier removed (`Renderer3D.cpp` EndScene comparator) | `gpu_lit` | 73-93% of pixels on all three variants; the baked probe poisons every path | "the four submission paths agree" |
+| | the blended indirect stride reverted to the bare 20-byte command (`FlushTransparent`) | `gpu_lit` | 9.2% of pixels on all three variants (the reference loses its glass) | the same |
 | | | `depth_sort` | 1,227,027 subpixels between sorted and unsorted | "reordering changes nothing" -- two processes, so a reproduction claim in disguise |
 | `exposure-nudge` | the same factor, on the tonemap's exposure alone | `import_cache` | two identical runs differ by 18.149/255 | the control claim (budget 2.0) -- the bloom nudge above read 0.122 and stayed under it |
 | `cache-bypassed` | the loader's `Fetch` replaced by `false` | `import_cache` | "loaded nothing cooked" | "the cache was consulted" |
@@ -12184,6 +12194,26 @@ and the owner was right to push back on that reasoning. Three real ones:
 (1) and (2) say it is real work; (3) says the work buys nothing today. Foliage
 inverts (3) -- a forest of alpha-tested leaves is thousands of blended draws --
 and the split is already one bit in the sort key when it does.
+
+### Addendum (2026-08-22/24): the second table was then built, and its contract
+
+The section above was overtaken the same day: GpuCull grew the blended
+table -- (1) answered by a second `IndirectView` issued during the
+transparent pass, (2) by giving it its own buffer and lifetime, exactly as
+predicted. What was **not** written down, and cost the table its glass for
+two days, is the command layout contract:
+
+**`cull_lit.rvshader` writes 24-byte `SlotCommand` rows -- a
+`DrawIndexedIndirectCommand` plus `InstanceBase` -- for BOTH tables**, and
+`static_assert(sizeof(SlotCommand) == 24)` guards the CPU mirror. Every
+indirect consumer must offset AND stride by
+`sizeof(GpuCull::SlotCommand)`: the opaque loop and the shadow loop always
+did; FlushTransparent's loop stepped by the bare 20-byte command, so slot 1
+read from the middle of slot 0 and only the first blended mesh ever drew.
+Fixed 2026-08-24; `check_gpu_lit.py` fails at 9.2% of pixels if it
+regresses. Note `RHICommandList::DrawIndexedIndirect`'s *default* stride is
+still the bare command size -- harmless at drawCount=1, a trap for the
+first multi-draw call site that trusts it.
 
 ---
 

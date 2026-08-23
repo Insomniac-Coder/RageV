@@ -576,6 +576,10 @@ namespace RageV
 			// Said once, not per frame, when a scene has more of either than
 			// the key's fifteen bits can number.
 			bool PackWarned = false;
+			// Said once per session, like the packed-key fallback above: a
+			// non-static mesh wearing a blended material has no transparent
+			// pipeline to draw it.
+			bool SkinnedBlendWarned = false;
 
 			// The depth pass carries only a matrix per caster.
 			std::vector<PendingShadowDraw> ShadowPending;
@@ -1928,7 +1932,15 @@ namespace RageV
 		// the sky and nothing else. It only looked right on scenes that also
 		// had something skinned in them.
 		const bool haveIndirect = s_Data->IndirectView.IsValid() && !s_Data->IndirectSlots.empty();
-		if (!cmd || !s_Data->Pipeline || (s_Data->Pending.empty() && !haveIndirect))
+		// And the blended table is a frame on its own for the same reason: a
+		// scene of nothing but glass fills its instance rows and records its
+		// indirect view without a single pending draw, and returning here
+		// would skip the uploads FlushTransparent draws from -- the exact
+		// lesson the opaque table taught above, learned by its twin.
+		const bool haveBlended = s_Data->TransparentView.IsValid()
+							  && !s_Data->TransparentSlots.empty();
+		if (!cmd || !s_Data->Pipeline
+			|| (s_Data->Pending.empty() && !haveIndirect && !haveBlended))
 			return;
 
 		if (!s_Data->ActiveScene)
@@ -2184,8 +2196,16 @@ namespace RageV
 					const PendingDraw& next = pending[order[end]];
 					// IndexCount is not in the key -- it differs only for a
 					// terrain chunk drawn without its skirts (7ap) -- so it is
-					// checked here, where a run is actually cut.
-					if (next.Kind != first.Kind || next.MeshKey != first.MeshKey ||
+					// checked here, where a run is actually cut. Transparent
+					// IS in the key, at the top, so the blended draws are a
+					// contiguous block at the end of `order` -- but under
+					// bindless every material's batch key is zero, so the
+					// last opaque run and the first blended one can agree on
+					// every other field (the same mesh, once painted and once
+					// glazed) and would merge across the boundary. A run is
+					// one pipeline, so it is cut there too.
+					if (next.Transparent != first.Transparent ||
+						next.Kind != first.Kind || next.MeshKey != first.MeshKey ||
 						next.MaterialKey != first.MaterialKey ||
 						next.IndexCount != first.IndexCount)
 					{
@@ -2200,15 +2220,32 @@ namespace RageV
 
 			if (s_Data->Runs.size() >= 2)
 			{
+				// **Opaque before blended, then the kinds, then the depth.**
+				// The packed key already put every blended draw after every
+				// opaque one; this reorder has to keep that, because the
+				// opaque issue below ends where the first blended draw sits
+				// (TransparentBegin) and hands everything after it to the
+				// transparent pass. Ordering by nearest member alone broke
+				// exactly that: the car's glass, nearer than the walls, was
+				// sorted ahead of them, and every opaque run behind it --
+				// walls, piers, mirror, the bay -- was drawn through the OIT
+				// pipeline: no depth write (so depth of field blurred them as
+				// "far"), no g-buffer (so nothing screen-space saw them), and
+				// a weighted blend where an opaque surface was authored. The
+				// GPU-driven path was immune and that is what made the two
+				// disagree by 1.6M pixels on the showroom (HANDOFF, gpu-lit).
+				//
 				// The kinds in their order whatever their depth: the pipelines
 				// must stay separated, which is the property the grouping gives.
 				std::stable_sort(s_Data->Runs.begin(), s_Data->Runs.end(),
 								 [&](const DrawRun& a, const DrawRun& b)
 								 {
-									 const DrawKind kindA = pending[order[a.Begin]].Kind;
-									 const DrawKind kindB = pending[order[b.Begin]].Kind;
-									 if (kindA != kindB)
-										 return kindA < kindB;
+									 const PendingDraw& firstA = pending[order[a.Begin]];
+									 const PendingDraw& firstB = pending[order[b.Begin]];
+									 if (firstA.Transparent != firstB.Transparent)
+										 return !firstA.Transparent;
+									 if (firstA.Kind != firstB.Kind)
+										 return firstA.Kind < firstB.Kind;
 									 return a.Nearest < b.Nearest;
 								 });
 
@@ -2578,8 +2615,14 @@ namespace RageV
 		while (start < opaqueCount)
 		{
 			uint32_t end = start + 1;
+			// Kind as well: a run is one pipeline, and under bindless the
+			// material key is zero for every material, so without it only
+			// the mesh pointer separates a static run from a skinned one at
+			// a kind boundary -- the same shape as the transparent bit
+			// above: a field the sort separates and the merge forgot.
 			while (end < opaqueCount &&
 				   s_Data->Pending[end].Transparent == s_Data->Pending[start].Transparent &&
+				   s_Data->Pending[end].Kind == s_Data->Pending[start].Kind &&
 				   s_Data->Pending[end].MeshKey == s_Data->Pending[start].MeshKey &&
 				   s_Data->Pending[end].MaterialKey == s_Data->Pending[start].MaterialKey &&
 				   s_Data->Pending[end].IndexCount == s_Data->Pending[start].IndexCount)
@@ -2749,16 +2792,25 @@ namespace RageV
 	// pipeline, which would read joint indices as texture coordinates.
 	void Renderer3D::FlushTransparent()
 	{
-		if (!HasTransparent() || !s_Data->ActiveScene)
+		if (!s_Data || !HasTransparent())
 			return;
 
+		// Armed but undrawable: drop the recorded view rather than keep it.
+		// The clear at the bottom only runs when the pass runs, so an early
+		// return here used to hold the view across frames -- and a held
+		// view replays a dead camera cull result out of ring buffers the
+		// next frame is rewriting. The opaque twin never had the hazard:
+		// its view is reset in BeginScene and consumed in EndScene.
 		RHICommandList* cmd = Renderer::GetCommandList();
-		if (!cmd)
+		Renderer3DData::SceneSlot* active = s_Data->ActiveScene;
+		if (!cmd || !active || !active->TransparentSet)
+		{
+			s_Data->TransparentView = {};
+			s_Data->TransparentSlots.clear();
 			return;
+		}
 
-		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
-		if (!slot.TransparentSet)
-			return;
+		Renderer3DData::SceneSlot& slot = *active;
 
 		// **The GPU-driven half first**, so the CPU list's draws are laid over
 		// it rather than under. Both write the same two attachments and the
@@ -2786,8 +2838,17 @@ namespace RageV
 
 				cmd->BindVertexBuffer(0, entry.MeshRef->GetVertexBuffer());
 				cmd->BindIndexBuffer(entry.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+				// Twenty-four bytes apart, not twenty: the blended table's
+				// commands are the same SlotCommand rows the opaque table's
+				// are -- a draw and its InstanceBase -- because one cull
+				// shader writes both. Stepping by the bare draw command read
+				// slot 1 from the middle of slot 0 and every later slot from
+				// the wrong place, so only the first blended mesh ever drew:
+				// the windscreen, and no headlamp glass, grille or side
+				// windows behind it.
 				cmd->DrawIndexedIndirect(s_Data->TransparentView.Commands,
-										 (uint64_t)i * sizeof(DrawIndexedIndirectCommand));
+										 (uint64_t)i * sizeof(GpuCull::SlotCommand),
+										 1, sizeof(GpuCull::SlotCommand));
 
 				s_Data->DrawCalls++;
 			}
@@ -2801,6 +2862,7 @@ namespace RageV
 		{
 			uint32_t end = start + 1;
 			while (end < count &&
+				   s_Data->Pending[end].Kind == s_Data->Pending[start].Kind &&
 				   s_Data->Pending[end].MeshKey == s_Data->Pending[start].MeshKey &&
 				   s_Data->Pending[end].MaterialKey == s_Data->Pending[start].MaterialKey &&
 				   s_Data->Pending[end].IndexCount == s_Data->Pending[start].IndexCount)
@@ -2812,6 +2874,18 @@ namespace RageV
 
 			if (first.Kind != DrawKind::Static)
 			{
+				// The skip the contract above promises, now actually said:
+				// this run was classified blended but only the static
+				// pipeline has a transparent variant.
+				if (!s_Data->SkinnedBlendWarned)
+				{
+					RV_CORE_WARN("Renderer3D: a non-static mesh wears a blended "
+								 "material; the transparent pass has no pipeline "
+								 "for it, so it is not drawn. Give it an opaque "
+								 "material or extend the transparent variant to "
+								 "its pipeline kind.");
+					s_Data->SkinnedBlendWarned = true;
+				}
 				start = end;
 				continue;
 			}
@@ -3423,6 +3497,15 @@ namespace RageV
 		draw.MeshRef = mesh;
 		draw.MaterialRef = effective;
 		draw.IndexCount = mesh->GetIndexCount();
+		// Classified exactly as the static path classifies, or the scene and
+		// the renderer disagree about which pass owns the mesh: the scene
+		// allocates the OIT attachments for a blended skinned mesh while an
+		// unset flag here would draw it opaque -- an opaque-looking
+		// character that casts no shadow, because the shadow walk excludes
+		// what it believes is glass. The transparent pass then skips it and
+		// says so (no skinned transparent variant exists), which is the
+		// documented contract.
+		draw.Transparent = effective->GetBlendMode() != BlendMode::Opaque;
 
 		InstanceData& instance = AllocateInstance(draw);
 		instance.Model = transform;
@@ -3433,6 +3516,15 @@ namespace RageV
 		instance.Surface = { params.Metallic, params.Roughness,
 							 params.Occlusion, params.NormalScale };
 		instance.Indices = { (float)base, (float)probe, 0.0f, 0.0f };
+
+		// The same depth the other two submission paths carry, so a skinned
+		// run is ordered front to back like the runs beside it rather than
+		// riding at depth zero ahead of everything.
+		{
+			const Vec3 eye = Vec3(s_Data->Scene.CameraPosition);
+			const Vec3 centre = Vec3(transform[3]);
+			draw.ViewDepth = Math::Length(centre - eye);
+		}
 
 		s_Data->Pending.push_back(std::move(draw));
 	}
