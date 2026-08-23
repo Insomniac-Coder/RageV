@@ -791,16 +791,40 @@ namespace RageV::UI
 				m_DraggingNodes = true;
 				PushUndo();
 			}
-			else
+			else if (io.KeyCtrl || io.KeyShift)
 			{
-				if (!io.KeyCtrl && !io.KeyShift)
-					m_Selection.clear();
+				// The marquee, on the modifier that already means "add".
 				m_BoxSelecting = true;
 				m_BoxStart = local;
+			}
+			else
+			{
+				// Empty canvas, no modifier: take hold of the graph.
+				//
+				// The selection is *not* cleared here. Clearing on press would
+				// throw away a selection every time somebody scrolled the view
+				// with it, so it happens on release and only if the canvas
+				// never moved -- which is the difference between a click and a
+				// drag.
+				m_PanningCanvas = true;
+				m_CanvasMoved = false;
 			}
 		}
 
 		// --- drag -------------------------------------------------------------
+		if (m_PanningCanvas && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+		{
+			const ImVec2 delta = io.MouseDelta;
+			if (delta.x != 0.0f || delta.y != 0.0f)
+				m_CanvasMoved = true;
+
+			// Divided by the zoom, so the point under the cursor stays under
+			// it whatever the magnification -- the graph is being dragged, not
+			// the view scrolled by a fixed number of pixels.
+			m_Pan.x -= delta.x / m_Zoom;
+			m_Pan.y -= delta.y / m_Zoom;
+		}
+
 		if (m_DraggingNodes && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 		{
 			const ImVec2 delta = Mul(io.MouseDelta, 1.0f / m_Zoom);
@@ -817,6 +841,15 @@ namespace RageV::UI
 		// --- release ----------------------------------------------------------
 		if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
 		{
+			if (m_PanningCanvas)
+			{
+				// A click on empty canvas still means "select nothing"; a drag
+				// that happened to start there does not.
+				if (!m_CanvasMoved)
+					m_Selection.clear();
+				m_PanningCanvas = false;
+			}
+
 			if (m_DraggingLink)
 			{
 				if (overPin && hitPinInput != m_LinkFromInput)
@@ -1075,7 +1108,9 @@ namespace RageV::UI
 					m_Zoom <= kMinZoom + 0.001f ? "  (min)"
 					: m_Zoom >= kMaxZoom - 0.001f ? "  (max)" : "");
 		ImGui::BulletText("Right-click: add");
+		ImGui::BulletText("Left-drag empty space: pan");
 		ImGui::BulletText("Middle-drag: pan");
+		ImGui::BulletText("Ctrl/Shift-drag: box select");
 		ImGui::BulletText("Wheel: zoom");
 		ImGui::BulletText("Delete: remove");
 		ImGui::BulletText("Ctrl+Z / Ctrl+S");

@@ -69,9 +69,11 @@ one thing about a graph that cannot be guessed.
 
 | | |
 |---|---|
+| **Left-drag empty space** | pan -- the graph moves under the cursor |
 | **Right-click** | add a node, from a menu grouped by category |
 | **Drag a pin** | wire it to another; the canvas refuses a wire it cannot make and says why |
-| **Middle-drag** | pan |
+| **Middle-drag** | pan, the same thing, for a mouse that makes it comfortable |
+| **Ctrl or Shift + drag** | box select, and add what it covers to the selection |
 | **Wheel** | zoom, between 25% and 250% |
 | **Delete** | remove what is selected |
 | **Ctrl+Z / Ctrl+Y** | undo, redo |

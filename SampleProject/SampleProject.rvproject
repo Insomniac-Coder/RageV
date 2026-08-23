@@ -4,7 +4,7 @@ Project:
   StartScene: scenes/showroom.rage
   FixedHz: 60
   RenderSettings:
-    AntiAliasing: TAA
+    AntiAliasing: MSAA
     MsaaSamples: 4
     SupersampleFactor: 2
     TemporalFeedback: 0.9

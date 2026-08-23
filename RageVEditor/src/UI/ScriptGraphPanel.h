@@ -155,6 +155,17 @@ namespace RageV::UI
 		bool m_BoxSelecting = false;
 		ImVec2 m_BoxStart;
 
+		// Dragging the canvas itself with the left button.
+		//
+		// **The graph moves under a held cursor**, which is what every canvas
+		// tool does and what a 266-node graph needs -- reaching the far end of
+		// one by middle-dragging alone is a chore, and the middle button is the
+		// one a lot of mice make awkward. Box selection keeps the same gesture
+		// behind Ctrl or Shift, which are already the modifiers that mean "add
+		// to what is selected".
+		bool m_PanningCanvas = false;
+		bool m_CanvasMoved = false;
+
 		// Why the last attempted link was refused, shown under the canvas so a
 		// wire that will not connect says so rather than vanishing.
 		std::string m_LinkRefusal;
