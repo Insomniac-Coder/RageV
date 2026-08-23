@@ -545,6 +545,14 @@ namespace RageV
 		// no bounce will ever come back from. 250 m is past the far end of any
 		// room and past the camp's clearing, so it changes no picture that
 		// 10 km would have drawn -- it only stops paying for the emptiness.
+		// Not a dial, and that was measured twice. A per-scene reach was built
+		// and benchmarked interleaved on camp -- the scene the old bound was
+		// tuned for -- at 2.5 m against this constant: 3.67/3.81/3.97 versus
+		// 3.64/3.92/3.91 ms at 1600x900, and 9.89/9.89 versus 9.86/9.87 at
+		// native. No signal at either size; the "+1.2 ms camp regression" that
+		// motivated the dial was thermal drift across a rebuild gap. A knob
+		// that measures as pure noise is a knob someone will one day lower
+		// into gi_corner's bug, so it went back out.
 		constexpr float kGiReach = 250.0f;
 		Renderer::SetGiReach(rayGi ? kGiReach : 0.0f);
 		const bool wantReflections = desc.Post.ScreenSpaceReflections

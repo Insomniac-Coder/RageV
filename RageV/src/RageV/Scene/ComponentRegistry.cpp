@@ -1466,15 +1466,13 @@ namespace
 			return static_cast<const PostSettings*>(block)->GlobalIllumination
 				&& !RayGiTakesOver(block) && !VoxelGiTakesOver(block);
 		}
-		// **And the traced form, since it started obeying it.** A traced
-		// bounce used to run until it hit something, which is why this row was
-		// the gather's alone; it now stops at the radius, so the row applies
-		// wherever either of them runs. A setting the renderer reads and the
-		// inspector hides is worse than one that is merely wrong: nobody can
-		// find it to change it.
+		// The gather's alone again. For a while the traced form obeyed it too,
+		// and that conflation is what put a dull patch on gi_corner's red wall:
+		// a dial tuned as a 2 m bleed width was deciding how far light may
+		// travel. The traced form now has GiReach, a row of its own below.
 		bool GiRadiusApplies(const void* block)
 		{
-			return GiScreenSpaceRuns(block) || RayGiTakesOver(block);
+			return GiScreenSpaceRuns(block);
 		}
 		// The quality dial serves the screen gather and the voxel gather --
 		// both run at the resolution it picks -- and not the traced form.
@@ -2034,14 +2032,11 @@ namespace
 				Field<&PostSettings::GiRadius>("GiRadius",
 					Named("GI radius", OnlyWhen(GiRadiusApplies,
 						Drag(0.05f, 0.1f, 20.0f,
-							"World metres a bounce may travel. Small is colour "
-							"bleeding in corners; large is room-scale. Read by "
-							"the screen-space gather and by the traced form, "
-							"which stops its rays here rather than running them "
-							"to the horizon -- a bounce that misses contributes "
-							"nothing either way, and the far ones cost the most. "
-							"The voxel form cones to the edge of its grid "
-							"instead.")))),
+							"World metres the screen-space gather searches. "
+							"Small is colour bleeding in corners; large is "
+							"room-scale. The traced form has its own reach, "
+							"and the voxel form cones to the edge of its "
+							"grid.")))),
 
 				Field<&PostSettings::GiQuality>("GiQuality",
 					Named("Quality", OnlyWhen(GiGatherRuns,
