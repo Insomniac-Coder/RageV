@@ -100,6 +100,15 @@ namespace RageV::RHI
 										 uint32_t drawCount = 1,
 										 uint32_t stride = sizeof(DrawIndexedIndirectCommand)) = 0;
 
+		// Launches the bound *mesh-shading* pipeline over a grid of work
+		// groups -- what the groups mean is the shader's business (the
+		// meshlet depth path spends x on meshlets and y on instances).
+		// Vulkan with DeviceCaps::SupportsMeshShading only; everywhere else
+		// this records nothing, because a caller that got here without a mesh
+		// pipeline has already failed to create one.
+		virtual void DrawMeshTasks(uint32_t groupsX, uint32_t groupsY = 1,
+								   uint32_t groupsZ = 1) = 0;
+
 		// Runs the bound compute pipeline over a grid of work groups -- groups,
 		// not invocations. RHIComputePipeline::GroupsFor converts.
 		//

@@ -273,6 +273,15 @@ namespace RageV
 		// way, which is what makes the two directly comparable -- and an
 		// escape hatch if a driver ever disagrees about indirect draws.
 		bool         GpuCull = true;
+		// Whether the static casters' shadow depth draws run as meshlets
+		// through a mesh-shading pipeline (roadmap 8.3's second half,
+		// VK_EXT_mesh_shader, Vulkan only). Off by default: the classic
+		// vertex path draws the identical image, this is the first stage of
+		// the meshlet work rather than the last, and a device without the
+		// extension ignores the flag with a log line. When on, the shadow
+		// views come off the GPU-cull path for static casters -- per-meshlet
+		// frustum culling in the mesh stage is what replaces it there.
+		bool         Meshlets = false;
 		// The same for the *lit* pass (roadmap 8.3). **Unfinished**: it draws a
 		// pure-static scene pixel for pixel identically to the CPU path and
 		// takes sixty thousand objects from 55 to 73 FPS, but a scene that

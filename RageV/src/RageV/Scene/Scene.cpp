@@ -2091,6 +2091,12 @@ namespace RageV
 		// reason ShadowMap's caster callback has two halves.
 		casters.Prepare = [cmd, &culled](const Mat4& viewProjection)
 		{
+			// Not when meshlets draw the static casters: the indirect path
+			// would issue them as vertex-pipeline draws and the meshlet
+			// pipeline would never see them. Per-meshlet culling in the mesh
+			// stage is what stands in for the compute cull on these views.
+			if (Renderer3D::ShadowMeshletsActive())
+				return;
 			culled = GpuCull::Cull(*cmd, viewProjection);
 		};
 

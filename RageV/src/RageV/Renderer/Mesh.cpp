@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "Mesh.h"
+#include "Meshlet.h"
 #include "RageV/Math/Math.h"
 
 namespace RageV
@@ -133,6 +134,72 @@ namespace RageV
 	namespace
 	{
 		std::unordered_map<uint32_t, Ref<Mesh>> s_PrimitiveCache;
+	}
+
+	const Mesh::MeshletBuffers& Mesh::GetMeshletBuffers(RHIDevice& device)
+	{
+		if (m_MeshletsTried)
+			return m_MeshletBuffers;
+		m_MeshletsTried = true;
+
+		// Skinned casters keep the vertex path: these spheres bound the bind
+		// pose, and a raised arm leaves its meshlet's sphere behind -- culled
+		// while visible, which is the one failure a conservative cull must
+		// never have.
+		if (m_Skinned || m_Positions.empty() || m_Indices.size() < 3)
+			return m_MeshletBuffers;
+
+		const MeshletData built = BuildMeshlets(&m_Positions[0].x, 3,
+												m_Indices.data(),
+												(uint32_t)m_Indices.size());
+		if (built.Meshlets.empty())
+			return m_MeshletBuffers;
+
+		auto upload = [&](const void* bytes, uint64_t size, const char* suffix)
+		{
+			BufferDesc desc;
+			desc.Size = size;
+			desc.Usage = BufferUsage::Storage | BufferUsage::TransferDst;
+			desc.Memory = MemoryDomain::DeviceLocal;
+			desc.DebugName = "Mesh.meshlets" + std::string(suffix);
+			Ref<RHIBuffer> buffer = device.CreateBuffer(desc);
+			if (buffer)
+				buffer->Upload(bytes, size);
+			return buffer;
+		};
+
+		// Positions repacked to three floats: see the header for why not the
+		// vertex buffer.
+		std::vector<float> packed;
+		packed.reserve(m_Positions.size() * 3);
+		for (const Vec3& p : m_Positions)
+		{
+			packed.push_back(p.x);
+			packed.push_back(p.y);
+			packed.push_back(p.z);
+		}
+
+		m_MeshletBuffers.Meshlets = upload(built.Meshlets.data(),
+										   built.Meshlets.size() * sizeof(Meshlet), ".descs");
+		m_MeshletBuffers.Vertices = upload(built.Vertices.data(),
+										   built.Vertices.size() * sizeof(uint32_t), ".verts");
+		m_MeshletBuffers.Triangles = upload(built.Triangles.data(),
+											built.Triangles.size() * sizeof(uint32_t), ".tris");
+		m_MeshletBuffers.Positions = upload(packed.data(),
+											packed.size() * sizeof(float), ".positions");
+
+		if (m_MeshletBuffers.Meshlets && m_MeshletBuffers.Vertices &&
+			m_MeshletBuffers.Triangles && m_MeshletBuffers.Positions)
+		{
+			m_MeshletBuffers.Count = (uint32_t)built.Meshlets.size();
+		}
+		else
+		{
+			// Half a set of buffers is a bind error waiting; all or nothing.
+			m_MeshletBuffers = MeshletBuffers{};
+		}
+
+		return m_MeshletBuffers;
 	}
 
 	const Ref<RHIAccelerationStructure>& Mesh::GetAccelerationStructure(RHIDevice& device)

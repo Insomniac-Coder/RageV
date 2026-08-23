@@ -10,6 +10,7 @@
 #include "EnvironmentIBL.h"
 #include "LightGrid.h"
 #include "RageV/Core/EngineConfig.h"
+#include "Meshlet.h"
 #include "RageV/Math/Math.h"
 
 namespace RageV
@@ -487,6 +488,13 @@ namespace RageV
 				Ref<RHIBuffer>      Bones;
 				uint32_t            BoneCapacity = 0;
 				Ref<RHIResourceSet> SkinnedSet;
+				// One per distinct static mesh drawn as meshlets this pass --
+				// the meshlet buffers change per mesh, and a set rewritten
+				// under a recorded bind invalidates the command buffer
+				// (HANDOFF section 5). Pooled with a cursor exactly like the
+				// slots themselves.
+				std::vector<Ref<RHIResourceSet>> MeshletSets;
+				uint32_t            MeshletCursor = 0;
 			};
 
 			std::vector<std::vector<ShadowSlot>> ShadowSlots;
@@ -595,6 +603,8 @@ namespace RageV
 			// object: no colour attachment, so it cannot share the lit one.
 			Ref<RHIShader>   ShadowShader;
 			Ref<RHIPipeline> ShadowPipeline;
+			Ref<RHIShader>   ShadowMeshletShader;
+			Ref<RHIPipeline> ShadowMeshletPipeline;
 			Ref<RHIShader>   ShadowSkinnedShader;
 			Ref<RHIPipeline> ShadowSkinnedPipeline;
 			Format ShadowDepth = Format::D32_SFLOAT;
@@ -691,6 +701,10 @@ namespace RageV
 			if (!slot.Set)
 				slot.Set = s_Data->Device->CreateResourceSet(s_Data->ShadowPipeline, 0);
 
+			// Reused a frame later with whatever cursor it ended on; the sets
+			// themselves are kept, the claim on them is not.
+			slot.MeshletCursor = 0;
+
 			return slot;
 		}
 
@@ -776,6 +790,32 @@ namespace RageV
 			s_Data->ShadowSkinnedShader = device.CreateShader(*compiled);
 		else
 			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/shadow_depth_skinned.rvshader");
+
+		// The meshlet depth path (roadmap 8.3, second half). Asked for by
+		// flag and answered by the device: no flag or no mesh shading means
+		// no shader, and every branch downstream reads that as "classic
+		// path" -- which draws the identical image, only per draw instead of
+		// per meshlet.
+		if (EngineConfig::Get().Meshlets)
+		{
+			if (!device.GetCaps().SupportsMeshShading)
+			{
+				RV_CORE_INFO("Meshlets requested but this device has no mesh "
+							 "shading; the classic depth path runs instead");
+			}
+			else if (auto compiled = ShaderCompiler::CompileFromFile(
+						 "assets/shaders/shadow_depth_meshlet.rvshader"))
+			{
+				s_Data->ShadowMeshletShader = device.CreateShader(*compiled);
+				RV_CORE_INFO("Meshlet depth path on ({0}-vertex, {1}-triangle meshlets)",
+							 MeshletData::kMaxVertices, MeshletData::kMaxTriangles);
+			}
+			else
+			{
+				RV_CORE_ERROR("Renderer3D: failed to compile "
+							  "assets/shaders/shadow_depth_meshlet.rvshader");
+			}
+		}
 
 		SamplerDesc environment;
 		environment.WrapU = WrapMode::ClampToEdge;
@@ -2765,6 +2805,23 @@ namespace RageV
 
 			s_Data->ShadowPipeline = s_Data->Device->CreatePipeline(desc);
 
+			// The meshlet twin: the same rasterizer, the same biases, the same
+			// depth format -- a different front end and nothing else, which is
+			// what "the two paths draw the same image" rests on. No vertex
+			// input: a mesh stage has none, and the pipeline knows it from the
+			// shader.
+			if (s_Data->ShadowMeshletShader)
+			{
+				GraphicsPipelineDesc meshlet = desc;
+				meshlet.Name = "Renderer3D.shadowMeshlet";
+				meshlet.Shader = s_Data->ShadowMeshletShader;
+				meshlet.VertexInput = {};
+				s_Data->ShadowMeshletPipeline = s_Data->Device->CreatePipeline(meshlet);
+				if (!s_Data->ShadowMeshletPipeline)
+					RV_CORE_ERROR("Renderer3D: meshlet depth pipeline failed; "
+								  "the classic path runs instead");
+			}
+
 			// The skinned depth pipeline. Its vertex layout is reflected from
 			// its own shader -- which declares the normal and texture
 			// coordinate it does not read, precisely so the stride matches the
@@ -2962,6 +3019,13 @@ namespace RageV
 		s_Data->ShadowPending.push_back(std::move(draw));
 	}
 
+	bool Renderer3D::ShadowMeshletsActive()
+	{
+		// The pipeline is made lazily in BeginShadow, so before the first
+		// shadow pass the shader is the honest answer to "will it be".
+		return s_Data && (s_Data->ShadowMeshletPipeline || s_Data->ShadowMeshletShader);
+	}
+
 	void Renderer3D::EndShadow()
 	{
 		if (!s_Data || !s_Data->ShadowActive)
@@ -3072,6 +3136,56 @@ namespace RageV
 
 			const PendingShadowDraw& first = s_Data->ShadowPending[start];
 			const Ref<Mesh>& mesh = first.MeshRef;
+
+			// Static casters go as meshlets when the pipeline exists and the
+			// mesh cut cleanly; everything else -- skinned casters, a mesh
+			// the cut refused -- takes the classic path in the same pass.
+			if (!first.Skinned && s_Data->ShadowMeshletPipeline && mesh)
+			{
+				const Mesh::MeshletBuffers& meshlets =
+					mesh->GetMeshletBuffers(*s_Data->Device);
+				if (meshlets.Count > 0)
+				{
+					while (slot.MeshletCursor >= slot.MeshletSets.size())
+						slot.MeshletSets.push_back(nullptr);
+					Ref<RHIResourceSet>& meshletSet =
+						slot.MeshletSets[slot.MeshletCursor];
+					if (!meshletSet)
+					{
+						meshletSet = s_Data->Device->CreateResourceSet(
+							s_Data->ShadowMeshletPipeline, 0);
+					}
+
+					if (meshletSet)
+					{
+						slot.MeshletCursor++;
+
+						meshletSet->SetStorageBuffer(0, slot.Instances, 0,
+													 (uint64_t)count * sizeof(Mat4));
+						meshletSet->SetStorageBuffer(1, meshlets.Meshlets);
+						meshletSet->SetStorageBuffer(2, meshlets.Vertices);
+						meshletSet->SetStorageBuffer(3, meshlets.Triangles);
+						meshletSet->SetStorageBuffer(4, meshlets.Positions);
+						meshletSet->Commit();
+
+						cmd->BindPipeline(s_Data->ShadowMeshletPipeline);
+						cmd->BindResourceSet(0, meshletSet);
+						// The next classic batch must rebind its own pipeline.
+						anyBound = false;
+
+						ObjectPushConstants object;
+						object.BaseInstance = (int32_t)start;
+						cmd->PushConstants(ShaderStage::Mesh, 0, sizeof(object), &object);
+
+						// x spans the meshlets, y the instances of this run.
+						cmd->DrawMeshTasks(meshlets.Count, end - start, 1);
+						s_Data->DrawCalls++;
+
+						start = end;
+						continue;
+					}
+				}
+			}
 
 			const Ref<RHIPipeline>& pipeline = first.Skinned ? s_Data->ShadowSkinnedPipeline
 															 : s_Data->ShadowPipeline;

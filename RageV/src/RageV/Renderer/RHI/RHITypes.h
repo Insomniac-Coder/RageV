@@ -426,6 +426,11 @@ namespace RageV::RHI
 		Vertex   = 1u << 0,
 		Fragment = 1u << 1,
 		Compute  = 1u << 2,
+		// VK_EXT_mesh_shader (roadmap 8.3's second half). Vulkan only: OpenGL
+		// has no core equivalent, and a pipeline holding one of these fails
+		// to build there -- which is why every caller checks
+		// DeviceCaps::SupportsMeshShading first.
+		Mesh     = 1u << 3,
 	};
 
 	inline ShaderStage operator|(ShaderStage a, ShaderStage b)
@@ -603,6 +608,12 @@ namespace RageV::RHI
 		// implementation at all -- false there, always, and the shadow-map
 		// path is what runs.
 		bool SupportsRayQuery         = false;
+		// Whether a pipeline may replace the vertex stage with a mesh shader
+		// (VK_EXT_mesh_shader): meshlet paths ask this before compiling
+		// anything. False on OpenGL always, and false on Vulkan devices or
+		// drivers without the extension -- the classic vertex path is what
+		// runs there, drawing the identical image.
+		bool SupportsMeshShading      = false;
 		bool SupportsTimestampQueries = false;
 
 		// Compute shaders and dispatch. Core in Vulkan and in OpenGL 4.3, so

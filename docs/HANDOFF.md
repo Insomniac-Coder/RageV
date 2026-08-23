@@ -489,9 +489,15 @@ stale `RuntimeLayer.obj` was newer than the header it was stale against.
   a box at x -0.84..0.85, y 0.57..0.76, z 1.68..1.94, which is exactly the
   headlamp band. So the mesh is there and the tint test could not see it --
   worth an hour before anyone adds geometry the model already has (7cd).
-- **Meshlets** are 8.3's remaining half and are deliberately not started: they
-  make the GPU faster and this renderer's GPU is idle nine tenths of the frame
-  at scale. Revisit if mesh LOD ever lands and the balance moves.
+- **Meshlets landed 2026-08-23**, owner-requested: `--meshlets=on` draws
+  static shadow casters through a VK_EXT_mesh_shader pipeline -- a
+  64-vertex/124-triangle cut per mesh (Meshlet.h), per-meshlet sphere-vs-clip
+  culling in the mesh stage, bit-identical to the vertex path on showroom,
+  camp and demo, validation-clean, and performance-neutral where the shadow
+  phase is small (0.18 ms GPU either way). Off by default; a device without
+  the extension logs and runs the classic path. When on, shadow views skip
+  the GPU-cull indirect path -- per-meshlet culling stands in. Next stage:
+  the lit pass, and a task stage fed from the cull table.
 
 ---
 

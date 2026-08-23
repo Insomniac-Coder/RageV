@@ -468,6 +468,17 @@ namespace RageV::Vk
 		vkCmdDrawIndexedIndirect(m_CommandBuffer, vulkanBuffer->GetHandle(), offset, drawCount, stride);
 	}
 
+	void VulkanCommandList::DrawMeshTasks(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ)
+	{
+		// The entry point is null unless the device enabled VK_EXT_mesh_shader,
+		// and a pipeline that needs it cannot have been created without it --
+		// but the guard costs nothing and turns a driver misload into a
+		// skipped draw rather than a jump through null.
+		if (!vkCmdDrawMeshTasksEXT || groupsX == 0 || groupsY == 0 || groupsZ == 0)
+			return;
+		vkCmdDrawMeshTasksEXT(m_CommandBuffer, groupsX, groupsY, groupsZ);
+	}
+
 	namespace
 	{
 		// What a use means to Vulkan: which stage touches the buffer, and how.

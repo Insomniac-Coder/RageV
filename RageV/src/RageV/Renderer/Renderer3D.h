@@ -93,6 +93,13 @@ namespace RageV
 		static void BeginShadow(const Mat4& viewProjection);
 		static void DrawMeshShadow(const RHI::Ref<Mesh>& mesh, const Mat4& transform);
 
+		// Whether static casters draw as meshlets this run (--meshlets, a
+		// device with mesh shading, and the pipeline built). The scene asks
+		// before GPU-culling a shadow view: the meshlet path culls per
+		// meshlet in the mesh stage, and a view routed through the indirect
+		// path would bypass it entirely.
+		static bool ShadowMeshletsActive();
+
 		// Every static caster this view kept, in as many draws as the scene
 		// has distinct meshes -- each one's instance count read out of the
 		// buffer GpuCull::Cull filled rather than counted here (roadmap 8.3).

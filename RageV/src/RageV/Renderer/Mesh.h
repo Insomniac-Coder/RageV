@@ -138,6 +138,28 @@ namespace RageV
 		const std::vector<Vec3>& GetPositions() const { return m_Positions; }
 		const std::vector<uint32_t>& GetIndices() const { return m_Indices; }
 
+		// The meshlet cut and its GPU buffers, built on first use and kept --
+		// the same lifetime contract the acceleration structure has, and for
+		// the same reason: static, derived purely from geometry that never
+		// changes. Count 0 means "draw this the classic way": a skinned mesh
+		// (whose posed positions these object-space spheres could not bound),
+		// an empty one, or a device that failed a buffer. Callers branch on
+		// Count and nothing else.
+		struct MeshletBuffers
+		{
+			RHI::Ref<RHI::RHIBuffer> Meshlets;
+			RHI::Ref<RHI::RHIBuffer> Vertices;
+			RHI::Ref<RHI::RHIBuffer> Triangles;
+			// Positions repacked tight -- three floats each -- rather than the
+			// vertex buffer reused as storage: the depth pass reads nothing
+			// else, and a stride-8 walk through normals and texture
+			// coordinates it will not use is bandwidth the pass exists to
+			// save.
+			RHI::Ref<RHI::RHIBuffer> Positions;
+			uint32_t Count = 0;
+		};
+		const MeshletBuffers& GetMeshletBuffers(RHI::RHIDevice& device);
+
 		// Primitives are cached per device: placing a hundred cubes should not
 		// allocate a hundred identical vertex buffers.
 		static RHI::Ref<Mesh> GetPrimitive(RHI::RHIDevice& device, PrimitiveType type);
@@ -151,6 +173,8 @@ namespace RageV
 		uint32_t m_VertexStride = 0;
 		RHI::Ref<RHI::RHIAccelerationStructure> m_Blas;
 		bool m_BlasTried = false;
+		MeshletBuffers m_MeshletBuffers;
+		bool m_MeshletsTried = false;
 
 		AABB m_Bounds;
 		std::vector<Vec3> m_Positions;

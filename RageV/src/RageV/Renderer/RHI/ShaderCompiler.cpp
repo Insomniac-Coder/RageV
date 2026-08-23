@@ -24,6 +24,7 @@ namespace RageV::RHI
 				case ShaderStage::Vertex:   return EShLangVertex;
 				case ShaderStage::Fragment: return EShLangFragment;
 				case ShaderStage::Compute:  return EShLangCompute;
+				case ShaderStage::Mesh:     return EShLangMesh;
 				default:                    return EShLangVertex;
 			}
 		}
@@ -40,6 +41,7 @@ namespace RageV::RHI
 			if (name == "vertex")                      return ShaderStage::Vertex;
 			if (name == "fragment" || name == "pixel") return ShaderStage::Fragment;
 			if (name == "compute")                     return ShaderStage::Compute;
+			if (name == "mesh")                        return ShaderStage::Mesh;
 			return ShaderStage::None;
 		}
 

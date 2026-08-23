@@ -246,6 +246,7 @@ namespace RageV::Vk
 		bool m_DescriptorIndexingSupported = false;
 		VkDescriptorSetLayout m_BindlessLayout = VK_NULL_HANDLE;
 		bool m_RayQuerySupported = false;
+		bool m_MeshShadingSupported = false;
 
 		// Post-mortem diagnostics, both optional extensions probed at device
 		// creation. Checkpoints are NVIDIA's breadcrumb mechanism: a marker

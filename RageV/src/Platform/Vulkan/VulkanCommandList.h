@@ -48,6 +48,8 @@ namespace RageV::Vk
 		void DrawIndexedIndirect(const RHI::Ref<RHI::RHIBuffer>& args, uint64_t offset = 0,
 								 uint32_t drawCount = 1,
 								 uint32_t stride = sizeof(RHI::DrawIndexedIndirectCommand)) override;
+		void DrawMeshTasks(uint32_t groupsX, uint32_t groupsY = 1,
+						   uint32_t groupsZ = 1) override;
 
 		void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) override;
 		void BuildTopLevelAS(const RHI::Ref<RHI::RHIAccelerationStructure>& tlas,

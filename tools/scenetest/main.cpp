@@ -43,6 +43,7 @@
 #include "RageV/Core/FixedStep.h"
 #include "RageV/Core/InputMap.h"
 #include "RageV/Core/FrameClock.h"
+#include "RageV/Renderer/Meshlet.h"
 #include "RageV/Core/Boot.h"
 #include "RageV/IO/PakFile.h"
 #include "RageV/IO/TextureCook.h"
@@ -14649,6 +14650,112 @@ void main()
 			  "and ToggleStats among them, which F3 is bound to");
 	}
 
+	// The meshlet cut (roadmap 8.3, second half). Pure CPU: the builder is a
+	// function from geometry to geometry, and every property the mesh shader
+	// leans on is checkable without a device -- which also means the claims
+	// hold on the OpenGL run, where the pipeline that consumes the cut cannot
+	// even be created.
+	void CheckMeshlets()
+	{
+		// A grid: enough triangles to force several meshlets, and every
+		// vertex shared by up to six faces, which is what exercises the
+		// dedup. 33x33 vertices, 2048 triangles.
+		constexpr uint32_t kSide = 33;
+		std::vector<float> positions;
+		positions.reserve(kSide * kSide * 3);
+		for (uint32_t y = 0; y < kSide; y++)
+		{
+			for (uint32_t x = 0; x < kSide; x++)
+			{
+				positions.push_back((float)x);
+				positions.push_back((float)y);
+				positions.push_back(0.25f * (float)((x * 7 + y * 3) % 5));
+			}
+		}
+		std::vector<uint32_t> indices;
+		for (uint32_t y = 0; y + 1 < kSide; y++)
+		{
+			for (uint32_t x = 0; x + 1 < kSide; x++)
+			{
+				const uint32_t a = y * kSide + x;
+				indices.insert(indices.end(), { a, a + 1, a + kSide });
+				indices.insert(indices.end(), { a + 1, a + kSide + 1, a + kSide });
+			}
+		}
+
+		const MeshletData cut = BuildMeshlets(positions.data(), 3,
+											  indices.data(), (uint32_t)indices.size());
+
+		Check(cut.Meshlets.size() > 1, "a mesh larger than one meshlet splits");
+
+		// Coverage is the property everything else stands on: every triangle,
+		// exactly once, naming exactly the vertices it named before the cut.
+		uint32_t triangles = 0;
+		bool limits = true;
+		bool locals = true;
+		bool exact = true;
+		bool contained = true;
+		size_t walk = 0;
+
+		for (const Meshlet& meshlet : cut.Meshlets)
+		{
+			limits = limits && meshlet.VertexCount <= MeshletData::kMaxVertices
+						   && meshlet.TriangleCount <= MeshletData::kMaxTriangles
+						   && meshlet.TriangleCount > 0;
+
+			for (uint32_t t = 0; t < meshlet.TriangleCount; t++)
+			{
+				const uint32_t packed = cut.Triangles[meshlet.TriangleOffset + t];
+				const uint32_t local[3] = { packed & 0xFFu, (packed >> 8) & 0xFFu,
+											(packed >> 16) & 0xFFu };
+				for (int c = 0; c < 3; c++)
+				{
+					locals = locals && local[c] < meshlet.VertexCount;
+					const uint32_t global =
+						cut.Vertices[meshlet.VertexOffset + local[c]];
+					exact = exact && walk < indices.size() && global == indices[walk];
+					walk++;
+				}
+				triangles++;
+			}
+
+			for (uint32_t v = 0; v < meshlet.VertexCount; v++)
+			{
+				const uint32_t global = cut.Vertices[meshlet.VertexOffset + v];
+				const Vec3 p(positions[global * 3 + 0], positions[global * 3 + 1],
+							 positions[global * 3 + 2]);
+				const Vec3 d = p - Vec3(meshlet.Sphere.x, meshlet.Sphere.y, meshlet.Sphere.z);
+				// A hair of slack for the float sum the centre came from; the
+				// mesh shader adds its own margin on top of nothing -- the
+				// sphere must simply contain.
+				contained = contained && Math::Dot(d, d) <= meshlet.Sphere.w * meshlet.Sphere.w + 1e-3f;
+			}
+		}
+
+		Check(limits, "every meshlet respects the vertex and triangle limits");
+		Check(locals, "every local index stays inside its own meshlet");
+		Check(triangles == (uint32_t)(indices.size() / 3),
+			  "every triangle lands in exactly one meshlet");
+		Check(exact, "and comes out naming the vertices it went in with, in order");
+		Check(contained, "every meshlet's sphere contains every one of its vertices");
+
+		// The edges of the domain: nothing, one triangle, and a degenerate
+		// that names a vertex twice.
+		Check(BuildMeshlets(nullptr, 3, nullptr, 0).Meshlets.empty(),
+			  "no geometry cuts to no meshlets");
+
+		const uint32_t one[3] = { 0, 1, 2 };
+		const MeshletData single = BuildMeshlets(positions.data(), 3, one, 3);
+		Check(single.Meshlets.size() == 1 && single.Meshlets[0].TriangleCount == 1
+			  && single.Meshlets[0].VertexCount == 3,
+			  "one triangle is one meshlet of three vertices");
+
+		const uint32_t degenerate[3] = { 5, 5, 9 };
+		const MeshletData thin = BuildMeshlets(positions.data(), 3, degenerate, 3);
+		Check(thin.Meshlets.size() == 1 && thin.Meshlets[0].VertexCount == 2,
+			  "a triangle naming a vertex twice takes two slots, not three");
+	}
+
 	// The two clocks, and the edge that answers against them.
 	//
 	// **A key press cannot be simulated headlessly** -- it is real device
@@ -15299,6 +15406,7 @@ int RunTests(int argc, char** argv)
 	CheckFixedStep();
 	CheckInputMap();
 	CheckInputEdges();
+	CheckMeshlets();
 	CheckScriptApi();
 	CheckFrameHook();
 	CheckLiveScriptChanges();

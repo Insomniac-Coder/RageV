@@ -275,6 +275,9 @@ namespace RageV::GL
 		void DrawIndexedIndirect(const Ref<RHIBuffer>& args, uint64_t offset = 0,
 								 uint32_t drawCount = 1,
 								 uint32_t stride = sizeof(DrawIndexedIndirectCommand)) override;
+		// Records nothing: no mesh shading on this backend, ever, and the
+		// caps said so before any caller got here.
+		void DrawMeshTasks(uint32_t, uint32_t = 1, uint32_t = 1) override {}
 		void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) override;
 		// No-ops: nothing to build on this backend (ENGINE-NOTES 7am, 7an).
 		void BuildTopLevelAS(const Ref<RHIAccelerationStructure>& tlas,

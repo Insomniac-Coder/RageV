@@ -1,0 +1,136 @@
+// Depth from a light's point of view, drawn as meshlets (roadmap 8.3's
+// second half; VK_EXT_mesh_shader, Vulkan only).
+//
+// The vertex twin -- shadow_depth.rvshader -- is fed triangles one index at a
+// time and can refuse work only per draw. Here a work group owns one meshlet
+// of one caster instance: it tests the meshlet's bounding sphere against the
+// light's clip volume first, and a meshlet the light cannot see costs six
+// dot products instead of sixty-four vertex transforms. Nothing else changes:
+// the same instance buffer, the same push constant, the same depth values to
+// the last ulp -- which is what lets the classic path stay as the fallback
+// and the two be compared byte for byte.
+//
+// One work group per (meshlet, instance): x spans meshlets, y instances.
+// There is no task stage on purpose -- the cull is three lines here, a task
+// stage is a second shader and a payload contract, and the win it buys is
+// dispatching fewer empty groups, which a depth pass this small never
+// notices.
+
+#type mesh
+#version 450 core
+#extension GL_EXT_mesh_shader : require
+
+// 64 invocations: one per meshlet vertex slot. Triangles are striped over
+// the same invocations below, two apiece at the 124 limit.
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(triangles, max_vertices = 64, max_primitives = 124) out;
+
+// Mirrors RageV::Meshlet -- four counters, then the object-space sphere.
+struct Meshlet
+{
+	uint VertexOffset;
+	uint TriangleOffset;
+	uint VertexCount;
+	uint TriangleCount;
+	vec4 Sphere;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer InstanceBlock
+{
+	mat4 LightMVP[];
+} u_Instances;
+
+layout(std430, set = 0, binding = 1) readonly buffer MeshletBlock
+{
+	Meshlet Meshlets[];
+} u_Meshlets;
+
+// Meshlet-vertex -> index into the mesh's vertices.
+layout(std430, set = 0, binding = 2) readonly buffer MeshletVertexBlock
+{
+	uint Vertices[];
+} u_Vertices;
+
+// One triangle per word, three local slots packed a byte each.
+layout(std430, set = 0, binding = 3) readonly buffer MeshletTriangleBlock
+{
+	uint Triangles[];
+} u_Triangles;
+
+// Positions repacked to three floats apiece -- a depth pass reads nothing
+// else, so the mesh's interleaved vertex buffer stays a vertex buffer.
+layout(std430, set = 0, binding = 4) readonly buffer PositionBlock
+{
+	float Positions[];
+} u_Positions;
+
+layout(push_constant) uniform ObjectData
+{
+	int BaseInstance;
+} u_Object;
+
+void main()
+{
+	const uint tid = gl_LocalInvocationIndex;
+	const Meshlet meshlet = u_Meshlets.Meshlets[gl_WorkGroupID.x];
+	const mat4 mvp = u_Instances.LightMVP[uint(u_Object.BaseInstance) + gl_WorkGroupID.y];
+
+	// The sphere against the clip volume, conservatively. For any affine
+	// model-view-projection and clip plane p, the sphere's extent along p is
+	// bounded by its radius times the length of p's row through the matrix's
+	// linear part -- so `dot(row, centre) < -radius * length(row.xyz)` proves
+	// every point of the sphere behind the plane, whatever the projection.
+	// Six planes: +-x against w, +-y against w, and Vulkan's z in [0, w].
+	const vec4 centre = vec4(meshlet.Sphere.xyz, 1.0);
+	const float radius = meshlet.Sphere.w;
+
+	const vec4 rowX = vec4(mvp[0][0], mvp[1][0], mvp[2][0], mvp[3][0]);
+	const vec4 rowY = vec4(mvp[0][1], mvp[1][1], mvp[2][1], mvp[3][1]);
+	const vec4 rowZ = vec4(mvp[0][2], mvp[1][2], mvp[2][2], mvp[3][2]);
+	const vec4 rowW = vec4(mvp[0][3], mvp[1][3], mvp[2][3], mvp[3][3]);
+
+	bool outside = false;
+	{
+		vec4 planes[6] = vec4[6](rowW + rowX, rowW - rowX,
+								 rowW + rowY, rowW - rowY,
+								 rowZ,        rowW - rowZ);
+		for (int i = 0; i < 6; i++)
+		{
+			const vec4 plane = planes[i];
+			if (dot(plane, centre) < -radius * length(plane.xyz))
+				outside = true;
+		}
+	}
+
+	if (outside)
+	{
+		SetMeshOutputsEXT(0u, 0u);
+		return;
+	}
+
+	SetMeshOutputsEXT(meshlet.VertexCount, meshlet.TriangleCount);
+
+	if (tid < meshlet.VertexCount)
+	{
+		const uint index = u_Vertices.Vertices[meshlet.VertexOffset + tid];
+		const vec3 position = vec3(u_Positions.Positions[index * 3u + 0u],
+								   u_Positions.Positions[index * 3u + 1u],
+								   u_Positions.Positions[index * 3u + 2u]);
+		gl_MeshVerticesEXT[tid].gl_Position = mvp * vec4(position, 1.0);
+	}
+
+	for (uint t = tid; t < meshlet.TriangleCount; t += 64u)
+	{
+		const uint packed_ = u_Triangles.Triangles[meshlet.TriangleOffset + t];
+		gl_PrimitiveTriangleIndicesEXT[t] = uvec3(packed_ & 0xFFu,
+												  (packed_ >> 8u) & 0xFFu,
+												  (packed_ >> 16u) & 0xFFu);
+	}
+}
+
+#type fragment
+#version 450 core
+
+void main()
+{
+}

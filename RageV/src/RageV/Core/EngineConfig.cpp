@@ -131,6 +131,9 @@ namespace RageV
 		if (key == "gpu-lit" || key == "gpulit")
 			return ParseBool(value, config.GpuLit);
 
+		if (key == "meshlets" || key == "mesh-shading" || key == "meshshading")
+			return ParseBool(value, config.Meshlets);
+
 		if (key == "bindless")
 			return ParseBool(value, config.Bindless);
 

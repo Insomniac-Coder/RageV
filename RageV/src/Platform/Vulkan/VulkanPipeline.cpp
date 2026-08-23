@@ -366,12 +366,19 @@ namespace RageV::Vk
 				renderingInfo.stencilAttachmentFormat = renderingInfo.depthAttachmentFormat;
 		}
 
+		// A pipeline whose shader carries a mesh stage has no vertex input to
+		// describe and no primitives to assemble -- the spec ignores both
+		// states, and the validation layers ask for null rather than ignored.
+		bool meshStage = false;
+		for (const auto& stage : shader->GetStages())
+			meshStage = meshStage || stage.Bits == VK_SHADER_STAGE_MESH_BIT_EXT;
+
 		VkGraphicsPipelineCreateInfo createInfo{ VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
 		createInfo.pNext = &renderingInfo;
 		createInfo.stageCount = (uint32_t)stages.size();
 		createInfo.pStages = stages.data();
-		createInfo.pVertexInputState = &vertexInput;
-		createInfo.pInputAssemblyState = &inputAssembly;
+		createInfo.pVertexInputState = meshStage ? nullptr : &vertexInput;
+		createInfo.pInputAssemblyState = meshStage ? nullptr : &inputAssembly;
 		createInfo.pViewportState = &viewportState;
 		createInfo.pRasterizationState = &rasterizer;
 		createInfo.pMultisampleState = &multisample;

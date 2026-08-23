@@ -272,6 +272,7 @@ namespace RageV::Vk
 		if (HasFlag(stages, ShaderStage::Vertex))   flags |= VK_SHADER_STAGE_VERTEX_BIT;
 		if (HasFlag(stages, ShaderStage::Fragment)) flags |= VK_SHADER_STAGE_FRAGMENT_BIT;
 		if (HasFlag(stages, ShaderStage::Compute))  flags |= VK_SHADER_STAGE_COMPUTE_BIT;
+		if (HasFlag(stages, ShaderStage::Mesh))     flags |= VK_SHADER_STAGE_MESH_BIT_EXT;
 		return flags;
 	}
 
@@ -282,6 +283,7 @@ namespace RageV::Vk
 			case ShaderStage::Vertex:   return VK_SHADER_STAGE_VERTEX_BIT;
 			case ShaderStage::Fragment: return VK_SHADER_STAGE_FRAGMENT_BIT;
 			case ShaderStage::Compute:  return VK_SHADER_STAGE_COMPUTE_BIT;
+			case ShaderStage::Mesh:     return VK_SHADER_STAGE_MESH_BIT_EXT;
 			default:                    return VK_SHADER_STAGE_VERTEX_BIT;
 		}
 	}

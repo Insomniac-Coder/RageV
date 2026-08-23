@@ -495,6 +495,10 @@ namespace RageV::Vk
 		// the capability the SPIR-V asks for has to be enabled or the layer
 		// objects at module creation.
 		features13.shaderDemoteToHelperInvocation = VK_TRUE;
+		// Mandatory in 1.3, and the mesh shader's SPIR-V needs it: glslang
+		// spells the work-group size as LocalSizeId at SPIR-V 1.6, and the
+		// spec ties that spelling to this feature bit.
+		features13.maintenance4 = VK_TRUE;
 
 		// Descriptor indexing, for the bindless texture heap (ENGINE-NOTES
 		// 7al). Optional: every 1.2 feature bit is, so they are asked for and
@@ -573,6 +577,30 @@ namespace RageV::Vk
 		};
 		if (m_RayQuerySupported)
 			extensions.insert(extensions.end(), rayExtensions.begin(), rayExtensions.end());
+
+		// Mesh shading (roadmap 8.3's second half). One extension, one feature
+		// bit, both optional: the meshlet depth path asks the caps and the
+		// classic vertex path is what runs where the answer is no. The task
+		// stage is deliberately *not* enabled -- the meshlet path culls in the
+		// mesh stage itself, and a feature nobody calls is a feature the
+		// validation layers make everyone carry.
+		VkPhysicalDeviceMeshShaderFeaturesEXT supportedMesh{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT };
+		if (HasDeviceExtensions(m_PhysicalDevice, { VK_EXT_MESH_SHADER_EXTENSION_NAME }))
+		{
+			VkPhysicalDeviceFeatures2 meshQuery{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+			meshQuery.pNext = &supportedMesh;
+			vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &meshQuery);
+		}
+		m_MeshShadingSupported = supportedMesh.meshShader == VK_TRUE;
+
+		VkPhysicalDeviceMeshShaderFeaturesEXT meshFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT };
+		meshFeatures.meshShader = VK_TRUE;
+		if (m_MeshShadingSupported)
+		{
+			extensions.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+			meshFeatures.pNext = features12.pNext;
+			features12.pNext = &meshFeatures;
+		}
 
 		// The post-mortem pair, both optional and both free when idle.
 		// Checkpoints (NVIDIA) let the queue answer "which breadcrumb did the
@@ -701,6 +729,7 @@ namespace RageV::Vk
 		m_Caps.MaxAnisotropy = properties.limits.maxSamplerAnisotropy;
 		m_Caps.SupportsDynamicRendering = true;
 		m_Caps.SupportsRayQuery = m_RayQuerySupported;
+		m_Caps.SupportsMeshShading = m_MeshShadingSupported;
 		m_Caps.SupportsTimestampQueries = properties.limits.timestampComputeAndGraphics == VK_TRUE;
 
 		// The heap's capacity is what one update-after-bind set may hold, which
