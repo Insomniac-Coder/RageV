@@ -515,10 +515,38 @@ namespace RageV
 		// One while the traced form is off, so the uniform never claims a
 		// depth nothing is tracing -- the same shape as the intensity above.
 		Renderer::SetGiBounces(rayGi ? ResolveGiBounces(desc.Post) : 1);
-		// The profile's GiRadius, which until now only the screen-space gather
-		// read. Clamped away from zero so "the setting is off" cannot be
-		// spelled the same way as "no bounce reaches anything".
-		Renderer::SetGiReach(rayGi ? Math::Max(desc.Post.GiRadius, 0.05f) : 0.0f);
+		// **Unbounded, and GiRadius is not read here.** 79035ab bounded the
+		// bounce ray by the profile's GiRadius on the reasoning that a long
+		// ray only ever found "a hit that a miss would have handled
+		// identically", because a miss contributes nothing (7bb). That is true
+		// of the camp scene it was measured on -- outdoors, where a ray that
+		// travels far leaves the geometry and sees sky. It is false indoors,
+		// where a ray that travels far hits a *wall*, and the bound turns a
+		// real bounce source into a miss: at the 2 m default, gi_corner's red
+		// wall contributes exactly nothing above the skirting and the frame
+		// carries a dull patch where the bleed should be.
+		//
+		// And the win it bought is gone. Those rays were cast inside the lit
+		// fragment then; 7bs moved them into a pass with a resolution of its
+		// own, and today reach 2.5 against 200 is 2.538 ms against 2.443 on
+		// the same camp scene, and 6.55 against 6.78 on the showroom -- noise,
+		// in both directions. So the bound costs correctness and saves
+		// nothing, which makes it a straight removal rather than a trade.
+		//
+		// GiRadius keeps its meaning for the screen-space gather, which is the
+		// form it was written for: how far *that* searches, on screen. The
+		// voxel form has always ignored it for the same reason a cone runs to
+		// the cascade's edge. Conflating the two is what made a dial tuned for
+		// a bleed width decide how far light may travel.
+		//
+		// **Bounded generously rather than not at all**, because unbounded is
+		// not free either: on the camp scene a 10 km ray costs 3.654 ms
+		// against 2.443 at 200 m, which is the tail spent traversing empty sky
+		// no bounce will ever come back from. 250 m is past the far end of any
+		// room and past the camp's clearing, so it changes no picture that
+		// 10 km would have drawn -- it only stops paying for the emptiness.
+		constexpr float kGiReach = 250.0f;
+		Renderer::SetGiReach(rayGi ? kGiReach : 0.0f);
 		const bool wantReflections = desc.Post.ScreenSpaceReflections
 								  && !rayReflections
 								  && desc.Reflections != nullptr

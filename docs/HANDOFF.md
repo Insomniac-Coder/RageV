@@ -7,6 +7,81 @@ Pushing is the owner's.
 
 ---
 
+## Start here: RT GI, decided and verified
+
+**Three files are modified and uncommitted.** Two are settled; one needs your
+call before it should land.
+
+### Settled: the GI next-event ray was doing full hit shading
+
+`rtgi_trace.rvshader`'s next-event shadow ray called `TraceSurface`, which finds
+the closest hit and then decodes the triangle, samples up to three bindless
+maps, runs the 20-light loop and casts its own sun shadow ray -- all discarded
+to read one bool. It now calls `TraceShadowFrom` (terminate-on-first-hit, no
+attributes, no shading).
+
+Interleaved A/B, three pairs: **RT GI trace 7.98 -> 6.74 ms, frame 19.14 ->
+17.71**. Showroom at frame 60 is **identical to the byte** with traced GI
+confirmed active. Keep this.
+
+### Needs your call: the traced bounce ray's reach
+
+`FrameGraphBuilder.cpp` + `Renderer.h`. 79035ab bounded the bounce ray by the
+profile's `GiRadius`, reasoning that a long ray only found "a hit that a miss
+would have handled identically". True outdoors, where travelling far means
+leaving the geometry; **false indoors, where it means hitting a wall that is a
+real bounce source.** At the 2 m default, `gi_corner`'s red wall contributes
+exactly +0.00 above the skirting -- the dull patch, and seven failing
+`check_gi` claims.
+
+The working tree bounds it at a flat 250 m instead. **The owner chose this on
+2026-08-23**, over separating the dials, deriving from scene bounds, or
+reverting. That is the trade they accepted:
+
+| | before | after |
+|---|---|---|
+| `check_gi` | **7 claims failing** | **all pass** |
+| off-screen bleed | +0.00 | +0.80 |
+| corner bleed | +0.93 (wanted >=1.0) | +1.82 |
+| showroom RT GI | 6.55 ms | 6.68 ms |
+| **camp RT GI** | **2.44 ms** | **3.65 ms** |
+
+Camp is the cost: +1.2 ms on the pass, +1.4 ms on the frame, and it runs the
+traced form by default. Correctness is worth it, but 250 is a magic number and
+camp pays for a correctness it does not need -- an open scene really can bound
+its rays, which is the case 79035ab was right about.
+
+**If this is ever revisited, the design fix is to separate the two dials**: `GiRadius` means "how far the
+screen-space gather searches" and is tuned at 2 m for that; the traced form
+needs its own reach with a generous default, which camp then lowers to ~3 m and
+gets its time back. That is a new serialized field (PostSettings +
+ComponentRegistry + an inspector row) and I did not add one unasked.
+
+To drop the reach change and keep the shader win:
+
+```
+git checkout -- RageV/src/RageV/Renderer/FrameGraphBuilder.cpp RageV/src/RageV/Renderer/Renderer.h
+```
+
+Verified at 250 m: `check_gi` **all claims pass** on both backends (+1.82 red at
+the corner, +0.80 with the source off screen, sky-lit wall 1.067x). scenetest
+**2381 Vulkan / 2334 OpenGL, 0 failed**. `check_ssao` and `check_ssr` pass.
+Those seven `check_gi` claims failed *before* any of this work -- not a
+regression introduced here.
+
+**It does not overblow anything.** Showroom before and after: mean 62.495 ->
+62.598, 0.02% of pixels differ by more than two levels, clipping 4.672% ->
+4.673%. Camp is a night scene at mean 42.5 with 0.1% clipped. `gi_corner` reads
+bright because the fixture doubles `GiIntensity` in a white room, and even it
+clips **0.000%** of its pixels.
+
+`check_smaa` refuses to run, unrelated and pre-existing: it wants
+`TemporalFeedback` 0.6 and `SampleProject.rvproject` holds 0.9, which is the
+committed value. Its calibration is stale, or the table needs re-measuring --
+do not change the owner's setting to satisfy it.
+
+---
+
 ## Start here: nothing to start
 
 **The input-edge rework is done.** It was the task this file opened with, and

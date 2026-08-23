@@ -101,16 +101,18 @@ namespace RageV
 		static void SetGiBounces(int bounces);
 		static int GetGiBounces();
 
-		// How far a traced bounce ray reaches, in world metres.
+		// How far a traced bounce ray reaches, in world metres. **Zero means
+		// unbounded, and zero is what the frame graph passes.**
 		//
-		// The profile has had `GiRadius` all along -- "world metres a bounce
-		// may travel" -- and only the screen-space gather ever read it. The
-		// traced form cast every ray to 10 km, so each of the four rays a
-		// pixel traversed the whole scene's structure to find a hit that a
-		// miss would have handled identically: a bounce that misses
-		// contributes nothing here, because the probe already answers for the
-		// sky (7bb). Bounding it does not change what the setting means, it
-		// makes the traced form obey it.
+		// It was `GiRadius` for a while, on the reasoning that a long ray only
+		// found "a hit that a miss would have handled identically" -- true
+		// outdoors, where travelling far means leaving the geometry, and false
+		// indoors, where it means hitting a wall that is a genuine bounce
+		// source. The bound is off; FrameGraphBuilder's call site carries the
+		// measurements and the reasoning.
+		//
+		// Kept as a dial rather than deleted: a scene that is mostly open sky
+		// can still buy time with it, which is the case it was right for.
 		static void SetGiReach(float metres);
 		static float GetGiReach();
 
