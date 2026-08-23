@@ -1,4 +1,4 @@
-Scene: The showroom
+Scene: Untitled
 Version: 6
 Environment:
   AmbientColor: [0.5, 0.54, 0.62]
@@ -52,6 +52,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916738
       Material: 8482166953819033836
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
     RigidBodyComponent:
       Type: Static
       Mass: 1
@@ -65,7 +77,7 @@ Entities:
       Shape: Box
       HalfExtents: [5.5, 0.05, 8.75]
       Radius: 0.5
-      Height: 1.0
+      Height: 1
       Offset: [0, -0.05, 0]
       IsTrigger: false
   - EntityID: 16653388169543425440
@@ -78,6 +90,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916738
       Material: 17399930551187391255
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 8365848312235483428
     TagComponent:
       Tag: Left Wall
@@ -88,6 +112,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 14993727988669094928
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
     RigidBodyComponent:
       Type: Static
       Mass: 1
@@ -101,7 +137,7 @@ Entities:
       Shape: Box
       HalfExtents: [0.5, 0.5, 0.5]
       Radius: 0.5
-      Height: 1.0
+      Height: 1
       Offset: [0, 0, 0]
       IsTrigger: false
   - EntityID: 6728750051535315419
@@ -114,6 +150,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 14993727988669094928
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
     RigidBodyComponent:
       Type: Static
       Mass: 1
@@ -127,7 +175,7 @@ Entities:
       Shape: Box
       HalfExtents: [0.5, 0.5, 0.5]
       Radius: 0.5
-      Height: 1.0
+      Height: 1
       Offset: [0, 0, 0]
       IsTrigger: false
   - EntityID: 17784244611274946556
@@ -140,6 +188,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 7459957172070530292
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 13880153909177802914
     TagComponent:
       Tag: Portal Pier Left
@@ -150,6 +210,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 7459957172070530292
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
     RigidBodyComponent:
       Type: Static
       Mass: 1
@@ -163,7 +235,7 @@ Entities:
       Shape: Box
       HalfExtents: [0.5, 0.5, 0.5]
       Radius: 0.5
-      Height: 1.0
+      Height: 1
       Offset: [0, 0, 0]
       IsTrigger: false
   - EntityID: 419870721110346543
@@ -176,6 +248,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 7459957172070530292
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
     RigidBodyComponent:
       Type: Static
       Mass: 1
@@ -189,7 +273,7 @@ Entities:
       Shape: Box
       HalfExtents: [0.5, 0.5, 0.5]
       Radius: 0.5
-      Height: 1.0
+      Height: 1
       Offset: [0, 0, 0]
       IsTrigger: false
   - EntityID: 3530977772936277684
@@ -202,6 +286,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 7459957172070530292
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 14917099760211387589
     TagComponent:
       Tag: Portal Reveal Left
@@ -212,6 +308,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 6962528961022338942
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 8499879688168449374
     TagComponent:
       Tag: Portal Reveal Right
@@ -222,6 +330,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 6962528961022338942
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 3629775221041006742
     TagComponent:
       Tag: Portal Reveal Head
@@ -232,6 +352,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 6962528961022338942
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 11346133071165662001
     TagComponent:
       Tag: Skirting Left
@@ -242,6 +374,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 6962528961022338942
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 16812835361042424978
     TagComponent:
       Tag: Skirting Right
@@ -252,6 +396,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 6962528961022338942
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 9571391593238533596
     TagComponent:
       Tag: Skirting Back Left
@@ -262,6 +418,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 6962528961022338942
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 9436375407764582281
     TagComponent:
       Tag: Skirting Back Right
@@ -272,6 +440,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 6962528961022338942
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 2551388772060103773
     TagComponent:
       Tag: Luminaire
@@ -282,6 +462,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916738
       Material: 10734442940267648324
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 12823832184055958747
     TagComponent:
       Tag: Luminaire Reveal Left
@@ -292,6 +484,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 6962528961022338942
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 2261862595593086116
     TagComponent:
       Tag: Luminaire Reveal Right
@@ -302,6 +506,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 6962528961022338942
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 963398676814636249
     TagComponent:
       Tag: Luminaire Reveal Front
@@ -312,6 +528,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 6962528961022338942
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 1278306241341710797
     TagComponent:
       Tag: Luminaire Reveal Back
@@ -322,6 +550,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 6962528961022338942
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 15746707042766534803
     TagComponent:
       Tag: Panel Light 00
@@ -572,6 +812,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916738
       Material: 4882474964191989384
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 1137856788341258568
     TagComponent:
       Tag: Bay Ceiling
@@ -582,6 +834,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916738
       Material: 11204315624634959843
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 10139054169638537678
     TagComponent:
       Tag: Bay Back Wall
@@ -592,6 +856,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 11204315624634959843
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 937006251990382526
     TagComponent:
       Tag: Bay Wall Left
@@ -602,6 +878,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 11204315624634959843
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 13185872743714415027
     TagComponent:
       Tag: Bay Wall Right
@@ -612,6 +900,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 11204315624634959843
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 14588254252491382815
     TagComponent:
       Tag: Bay Downlight 0
@@ -622,6 +922,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916738
       Material: 11858479055716032690
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 14840716659770922983
     TagComponent:
       Tag: Bay Downlight Light 0
@@ -647,6 +959,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916738
       Material: 11858479055716032690
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 14840715560259294772
     TagComponent:
       Tag: Bay Downlight Light 1
@@ -672,6 +996,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916738
       Material: 11858479055716032690
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 14840718858794179405
     TagComponent:
       Tag: Bay Downlight Light 2
@@ -697,6 +1033,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916738
       Material: 11858479055716032690
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 14840717759282551194
     TagComponent:
       Tag: Bay Downlight Light 3
@@ -722,6 +1070,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916737
       Material: 12467017177652518816
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 1719191406628134361
     TagComponent:
       Tag: Convex Mirror Rim
@@ -732,6 +1092,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916739
       Material: 6962528961022338942
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 10294803146808558789
     TagComponent:
       Tag: Charge Post
@@ -742,6 +1114,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 6962528961022338942
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 2258577363432868023
     TagComponent:
       Tag: Charge Post Lens
@@ -752,6 +1136,18 @@ Entities:
     MeshComponent:
       Mesh: 8241982477996916736
       Material: 11858479055716032690
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
   - EntityID: 13406562209107611697
     TagComponent:
       Tag: Showroom Probe
@@ -780,14 +1176,14 @@ Entities:
       MatchWidthOrHeight: 0.5
       SortOrder: 0
   - EntityID: 8970289143430244441
+    RelationshipComponent:
+      Parent: 5693641162652923729
     TagComponent:
       Tag: Credit Bar
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 5693641162652923729
     UIRectComponent:
       AnchorMin: [0, 1]
       AnchorMax: [1, 1]
@@ -800,14 +1196,14 @@ Entities:
       Texture: 0
       Color: [0, 0, 0, 0.85]
   - EntityID: 11490137062086526443
+    RelationshipComponent:
+      Parent: 8970289143430244441
     TagComponent:
       Tag: Credit Text
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 8970289143430244441
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 1]
@@ -817,7 +1213,7 @@ Entities:
       Visible: true
       BlocksPointer: false
     UITextComponent:
-      Text: '"2024 Porsche 992 GT3 R" (https://skfb.ly/pMLAu) by Dave Love SketchFab is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).'
+      Text: "\"2024 Porsche 992 GT3 R\" (https://skfb.ly/pMLAu) by Dave Love SketchFab is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/)."
       Font: 12355000851502047045
       Size: 17
       Color: [0.82, 0.83, 0.86, 0.86]
@@ -825,19 +1221,19 @@ Entities:
       Wrap: false
       LineSpacing: 1
   - EntityID: 3050198340312232882
+    RelationshipComponent:
+      Parent: 5693641162652923729
     TagComponent:
       Tag: Stats Panel
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 5693641162652923729
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [0, 0]
       OffsetMin: [11, 11]
-      OffsetMax: [367, 161.640625]
+      OffsetMax: [367, 161.64062]
       SortOrder: 2
       Visible: false
       BlocksPointer: false
@@ -847,14 +1243,14 @@ Entities:
     ManagedScriptComponent:
       Script: Stats
   - EntityID: 3594440577201042337
+    RelationshipComponent:
+      Parent: 3050198340312232882
     TagComponent:
       Tag: Stats Frame
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3050198340312232882
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 0]
@@ -864,7 +1260,7 @@ Entities:
       Visible: false
       BlocksPointer: false
     UITextComponent:
-      Text: ''
+      Text: ""
       Font: 12355000851502047045
       Size: 21
       Color: [0.88, 0.89, 0.92, 0.95]
@@ -872,14 +1268,14 @@ Entities:
       Wrap: false
       LineSpacing: 1
   - EntityID: 11305732895755753991
+    RelationshipComponent:
+      Parent: 3050198340312232882
     TagComponent:
       Tag: Stats Mode
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3050198340312232882
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 0]
@@ -889,7 +1285,7 @@ Entities:
       Visible: false
       BlocksPointer: false
     UITextComponent:
-      Text: ''
+      Text: ""
       Font: 12355000851502047045
       Size: 14
       Color: [0.52, 0.53, 0.58, 0.95]
@@ -897,14 +1293,14 @@ Entities:
       Wrap: false
       LineSpacing: 1
   - EntityID: 9392721664371784442
+    RelationshipComponent:
+      Parent: 3050198340312232882
     TagComponent:
       Tag: Stats Rule
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3050198340312232882
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 0]
@@ -917,14 +1313,14 @@ Entities:
       Texture: 0
       Color: [0.878, 0.188, 0.188, 0.9]
   - EntityID: 9595623585694902222
+    RelationshipComponent:
+      Parent: 3050198340312232882
     TagComponent:
       Tag: Stats Render Caption
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3050198340312232882
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 0]
@@ -934,7 +1330,7 @@ Entities:
       Visible: false
       BlocksPointer: false
     UITextComponent:
-      Text: 'RENDER'
+      Text: RENDER
       Font: 12355000851502047045
       Size: 14
       Color: [0.52, 0.53, 0.58, 0.95]
@@ -942,14 +1338,14 @@ Entities:
       Wrap: false
       LineSpacing: 1
   - EntityID: 3470161063590603844
+    RelationshipComponent:
+      Parent: 3050198340312232882
     TagComponent:
       Tag: Stats Render
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3050198340312232882
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 0]
@@ -959,7 +1355,7 @@ Entities:
       Visible: false
       BlocksPointer: false
     UITextComponent:
-      Text: ''
+      Text: ""
       Font: 12355000851502047045
       Size: 14
       Color: [0.88, 0.89, 0.92, 0.95]
@@ -967,14 +1363,14 @@ Entities:
       Wrap: true
       LineSpacing: 1
   - EntityID: 7718832658216925044
+    RelationshipComponent:
+      Parent: 3050198340312232882
     TagComponent:
       Tag: Stats Post Caption
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3050198340312232882
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 0]
@@ -984,7 +1380,7 @@ Entities:
       Visible: false
       BlocksPointer: false
     UITextComponent:
-      Text: 'POST'
+      Text: POST
       Font: 12355000851502047045
       Size: 14
       Color: [0.52, 0.53, 0.58, 0.95]
@@ -992,24 +1388,24 @@ Entities:
       Wrap: false
       LineSpacing: 1
   - EntityID: 4640708201371326126
+    RelationshipComponent:
+      Parent: 3050198340312232882
     TagComponent:
       Tag: Stats Post
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3050198340312232882
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 0]
       OffsetMin: [85, 106.828125]
-      OffsetMax: [-11, 139.640625]
+      OffsetMax: [-11, 139.64062]
       SortOrder: 3
       Visible: false
       BlocksPointer: false
     UITextComponent:
-      Text: ''
+      Text: ""
       Font: 12355000851502047045
       Size: 14
       Color: [0.88, 0.89, 0.92, 0.95]
@@ -1017,14 +1413,14 @@ Entities:
       Wrap: true
       LineSpacing: 1
   - EntityID: 12923420513844985912
+    RelationshipComponent:
+      Parent: 8970289143430244441
     TagComponent:
       Tag: Lights Button
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 8970289143430244441
     UIRectComponent:
       AnchorMin: [1, 0]
       AnchorMax: [1, 1]
@@ -1046,26 +1442,26 @@ Entities:
     ManagedScriptComponent:
       Script: ShowroomLights
       Fields:
-        CarRoot: 'porsche_992_gt3_r'
-        FrontParts: 'EXT_Emissive_Light_Front,ST_FRONT_'
-        RearParts: 'EXT_Emissive_Light_Rear,EXT_Glass_Emissive_Rear'
-        FrontLamps: 'Headlamp Beam Left,Headlamp Beam Right'
-        RearLamps: 'Tail Glow Left,Tail Glow Right'
-        LabelName: 'Lights Label'
+        CarRoot: porsche_992_gt3_r
+        FrontParts: EXT_Emissive_Light_Front,ST_FRONT_
+        RearParts: EXT_Emissive_Light_Rear,EXT_Glass_Emissive_Rear
+        FrontLamps: Headlamp Beam Left,Headlamp Beam Right
+        RearLamps: Tail Glow Left,Tail Glow Right
+        LabelName: Lights Label
         FrontEmissive: 19 21 24
         RearEmissive: 16 0.7 0.35
         FrontIntensity: 88
         RearIntensity: 30
         StartOn: false
   - EntityID: 10360658189589823178
+    RelationshipComponent:
+      Parent: 12923420513844985912
     TagComponent:
       Tag: Lights Label
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 12923420513844985912
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 1]
