@@ -7,6 +7,89 @@ Pushing is the owner's.
 
 ---
 
+## Start here: the gpu-lit defect, investigated to the edge and not caught
+
+**2026-08-23, late session. The defect is real, deterministic, and still at
+large.** This section is the map of everything already ruled out, so the next
+session starts at the frontier rather than at the beginning. Tree is clean;
+every probe described below was reverted.
+
+### The facts, all verified twice
+
+The showroom, `--gpu-lit` on (default) versus off, 2560x1600, still camera,
+frame 60: **1,643,738 pixels differ, max 215 levels** -- and that exact count
+survives every feature toggle: GI off, reflections off, RTAO off, shadow maps
+instead of rays, `--aa=none`. Both paths are perfectly deterministic against
+themselves (0 pixels run-to-run). Sync validation is silent. Camp and demo
+differ by only ~800 px; small fixtures (gi_corner, aa_edge43) by ~0. The
+showroom's complexity -- the 130-submesh car, ~140 mesh slots -- is required.
+
+A debug shader (o_Color = varyings) proved the divergence is in what the
+fragment RECEIVES, not how it shades: at the same wall pixel the two paths see
+different v_MaterialIndex, v_Probe, v_TexCoord, and -- fingerprinted by
+amplified v_BaseColor -- **different owning objects entirely**. At the portal,
+the gpu path's pixel belongs to a white-based object where the cpu path (and
+the bound-materials path, which the cpu path matches byte for byte) has the
+authored dark portal. The gpu path is the wrong one.
+
+### Ruled out, each by direct measurement
+
+- The compute cull's test: forcing `InFrustum = true` (keep everything)
+  reproduces the identical 1,643,738. Not the cull decision.
+- The visible-index buffer: made host-visible and dumped at a settled frame.
+  Slot bases, per-slot ranges, atomic packing, hole placement -- all correct
+  for the first 60 entries (rows 0..59). The car's rows 60+ were not dumped.
+- The instance fill: SetSceneInstance receives correct BaseColor, probe (=1),
+  and record for every named entity (walls 0.03 dark, bay 0.62, floor white);
+  the CPU submit receives the identical values. 184 rows reserved, **zero
+  never-filled holes** (instrumented).
+- The record tables: dumped at EndScene on both paths -- identical as sets,
+  differently numbered (first-seen order), each self-consistent.
+- Not materials-at-refresh staleness, not ProbeSlotFor, not slotFor pointer
+  collisions (Refs held), not AllocateInstance stomps (no pre-reserve
+  submissions), not maintenance/barriers (sync validation clean), not MSAA.
+- `--bindless=off` making the paths identical is a RED HERRING: bindless off
+  disables the gpu-lit path itself.
+
+### The frontier: what is NOT yet checked
+
+1. **Rows 60..168 of the visible buffer** -- the car's slots, where four
+   wheels/tyres/discs share meshes. The crossing may live only there, with
+   the wall/portal damage being *knock-on through screen-space history*
+   (reflections/AO read the frame) -- unverified either way.
+2. **The saturated-white interloper.** Something white-based covers the
+   portal on the gpu path. All reserved rows are filled, so it is not a
+   default-constructed row. Candidates: a blended-table draw landing in the
+   opaque pass; a command/mesh pairing off-by-one *within the car's slot
+   run*; the transparent indirect pass compositing over opaque wrongly.
+3. **The transparent gpu path is provably unordered** (atomicAdd placement =
+   GPU scheduling order) -- that one is a certain defect regardless: OIT is
+   order-independent only per-pass; the blended table's draw ORDER between
+   slots is not depth-sorted at all, where the CPU path sorts. Fixing the
+   opaque mystery first; this one is architectural (the roadmap's "depth
+   sort still on the CPU" line).
+4. The debug-shader approach works and is cheap: stage a modified
+   pbr_fragment (no rebuild needed), render both paths, read varyings as
+   colours. The next probe should output **gl_InstanceIndex or the visible
+   row** (pass it down as a varying from scene_vertex temporarily) at the
+   wall/portal pixels -- one run each path answers "which row is the
+   interloper" and its slot, which names the broken pairing directly.
+
+### How to reproduce in one minute
+
+```
+RageVRuntime.exe --project=SampleProject --scene=Scenes/showroom.rage --rhi=vulkan   --render-defaults=off --width=2560 --height=1600 --frame-time=0.0166   --screenshot-frame=60 --screenshot=a.png            # gpu-lit (default)
+... --gpu-lit=off --screenshot=b.png                   # reference
+```
+Diff a against b. The meshlet path (`--meshlets=on`) equals b bit-for-bit and
+is unaffected -- it and the CPU path are the trustworthy references.
+
+**Interim stance:** gpu-lit stays on per the older roadmap decision ("the
+defect in front of whoever works on it"), but anyone compositing or measuring
+the showroom should pass `--gpu-lit=off` or `--meshlets=on`.
+
+---
+
 ## Start here: the frame was audited, and where it goes is now written down
 
 **Updated 2026-08-23, evening session (Fable).** Everything below was measured
