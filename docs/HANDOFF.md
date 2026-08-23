@@ -75,6 +75,75 @@ authored dark portal. The gpu path is the wrong one.
    wall/portal pixels -- one run each path answers "which row is the
    interloper" and its slot, which names the broken pairing directly.
 
+### The operational layer: exact places, probes, and decoded evidence
+
+**Files and lines (as of 46392d0):**
+- `Scene.cpp` — 1674 camera CullLit; 2094 shadow cull; ~3052 `gpuLit` decision
+  (`sameCamera && m_CulledLit.IsValid()`); ~3068 the SetSceneInstance fill
+  loop; ~3130 the CPU submit loop (frustum + DrawMesh); 1943
+  `entry.CullIndex = cullRow++`; ~2000 InstanceBase running totals (fills
+  BOTH m_CullSlots and m_CullMeshes); 2385 TLAS walk (path-independent).
+- `Renderer3D.cpp` — 676 AllocateInstance; 686 RegisterMaterial; ~1900
+  BeginScene clears (Pending/Instances/MaterialScratch+Index together); 2248
+  pending record fill (`Instances[draw.Instance].Indices.z`); ~2295 instance
+  upload; ~2526 the indirect draw loop (pushes entry.InstanceBase, draws
+  command i at offset i*24); 2982 SetSceneInstance; 3349 DrawMesh.
+- `GpuCull.cpp` — 400 CullLit (per-frame ViewSlot pools, reset->barrier->cull
+  ->barrier); 339 SetObjects (host-visible table, uploaded on refresh).
+- `cull_lit.rvshader` — the atomic write:
+  `place = atomicAdd(Commands[slot].InstanceCount, 1)`;
+  `Visible[Commands[slot].InstanceBase + place] = InstanceBase + i`.
+- `pbr_fragment.glsl:1728` — `o_Color = vec4(color, baseColor.a);` = the
+  debug-visualisation hook point.
+
+**The probe workflow that works (no rebuild):** edit a copy of the shader,
+`cp` it over `build/bin/Release/RageVRuntime/assets/shaders/...`, run, then
+restore from `RageVEditor/assets/shaders/`. The runtime compiles staged
+shaders at startup. Profile edits additionally need `--import-cache=off`.
+For clean debug numbers, strip the profile first:
+`printf 'PostProfile: 1
+Exposure: 1.0
+BloomEnabled: false
+DepthOfField: false
+AutoExposure: false
+' > SampleProject/assets/post/showroom.rvpostprofile`
+(restore after; the file is committed).
+
+**CPU-side probes used (all reverted, all reusable):** a temp
+`Renderer3D::DebugRecordOf(matPtr)` / `DebugDumpRecords()` pair reading
+MaterialIndex/MaterialScratch; Scene-side logs gated on
+`FrameClock::Frame() == 58`; the visible-buffer dump = flip `slot.Instances`
+in CullLit to `MemoryDomain::HostVisible` and read `GetMappedPointer()`.
+
+**Decoded evidence from the debug shaders** (stripped profile, frame 60,
+wall pixel y500 x300, portal y300 x1280; sRGB values):
+- `(v_MaterialIndex/32, v_Probe/4, uv-grid)`: gpu wall (72,163,137) = record
+  2, probe 1, proper grid — the CORRECT static-path values; cpu wall
+  (21,13,31) = index~0, probe~0.
+- `(v_BaseColor.r, idx, probe)`: cpu wall R=41 and gpu wall R=43 — the SAME
+  ~0.03 base — while idx/probe channels disagree as above. Tension: CPUSUB
+  logged probe=1 for every wall; the cpu pixel reads probe~0. Either the
+  cpu wall pixel is not 'Left Wall' proper, or small-channel values are
+  being skewed by the remaining post chain; the amplified fingerprint below
+  is the more trustworthy read.
+- `(v_BaseColor.rgb * 8)`: cpu wall (144,145,147) -> ~0.035 = wall_side's
+  authored (0.030,0.031,0.034); gpu wall (160,162,169) -> ~0.045 = NOT
+  wall_side; cpu portal (113,115,120) -> ~0.021 = the authored dark portal;
+  **gpu portal (254,255,255) = saturated: base >= 0.125, a white-based
+  interloper.** Floor identical on both paths in every debug run.
+
+**The next probe, concretely:** add to scene_vertex.glsl + scene_block a
+temp varying `flat out float v_DebugRow` = the visible row index
+(`float(u_Visible.Visible[u_Object.BaseInstance + gl_InstanceIndex])`), emit
+it in static_vertex, output `v_DebugRow/255` as o_Color in pbr_fragment.
+One gpu-path screenshot then reads, at the portal/wall pixels, WHICH ROW the
+interloper is; row -> GPUROW log (re-add the Scene probe) -> entity and slot.
+That names the broken pairing in one run.
+
+**Constant of the defect:** 1,643,738 differing pixels, max 215, at
+2560x1600 frame 60 under the committed profile -- across every feature
+toggle. If a change moves that number at all, it touched the mechanism.
+
 ### How to reproduce in one minute
 
 ```
