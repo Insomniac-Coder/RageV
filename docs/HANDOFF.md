@@ -7,186 +7,88 @@ Pushing is the owner's.
 
 ---
 
-## Start here: RT GI, decided and verified
+## Start here: the frame was audited, and where it goes is now written down
 
-**Three files are modified and uncommitted.** Two are settled; one needs your
-call before it should land.
+**Updated 2026-08-23, evening session (Fable).** Everything below was measured
+at 2560x1600, Release, Vulkan, RTX 5070 Ti Laptop -- interleaved A/B always,
+because this machine drifts +/-1 ms thermally and single runs lie.
 
-### Settled: the GI next-event ray was doing full hit shading
+### The audit: where a frame goes
 
-`rtgi_trace.rvshader`'s next-event shadow ray called `TraceSurface`, which finds
-the closest hit and then decodes the triangle, samples up to three bindless
-maps, runs the 20-light loop and casts its own sun shadow ray -- all discarded
-to read one bool. It now calls `TraceShadowFrom` (terminate-on-first-hit, no
-attributes, no shading).
+| pass | showroom | camp | demo | verdict |
+|---|---|---|---|---|
+| RT GI trace | 6.8 | 9.6 | 2.1 | the big one; see below |
+| Scene (lit, traced shadows) | 4.7 | 5.0 | 2.6 | proportionate for the feature set |
+| RTAO (runs under "SSAO compute") | ~~3.5~~ **2.4** | ~~5.5~~ **3.7** | 2.2 | 12 rays/px was oversampling the 9x9 blur; now 8 |
+| everything else combined | ~1.3 | ~1.3 | ~1.3 | bloom, DoF, motion, tonemap, AE, denoise -- all tight, leave alone |
+| Voxel GI gather (GL only, 128^3 x2) | -- | 3.5 | -- | only runs where rays cannot; fine |
 
-Interleaved A/B, three pairs: **RT GI trace 7.98 -> 6.74 ms, frame 19.14 ->
-17.71**. Showroom at frame 60 is **identical to the byte** with traced GI
-confirmed active. Keep this.
+### What landed this session (three commits)
 
-### Needs your call: the traced bounce ray's reach
+1. **29ffe8d -- the white spots near the showroom's ceiling.** The NEE emitter
+   term had no firefly clamp: radiance x area / d^2 against a partially
+   occluded panel is a lottery, and whole regions flashed 90 display levels
+   for one frame. Bounded at 8x the hemisphere clamp (32), plus a
+   neighbourhood bound on the denoiser's current frame. Flicker pixels over
+   the visibility line: 129 -> 0; settled energy kept to 62.6 of 63.1.
+   check_gi's settle claim gained an absolute backstop because the fix makes
+   the *first* frames almost as quiet as the last.
+2. **407e6ec -- RTAO 12 -> 8 rays.** Identical noise metric after the blur,
+   0.005 mean-level difference, saves 1.1-1.8 ms. Literature budget is 1-2
+   rays with temporal accumulation, so the next step down exists but wants a
+   temporal stage for AO first.
+3. **471ad70 -- the reach dial verdict.** Built, measured as pure noise at
+   both resolutions, removed. The "+1.2 ms camp regression" was thermal drift
+   measured sequentially. GiRadius's inspector row stopped claiming the traced
+   form obeys it.
 
-`FrameGraphBuilder.cpp` + `Renderer.h`. 79035ab bounded the bounce ray by the
-profile's `GiRadius`, reasoning that a long ray only found "a hit that a miss
-would have handled identically". True outdoors, where travelling far means
-leaving the geometry; **false indoors, where it means hitting a wall that is a
-real bounce source.** At the 2 m default, `gi_corner`'s red wall contributes
-exactly +0.00 above the skirting -- the dull patch, and seven failing
-`check_gi` claims.
+### The decision waiting on the owner: RTGI at Medium
 
-The working tree bounds it at a flat 250 m instead. **The owner chose this on
-2026-08-23**, over separating the dials, deriving from scene bounds, or
-reverting. That is the trade they accepted:
+`RayTracedGlobalIllumination: High` traces 4 rays/px at full resolution.
+Metro Exodus ships 0.25 rays/px; diffuse GI is the lowest-frequency signal in
+the frame. Measured, interleaved, Medium (half-res, 4 rays) against High:
 
-| | before | after |
-|---|---|---|
-| `check_gi` | **7 claims failing** | **all pass** |
-| off-screen bleed | +0.00 | +0.80 |
-| corner bleed | +0.93 (wanted >=1.0) | +1.82 |
-| showroom RT GI | 6.55 ms | 6.68 ms |
-| **camp RT GI** | **2.44 ms** | **3.65 ms** |
+- showroom: trace 6.8 -> 1.8 ms, **frame 17.4 -> 11.6**
+- camp: trace 9.6 -> 2.5 ms, **frame 22.1 -> 14.5**
+- quality: means identical to three decimals, 1.76% / 0.18% of pixels differ
+  by >2 levels, local-noise metric unchanged; the visible risk is silhouette
+  edges, where the accumulated buffer upsamples bilinearly.
 
-Camp is the cost: +1.2 ms on the pass, +1.4 ms on the frame, and it runs the
-traced form by default. Correctness is worth it, but 250 is a magic number and
-camp pays for a correctness it does not need -- an open scene really can bound
-its rays, which is the case 79035ab was right about.
+Not flipped, because the project's render settings are the owner's. If
+adopted, re-run the High/Medium image diff first -- the numbers above predate
+the firefly fixes -- and the right companion work is a bilateral (depth-aware)
+upsample where the lit shader reads u_Indirect, which removes the silhouette
+risk entirely.
 
-**If this is ever revisited, the design fix is to separate the two dials**: `GiRadius` means "how far the
-screen-space gather searches" and is tuned at 2 m for that; the traced form
-needs its own reach with a generous default, which camp then lowers to ~3 m and
-gets its time back. That is a new serialized field (PostSettings +
-ComponentRegistry + an inspector row) and I did not add one unasked.
+### The research shelf, in order of value per effort
 
-To drop the reach change and keep the shader win:
+1. **Temporal accumulation for RTAO** (Microsoft D3D12 denoised-AO sample):
+   enables 2 rays/px at full res, ~1.5 ms more back.
+2. **Bilateral upsample of u_Indirect** -- small shader change, unlocks Medium
+   GI as a safe default.
+3. **Spatiotemporal blue noise** (Wolfe et al.) for ray direction seeds --
+   same cost, visibly steadier under the accumulator; needs a texture binding.
+4. **ReSTIR GI** (NVIDIA 2021): 9-166x MSE at 1 spp. The endgame; a
+   reservoir buffer pair, temporal + spatial reuse passes, and careful bias
+   handling. Weeks, not days.
 
-```
-git checkout -- RageV/src/RageV/Renderer/FrameGraphBuilder.cpp RageV/src/RageV/Renderer/Renderer.h
-```
+### Traps confirmed this session
 
-Verified at 250 m: `check_gi` **all claims pass** on both backends (+1.82 red at
-the corner, +0.80 with the source off screen, sky-lit wall 1.067x). scenetest
-**2381 Vulkan / 2334 OpenGL, 0 failed**. `check_ssao` and `check_ssr` pass.
-Those seven `check_gi` claims failed *before* any of this work -- not a
-regression introduced here.
+- **The import cache serves stale post profiles.** Editing a .rvpostprofile
+  without touching its .meta means the engine keeps rendering the cached
+  values -- a probe at reach 0.05 m rendered bit-identical to 250 m until
+  `--import-cache=off`. Any profile-edit A/B without that flag is void.
+- `--render-defaults=on` silently swaps traced GI for the voxel form (7ba) --
+  an identity check under it compares two runs of the wrong feature.
+- "Half" is not a RayDetail value ("Off/Low/Medium/High"); a wrong name in
+  the project file parses as Off and the pass quietly vanishes from the graph.
 
-**It does not overblow anything.** Showroom before and after: mean 62.495 ->
-62.598, 0.02% of pixels differ by more than two levels, clipping 4.672% ->
-4.673%. Camp is a night scene at mean 42.5 with 0.1% clipped. `gi_corner` reads
-bright because the fixture doubles `GiIntensity` in a white room, and even it
-clips **0.000%** of its pixels.
+### Queued by the owner, not yet started
 
-`check_smaa` refuses to run, unrelated and pre-existing: it wants
-`TemporalFeedback` 0.6 and `SampleProject.rvproject` holds 0.9, which is the
-committed value. Its calibration is stale, or the table needs re-measuring --
-do not change the owner's setting to satisfy it.
-
----
-
-## Start here: nothing to start
-
-**The input-edge rework is done.** It was the task this file opened with, and
-the section it replaces described it as agreed and not yet begun. What follows
-is what it turned into; ENGINE-NOTES **7co** is the full account.
-
-There is no next task agreed with the owner. Ask.
-
-### What changed
-
-`InputMap`'s consume-on-step edges are gone, and so is the whole idea that an
-edge is state somebody clears. An edge now records *when* it happened, on two
-clocks, and each reader asks whether that was its own moment.
-
-```cpp
-// RageV/src/RageV/Core/FrameClock.h  -- new
-struct InputEdge
-{
-    uint64_t Frame = 0;
-    uint64_t Step  = 0;
-
-    void Raise();          // stamp it with now
-    bool IsNow() const;    // ...was "now" the caller's frame, or its step?
-};
-```
-
-| | |
-|---|---|
-| **`FrameClock`** | Two counters and an in-a-step flag. `Frame()`, `Step()`, `InFixedStep()`, `BeginFrame()`, and a `StepScope` guard. |
-| **`InputMap`** | `PressedPending`/`ReleasedPending` became `InputEdge Pressed`/`Released`. `EndFixedStep` deleted. |
-| **`UIButtonComponent`** | `bool Clicked` became `InputEdge Clicked`, read as `Clicked.IsNow()`. `UI::EndFixedStep` deleted. |
-| **`Application`** | `FrameClock::BeginFrame()` before input is sampled; a `StepScope` where the `EndFixedStep` call used to be. |
-| **`Scene`** | A `StepScope` at the top of `OnFixedUpdateRuntime`, *before* the pause guard. |
-| **The docs** | Four places warned authors to keep edge queries off `OnFrame`. All four now say either works. |
-
-**What is true now that was not:** `OnFrame` sees a press on the frame it was
-made. **What is still true:** a frame running three steps fires a jump once; a
-frame running none does not swallow it; `OnTick` behaves exactly as before.
-
-### The three things worth carrying forward
-
-1. **`FrameClock::Step()` outside a step is the step that has not run yet**,
-   and inside one it is that step -- deliberately the same number. It is what
-   lets an edge raised before the step loop name its step without knowing
-   whether the frame will run three or none. The counter advances at the *end*
-   of a step, so a step's own number is stable while it runs.
-
-2. **Two things run steps, and `StepScope` is opened in both.** `Application`'s
-   loop is one; anything calling `Scene::OnFixedUpdateRuntime` directly --
-   scenetest, any tool without a window -- is the other. **Nested scopes count
-   once**, so the pair is one step. Had only the loop advanced the clock, every
-   edge outside it would live forever, which is the bug being removed. The
-   loop's scope is also outside `Scene`'s pause guard, which is what stops a
-   press made during a pause from firing when play resumes.
-
-3. **A key press still cannot be driven headlessly, and it did not need to
-   be.** `InputEdge` is exactly what `WasActionPressed` consults, so the rules
-   are proved on the stamp itself (`CheckInputEdges`, 9 claims) and again end
-   to end through a real button (the UI click section, 3 more). None of them
-   resets the clock -- every claim is relative -- which is why `FrameClock` has
-   no `Reset()` for the engine to call either.
-
-### Verified
-
-`cmake --build build --config Debug`, then from **the executable's own
-directory** (the shaders are staged there, and a relative `assets/shaders/...`
-resolves against the working directory -- running it from the repo root fails
-50 checks that have nothing to do with the change):
-
-```
-build/bin/Debug/scenetest/scenetest.exe --rhi=vulkan    2381 checks, 0 failed, exit 0
-build/bin/Debug/scenetest/scenetest.exe --rhi=opengl    2334 checks, 0 failed, exit 0
-```
-
-**Not verified: an actual F3 press.** That is real device state and there is no
-seam for it. The mechanism under it is covered twice over, but the keypress
-itself has not been tried since the change -- worth one press in the showroom.
-
-### Loose ends
-
-- **The interop protocol did not move.** No signature changed, so
-  `kProtocolVersion` is untouched and the managed assembly did not need
-  rebuilding. Do not bump it for this.
-- **`UIButtonComponent`'s layout changed** (a bool became 16 bytes), which is a
-  native-script ABI change. `SampleProject/bin/module` was rebuilt for Debug
-  *and* Release. Anything else linking the engine needs the same.
-- **`docs/site` was stale before this change.** Regenerating with
-  `build/bin/Debug/rvdoc/rvdoc.exe --in docs/manual --out docs/site` picked up
-  the particles, editor, post-processing and components pages, none of which
-  this touched. That drift is in the working tree with everything else.
-- The F3 overlay's toggle **stays on `On Tick`**. `On Frame` would work now;
-  On Tick is still where acting on a press belongs. `make_stats_graph.py` says
-  so, where it used to say On Tick was the only option that worked.
-- Recent commits:
-
-```
-b77b550 Hand off the input-edge rework
-a6040d4 F3 worked sometimes, and the odds were the frame rate
-f6c18fa Left-drag moves the graph, and MSAA stays MSAA
-6dbcc29 An overlay built entirely from graph nodes, and what it found
-5e2fae0 The editor drew every frame twice
-92d48ee The logger stopped needing a library
-6ed2225 The reveal checkbox is a preference, and ShellExecute needed COM
-f54f6f1 Build Game can show you the result
-```
+**Close-up frame spike in the showroom**: walking the camera very close to the
+car raises the frame from ~16 to ~20 ms. Suspect list, unverified: traced
+mirror rays (smooth paint filling the frame means nearly every pixel earns
+one), transparent resolve over the glass, DoF gather width at near focus.
 
 ---
 
