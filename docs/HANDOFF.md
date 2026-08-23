@@ -83,12 +83,25 @@ risk entirely.
 - "Half" is not a RayDetail value ("Off/Low/Medium/High"); a wrong name in
   the project file parses as Off and the pass quietly vanishes from the graph.
 
-### Queued by the owner, not yet started
+### The close-up spike, measured
 
-**Close-up frame spike in the showroom**: walking the camera very close to the
-car raises the frame from ~16 to ~20 ms. Suspect list, unverified: traced
-mirror rays (smooth paint filling the frame means nearly every pixel earns
-one), transparent resolve over the glass, DoF gather width at near focus.
+The owner's report -- the frame rises ~16 to ~20 ms near the car, on Vulkan --
+reproduces exactly: orbit Distance 7.3 vs 4.6 (the zoom clamp), interleaved,
+17.5 -> 20.6 ms. The growth is two passes and only two:
+
+- **Scene: 5.15 -> 7.16 ms.** The car's pixels are the expensive pixels --
+  smooth paint earns a traced mirror ray per pixel, whose hit runs the full
+  20-light loop with a sun shadow ray, on top of per-light traced shadows for
+  the surface itself. Close up, four million of them.
+- **RTAO: 2.43 -> 3.57 ms.** Rays starting on the car probe its own
+  490k-triangle BLAS instead of the room's sparse walls.
+
+RT GI, transparent, DoF and everything else hold flat. So it is content cost,
+not a defect: the most expensive material fills the frame. It is already ~2 ms
+better than it was at twelve AO taps, and the Medium-GI decision above would
+take the close-up view to roughly 15 ms. The remaining code lever worth
+having: range-cull the 20-light loop at traced hits (a hit shades all twenty,
+attenuation-zero or not), which trims exactly the pass that grows here.
 
 ---
 
