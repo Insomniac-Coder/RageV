@@ -895,9 +895,27 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 		else
 		{
 			vec3 toLight = light.Position.xyz - hitPosition;
-			float distance = length(toLight);
-			L = toLight / max(distance, 0.0001);
+			float distance2 = dot(toLight, toLight);
 			float range = max(light.Params.x, 0.0001);
+
+			// A light past its range contributes exactly zero -- the ratio
+			// below clamps to it -- so skipping it is an identity, not an
+			// approximation: the showroom and the camp render bit-identical
+			// with and without it. A traced hit has no cluster to consult,
+			// which is why this loop runs every light in the scene.
+			//
+			// Measured honestly: in the showroom this buys nothing (7.2 ms
+			// against 7.2 up close, interleaved) because the fill panels'
+			// ranges cover the whole room and almost nothing ever culls. It
+			// stays because it is exact and free, and it bounds the loop for
+			// the scene this loop has not met yet -- many short-range lights,
+			// a street of lamp posts -- where every hit otherwise pays for
+			// all of them.
+			if (distance2 >= range * range)
+				continue;
+
+			float distance = sqrt(distance2);
+			L = toLight / max(distance, 0.0001);
 			float ratio = clamp(1.0 - pow(distance / range, 4.0), 0.0, 1.0);
 			attenuation = (ratio * ratio) / max(distance * distance, 0.0001);
 			float cosInner = light.Params.y;
