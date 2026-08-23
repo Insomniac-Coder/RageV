@@ -44,7 +44,11 @@ namespace RageV
 		// traced, so every mesh carries it where it means anything.
 		BufferDesc vertexDesc;
 		vertexDesc.Size = vertices.size() * sizeof(MeshVertex);
-		vertexDesc.Usage = BufferUsage::Vertex | BufferUsage::AccelerationStructureInput;
+		// Storage as well: the meshlet lit path reads the interleaved
+		// vertices from the mesh stage, and usage is a creation-time
+		// property.
+		vertexDesc.Usage = BufferUsage::Vertex | BufferUsage::Storage
+						 | BufferUsage::AccelerationStructureInput;
 		vertexDesc.Memory = MemoryDomain::DeviceLocal;
 		vertexDesc.DebugName = debugName + ".vertices";
 		m_VertexBuffer = device.CreateBuffer(vertexDesc);

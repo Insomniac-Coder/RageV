@@ -183,6 +183,27 @@ namespace RageV::Vk
 				layoutBinding.descriptorType = ToVkDescriptorType(binding.Type);
 				layoutBinding.descriptorCount = binding.Count;
 				layoutBinding.stageFlags = ToVkShaderStages(binding.Stages);
+
+				// **Graphics bindings declare every graphics stage, not the
+				// stages the reflection saw.** Set compatibility is by
+				// identical definition, and the meshlet lit pipeline reads
+				// the same scene set the vertex pipelines fill -- through a
+				// mesh stage. Exact flags would make the two layouts
+				// different definitions of the same set, and every binding of
+				// one pipeline's set on the other a validation error; wider
+				// visibility costs nothing. Mesh is included only where the
+				// device has the feature, because the bit itself is invalid
+				// without it. Compute stays exact: no compute set is shared
+				// across the vertex/mesh seam.
+				if (layoutBinding.stageFlags & (VK_SHADER_STAGE_VERTEX_BIT |
+												VK_SHADER_STAGE_FRAGMENT_BIT |
+												VK_SHADER_STAGE_MESH_BIT_EXT))
+				{
+					layoutBinding.stageFlags |= VK_SHADER_STAGE_VERTEX_BIT |
+												VK_SHADER_STAGE_FRAGMENT_BIT;
+					if (m_Device.GetCaps().SupportsMeshShading)
+						layoutBinding.stageFlags |= VK_SHADER_STAGE_MESH_BIT_EXT;
+				}
 				bindings.push_back(layoutBinding);
 			}
 

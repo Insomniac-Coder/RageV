@@ -496,8 +496,25 @@ stale `RuntimeLayer.obj` was newer than the header it was stale against.
   camp and demo, validation-clean, and performance-neutral where the shadow
   phase is small (0.18 ms GPU either way). Off by default; a device without
   the extension logs and runs the classic path. When on, shadow views skip
-  the GPU-cull indirect path -- per-meshlet culling stands in. Next stage:
-  the lit pass, and a task stage fed from the cull table.
+  the GPU-cull indirect path -- per-meshlet culling stands in. **The lit
+  stage landed the same evening**: pbr_meshlet.rvshader emits the vertex
+  stage's ten varyings from a mesh stage and shares pbr_fragment.glsl
+  verbatim, the scene set binds on both pipelines because set-layout stage
+  flags are now coarse across graphics stages (VulkanPipeline.cpp says why),
+  and static opaque runs draw as DrawMeshTasks with per-meshlet camera
+  culling. Bit-identical to the CPU vertex path on all three scenes; cost
+  identical to it too (showroom Scene 4.08 vs 4.11 ms).
+
+  **Found while verifying, worth its own session: the default GpuLit
+  indirect path draws the showroom wrong by 1.6 million pixels (max 215
+  levels) against the CPU path, and costs a millisecond more (Scene 5.0 vs
+  4.1 ms).** The roadmap has tracked the defect as "renders visibly
+  differently and flickers"; these are the first numbers on it, and they say
+  the default is both wrong and slower on real scenes -- its measured win
+  was on the 60k-object scale fixtures. Verifying meshlets against
+  `--gpu-lit=off` is what surfaced it: the honest reference for any lit-path
+  work is the CPU vertex path until that defect dies. Remaining meshlet
+  stage: a task stage fed from the cull table.
 
 ---
 

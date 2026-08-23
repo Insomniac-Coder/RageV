@@ -1671,7 +1671,13 @@ namespace RageV
 		{
 			const Mat4 viewProjection = camera.GetProjection() * Math::Inverse(cameraTransform);
 
-			m_CulledLit = GpuCull::CullLit(*cull, viewProjection);
+			// Not when the lit pass eats meshlets: the indirect path would
+			// draw static meshes through the vertex pipeline and the meshlet
+			// pipeline would never see them. Per-meshlet culling in the mesh
+			// stage stands in for the compute cull, exactly as on the shadow
+			// views.
+			if (!Renderer3D::LitMeshletsActive())
+				m_CulledLit = GpuCull::CullLit(*cull, viewProjection);
 			if (m_CulledLit.IsValid())
 				m_CulledLitFor = cameraTransform;
 

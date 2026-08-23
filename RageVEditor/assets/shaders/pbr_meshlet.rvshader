@@ -1,0 +1,164 @@
+// The lit pass, fed meshlets (roadmap 8.3, second stage; VK_EXT_mesh_shader,
+// Vulkan only).
+//
+// The vertex twin is pbr.rvshader, and the fragment stage below IS its
+// fragment stage -- the same include, compiled with the same defines, reading
+// the same scene set. What changes is only how a vertex reaches clip space: a
+// work group owns one meshlet of one instance, culls its bounding sphere
+// against the camera's clip volume before any vertex work, and emits the
+// identical ten varyings the vertex stage would have. Identical is the
+// contract: the flag draws the same bytes on or off, which is what keeps the
+// classic path an honest fallback.
+//
+// The cull is the reason this stage exists. The vertex path can refuse work
+// only per draw; here a car behind the camera costs six dot products per
+// meshlet instead of half a million vertex transforms.
+
+#type mesh
+#version 450 core
+#extension GL_EXT_mesh_shader : require
+
+#include "include/scene_block.glsl"
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(triangles, max_vertices = 64, max_primitives = 124) out;
+
+// The meshlet cut, in a set of its own -- set 0 is the scene's, shared with
+// every lit pipeline, and set 2 is the texture heap's. Mirrors
+// RageV::Meshlet.
+struct Meshlet
+{
+	uint VertexOffset;
+	uint TriangleOffset;
+	uint VertexCount;
+	uint TriangleCount;
+	vec4 Sphere;
+};
+
+layout(std430, set = 3, binding = 0) readonly buffer MeshletBlock
+{
+	Meshlet Meshlets[];
+} u_Meshlets;
+
+layout(std430, set = 3, binding = 1) readonly buffer MeshletVertexBlock
+{
+	uint Vertices[];
+} u_MeshletVertices;
+
+layout(std430, set = 3, binding = 2) readonly buffer MeshletTriangleBlock
+{
+	uint Triangles[];
+} u_MeshletTriangles;
+
+// The mesh's own interleaved vertices -- position, normal, texcoord, eight
+// floats apiece, the layout MeshVertex declares. The lit stage needs all of
+// it, which is why this is the vertex buffer read as storage rather than the
+// depth path's packed positions.
+layout(std430, set = 3, binding = 3) readonly buffer VertexBlock
+{
+	float Data[];
+} u_Vertex;
+
+// The ten varyings, exactly as scene_vertex.glsl declares them for the
+// vertex stage -- same locations, same flats -- so pbr_fragment.glsl cannot
+// tell which stage fed it.
+layout(location = 0) out vec3 v_WorldPos[];
+layout(location = 1) out vec3 v_Normal[];
+layout(location = 2) out vec2 v_TexCoord[];
+layout(location = 3) flat out vec4 v_BaseColor[];
+layout(location = 4) flat out vec4 v_EmissiveColor[];
+layout(location = 5) flat out vec4 v_Surface[];
+layout(location = 6) out vec4 v_ClipPos[];
+layout(location = 7) flat out float v_Probe[];
+layout(location = 8) out vec4 v_PrevClipPos[];
+layout(location = 9) flat out float v_MaterialIndex[];
+
+void main()
+{
+	const uint tid = gl_LocalInvocationIndex;
+	const Meshlet meshlet = u_Meshlets.Meshlets[gl_WorkGroupID.x];
+
+	// The same fetch FetchInstance makes, spelled with the work group's y
+	// where a vertex stage has gl_InstanceIndex.
+	const InstanceData instance =
+		u_Instances.Instances[u_Visible.Visible[uint(u_Object.BaseInstance) + gl_WorkGroupID.y]];
+
+	const mat4 mvp = u_Scene.ViewProjection * instance.Model;
+
+	// The depth path's cull, against the camera: a sphere's extent along
+	// clip plane p through affine M is bounded by its radius times
+	// length((p^T M).xyz), so a meshlet proven behind any plane is proven
+	// invisible whatever the projection or the instance's scale.
+	const vec4 centre = vec4(meshlet.Sphere.xyz, 1.0);
+	const float radius = meshlet.Sphere.w;
+
+	const vec4 rowX = vec4(mvp[0][0], mvp[1][0], mvp[2][0], mvp[3][0]);
+	const vec4 rowY = vec4(mvp[0][1], mvp[1][1], mvp[2][1], mvp[3][1]);
+	const vec4 rowZ = vec4(mvp[0][2], mvp[1][2], mvp[2][2], mvp[3][2]);
+	const vec4 rowW = vec4(mvp[0][3], mvp[1][3], mvp[2][3], mvp[3][3]);
+
+	bool outside = false;
+	{
+		vec4 planes[6] = vec4[6](rowW + rowX, rowW - rowX,
+								 rowW + rowY, rowW - rowY,
+								 rowZ,        rowW - rowZ);
+		for (int i = 0; i < 6; i++)
+		{
+			const vec4 plane = planes[i];
+			if (dot(plane, centre) < -radius * length(plane.xyz))
+				outside = true;
+		}
+	}
+
+	if (outside)
+	{
+		SetMeshOutputsEXT(0u, 0u);
+		return;
+	}
+
+	SetMeshOutputsEXT(meshlet.VertexCount, meshlet.TriangleCount);
+
+	if (tid < meshlet.VertexCount)
+	{
+		const uint index = u_MeshletVertices.Vertices[meshlet.VertexOffset + tid];
+		const uint base = index * 8u;
+		const vec3 position = vec3(u_Vertex.Data[base + 0u], u_Vertex.Data[base + 1u],
+								   u_Vertex.Data[base + 2u]);
+		const vec3 normal = vec3(u_Vertex.Data[base + 3u], u_Vertex.Data[base + 4u],
+								 u_Vertex.Data[base + 5u]);
+		const vec2 texcoord = vec2(u_Vertex.Data[base + 6u], u_Vertex.Data[base + 7u]);
+
+		// static_vertex.glsl's main, line for line.
+		const vec4 world = instance.Model * vec4(position, 1.0);
+
+		v_WorldPos[tid] = world.xyz;
+		v_Normal[tid]   = mat3(instance.NormalMatrix) * normal;
+		v_TexCoord[tid] = texcoord;
+
+		v_BaseColor[tid]     = instance.BaseColor;
+		v_EmissiveColor[tid] = instance.EmissiveColor;
+		v_Surface[tid]       = instance.Surface;
+		v_Probe[tid]         = instance.Indices.y;
+		v_MaterialIndex[tid] = instance.Indices.z;
+
+		const vec4 clip = u_Scene.ViewProjection * world;
+		gl_MeshVerticesEXT[tid].gl_Position = clip;
+		v_ClipPos[tid] = clip;
+		v_PrevClipPos[tid] = u_Scene.PreviousViewProjection * instance.PreviousModel *
+							 vec4(position, 1.0);
+	}
+
+	for (uint t = tid; t < meshlet.TriangleCount; t += 64u)
+	{
+		const uint packed_ = u_MeshletTriangles.Triangles[meshlet.TriangleOffset + t];
+		gl_PrimitiveTriangleIndicesEXT[t] = uvec3(packed_ & 0xFFu,
+												  (packed_ >> 8u) & 0xFFu,
+												  (packed_ >> 16u) & 0xFFu);
+	}
+}
+
+#type fragment
+// 460 for the ray-query keywords, exactly as pbr.rvshader says.
+#version 460 core
+
+#include "include/pbr_fragment.glsl"

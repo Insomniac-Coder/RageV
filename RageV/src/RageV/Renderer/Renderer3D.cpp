@@ -454,6 +454,13 @@ namespace RageV
 				// windscreen with no reflection in it reads as a material
 				// problem, which is where two hours went.
 				Ref<RHIResourceSet> TransparentSet;
+				// One per distinct static mesh drawn as meshlets this frame:
+				// set 3 holds the cut and the vertices, which change per
+				// mesh, and a set rewritten under a recorded bind invalidates
+				// the command buffer. The shadow path keeps an identical pool
+				// for the identical reason.
+				std::vector<Ref<RHIResourceSet>> MeshletSets;
+				uint32_t MeshletCursor = 0;
 				// And the transparent pipeline's *GPU-driven* set: the same
 				// instance table read through the indices the blended cull
 				// wrote instead of the ones the sort produced. One binding
@@ -605,6 +612,8 @@ namespace RageV
 			Ref<RHIPipeline> ShadowPipeline;
 			Ref<RHIShader>   ShadowMeshletShader;
 			Ref<RHIPipeline> ShadowMeshletPipeline;
+			Ref<RHIShader>   MeshletLitShader;
+			Ref<RHIPipeline> MeshletLitPipeline;
 			Ref<RHIShader>   ShadowSkinnedShader;
 			Ref<RHIPipeline> ShadowSkinnedPipeline;
 			Format ShadowDepth = Format::D32_SFLOAT;
@@ -654,6 +663,9 @@ namespace RageV
 			// from target formats that Init does not know.
 			if (!slot.Set)
 				slot.Set = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0);
+
+			// The sets are kept, the claim on them is not.
+			slot.MeshletCursor = 0;
 
 			return slot;
 		}
@@ -910,6 +922,26 @@ namespace RageV
 			defines.push_back("RV_RAY_REFLECTIONS");
 		if (s_Data->RayGlobalIlluminationOn)
 			defines.push_back("RV_RAY_GI");
+
+		// The meshlet lit stage compiles with the identical define set, so
+		// its fragment half is bit-for-bit the classic one's: same bindless
+		// choice, same traced features, same set 0. Flag and device gated
+		// like the depth twin.
+		if (EngineConfig::Get().Meshlets && s_Data->Device->GetCaps().SupportsMeshShading)
+		{
+			if (auto meshlet = ShaderCompiler::CompileFromFile(
+					"assets/shaders/pbr_meshlet.rvshader", defines))
+			{
+				s_Data->MeshletLitShader = s_Data->Device->CreateShader(*meshlet);
+				RV_CORE_INFO("Meshlet lit path on");
+			}
+			else
+			{
+				RV_CORE_ERROR("Renderer3D: failed to compile "
+							  "assets/shaders/pbr_meshlet.rvshader; the vertex "
+							  "path draws the lit pass");
+			}
+		}
 
 		auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader", defines);
 		if (!compiled)
@@ -1262,6 +1294,21 @@ namespace RageV
 		desc.DepthFormat = s_Data->TargetDepth;
 
 		s_Data->Pipeline = s_Data->Device->CreatePipeline(desc);
+
+		// The meshlet twin: the same targets, samples, raster and depth state
+		// -- a different front end and nothing else, the depth path's
+		// contract again.
+		if (s_Data->MeshletLitShader)
+		{
+			GraphicsPipelineDesc meshlet = desc;
+			meshlet.Name = "Renderer3D.pbr.meshlet";
+			meshlet.Shader = s_Data->MeshletLitShader;
+			meshlet.VertexInput = {};
+			s_Data->MeshletLitPipeline = s_Data->Device->CreatePipeline(meshlet);
+			if (!s_Data->MeshletLitPipeline)
+				RV_CORE_ERROR("Renderer3D: meshlet lit pipeline failed; the "
+							  "vertex path draws the lit pass");
+		}
 
 		// The same description with the other shader. Its vertex layout is
 		// reflected from that shader, so the wider vertex needs nothing stated
@@ -2542,6 +2589,66 @@ namespace RageV
 
 			const PendingDraw& first = s_Data->Pending[start];
 
+			// Static opaque runs go as meshlets when the pipeline exists and
+			// the mesh cut cleanly; every other kind -- skinned, layered,
+			// blended, a mesh the cut refused -- takes its classic pipeline
+			// in the same pass. The scene set is the same object on both
+			// paths: the descriptor layouts are identically defined (the
+			// coarse stage flags in VulkanPipeline are what make that true),
+			// so one fill serves both front ends.
+			if (first.Kind == DrawKind::Static && s_Data->MeshletLitPipeline &&
+				first.MeshRef && slot.Set)
+			{
+				const Mesh::MeshletBuffers& meshlets =
+					first.MeshRef->GetMeshletBuffers(*s_Data->Device);
+				if (meshlets.Count > 0)
+				{
+					while (slot.MeshletCursor >= slot.MeshletSets.size())
+						slot.MeshletSets.push_back(nullptr);
+					Ref<RHIResourceSet>& meshletSet =
+						slot.MeshletSets[slot.MeshletCursor];
+					if (!meshletSet)
+					{
+						meshletSet = s_Data->Device->CreateResourceSet(
+							s_Data->MeshletLitPipeline, 3);
+					}
+
+					if (meshletSet)
+					{
+						slot.MeshletCursor++;
+
+						meshletSet->SetStorageBuffer(0, meshlets.Meshlets);
+						meshletSet->SetStorageBuffer(1, meshlets.Vertices);
+						meshletSet->SetStorageBuffer(2, meshlets.Triangles);
+						meshletSet->SetStorageBuffer(3, first.MeshRef->GetVertexBuffer());
+						meshletSet->Commit();
+
+						// A different push-constant interface disturbs every
+						// bound set on the switch, so everything is rebound
+						// here and the classic loop rebinds its own after.
+						cmd->BindPipeline(s_Data->MeshletLitPipeline);
+						cmd->BindResourceSet(0, slot.Set);
+						if (s_Data->Bindless)
+							cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+						else if (first.MaterialRef)
+							first.MaterialRef->Bind(*cmd, s_Data->MeshletLitPipeline, 1);
+						cmd->BindResourceSet(3, meshletSet);
+						anyPipelineBound = false;
+
+						ObjectPushConstants object;
+						object.BaseInstance = (int32_t)start;
+						cmd->PushConstants(ShaderStage::Mesh, 0, sizeof(object), &object);
+
+						cmd->DrawMeshTasks(meshlets.Count, end - start, 1);
+						s_Data->DrawCalls++;
+						s_Data->Triangles += (first.IndexCount / 3) * (end - start);
+
+						start = end;
+						continue;
+					}
+				}
+			}
+
 			// Each kind needs its own pipeline. Without one the run is skipped
 			// rather than drawn by another: a skinned mesh through the static
 			// pipeline reads joint indices as texture coordinates and scatters
@@ -3017,6 +3124,11 @@ namespace RageV
 		draw.BoneBase = base;
 
 		s_Data->ShadowPending.push_back(std::move(draw));
+	}
+
+	bool Renderer3D::LitMeshletsActive()
+	{
+		return s_Data && (s_Data->MeshletLitPipeline || s_Data->MeshletLitShader);
 	}
 
 	bool Renderer3D::ShadowMeshletsActive()

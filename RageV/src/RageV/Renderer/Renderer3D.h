@@ -99,6 +99,9 @@ namespace RageV
 		// meshlet in the mesh stage, and a view routed through the indirect
 		// path would bypass it entirely.
 		static bool ShadowMeshletsActive();
+		// The lit-pass twin of the above, gating the camera's compute cull
+		// for the same reason.
+		static bool LitMeshletsActive();
 
 		// Every static caster this view kept, in as many draws as the scene
 		// has distinct meshes -- each one's instance count read out of the
