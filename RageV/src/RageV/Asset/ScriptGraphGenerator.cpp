@@ -395,6 +395,17 @@ namespace RageV::Assets
 							break;
 						}
 
+						case GraphNodeType::SetFieldOn:
+						{
+							const size_t dot = node->Text.find('.');
+							out += pad + Value(node->Id, 1, GraphPinType::Entity)
+								 + ".SetComponentField(\""
+								 + Escape(node->Text.substr(0, dot)) + "\", \""
+								 + Escape(node->Text.substr(dot + 1)) + "\", "
+								 + Value(node->Id, 2, GraphPinType::String) + ");\n";
+							break;
+						}
+
 						case GraphNodeType::Log:
 						case GraphNodeType::LogWarning:
 						{

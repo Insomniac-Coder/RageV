@@ -111,7 +111,7 @@ render frame. A graph may have as many events as it likes; each becomes one
 
 ## What you can reach
 
-137 nodes across eighteen categories, covering the same surface a written
+146 nodes across nineteen categories, covering the same surface a written
 script gets:
 
 | Category | |
@@ -121,8 +121,27 @@ script gets:
 | Physics | forces, impulses, velocity, raycasts |
 | Input, Time, Audio, UI, Output | actions by name, the step, one-shots, Log |
 | Maths, Vector, Logic, Values | arithmetic, trigonometry, comparison, literals |
+| Text | a number as text, text as a number, joining and comparing |
+| Render | one setting by name, the graphics API, and whether an effect actually ran |
 | Variables | numbers, vectors, flags, text and entities that survive between events |
 | Containers | lists and string-keyed maps of numbers and entities |
+
+**Text is how a graph says anything.** Until these existed a graph could
+compute a frame rate and had no way whatsoever to display it: the only sources
+of a string in the whole node set were a literal, a text variable and an
+entity's name. **Number To Text** and **Join Text** are what turn a number into
+something **Set UI Text** can take.
+
+**Render Setting answers what was asked for; Feature Active answers what
+happened.** They differ more often than they look: a project can ask for
+ray-traced reflections and get the screen-space chain instead, because the
+device has no ray query -- which is every OpenGL device, always. Anything
+reporting to a person what the renderer is doing wants **Feature Active**, or
+it will name a feature that never ran.
+
+**Set Field writes the entity the script runs on; Set Field On writes one you
+name.** The second exists because the first was the only one, and a graph could
+not touch anything but itself where a C# script always could.
 
 **Variables are the one thing a graph cannot work without.** A node graph with
 no memory can only compute from its inputs, so anything that accumulates — a

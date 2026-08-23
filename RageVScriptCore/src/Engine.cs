@@ -935,6 +935,96 @@ public enum AntiAliasing
 /// file's own keys.
 /// </para>
 /// </remarks>
+/// <summary>Which renderer is running, and how to say it.</summary>
+/// <remarks>
+/// Decided before the window exists and fixed for the life of the process, so
+/// there is nothing here to set. It is deliberately not a
+/// <see cref="RenderSettings"/> entry for that reason: that bridge reaches
+/// things a script may also write.
+/// </remarks>
+public static unsafe class Graphics
+{
+	/// <summary>Whether a named effect ran in the last frame.</summary>
+	/// <remarks>
+	/// <b>Not the same as whether its setting is on.</b> A project can ask for
+	/// ray-traced reflections on a device with no ray query and get the
+	/// screen-space chain instead -- so anything reporting to a person what the
+	/// renderer is doing should ask this rather than
+	/// <see cref="RenderSettings.Get"/>.
+	///
+	/// Names: Shadows, RayTracing, RTReflections, RTAmbientOcclusion,
+	/// RTGlobalIllumination, SSR, SSGI, AmbientOcclusion.
+	/// </remarks>
+	public static bool IsActive(string feature) =>
+		Native.IsReady && Native.WithUtf8(feature, utf8 => Native.Api.IsFeatureActive(utf8)) == 1;
+
+	/// <summary>"Vulkan", "OpenGL", or "None" before a device exists.</summary>
+	public static string Api
+	{
+		get
+		{
+			if (!Native.IsReady)
+				return "None";
+			return Native.Api.GetGraphicsApi() switch
+			{
+				0 => "Vulkan",
+				1 => "OpenGL",
+				_ => "None",
+			};
+		}
+	}
+}
+
+/// <summary>Turning values into text, for anything that displays them.</summary>
+/// <remarks>
+/// <b>These exist for the script graph.</b> C# has string interpolation and a
+/// graph has nothing: before these, a graph could compute a number and had no
+/// way whatsoever to put it on screen, because the only sources of a string in
+/// the whole node set were a literal, a text variable and an entity's name.
+/// They are ordinary static methods, so a hand-written script can use them too
+/// and the two languages stay equal.
+/// </remarks>
+public static class Text
+{
+	/// <summary>A number as text, to a fixed number of decimals.</summary>
+	/// <remarks>
+	/// Invariant culture, always. A frame time that reads "16,7" on a machine
+	/// set to German and "16.7" everywhere else is a screenshot nobody can
+	/// compare and a log nobody can parse.
+	/// </remarks>
+	public static string FromNumber(float value, float decimals)
+	{
+		int places = (int)decimals;
+		if (places < 0) places = 0;
+		if (places > 9) places = 9;
+		return value.ToString("F" + places,
+							  System.Globalization.CultureInfo.InvariantCulture);
+	}
+
+	/// <summary>Text as a number, or zero when it is not one.</summary>
+	/// <remarks>
+	/// Invariant culture for the same reason <see cref="FromNumber"/> uses it,
+	/// and <b>zero rather than an exception</b> for text that is not a number:
+	/// this is what a graph reads a setting through, and a graph has no way to
+	/// catch anything.
+	/// </remarks>
+	public static float ToNumber(string text) =>
+		float.TryParse(text, System.Globalization.NumberStyles.Float,
+					   System.Globalization.CultureInfo.InvariantCulture, out float value)
+			? value : 0.0f;
+
+	/// <summary>Two pieces of text, one after the other.</summary>
+	public static string Join(string a, string b) => (a ?? string.Empty) + (b ?? string.Empty);
+
+	/// <summary>Whether two pieces of text are the same, exactly.</summary>
+	/// <remarks>
+	/// Ordinal, not culture-aware: the graph compares these against values that
+	/// came out of a settings file, and "true" is "true" in every locale.
+	/// </remarks>
+	public static bool Same(string a, string b) =>
+		string.Equals(a ?? string.Empty, b ?? string.Empty, System.StringComparison.Ordinal);
+}
+
 public static unsafe class RenderSettings
 {
 	/// <summary>One setting, as text. Empty when the name is not a setting.</summary>

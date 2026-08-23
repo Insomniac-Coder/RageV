@@ -162,6 +162,12 @@ namespace RageV
 		BindKey(game, "Interact", RV_KEY_F);
 		BindMouseButton(game, "Fire", RV_MOUSE_BUTTON_LEFT);
 		BindMouseButton(game, "AltFire", RV_MOUSE_BUTTON_RIGHT);
+
+		// The convention every engine and half the games since Minecraft share,
+		// which is the whole argument for it: nobody has to be told what F3
+		// does. A default binding rather than something the showroom invents,
+		// because a diagnostic overlay is not a feature of one demo.
+		BindKey(game, "ToggleStats", RV_KEY_F3);
 	}
 
 	void InputMap::Update()

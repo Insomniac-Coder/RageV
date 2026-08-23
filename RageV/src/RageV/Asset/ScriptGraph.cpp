@@ -467,6 +467,19 @@ namespace RageV
 				{ { "", P::Exec }, { "Value", P::String } }, { { "", P::Exec } },
 				Emit::Special, "setfield");
 
+			// The same write, on an entity you name.
+			//
+			// **Set Field can only reach the entity the script runs on**,
+			// which a C# script has never been limited to -- it holds an
+			// Entity and calls SetComponentField on it. Anything a graph had
+			// to hide or configure elsewhere was simply out of reach, and the
+			// showroom's overlay hit it twice: once for a panel, once for the
+			// labels on it. ENGINE-NOTES 7cm.
+			set(GraphNodeType::SetFieldOn, "Set Field On", "Component",
+				{ { "", P::Exec }, { "Entity", P::Entity }, { "Value", P::String } },
+				{ { "", P::Exec } },
+				Emit::Special, "setfieldon");
+
 			// --- ui
 			set(GraphNodeType::SetUIText, "Set UI Text", "UI",
 				{ { "", P::Exec }, { "Entity", P::Entity }, { "Text", P::String } }, { { "", P::Exec } },
@@ -474,6 +487,52 @@ namespace RageV
 			set(GraphNodeType::ButtonClicked, "Button Clicked", "UI",
 				{ { "Entity", P::Entity } }, { { "", P::Bool } },
 				Emit::Expression, "{0}.WasButtonClicked()");
+
+			// --- text
+			//
+			// **These are the nodes a graph could not display a number
+			// without.** Before them the only sources of a string in the whole
+			// node set were a literal, a text variable and an entity's name --
+			// so a graph could compute a frame rate and had no way at all to
+			// put it on screen. ENGINE-NOTES 7cm.
+			set(GraphNodeType::NumberToText, "Number To Text", "Text",
+				{ { "Value", P::Float }, { "Decimals", P::Float } }, { { "", P::String } },
+				Emit::Expression, "Text.FromNumber({0}, {1})");
+			// The other direction, and the graph needs it as badly: the render
+			// settings bridge answers in text, so without this a graph can
+			// read an intensity like the vignette's and has no way to ask
+			// whether it is above zero.
+			set(GraphNodeType::TextToNumber, "Text To Number", "Text",
+				{ { "Text", P::String } }, { { "", P::Float } },
+				Emit::Expression, "Text.ToNumber({0})");
+			set(GraphNodeType::JoinText, "Join Text", "Text",
+				{ { "A", P::String }, { "B", P::String } }, { { "", P::String } },
+				Emit::Expression, "Text.Join({0}, {1})");
+			set(GraphNodeType::TextEquals, "Text Equals", "Text",
+				{ { "A", P::String }, { "B", P::String } }, { { "", P::Bool } },
+				Emit::Expression, "Text.Same({0}, {1})");
+
+			// --- what the renderer is doing
+			//
+			// By name, through the bridge protocol 8 added, so a setting added
+			// to any of the three registries reaches a graph with no new node.
+			// The value arrives as text because that is what the bridge speaks
+			// -- pair it with Text Equals to branch on it.
+			set(GraphNodeType::RenderSettingText, "Render Setting", "Render",
+				{ { "Name", P::String } }, { { "", P::String } },
+				Emit::Expression, "RenderSettings.Get({0})");
+			// Not a render setting: nothing can change it while the engine is
+			// up, so it does not ride the same bridge.
+			set(GraphNodeType::GraphicsApi, "Graphics API", "Render",
+				{}, { { "", P::String } },
+				Emit::Expression, "Graphics.Api");
+
+			// Whether an effect *ran*, which is the question anything showing
+			// the renderer's state to a person actually wants. Render Setting
+			// answers what was asked for; this answers what happened.
+			set(GraphNodeType::FeatureActive, "Feature Active", "Render",
+				{ { "Name", P::String } }, { { "", P::Bool } },
+				Emit::Expression, "Graphics.IsActive({0})");
 
 			// --- output
 			set(GraphNodeType::Log, "Log", "Output",
@@ -624,7 +683,15 @@ namespace RageV
 			{ GraphNodeType::RemoveComponent, "RemoveComponent" },
 			{ GraphNodeType::GetField, "GetField" },
 			{ GraphNodeType::SetField, "SetField" },
+			{ GraphNodeType::SetFieldOn, "SetFieldOn" },
 			{ GraphNodeType::SetUIText, "SetUIText" },
+			{ GraphNodeType::NumberToText, "NumberToText" },
+			{ GraphNodeType::TextToNumber, "TextToNumber" },
+			{ GraphNodeType::JoinText, "JoinText" },
+			{ GraphNodeType::TextEquals, "TextEquals" },
+			{ GraphNodeType::RenderSettingText, "RenderSettingText" },
+			{ GraphNodeType::GraphicsApi, "GraphicsApi" },
+			{ GraphNodeType::FeatureActive, "FeatureActive" },
 			{ GraphNodeType::ButtonClicked, "ButtonClicked" },
 			{ GraphNodeType::Log, "Log" },
 			{ GraphNodeType::LogWarning, "LogWarning" },

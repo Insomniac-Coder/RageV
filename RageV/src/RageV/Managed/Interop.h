@@ -277,6 +277,32 @@ namespace RageV::Managed
 		// the same answer as "not hovered" and is the honest one: a script
 		// asking this about the wrong entity wants a quiet false, not a throw.
 		int32_t (__cdecl* IsUIButtonHovered)(uint64_t entity);
+
+		// --- appended for protocol 11: which backend is running --------------
+		//
+		// 0 for Vulkan, 1 for OpenGL, -1 when there is no device.
+		//
+		// An int rather than a string on purpose: the set is closed, it is
+		// decided before the window exists and cannot change while the engine
+		// is up, and an int needs none of the buffer-and-capacity dance
+		// GetRenderSetting has to do. The managed side spells it.
+		//
+		// **Not a render setting**, which is why it is here rather than on the
+		// by-name bridge: that bridge reaches things a script may also write,
+		// and nothing can write this one.
+		int32_t (__cdecl* GetGraphicsApi)();
+
+		// Whether a named effect *ran in the last frame*, which is not the
+		// same question as whether its setting is on.
+		//
+		// A project can ask for ray-traced reflections on a device with no ray
+		// query and get the screen-space chain instead; the settings say
+		// nothing about that, and a script reporting them would name a feature
+		// that never ran. This answers from what FrameGraphBuilder resolved.
+		//
+		// -1 for a name that is not a feature, so "unknown" stays
+		// distinguishable from "off".
+		int32_t (__cdecl* IsFeatureActive)(const char* name);
 	};
 
 	// One raycast hit, as it crosses the boundary. Mirrors RageV::RayHit,
@@ -454,7 +480,11 @@ namespace RageV::Managed
 		// 9: the ground under a point: terrain height, from whichever terrain
 		//    covers it or from one named (ENGINE-NOTES 7au).
 		// 10: a button's hover state, which nothing could read before.
-		static constexpr int32_t kProtocolVersion = 10;
+		// 11: which graphics backend is running, and which effects the last
+		//     frame actually ran -- as opposed to which were asked for. Not a render *setting* --
+		//     nothing can change it while the engine is up -- so it could not
+		//     ride the by-name bridge protocol 8 added.
+		static constexpr int32_t kProtocolVersion = 11;
 
 		// Every bit RageV.Interop.SelfTest sets when nothing is wrong, mirrored
 		// here so scenetest asserts against a name rather than against a number

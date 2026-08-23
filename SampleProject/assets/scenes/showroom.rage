@@ -824,6 +824,198 @@ Entities:
       Align: Center
       Wrap: false
       LineSpacing: 1
+  - EntityID: 3050198340312232882
+    TagComponent:
+      Tag: Stats Panel
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 5693641162652923729
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [0, 0]
+      OffsetMin: [11, 11]
+      OffsetMax: [367, 161.640625]
+      SortOrder: 2
+      Visible: false
+      BlocksPointer: false
+    UIImageComponent:
+      Texture: 0
+      Color: [0, 0, 0, 0.85]
+    ManagedScriptComponent:
+      Script: Stats
+  - EntityID: 3594440577201042337
+    TagComponent:
+      Tag: Stats Frame
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3050198340312232882
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [11, 11]
+      OffsetMax: [-11, 35.609375]
+      SortOrder: 3
+      Visible: false
+      BlocksPointer: false
+    UITextComponent:
+      Text: ''
+      Font: 12355000851502047045
+      Size: 21
+      Color: [0.88, 0.89, 0.92, 0.95]
+      Align: Left
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 11305732895755753991
+    TagComponent:
+      Tag: Stats Mode
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3050198340312232882
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [11, 35.609375]
+      OffsetMax: [-11, 52.015625]
+      SortOrder: 3
+      Visible: false
+      BlocksPointer: false
+    UITextComponent:
+      Text: ''
+      Font: 12355000851502047045
+      Size: 14
+      Color: [0.52, 0.53, 0.58, 0.95]
+      Align: Left
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 9392721664371784442
+    TagComponent:
+      Tag: Stats Rule
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3050198340312232882
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [11, 62.015625]
+      OffsetMax: [-11, 64.015625]
+      SortOrder: 3
+      Visible: false
+      BlocksPointer: false
+    UIImageComponent:
+      Texture: 0
+      Color: [0.878, 0.188, 0.188, 0.9]
+  - EntityID: 9595623585694902222
+    TagComponent:
+      Tag: Stats Render Caption
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3050198340312232882
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [11, 74.015625]
+      OffsetMax: [-11, 90.421875]
+      SortOrder: 3
+      Visible: false
+      BlocksPointer: false
+    UITextComponent:
+      Text: 'RENDER'
+      Font: 12355000851502047045
+      Size: 14
+      Color: [0.52, 0.53, 0.58, 0.95]
+      Align: Left
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 3470161063590603844
+    TagComponent:
+      Tag: Stats Render
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3050198340312232882
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [85, 74.015625]
+      OffsetMax: [-11, 106.828125]
+      SortOrder: 3
+      Visible: false
+      BlocksPointer: false
+    UITextComponent:
+      Text: ''
+      Font: 12355000851502047045
+      Size: 14
+      Color: [0.88, 0.89, 0.92, 0.95]
+      Align: Left
+      Wrap: true
+      LineSpacing: 1
+  - EntityID: 7718832658216925044
+    TagComponent:
+      Tag: Stats Post Caption
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3050198340312232882
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [11, 106.828125]
+      OffsetMax: [-11, 123.234375]
+      SortOrder: 3
+      Visible: false
+      BlocksPointer: false
+    UITextComponent:
+      Text: 'POST'
+      Font: 12355000851502047045
+      Size: 14
+      Color: [0.52, 0.53, 0.58, 0.95]
+      Align: Left
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 4640708201371326126
+    TagComponent:
+      Tag: Stats Post
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3050198340312232882
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [85, 106.828125]
+      OffsetMax: [-11, 139.640625]
+      SortOrder: 3
+      Visible: false
+      BlocksPointer: false
+    UITextComponent:
+      Text: ''
+      Font: 12355000851502047045
+      Size: 14
+      Color: [0.88, 0.89, 0.92, 0.95]
+      Align: Left
+      Wrap: true
+      LineSpacing: 1
   - EntityID: 12923420513844985912
     TagComponent:
       Tag: Lights Button

@@ -783,10 +783,118 @@ def build(profile, mat):
 BAR_HEIGHT = 44
 CREDIT_SIZE = 17
 
+# --- the F3 statistics box --------------------------------------------------
+#
+# Same black at the same 0.85 the credit bar uses, so two overlays on one
+# picture read as one system. Top-left because that is where every engine and
+# half the games since Minecraft have put this.
+#
+# **Filled entirely by the script graph.** Nothing in this file computes a
+# frame time or knows which effects are on; the four value lines are written
+# empty and Stats.rvgraph fills them. See tools/scripts/make_stats_graph.py.
+STATS_PAD = 11
+STATS_WIDTH = 356
+
+# Two sizes and two weights of colour, which is the whole of the layout: the
+# number you glance at is large and bright, what it is measuring is small and
+# dim. A box where every line is the same size is the "bunch of words" the
+# first attempt was.
+STATS_BIG = 21
+STATS_SMALL = 14
+STATS_BRIGHT = "[0.88, 0.89, 0.92, 0.95]"
+STATS_DIM = "[0.52, 0.53, 0.58, 0.95]"
+
+# The mark's red, as the rule under the headline. The one piece of colour in
+# the box, and it is the same accent the editor uses for the same job.
+STATS_RULE = "[0.878, 0.188, 0.188, 0.9]"
+
+# Value lines the graph writes, as (entity, size, colour, x inset, wrap).
+STATS_VALUES = [
+    ("Stats Frame", STATS_BIG,   STATS_BRIGHT, 0,  "false"),
+    ("Stats Mode",  STATS_SMALL, STATS_DIM,    0,  "false"),
+    ("Stats Render", STATS_SMALL, STATS_BRIGHT, 74, "false"),
+    ("Stats Post",  STATS_SMALL, STATS_BRIGHT, 74, "true"),
+]
+
+# Static captions the graph never touches. They sit in their own column so the
+# values line up under each other rather than starting wherever the caption
+# happened to end.
+STATS_CAPTIONS = [("Stats Render Caption", "RENDER"), ("Stats Post Caption", "POST")]
+
+
 BUTTON_WIDTH = 120
 BUTTON_HEIGHT = 30
 BUTTON_INSET = 14              # from the right edge of the bar
 BUTTON_LABEL_SIZE = 14
+
+
+def stats_box(s):
+    """The F3 overlay: a panel, a headline, a rule and four value lines.
+
+    Everything here is hidden -- the graph turns the whole group on with Set
+    Field On, which is the node that had to exist before a graph could reach a
+    component field on any entity but its own.
+    """
+    big = line_height(STATS_BIG)
+    small = line_height(STATS_SMALL)
+    rule = 2
+
+    # headline, mode line, rule, then two captioned rows of two lines each.
+    # **Both value rows wrap.** With ray tracing on, RENDER lists five things
+    # and ran off the right edge; the row that overflows depends on what the
+    # renderer resolved, so both get the room rather than whichever one
+    # happened to be long the day it was written.
+    height = STATS_PAD * 2 + big + small + 10 + rule + 10 + small * 4
+
+    s.entity("Stats Panel", parent="Showroom Canvas")
+    s.block("UIRectComponent", [
+        ("AnchorMin", "[0, 0]"), ("AnchorMax", "[0, 0]"),
+        ("OffsetMin", f"[{STATS_PAD}, {STATS_PAD}]"),
+        ("OffsetMax", f"[{STATS_PAD + STATS_WIDTH}, {STATS_PAD + height}]"),
+        ("SortOrder", 2), ("Visible", "false"), ("BlocksPointer", "false"),
+    ])
+    s.block("UIImageComponent", [("Texture", 0), ("Color", "[0, 0, 0, 0.85]")])
+    # The graph lives on the panel because that is the element it toggles
+    # first; everything else it reaches with Set Field On.
+    s.block("ManagedScriptComponent", [("Script", "Stats")])
+
+    def line(name, top, height_, inset, size, colour, wrap, text="''"):
+        s.entity(name, parent="Stats Panel")
+        s.block("UIRectComponent", [
+            ("AnchorMin", "[0, 0]"), ("AnchorMax", "[1, 0]"),
+            ("OffsetMin", f"[{STATS_PAD + inset}, {top}]"),
+            ("OffsetMax", f"[{-STATS_PAD}, {top + height_}]"),
+            ("SortOrder", 3), ("Visible", "false"), ("BlocksPointer", "false"),
+        ])
+        s.block("UITextComponent", [
+            ("Text", text), ("Font", FONT), ("Size", size), ("Color", colour),
+            ("Align", "Left"), ("Wrap", wrap), ("LineSpacing", 1),
+        ])
+
+    y = STATS_PAD
+    line("Stats Frame", y, big, 0, STATS_BIG, STATS_BRIGHT, "false")
+    y += big
+    line("Stats Mode", y, small, 0, STATS_SMALL, STATS_DIM, "false")
+    y += small + 10
+
+    # The rule. A rectangle rather than a row of dashes, which means the graph
+    # has to hide it like everything else -- and can, now.
+    s.entity("Stats Rule", parent="Stats Panel")
+    s.block("UIRectComponent", [
+        ("AnchorMin", "[0, 0]"), ("AnchorMax", "[1, 0]"),
+        ("OffsetMin", f"[{STATS_PAD}, {y}]"),
+        ("OffsetMax", f"[{-STATS_PAD}, {y + rule}]"),
+        ("SortOrder", 3), ("Visible", "false"), ("BlocksPointer", "false"),
+    ])
+    s.block("UIImageComponent", [("Texture", 0), ("Color", STATS_RULE)])
+    y += rule + 10
+
+    for caption_entity, caption in STATS_CAPTIONS:
+        value = "Stats Render" if caption == "RENDER" else "Stats Post"
+        line(caption_entity, y, small, 0, STATS_SMALL, STATS_DIM, "false",
+             "'" + caption + "'")
+        line(value, y, small * 2, 74, STATS_SMALL, STATS_BRIGHT, "true")
+        y += small * 2
 
 
 def overlay_ui(s):
@@ -870,6 +978,8 @@ def overlay_ui(s):
         ("Color", "[0.82, 0.83, 0.86, 0.86]"),
         ("Align", "Center"), ("Wrap", "false"), ("LineSpacing", 1),
     ])
+
+    stats_box(s)
 
     # --- the lights switch --------------------------------------------------
     #

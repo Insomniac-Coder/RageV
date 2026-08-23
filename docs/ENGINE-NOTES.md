@@ -13045,6 +13045,112 @@ renders can hold whatever size it likes. It costs one frame at the old size the
 first time the viewport is shown, because the size is recorded during the UI
 pass and applied at the start of the next frame.
 
+### 7cm. The graph built an overlay, and told us what it could not do
+
+The showroom's F3 statistics box -- frame time, frame rate, the graphics API,
+and which render and post effects are running -- is **266 nodes and no C#**.
+That was the point: not to have the overlay, but to find out whether a graph
+can reach what the other two languages reach. Anything it could not do had to
+become a node rather than a helper written in C#, so every gap the exercise
+found is now closed rather than worked around.
+
+Nine node types came out of it. Seven were absences, one was a defect, and one
+was the interesting one.
+
+#### It could not display a number
+
+The largest hole, and not an obvious one until something needed it. There were
+exactly three sources of a string in the entire node set -- a literal, a text
+variable, and an entity's name -- and **nothing that converted or joined**. A
+graph could compute a frame rate to four decimal places and had no way at all
+to put it on screen.
+
+`Number To Text`, `Text To Number`, `Join Text`, `Text Equals`. The pair that
+crosses between numbers and text is what makes any of the rest useful: the
+render settings bridge answers in text, so without `Text To Number` a graph
+could read the vignette's intensity and could not ask whether it was above
+zero.
+
+#### It could not write another entity
+
+`Set Field` emits `Entity.SetComponentField(...)` against **self**, and there
+was no other. A C# script has always held an `Entity` and written any of them.
+The overlay hit this twice -- once for the panel it hides, once for the seven
+labels on it -- before it was clear this was a capability gap and not a
+missing convenience. `Set Field On` takes the entity as a pin.
+
+#### The settings bridge disagreed with the file format
+
+A save writes `AntiAliasing: TAA`. Asked through the script bridge, the same
+setting answered **`4`**. `FieldType::Enum` went through the ordinal in both
+directions -- self-consistent, and inconsistent with every file on disk. The
+field hints already carry the names; the bridge uses them now, and still
+accepts an ordinal so a script written against the old behaviour keeps working.
+
+Found by putting the render settings on screen, where it read as a bare number
+nobody could act on.
+
+#### Asking the settings was the wrong question
+
+The first version listed `SSR` and `SSGI` while ray tracing was on -- and they
+were not running, because the traced variants replace them. The obvious repair
+is to teach the graph the rule: *if RayTracing and RayTracedReflections is not
+Off, say RT Reflections*.
+
+**That would have been the same mistake as 7cj.** Those resolutions also test
+the device -- no ray query, or non-bindless materials, and the engine falls
+back to the screen-space chain without saying so. A graph carrying a copy of
+the rule would confidently print "RT Reflections" on OpenGL, which has no ray
+query and never will. A copy of a rule drifts from the rule.
+
+So `FrameGraphBuilder` publishes what it actually resolved, and `Feature
+Active` asks it. The whole difference is visible in one screenshot each:
+
+| | RENDER line |
+|---|---|
+| Vulkan | Shadows RayTracing RT Reflections RT GI RT AO |
+| OpenGL | Shadows |
+
+Neither the graph nor the overlay contains the words "if OpenGL". The reasons
+live in the `Resolve*` functions, once, and everything else asks.
+
+#### What the graph is still clumsy at
+
+Three things, none of them fatal, all of them worth knowing before choosing a
+graph for something:
+
+- **Exec cannot merge.** An input pin takes one link, so a Branch's two sides
+  can never rejoin. Every "do this, then carry on regardless" has to be a
+  Sequence whose second output is the rest of the program, and the False side
+  of a test simply dangles. The feature list is a right-leaning chain of eleven
+  Sequences for that reason.
+- **Functions take no parameters and return nothing.** `FunctionEntry` has one
+  exec output and `CallFunction` one exec input, so a graph function is a
+  `void f()` that communicates through variables. The overlay accumulates its
+  feature list in a text variable because there is no other way to write
+  `append(list, item)`.
+- **It is about twenty times the size.** The same overlay in C# is roughly
+  fourteen lines. That ratio is the measurement rather than a complaint --
+  it is what a graph costs, and it is the number to weigh when deciding
+  whether a piece of behaviour should be one.
+
+None of that stopped it. **Everything the box does, a graph does**, which is
+the answer the exercise was after.
+
+#### Two things that were stale rather than wrong
+
+Worth recording because both wasted time and neither is visible from the code:
+
+- A game module built against the previous engine fails to load with **error
+  127** and takes seven scenetest claims with it, looking exactly like a broken
+  scripting system. Rebuild `SampleProject/bin/module` after any engine ABI
+  change -- adding a node type is one.
+- `check_graph.py` compiled the generated C# against
+  `RageVScriptCore/bin/`, which nothing in the normal build refreshes. It had
+  been months out of date and was failing on attributes added since -- a check
+  failing for a reason unrelated to what it checks. It looks in the CMake
+  output first now.
+
 ---
 
 ## 8. What this changes

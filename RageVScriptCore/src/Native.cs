@@ -126,6 +126,12 @@ internal unsafe struct NativeApi
 	// The companion to WasUIButtonClicked. The canvas tints a hovered button's
 	// image and nothing else, so a label that changes on hover needs this.
 	public delegate* unmanaged[Cdecl]<ulong, int> IsUIButtonHovered;
+
+	/// <summary>0 Vulkan, 1 OpenGL, -1 no device. Protocol 11.</summary>
+	public delegate* unmanaged[Cdecl]<int> GetGraphicsApi;
+
+	/// <summary>1 on, 0 off, -1 not a feature. Protocol 11.</summary>
+	public delegate* unmanaged[Cdecl]<byte*, int> IsFeatureActive;
 }
 
 /// <summary>Mirrors <c>RageV::Managed::RayHitData</c>, field for field.</summary>

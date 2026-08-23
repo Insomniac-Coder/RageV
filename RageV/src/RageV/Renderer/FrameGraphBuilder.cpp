@@ -524,6 +524,32 @@ namespace RageV
 								  && desc.Reflections != nullptr
 								  && PostProcess::IsReady();
 
+		// **What actually runs, published for anything that reports it.**
+		//
+		// Every line here is a resolution rather than a setting, and the two
+		// differ in the case that matters: a project with RayTracing on and
+		// reflections at High still runs the screen-space chain on a device
+		// with no ray query, which OpenGL never has. Anything that read the
+		// settings instead would name a traced feature on a backend that
+		// cannot trace, and there would be no way to tell from the screen.
+		//
+		// It also means nothing downstream needs to know *why* a feature is
+		// off -- no device check, no "if OpenGL". The reasons live in the
+		// Resolve* functions above, once. ENGINE-NOTES 7cm.
+		{
+			Renderer::Features active;
+			active.Shadows = desc.Render.ShadowsEnabled;
+			active.RayTracing = ResolveRayTracing(desc.Render);
+			active.RayTracedReflections = rayReflections;
+			active.RayTracedAmbientOcclusion = rayOcclusion;
+			active.RayTracedGlobalIllumination = rayGi;
+			active.ScreenSpaceReflections = wantReflections;
+			active.ScreenSpaceGlobalIllumination = desc.Post.GlobalIllumination && !rayGi;
+			active.AmbientOcclusion =
+				(rayOcclusion ? rayAo : desc.Post.AmbientOcclusion) != AoDetail::Off;
+			Renderer::SetActiveFeatures(active);
+		}
+
 		Renderer::ScreenReflections reflectionsForScene;
 		RGResource previousReflections = kRGInvalid;
 		RGResource currentReflections = kRGInvalid;

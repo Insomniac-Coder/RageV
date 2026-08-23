@@ -45,7 +45,7 @@ public static unsafe class Interop
 	// 8: the render settings, by name and as text.
 	// 9: the ground under a point -- terrain height (ENGINE-NOTES 7au).
 	// 10: a button's hover state, which nothing could read before.
-	public const int ProtocolVersion = 10;
+	public const int ProtocolVersion = 11;
 
 	/// <summary>
 	/// The first call the engine makes. Confirms the protocol and takes the

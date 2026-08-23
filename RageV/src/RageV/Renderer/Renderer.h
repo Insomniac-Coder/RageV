@@ -121,6 +121,33 @@ namespace RageV
 		static void SetReflectionGloss(const Vec2& window);
 		static Vec2 GetReflectionGloss();
 
+		// What the last frame graph actually built, as opposed to what was
+		// asked for.
+		//
+		// **The difference is not cosmetic.** A project with RayTracing on and
+		// reflections at High still runs screen-space reflections on a device
+		// with no ray query -- OpenGL, always -- and the settings say nothing
+		// about that. Anything reporting to a person what the renderer is
+		// doing has to read this and not the settings, or it confidently names
+		// a feature that did not run.
+		//
+		// Written where the resolution happens, in FrameGraphBuilder, beside
+		// SetReflectionGloss and for the same reason: one place decides, and
+		// everything else asks it.
+		struct Features
+		{
+			bool RayTracing = false;
+			bool RayTracedReflections = false;
+			bool RayTracedAmbientOcclusion = false;
+			bool RayTracedGlobalIllumination = false;
+			bool ScreenSpaceReflections = false;
+			bool ScreenSpaceGlobalIllumination = false;
+			bool AmbientOcclusion = false;
+			bool Shadows = false;
+		};
+		static void SetActiveFeatures(const Features& features);
+		static const Features& GetActiveFeatures();
+
 		// Last frame's indirect diffuse, for the lighting that draws this
 		// frame: RGB the irradiance arriving from the scene, **albedo-free**,
 		// A how far to trust it. ENGINE-NOTES 7av.

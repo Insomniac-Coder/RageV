@@ -197,9 +197,20 @@ def main():
     # --- 2: the C# compiles ---------------------------------------------------
     dotnet = shutil.which("dotnet") or r"C:\Program Files\dotnet\dotnet.exe"
     csproj = ROOT / "SampleProject" / "Scripts" / "Sample.csproj"
-    core = ROOT / "RageVScriptCore" / "bin" / args.config / "net8.0" / "RageV.ScriptCore.dll"
-    if not core.exists():
-        core = ROOT / "RageVScriptCore" / "bin" / "Release" / "net8.0" / "RageV.ScriptCore.dll"
+    # **The one CMake builds, first.** RageVScriptCore/bin is where a bare
+    # `dotnet build` of the class library lands, and nothing in the normal
+    # build refreshes it -- so this was compiling the generated script against
+    # a ScriptCore months out of date and failing on attributes that had been
+    # added since. A check that fails for a reason unrelated to what it checks
+    # is a check people learn to ignore.
+    candidates = [
+        ROOT / "build" / "bin" / args.config / "managed" / "RageV.ScriptCore.dll",
+        ROOT / "build" / "bin" / "Release" / "managed" / "RageV.ScriptCore.dll",
+        ROOT / "build" / "bin" / "Debug" / "managed" / "RageV.ScriptCore.dll",
+        ROOT / "RageVScriptCore" / "bin" / args.config / "net8.0" / "RageV.ScriptCore.dll",
+        ROOT / "RageVScriptCore" / "bin" / "Release" / "net8.0" / "RageV.ScriptCore.dll",
+    ]
+    core = next((c for c in candidates if c.exists()), candidates[0])
 
     build = subprocess.run(
         [dotnet, "build", str(csproj), "-c", args.config, "--nologo",

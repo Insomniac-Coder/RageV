@@ -150,6 +150,7 @@ namespace RageV
 		int s_GiBounces = 1;
 		float s_GiReach = 0.0f;
 		Vec2 s_ReflectionGloss{ 0.25f, 0.60f };
+		Renderer::Features s_Features;
 	}
 
 	void Renderer::SetGlobalIllumination(float intensity)
@@ -180,6 +181,16 @@ namespace RageV
 	void Renderer::SetReflectionGloss(const Vec2& window)
 	{
 		s_ReflectionGloss = window;
+	}
+
+	void Renderer::SetActiveFeatures(const Features& features)
+	{
+		s_Features = features;
+	}
+
+	const Renderer::Features& Renderer::GetActiveFeatures()
+	{
+		return s_Features;
 	}
 
 	Vec2 Renderer::GetReflectionGloss()

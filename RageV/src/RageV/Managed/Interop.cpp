@@ -20,6 +20,7 @@
 #include <sstream>
 
 #include <cstring>
+#include "RageV/Renderer/Renderer.h"
 
 namespace RageV::Managed
 {
@@ -665,7 +666,20 @@ namespace RageV::Managed
 			{
 				case FieldType::Bool:   return Detail::ScriptFieldToText(*(bool*)value);
 				case FieldType::Int:    return Detail::ScriptFieldToText(*(int*)value);
-				case FieldType::Enum:   return Detail::ScriptFieldToText(*(int*)value);
+				case FieldType::Enum:
+				{
+					// **The name, not the ordinal.** The file format writes
+					// `AntiAliasing: TAA`, and this used to answer "4" for the
+					// same setting -- so a script and a save disagreed about
+					// what the value of a setting even looked like. Found by
+					// putting the render settings on screen from a script
+					// graph, where it read as a bare number nobody could act
+					// on. ENGINE-NOTES 7cm.
+					const int index = *(int*)value;
+					if (field.Hint.EnumNames && index >= 0 && index < field.Hint.EnumCount)
+						return field.Hint.EnumNames[index];
+					return Detail::ScriptFieldToText(index);
+				}
 				case FieldType::Float:  return Detail::ScriptFieldToText(*(float*)value);
 				case FieldType::Vec2:   return Detail::ScriptFieldToText(*(Vec2*)value);
 				case FieldType::Vec3:   return Detail::ScriptFieldToText(*(Vec3*)value);
@@ -699,7 +713,25 @@ namespace RageV::Managed
 			{
 				case FieldType::Bool:   Detail::ScriptFieldFromText(text, *(bool*)value); return true;
 				case FieldType::Int:    Detail::ScriptFieldFromText(text, *(int*)value); return true;
-				case FieldType::Enum:   Detail::ScriptFieldFromText(text, *(int*)value); return true;
+				case FieldType::Enum:
+				{
+					// A name, as the file writes it -- and still an ordinal,
+					// because a script written before this read one out and
+					// wrote it straight back.
+					if (field.Hint.EnumNames)
+					{
+						for (int i = 0; i < field.Hint.EnumCount; i++)
+						{
+							if (text == field.Hint.EnumNames[i])
+							{
+								*(int*)value = i;
+								return true;
+							}
+						}
+					}
+					Detail::ScriptFieldFromText(text, *(int*)value);
+					return true;
+				}
 				case FieldType::Float:  Detail::ScriptFieldFromText(text, *(float*)value); return true;
 				case FieldType::Vec2:   Detail::ScriptFieldFromText(text, *(Vec2*)value); return true;
 				case FieldType::Vec3:   Detail::ScriptFieldFromText(text, *(Vec3*)value); return true;
@@ -877,6 +909,34 @@ namespace RageV::Managed
 			return s_Scene->TerrainHeightAt(Resolve(terrain), *worldPosition, *height) ? 1 : 0;
 		}
 
+		int32_t __cdecl GetGraphicsApi()
+		{
+			if (!Renderer::HasDevice())
+				return -1;
+			return Renderer::GetDevice().GetBackend() == RHI::Backend::Vulkan ? 0 : 1;
+		}
+
+		int32_t __cdecl IsFeatureActive(const char* name)
+		{
+			if (!name || !Renderer::HasDevice())
+				return -1;
+
+			const Renderer::Features& f = Renderer::GetActiveFeatures();
+			const std::string key = name;
+
+			// The names a person would use, not the field names: this is read
+			// by things that put text on a screen.
+			if (key == "Shadows")          return f.Shadows ? 1 : 0;
+			if (key == "RayTracing")       return f.RayTracing ? 1 : 0;
+			if (key == "RTReflections")    return f.RayTracedReflections ? 1 : 0;
+			if (key == "RTAmbientOcclusion") return f.RayTracedAmbientOcclusion ? 1 : 0;
+			if (key == "RTGlobalIllumination") return f.RayTracedGlobalIllumination ? 1 : 0;
+			if (key == "SSR")              return f.ScreenSpaceReflections ? 1 : 0;
+			if (key == "SSGI")             return f.ScreenSpaceGlobalIllumination ? 1 : 0;
+			if (key == "AmbientOcclusion") return f.AmbientOcclusion ? 1 : 0;
+			return -1;
+		}
+
 		int32_t __cdecl GetRenderSetting(const char* name, char* buffer, int32_t capacity)
 		{
 			if (!s_Scene || !name)
@@ -977,6 +1037,8 @@ namespace RageV::Managed
 			api.GetTerrainHeight = &GetTerrainHeight;
 			api.GetTerrainHeightOn = &GetTerrainHeightOn;
 			api.IsUIButtonHovered = &IsUIButtonHovered;
+			api.GetGraphicsApi = &GetGraphicsApi;
+			api.IsFeatureActive = &IsFeatureActive;
 			return api;
 		}
 	}
