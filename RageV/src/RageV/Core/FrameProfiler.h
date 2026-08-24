@@ -130,16 +130,50 @@ namespace RageV
 		// measures. --pass-timings=on turns it on; --benchmark implies it.
 		static void EnablePassTimings(bool on);
 		static bool PassTimingsEnabled();
-		static bool ClaimNamedGpuScope(const char* name, uint32_t& beginSlot, uint32_t& endSlot);
+
+		// No pass. Returned by PassId when pass timings are off, which is the
+		// one test a caller needs -- an id that is not this one is worth
+		// timing on both processors.
+		static constexpr uint32_t kNoPass = 0xFFFFFFFFu;
+
+		// Interns a pass name and hands back a stable index. Append-only, so
+		// an index stays valid for the process; the caller is expected to
+		// resolve once and keep it rather than pass a string every frame.
+		static uint32_t PassId(const char* name);
+		static bool ClaimNamedGpuScope(uint32_t pass, uint32_t& beginSlot, uint32_t& endSlot);
+
+		// The CPU half of a pass: the wall time the graph spent recording it.
+		//
+		// It has to be separate from the GPU half because the two are claimed
+		// differently -- the GPU pair can fail when a frame runs out of slots
+		// and the CPU clock cannot -- and because *this is the column the
+		// texel-emitter investigation needed and did not have*. A pass whose
+		// ExecuteFn uploads a buffer or writes a descriptor spends CPU time
+		// inside the graph, and the by-pass table reported only GPU, so that
+		// work had no row anywhere and read as "no nameable pass".
+		static void AddPassCpu(uint32_t pass, float milliseconds);
 
 		struct PassTiming
 		{
 			std::string Name;
+			float       CpuMs = 0.0f;
 			float       GpuMs = 0.0f;
 			uint32_t    Calls = 0;
 		};
-		// Smoothed like the phases, sorted longest first.
+		// Smoothed like the phases, sorted longest first. For the editor's
+		// panel, which wants a readable number rather than a statistic.
 		static const std::vector<PassTiming>& PassTimings();
+
+		// The same passes as true arithmetic means over the collected frames,
+		// which is what a benchmark must report.
+		//
+		// The live table above is an exponential moving average read at
+		// whatever frame the run ended on. Differencing an EMA endpoint
+		// against the frame row -- which is a real mean -- compares two
+		// different estimators, and the second carries several times the
+		// noise. That is how a 0.19 ms "the pass got faster" was set beside a
+		// 0.37 ms "the frame got slower" and neither could be believed.
+		static std::vector<PassTiming> MeanPassTimings();
 
 		// Claims the next free pair of slots for `phase`. Returns false when the
 		// frame has used them all, in which case the scope is CPU only.

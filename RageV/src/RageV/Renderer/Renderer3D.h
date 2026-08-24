@@ -236,6 +236,17 @@ namespace RageV
 		static unsigned int GetDrawCallCount();
 		static unsigned int GetTriangleCount();
 
+		// The area emitters the traced bounce aims shadow rays at, and how
+		// many of those carry a per-texel aiming table.
+		//
+		// Reported so a measurement can say whether the feature under test
+		// engaged at all. The showroom that shipped produces two emitters and
+		// *zero* aiming ones -- its lit fitting tiles its material, which the
+		// affine-uv gate rejects -- so a benchmark run against it exercises
+		// none of the texel path, and nothing in the report said so.
+		static unsigned int GetAreaEmitterCount();
+		static unsigned int GetAimedEmitterCount();
+
 		// Whether the lit shaders trace the directional light's shadow instead
 		// of sampling cascades (ENGINE-NOTES 7am). Switching recompiles the two
 		// lit shaders with RV_RAY_SHADOWS and rebuilds their pipelines, which

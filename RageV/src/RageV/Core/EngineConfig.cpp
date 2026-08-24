@@ -123,7 +123,12 @@ namespace RageV
 			return ParseBool(value, config.DepthSortOpaque);
 
 		if (key == "pass-timings" || key == "passtimings")
-			return ParseBool(value, config.PassTimings);
+		{
+			if (!ParseBool(value, config.PassTimings))
+				return false;
+			config.HasPassTimingsOverride = true;
+			return true;
+		}
 
 		if (key == "gpu-cull" || key == "gpucull")
 			return ParseBool(value, config.GpuCull);

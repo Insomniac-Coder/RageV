@@ -327,6 +327,26 @@ namespace RageV
 		bool m_Compiled = false;
 		std::string m_Name;
 
+		// "graph/pass" per pass index, built once and reused.
+		//
+		// The frame loop used to compose this string every pass of every
+		// frame -- an allocation and a concat, thirty-odd times, paid by the
+		// code whose job is to measure the frame. The passes are rebuilt each
+		// frame but their names are the same ones in the same order, so a
+		// compare against the cached name is enough to know the composed form
+		// still stands.
+		struct PassScopeName
+		{
+			std::string PassName;
+			std::string Scope;
+			// Resolved lazily: pass timings can be switched on at runtime from
+			// the editor, and an id taken while they were off is kNoPass.
+			uint32_t Id = 0xFFFFFFFFu;
+		};
+		std::vector<PassScopeName> m_ScopeNames;
+		// The graph name the cache above was composed against.
+		std::string m_ScopeNamesFor;
+
 		// Kept between frames so a stable frame allocates nothing after the
 		// first. Keyed by description and size.
 		struct Pooled

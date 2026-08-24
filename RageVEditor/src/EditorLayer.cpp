@@ -2328,6 +2328,103 @@ void EditorLayer::DrawStatisticsPanel()
 							"or the present.");
 	}
 
+	// **What each technique costs**, which is the question the phase table
+	// above cannot answer: "render graph 4.9 ms" says the frame is spent on
+	// rendering and nothing about which of thirty-odd passes spent it.
+	//
+	// Behind a toggle rather than always on, and the toggle says why: seventy
+	// timestamps a frame is not free, and a profiler that is always running is
+	// part of what it measures.
+	ImGui::SeparatorText("Passes");
+	{
+		bool passTimings = FrameProfiler::PassTimingsEnabled();
+		if (ImGui::Checkbox("Time each pass", &passTimings))
+			FrameProfiler::EnablePassTimings(passTimings);
+
+		ImGui::SameLine();
+		ImGui::TextDisabled("(?)");
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Two timestamps per pass, and a clock around the CPU that\n"
+							  "records it. Costs a little; leave it off when measuring.");
+
+		if (!passTimings)
+		{
+			ImGui::TextDisabled("Off. Turn it on to see what each technique and post "
+								"effect costs.");
+		}
+		else if (FrameProfiler::PassTimings().empty())
+		{
+			ImGui::TextDisabled("No passes timed yet -- give it a frame.");
+		}
+		else if (ImGui::BeginTable("##PassStats", 4, ImGuiTableFlags_SizingStretchProp |
+													ImGuiTableFlags_RowBg |
+													ImGuiTableFlags_ScrollY,
+								   ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing() * 12.0f)))
+		{
+			ImGui::TableSetupColumn("Pass");
+			ImGui::TableSetupColumn("CPU");
+			ImGui::TableSetupColumn("GPU");
+			ImGui::TableSetupColumn("%");
+			ImGui::TableSetupScrollFreeze(0, 1);
+			ImGui::TableHeadersRow();
+
+			const auto& passes = FrameProfiler::PassTimings();
+			const float gpuFrame = FrameProfiler::LiveGpuFrameMs();
+
+			float cpuListed = 0.0f;
+			float gpuListed = 0.0f;
+			for (const auto& pass : passes)
+			{
+				cpuListed += pass.CpuMs;
+				gpuListed += pass.GpuMs;
+
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				// The graph's own name, "graph/pass". The prefix matters in the
+				// editor, where the scene and the game viewport each run a
+				// whole graph and the same pass appears in both.
+				ImGui::TextUnformatted(pass.Name.c_str());
+				if (pass.Calls > 1 && ImGui::IsItemHovered())
+					ImGui::SetTooltip("Ran %ux this frame; the numbers are the total.",
+									  pass.Calls);
+
+				ImGui::TableNextColumn(); ImGui::Text("%.3f", pass.CpuMs);
+				ImGui::TableNextColumn(); ImGui::Text("%.3f", pass.GpuMs);
+				ImGui::TableNextColumn();
+				if (gpuFrame > 0.0f)
+					ImGui::Text("%.1f%%", 100.0f * pass.GpuMs / gpuFrame);
+				else
+					ImGui::TextDisabled("--");
+			}
+
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn(); ImGui::TextDisabled("sum of passes");
+			ImGui::TableNextColumn(); ImGui::TextDisabled("%.3f", cpuListed);
+			ImGui::TableNextColumn(); ImGui::TextDisabled("%.3f", gpuListed);
+			ImGui::TableNextColumn();
+			if (gpuFrame > 0.0f)
+				ImGui::TextDisabled("%.1f%%", 100.0f * gpuListed / gpuFrame);
+			else
+				ImGui::TextDisabled("--");
+
+			// The gap has a name and it is not "missing time": barriers,
+			// layout transitions, the probe and shadow draws, and the present.
+			// A reader who does not see this row assumes the passes should add
+			// up to the frame, and then goes looking for a bug in the numbers.
+			if (gpuFrame > 0.0f)
+			{
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn(); ImGui::TextDisabled("not in any pass");
+				ImGui::TableNextColumn(); ImGui::TextDisabled("--");
+				ImGui::TableNextColumn();
+				ImGui::TextDisabled("%.3f", Math::Max(gpuFrame - gpuListed, 0.0f));
+				ImGui::TableNextColumn(); ImGui::TextDisabled("--");
+			}
+
+			ImGui::EndTable();
+		}
+	}
+
 	ImGui::SeparatorText("Renderer");
 	if (ImGui::BeginTable("##RendererStats", 2, ImGuiTableFlags_SizingStretchProp))
 	{

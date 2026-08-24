@@ -502,7 +502,12 @@ namespace RageV {
 		const uint32_t benchmarkFrames = config.BenchmarkFrames;
 		// A benchmark that cannot say which pass spent the time is a number
 		// without a lead, so it turns this on for itself.
-		FrameProfiler::EnablePassTimings(config.PassTimings || benchmarkFrames > 0);
+		// An explicit flag wins; otherwise a benchmark implies it. The OR this
+		// replaces meant --pass-timings=off was silently ignored under
+		// --benchmark, so an un-instrumented frame could not be measured.
+		FrameProfiler::EnablePassTimings(config.HasPassTimingsOverride
+											 ? config.PassTimings
+											 : benchmarkFrames > 0);
 		// Before the first frame and after Renderer3D::Init, which is what the
 		// flag has to sit between: the pipelines are already built, and
 		// switching this off makes IsAvailable answer no so every depth view

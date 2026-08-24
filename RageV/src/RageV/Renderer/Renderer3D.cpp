@@ -1308,9 +1308,21 @@ namespace RageV
 
 			Renderer3DData::GpuEmitter row;
 			row.CentreArea = Vec4(source.Centre, area);
-			row.TangentU = Vec4(source.TangentU, 0.0f);
-			row.TangentV = Vec4(source.TangentV, 0.0f);
-			row.Radiance = Vec4(source.Radiance, 0.0f);
+			// The plane normal rides in the three w lanes, which were uploaded
+			// as zero and read nowhere. The shader used to rebuild it per
+			// shadow ray; it depends on nothing that varies per ray.
+			//
+			// Degenerate rectangles never reach here -- the scene walk drops
+			// them before an emitter is built -- but a zero cross would put a
+			// NaN in every sample that touched this row, so it is guarded
+			// rather than assumed.
+			const Vec3 cross = Math::Cross(source.TangentU, source.TangentV);
+			const float span = Math::Length(cross);
+			const Vec3 normal = span > 1.0e-12f ? cross / span : Vec3(0.0f, 1.0f, 0.0f);
+
+			row.TangentU = Vec4(source.TangentU, normal.x);
+			row.TangentV = Vec4(source.TangentV, normal.y);
+			row.Radiance = Vec4(source.Radiance, normal.z);
 
 			// **The aiming table, when the surface has one and the heap can
 			// hold its map.** Radiance carries the *unfolded* scalar in this
@@ -1320,10 +1332,20 @@ namespace RageV
 				&& source.EmissiveSampler && s_Data->Bindless && s_Data->Heap)
 			{
 				const uint32_t grid = source.Emission->Grid;
+
+				// w carries log2(grid), which the sampler uses to reach a
+				// cell's row and column with a shift and a mask instead of a
+				// runtime integer divide and modulo. The slot was already
+				// uploaded and read nowhere; the grid is a power of two by
+				// construction, which is asserted where it is declared.
+				uint32_t shift = 0;
+				while ((1u << shift) < grid)
+					shift++;
+
 				row.Aim = Vec4((float)s_Data->EmitterCdf.size(), (float)grid,
 							   (float)s_Data->Heap->Slot(source.EmissiveMap,
 														 source.EmissiveSampler),
-							   0.0f);
+							   (float)shift);
 				row.UvToSurface0 = Vec4(source.UvToSurface[0], source.UvToSurface[1],
 										source.UvToSurface[2], 0.0f);
 				row.UvToSurface1 = Vec4(source.UvToSurface[3], source.UvToSurface[4],
@@ -1659,6 +1681,8 @@ namespace RageV
 			GpuLight entry{};
 			// w == 0 tells the shader distance attenuation does not apply.
 			entry.Position = Vec4(light.Position, directional ? 0.0f : 1.0f);
+			// Copied through, still unit length -- see the normalise in
+			// Scene.cpp that produces it. The shaders do not re-normalise.
 			entry.Direction = Vec4(light.Direction, 0.0f);
 			entry.Color = Vec4(light.Color, light.Intensity);
 
@@ -3692,6 +3716,25 @@ namespace RageV
 
 	unsigned int Renderer3D::GetMaxCellLoad() { return s_Data ? s_Data->Grid.MaxCellLoad() : 0; }
 	unsigned int Renderer3D::GetLightCount() { return s_Data ? (unsigned int)s_Data->LightScratch.size() : 0; }
+
+	unsigned int Renderer3D::GetAreaEmitterCount()
+	{
+		return s_Data ? (unsigned int)s_Data->Emitters.size() : 0;
+	}
+
+	unsigned int Renderer3D::GetAimedEmitterCount()
+	{
+		if (!s_Data)
+			return 0;
+
+		// Aim.y is the grid side, and zero is the documented "radiate evenly"
+		// case -- the same test the shader makes.
+		unsigned int aimed = 0;
+		for (const Renderer3DData::GpuEmitter& row : s_Data->Emitters)
+			if (row.Aim.y > 0.0f)
+				aimed++;
+		return aimed;
+	}
 
 	unsigned int Renderer3D::GetDrawCallCount() { return s_Data ? s_Data->DrawCalls : 0; }
 	unsigned int Renderer3D::GetTriangleCount() { return s_Data ? s_Data->Triangles : 0; }

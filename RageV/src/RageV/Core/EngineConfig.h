@@ -264,9 +264,17 @@ namespace RageV
 		// 0 means "not given"; 1 and 2 are the only values the flag accepts,
 		// so there is no third state to mean anything else.
 		int          GiBouncesOverride = 0;
-		// Time every render-graph pass on the GPU. Implied by --benchmark;
-		// off otherwise, because seventy timestamps a frame is not free.
+		// Time every render-graph pass, on both processors. Implied by
+		// --benchmark; off otherwise, because seventy timestamps a frame is
+		// not free.
+		//
+		// Three states, not two. `--benchmark` used to force this on with an
+		// OR, so there was no way to measure a frame the profiler was not
+		// inside -- which makes "how much does the profiler cost" a question
+		// the engine could not answer about itself. An explicit
+		// --pass-timings=off now wins over the implication.
 		bool         PassTimings = false;
+		bool         HasPassTimingsOverride = false;
 		// Whether the depth views decide what they can see in a compute pass
 		// (roadmap 8.3) or by walking the scene on the CPU. On by default
 		// where the device allows it; off is the same picture drawn the old

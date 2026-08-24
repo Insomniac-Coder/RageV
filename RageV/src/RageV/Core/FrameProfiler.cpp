@@ -5,6 +5,7 @@
 #include "RageV/Renderer/Renderer.h"
 #include <format>
 #include <algorithm>
+#include <unordered_map>
 
 namespace RageV
 {
@@ -67,6 +68,50 @@ namespace RageV
 		// frame's shape has settled.
 		bool s_PassTimings = false;
 		std::vector<std::string> s_PassNames;
+		// Name -> index. The scan this replaces ran over every registered name
+		// for every pass of every frame: ~35 passes against ~35 names is over
+		// a thousand string compares a frame, paid by the thing measuring the
+		// frame. A profiler that is part of what it measures is the one bug
+		// this file cannot afford.
+		std::unordered_map<std::string, uint32_t> s_PassIds;
+
+		// This frame's CPU time per pass, summed over the times a pass ran.
+		// Cleared with the phases at the top of every frame.
+		std::vector<float> s_PassCpu;
+
+		// True sums over the collected frames, for the benchmark's report.
+		//
+		// The two halves are filed a frame or two apart -- CPU as the graph
+		// records, GPU when the device resolves the pool a couple of frames
+		// later -- so a single frame's pair does not belong together. Over a
+		// run it does not matter and the mean is the mean, which is the same
+		// reason CollectGpu says nothing about one frame.
+		std::vector<double> s_PassCpuSum;
+		std::vector<double> s_PassGpuSum;
+		std::vector<uint32_t> s_PassCpuFrames;
+		std::vector<uint32_t> s_PassGpuFrames;
+		std::vector<uint32_t> s_PassCalls;
+
+		// The editor's smoothed view, indexed the same way. Kept per index
+		// rather than inside the public PassTiming list because that list is
+		// sorted by cost and a sorted list cannot be indexed by identity.
+		std::vector<float> s_LivePassCpu;
+		std::vector<float> s_LivePassGpu;
+
+		// Grows every per-pass array together, so an index resolved once is
+		// valid in all of them.
+		void EnsurePassArrays(size_t count)
+		{
+			s_PassCpu.resize(count, 0.0f);
+			s_PassCpuSum.resize(count, 0.0);
+			s_PassGpuSum.resize(count, 0.0);
+			s_PassCpuFrames.resize(count, 0u);
+			s_PassGpuFrames.resize(count, 0u);
+			s_PassCalls.resize(count, 0u);
+			s_LivePassCpu.resize(count, 0.0f);
+			s_LivePassGpu.resize(count, 0.0f);
+		}
+
 		struct NamedClaim { uint32_t Name; uint32_t Begin; uint32_t End; };
 		// Per frame slot, for the same reason the phase claims are: the results
 		// that arrive belong to the frame that last used the pool.
@@ -113,30 +158,106 @@ namespace RageV
 		s_GpuTotal = -1.0f;
 		for (float& phase : s_GpuPhases)
 			phase = -1.0f;
+
+		// The per-pass CPU accumulators, cleared with the phases they sit
+		// inside. The call counts go with them: a pass that stopped running
+		// should stop reporting a count, not keep last frame's.
+		for (float& pass : s_PassCpu)
+			pass = 0.0f;
+		for (uint32_t& calls : s_PassCalls)
+			calls = 0;
 	}
 
 	void FrameProfiler::EnablePassTimings(bool on) { s_PassTimings = on; }
 	bool FrameProfiler::PassTimingsEnabled() { return s_PassTimings; }
-	const std::vector<FrameProfiler::PassTiming>& FrameProfiler::PassTimings() { return s_LivePasses; }
+	const std::vector<FrameProfiler::PassTiming>& FrameProfiler::PassTimings()
+	{
+		// Rebuilt on demand rather than every frame. The panel that reads this
+		// refreshes a few times a second; the frame loop must not pay for a
+		// sort and a set of string copies it has no reader for.
+		s_LivePasses.clear();
+		for (size_t i = 0; i < s_PassNames.size(); i++)
+		{
+			if (s_PassCalls[i] == 0 && s_LivePassGpu[i] <= 0.0f && s_LivePassCpu[i] <= 0.0f)
+				continue;
 
-	bool FrameProfiler::ClaimNamedGpuScope(const char* name, uint32_t& beginSlot, uint32_t& endSlot)
+			PassTiming entry;
+			entry.Name = s_PassNames[i];
+			entry.CpuMs = s_LivePassCpu[i];
+			entry.GpuMs = s_LivePassGpu[i];
+			entry.Calls = s_PassCalls[i];
+			s_LivePasses.push_back(std::move(entry));
+		}
+		std::sort(s_LivePasses.begin(), s_LivePasses.end(),
+				  [](const PassTiming& a, const PassTiming& b) { return a.GpuMs > b.GpuMs; });
+		return s_LivePasses;
+	}
+
+	std::vector<FrameProfiler::PassTiming> FrameProfiler::MeanPassTimings()
+	{
+		std::vector<PassTiming> means;
+		for (size_t i = 0; i < s_PassNames.size(); i++)
+		{
+			if (s_PassCpuFrames[i] == 0 && s_PassGpuFrames[i] == 0)
+				continue;
+
+			PassTiming entry;
+			entry.Name = s_PassNames[i];
+			// Divided by the frames that actually reported, not by the run's
+			// frame count: a pass the frame skipped never ran, and averaging
+			// its absence in as a zero would report a cheaper pass than the
+			// one the frames containing it paid for.
+			entry.CpuMs = s_PassCpuFrames[i] > 0
+						? (float)(s_PassCpuSum[i] / (double)s_PassCpuFrames[i]) : -1.0f;
+			entry.GpuMs = s_PassGpuFrames[i] > 0
+						? (float)(s_PassGpuSum[i] / (double)s_PassGpuFrames[i]) : -1.0f;
+			entry.Calls = s_PassCalls[i];
+			means.push_back(std::move(entry));
+		}
+		std::sort(means.begin(), means.end(),
+				  [](const PassTiming& a, const PassTiming& b) { return a.GpuMs > b.GpuMs; });
+		return means;
+	}
+
+	uint32_t FrameProfiler::PassId(const char* name)
 	{
 		if (!s_PassTimings || !name)
+			return kNoPass;
+
+		auto it = s_PassIds.find(name);
+		if (it != s_PassIds.end())
+			return it->second;
+
+		const uint32_t index = (uint32_t)s_PassNames.size();
+		s_PassNames.emplace_back(name);
+		s_PassIds.emplace(name, index);
+		EnsurePassArrays(s_PassNames.size());
+		return index;
+	}
+
+	void FrameProfiler::AddPassCpu(uint32_t pass, float milliseconds)
+	{
+		if (pass == kNoPass || pass >= s_PassCpu.size())
+			return;
+
+		// Summed, not assigned: the editor runs the whole graph twice and both
+		// runs are the frame's cost, which is the rule the phase rows already
+		// follow.
+		s_PassCpu[pass] += milliseconds;
+		s_PassCalls[pass]++;
+	}
+
+	bool FrameProfiler::ClaimNamedGpuScope(uint32_t pass, uint32_t& beginSlot, uint32_t& endSlot)
+	{
+		if (pass == kNoPass)
 			return false;
 		if (s_NextSlot + 1 >= RHI::RHIDevice::kTimestampSlots || !Renderer::HasDevice())
 			return false;
 
-		uint32_t index = 0;
-		for (; index < s_PassNames.size(); index++)
-			if (s_PassNames[index] == name)
-				break;
-		if (index == s_PassNames.size())
-			s_PassNames.emplace_back(name);
-
 		beginSlot = s_NextSlot++;
 		endSlot = s_NextSlot++;
 		NamedClaimsFor(Renderer::GetDevice().GetFrameIndex())
-			.push_back({ index, beginSlot, endSlot });
+			.push_back({ pass, beginSlot, endSlot });
 		return true;
 	}
 
@@ -208,38 +329,38 @@ namespace RageV
 		if (s_PassTimings)
 		{
 			std::vector<NamedClaim>& named = NamedClaimsFor(device.GetFrameIndex());
-			std::vector<PassTiming> frame(s_PassNames.size());
-			for (size_t i = 0; i < s_PassNames.size(); i++)
-				frame[i].Name = s_PassNames[i];
+			EnsurePassArrays(s_PassNames.size());
+
+			// This frame's GPU total per pass, and how many times it ran.
+			// Indexed, so nothing is matched by string and nothing allocates.
+			std::vector<float> gpu(s_PassNames.size(), 0.0f);
+			std::vector<uint32_t> calls(s_PassNames.size(), 0u);
 
 			for (const NamedClaim& claim : named)
 			{
 				const float ms = span(claim.Begin, claim.End);
-				if (ms < 0.0f || claim.Name >= frame.size())
+				if (ms < 0.0f || claim.Name >= gpu.size())
 					continue;
-				frame[claim.Name].GpuMs += ms;
-				frame[claim.Name].Calls++;
+				gpu[claim.Name] += ms;
+				calls[claim.Name]++;
 			}
 			named.clear();
 
-			// Smoothed against the previous answer, matched by name so a frame
-			// that skipped a pass does not restart its average.
-			for (const PassTiming& sample : frame)
+			for (size_t i = 0; i < gpu.size(); i++)
 			{
-				if (sample.Calls == 0)
+				if (calls[i] == 0)
 					continue;
-				auto it = std::find_if(s_LivePasses.begin(), s_LivePasses.end(),
-					[&](const PassTiming& live) { return live.Name == sample.Name; });
-				if (it == s_LivePasses.end())
+
+				// Smoothed for the panel, summed for the report. A frame that
+				// skipped a pass does not touch either, so an average is never
+				// restarted by an absence.
+				Smooth(s_LivePassGpu[i], gpu[i]);
+				if (s_Collecting)
 				{
-					s_LivePasses.push_back(sample);
-					continue;
+					s_PassGpuSum[i] += gpu[i];
+					s_PassGpuFrames[i]++;
 				}
-				Smooth(it->GpuMs, sample.GpuMs);
-				it->Calls = sample.Calls;
 			}
-			std::sort(s_LivePasses.begin(), s_LivePasses.end(),
-					  [](const PassTiming& a, const PassTiming& b) { return a.GpuMs > b.GpuMs; });
 		}
 
 		s_GpuTotal = span(kWholeFrameBeginSlot, kWholeFrameEndSlot);
@@ -313,6 +434,23 @@ namespace RageV
 			Smooth(s_LiveCpuFrame, frameMs);
 		}
 
+		// The CPU half of the passes, filed here rather than in CollectGpu:
+		// that runs near the top of the frame, before the graph has recorded
+		// anything, so it would only ever see the values BeginFrame just
+		// cleared.
+		for (size_t i = 0; i < s_PassCpu.size(); i++)
+		{
+			if (s_PassCalls[i] == 0)
+				continue;
+
+			Smooth(s_LivePassCpu[i], s_PassCpu[i]);
+			if (s_Collecting)
+			{
+				s_PassCpuSum[i] += s_PassCpu[i];
+				s_PassCpuFrames[i]++;
+			}
+		}
+
 		if (!s_Collecting)
 			return;
 
@@ -345,6 +483,15 @@ namespace RageV
 		s_GpuSeen = false;
 		s_ClaimHistory.clear();
 		s_NextSlot = kFirstScopeSlot;
+
+		// The run's per-pass sums go with the run's frames. The name table and
+		// the smoothed panel values deliberately do not: those outlive a
+		// benchmark, and clearing the names would invalidate every id the
+		// render graph is holding.
+		for (double& sum : s_PassCpuSum) sum = 0.0;
+		for (double& sum : s_PassGpuSum) sum = 0.0;
+		for (uint32_t& n : s_PassCpuFrames) n = 0;
+		for (uint32_t& n : s_PassGpuFrames) n = 0;
 	}
 
 	namespace
@@ -510,17 +657,45 @@ namespace RageV
 		RV_CORE_INFO("[benchmark]   {0:<22} {1:>9.3f}  -- CPU idle: the GPU, the "
 					 "present, or the vsync wait", "unaccounted", mean - accounted);
 
-		if (s_PassTimings && !s_LivePasses.empty())
+		if (s_PassTimings)
 		{
-			RV_CORE_INFO("[benchmark]   --- render graph, by pass ---");
-			float listed = 0.0f;
-			for (const PassTiming& entry : s_LivePasses)
+			// True arithmetic means over the collected frames, on both
+			// processors -- the same statistic as the frame and phase rows
+			// above, so the two halves of this report can finally be
+			// differenced against each other.
+			const std::vector<PassTiming> passes = MeanPassTimings();
+			if (!passes.empty())
 			{
-				listed += entry.GpuMs;
-				RV_CORE_INFO("[benchmark]   {0:<34} {1:>8.3f} ms{2}", entry.Name, entry.GpuMs,
-							 entry.Calls > 1 ? std::format("  x{0}", entry.Calls) : std::string());
+				RV_CORE_INFO("[benchmark]   --- render graph, by pass (mean of {0} frames) ---",
+							 (uint32_t)s_Frames.size());
+				RV_CORE_INFO("[benchmark]   {0:<34} {1:>9}  {2:>9}", "pass", "CPU ms", "GPU ms");
+
+				float listedGpu = 0.0f;
+				float listedCpu = 0.0f;
+				for (const PassTiming& entry : passes)
+				{
+					if (entry.GpuMs >= 0.0f) listedGpu += entry.GpuMs;
+					if (entry.CpuMs >= 0.0f) listedCpu += entry.CpuMs;
+
+					RV_CORE_INFO("[benchmark]   {0:<34} {1:>9}  {2:>9}{3}", entry.Name,
+								 column(entry.CpuMs), column(entry.GpuMs),
+								 entry.Calls > 1 ? std::format("  x{0}", entry.Calls)
+												 : std::string());
+				}
+				RV_CORE_INFO("[benchmark]   {0:<34} {1:>9.3f}  {2:>9.3f}",
+							 "(sum of passes)", listedCpu, listedGpu);
+
+				// The gap, named. GPU time inside the frame that no pass
+				// covers is barriers, layout transitions, the probe and
+				// shadow draws, and the swapchain stall -- and it is the row
+				// that decides whether a regression wants a GPU capture or
+				// does not.
+				if (gpu && gpuFrame >= 0.0f)
+					RV_CORE_INFO("[benchmark]   {0:<34} {1:>9}  {2:>9.3f}  -- GPU work no pass "
+								 "names: barriers, transitions, probes, shadows, present",
+								 "(whole frame - passes)", "  --",
+								 std::max(gpuFrame - listedGpu, 0.0f));
 			}
-			RV_CORE_INFO("[benchmark]   {0:<34} {1:>8.3f} ms", "(sum of passes)", listed);
 		}
 
 		if (gpu && gpuFrame >= 0.0f)
@@ -559,6 +734,13 @@ namespace RageV
 
 		RV_CORE_INFO("[benchmark]   {0} lights, busiest cluster holds {1}",
 					 Renderer3D::GetLightCount(), Renderer3D::GetMaxCellLoad());
+
+		// Says whether the traced bounce had anything to aim at. Without this
+		// line a run against a scene where the emissive path never engages is
+		// indistinguishable in the record from one where it did, and two such
+		// runs have been compared as though they measured the same thing.
+		RV_CORE_INFO("[benchmark]   {0} area emitters, {1} with a per-texel aiming table",
+					 Renderer3D::GetAreaEmitterCount(), Renderer3D::GetAimedEmitterCount());
 		RV_CORE_INFO("[benchmark]   {0} mesh draws, {1} culled, {2} triangles",
 					 Renderer3D::GetDrawCallCount(), Renderer3D::GetCulledCount(),
 					 Renderer3D::GetTriangleCount());

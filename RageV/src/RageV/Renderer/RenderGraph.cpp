@@ -398,11 +398,61 @@ namespace RageV
 			// Named with the graph, so the editor's two runs of the same pass
 			// are one entry with a call count rather than two anonymous ones.
 			// Built once and used by both the breadcrumb and the timer.
-			const std::string scope = m_Name + '/' + pass.Name;
+			// The composed "graph/pass" name, from the cache. Rebuilt only
+			// when this index's pass name actually changed.
+			if (m_ScopeNamesFor != m_Name)
+			{
+				m_ScopeNames.clear();
+				m_ScopeNamesFor = m_Name;
+			}
+			if (m_ScopeNames.size() <= i)
+				m_ScopeNames.resize(i + 1);
+
+			PassScopeName& cached = m_ScopeNames[i];
+			if (cached.PassName != pass.Name)
+			{
+				cached.PassName = pass.Name;
+				cached.Scope = m_Name + '/' + pass.Name;
+				cached.Id = FrameProfiler::kNoPass;
+			}
+			const std::string& scope = cached.Scope;
+
+			// Both processors, and the CPU half is not optional on the GPU
+			// half succeeding. A frame that runs out of timestamp slots still
+			// records CPU, and a pass whose ExecuteFn uploads a buffer or
+			// commits a descriptor set spends its time there -- which is
+			// exactly the time the by-pass table used to have no column for.
+			//
+			// Asked of the profiler each frame rather than cached as a bool:
+			// the editor can switch pass timings on and off while running, and
+			// a cached answer would leave the graph timing a frame nobody
+			// asked it to or missing one somebody did.
+			uint32_t passId = FrameProfiler::kNoPass;
+			if (FrameProfiler::PassTimingsEnabled())
+			{
+				if (cached.Id == FrameProfiler::kNoPass)
+					cached.Id = FrameProfiler::PassId(scope.c_str());
+				passId = cached.Id;
+			}
+			const bool profiled = passId != FrameProfiler::kNoPass;
+			const auto passStart = profiled ? std::chrono::steady_clock::now()
+											: std::chrono::steady_clock::time_point{};
+
 			uint32_t tsBegin = 0, tsEnd = 0;
-			const bool timed = FrameProfiler::ClaimNamedGpuScope(scope.c_str(), tsBegin, tsEnd);
+			const bool timed = FrameProfiler::ClaimNamedGpuScope(passId, tsBegin, tsEnd);
 			if (timed)
 				cmd.WriteTimestamp(tsBegin);
+
+			// Recorded at both of the loop's exits, so a compute pass and a
+			// graphics pass file the same number the same way.
+			auto recordCpu = [&]()
+			{
+				if (!profiled)
+					return;
+				const auto elapsed = std::chrono::steady_clock::now() - passStart;
+				FrameProfiler::AddPassCpu(passId,
+					(float)std::chrono::duration<double, std::milli>(elapsed).count());
+			};
 
 			// A compute pass has no attachment to begin, so it skips straight
 			// to its lambda -- a dispatch recorded inside a render pass is
@@ -426,6 +476,7 @@ namespace RageV
 				cmd.PopDebugGroup();
 				if (timed)
 					cmd.WriteTimestamp(tsEnd);
+				recordCpu();
 				continue;
 			}
 
@@ -487,6 +538,7 @@ namespace RageV
 			// measurement -- they are work this pass caused.
 			if (timed)
 				cmd.WriteTimestamp(tsEnd);
+			recordCpu();
 		}
 	}
 
