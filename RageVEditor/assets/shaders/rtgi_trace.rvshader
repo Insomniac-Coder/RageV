@@ -66,17 +66,41 @@ layout(set = 3, binding = 1) uniform sampler2D u_GiSurface;
 //
 // Centre and area in the first row, the two half-extents next -- the rectangle
 // spans centre +/- U +/- V -- and the radiance last.
+// **And where on the rectangle the light is**, which is the difference
+// between a fitting and a lit ceiling. A rectangle that radiates evenly is
+// right for a panel that glows all over; for one whose emissive map lights
+// four cells of a hundred and forty-four it is right only on average -- the
+// power arrives, spread over eighty-six square metres instead of coming from
+// the four places it is painted. `Aim` names a cumulative distribution over
+// that map's cells, so a sample lands on a lit one in proportion to what it
+// emits, and the shadow ray goes where the light is.
 struct GiEmitter
 {
 	vec4 CentreArea;
 	vec4 TangentU;
 	vec4 TangentV;
 	vec4 Radiance;
+	// x = where this emitter's table starts in u_EmitterCdf, y = cells a
+	// side (zero: radiate evenly and ignore the two rows below), z = the
+	// emissive map's slot in the texture heap.
+	vec4 Aim;
+	// Texture uv back to the rectangle's own (su, sv) in [-1,1]:
+	//     su = UvToSurface0.x * u + UvToSurface0.y * v + UvToSurface0.z
+	//     sv = UvToSurface1.x * u + UvToSurface1.y * v + UvToSurface1.z
+	vec4 UvToSurface0;
+	vec4 UvToSurface1;
 };
 
 layout(std430, set = 3, binding = 2) readonly buffer GiEmitterBlock
 {
 	GiEmitter u_Emitters[];
+};
+
+// Every aiming table this frame's emitters use, end to end. Cumulative and
+// ending at one, so picking a cell is a binary search for a uniform draw.
+layout(std430, set = 3, binding = 3) readonly buffer GiEmitterCdfBlock
+{
+	float u_EmitterCdf[];
 };
 
 layout(push_constant) uniform GiParams
@@ -190,10 +214,60 @@ void main()
 			const int pick = int(GiRandom(seed) * float(emitters));
 			const GiEmitter light = u_Emitters[min(pick, emitters - 1)];
 
-			// A point on the rectangle. Uniform in area, which is what makes
-			// the density constant and the conversion below exact.
-			const float su = GiRandom(seed) * 2.0 - 1.0;
-			const float sv = GiRandom(seed) * 2.0 - 1.0;
+			// A point on the rectangle, and the density there relative to
+			// uniform. One for a surface that glows evenly; for one with an
+			// aiming table, the number of cells times the chance of the cell
+			// picked -- which is what turns "I sampled where the light is"
+			// back into an unbiased estimate.
+			float su = GiRandom(seed) * 2.0 - 1.0;
+			float sv = GiRandom(seed) * 2.0 - 1.0;
+			float density = 1.0;
+			vec2 aimUv = vec2(0.0);
+
+			const int grid = int(light.Aim.y + 0.5);
+			if (grid > 0)
+			{
+				// The cell, by binary search over the cumulative table. Ten
+				// steps for a thousand cells, and no branch inside the loop.
+				const int base = int(light.Aim.x + 0.5);
+				const int cells = grid * grid;
+				const float draw = GiRandom(seed);
+
+				int low = 0;
+				int high = cells - 1;
+				for (int step = 0; step < 12 && low < high; step++)
+				{
+					const int mid = (low + high) / 2;
+					if (u_EmitterCdf[base + mid] < draw)
+						low = mid + 1;
+					else
+						high = mid;
+				}
+
+				// Its share of the whole, which is this cell's probability.
+				const float upper = u_EmitterCdf[base + low];
+				const float lower = low > 0 ? u_EmitterCdf[base + low - 1] : 0.0;
+				const float chance = max(upper - lower, 1e-9);
+
+				// Somewhere inside it, uniformly: the cell is the unit of
+				// aiming, and a point sample at its centre would quantise the
+				// shadow rays into a grid the picture would show.
+				const vec2 cell = vec2(float(low % grid), float(low / grid));
+				aimUv = (cell + vec2(GiRandom(seed), GiRandom(seed))) / float(grid);
+
+				su = light.UvToSurface0.x * aimUv.x + light.UvToSurface0.y * aimUv.y
+				   + light.UvToSurface0.z;
+				sv = light.UvToSurface1.x * aimUv.x + light.UvToSurface1.y * aimUv.y
+				   + light.UvToSurface1.z;
+
+				// The uv map is affine, so a cell covers exactly 1/cells of
+				// the rectangle whatever the entity's scale -- the tangents
+				// carry the scale and the area below comes from the same
+				// pair, so it cancels. The density is therefore just how much
+				// more likely this cell was than uniform.
+				density = chance * float(cells);
+			}
+
 			const vec3 point = light.CentreArea.xyz
 							 + light.TangentU.xyz * su
 							 + light.TangentV.xyz * sv;
@@ -246,8 +320,29 @@ void main()
 					// so the pi has to be put back by hand or the emitters
 					// arrive three times too bright.
 					const float area = light.CentreArea.w;
-					vec3 nee = light.Radiance.rgb * NdotL * cosLight
-							 * area * float(emitters) / distance2 * 0.31830989;
+
+					// **The radiance at the point actually sampled.** With a
+					// table, Radiance is the material's unfolded scalar and
+					// the map says what fraction of it this texel emits -- so
+					// a sample on a dark cell returns nothing and one on a lit
+					// cell returns the whole fitting, which is the behaviour
+					// the aiming exists to produce. Without a table, Radiance
+					// already carries the map's average and there is nothing
+					// to look up.
+					//
+					// Sampled at lod 0, the same level a hemisphere hit reads
+					// (pbr_fragment's TraceSurface), so what this adds and
+					// what the subtraction above removes are the same number.
+					vec3 radiance = light.Radiance.rgb;
+					if (grid > 0)
+					{
+						radiance *= textureLod(u_Textures[nonuniformEXT(int(light.Aim.z + 0.5))],
+											   aimUv, 0.0).rgb;
+					}
+
+					vec3 nee = radiance * NdotL * cosLight
+							 * area * float(emitters) / (distance2 * max(density, 1e-6))
+							 * 0.31830989;
 
 					// **Clamped like the hemisphere term, and it was not.**
 					// The estimator above is radiance times area over d^2: a

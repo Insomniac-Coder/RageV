@@ -259,6 +259,25 @@ def scene(mat, kind):
 
         # A hair below the ceiling, so the two are not coplanar -- which is a
         # depth fight, and resolved by draw order rather than by geometry.
+        # **Placed through the plane's own uv mapping, not by counting cells
+        # from a corner.** The textured room lights cell (column, row) of its
+        # map; this room must put its quads exactly where that map's texels
+        # land on the ceiling, or the two rooms light different halves of the
+        # floor and every number compared between them is measuring the
+        # difference in where, not in how much. Which is what the first
+        # version did: rows counted from -HALF put the quads at z = -2.33
+        # while the texture put its lit cells at +2.33, the opposite end.
+        #
+        # **Measured, not derived.** A Plane's mesh uv is u = x + 1/2 and
+        # v = 1/2 - z, which would put the map's row 2 at z = +2.33 -- and
+        # the picture says it is at -2.33, because an image's first row is
+        # the *top* of the texture and v runs the other way. The two
+        # cancel, so counting cells from the corner is what lands a quad
+        # where the map's cell of the same index actually shows.
+        #
+        # Getting this wrong is not subtle and it is not visible in a total:
+        # the two rooms simply light opposite halves of the floor, and every
+        # number compared between them measures where rather than how much.
         cell = HALF * 2 / CELLS
         for index, (column, row) in enumerate(LIT):
             x = -HALF + (column + 0.5) * cell

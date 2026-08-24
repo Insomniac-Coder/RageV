@@ -10,6 +10,7 @@
 #include "stb_image.h"
 #include <array>
 #include <cmath>
+#include <functional>
 #include <filesystem>
 
 namespace RageV
@@ -161,26 +162,111 @@ namespace RageV
 				out[i] = palette[(indices >> (i * 2)) & 0x3u];
 		}
 
-		// The mean of a cooked chain.
+		// **How finely the emitter grid divides a map.** Thirty-two a side is
+		// a thousand cells: fine enough to resolve the twelve-by-twelve
+		// fittings this engine's scenes are built from, coarse enough that
+		// the table is four kilobytes and the binary search that reads it is
+		// ten steps.
+		constexpr uint32_t kEmitterGrid = 32;
+
+		// And how much of the image the table is built *from*. The grid is
+		// coarse; the shader samples the map at full resolution, and a table
+		// built from too small a mip weighs cells by a blur of the pattern it
+		// is meant to aim at. Measured on the four-lit-cells fixture, a table
+		// from a 48-pixel mip and one from the 768-pixel source disagreed by
+		// fifteen per cent of the room's light -- two derivations of one
+		// number, which is exactly the disagreement worth refusing.
+		constexpr uint32_t kEmitterDetail = 256;
+
+		// The cumulative distribution over cell luminance, from a linear
+		// image sampled on the grid. Returns false when aiming would buy
+		// nothing -- a uniform map, or a black one.
+		bool BuildGrid(const std::function<Vec3(uint32_t, uint32_t)>& sample,
+					   uint32_t width, uint32_t height,
+					   std::vector<float>& cdf)
+		{
+			std::vector<float> weight((size_t)kEmitterGrid * kEmitterGrid, 0.0f);
+			double total = 0.0;
+			float peak = 0.0f;
+
+			for (uint32_t cy = 0; cy < kEmitterGrid; cy++)
+			{
+				for (uint32_t cx = 0; cx < kEmitterGrid; cx++)
+				{
+					// Every texel of the cell, so a single bright texel in a
+					// dark cell is not missed by a point sample -- which is
+					// the whole case this exists for.
+					const uint32_t x0 = (uint32_t)((uint64_t)cx * width / kEmitterGrid);
+					const uint32_t x1 = Math::Max((uint32_t)((uint64_t)(cx + 1) * width / kEmitterGrid), x0 + 1);
+					const uint32_t y0 = (uint32_t)((uint64_t)cy * height / kEmitterGrid);
+					const uint32_t y1 = Math::Max((uint32_t)((uint64_t)(cy + 1) * height / kEmitterGrid), y0 + 1);
+
+					double sum = 0.0;
+					uint64_t counted = 0;
+					for (uint32_t y = y0; y < y1 && y < height; y++)
+					{
+						for (uint32_t x = x0; x < x1 && x < width; x++)
+						{
+							const Vec3 texel = sample(x, y);
+							// Luminance, because a cell's importance is how
+							// much light it sends and not which channel it
+							// sends it in. The sampler reads the real texel
+							// afterwards, so colour is never lost here.
+							sum += 0.2126 * texel.x + 0.7152 * texel.y + 0.0722 * texel.z;
+							counted++;
+						}
+					}
+
+					const float value = counted ? (float)(sum / (double)counted) : 0.0f;
+					weight[(size_t)cy * kEmitterGrid + cx] = value;
+					peak = Math::Max(peak, value);
+					total += value;
+				}
+			}
+
+			if (total <= 1e-9)
+				return false;   // nothing emits; the mean already says so
+
+			// **A uniform map earns no table.** If the brightest cell is
+			// barely above the average there is nothing to aim at, and a
+			// distribution that is flat to within a few per cent costs a
+			// search and a fetch to reproduce uniform sampling.
+			const float average = (float)(total / (double)weight.size());
+			if (peak <= average * 1.05f)
+				return false;
+
+			cdf.resize(weight.size());
+			double running = 0.0;
+            for (size_t i = 0; i < weight.size(); i++)
+			{
+				running += weight[i];
+				cdf[i] = (float)(running / total);
+			}
+			// Exactly one at the end, so a random draw of 0.999999 cannot
+			// walk off the table.
+			cdf.back() = 1.0f;
+			return true;
+		}
+
+		// A cooked chain's texels, at the level worth reading, in linear
+		// space -- and from them the mean and the emitter grid together.
 		//
-		// **Not the 1x1 mip, and that was a defect.** The obvious reading is
-		// that the smallest level *is* the average and costs one texel to
-		// read -- but the cooker halves with a box filter that takes
-		// `max(w/2,1)` and taps `min(x*2+1, w-1)`, so an odd level drops its
-		// tail row and column entirely. A 768-wide map reduces cleanly to 3
-		// and then throws away five texels of nine. Measured on this
-		// project's own emitter fixture that is 2.27x wrong, and a variant
-		// with the lit cells one row over reads exactly zero -- which would
-		// hand the emitter list a black rectangle for a surface that is
-		// visibly glowing, and stage 0's flag would then have the hemisphere
-		// term subtract light nothing ever added.
+		// **Which level, and why not the 1x1.** The obvious reading is that
+		// the smallest mip *is* the average and costs one texel to read. It
+		// is not: the cooker halves with a box filter that takes
+		// `max(w/2,1)` and taps `min(x*2+1, w-1)`, so a level with an odd
+		// dimension drops its tail row and column. A 768-wide map reduces
+		// cleanly to 3 and then throws away five texels of nine -- measured
+		// 2.27x wrong on this project's own emitter fixture, and a variant
+		// with the lit cells one row over reads exactly zero.
 		//
-		// So: the deepest level reachable by *even* halvings, every texel of
-		// it, linearised individually. Every reduction on the way there
-		// divided exactly, so that level's average is the image's. It is a
-		// handful of blocks -- 3x3 for the 768 case, 25x25 for a 100 -- and
-		// the arithmetic is honest at any size.
-		bool MeanOfCooked(const IO::CookedTexture& cooked, bool srgb, Vec3& out)
+		// So only levels reached by *even* halvings are trustworthy, and of
+		// those this takes the smallest that is still at least the grid's
+		// width. Its average is the whole image's, because every reduction
+		// on the way divided exactly; and it is fine enough to say where in
+		// the image the light is. One decode answers both questions.
+		bool ReadCooked(const IO::CookedTexture& cooked, bool srgb,
+						std::vector<Vec3>& texels, uint32_t& outWidth, uint32_t& outHeight)
 		{
 			if (cooked.Mips.empty() || cooked.Width == 0 || cooked.Height == 0)
 				return false;
@@ -189,7 +275,7 @@ namespace RageV
 			// asks those for a mean. Note the cooker picks them by *file
 			// name*, so an emissive map called `..._ao.png` lands here; the
 			// caller warns, because silently keeping the unfolded radiance is
-			// the failure this whole function exists to prevent.
+			// the failure this whole thing exists to prevent.
 			if (cooked.Format != IO::CookedPixelFormat::RGBA8
 				&& cooked.Format != IO::CookedPixelFormat::BC1
 				&& cooked.Format != IO::CookedPixelFormat::BC3)
@@ -201,10 +287,10 @@ namespace RageV
 			if (cooked.Format != IO::CookedPixelFormat::RGBA8)
 			{
 				// RGBA8 is only chosen for a texture smaller than one block,
-				// and its chain is filtered in *encoded* space rather than
-				// linear -- so for that format only mip 0 is a sound answer.
+				// and its chain is filtered in *encoded* rather than linear
+				// space -- so for that format only mip 0 is a sound answer.
 				while (level + 1 < cooked.Mips.size()
-					   && width > 1 && height > 1
+					   && width > kEmitterDetail && height > kEmitterDetail
 					   && (width % 2) == 0 && (height % 2) == 0)
 				{
 					width /= 2;
@@ -221,8 +307,7 @@ namespace RageV
 				return srgb ? table[(size_t)i] : encoded / 255.0f;
 			};
 
-			double r = 0.0, g = 0.0, b = 0.0;
-			uint64_t counted = 0;
+			texels.assign((size_t)width * height, Vec3(0.0f));
 
 			if (cooked.Format == IO::CookedPixelFormat::RGBA8)
 			{
@@ -231,10 +316,8 @@ namespace RageV
 				for (uint64_t i = 0; i < (uint64_t)width * height; i++)
 				{
 					const uint8_t* p = mip.data() + i * 4;
-					r += channel((float)p[0]);
-					g += channel((float)p[1]);
-					b += channel((float)p[2]);
-					counted++;
+					texels[(size_t)i] = Vec3(channel((float)p[0]), channel((float)p[1]),
+											 channel((float)p[2]));
 				}
 			}
 			else
@@ -247,14 +330,13 @@ namespace RageV
 				if (mip.size() < (size_t)blocksX * blocksY * stride)
 					return false;
 
-				Vec3 texels[16];
+				Vec3 block[16];
 				for (uint32_t by = 0; by < blocksY; by++)
 				{
 					for (uint32_t bx = 0; bx < blocksX; bx++)
 					{
-						const size_t offset = ((size_t)by * blocksX + bx) * stride + colour;
-						DecodeBc1Block(mip.data() + offset, texels);
-
+						DecodeBc1Block(mip.data() + ((size_t)by * blocksX + bx) * stride + colour,
+									   block);
 						// Only the texels the image actually has: the last
 						// block of an odd-sized level is padding the encoder
 						// invented, and averaging it in would drag the answer
@@ -263,70 +345,69 @@ namespace RageV
 						{
 							for (uint32_t tx = 0; tx < 4; tx++)
 							{
-								if (bx * 4 + tx >= width || by * 4 + ty >= height)
+								const uint32_t x = bx * 4 + tx, y = by * 4 + ty;
+								if (x >= width || y >= height)
 									continue;
-								const Vec3& t = texels[ty * 4 + tx];
-								r += channel(t.x);
-								g += channel(t.y);
-								b += channel(t.z);
-								counted++;
+								const Vec3& t = block[ty * 4 + tx];
+								texels[(size_t)y * width + x] =
+									Vec3(channel(t.x), channel(t.y), channel(t.z));
 							}
 						}
 					}
 				}
 			}
 
-			if (counted == 0)
-				return false;
-
-			out = Vec3((float)(r / (double)counted), (float)(g / (double)counted),
-					   (float)(b / (double)counted));
+			outWidth = width;
+			outHeight = height;
 			return true;
 		}
 
-		// And of a raw image, which has no chain to read: every texel, in
-		// linear space. **Not sampled on a stride**, which is the tempting
-		// optimisation and the wrong one here -- a map whose bright part is
-		// four cells of a hundred and forty-four is exactly what this exists
-		// to measure, and a stride can step over all four and report black.
-		// Only asked of colour maps -- see the call site: a normal or a
-		// roughness map is never an emitter's radiance, and scanning every
-		// texel of one is a cold-load cost for an answer nobody reads.
-		Vec3 MeanOfPixels(const uint8_t* rgba, uint32_t width, uint32_t height, bool srgb)
+		// The mean and the grid of a decoded image, which is the whole of
+		// what the emitter list wants to know about a map.
+		std::shared_ptr<const TextureStats>
+		StatsOf(const std::vector<Vec3>& texels, uint32_t width, uint32_t height)
 		{
-			const std::array<float, 256>& table = SrgbTable();
+			if (texels.empty() || width == 0 || height == 0)
+				return nullptr;
+
+			auto stats = std::make_shared<TextureStats>();
+
 			double r = 0.0, g = 0.0, b = 0.0;
-			const size_t count = (size_t)width * height;
-			for (size_t i = 0; i < count; i++)
+			for (const Vec3& t : texels)
 			{
-				const uint8_t* p = rgba + i * 4;
-				if (srgb)
-				{
-					r += table[p[0]]; g += table[p[1]]; b += table[p[2]];
-				}
-				else
-				{
-					r += p[0] / 255.0; g += p[1] / 255.0; b += p[2] / 255.0;
-				}
+				r += t.x; g += t.y; b += t.z;
 			}
-			if (count == 0)
-				return Vec3(1.0f);
-			return Vec3((float)(r / count), (float)(g / count), (float)(b / count));
+			const double count = (double)texels.size();
+			stats->Mean = Vec3((float)(r / count), (float)(g / count), (float)(b / count));
+
+			if (BuildGrid([&](uint32_t x, uint32_t y) { return texels[(size_t)y * width + x]; },
+						  width, height, stats->Cdf))
+			{
+				stats->Grid = kEmitterGrid;
+			}
+			return stats;
 		}
 
 		// Keyed on the texture rather than the path: two names for one file
 		// are one texture here, and a caller holding the texture is what
 		// asks. Weak by construction -- a raw pointer used only as an
 		// identity, never dereferenced.
-		std::unordered_map<const RHITexture*, Vec3> s_Means;
+		std::unordered_map<const RHITexture*, std::shared_ptr<const TextureStats>> s_Means;
+	}
+
+	std::shared_ptr<const TextureStats>
+	TextureLoader::Stats(const Ref<RHITexture>& texture)
+	{
+		if (!texture)
+			return nullptr;
+		const auto it = s_Means.find(texture.get());
+		return it == s_Means.end() ? nullptr : it->second;
 	}
 
 	Vec3 TextureLoader::MeanColor(const Ref<RHITexture>& texture)
 	{
-		if (!texture)
-			return Vec3(1.0f);
-		const auto it = s_Means.find(texture.get());
-		return it == s_Means.end() ? Vec3(1.0f) : it->second;
+		const std::shared_ptr<const TextureStats> stats = Stats(texture);
+		return stats ? stats->Mean : Vec3(1.0f);
 	}
 
 	Ref<RHITexture> TextureLoader::Load2D(RHIDevice& device, const std::string& path,
@@ -400,9 +481,12 @@ namespace RageV
 			for (uint32_t mip = 0; mip < levels; mip++)
 				texture->UploadMip(cooked.Mips[mip].data(), cooked.Mips[mip].size(), mip, 0);
 
-			if (Vec3 mean(1.0f); MeanOfCooked(cooked, srgb, mean))
+			std::vector<Vec3> texels;
+			uint32_t statWidth = 0, statHeight = 0;
+			if (ReadCooked(cooked, srgb, texels, statWidth, statHeight))
 			{
-				s_Means[texture.get()] = mean;
+				if (auto stats = StatsOf(texels, statWidth, statHeight))
+					s_Means[texture.get()] = std::move(stats);
 			}
 			else if (srgb)
 			{
@@ -449,8 +533,16 @@ namespace RageV
 		// Colour maps only, for the reason MeanOfPixels gives.
 		if (srgb)
 		{
-			s_Means[texture.get()] =
-				MeanOfPixels(pixels, (uint32_t)width, (uint32_t)height, srgb);
+			std::vector<Vec3> texels((size_t)width * height);
+			const std::array<float, 256>& table = SrgbTable();
+			for (size_t i = 0; i < texels.size(); i++)
+			{
+				const stbi_uc* p = pixels + i * 4;
+				texels[i] = srgb ? Vec3(table[p[0]], table[p[1]], table[p[2]])
+								 : Vec3(p[0] / 255.0f, p[1] / 255.0f, p[2] / 255.0f);
+			}
+			if (auto stats = StatsOf(texels, (uint32_t)width, (uint32_t)height))
+				s_Means[texture.get()] = std::move(stats);
 		}
 
 		stbi_image_free(pixels);

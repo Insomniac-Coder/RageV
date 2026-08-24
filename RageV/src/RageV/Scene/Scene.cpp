@@ -1940,6 +1940,72 @@ namespace RageV
 					// an entity is destroyed -- which dirties the draw list
 					// this walk lives in, so the pairing is rebuilt with it.
 					emitter.Owner = (uint64_t)item + 1;
+
+					// **And where on it the light actually is**, when the
+					// surface is one whose texture coordinates this can state
+					// exactly. The emitter is a rectangle in (su, sv) over
+					// [-1,1]; the map is sampled in uv over [0,1]; aiming at a
+					// texel needs the affine map between them, and getting it
+					// wrong would put light on the wrong part of a surface
+					// with nothing in the picture to say so.
+					//
+					// Only the two flat primitives, and only untransformed
+					// coordinates. A modelled fitting keeps its uv in the
+					// vertex buffer, which the mesh deliberately does not
+					// retain (Mesh.h), and a tiled or offset material samples
+					// a window of its map that the whole map's table does not
+					// describe. Both fall back to radiating evenly, which is
+					// what this did before and is never wrong -- only
+					// average.
+					const MaterialParams& params = resolvedMaterial->GetParams();
+					const bool plainUv = params.UvTransform.x == 1.0f
+									  && params.UvTransform.y == 1.0f
+									  && params.UvTransform.z == 0.0f
+									  && params.UvTransform.w == 0.0f;
+
+					if (plainUv && resolvedMaterial->GetEmissiveStats())
+					{
+						// Both primitives are one quad whose uv runs 0..1
+						// along its own two axes; what differs is which world
+						// axis the bounds walk above called U and which V.
+						//
+						// Plane lies in XZ with u = x + 1/2, v = 1/2 - z, and
+						// the walk takes Y as its normal, so U runs along Z
+						// and V along X. Quad stands in XY with u = x + 1/2,
+						// v = y + 1/2, normal Z, so U runs along X and V
+						// along Y. Inverted, that is:
+						if (mesh.Mesh == PrimitiveHandle(PrimitiveType::Plane))
+						{
+							emitter.UvToSurface[0] =  0.0f;   // su from u
+							emitter.UvToSurface[1] = -2.0f;   // su from v
+							emitter.UvToSurface[2] =  1.0f;
+							emitter.UvToSurface[3] =  2.0f;   // sv from u
+							emitter.UvToSurface[4] =  0.0f;
+							emitter.UvToSurface[5] = -1.0f;
+						}
+						else if (mesh.Mesh == PrimitiveHandle(PrimitiveType::Quad))
+						{
+							emitter.UvToSurface[0] =  2.0f;
+							emitter.UvToSurface[1] =  0.0f;
+							emitter.UvToSurface[2] = -1.0f;
+							emitter.UvToSurface[3] =  0.0f;
+							emitter.UvToSurface[4] =  2.0f;
+							emitter.UvToSurface[5] = -1.0f;
+						}
+
+						if (emitter.UvToSurface[0] != 0.0f || emitter.UvToSurface[1] != 0.0f)
+						{
+							emitter.EmissiveMap = resolvedMaterial->GetEmissiveMap();
+							emitter.EmissiveSampler = resolvedMaterial->GetSampler();
+							emitter.Emission = resolvedMaterial->GetEmissiveStats();
+							// The sampler reads the real texel, so the
+							// radiance it multiplies must be the *unfolded*
+							// scalar -- folding the mean in as well would
+							// count the map twice.
+							emitter.Radiance = emissive;
+						}
+					}
+
 					m_Emitters.push_back(emitter);
 				}
 			}

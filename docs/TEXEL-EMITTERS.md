@@ -1,6 +1,11 @@
 # Texel emitters — light through the holes in the black paper
 
-**Status: stages 0 and 1 built and checked, stage 2 planned. 2026-08-24.**
+**Status: all three stages built, checked and merged. 2026-08-24.** The
+notes for a design document -- problem, idea, implementation, and the
+measurements and pictures that go with them -- are in "For the write-up" at
+the end of this file.
+
+**Status when stages 0 and 1 landed, kept for the record:**
 This branch (`texel-emitters`) holds the design and the first two stages;
 stage 2 starts only when the owner says so. Nothing on `main` depends on this.
 
@@ -315,3 +320,112 @@ photon in the room, which is the defect in its purest form.
 Recommended: land 0+1 together (1 is unsafe without 0), then 2. Every stage
 carries its check script and its falsification, per CHK.2: a claim nobody has
 seen fail is a claim nobody has read.
+
+
+---
+
+## For the write-up
+
+Everything a design document needs, gathered while it was fresh. Pictures are
+in `docs/images/texel-emitters/`.
+
+### The problem, in one paragraph
+
+An emissive material makes a surface glow, and the traced bounce has to turn
+that glow into light on other surfaces. It did that by standing a **rectangle**
+in for the mesh and treating the whole rectangle as glowing evenly at the
+material's emissive value. That is right for a panel that glows all over. It is
+wrong for a light *fitting*, where the emission is painted into a texture --
+four lit cells of a hundred and forty-four in the showroom's ceiling. The
+bounce then lit the room as though all hundred and forty-four were on: thirty-six
+times too much light, arriving from an eighty-six square metre phantom instead
+of from the four places the artist painted. Its enormous sample-to-sample
+variance is what the owner saw as grain crawling over the car's paint with the
+camera perfectly still.
+
+**Why it was hard to see.** The ceiling *looked* right -- only what it emitted
+into the room was wrong -- and the workaround (splitting the lit cells into
+their own mesh) made the rectangle true again, so the picture came good for a
+reason that had nothing to do with the code. Two wrong diagnoses came first.
+
+### The idea
+
+The owner's, in their words: a pixel whose emissive clears a threshold should
+count as a source of light -- *a directional light behind black paper with
+holes, where light escapes only through the holes*. The research placed that in
+the technique landscape: it is **textured-light importance sampling**, the
+texture domain is its correct home (screen-space is view-dependent, and this
+engine's SSGI already does that half), and it is what offline renderers do for
+textured area lights.
+
+### What was built, in three stages
+
+| Stage | What | Why it was needed |
+|---|---|---|
+| **0** | The bounce subtracts a hit's emissive only for surfaces the emitter list actually samples (`RAY_INSTANCE_EMITTER`, matched by an opaque owner id) | It subtracted whenever the list was non-empty *at all*, though membership is filtered three ways -- so light from anything the list left out was removed by one estimator and added by none, and vanished |
+| **1** | An emissive map's **mean**, read at load, folded into the emitter's radiance | Makes the *total power* right for any map, in any scene, however authored -- the phantom becomes impossible |
+| **2** | A **32x32 luminance table** per map; the sampler picks a cell in proportion to what it emits, maps it back to the surface through an affine uv map, and reads the real texel | Makes the light arrive from *where it is painted*, not spread over the whole rectangle |
+
+Stage 2's conditions, and they matter for the write-up's honesty: it engages for
+the flat primitives whose texture coordinates the engine can state exactly
+(Plane and Quad), with untransformed uv, and a map whose distribution is worth
+aiming at. Anything else -- a modelled fitting, a tiled material, a uniform map
+-- falls back to stage 1, which is never wrong, only average.
+
+### The numbers
+
+Same scene file, same frame, same settings; only the binary differs
+(`before-phantom.jpg` against `after-aimed.jpg`):
+
+| | grain on the paint | car | wall | floor | frame-to-frame crawl |
+|---|---|---|---|---|---|
+| before | 3.31 | 64.5 | 19 | 17 | 91 levels |
+| after | **2.31** | 35.9 | 11 | 11 | **11 levels** |
+| the hand-split workaround, for reference | 2.34 | 34.8 | -- | -- | 7 levels |
+
+The last row is the point: **the branch reaches from plain authoring what
+previously took surgery on the scene.** The two pictures differ over 1.5M
+pixels, up to 175 levels.
+
+On the purpose-built fixture (`fixture-*.jpg`) -- a dark room, one ceiling,
+four lit cells of a hundred and forty-four:
+
+- textured mesh, aimed: floor **82.53**, far/near gradient **1.40**
+- the same four cells built as four separate emitters (ground truth): **82.54**, **1.41**
+- the same total power spread evenly: 74.23, **0.99**
+
+Frame cost, nine interleaved pairs in both orders (this laptop drifts ~1 ms
+across a session, so single runs mean nothing): **7.13 ms before, 7.50 ms
+after -- about 5%**. The RT GI pass itself did not get slower (3.99 -> 3.80);
+a pass-by-pass diff in one window put the two builds within 0.05 ms, so the
+5% did not land on a nameable pass and wants a GPU capture to explain. Note
+also that the "before" is doing *less-correct* work, not equal work.
+
+### Guarded by
+
+`tools/scripts/check_emitters.py` over `make_emitter_scene.py`'s fixtures --
+four claims, every one watched to fail:
+
+1. a partly-lit surface emits its own power (revert the fold: 3.33x)
+2. an emitter over there does not change a glow over here (revert the flag: the room goes **exactly black**)
+3. cooked and raw agree on the map's mean (revert the mip choice: 1.73)
+4. the light arrives from where it is painted (disable aiming: the gradient collapses 1.40 -> 1.00)
+
+### The mistakes worth retelling
+
+- **A careless revert filter cost the shader fix three times.** `grep -E "gi_"`
+  also matches `rtgi_trace.rvshader`. Twice it was committed as dead code and
+  the checks still passed, because the runtime compiles the shaders *staged
+  beside the exe*. `rvcheck.require_current_shaders` exists for exactly this.
+- **A cooked texture's 1x1 mip is not its mean.** The cooker's box filter drops
+  an odd level's tail row, so 768 -> ... -> 3 -> 1 discards five texels of nine
+  (2.27x wrong; a shifted variant reads exactly zero). Walk to the deepest
+  *evenly*-halved level instead.
+- **A check that passes `--import-cache=off` tests the path nothing ships.**
+  The raw path was exact while the cooked one was 2.27x wrong.
+- **The split-mesh room is not a ground truth for total power.** Equal power in
+  a different place delivers a different fraction to the floor. It *is* the
+  ground truth for stage 2, where the placement matches.
+- **The plane's v runs opposite to an image's rows**, and the two cancel: count
+  cells from the corner. Getting it wrong lights the opposite half of the room
+  and shows up in no total.

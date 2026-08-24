@@ -68,6 +68,22 @@ GLOW_BAND = (0.94, 1.06)
 # cent is all the room they need -- and the defect this exists for was 2.27x.
 PATH_BAND = (0.93, 1.07)
 
+# Claim 4, which only aiming can satisfy. The floor's far-to-near gradient
+# says *where* the light came from: a source over the back of the room lights
+# the far floor more, and one spread over the whole ceiling lights it evenly.
+# Measured, with the four cells at the back: 1.41 for the ground truth built
+# as four separate quads, 1.39 for the same cells painted into one map and
+# aimed at, and 0.99 for the same power spread evenly -- which is what the
+# textured room read before the aiming existed.
+AIM_BAND = (0.85, 1.15)
+AIM_FLOOR = 1.20
+
+# And the whole of it in one number: a mesh whose map lights four cells must
+# render like the same four cells built as separate emitters. Measured 82.53
+# against 82.54 -- which is the claim stage 2 exists to make, and the reason
+# the showroom no longer needs its lit block pulled out into a mesh of its own.
+TRUTH_BAND = (0.9, 1.1)
+
 
 def render(exe, scene, out, cooked=True):
     result = subprocess.run(
@@ -103,7 +119,12 @@ def render(exe, scene, out, cooked=True):
     # and the camera sees whole. Not the frame: the ceiling is in it, and a
     # ceiling that emits is not evidence about the light it sheds.
     image = np.asarray(Image.open(out).convert("RGB")).astype(float)
-    return image[int(image.shape[0] * 0.55):, :].mean()
+    rows = image.shape[0]
+    return (image[int(rows * 0.55):, :].mean(),
+            # And how the light falls across it, far against near, which is
+            # the only thing in this picture that says where the light was.
+            image[int(rows * 0.55):int(rows * 0.72), :].mean()
+            / max(image[int(rows * 0.83):, :].mean(), 1e-6))
 
 
 def main():
@@ -121,7 +142,8 @@ def main():
         sys.exit(1)
 
     scenes = root / "SampleProject" / "assets" / "scenes"
-    for name in ("emitter_holes", "emitter_uniform", "emitter_glow", "emitter_glow_plus"):
+    for name in ("emitter_holes", "emitter_uniform", "emitter_split",
+                 "emitter_glow", "emitter_glow_plus"):
         if not (scenes / f"{name}.rage").exists():
             print(f"SKIP: no {name}.rage; generate with make_emitter_scene.py")
             return 0
@@ -129,10 +151,13 @@ def main():
     shots = root / "build" / "emitter-check"
     shots.mkdir(parents=True, exist_ok=True)
 
-    floors = {name: render(exe, name, shots / f"{name}.png")
-              for name in ("emitter_holes", "emitter_uniform",
-                           "emitter_glow", "emitter_glow_plus")}
-    raw_holes = render(exe, "emitter_holes", shots / "emitter_holes_raw.png", cooked=False)
+    measured = {name: render(exe, name, shots / f"{name}.png")
+                for name in ("emitter_holes", "emitter_uniform", "emitter_split",
+                             "emitter_glow", "emitter_glow_plus")}
+    floors = {name: value[0] for name, value in measured.items()}
+    gradients = {name: value[1] for name, value in measured.items()}
+    raw_holes = render(exe, "emitter_holes", shots / "emitter_holes_raw.png",
+                       cooked=False)[0]
 
     failures = 0
 
@@ -186,6 +211,27 @@ def main():
               "scans the source. Suspect the level MeanOfCooked settles on -- it "
               "must be the deepest one reached by even halvings, because an odd "
               "level's reduction throws its tail away.")
+
+    # --- claim 4 -------------------------------------------------------------
+    aimed = gradients["emitter_holes"]
+    truth = gradients["emitter_split"]
+    ratio = aimed / max(truth, 1e-6)
+    total = floors["emitter_holes"] / max(floors["emitter_split"], 1e-6)
+    ok = (AIM_BAND[0] <= ratio <= AIM_BAND[1] and aimed >= AIM_FLOOR
+          and TRUTH_BAND[0] <= total <= TRUTH_BAND[1])
+    failures += 0 if ok else 1
+    print(f"{'pass' if ok else 'FAIL'}  the light arrives from where it is painted: "
+          f"one textured mesh against the same cells as separate quads -- "
+          f"floor {floors['emitter_holes']:.2f} against {floors['emitter_split']:.2f} "
+          f"(ratio {total:.2f}, band {TRUTH_BAND[0]}-{TRUTH_BAND[1]}), gradient "
+          f"{aimed:.2f} against {truth:.2f} (ratio {ratio:.2f}); the same power "
+          f"spread evenly reads {gradients['emitter_uniform']:.2f}")
+    if not ok:
+        print("      A gradient near the evenly-spread figure means the emitter is "
+              "radiating uniformly over its whole rectangle again -- its aiming table "
+              "is not reaching the shader. Suspect the conditions in Scene.cpp's "
+              "emitter walk (a flat primitive, an untransformed uv, a map whose "
+              "distribution was worth building) or the GiEmitter mirror.")
 
     if failures:
         print(f"{failures} check(s) failed")

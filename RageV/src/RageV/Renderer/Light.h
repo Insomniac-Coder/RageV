@@ -1,9 +1,17 @@
 #pragma once
 #include "RageV/Math/Math.h"
+#include "RageV/Renderer/RHI/RHITypes.h"
+#include <memory>
 #include <vector>
 
 namespace RageV
 {
+	// An emitter names the map it aims by, and nothing here looks inside one.
+	// Declared rather than included for that reason: this header is plain
+	// data, and it should stay cheap enough for the component registry and
+	// the serializer to include without dragging the RHI in behind it.
+	namespace RHI { class RHITexture; class RHISampler; }
+
 	typedef Vec3 color;
 
 	// Plain data. Every accessor this used to have was a bare assignment with
@@ -60,6 +68,11 @@ namespace RageV
 	//
 	// Here rather than in Renderer3D.h because it is a light, and because the
 	// scene builds these and has no business including the renderer.
+	// The loader's account of an emissive map's content -- see TextureLoader.
+	// Declared rather than included: an emitter passes one along and never
+	// looks inside it.
+	struct TextureStats;
+
 	struct AreaEmitter
 	{
 		Vec3 Centre{ 0.0f };
@@ -78,6 +91,29 @@ namespace RageV
 		// same id on a RayCaster and must not be tempted to dereference
 		// something the scene owns and may have rebuilt.
 		uint64_t Owner{ 0 };
+
+		// **Where on the rectangle the light actually is.** Null leaves the
+		// rectangle radiating evenly at Radiance, which is right for a panel
+		// that glows all over and only average-right for one whose emissive
+		// map is four lit cells of a hundred and forty-four. With it, a
+		// sampler picks a cell in proportion to what the cell emits and reads
+		// the real texel there -- so the shadow rays go to the lit cells and
+		// the light arrives from where it is painted.
+		RHI::Ref<RHI::RHITexture> EmissiveMap;
+		// The material's own sampler, so the heap slot the renderer takes is
+		// the same one the material's record already holds rather than a
+		// second entry for one image.
+		RHI::Ref<RHI::RHISampler> EmissiveSampler;
+		std::shared_ptr<const TextureStats> Emission;
+
+		// Texture uv back to the rectangle's own (su, sv) in [-1,1]:
+		//     su = UvToSurface[0] * u + UvToSurface[1] * v + UvToSurface[2]
+		//     sv = UvToSurface[3] * u + UvToSurface[4] * v + UvToSurface[5]
+		// Affine, and only set when it is *exactly* affine -- the scene fills
+		// it for the flat primitives whose mapping it knows and leaves the
+		// emitter uniform otherwise, because a guess here would put light on
+		// the wrong part of a surface with nothing to say it had.
+		float UvToSurface[6]{ 0, 0, 0, 0, 0, 0 };
 	};
 
 	// What the renderers actually consume. A struct rather than the tuple this

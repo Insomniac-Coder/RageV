@@ -94,7 +94,8 @@ namespace RageV
 		// answer is a property of the image and the walk runs over every mesh
 		// in the scene. White when the map is cleared, which is the same
 		// answer as having no map at all.
-		m_EmissiveMean = texture ? TextureLoader::MeanColor(texture) : Vec3(1.0f);
+		m_EmissiveStats = texture ? TextureLoader::Stats(texture) : nullptr;
+		m_EmissiveMean = m_EmissiveStats ? m_EmissiveStats->Mean : Vec3(1.0f);
 		Invalidate();
 	}
 
