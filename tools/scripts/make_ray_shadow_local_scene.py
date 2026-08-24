@@ -157,17 +157,6 @@ def build(profile):
     lines += _box(next_id, "Floor", (0, -0.1, 0), (2 * FLOOR_HALF, 0.2, 2 * FLOOR_HALF),
                   (0.6, 0.6, 0.6))
 
-    # First in the file, and that is load-bearing: the registry walks lights
-    # newest first, so these are visited *last* and the spot the maps drop
-    # over their budget is the third of these -- off-screen -- rather than
-    # the one over the box. Were the order to change, the spot claim in
-    # check_ray_shadows would fail under maps and say which light lost its
-    # map.
-    for i, position in enumerate(BUDGET_SPOTS):
-        lines += _light(next_id, f"Budget spot {i + 1}", "Spot", position,
-                        (-math.pi / 2 + 0.01, 0, 0),
-                        intensity=20, range_=10, inner=20, outer=30)
-
     lines += _light(next_id, "Spot", "Spot", SPOT_POSITION,
                     (_pitch_toward(SPOT_POSITION, SPOT_BOX_CENTRE), 0, 0),
                     intensity=60, range_=20,
@@ -185,6 +174,30 @@ def build(profile):
                     intensity=40, range_=20,
                     inner=FOX_SPOT_INNER_DEGREES, outer=FOX_SPOT_OUTER_DEGREES)
     lines += _fox(next_id)
+
+    # **Last in the file, and that is load-bearing.** The spot shadow budget
+    # is four (ShadowMap::kMaxLocal) and this scene asks for five, so one spot
+    # lights without casting -- and the one dropped must be an off-screen
+    # filler, never the spot over the box or the one on the fox, or the mapped
+    # frame this check measures against loses a shadow the traced frame still
+    # has.
+    #
+    # These were *first* in the file while the registry walked lights newest
+    # first, which is the order EnTT gave. The purpose-built ECS walks
+    # creation order instead (ECS.h, View::Iterator), so first became first,
+    # the fillers took the budget, and the light left without a map was the
+    # **fox** spot. The traced fox shadow was then measured against a mapped
+    # fox shadow that no longer existed: IoU 0.358, the mapped mask a strict
+    # subset of the traced one, and not one traced pixel changed.
+    #
+    # The comment this replaces promised that a changed order "would say
+    # which light lost its map". It did not -- the warning in Scene.cpp does
+    # not name the light -- which is why this cost a diagnosis, not a glance.
+    for i, position in enumerate(BUDGET_SPOTS):
+        lines += _light(next_id, f"Budget spot {i + 1}", "Spot", position,
+                        (-math.pi / 2 + 0.01, 0, 0),
+                        intensity=20, range_=10, inner=20, outer=30)
+
     return "\n".join(lines) + "\n"
 
 
