@@ -1,0 +1,13 @@
+Material: emitter_holes
+BaseColor: [1, 1, 1, 1]
+Emissive: [6, 6, 6, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  Emissive: 13536743973870315054

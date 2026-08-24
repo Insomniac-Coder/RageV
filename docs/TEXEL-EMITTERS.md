@@ -1,8 +1,30 @@
 # Texel emitters — light through the holes in the black paper
 
-**Status: researched and planned, not built. 2026-08-24.** This branch
-(`texel-emitters`) holds the design; implementation starts only when the owner
-says so. Nothing on `main` depends on this document.
+**Status: stages 0 and 1 built and checked, stage 2 planned. 2026-08-24.**
+This branch (`texel-emitters`) holds the design and the first two stages;
+stage 2 starts only when the owner says so. Nothing on `main` depends on this.
+
+What the measurements changed about the plan, since the plan was written from
+reading rather than from running:
+
+- **Stage 1 needs no `MaxLuma` and no change to the membership threshold.**
+  The plan feared that folding the mean in would drop a sparse emitter below
+  `strength > 1` and leave its glow subtracted-but-unsampled. Keeping the
+  threshold on the *scalar*, as it already was, avoids that entirely -- and it
+  is also the better answer, because four bright cells are a real light and
+  belong in the list where stage 2 can aim at them. Simpler than planned, and
+  safer.
+- **The split-mesh room is not a usable ground truth for stage 1.** It is
+  exact for the estimator, as the research said, but it concentrates the same
+  power into four cells while the textured room spreads it over the whole
+  ceiling -- and a concentrated source delivers a *different fraction* of its
+  power to the floor. Measured 0.82, and no amount of correctness would make
+  that 1.00. The check compares against a **uniform ceiling of the same total
+  power** instead: same geometry, same distribution, and -- because its scalar
+  falls under the threshold -- a different estimator, which is the property
+  worth having.
+- **Two estimators of one light agree to about 9%** (0.91 measured), which is
+  what sets the band in `check_emitters.py`. The failure it guards is 36x.
 
 The owner's idea, in their words: a pixel shader runs per pixel, so a pixel
 whose emissive value clears a threshold could be counted as a source of light
@@ -238,9 +260,16 @@ untouched at every stage.
 
 | Stage | Size | Risk lives in | Ships alone? |
 |---|---|---|---|
-| 0 — subtraction flag + cap contract | ~20-40 lines | the flag's blended/no-ray-instance edge | Yes — it fixes two real defects today |
-| 1 — mean-scaled emitters | ~150-180 lines, 4 files, no shader/format change | BC decode correctness; the membership threshold | Yes — kills the phantom class engine-wide |
+| 0 — subtraction flag + cap contract | **built**: ~90 lines over 7 files | the flag's blended/no-ray-instance edge | Yes — it fixed two real defects |
+| 1 — mean-scaled emitters | **built**: ~200 lines over 6 files, no shader/format change | BC decode correctness | Yes — kills the phantom class engine-wide |
 | 2 — texel alias sampling | ~450-580 lines, 6-7 files | struct mirror; pdf; affinity gate | Yes — needs 1's stats machinery |
+
+Stages 0 and 1 are guarded by `tools/scripts/check_emitters.py` over the
+fixtures `make_emitter_scene.py` writes, and both claims were watched to fail:
+reverting stage 1's fold takes the textured room to 3.33x the reference (36x in
+radiance, on a floor that saturates), and reverting stage 0's flag takes the
+glow room to **exactly black** -- a sealed emitter in a corner deleting every
+photon in the room, which is the defect in its purest form.
 
 Recommended: land 0+1 together (1 is unsafe without 0), then 2. Every stage
 carries its check script and its falsification, per CHK.2: a claim nobody has

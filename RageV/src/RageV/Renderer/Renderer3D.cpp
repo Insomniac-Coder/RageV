@@ -63,6 +63,14 @@ namespace RageV
 		// above, which only the bindless variants declare.
 		constexpr uint32_t kVisibleBinding = 17;
 		constexpr uint32_t kRayInstancePosed = 1u;
+		// This instance is one the area-emitter list answers for, so a
+		// hemisphere hit on it must not count its emissive a second time.
+		// Per instance rather than "any emitter exists at all", which is what
+		// it was: membership is filtered -- by the strength threshold, by the
+		// degenerate-rectangle drop, and by the cap -- so the global form
+		// subtracted the emissive of surfaces no shadow ray ever aimed at,
+		// and their light simply vanished.
+		constexpr uint32_t kRayInstanceEmitter = 2u;
 
 		// Mirrors the std140 SceneData block in pbr.rvshader.
 		struct SceneUniforms
@@ -352,6 +360,9 @@ namespace RageV
 				Vec4 Radiance{ 0.0f };
 			};
 			std::vector<GpuEmitter> Emitters;
+			// The owners of the rows above, in the same order. Not uploaded:
+			// this is how a ray instance is told it is one of them.
+			std::vector<uint64_t> EmitterOwners;
 			Format           GiTargetColor = Format::Undefined;
 			Ref<RHISampler>  PointSampler;
 			Format TargetColor = Format::R8G8B8A8_UNORM;
@@ -1237,6 +1248,7 @@ namespace RageV
 			return;
 
 		s_Data->Emitters.clear();
+		s_Data->EmitterOwners.clear();
 
 		for (const AreaEmitter& source : emitters)
 		{
@@ -1260,6 +1272,7 @@ namespace RageV
 			row.TangentV = Vec4(source.TangentV, 0.0f);
 			row.Radiance = Vec4(source.Radiance, 0.0f);
 			s_Data->Emitters.push_back(row);
+			s_Data->EmitterOwners.push_back(source.Owner);
 		}
 	}
 
@@ -2324,6 +2337,30 @@ namespace RageV
 						row.PositionAddress = row.AttributeAddress;
 						row.PositionStrideWords = row.AttributeStrideWords;
 					}
+
+					// **Is this surface one the emitter list answers for?**
+					// Asked here because this is the first point where both
+					// halves are final: SetAreaEmitters has run for the frame
+					// (the scene hands the list over before EndScene) and the
+					// casters are this frame's. A linear scan over at most
+					// sixteen owners, per caster.
+					//
+					// Owner zero is "no id", which every caller that does not
+					// set one leaves behind -- it must never match, or the
+					// first unowned emitter would silently claim every
+					// unowned instance in the scene.
+					if (caster.Owner != 0)
+					{
+						for (uint64_t owner : s_Data->EmitterOwners)
+						{
+							if (owner == caster.Owner)
+							{
+								row.Flags |= kRayInstanceEmitter;
+								break;
+							}
+						}
+					}
+
 					row.MaterialIndex = it->second;
 					row.BaseColor = caster.Params.BaseColor;
 					row.EmissiveColor = caster.Params.EmissiveColor;

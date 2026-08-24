@@ -86,6 +86,23 @@ namespace RageV
 		// weight map of a terrain nobody has painted (ENGINE-NOTES 7aq).
 		static RHI::Ref<RHI::RHITexture> Red(RHI::RHIDevice& device);
 
+		// The average colour of a texture this loader read, in **linear**
+		// space, or white when it read none under that name.
+		//
+		// It exists for the traced bounce's emitter list. That list stands a
+		// rectangle in for an emissive mesh and takes the material's scalar
+		// as the whole surface's radiance -- which is right for a panel that
+		// glows evenly and wrong by the ratio of lit to unlit area for one
+		// whose map is mostly dark. A luminaire lighting four cells of a
+		// hundred and forty-four lit the room thirty-six times too brightly
+		// (see docs/TEXEL-EMITTERS.md); folding this in makes the emitted
+		// *power* right for any map, however it is painted.
+		//
+		// White for the unknown, deliberately: a material with no emissive
+		// map, or a texture that arrived by some other route, then behaves
+		// exactly as it did before this existed.
+		static Vec3 MeanColor(const RHI::Ref<RHI::RHITexture>& texture);
+
 		static void ClearCache();
 	};
 }

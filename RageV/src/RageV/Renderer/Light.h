@@ -66,6 +66,18 @@ namespace RageV
 		Vec3 TangentU{ 1.0f, 0.0f, 0.0f };
 		Vec3 TangentV{ 0.0f, 0.0f, 1.0f };
 		Vec3 Radiance{ 0.0f };
+
+		// Which object this rectangle stands for, as an opaque id the scene
+		// chooses and the renderer only compares. **The traced bounce needs
+		// to know, at a hit, whether the surface it landed on is one this
+		// list answers for**: emissive found by a shadow ray *and* by a
+		// hemisphere ray is counted twice, and emissive found by neither is
+		// lost. Both used to happen -- see kMaxAreaEmitters in Renderer3D.h.
+		//
+		// Not a pointer, deliberately. The renderer compares it against the
+		// same id on a RayCaster and must not be tempted to dereference
+		// something the scene owns and may have rebuilt.
+		uint64_t Owner{ 0 };
 	};
 
 	// What the renderers actually consume. A struct rather than the tuple this

@@ -167,6 +167,11 @@ namespace RageV
 		void SetNormalMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetOcclusionMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetEmissiveMap(const RHI::Ref<RHI::RHITexture>& texture);
+		// The emissive map's average, in linear space, or white when there is
+		// no map. What the emitter list multiplies the scalar by so that a
+		// partly-lit surface emits the power it actually emits -- see
+		// TextureLoader::MeanColor.
+		const Vec3& GetEmissiveMean() const { return m_EmissiveMean; }
 
 		// Separate greyscale maps, read from the red channel.
 		void SetRoughnessMap(const RHI::Ref<RHI::RHITexture>& texture);
@@ -255,6 +260,7 @@ namespace RageV
 		RHI::Ref<RHI::RHITexture> m_Normal;
 		RHI::Ref<RHI::RHITexture> m_Occlusion;
 		RHI::Ref<RHI::RHITexture> m_Emissive;
+		Vec3 m_EmissiveMean{ 1.0f, 1.0f, 1.0f };
 		RHI::Ref<RHI::RHITexture> m_Roughness;
 		RHI::Ref<RHI::RHITexture> m_Metallic;
 		RHI::Ref<RHI::RHITexture> m_Specular;

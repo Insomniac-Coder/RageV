@@ -203,7 +203,7 @@ struct RayInstance
 	uint  PositionStrideWords;
 	uint  AttributeStrideWords;
 	uint  MaterialIndex;      // row of u_Materials
-	uint  Flags;              // bit 0: positions are posed, take the flat normal
+	uint  Flags;              // bit 0: positions are posed; bit 1: an area emitter answers for this surface
 	uint  _pad0;
 	uint  _pad1;
 	vec4  BaseColor;
@@ -211,6 +211,12 @@ struct RayInstance
 	vec4  Surface;            // metallic, roughness, occlusion, normal scale
 };
 const uint RAY_INSTANCE_POSED = 1u;
+// The area-emitter list holds a rectangle standing for this instance, so a
+// shadow ray aimed at that rectangle already counted its emissive and a
+// hemisphere hit here must not count it again. Absent for everything the
+// list left out -- below the strength threshold, degenerate, or past the cap
+// -- whose emissive the hemisphere term is the only estimator of.
+const uint RAY_INSTANCE_EMITTER = 2u;
 
 layout(std430, set = 0, binding = 15) readonly buffer RayInstanceBlock
 {
@@ -767,6 +773,10 @@ struct TracedSurface
 	vec3 Diffuse;    // albedo, metals removed
 	vec3 Direct;     // every light, shadowed toward the sun
 	vec3 Emissive;
+	// Whether an area emitter answers for this surface's emissive. The
+	// bounce subtracts Emissive only where this is true; see
+	// RAY_INSTANCE_EMITTER.
+	bool IsEmitter;
 };
 
 // `reach` is how far the ray may travel, in world metres. A reflection wants
@@ -784,6 +794,7 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	surface.Diffuse = vec3(0.0);
 	surface.Direct = vec3(0.0);
 	surface.Emissive = vec3(0.0);
+	surface.IsEmitter = false;
 
 	// Off the surface along its geometric normal, the shadow ray's offset,
 	// for the shadow ray's reason.
@@ -934,6 +945,7 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	surface.Diffuse = diffuse;
 	surface.Direct = lit;
 	surface.Emissive = emissive;
+	surface.IsEmitter = (hit.Flags & RAY_INSTANCE_EMITTER) != 0u;
 	return surface;
 }
 

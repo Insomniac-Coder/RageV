@@ -30,9 +30,18 @@ namespace RageV
 									 RHI::Format normal = RHI::Format::Undefined,
 									 RHI::Format indirect = RHI::Format::Undefined);
 		// At most this many emissive rectangles reach the shader. Past the cap
-		// the bounce falls back to finding emitters by hemisphere sampling,
-		// which is what it did before -- noisier, and still correct, which is
-		// the right way round for a cap to fail. See AreaEmitter in Light.h.
+		// the bounce falls back to finding *those* emitters by hemisphere
+		// sampling -- noisier, and still correct, which is the right way
+		// round for a cap to fail. See AreaEmitter in Light.h.
+		//
+		// **That fallback only became true when the subtraction went per
+		// instance.** The shader removes a hit's emissive because a shadow
+		// ray already answered for it, and it used to do that whenever the
+		// list was non-empty at all -- so the seventeenth emitter, and every
+		// surface under the strength threshold, was subtracted by the
+		// hemisphere term and sampled by nothing. Their light did not become
+		// noisier; it disappeared. AreaEmitter::Owner is what carries the
+		// answer now, matched onto the ray instance in EndScene.
 		static constexpr uint32_t kMaxAreaEmitters = 16;
 
 		// Handed over by the scene each frame, before EndScene. Copied rather

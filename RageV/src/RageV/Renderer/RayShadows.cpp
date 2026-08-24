@@ -254,7 +254,8 @@ namespace RageV
 	}
 
 	void RayShadows::AddInstance(const Ref<Mesh>& mesh, const Mat4& world, const std::vector<Mat4>* bones,
-								 const Ref<Material>& material, const MaterialParams& params)
+								 const Ref<Material>& material, const MaterialParams& params,
+								 uint64_t owner)
 	{
 		if (!s_Data || !s_Data->Available || !mesh)
 			return;
@@ -267,6 +268,7 @@ namespace RageV
 		record.MeshRef = mesh;
 		record.MaterialRef = material;
 		record.Params = params;
+		record.Owner = owner;
 
 		// A posed skinned caster: this frame's structure for a caster slot,
 		// refit in Build from the vertices the compute pass writes. Falls

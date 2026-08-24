@@ -8,6 +8,8 @@
 #include "RageV/IO/TextureCook.h"
 #include "RageV/IO/VFS.h"
 #include "stb_image.h"
+#include <array>
+#include <cmath>
 #include <filesystem>
 
 namespace RageV
@@ -100,6 +102,156 @@ namespace RageV
 		}
 	}
 
+	namespace
+	{
+		// sRGB to linear, the exact curve, through a table: the raw path
+		// averages every texel of an image that may be sixteen megapixels,
+		// and two hundred and fifty-six answers cover every input it can
+		// have.
+		const std::array<float, 256>& SrgbTable()
+		{
+			static const std::array<float, 256> table = []
+			{
+				std::array<float, 256> t{};
+				for (int i = 0; i < 256; i++)
+				{
+					const float v = i / 255.0f;
+					t[i] = v <= 0.04045f ? v / 12.92f
+										 : std::pow((v + 0.055f) / 1.055f, 2.4f);
+				}
+				return t;
+			}();
+			return table;
+		}
+
+		// The first texel of a BC1 colour block: two RGB565 endpoints and
+		// two-bit indices. Only texel zero is read, because the only block
+		// this is ever handed is the 1x1 mip -- where the other fifteen are
+		// padding the encoder invented.
+		Vec3 DecodeBc1Texel0(const uint8_t* block)
+		{
+			auto expand = [](uint16_t c)
+			{
+				// 5 and 6 bits replicated into 8, which is what a decoder
+				// does: 0x1F must come back 255 and not 248.
+				const uint32_t r = (c >> 11) & 0x1F, g = (c >> 5) & 0x3F, b = c & 0x1F;
+				return Vec3((float)((r << 3) | (r >> 2)),
+							(float)((g << 2) | (g >> 4)),
+							(float)((b << 3) | (b >> 2)));
+			};
+
+			const uint16_t c0 = (uint16_t)(block[0] | (block[1] << 8));
+			const uint16_t c1 = (uint16_t)(block[2] | (block[3] << 8));
+			const Vec3 a = expand(c0), b = expand(c1);
+			const uint32_t index = block[4] & 0x3u;
+
+			if (c0 > c1)
+			{
+				switch (index)
+				{
+					case 0: return a;
+					case 1: return b;
+					case 2: return (a * 2.0f + b) / 3.0f;
+					default: return (a + b * 2.0f) / 3.0f;
+				}
+			}
+			switch (index)
+			{
+				case 0: return a;
+				case 1: return b;
+				case 2: return (a + b) * 0.5f;
+				default: return Vec3(0.0f);
+			}
+		}
+
+		// The mean of a cooked chain, read off its last mip -- which is the
+		// 1x1 the cooker filtered down to, **in linear space** (TextureCook
+		// converts, filters and converts back), so one texel is the exact
+		// average of the whole image and no scan is needed.
+		bool MeanOfCooked(const IO::CookedTexture& cooked, bool srgb, Vec3& out)
+		{
+			if (cooked.Mips.empty())
+				return false;
+
+			const std::vector<uint8_t>& last = cooked.Mips.back();
+			Vec3 encoded(0.0f);
+			switch (cooked.Format)
+			{
+				case IO::CookedPixelFormat::RGBA8:
+					if (last.size() < 4)
+						return false;
+					encoded = Vec3((float)last[0], (float)last[1], (float)last[2]);
+					break;
+				case IO::CookedPixelFormat::BC1:
+					if (last.size() < 8)
+						return false;
+					encoded = DecodeBc1Texel0(last.data());
+					break;
+				case IO::CookedPixelFormat::BC3:
+					// Eight bytes of alpha, then a BC1 colour block. Alpha is
+					// not part of a colour's average.
+					if (last.size() < 16)
+						return false;
+					encoded = DecodeBc1Texel0(last.data() + 8);
+					break;
+				default:
+					// BC4 and BC5 are data maps -- roughness, normals -- and
+					// nothing asks those for a mean.
+					return false;
+			}
+
+			const std::array<float, 256>& table = SrgbTable();
+			auto channel = [&](float v)
+			{
+				const int i = (int)Math::Clamp(v + 0.5f, 0.0f, 255.0f);
+				return srgb ? table[(size_t)i] : v / 255.0f;
+			};
+			out = Vec3(channel(encoded.x), channel(encoded.y), channel(encoded.z));
+			return true;
+		}
+
+		// And of a raw image, which has no chain to read: every texel, in
+		// linear space. **Not sampled on a stride**, which is the tempting
+		// optimisation and the wrong one here -- a map whose bright part is
+		// four cells of a hundred and forty-four is exactly what this exists
+		// to measure, and a stride can step over all four and report black.
+		Vec3 MeanOfPixels(const uint8_t* rgba, uint32_t width, uint32_t height, bool srgb)
+		{
+			const std::array<float, 256>& table = SrgbTable();
+			double r = 0.0, g = 0.0, b = 0.0;
+			const size_t count = (size_t)width * height;
+			for (size_t i = 0; i < count; i++)
+			{
+				const uint8_t* p = rgba + i * 4;
+				if (srgb)
+				{
+					r += table[p[0]]; g += table[p[1]]; b += table[p[2]];
+				}
+				else
+				{
+					r += p[0] / 255.0; g += p[1] / 255.0; b += p[2] / 255.0;
+				}
+			}
+			if (count == 0)
+				return Vec3(1.0f);
+			return Vec3((float)(r / count), (float)(g / count), (float)(b / count));
+		}
+
+		// Keyed on the texture rather than the path: two names for one file
+		// are one texture here, and a caller holding the texture is what
+		// asks. Weak by construction -- a raw pointer used only as an
+		// identity, never dereferenced.
+		std::unordered_map<const RHITexture*, Vec3> s_Means;
+	}
+
+	Vec3 TextureLoader::MeanColor(const Ref<RHITexture>& texture)
+	{
+		if (!texture)
+			return Vec3(1.0f);
+		const auto it = s_Means.find(texture.get());
+		return it == s_Means.end() ? Vec3(1.0f) : it->second;
+	}
+
 	Ref<RHITexture> TextureLoader::Load2D(RHIDevice& device, const std::string& path,
 										  bool srgb, bool generateMips)
 	{
@@ -171,6 +323,9 @@ namespace RageV
 			for (uint32_t mip = 0; mip < levels; mip++)
 				texture->UploadMip(cooked.Mips[mip].data(), cooked.Mips[mip].size(), mip, 0);
 
+			if (Vec3 mean(1.0f); MeanOfCooked(cooked, srgb, mean))
+				s_Means[texture.get()] = mean;
+
 			s_Cache[key] = texture;
 			RV_CORE_INFO("Loaded cooked texture {0} ({1}x{2}, {3} mips, {4})", path,
 						 cooked.Width, cooked.Height, levels,
@@ -199,6 +354,9 @@ namespace RageV
 
 		auto texture = device.CreateTexture(desc);
 		texture->Upload(pixels, (uint64_t)width * height * 4);
+
+		s_Means[texture.get()] =
+			MeanOfPixels(pixels, (uint32_t)width, (uint32_t)height, srgb);
 
 		stbi_image_free(pixels);
 
