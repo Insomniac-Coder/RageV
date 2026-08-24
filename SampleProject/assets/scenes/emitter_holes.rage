@@ -1,0 +1,90 @@
+Scene: Emitters
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: Color
+  SkyHorizon: [0, 0, 0]
+  SkyZenith: [0, 0, 0]
+  SkyGround: [0, 0, 0]
+  SkyIntensity: 0
+  SkyRotation: 0
+  SkyTexture: 0
+Entities:
+  - EntityID: 6111862596534002478
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Position: [0, 2.2, 3.1]
+      Rotation: [-0.42, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 55
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 100
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 13150330638402972445
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [8, 1, 8]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 15507046747463616226
+  - EntityID: 7534124655049735590
+    TagComponent:
+      Tag: Wall Left
+    TransformComponent:
+      Position: [-4, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.2, 4, 8]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 4878683790387378978
+  - EntityID: 6735502776965778683
+    TagComponent:
+      Tag: Wall Right
+    TransformComponent:
+      Position: [4, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.2, 4, 8]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 4878683790387378978
+  - EntityID: 9451474279982075784
+    TagComponent:
+      Tag: Wall Back
+    TransformComponent:
+      Position: [0, 2, -4]
+      Rotation: [0, 0, 0]
+      Scale: [8, 4, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 4878683790387378978
+  - EntityID: 4499002560844416326
+    TagComponent:
+      Tag: Wall Front
+    TransformComponent:
+      Position: [0, 2, 4]
+      Rotation: [0, 0, 0]
+      Scale: [8, 4, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 4878683790387378978
+  - EntityID: 16653388169543425440
+    TagComponent:
+      Tag: Ceiling
+    TransformComponent:
+      Position: [0, 4, 0]
+      Rotation: [3.14159, 0, 0]
+      Scale: [8, 1, 8]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 9186446118365819241

@@ -90,6 +90,12 @@ namespace RageV
 	void Material::SetEmissiveMap(const Ref<RHITexture>& texture)
 	{
 		AssignMap(m_Emissive, texture, m_Params.MapFlags, MaterialMap_Emissive);
+		// Asked once, here, rather than per frame from the emitter walk: the
+		// answer is a property of the image and the walk runs over every mesh
+		// in the scene. White when the map is cleared, which is the same
+		// answer as having no map at all.
+		m_EmissiveStats = texture ? TextureLoader::Stats(texture) : nullptr;
+		m_EmissiveMean = m_EmissiveStats ? m_EmissiveStats->Mean : Vec3(1.0f);
 		Invalidate();
 	}
 

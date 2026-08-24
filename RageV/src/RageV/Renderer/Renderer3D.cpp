@@ -63,6 +63,14 @@ namespace RageV
 		// above, which only the bindless variants declare.
 		constexpr uint32_t kVisibleBinding = 17;
 		constexpr uint32_t kRayInstancePosed = 1u;
+		// This instance is one the area-emitter list answers for, so a
+		// hemisphere hit on it must not count its emissive a second time.
+		// Per instance rather than "any emitter exists at all", which is what
+		// it was: membership is filtered -- by the strength threshold, by the
+		// degenerate-rectangle drop, and by the cap -- so the global form
+		// subtracted the emissive of surfaces no shadow ray ever aimed at,
+		// and their light simply vanished.
+		constexpr uint32_t kRayInstanceEmitter = 2u;
 
 		// Mirrors the std140 SceneData block in pbr.rvshader.
 		struct SceneUniforms
@@ -342,16 +350,35 @@ namespace RageV
 			Ref<RHIPipeline> GiPipeline;
 
 			// The emissive rectangles the bounce aims at, as the shader reads
-			// them: centre and area, the two half-extents, and the radiance.
-			// Mirrors GiEmitter in rtgi_trace.rvshader, std430.
+			// them: centre and area, the two half-extents, the radiance, and
+			// -- when the surface's light is not spread evenly over it -- the
+			// map to aim by. Mirrors GiEmitter in rtgi_trace.rvshader, std430.
 			struct GpuEmitter
 			{
 				Vec4 CentreArea{ 0.0f };
 				Vec4 TangentU{ 0.0f };
 				Vec4 TangentV{ 0.0f };
 				Vec4 Radiance{ 0.0f };
+				// x = where this emitter's aiming table starts in the shared
+				// buffer, y = cells a side (zero: radiate evenly, and the
+				// three rows here are unread), z = the map's heap slot.
+				Vec4 Aim{ 0.0f };
+				// Texture uv back to the rectangle's (su, sv); see
+				// AreaEmitter::UvToSurface.
+				Vec4 UvToSurface0{ 0.0f };
+				Vec4 UvToSurface1{ 0.0f };
 			};
+			static_assert(sizeof(GpuEmitter) == 112,
+						  "Must match GiEmitter in rtgi_trace.rvshader");
 			std::vector<GpuEmitter> Emitters;
+			// The owners of the rows above, in the same order. Not uploaded:
+			// this is how a ray instance is told it is one of them.
+			std::vector<uint64_t> EmitterOwners;
+			// Every aiming table this frame's emitters use, end to end; a row
+			// names its own by offset and side. One buffer rather than one
+			// per emitter because sixteen bindings would be sixteen
+			// descriptors for four kilobytes each.
+			std::vector<float> EmitterCdf;
 			Format           GiTargetColor = Format::Undefined;
 			Ref<RHISampler>  PointSampler;
 			Format TargetColor = Format::R8G8B8A8_UNORM;
@@ -411,6 +438,8 @@ namespace RageV
 				// own set rather than set 0, which four other shaders reflect
 				// and which the comment on GiInputs is about.
 				Ref<RHIBuffer> GiEmitters;
+				uint32_t GiEmitterCdfCapacity = 0;
+				Ref<RHIBuffer> GiEmitterCdf;
 				uint32_t GiEmitterCapacity = 0;
 				// The batch's per-instance array. Grows to the largest scene
 				// this slot has drawn and stays there, so a steady scene stops
@@ -1073,6 +1102,27 @@ namespace RageV
 												* sizeof(Renderer3DData::GpuEmitter));
 		}
 
+		// The aiming tables, all of this frame's end to end. At least one
+		// float for the same reason the row above needs at least one row: a
+		// declared binding left unwritten is a validation error.
+		const uint32_t cdfCount = Math::Max((uint32_t)s_Data->EmitterCdf.size(), 1u);
+		if (EnsureInstanceBuffer(slot.GiEmitterCdf, slot.GiEmitterCdfCapacity, cdfCount,
+								 sizeof(float), "Renderer3D.giemittercdf"))
+		{
+			if (s_Data->EmitterCdf.empty())
+			{
+				const float none = 1.0f;
+				slot.GiEmitterCdf->Upload(&none, sizeof(none));
+			}
+			else
+			{
+				slot.GiEmitterCdf->Upload(s_Data->EmitterCdf.data(),
+										  (uint64_t)s_Data->EmitterCdf.size() * sizeof(float));
+			}
+			slot.GiInputs->SetStorageBuffer(3, slot.GiEmitterCdf, 0,
+											(uint64_t)cdfCount * sizeof(float));
+		}
+
 		slot.GiInputs->Commit();
 
 		struct GiParams
@@ -1237,6 +1287,8 @@ namespace RageV
 			return;
 
 		s_Data->Emitters.clear();
+		s_Data->EmitterOwners.clear();
+		s_Data->EmitterCdf.clear();
 
 		for (const AreaEmitter& source : emitters)
 		{
@@ -1259,7 +1311,30 @@ namespace RageV
 			row.TangentU = Vec4(source.TangentU, 0.0f);
 			row.TangentV = Vec4(source.TangentV, 0.0f);
 			row.Radiance = Vec4(source.Radiance, 0.0f);
+
+			// **The aiming table, when the surface has one and the heap can
+			// hold its map.** Radiance carries the *unfolded* scalar in this
+			// mode: the sampler multiplies by the texel it lands on, so
+			// folding the mean in as well would count the map twice.
+			if (source.Emission && source.Emission->Grid > 0 && source.EmissiveMap
+				&& source.EmissiveSampler && s_Data->Bindless && s_Data->Heap)
+			{
+				const uint32_t grid = source.Emission->Grid;
+				row.Aim = Vec4((float)s_Data->EmitterCdf.size(), (float)grid,
+							   (float)s_Data->Heap->Slot(source.EmissiveMap,
+														 source.EmissiveSampler),
+							   0.0f);
+				row.UvToSurface0 = Vec4(source.UvToSurface[0], source.UvToSurface[1],
+										source.UvToSurface[2], 0.0f);
+				row.UvToSurface1 = Vec4(source.UvToSurface[3], source.UvToSurface[4],
+										source.UvToSurface[5], 0.0f);
+				s_Data->EmitterCdf.insert(s_Data->EmitterCdf.end(),
+										  source.Emission->Cdf.begin(),
+										  source.Emission->Cdf.end());
+			}
+
 			s_Data->Emitters.push_back(row);
+			s_Data->EmitterOwners.push_back(source.Owner);
 		}
 	}
 
@@ -2324,6 +2399,30 @@ namespace RageV
 						row.PositionAddress = row.AttributeAddress;
 						row.PositionStrideWords = row.AttributeStrideWords;
 					}
+
+					// **Is this surface one the emitter list answers for?**
+					// Asked here because this is the first point where both
+					// halves are final: SetAreaEmitters has run for the frame
+					// (the scene hands the list over before EndScene) and the
+					// casters are this frame's. A linear scan over at most
+					// sixteen owners, per caster.
+					//
+					// Owner zero is "no id", which every caller that does not
+					// set one leaves behind -- it must never match, or the
+					// first unowned emitter would silently claim every
+					// unowned instance in the scene.
+					if (caster.Owner != 0)
+					{
+						for (uint64_t owner : s_Data->EmitterOwners)
+						{
+							if (owner == caster.Owner)
+							{
+								row.Flags |= kRayInstanceEmitter;
+								break;
+							}
+						}
+					}
+
 					row.MaterialIndex = it->second;
 					row.BaseColor = caster.Params.BaseColor;
 					row.EmissiveColor = caster.Params.EmissiveColor;

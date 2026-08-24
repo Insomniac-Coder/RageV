@@ -1884,6 +1884,28 @@ namespace RageV
 					Vec3(mesh.ResolveParams(resolvedMaterial->GetParams()).EmissiveColor);
 				const float strength = Math::Max(emissive.x, Math::Max(emissive.y, emissive.z));
 
+				// **What the surface emits on average, not what its brightest
+				// texel emits.** The rectangle below stands in for the whole
+				// mesh and radiates uniformly, so the scalar alone is right
+				// only for a surface that glows evenly -- and wrong by the
+				// ratio of lit to unlit area for one whose emissive map is
+				// mostly dark. The showroom's studio ceiling lit four cells of
+				// a hundred and forty-four through its texture and lit the
+				// room as though all of them were on.
+				//
+				// Folding the map's mean in makes the emitted *power* right
+				// for any map. Where that power comes from on the surface is
+				// still wrong -- the whole rectangle radiates a little instead
+				// of four cells radiating a lot -- which is the next stage's
+				// job (docs/TEXEL-EMITTERS.md).
+				//
+				// Membership stays on the scalar above, deliberately: a map
+				// is LDR, so folding can only ever reduce, and testing the
+				// folded value would drop exactly the bright-and-sparse
+				// emitter this is for -- the case that most needs a shadow
+				// ray aimed at it.
+				const Vec3 radiance = emissive * resolvedMaterial->GetEmissiveMean();
+
 				// Above one, not above zero. A surface emitting a fifth of what
 				// it reflects is a glow rather than a light source, and putting
 				// it in the emitter list spends a shadow ray per pixel on
@@ -1910,7 +1932,80 @@ namespace RageV
 					emitter.Centre = Vec3(transform.World * Vec4(localCentre, 1.0f));
 					emitter.TangentU = Vec3(transform.World * Vec4(u, 0.0f));
 					emitter.TangentV = Vec3(transform.World * Vec4(v, 0.0f));
-					emitter.Radiance = emissive;
+					emitter.Radiance = radiance;
+					// The handle, so the ray instance built for this same
+					// entity below can be told the list answers for it. The
+					// registry handle rather than the UUID: it is what both
+					// walks already hold, and a handle is only recycled when
+					// an entity is destroyed -- which dirties the draw list
+					// this walk lives in, so the pairing is rebuilt with it.
+					emitter.Owner = (uint64_t)item + 1;
+
+					// **And where on it the light actually is**, when the
+					// surface is one whose texture coordinates this can state
+					// exactly. The emitter is a rectangle in (su, sv) over
+					// [-1,1]; the map is sampled in uv over [0,1]; aiming at a
+					// texel needs the affine map between them, and getting it
+					// wrong would put light on the wrong part of a surface
+					// with nothing in the picture to say so.
+					//
+					// Only the two flat primitives, and only untransformed
+					// coordinates. A modelled fitting keeps its uv in the
+					// vertex buffer, which the mesh deliberately does not
+					// retain (Mesh.h), and a tiled or offset material samples
+					// a window of its map that the whole map's table does not
+					// describe. Both fall back to radiating evenly, which is
+					// what this did before and is never wrong -- only
+					// average.
+					const MaterialParams& params = resolvedMaterial->GetParams();
+					const bool plainUv = params.UvTransform.x == 1.0f
+									  && params.UvTransform.y == 1.0f
+									  && params.UvTransform.z == 0.0f
+									  && params.UvTransform.w == 0.0f;
+
+					if (plainUv && resolvedMaterial->GetEmissiveStats())
+					{
+						// Both primitives are one quad whose uv runs 0..1
+						// along its own two axes; what differs is which world
+						// axis the bounds walk above called U and which V.
+						//
+						// Plane lies in XZ with u = x + 1/2, v = 1/2 - z, and
+						// the walk takes Y as its normal, so U runs along Z
+						// and V along X. Quad stands in XY with u = x + 1/2,
+						// v = y + 1/2, normal Z, so U runs along X and V
+						// along Y. Inverted, that is:
+						if (mesh.Mesh == PrimitiveHandle(PrimitiveType::Plane))
+						{
+							emitter.UvToSurface[0] =  0.0f;   // su from u
+							emitter.UvToSurface[1] = -2.0f;   // su from v
+							emitter.UvToSurface[2] =  1.0f;
+							emitter.UvToSurface[3] =  2.0f;   // sv from u
+							emitter.UvToSurface[4] =  0.0f;
+							emitter.UvToSurface[5] = -1.0f;
+						}
+						else if (mesh.Mesh == PrimitiveHandle(PrimitiveType::Quad))
+						{
+							emitter.UvToSurface[0] =  2.0f;
+							emitter.UvToSurface[1] =  0.0f;
+							emitter.UvToSurface[2] = -1.0f;
+							emitter.UvToSurface[3] =  0.0f;
+							emitter.UvToSurface[4] =  2.0f;
+							emitter.UvToSurface[5] = -1.0f;
+						}
+
+						if (emitter.UvToSurface[0] != 0.0f || emitter.UvToSurface[1] != 0.0f)
+						{
+							emitter.EmissiveMap = resolvedMaterial->GetEmissiveMap();
+							emitter.EmissiveSampler = resolvedMaterial->GetSampler();
+							emitter.Emission = resolvedMaterial->GetEmissiveStats();
+							// The sampler reads the real texel, so the
+							// radiance it multiplies must be the *unfolded*
+							// scalar -- folding the mean in as well would
+							// count the map twice.
+							emitter.Radiance = emissive;
+						}
+					}
+
 					m_Emitters.push_back(emitter);
 				}
 			}
@@ -2436,7 +2531,8 @@ namespace RageV
 				const MaterialParams params =
 					mesh.ResolveParams(material ? material->GetParams() : MaterialParams{});
 
-				RayShadows::AddInstance(resolved, transform.World, bones, material, params);
+				RayShadows::AddInstance(resolved, transform.World, bones, material, params,
+										(uint64_t)item + 1);
 			}
 
 			// The terrain, every chunk, no frustum: a hill outside the view

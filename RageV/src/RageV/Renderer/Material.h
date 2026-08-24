@@ -21,6 +21,11 @@ namespace RageV
 	// mesh joins and which pipeline that list is issued with, and the shader
 	// never asks it anything. What the fragment itself needs -- the alpha -- is
 	// already in BaseColor.
+	// What the loader learned about an emissive map's content. Declared, not
+	// included: a material only ever holds one and hands it on, so the header
+	// that describes materials need not also describe texture loading.
+	struct TextureStats;
+
 	enum class BlendMode : int32_t
 	{
 		// Alpha ignored. Every material in this project was this until the
@@ -167,6 +172,16 @@ namespace RageV
 		void SetNormalMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetOcclusionMap(const RHI::Ref<RHI::RHITexture>& texture);
 		void SetEmissiveMap(const RHI::Ref<RHI::RHITexture>& texture);
+		// The emissive map's average, in linear space, or white when there is
+		// no map. What the emitter list multiplies the scalar by so that a
+		// partly-lit surface emits the power it actually emits -- see
+		// TextureLoader::MeanColor.
+		const Vec3& GetEmissiveMean() const { return m_EmissiveMean; }
+		// The same texture's cell distribution, for a sampler that wants to
+		// aim at the lit part rather than at the whole surface. Null when the
+		// map is uniform, black, or absent.
+		const std::shared_ptr<const TextureStats>&
+			GetEmissiveStats() const { return m_EmissiveStats; }
 
 		// Separate greyscale maps, read from the red channel.
 		void SetRoughnessMap(const RHI::Ref<RHI::RHITexture>& texture);
@@ -227,6 +242,7 @@ namespace RageV
 		const RHI::Ref<RHI::RHITexture>& GetBaseColorMap() const { return m_BaseColor; }
 		const RHI::Ref<RHI::RHITexture>& GetNormalMap() const { return m_Normal; }
 		const RHI::Ref<RHI::RHITexture>& GetRoughnessMap() const { return m_Roughness; }
+		const RHI::Ref<RHI::RHITexture>& GetEmissiveMap() const { return m_Emissive; }
 		const RHI::Ref<RHI::RHISampler>& GetSampler() const { return m_Sampler; }
 
 	private:
@@ -255,6 +271,8 @@ namespace RageV
 		RHI::Ref<RHI::RHITexture> m_Normal;
 		RHI::Ref<RHI::RHITexture> m_Occlusion;
 		RHI::Ref<RHI::RHITexture> m_Emissive;
+		Vec3 m_EmissiveMean{ 1.0f, 1.0f, 1.0f };
+		std::shared_ptr<const TextureStats> m_EmissiveStats;
 		RHI::Ref<RHI::RHITexture> m_Roughness;
 		RHI::Ref<RHI::RHITexture> m_Metallic;
 		RHI::Ref<RHI::RHITexture> m_Specular;

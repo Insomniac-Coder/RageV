@@ -47,6 +47,9 @@ namespace RageV
 		// The compute-posed positions of a skinned caster; null for a static
 		// one, whose positions are the mesh's own.
 		RHI::Ref<RHI::RHIBuffer> Posed;
+		// The same opaque id AreaEmitter carries, so a hit on this instance
+		// can be told whether the emitter list answers for its emissive.
+		uint64_t Owner = 0;
 	};
 
 	class RayShadows
@@ -81,7 +84,8 @@ namespace RageV
 		static void AddInstance(const RHI::Ref<Mesh>& mesh, const Mat4& world,
 								const std::vector<Mat4>* bones = nullptr,
 								const RHI::Ref<Material>& material = nullptr,
-								const MaterialParams& params = MaterialParams{});
+								const MaterialParams& params = MaterialParams{},
+								uint64_t owner = 0);
 		static void Build(RHI::RHICommandList& cmd);
 
 		// This frame's casters, one per instance the structure was built

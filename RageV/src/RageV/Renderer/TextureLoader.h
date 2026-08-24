@@ -11,6 +11,25 @@
 
 namespace RageV
 {
+	// What this loader learned about an image's *content*, for the traced
+	// bounce's emitter list.
+	struct TextureStats
+	{
+		// The average, in linear space. Makes an emitter's total power
+		// right whatever its map looks like.
+		Vec3 Mean{ 1.0f, 1.0f, 1.0f };
+
+		// And where in the image that power is. `Grid` cells a side, each
+		// holding the running sum of the cells before it -- a cumulative
+		// distribution over cell luminance, so a sampler can pick a cell
+		// in proportion to how much light it emits and land on the four
+		// lit ones of a hundred and forty-four rather than uniformly over
+		// a mostly dark ceiling. Zero when the image is uniform enough
+		// that aiming would buy nothing, or entirely black.
+		uint32_t Grid = 0;
+		std::vector<float> Cdf;
+	};
+
 	class TextureLoader
 	{
 	public:
@@ -85,6 +104,26 @@ namespace RageV
 		// (1, 0, 0, 0): a layer-weight texel that says "all of layer 0". The
 		// weight map of a terrain nobody has painted (ENGINE-NOTES 7aq).
 		static RHI::Ref<RHI::RHITexture> Red(RHI::RHIDevice& device);
+
+		// This texture's stats, or null when the loader has none for it.
+		static std::shared_ptr<const TextureStats> Stats(const RHI::Ref<RHI::RHITexture>& texture);
+
+		// The average colour of a texture this loader read, in **linear**
+		// space, or white when it read none under that name.
+		//
+		// It exists for the traced bounce's emitter list. That list stands a
+		// rectangle in for an emissive mesh and takes the material's scalar
+		// as the whole surface's radiance -- which is right for a panel that
+		// glows evenly and wrong by the ratio of lit to unlit area for one
+		// whose map is mostly dark. A luminaire lighting four cells of a
+		// hundred and forty-four lit the room thirty-six times too brightly
+		// (see docs/TEXEL-EMITTERS.md); folding this in makes the emitted
+		// *power* right for any map, however it is painted.
+		//
+		// White for the unknown, deliberately: a material with no emissive
+		// map, or a texture that arrived by some other route, then behaves
+		// exactly as it did before this existed.
+		static Vec3 MeanColor(const RHI::Ref<RHI::RHITexture>& texture);
 
 		static void ClearCache();
 	};
