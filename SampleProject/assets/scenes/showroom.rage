@@ -281,7 +281,17 @@ Entities:
       Scale: [7.8, 1, 11]
     MeshComponent:
       Mesh: 8241982477996916738
-      Material: 10462717709612967877
+      Material: 14753199846806222610
+  - EntityID: 12072224473920658357
+    TagComponent:
+      Tag: Luminaire Lit Block
+    TransformComponent:
+      Position: [4.44089e-16, 3.655, -2.15]
+      Rotation: [3.14159, 0, 0]
+      Scale: [1.3, 1, 1.83333]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 13919672906967680270
   - EntityID: 12823832184055958747
     TagComponent:
       Tag: Luminaire Reveal Left
@@ -1074,7 +1084,7 @@ Entities:
         BayLenses: 'Bay Downlight 0,Bay Downlight 1,Bay Downlight 2,Bay Downlight 3'
         Luminaire: 'Luminaire'
         LuminaireMaterial: 'materials/showroom_panel.rmat'
-        StudioLuminaireMaterial: 'materials/showroom_panel_studio.rmat'
+        StudioLuminaireMaterial: 'materials/showroom_panel_off.rmat'
         ProbeName: 'Showroom Probe'
         LabelName: 'Mode Label'
         StartMode: 1

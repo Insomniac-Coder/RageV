@@ -10,14 +10,18 @@ using System.Collections.Generic;
 // shape with a rim on it -- correct, and dead, because car paint has almost no
 // diffuse: what you read as "expensive" is a *reflection* of a large soft
 // source running down the roof and the bonnet. So mode 1 does not dim the
-// ceiling: it **swaps the fitting** for one the same size with four cells lit
-// and the rest dark, and the car keeps a real source to reflect.
+// ceiling: the four lit cells over the car are their **own mesh** (the
+// Luminaire Lit Block, always lit, never touched by this script), and what
+// this swaps is the big panel around it -- fully lit in mode 2, dead in mode
+// 1. The car keeps a real source to reflect in both.
 //
-// Dimming the whole panel was the first attempt and it is the wrong picture --
-// a ceiling that is uniformly dull reads as a light nobody switched off. And
-// shrinking it to a square over the car is the other trap: at this field of
-// view the ceiling is only in frame beyond z = -1.3, so a panel centred on the
-// car sits behind the camera's top edge and the mode loses its source.
+// The block being a separate mesh is the traced bounce's contract, not a
+// styling choice: the emitter list takes a mesh's emissive as uniform over
+// its bounds rectangle, so lighting four cells of the big panel through a
+// texture -- the first version -- had GI sampling a ceiling-sized phantom
+// light. Half the car's mode-1 light was phantom, and its variance was the
+// grain crawling over the paint. make_showroom_scene.py's mode constants
+// carry the numbers.
 //
 // **What the mode moves is nine lights, four lights, two lights, four emissive
 // lenses and one material**, and every one of them is authored in the scene at
@@ -79,13 +83,13 @@ public class ShowroomMode : Script
 	private string BayLenses = "Bay Downlight 0,Bay Downlight 1,"
 							 + "Bay Downlight 2,Bay Downlight 3";
 
-	// The ceiling fitting, as two materials over one mesh. **The mode swaps
-	// the fitting rather than dimming it**: same size, same mullions, same
-	// normal map, and a different set of cells lit. Each fitting's values stay
-	// in its own asset, so neither is copied into a field here to drift from.
+	// The big ceiling panel, as two materials over one mesh: fully lit for
+	// mode 2, dead for mode 1. The lit block beside it is not named here at
+	// all -- it never changes. Each fitting's values stay in its own asset,
+	// so neither is copied into a field here to drift from.
 	private string Luminaire = "Luminaire";
 	private string LuminaireMaterial = "materials/showroom_panel.rmat";
-	private string StudioLuminaireMaterial = "materials/showroom_panel_studio.rmat";
+	private string StudioLuminaireMaterial = "materials/showroom_panel_off.rmat";
 
 	// The probe whose capture both modes invalidate.
 	private string ProbeName = "Showroom Probe";

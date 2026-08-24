@@ -97,6 +97,43 @@ is the obvious next step for anyone who wants this covered.
 
 ---
 
+## Start here 2: mode 1's grain was a phantom light, and the fix is a mesh
+
+**2026-08-24, the session after the modes landed.** The owner reported heavy
+grain on the car in mode 1 -- crawling, camera still. The chain, because each
+link was measured: the grain was the traced GI (speckle 3.33 against 2.32
+with `--rt-gi=off`), it never settled (consecutive frames apart by up to 92
+levels at rest; mode 2's figure is 9), and pulling the ceiling out of the
+NEE emitter list removed both the crawl **and half the car's light**.
+
+That last measurement is the diagnosis. The emitter list takes a mesh's
+emissive as **uniform over its bounds rectangle** -- "exact for a plane,
+which is what every light fitting is" (7cc). Mode 1 lit four cells of the
+7.8 x 11 m panel through its *texture*, so hemisphere hits saw four cells
+(they sample the emissive map) while NEE sampled the whole rectangle at 4.7:
+a ceiling-sized phantom light, feeding the car twice the light it should
+have had, with the enormous sample-to-sample variance of a huge rectangle --
+which the 0.9 accumulation turns into a permanent crawl rather than a
+converged answer.
+
+**The fix is authoring, not engine**: the lit two-by-two block is its own
+mesh (`Luminaire Lit Block`, `showroom_panel_block.rmat` -- the panel maps
+tiled to a 2x2-cell window), 5 mm proud of the big panel, always lit. The
+big panel swaps between fully lit and a new all-dead
+`showroom_panel_off.rmat` whose scalar emissive is exactly 1.0 --
+deliberately not above it, so it stays out of the emitter list (`strength >
+1`). In mode 2 the block vanishes into the identical cells of the lit panel
+behind it. **One mesh per differently-lit region is the NEE contract**; a
+texture that masks most of an "emitter" breaks it silently.
+
+Post-fix: mode 1 speckle 2.34 (the GI-off floor is 2.32), temporal max 7
+(floor 6); mode 2 unchanged. Mode 1 is darker than it was -- the phantom's
+light is gone -- which is the reference's own look: a black room and one
+fitting. If it ever wants lifting, the levers are the key light and the fill
+under the block, not the ceiling.
+
+---
+
 ## Start here: the gpu-lit defect is dead, and the references were the broken ones
 
 **2026-08-24. Found, fixed, falsified, committed.** The 1,643,738-pixel

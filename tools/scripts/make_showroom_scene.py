@@ -135,22 +135,40 @@ PANEL_Y = 3.66
 # and raises them) applied to the room. Mode 2's numbers reach the script as
 # fields from the same constants below, so neither state is written twice.
 #
-# **The mode swaps the fitting, it does not dim it.** Two materials over one
-# mesh: the luminaire keeps its size, its mullions and its normal map in both
-# modes, and what changes is which cells of it are lit -- all of them, or the
-# four over the car. That is a material swap on the MeshComponent, which is an
-# ordinary asset field a script can write.
+# **The mode swaps the fitting, it does not dim it.** The lit two-by-two block
+# over the car is its **own mesh**, always wearing the lit-panel material; the
+# big panel around it swaps between fully lit (mode 2) and dead (mode 1). In
+# mode 2 the block sits 5 mm proud of a panel showing the identical cells, and
+# vanishes into it.
 #
-# Two earlier attempts are worth recording because both look reasonable
-# written down. *Dimming* the whole panel gives a room that is dark and a
-# ceiling that is uniformly dull, which reads as a light nobody switched off
-# rather than as one nobody switched on -- and dimming it far enough to read as
-# off takes its albedo down with it, at which point the paint has nothing to
-# reflect and the car goes flat. *Shrinking* it to a square over the car loses
-# the source from the frame entirely: at a 40 degree field the ceiling is only
-# visible beyond z = -1.3 m.
-STUDIO_LUMINAIRE_MATERIAL = "materials/showroom_panel_studio.rmat"
+# **The block being a separate mesh is the fix for the grain, not a
+# convenience.** The traced bounce's emitter list takes each mesh's emissive
+# as uniform over its bounds rectangle -- "exact for a plane, which is what
+# every light fitting is" (ENGINE-NOTES 7cc). The first version lit four cells
+# of the big panel through its *texture*, and NEE went on sampling the whole
+# 7.8 x 11 m rectangle at full radiance: a ceiling-sized phantom light.
+# Measured at the bonnet, half the car's light was phantom, and its
+# sample-to-sample variance was the crawling grain the owner reported.
+# Splitting the fitting gives NEE the true 1.3 x 1.8 m rectangle: the phantom
+# is gone, and with it the crawl (frame-to-frame max 92 levels to the
+# GI-off floor).
+#
+# Three earlier attempts, all reasonable on paper: *dimming* the panel reads
+# as a light nobody switched off and takes the paint's reflection with it;
+# *shrinking* it loses the source from the frame (the ceiling is only visible
+# beyond z = -1.3 m at this field of view); *texturing* the cells looked right
+# and fed the bounce a lie.
+STUDIO_LUMINAIRE_MATERIAL = "materials/showroom_panel_off.rmat"
 SHOWROOM_LUMINAIRE_MATERIAL = "materials/showroom_panel.rmat"
+
+# The block: cells (5,6) x rows (2,3) of the panel's 12-grid. Columns centre
+# it on x = 0; the rows land it over the car's nose -- inside the frame, and
+# directly above `Panel Light 01` at z = -2.1, so the fitting that looks lit
+# is the one that casts. 5 mm below the panel's plane: a real fixture is
+# proud of its ceiling, and coplanar quads are a z-fight.
+BLOCK_COLUMNS = (5, 6)
+BLOCK_ROWS = (2, 3)
+BLOCK_DROP = 0.005
 
 # The fill under the lit cells stays on, dimmed; the other eight go out. Row 0
 # is z = PANEL_Z - 2.7 = -2.1, which is the row the studio texture lights, so
@@ -388,12 +406,13 @@ def materials():
         "Normal": texture("showroom_panel_normal.png"),
         "Roughness": texture("showroom_panel_rough.png"),
     }
-    # The studio fitting: the same mullions, the same normal and roughness, a
-    # different set of cells lit. Only the albedo differs, and it is the map
-    # that carries both what the panel reflects and what it emits.
-    panel_studio_maps = dict(panel_maps)
-    panel_studio_maps["BaseColor"] = texture("showroom_panel_studio_albedo.png")
-    panel_studio_maps["Emissive"] = texture("showroom_panel_studio_albedo.png")
+    # The dead fitting: the same mullions, normal and roughness, no lit
+    # cells. Emissive at exactly 1x a 5% texture -- a faint standby glow --
+    # and deliberately not above one: the emitter list's threshold is
+    # `strength > 1`, and this surface must stay out of it.
+    panel_off_maps = dict(panel_maps)
+    panel_off_maps["BaseColor"] = texture("showroom_panel_off_albedo.png")
+    panel_off_maps["Emissive"] = texture("showroom_panel_off_albedo.png")
 
     depth = FRONT - BACK
     width = HALF_WIDTH * 2.0
@@ -466,12 +485,19 @@ def materials():
             tiling=(1.0, 1.0), height_scale=0.0, roughness=1.0,
             base_color=(1, 1, 1, 1), emissive=(4.7, 4.75, 4.95, 1)),
 
-        # The same fitting with four cells lit, for mode 1. Identical in every
-        # value to the panel above -- what differs is one map, which is what
-        # keeps the two modes the same light rather than two lighting rigs.
-        "panel_studio": write_material(
-            directory / "showroom_panel_studio.rmat", panel_studio_maps,
+        # The fitting with every cell dead, for the big panel in mode 1.
+        "panel_off": write_material(
+            directory / "showroom_panel_off.rmat", panel_off_maps,
             tiling=(1.0, 1.0), height_scale=0.0, roughness=1.0,
+            base_color=(1, 1, 1, 1), emissive=(1, 1, 1, 1)),
+
+        # The lit block: the ordinary panel maps cropped to a 2x2-cell window
+        # by tiling, so its cells are the same size, brightness and mullion
+        # width as the panel's own -- which is what lets it vanish into the
+        # fully lit panel in mode 2.
+        "panel_block": write_material(
+            directory / "showroom_panel_block.rmat", panel_maps,
+            tiling=(2.0 / 12.0, 2.0 / 12.0), height_scale=0.0, roughness=1.0,
             base_color=(1, 1, 1, 1), emissive=(4.7, 4.75, 4.95, 1)),
 
         "concrete": write_material(
@@ -623,13 +649,28 @@ def build(profile, mat):
     # car's paint and the floor reflect is a pattern of long bright rectangles,
     # and a texture gives that at one draw where geometry would give it at
     # twenty-two and alias in the reflection.
-    # Authored with mode 1's fitting. **Nothing overrides the material here**:
-    # the mode swaps which material the mesh wears, so each fitting's values
-    # stay in its own asset and neither is copied into a script field.
+    # Authored with mode 1's fitting -- the dead panel. **Nothing overrides
+    # the material here**: the mode swaps which material the mesh wears, so
+    # each fitting's values stay in its own asset and neither is copied into
+    # a script field.
     s.entity("Luminaire", position=(0, PANEL_Y, PANEL_Z),
              rotation=(math.pi, 0, 0),
              scale=(PANEL_HALF_X * 2, 1, PANEL_HALF_Z * 2))
-    s.mesh(PLANE, mat["panel_studio"])
+    s.mesh(PLANE, mat["panel_off"])
+
+    # The studio spot: the block of four lit cells, a mesh of its own so the
+    # bounce's emitter rectangle is the true fitting (see the mode constants).
+    # It never changes -- in mode 2 the panel lights up around it and the
+    # block reads as four more of the same cells.
+    cell_x = PANEL_HALF_X * 2 / 12.0
+    cell_z = PANEL_HALF_Z * 2 / 12.0
+    block_x = (-PANEL_HALF_X + (BLOCK_COLUMNS[0] + 1.0) * cell_x)
+    block_z = (PANEL_Z - PANEL_HALF_Z + (BLOCK_ROWS[0] + 1.0) * cell_z)
+    s.entity("Luminaire Lit Block",
+             position=(block_x, PANEL_Y - BLOCK_DROP, block_z),
+             rotation=(math.pi, 0, 0),
+             scale=(cell_x * 2, 1, cell_z * 2))
+    s.mesh(PLANE, mat["panel_block"])
 
     reveal = 0.055
     for name, pos, scale in (
