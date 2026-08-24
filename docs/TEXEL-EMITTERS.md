@@ -246,6 +246,47 @@ skews toward large dark cells), sample lod 4 instead of 0 (halves disagree,
 the subtraction consistency fails), swap the affine u/v (holes light the
 wrong walls).
 
+### Stage 2's acceptance test: delete the workaround and see if it still works
+
+**The showroom's split fitting is a workaround for the defect stage 2 removes,
+and it must be taken out before stage 2 can claim anything.** Mode 1 lights
+four cells of the ceiling; that was first authored as a *texture* on one
+panel mesh, which is the natural way to build it and the way that produced
+the phantom. It works today only because the lit cells were pulled out into
+their own mesh (`Luminaire Lit Block`, `showroom_panel_block.rmat`,
+`showroom_panel_off.rmat`) so that the emitter list's one-rectangle-per-mesh
+assumption happens to be true again.
+
+If stage 2 is right, that surgery is unnecessary: NEE aims at the lit texels
+wherever they are, so **the original single-mesh textured panel must render
+correctly on its own**. Testing stage 2 against a showroom that still carries
+the workaround would be testing it against a scene arranged so the old bug
+cannot appear -- which proves nothing.
+
+The pre-workaround scene is not lost. It is the parent of the commit that
+introduced the split:
+
+```bash
+git show cbc9529^:tools/scripts/make_showroom_textures.py   # has panel_studio(size, lit_rows, lit_columns)
+git show cbc9529^:tools/scripts/make_showroom_scene.py      # one Luminaire mesh, material swapped per mode
+git show cbc9529^:SampleProject/Scripts/ShowroomMode.cs
+```
+
+So the acceptance run is: restore those three, regenerate the textures and
+the scene, and require of mode 1 -- with **no** split mesh, no
+`panel_block`, no `panel_off` --
+
+- the room's brightness within the band of the split-mesh version that ships
+  on `main` (the energy claim, which stage 1 already delivers for it);
+- the *distribution* right: the pool under the lit cells, not an evenly lit
+  ceiling (the claim only stage 2 can make);
+- and the grain at the GI-off floor with no crawl -- speckle ~2.34 and
+  frame-to-frame max in single digits, which are the numbers `cbc9529`
+  recorded when the workaround fixed it by hand (before: 3.33 and 92).
+
+If all three hold, the workaround can be deleted from `main` on its own
+merits and the showroom goes back to the simpler authoring.
+
 ### Deliberately not in the plan
 
 ReSTIR (revisit if emitters outgrow the flat list — Stage 2's tables become
