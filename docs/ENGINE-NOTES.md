@@ -12282,6 +12282,29 @@ is counted twice and the double count is precisely the high-variance term.
   density 1/(area * N), so N appears in the numerator of the estimator. Leaving
   it out makes a scene dimmer the more lights it has.
 
+### The emitter is the entity's, not the material's (2026-08-24)
+
+The list above is built from `MeshComponent`'s *resolved* params, and for two
+days it was built from the material's instead. A per-entity emissive override
+is how this engine dims or switches a light -- the showroom's mode switch dims
+the bay's lenses through one, its light switch raises the car's lamps through
+one -- so NEE was integrating emitters that were not emitting, and the room
+was lit by a value nothing on screen had.
+
+Worse than wrong: *inconsistently* wrong. The ray-instance walk twenty lines
+below resolves the override, so the hemisphere term subtracted the emissive
+each surface really had while this added the one its material would have --
+and the subtraction above exists precisely to stop a luminaire being counted
+twice. Dimming a panel therefore produced a double count rather than a dimmer
+room. The showroom's studio mode measured 44% less bonnet noise once the two
+halves agreed (5.68 to 3.20 of 255) and its walls fell from 13 to 6.
+
+The threshold is unchanged and stays absolute: above one, not above zero. A
+surface emitting a fifth of what it reflects is still a glow rather than a
+light source, and a dimmed panel that drops below it drops out of the emitter
+list -- which is correct, because at that point the hemisphere estimator's
+contrast is tame enough not to need the help.
+
 ### And what it does not fix, which is the honest half
 
 NEE integrates the *emitters* exactly and does nothing for the rest. **A white

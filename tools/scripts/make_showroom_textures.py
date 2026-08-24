@@ -342,6 +342,43 @@ def panel(size):
     }
 
 
+def panel_studio(size, lit_rows, lit_columns):
+    """The same fitting with all but a few cells switched off.
+
+    Mode 1 of the showroom is a spotlight over the car, and the room's light is
+    one panel filling the ceiling -- so the mode is not a dimmer, it is a
+    *different fitting of the same size*: the identical grid with four cells
+    lit and the rest dark. Swapping the material swaps the light, and the
+    ceiling keeps its mullions, its normal map and its extent either way.
+
+    The albedo doubles as the emissive map here exactly as it does for the lit
+    panel, which is what makes one texture enough: a dark cell is dark because
+    it neither emits nor reflects, and both fall out of the same image.
+    """
+    count = 12
+    height, row, column = grid(size, count, bevel=0.008, joint=0.038)
+
+    y, x = np.mgrid[0:size, 0:size].astype(np.float32)
+    step = size / count
+    ux = (x % step) / step - 0.5
+    uy = (y % step) / step - 0.5
+    diffuser = 1.0 - 0.05 * np.clip((ux * ux + uy * uy) * 4.0, 0.0, 1.0)
+
+    lit = np.isin(row, lit_rows) & np.isin(column, lit_columns)
+
+    # The lit cells are the panel's own values. The dark ones are a switched
+    # off diffuser, which is **not black**: a milky sheet in front of a dead
+    # tube is a grey that still catches what little light is in the room, and
+    # painting it black turns the ceiling into a hole -- the same mistake the
+    # mullion's 18% exists to avoid, one level up.
+    on = height * diffuser + (1.0 - height) * 0.18
+    off = height * 0.055 + (1.0 - height) * 0.030
+    value = np.where(lit, on, off)
+
+    colour = np.stack([value * 0.982, value * 0.993, value], axis=-1)
+    return {"albedo": colour}
+
+
 # --- the overlay -------------------------------------------------------------
 #
 # **Authored at the size they are drawn**, which is a rule the room's maps do
@@ -411,6 +448,17 @@ def main():
         "showroom_wall": wall(2048, rng),
         "showroom_concrete": concrete(1024, rng),
         "showroom_panel": panel(1024),
+
+        # The studio fitting: the same grid, four cells lit. Rows 2 and 3 of
+        # twelve rather than the middle pair, and that is geometry rather than
+        # taste. The panel runs z -4.9 to 6.1 and rows run with it, so its own
+        # centre is z = 0.6 -- and at a 40 degree field from the orbit's
+        # default the ceiling is only in frame beyond z = -1.3, so cells lit at
+        # the centre cannot be seen at all. Rows 2 and 3 put the lit block at
+        # z = -2.15, which is over the car's nose, comfortably inside the frame,
+        # and directly above `Panel Light 01` at z = -2.1 -- so the fitting
+        # that looks lit is the one that casts.
+        "showroom_panel_studio": panel_studio(1024, (2, 3), (5, 6)),
 
         # One RGBA overlay rather than a map set, at the size it is drawn:
         # 120x30 canvas units, which make_showroom_scene.py has as

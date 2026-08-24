@@ -7,6 +7,73 @@ Pushing is the owner's.
 
 ---
 
+## Start here: the showroom has two lighting modes, and a switch for them
+
+**2026-08-24.** The owner's original idea for this scene was a car in a dark
+room under one spot; what got built was a delivery bay under a ceiling of
+light. Both now live in the one scene, on a pill at the right-hand end of the
+credit bar, left of the light switch.
+
+| | |
+|---|---|
+| **Mode 1 -- the studio** | The default. Dark room, four cells of the ceiling lit over the car, one fill under them, the service bay out. |
+| **Mode 2 -- the showroom** | The scene as it was: full luminaire, nine fills, kickers, bay lit. |
+| **`ShowroomMode.cs`** | Nine lights, four lights, two lights, four emissive lenses and one material. |
+| **A second fitting** | `showroom_panel_studio.rmat` -- the same grid, four cells lit. |
+| **An engine fix** | Area emitters read the *entity's* emissive, not its material's. |
+
+### The three things worth carrying forward
+
+1. **A mode is a different fitting, not a dimmer.** Dimming the whole panel
+   was the first attempt and it is the wrong picture: a ceiling that is
+   uniformly dull reads as a light nobody switched off, and dimming it far
+   enough to read as *off* takes its albedo down with it -- at which point the
+   car has nothing to reflect and goes flat, because car paint is almost all
+   specular. Shrinking the panel to a square over the car is the other trap:
+   at a 40 degree field the ceiling is only in frame beyond z = -1.3 m, so a
+   panel centred on the car sits behind the camera's top edge and the mode
+   loses its source altogether. What works is two materials over one mesh --
+   same size, same mullions, same normal map, four cells lit instead of all of
+   them -- swapped through `MeshComponent::Material`, which is an ordinary
+   asset field a script can write by path.
+2. **The area-emitter list was reading the material, not the entity** (fixed
+   in `Scene.cpp`). A per-entity emissive override is how a light is dimmed or
+   switched -- this mode uses one for the bay's lenses and the light switch
+   already used one for the car's lamps -- and next-event estimation ignored
+   all of them, so the traced bounce lit the room from a value nothing on
+   screen was emitting. It also put the two halves of the estimator into
+   disagreement: the ray-instance walk *does* resolve overrides, so the
+   hemisphere term subtracted the emissive a surface really had while NEE
+   added the one it used to. Mode 1's paint speckle was that double count;
+   fixing it cut the noise 44% (5.68 to 3.20 on the bonnet) and took the
+   room's walls from 13 to 6 of 255. Mode 2 shifts by at most 19 levels, all
+   of it the car's switched-off lamps no longer bouncing light.
+3. **A second control on the credit bar breaks the licence notice at 4:3.**
+   The text centres in whatever rect it is given, and the rect ran the full
+   bar -- fine at 16:9 where there is 190 units of slack, and at 4:3 the
+   canvas is 1663 units instead of 1920 and the notice ran under both pills
+   with the URL cut in half. The switches' width is now taken out of the
+   notice's box. This file already warned that 4:3 is the aspect to check if
+   either number moves; the number moved.
+
+### Verified
+
+Both modes rendered and measured; `check_gpu_lit`, `check_gi`, `check_oit`,
+`check_bindless`, `check_depth_sort` (71x floor), scenetest on both backends
+in Release **and** Debug, rhismoke. The credit notice reads in full at 4:3 and
+16:10 with both switches clear of it.
+
+**Not verified by a test, and worth knowing:** the click itself. The button is
+wired exactly as the light switch beside it -- `UIButtonComponent` with
+`OnClickMethod: Toggle` and the script on the same entity -- and both branches
+of `Apply()` are verified by rendering with `StartMode` at 1 and at 2, but
+nothing here drives a pointer at it. `scenetest`'s demo-button case
+(`CheckDemoButtons`) has the harness for that -- `UI::UpdatePointer` plus
+`centreOf` -- against script *graph* handlers; pointing it at a managed script
+is the obvious next step for anyone who wants this covered.
+
+---
+
 ## Start here: the gpu-lit defect is dead, and the references were the broken ones
 
 **2026-08-24. Found, fixed, falsified, committed.** The 1,643,738-pixel

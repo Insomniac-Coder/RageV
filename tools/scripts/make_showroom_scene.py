@@ -120,6 +120,70 @@ PANEL_Z = 0.6
 PANEL_HALF_Z = 5.5
 PANEL_Y = 3.66
 
+# --- the two lighting modes ---------------------------------------------------
+#
+# **The same room, lit two ways, and the scene holds both.** Mode 1 is the
+# studio: the room goes to black and one spot over the car, which is the
+# reference the owner framed this scene from. Mode 2 is the delivery bay
+# everything above describes -- the full luminaire, the nine fills, the service
+# bay lit behind. `ShowroomMode.cs` moves between them and the button at the
+# right-hand end of the credit bar asks it to.
+#
+# **The scene is authored in mode 1**, because that is the default and because
+# the alternative is a scene file that disagrees with the picture the runtime
+# opens with: the switch's own rule (ShowroomLights authors its lamps at zero
+# and raises them) applied to the room. Mode 2's numbers reach the script as
+# fields from the same constants below, so neither state is written twice.
+#
+# **The mode swaps the fitting, it does not dim it.** Two materials over one
+# mesh: the luminaire keeps its size, its mullions and its normal map in both
+# modes, and what changes is which cells of it are lit -- all of them, or the
+# four over the car. That is a material swap on the MeshComponent, which is an
+# ordinary asset field a script can write.
+#
+# Two earlier attempts are worth recording because both look reasonable
+# written down. *Dimming* the whole panel gives a room that is dark and a
+# ceiling that is uniformly dull, which reads as a light nobody switched off
+# rather than as one nobody switched on -- and dimming it far enough to read as
+# off takes its albedo down with it, at which point the paint has nothing to
+# reflect and the car goes flat. *Shrinking* it to a square over the car loses
+# the source from the frame entirely: at a 40 degree field the ceiling is only
+# visible beyond z = -1.3 m.
+STUDIO_LUMINAIRE_MATERIAL = "materials/showroom_panel_studio.rmat"
+SHOWROOM_LUMINAIRE_MATERIAL = "materials/showroom_panel.rmat"
+
+# The fill under the lit cells stays on, dimmed; the other eight go out. Row 0
+# is z = PANEL_Z - 2.7 = -2.1, which is the row the studio texture lights, so
+# the light that casts is the one the ceiling shows as lit -- the pairing that
+# makes a fitting believable and the one this scene's downlights already keep.
+STUDIO_FILLS = ("Panel Light 01",)
+FILL_INTENSITY = 14.7
+STUDIO_FILL_INTENSITY = 11.0
+
+# The key light is the mode-1 picture's shadow: dimmer, and **narrower**. At 62
+# degrees from 3.46 m the cone reaches the walls, which is the one thing a
+# studio frame must not do -- the light has to die before it finds a surface
+# that would tell you the room is there. At 44 it lands as a pool a little
+# longer than the car.
+KEY_INTENSITY = 46
+KEY_CONE = (34, 62)
+STUDIO_KEY_INTENSITY = 30
+STUDIO_KEY_CONE = (20, 44)
+
+# The kickers separate the roof from a bright wall behind it. There is no
+# bright wall in mode 1, and a rim light with nothing to separate the car from
+# is just a second source in a frame built around having one.
+KICKER_INTENSITY = 26
+STUDIO_KICKER_INTENSITY = 0.0
+
+# The service bay: dark in mode 2 and *absent* in mode 1 -- both the four
+# lights and the four lenses they sit in, because a lens is emissive and an
+# unlit room with four white ellipses hanging in it is still a lit room. This
+# is what the owner circled. The lenses stay visible as dim white plastic,
+# which is what a switched-off fitting looks like.
+BAY_INTENSITY = 4.5
+STUDIO_BAY_INTENSITY = 0.0
+
 # How many metres of surface one tile of each map covers. **These are
 # make_showroom_textures.py's own numbers** and the two files have to agree --
 # a map is only the right size on a wall if the tiling was derived from the
@@ -324,6 +388,12 @@ def materials():
         "Normal": texture("showroom_panel_normal.png"),
         "Roughness": texture("showroom_panel_rough.png"),
     }
+    # The studio fitting: the same mullions, the same normal and roughness, a
+    # different set of cells lit. Only the albedo differs, and it is the map
+    # that carries both what the panel reflects and what it emits.
+    panel_studio_maps = dict(panel_maps)
+    panel_studio_maps["BaseColor"] = texture("showroom_panel_studio_albedo.png")
+    panel_studio_maps["Emissive"] = texture("showroom_panel_studio_albedo.png")
 
     depth = FRONT - BACK
     width = HALF_WIDTH * 2.0
@@ -393,6 +463,14 @@ def materials():
         # like the old one.
         "panel": write_material(
             directory / "showroom_panel.rmat", panel_maps,
+            tiling=(1.0, 1.0), height_scale=0.0, roughness=1.0,
+            base_color=(1, 1, 1, 1), emissive=(4.7, 4.75, 4.95, 1)),
+
+        # The same fitting with four cells lit, for mode 1. Identical in every
+        # value to the panel above -- what differs is one map, which is what
+        # keeps the two modes the same light rather than two lighting rigs.
+        "panel_studio": write_material(
+            directory / "showroom_panel_studio.rmat", panel_studio_maps,
             tiling=(1.0, 1.0), height_scale=0.0, roughness=1.0,
             base_color=(1, 1, 1, 1), emissive=(4.7, 4.75, 4.95, 1)),
 
@@ -545,10 +623,13 @@ def build(profile, mat):
     # car's paint and the floor reflect is a pattern of long bright rectangles,
     # and a texture gives that at one draw where geometry would give it at
     # twenty-two and alias in the reflection.
+    # Authored with mode 1's fitting. **Nothing overrides the material here**:
+    # the mode swaps which material the mesh wears, so each fitting's values
+    # stay in its own asset and neither is copied into a script field.
     s.entity("Luminaire", position=(0, PANEL_Y, PANEL_Z),
              rotation=(math.pi, 0, 0),
              scale=(PANEL_HALF_X * 2, 1, PANEL_HALF_Z * 2))
-    s.mesh(PLANE, mat["panel"])
+    s.mesh(PLANE, mat["panel_studio"])
 
     reveal = 0.055
     for name, pos, scale in (
@@ -587,7 +668,13 @@ def build(profile, mat):
                 # 5000 K: a hair cool, which is what a delivery bay is lit at
                 # and what keeps white paint reading as white rather than as
                 # cream.
-                ("Color", "[0.93, 0.96, 1]"), ("Intensity", 14.7),
+                #
+                # Authored at mode 1: the three under the strip dimmed, the
+                # six either side dark. ShowroomMode raises all nine to
+                # FILL_INTENSITY for mode 2.
+                ("Color", "[0.93, 0.96, 1]"),
+                ("Intensity", STUDIO_FILL_INTENSITY
+                              if f"Panel Light {row}{column}" in STUDIO_FILLS else 0.0),
                 # Range is the composition, as the camp's fire says. Eleven
                 # metres reaches the floor and the far wall and stops before
                 # the service bay, which has to stay dark.
@@ -601,8 +688,9 @@ def build(profile, mat):
     s.entity("Key Light", position=(0, PANEL_Y - 0.2, 0.15),
              rotation=(math.radians(-90), 0, 0))
     s.block("LightComponent", [
-        ("Type", "Spot"), ("Color", "[0.95, 0.97, 1]"), ("Intensity", 46),
-        ("Range", 9), ("InnerCone", 34), ("OuterCone", 62),
+        ("Type", "Spot"), ("Color", "[0.95, 0.97, 1]"),
+        ("Intensity", STUDIO_KEY_INTENSITY), ("Range", 9),
+        ("InnerCone", STUDIO_KEY_CONE[0]), ("OuterCone", STUDIO_KEY_CONE[1]),
         ("CastShadows", "true"),
     ])
 
@@ -614,7 +702,8 @@ def build(profile, mat):
         origin = (x, 2.55, -5.4)
         s.entity(name, position=origin, rotation=aim(origin, (0.0, 1.0, 0.4)))
         s.block("LightComponent", [
-            ("Type", "Spot"), ("Color", "[0.88, 0.92, 1]"), ("Intensity", 26),
+            ("Type", "Spot"), ("Color", "[0.88, 0.92, 1]"),
+            ("Intensity", STUDIO_KICKER_INTENSITY),
             ("Range", 13), ("InnerCone", 16), ("OuterCone", 40),
             ("CastShadows", "false"),
         ])
@@ -704,11 +793,15 @@ def build(profile, mat):
                                     (-1.7, -12.4), (1.7, -12.4))):
         s.entity(f"Bay Downlight {index}", position=(x, BAY_CEILING - 0.02, z),
                  rotation=(math.pi, 0, 0), scale=(0.34, 1, 0.34))
-        s.mesh(PLANE, mat["downlight"])
+        # Dark in mode 1, and by override rather than by material: the charge
+        # post's lens wears this same `downlight` asset and is not part of the
+        # bay.
+        s.mesh(PLANE, mat["downlight"], emissive=(0, 0, 0))
 
         s.entity(f"Bay Downlight Light {index}", position=(x, BAY_CEILING - 0.15, z))
         s.block("LightComponent", [
-            ("Type", "Point"), ("Color", "[1, 0.94, 0.84]"), ("Intensity", 4.5),
+            ("Type", "Point"), ("Color", "[1, 0.94, 0.84]"),
+            ("Intensity", STUDIO_BAY_INTENSITY),
             ("Range", 6), ("InnerCone", 20), ("OuterCone", 30),
             ("CastShadows", "false"),
         ])
@@ -768,10 +861,19 @@ def build(profile, mat):
     # and at 256 the luminaire's grid arrives as a smear. Baked, so this is
     # six renders once and nothing per frame.
     s.entity("Showroom Probe", position=(0, 1.55, 0))
+    # **Baked, and re-baked when the room changes.** Both fields below are
+    # read only while a probe is Realtime, which this one is for exactly one
+    # frame per mode change: ShowroomMode flips it, the capture takes all six
+    # faces in that frame, and it goes back to Baked and to costing nothing.
+    # Six in one frame is the "visible hitch" the component's docs warn about
+    # and is the right trade here -- the alternative at one face per frame is
+    # six frames of a cube map that is half a lit room and half a dark one,
+    # reflected in a polished floor and a car's paint. A mode switch is a
+    # deliberate act; a seam that swims across the bonnet afterwards is not.
     s.block("ReflectionProbeComponent", [
         ("Update", "Baked"), ("Resolution", 512), ("Influence", 22),
-        ("NearClip", 0.05), ("FarClip", 60), ("Rate", "15Hz"),
-        ("FacesPerFrame", 1),
+        ("NearClip", 0.05), ("FarClip", 60), ("Rate", "PerFrame"),
+        ("FacesPerFrame", 6),
     ])
 
     return s
@@ -826,6 +928,14 @@ BUTTON_WIDTH = 120
 BUTTON_HEIGHT = 30
 BUTTON_INSET = 14              # from the right edge of the bar
 BUTTON_LABEL_SIZE = 14
+
+# The mode switch sits to the left of the light switch. Narrower, because its
+# label is: "MODE 2" measures 51 units against "LIGHTS OFF"'s 76, and a pill
+# sized to the longest label in the row would carry 45 units of air it has no
+# use for. What is held constant is the *padding* -- 22 units each side of the
+# text on both -- which is what makes two different widths read as one set.
+MODE_BUTTON_WIDTH = 96
+BUTTON_GAP = 8
 
 
 def stats_box(s):
@@ -948,10 +1058,22 @@ def overlay_ui(s):
     # so the box is the thing that has to be centred.
     top = round((BAR_HEIGHT - line_height(CREDIT_SIZE)) * 0.5)
 
+    # **The switches' width is taken out of the notice's box, not left to
+    # chance.** The text is centred in whatever rect it is given, so a rect
+    # running the full bar centres it on the *frame* and lets the right-hand
+    # end run under the switches -- which it does not at 16:9, where there is
+    # 190 units of slack, and does the moment the aspect narrows: at 4:3 the
+    # canvas is 1663 units wide instead of 1920 and the notice ran under both
+    # pills, cutting the licence URL in half. A licence notice that cannot be
+    # read is not a licence notice, and this file already said so about its
+    # size. Reserving the zone costs the centring 125 units at 16:9 and keeps
+    # the margins either side of the text within two units of each other.
+    switches = BUTTON_INSET + BUTTON_WIDTH + BUTTON_GAP + MODE_BUTTON_WIDTH + 12
+
     s.entity("Credit Text", parent="Credit Bar")
     s.block("UIRectComponent", [
         ("AnchorMin", "[0, 0]"), ("AnchorMax", "[1, 1]"),
-        ("OffsetMin", f"[0, {top}]"), ("OffsetMax", "[0, 0]"),
+        ("OffsetMin", f"[0, {top}]"), ("OffsetMax", f"[{-switches}, 0]"),
         ("SortOrder", 1), ("Visible", "true"), ("BlocksPointer", "false"),
     ])
     s.block("UITextComponent", [
@@ -994,6 +1116,75 @@ def overlay_ui(s):
     # on the button and nothing else, children included.
     label_top = round((BUTTON_HEIGHT - line_height(BUTTON_LABEL_SIZE)) * 0.5)
     button_top = round((BAR_HEIGHT - BUTTON_HEIGHT) * 0.5)
+
+    # --- the mode switch ----------------------------------------------------
+    #
+    # **The label says what the press will do**, not which mode is running --
+    # the same convention as the switch beside it, and two adjacent controls
+    # reading opposite ways is worse than either reading. The room itself
+    # announces the state far more loudly than a word could, which is the
+    # argument the light switch already makes.
+    s.entity("Mode Button", parent="Credit Bar")
+    s.block("UIRectComponent", [
+        ("AnchorMin", "[1, 0]"), ("AnchorMax", "[1, 1]"),
+        ("OffsetMin", f"[{-(BUTTON_WIDTH + BUTTON_INSET + BUTTON_GAP + MODE_BUTTON_WIDTH)}, "
+                      f"{button_top}]"),
+        ("OffsetMax", f"[{-(BUTTON_WIDTH + BUTTON_INSET + BUTTON_GAP)}, {-button_top}]"),
+        ("SortOrder", 2), ("Visible", "true"), ("BlocksPointer", "true"),
+    ])
+    s.block("UIImageComponent", [
+        ("Texture", texture("showroom_button_plate.png")),
+        ("Color", "[1, 1, 1, 1]"),
+    ])
+    s.block("UIButtonComponent", [
+        ("Interactable", "true"),
+        ("NormalColor", "[0.55, 0.56, 0.58, 1]"),
+        ("HoverColor", "[1, 1, 1, 1]"),
+        ("PressedColor", "[0.86, 0.87, 0.89, 1]"),
+        ("OnClickTarget", 0),
+        ("OnClickMethod", "Toggle"),
+    ])
+    s.managed_script(
+        "ShowroomMode",
+        StudioFills="'" + ",".join(STUDIO_FILLS) + "'",
+        ShowroomFills="'" + ",".join(
+            f"Panel Light {row}{column}"
+            for row in range(3) for column in range(3)
+            if f"Panel Light {row}{column}" not in STUDIO_FILLS) + "'",
+        FillIntensity=FILL_INTENSITY,
+        StudioFillIntensity=STUDIO_FILL_INTENSITY,
+        KeyLight="'Key Light'",
+        KeyIntensity=KEY_INTENSITY,
+        StudioKeyIntensity=STUDIO_KEY_INTENSITY,
+        KeyInner=KEY_CONE[0], KeyOuter=KEY_CONE[1],
+        StudioKeyInner=STUDIO_KEY_CONE[0], StudioKeyOuter=STUDIO_KEY_CONE[1],
+        Kickers="'Kicker Left,Kicker Right'",
+        KickerIntensity=KICKER_INTENSITY,
+        StudioKickerIntensity=STUDIO_KICKER_INTENSITY,
+        BayLights="'" + ",".join(f"Bay Downlight Light {i}" for i in range(4)) + "'",
+        BayIntensity=BAY_INTENSITY,
+        StudioBayIntensity=STUDIO_BAY_INTENSITY,
+        BayLenses="'" + ",".join(f"Bay Downlight {i}" for i in range(4)) + "'",
+        Luminaire="'Luminaire'",
+        LuminaireMaterial="'" + SHOWROOM_LUMINAIRE_MATERIAL + "'",
+        StudioLuminaireMaterial="'" + STUDIO_LUMINAIRE_MATERIAL + "'",
+        ProbeName="'Showroom Probe'",
+        LabelName="'Mode Label'",
+        StartMode=1)
+
+    s.entity("Mode Label", parent="Mode Button")
+    s.block("UIRectComponent", [
+        ("AnchorMin", "[0, 0]"), ("AnchorMax", "[1, 1]"),
+        ("OffsetMin", f"[0, {label_top}]"), ("OffsetMax", "[0, 0]"),
+        ("SortOrder", 3), ("Visible", "true"), ("BlocksPointer", "false"),
+    ])
+    s.block("UITextComponent", [
+        # Mode 1 is what the scene opens in, so the press reaches mode 2.
+        ("Text", "MODE 2"),
+        ("Font", FONT), ("Size", BUTTON_LABEL_SIZE),
+        ("Color", "[0.97, 0.97, 0.98, 1]"),
+        ("Align", "Center"), ("Wrap", "false"), ("LineSpacing", 1),
+    ])
 
     s.entity("Lights Button", parent="Credit Bar")
     s.block("UIRectComponent", [

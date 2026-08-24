@@ -1870,7 +1870,18 @@ namespace RageV
 			// for anything else.
 			if (resolvedMaterial)
 			{
-				const Vec3 emissive = Vec3(resolvedMaterial->GetParams().EmissiveColor);
+				// **The entity's emissive, not its material's.** The override
+				// is how a light is dimmed or switched -- the showroom's mode
+				// switch dims the luminaire through it and its light switch
+				// raises the car's lamps the same way -- and reading the
+				// material here made the bounce light the room from a value
+				// nothing on screen was emitting. It also put the two halves
+				// of the estimator into disagreement, which is worse than
+				// either being wrong: the ray-instance walk below resolves the
+				// override, so the hemisphere term subtracted the emissive the
+				// surface really had while this added the one it used to.
+				const Vec3 emissive =
+					Vec3(mesh.ResolveParams(resolvedMaterial->GetParams()).EmissiveColor);
 				const float strength = Math::Max(emissive.x, Math::Max(emissive.y, emissive.z));
 
 				// Above one, not above zero. A surface emitting a fifth of what

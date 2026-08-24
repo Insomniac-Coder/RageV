@@ -199,9 +199,20 @@ class Scene:
         for key, value in rows:
             self.lines.append(f"      {key}: {value}")
 
-    def mesh(self, mesh, material):
-        """A mesh and a material *asset*. Material 0 means the model's own."""
-        self.block("MeshComponent", [("Mesh", mesh), ("Material", material)])
+    def mesh(self, mesh, material, emissive=None):
+        """A mesh and a material *asset*. Material 0 means the model's own.
+
+        `emissive` writes the per-entity override rather than a second
+        material: two objects wearing one `.rmat` and glowing differently is
+        exactly what the override is for, and editing the asset instead would
+        move both. It is also the form a script can reach -- an override that
+        is off is not a value it can raise.
+        """
+        fields = [("Mesh", mesh), ("Material", material)]
+        if emissive is not None:
+            fields += [("OverrideEmissive", "true"),
+                       ("EmissiveColor", vec(*emissive, 1))]
+        self.block("MeshComponent", fields)
 
     def mesh_inline(self, mesh, base, metallic, roughness, emissive=None):
         """A mesh whose material is written into the scene rather than shared.
