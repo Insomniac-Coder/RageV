@@ -45,51 +45,6 @@ Entities:
         Occlusion: 1
   - EntityID: 15755400384260043839
     TagComponent:
-      Tag: Budget spot 1
-    TransformComponent:
-      Position: [-25, 6, 0]
-      Rotation: [-1.5608, 0, 0]
-      Scale: [1, 1, 1]
-    LightComponent:
-      Type: Spot
-      Color: [1, 1, 1]
-      Intensity: 20
-      Range: 10
-      InnerCone: 20
-      OuterCone: 30
-      CastShadows: true
-  - EntityID: 8709371129873690708
-    TagComponent:
-      Tag: Budget spot 2
-    TransformComponent:
-      Position: [25, 6, 0]
-      Rotation: [-1.5608, 0, 0]
-      Scale: [1, 1, 1]
-    LightComponent:
-      Type: Spot
-      Color: [1, 1, 1]
-      Intensity: 20
-      Range: 10
-      InnerCone: 20
-      OuterCone: 30
-      CastShadows: true
-  - EntityID: 1663341875487337577
-    TagComponent:
-      Tag: Budget spot 3
-    TransformComponent:
-      Position: [0, 6, -20]
-      Rotation: [-1.5608, 0, 0]
-      Scale: [1, 1, 1]
-    LightComponent:
-      Type: Spot
-      Color: [1, 1, 1]
-      Intensity: 20
-      Range: 10
-      InnerCone: 20
-      OuterCone: 30
-      CastShadows: true
-  - EntityID: 13064056694810536062
-    TagComponent:
       Tag: Spot
     TransformComponent:
       Position: [-9, 6, 4]
@@ -103,7 +58,7 @@ Entities:
       InnerCone: 30
       OuterCone: 40
       CastShadows: true
-  - EntityID: 6018027440424182931
+  - EntityID: 8709371129873690708
     TagComponent:
       Tag: Spot box
     TransformComponent:
@@ -118,7 +73,7 @@ Entities:
         Metallic: 0
         Roughness: 1
         Occlusion: 1
-  - EntityID: 17418742259747381416
+  - EntityID: 1663341875487337577
     TagComponent:
       Tag: Spot lid
     TransformComponent:
@@ -133,7 +88,7 @@ Entities:
         Metallic: 0
         Roughness: 1
         Occlusion: 1
-  - EntityID: 10372713005361028285
+  - EntityID: 13064056694810536062
     TagComponent:
       Tag: Point
     TransformComponent:
@@ -148,7 +103,7 @@ Entities:
       InnerCone: 20
       OuterCone: 30
       CastShadows: true
-  - EntityID: 3326683750974675154
+  - EntityID: 6018027440424182931
     TagComponent:
       Tag: Point box
     TransformComponent:
@@ -163,7 +118,7 @@ Entities:
         Metallic: 0
         Roughness: 1
         Occlusion: 1
-  - EntityID: 14727398570297873639
+  - EntityID: 17418742259747381416
     TagComponent:
       Tag: Point lid
     TransformComponent:
@@ -178,7 +133,7 @@ Entities:
         Metallic: 0
         Roughness: 1
         Occlusion: 1
-  - EntityID: 7681369315911520508
+  - EntityID: 10372713005361028285
     TagComponent:
       Tag: Fox spot
     TransformComponent:
@@ -193,7 +148,7 @@ Entities:
       InnerCone: 22
       OuterCone: 30
       CastShadows: true
-  - EntityID: 635340061525167377
+  - EntityID: 3326683750974675154
     TagComponent:
       Tag: Fox
     TransformComponent:
@@ -208,3 +163,48 @@ Entities:
       Playing: true
       Loop: true
       Speed: 1
+  - EntityID: 14727398570297873639
+    TagComponent:
+      Tag: Budget spot 1
+    TransformComponent:
+      Position: [-25, 6, 0]
+      Rotation: [-1.5608, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 20
+      Range: 10
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 7681369315911520508
+    TagComponent:
+      Tag: Budget spot 2
+    TransformComponent:
+      Position: [25, 6, 0]
+      Rotation: [-1.5608, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 20
+      Range: 10
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 635340061525167377
+    TagComponent:
+      Tag: Budget spot 3
+    TransformComponent:
+      Position: [0, 6, -20]
+      Rotation: [-1.5608, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 20
+      Range: 10
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
