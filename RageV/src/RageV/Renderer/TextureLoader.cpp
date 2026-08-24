@@ -169,6 +169,13 @@ namespace RageV
 		// ten steps.
 		constexpr uint32_t kEmitterGrid = 32;
 
+		// The sampler reaches a cell's row and column by shifting and masking
+		// rather than dividing, which is only the same arithmetic while this
+		// holds. Asserted on the same declaration so the two cannot drift.
+		static_assert((kEmitterGrid & (kEmitterGrid - 1)) == 0,
+					  "kEmitterGrid must be a power of two: rtgi_trace reaches a cell with "
+					  "low & (grid-1) and low >> log2(grid)");
+
 		// And how much of the image the table is built *from*. The grid is
 		// coarse; the shader samples the map at full resolution, and a table
 		// built from too small a mip weighs cells by a blur of the pattern it

@@ -1357,7 +1357,10 @@ namespace
 		const char* const kGiQualityNames[] = { "Low", "Medium", "High" };
 		// Off, and then the resolution the occlusion is computed at. `false`
 		// and `true` in an older file are Off and Half, which is what they did.
-		const char* const kAoDetailNames[] = { "Off", "Half", "Full" };
+		// Off, then the ladder: each rung is a resolution and a ray count.
+		// `false` and `true` in an older file are Off and Half, which is what
+		// they did.
+		const char* const kAoDetailNames[] = { "Off", "Quarter", "Half", "Full" };
 		// Off, then the two the rasterised dial uses -- rays, then resolution.
 		const char* const kRayDetailNames[] = { "Off", "Low", "Medium", "High" };
 

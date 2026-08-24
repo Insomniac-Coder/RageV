@@ -772,7 +772,11 @@ namespace RageV
 			float InvP0 = 1.0f;
 			float InvP1 = 1.0f;
 			float Radius = 0.5f;
-			float _pad0 = 0.0f;
+			// Rays a pixel. Was a compile-time constant in the shader; it is
+			// the dial between AoDetail::Full and AoDetail::VeryHigh, and it
+			// fits in the pad that was already here, so the 128-byte layout
+			// below is unchanged.
+			float Taps = 4.0f;
 			Vec4 CameraRow0{ 1.0f, 0.0f, 0.0f, 0.0f };   // rows of the camera-to-world rotation
 			Vec4 CameraRow1{ 0.0f, 1.0f, 0.0f, 0.0f };
 			Vec4 CameraRow2{ 0.0f, 0.0f, 1.0f, 0.0f };
@@ -790,6 +794,7 @@ namespace RageV
 								  const Ref<RHIAccelerationStructure>& structure,
 								  uint32_t width, uint32_t height,
 								  const ViewReconstruction& view, float radius,
+								  uint32_t taps,
 								  Format outputFormat)
 	{
 		if (!s_Data || !depth || !surface || !structure)
@@ -803,6 +808,9 @@ namespace RageV
 		params.InvP0 = view.InvProjection0;
 		params.InvP1 = view.InvProjection1;
 		params.Radius = Math::Max(radius, 0.01f);
+		// Clamped to at least one: a zero would divide by zero in the
+		// shader's average.
+		params.Taps = (float)Math::Max(taps, 1u);
 
 		// The camera transform is the view's inverse; the rotation part of
 		// an inverse is the transpose, so the camera's rows are the view's

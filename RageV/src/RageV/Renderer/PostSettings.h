@@ -42,6 +42,33 @@ namespace RageV
 	enum class AoDetail : uint32_t
 	{
 		Off,
+		// **Fractions of the ray budget for the traced form, and of the
+		// resolution for the screen-space one.** The two forms have different
+		// things to spend, which is the same split RayDetail already makes:
+		//
+		//   ray-traced   Quarter 2 rays, Half 4 rays, Full 8 rays -- all at
+		//                the frame's own resolution
+		//   screen-space Quarter 1/4, Half 1/2, Full full resolution -- it
+		//                has no ray count to trade
+		//
+		// Four rays is where the traced form ships because the 9x9 separable
+		// blur after it absorbs the difference: measured on the showroom in
+		// both lighting modes, camp and demo at 1280x720, eight rays against
+		// four differ by 0.03 to 0.19 mean levels of 255 and leave the
+		// local-noise metric unmoved to four decimals -- while costing
+		// 0.550 ms against 0.286, a 48% cut to the pass and 239 us off the
+		// frame, faster in six runs of six.
+		//
+		// Full keeps eight because the tail is not nothing: 0.1-0.2% of
+		// pixels move by more than four levels and the worst measured 27,
+		// past the 25-level line this engine calls visible. A scene of fine
+		// contact shadows can have the rays back.
+		//
+		// Quarter is *inserted*, not appended, and that is safe only because
+		// these are written to disk by name -- `RayTracedAmbientOcclusion:
+		// Half` -- so no existing project is reinterpreted by the shift. An
+		// older file's boolean `true` still maps to Half.
+		Quarter,
 		Half,
 		Full,
 	};

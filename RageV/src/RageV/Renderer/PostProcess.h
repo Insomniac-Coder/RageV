@@ -243,6 +243,9 @@ namespace RageV
 								const RHI::Ref<RHI::RHIAccelerationStructure>& structure,
 								uint32_t width, uint32_t height,
 								const ViewReconstruction& view, float radius,
+								// Rays a pixel: AoDetail::Full casts eight, the rungs
+								// below it four.
+								uint32_t taps,
 								RHI::Format outputFormat);
 
 		// Global illumination, screen-space (9.12). ENGINE-NOTES 7at.

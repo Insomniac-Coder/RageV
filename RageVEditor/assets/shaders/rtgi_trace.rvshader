@@ -77,6 +77,11 @@ layout(set = 3, binding = 1) uniform sampler2D u_GiSurface;
 struct GiEmitter
 {
 	vec4 CentreArea;
+	// The two half-extents, and in their w lanes -- with Radiance.w -- the
+	// rectangle's unit plane normal. It is a property of the emitter, not of
+	// the ray, and deriving it here cost a cross and a reciprocal square root
+	// on every one of the frame's shadow rays to re-answer a question with two
+	// emitters' worth of distinct answers.
 	vec4 TangentU;
 	vec4 TangentV;
 	vec4 Radiance;
@@ -219,8 +224,19 @@ void main()
 			// aiming table, the number of cells times the chance of the cell
 			// picked -- which is what turns "I sampled where the light is"
 			// back into an unbiased estimate.
-			float su = GiRandom(seed) * 2.0 - 1.0;
-			float sv = GiRandom(seed) * 2.0 - 1.0;
+			//
+			// Drawn where they are used, not before the branch that decides
+			// whether they are used at all. An aimed sample overwrote both of
+			// these immediately, so it was paying two integer hashes and two
+			// conversions a sample to produce numbers nothing read.
+			//
+			// The *uniform* path's draw order is unchanged, which is what
+			// keeps every scalar-emissive fixture -- all of check_gi's --
+			// bit-identical through this. Only an aimed emitter's noise
+			// realisation shifts, and it shifts to a different sample of the
+			// same distribution: no pdf here moves.
+			float su = 0.0;
+			float sv = 0.0;
 			float density = 1.0;
 			vec2 aimUv = vec2(0.0);
 
@@ -233,11 +249,24 @@ void main()
 				const int cells = grid * grid;
 				const float draw = GiRandom(seed);
 
+				// log2(grid), carried in the row rather than derived here.
+				// The grid is a power of two by construction (a static_assert
+				// on kEmitterGrid says so where it is declared), and a
+				// *runtime* integer divide or modulo is not one instruction
+				// on this hardware -- there is no integer divide at all, so
+				// each expands to a reciprocal sequence of fifteen or twenty.
+				// Three of them per sample, nine point six million samples a
+				// frame, for arithmetic a shift does exactly.
+				const int shift = int(light.Aim.w + 0.5);
+
 				int low = 0;
 				int high = cells - 1;
 				for (int step = 0; step < 12 && low < high; step++)
 				{
-					const int mid = (low + high) / 2;
+					// Both are non-negative and their sum cannot overflow at
+					// a thousand cells, so this is the divide, not a cheaper
+					// approximation of it.
+					const int mid = (low + high) >> 1;
 					if (u_EmitterCdf[base + mid] < draw)
 						low = mid + 1;
 					else
@@ -252,7 +281,7 @@ void main()
 				// Somewhere inside it, uniformly: the cell is the unit of
 				// aiming, and a point sample at its centre would quantise the
 				// shadow rays into a grid the picture would show.
-				const vec2 cell = vec2(float(low % grid), float(low / grid));
+				const vec2 cell = vec2(float(low & (grid - 1)), float(low >> shift));
 				aimUv = (cell + vec2(GiRandom(seed), GiRandom(seed))) / float(grid);
 
 				su = light.UvToSurface0.x * aimUv.x + light.UvToSurface0.y * aimUv.y
@@ -266,6 +295,13 @@ void main()
 				// pair, so it cancels. The density is therefore just how much
 				// more likely this cell was than uniform.
 				density = chance * float(cells);
+			}
+			else
+			{
+				// Uniform in area, which is what makes the density constant
+				// and the conversion below exact.
+				su = GiRandom(seed) * 2.0 - 1.0;
+				sv = GiRandom(seed) * 2.0 - 1.0;
 			}
 
 			const vec3 point = light.CentreArea.xyz
@@ -282,7 +318,7 @@ void main()
 			// recessed into a ceiling is modelled as a single plane and which
 			// way its winding runs is not something a scene should have to
 			// know.
-			const vec3 lightNormal = normalize(cross(light.TangentU.xyz, light.TangentV.xyz));
+			const vec3 lightNormal = vec3(light.TangentU.w, light.TangentV.w, light.Radiance.w);
 			const float cosLight = abs(dot(lightNormal, toLight));
 
 			if (NdotL > 0.0 && cosLight > 1e-4)
@@ -391,7 +427,12 @@ void main()
 		// object was assigned -- and a fullscreen pass has no instance to ask.
 		// Slot 0 is what an object with no probe of its own gets, and a hit is
 		// not the receiver anyway.
-		vec3 arriving = ProbeIrradiance(first.Normal, 0.0);
+		// Fetched only when nothing is going to overwrite it. The store was
+		// live on the not-taken path, so the compiler could not sink it, and a
+		// two-bounce frame paid for an irradiance sample it discarded.
+		vec3 arriving;
+		if (bounces < 2)
+			arriving = ProbeIrradiance(first.Normal, 0.0);
 		if (bounces >= 2)
 		{
 			seed += 0x68BC21EBu;

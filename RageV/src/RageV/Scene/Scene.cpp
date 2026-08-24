@@ -1764,12 +1764,24 @@ namespace RageV
 		if (buildTable)
 			m_CullObjects.reserve(count);
 
-		// **The slot lookup, and why it is a scan.** A scene has tens of
-		// thousands of objects and a handful of distinct meshes -- the scale
-		// scenes have four -- so the answer is almost always the one before
-		// it, and the fallback is a walk over a vector that fits in a cache
-		// line or two. A hash per object would be a second hash per object:
-		// resolving the mesh handle above is already one.
+		// **The slot lookup, and what its justification actually assumes.** The
+		// argument for a scan is that a scene has a handful of distinct meshes
+		// -- "the scale scenes have four" -- so the one-entry cache almost
+		// always hits and the fallback walks a vector that fits in a cache
+		// line or two. That holds for the scale scenes and not for the ones
+		// this engine ships: the showroom has **155 distinct meshes across
+		// 185 objects**, so the cache misses nearly every time and the
+		// fallback averages half of 155 pointer compares -- about 11k a
+		// refresh, two to four refreshes a frame.
+		//
+		// Left as a scan deliberately, and this is the reasoning rather than
+		// an oversight. It is ~20-40 us a frame on that scene, and the frame
+		// is GPU bound (measured: 4.03 ms of GPU work in a 4.05 ms frame,
+		// with the CPU idle in `wait`), so the time is worth nothing today. A
+		// map would need two new Scene members, and a change to this type's
+		// layout is the documented stale-build trap that costs a Release-only
+		// crash. Revisit when a scene is CPU bound or the object count grows:
+		// at 60k objects this is milliseconds, not microseconds.
 		const Mesh* lastMesh = nullptr;
 		uint32_t lastSlot = kNoCullSlot;
 
@@ -2599,6 +2611,12 @@ namespace RageV
 			LightRenderData data;
 			data.Position = Vec3(transform.World[3]);
 			// A light's forward axis is -Z, matching the camera convention.
+			// **Unit length, and the lit shaders rely on it.** pbr_fragment
+			// takes -Direction as L for a directional light and as the spot
+			// cone's axis without normalising either, in both the raster loop
+			// and TraceSurface. A non-unit direction here would not look
+			// wrong so much as slightly wrong everywhere -- so if this ever
+			// stops normalising, those four uses have to grow it back.
 			data.Direction = Math::Normalize(Vec3(transform.World * Vec4(0.0f, 0.0f, -1.0f, 0.0f)));
 			data.Color = light.Light.Color;
 			data.Intensity = light.Light.Intensity;
@@ -2752,7 +2770,32 @@ namespace RageV
 		// The probes are placed by transforms, and a probe parented to
 		// something that moved this frame is at last frame's position until
 		// this runs.
-		UpdateWorldTransforms();
+		//
+		// **Only if one of them is going to capture.** UpdateWorldTransforms
+		// raises m_DrawListDirty unconditionally, and a raised flag costs the
+		// next RefreshDrawList a full walk of every mesh in the scene -- the
+		// resolve, the material lookup, the cull tables, the emitter list. A
+		// scene whose probes are all baked and complete skips every one of
+		// them a line later, so this was paying for that walk, every frame,
+		// to place probes that were not going to move.
+		//
+		// PackProbes below still runs either way -- it rebuilds the selection
+		// table and is what keeps a baked probe readable -- so this is a guard
+		// on the transform walk alone, not an early exit.
+		bool anyCapturing = false;
+		for (auto& item : view)
+		{
+			auto [transform, probe] = view.Get<TransformComponent, ReflectionProbeComponent>(item);
+			if (probe.Update == ProbeUpdate::Realtime || !probe.Probe
+				|| !probe.Probe->IsComplete() || probe.Dirty)
+			{
+				anyCapturing = true;
+				break;
+			}
+		}
+
+		if (anyCapturing)
+			UpdateWorldTransforms();
 
 		m_CapturingProbes = true;
 

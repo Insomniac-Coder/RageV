@@ -821,7 +821,6 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	uint primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, true));
 	vec2 bary = rayQueryGetIntersectionBarycentricsEXT(q, true);
 	float w0 = 1.0 - bary.x - bary.y;
-	mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(q, true);
 	mat4x3 worldToObject = rayQueryGetIntersectionWorldToObjectEXT(q, true);
 
 	RayInstance hit = u_RayInstances.Instances[instance];
@@ -838,22 +837,38 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	// much, and the strides say the rest.
 	uint ps = hit.PositionStrideWords;
 	uint as_ = hit.AttributeStrideWords;
-	vec3 p0 = vec3(positions.Floats[i0 * ps + 0u], positions.Floats[i0 * ps + 1u], positions.Floats[i0 * ps + 2u]);
-	vec3 p1 = vec3(positions.Floats[i1 * ps + 0u], positions.Floats[i1 * ps + 1u], positions.Floats[i1 * ps + 2u]);
-	vec3 p2 = vec3(positions.Floats[i2 * ps + 0u], positions.Floats[i2 * ps + 1u], positions.Floats[i2 * ps + 2u]);
 	vec2 uv0 = vec2(attributes.Floats[i0 * as_ + 6u], attributes.Floats[i0 * as_ + 7u]);
 	vec2 uv1 = vec2(attributes.Floats[i1 * as_ + 6u], attributes.Floats[i1 * as_ + 7u]);
 	vec2 uv2 = vec2(attributes.Floats[i2 * as_ + 6u], attributes.Floats[i2 * as_ + 7u]);
 
-	vec3 objectPosition = p0 * w0 + p1 * bary.x + p2 * bary.y;
-	vec3 hitPosition = objectToWorld * vec4(objectPosition, 1.0);
+	// **Where the ray stopped, from the ray.** The traversal already solved
+	// this: the committed hit distance along a world-space ray is the world
+	// position, with no vertex positions, no object-to-world matrix and no
+	// barycentric reconstruction behind it.
+	//
+	// Those three position loads were nine scalar reads scattered across the
+	// vertex buffer -- a different triangle per lane, so effectively
+	// uncached -- plus a twelve-word matrix fetch and nine multiply-adds, on
+	// every hit of every hemisphere and mirror ray. They are still loaded for
+	// a *posed* hit, which needs the triangle's own plane, and that path is a
+	// minority of hits in every scene here.
+	//
+	// Not bit-identical with the barycentric form, and arguably the more
+	// consistent of the two: this is the point the traversal itself
+	// intersected, while the interpolated one can sit a float's width off the
+	// triangle it came from.
+	vec3 hitPosition = origin + Ng * offset
+					 + direction * rayQueryGetIntersectionTEXT(q, true);
 	vec2 hitUv = uv0 * w0 + uv1 * bary.x + uv2 * bary.y;
 
 	vec3 objectNormal;
 	if ((hit.Flags & RAY_INSTANCE_POSED) != 0u)
 	{
 		// Posed positions, unposed normals: the triangle's own plane is the
-		// honest normal.
+		// honest normal. The only reader of the position buffer left.
+		vec3 p0 = vec3(positions.Floats[i0 * ps + 0u], positions.Floats[i0 * ps + 1u], positions.Floats[i0 * ps + 2u]);
+		vec3 p1 = vec3(positions.Floats[i1 * ps + 0u], positions.Floats[i1 * ps + 1u], positions.Floats[i1 * ps + 2u]);
+		vec3 p2 = vec3(positions.Floats[i2 * ps + 0u], positions.Floats[i2 * ps + 1u], positions.Floats[i2 * ps + 2u]);
 		objectNormal = cross(p1 - p0, p2 - p0);
 	}
 	else
@@ -899,7 +914,10 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 		float shadow = 1.0;
 		if (light.Position.w == 0.0)
 		{
-			L = normalize(-light.Direction.xyz);
+			// Already unit length: Scene.cpp normalises it when the light is
+			// gathered, and Renderer3D copies it through untouched. Stated
+			// here because it makes that an invariant this shader depends on.
+			L = -light.Direction.xyz;
 			if (int(light.Shadow.x) != 0)
 				shadow = TraceShadowFrom(hitPosition, hitNormal, L, 1.0e4);
 		}
@@ -925,15 +943,46 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 			if (distance2 >= range * range)
 				continue;
 
-			float distance = sqrt(distance2);
-			L = toLight / max(distance, 0.0001);
-			float ratio = clamp(1.0 - pow(distance / range, 4.0), 0.0, 1.0);
-			attenuation = (ratio * ratio) / max(distance * distance, 0.0001);
+			// **And the lights behind this surface**, which the line at the
+			// bottom of the loop multiplies to exactly zero anyway. It did so
+			// only after a sqrt, a divide, a pow and a spot cone with its own
+			// normalize -- roughly forty operations to reach a number that
+			// was already known to be nothing.
+			//
+			// Normalising cannot change the sign of the dot, so this is the
+			// same test line `lit +=` makes, made before the work instead of
+			// after it. Bit-identical: X * 0.0 is 0.0 for every finite X, and
+			// the epsilons below rule out an infinity reaching it.
+			//
+			// It pays into both hot passes at once -- the traced bounce calls
+			// this per hemisphere ray, and the lit pass calls it per mirror
+			// ray -- and it pays most where clustering helps least, which is
+			// here: a traced hit has no cluster to consult, so this loop runs
+			// every light in the scene.
+			if (dot(hitNormal, toLight) <= 0.0)
+				continue;
+
+			// **All of this in distance-squared**, which is the form the
+			// caller already has. Every use of `distance` had a squared
+			// equivalent: 1 - (d/r)^4 is 1 - ((d/r)^2)^2, the normalise is an
+			// inverse square root, and the falloff's denominator was squaring
+			// it straight back. What goes is a sqrt, a full-precision divide
+			// and a pow -- and pow lowers to log2, a multiply and exp2, so
+			// that is four special-function operations out of roughly six in
+			// the whole iteration, on a unit that issues at a quarter rate.
+			//
+			// Not bit-identical: (x*x)*(x*x) and pow(x,4) differ in the last
+			// ulp or two, as do inversesqrt and sqrt-then-divide. Sub-1e-6 on
+			// a value that scales a colour.
+			const float t = distance2 / (range * range);
+			const float ratio = clamp(1.0 - t * t, 0.0, 1.0);
+			L = toLight * inversesqrt(max(distance2, 1.0e-8));
+			attenuation = (ratio * ratio) / max(distance2, 0.0001);
 			float cosInner = light.Params.y;
 			float cosOuter = light.Params.z;
 			if (cosOuter < cosInner)
 			{
-				float theta = dot(L, normalize(-light.Direction.xyz));
+				float theta = dot(L, -light.Direction.xyz);
 				attenuation *= clamp((theta - cosOuter) / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
 			}
 		}
@@ -1405,19 +1454,25 @@ void main()
 		if (isPositional == 0.0)
 		{
 			// Directional: L points towards the light, the opposite of travel.
-			L = normalize(-light.Direction.xyz);
+			// Already unit length: Scene.cpp normalises it when the light is
+			// gathered, and Renderer3D copies it through untouched. Stated
+			// here because it makes that an invariant this shader depends on.
+			L = -light.Direction.xyz;
 		}
 		else
 		{
 			vec3 toLight = light.Position.xyz - v_WorldPos;
-			float distance = length(toLight);
-			L = toLight / max(distance, 0.0001);
+			// Squared, for the reason TraceSurface's copy of this states: no
+			// use of the distance here needs its square root.
+			float distance2 = dot(toLight, toLight);
+			L = toLight * inversesqrt(max(distance2, 1.0e-8));
 
 			// Inverse-square falloff, windowed so the light reaches zero at its
 			// range instead of trailing off forever.
 			float range = max(light.Params.x, 0.0001);
-			float ratio = clamp(1.0 - pow(distance / range, 4.0), 0.0, 1.0);
-			attenuation = (ratio * ratio) / max(distance * distance, 0.0001);
+			float t = distance2 / (range * range);
+			float ratio = clamp(1.0 - t * t, 0.0, 1.0);
+			attenuation = (ratio * ratio) / max(distance2, 0.0001);
 
 			// Spot cone, when the inner and outer angles differ. Measured
 			// against the light's own axis, not against its position -- those
@@ -1426,10 +1481,23 @@ void main()
 			float cosOuter = light.Params.z;
 			if (cosOuter < cosInner)
 			{
-				float theta = dot(L, normalize(-light.Direction.xyz));
+				float theta = dot(L, -light.Direction.xyz);
 				attenuation *= clamp((theta - cosOuter) / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
 			}
 		}
+
+		// **Hoisted above the BRDF and the shadow ray**, because line `Lo +=`
+		// below multiplies all of it by this and a back-facing light makes
+		// the whole term zero. Reaching that zero used to cost a half-vector
+		// normalize, a GGX distribution, a Smith geometry term with two
+		// divides, a Fresnel pow, and -- under traced shadows -- an actual
+		// ray into the scene.
+		//
+		// Bit-identical, for the same reason as the one in TraceSurface: the
+		// products skipped are the ones that were multiplied by zero.
+		float NdotL = max(dot(N, L), 0.0);
+		if (NdotL <= 0.0)
+			continue;
 
 		vec3 H = normalize(V + L);
 		vec3 radiance = lightColor * attenuation;
@@ -1445,8 +1513,6 @@ void main()
 		// Energy conservation: what is not reflected is refracted, and metals
 		// refract nothing.
 		vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
-
-		float NdotL = max(dot(N, L), 0.0);
 
 		// Each light carries which kind of shadow it has, if any: under maps
 		// which map, under rays whether the ray goes to infinity or to the

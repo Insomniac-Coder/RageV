@@ -1205,11 +1205,21 @@ namespace RageV
 		const AoDetail aoLevel = rayOcclusion ? rayAo : desc.Post.AmbientOcclusion;
 		if (aoLevel != AoDetail::Off && PostProcess::IsReady())
 		{
-			const bool aoFull = aoLevel == AoDetail::Full;
-			const uint32_t halfWidth = aoFull ? desc.Width
-											  : Math::Max(desc.Width / 2u, 1u);
-			const uint32_t halfHeight = aoFull ? desc.Height
-											   : Math::Max(desc.Height / 2u, 1u);
+			// **What the rung buys depends on which form is running.** The
+			// traced one spends rays and always runs at the frame's own
+			// resolution; the screen-space one has no rays to trade and
+			// spends resolution, which is what this dial has always meant for
+			// it. See AoDetail.
+			const uint32_t aoTaps = aoLevel == AoDetail::Full    ? 8u
+								  : aoLevel == AoDetail::Quarter ? 2u
+																 : 4u;
+			const uint32_t divisor = rayOcclusion                  ? 1u
+								   : aoLevel == AoDetail::Full     ? 1u
+								   : aoLevel == AoDetail::Quarter  ? 4u
+																   : 2u;
+			const float aoScale = 1.0f / (float)divisor;
+			const uint32_t halfWidth = Math::Max(desc.Width / divisor, 1u);
+			const uint32_t halfHeight = Math::Max(desc.Height / divisor, 1u);
 
 			RGTargetDesc aoDesc;
 			aoDesc.Name = "SsaoRaw";
@@ -1218,7 +1228,7 @@ namespace RageV
 			// The target follows the dial and not only the numbers handed to
 			// the shader: changing one without the other leaves the pass
 			// running at one resolution and reading a texel size for another.
-			aoDesc.Scale = aoFull ? 1.0f : 0.5f;
+			aoDesc.Scale = aoScale;
 			const RGResource raw = graph.CreateTarget(aoDesc);
 
 			RGTargetDesc blurredDesc = aoDesc;
@@ -1246,7 +1256,7 @@ namespace RageV
 					builder.DisableDepth();
 				},
 				[sceneHDR, normalIndex, halfWidth, halfHeight, reconstruction,
-				 radius, rayOcclusion](RGPassContext& context)
+				 radius, rayOcclusion, aoTaps](RGPassContext& context)
 				{
 					// Depth and the surface attachment: the real normal where
 					// the scene wrote one, reconstruction where it did not.
@@ -1256,7 +1266,7 @@ namespace RageV
 												 context.Color(sceneHDR, normalIndex),
 												 RayShadows::GetStructure(),
 												 halfWidth, halfHeight, reconstruction,
-												 radius, Format::R16G16B16A16_SFLOAT);
+												 radius, aoTaps, Format::R16G16B16A16_SFLOAT);
 					}
 					else
 					{

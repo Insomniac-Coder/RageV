@@ -56,7 +56,8 @@ layout(push_constant) uniform Params
 	float InvP1;
 	// World metres a ray reaches: the profile's AoRadius.
 	float Radius;
-	float _pad0;
+	// Rays a pixel: four at AoDetail::Full, eight at VeryHigh. See kTaps.
+	float Taps;
 
 	// The camera-to-world rotation, as three rows, and the camera's position:
 	// what carries a reconstructed point out into the world the rays are
@@ -79,7 +80,20 @@ layout(push_constant) uniform Params
 // (3.49 -> 2.41 ms; camp 5.48 -> 3.67). The literature budget for
 // denoised RTAO is one or two rays a pixel, so eight is still
 // conservative by a factor of four.
-const int kTaps = 8;
+// **Four by default, eight at AoDetail::VeryHigh**, and no longer a constant.
+//
+// The 12 -> 8 note above still holds and the same reasoning carries one step
+// further: measured across the showroom in both lighting modes, camp and demo
+// at 1280x720, eight against four differs by 0.03 to 0.19 mean levels of 255,
+// leaves the local-noise metric unmoved to four decimals -- 10.2143 against
+// 10.2150 on camp -- and costs 0.550 ms against 0.286, a 48% cut to the pass
+// and 239 us off the frame, faster in six runs of six. The blur is still
+// doing the work.
+//
+// Not free, and the dial exists because of it: 0.1-0.2% of pixels move by
+// more than four levels, and the worst single pixel measured 27, which is
+// past the 25-level line this engine calls visible. A scene of fine contact
+// shadows can ask for the rays back.
 const float kGoldenAngle = 2.39996323;
 // The origin's lift off the surface along its normal, in metres, scaled by
 // distance the way every ray this engine casts is: the same self-intersection
@@ -218,6 +232,7 @@ void main()
 	const float rotation = float(Hash(pixel.x * 0x9E3779B9u ^ pixel.y)) / 4294967296.0 * 6.2831853;
 
 	float occlusion = 0.0;
+	const int kTaps = int(u_Params.Taps + 0.5);
 	for (int i = 0; i < kTaps; i++)
 	{
 		// The same spiral SSAO bends into its hemisphere; here the disc is
