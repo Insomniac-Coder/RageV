@@ -12232,6 +12232,42 @@ their layout.
 
 ---
 
+### 7cf. An enum a script writes by name, and the pointer comparison that ate it
+
+`Managed::Interop::ComponentFieldFromText` takes the field's text form and
+writes it into the component. Its enum branch tried the names first:
+
+```cpp
+if (text == field.Hint.EnumNames[i])   // const char* == const char*
+```
+
+Both are `const char*`, so that compares **addresses**. It never matched. Every
+enum a script set by name fell through to the ordinal parse below it, which
+fails on a word and leaves zero -- the first enumerator -- and the function
+returned `true` regardless, so the caller was told the write had worked.
+
+It applies to both script languages, to every enum in the component bridge, and
+to the script-graph writer that shares the helper. The scene serializer has its
+own path and was never affected, which is what made it look like a *runtime*
+problem: the same value authored in the file worked and set from a script did
+not.
+
+**What it cost is the part worth keeping.** The showroom's lighting mode flips
+its reflection probe to `Realtime` for a few frames so the cube re-captures
+under the new lighting; with the comparison broken, `"Realtime"` meant `Baked`
+and the probe never re-baked. So the mode the scene does not open in was lit by
+the cube captured during the **loading frames** -- drawn before any script runs,
+under the scene as authored -- and the symptom was a dim room whose traced GI
+looked speckly. Two plausible and wrong diagnoses came first (the emitter
+resolution below, then the length of the re-capture window). The tell, in the
+end, was that authoring `Update: Realtime` in the scene worked while setting it
+from the script did not, with `SetComponentField` returning true both times.
+
+**A returned `true` that means "I parsed something" rather than "I did what you
+asked" is the actual defect**, and the enum branch is not the only place that
+shape can occur -- `FieldType::Asset` gets it right, refusing an unknown path
+rather than nulling the reference.
+
 ### 7cc. Traced GI: variance is not a bug, and NEE is not all of it
 
 The showroom's bounce came back covered in speckle. Isolating it by elimination:

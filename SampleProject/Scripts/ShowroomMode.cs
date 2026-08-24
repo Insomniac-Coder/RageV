@@ -31,10 +31,15 @@ using System.Collections.Generic;
 // is hardest to attribute: the car keeps a bright ceiling in its paint and a
 // bright ambient on its flanks in a room that has gone dark. There is no
 // "re-bake" call to make, and there does not need to be one: `Update` is an
-// ordinary component field, so this flips the probe to Realtime for a single
-// frame, lets it re-capture all six faces under the new lighting, and puts it
-// back to Baked. That is the whole mechanism, and it costs one frame per press
-// and nothing at all between them.
+// ordinary component field, so this flips the probe to Realtime for a few
+// frames, lets it re-capture all six faces under the new lighting, and puts it
+// back to Baked. That is the whole mechanism, and it costs three captures per
+// press and nothing at all between them.
+//
+// It matters more than it sounds: the probe's *first* bake happens during the
+// loading frames, which are drawn before any script runs and therefore under
+// the scene exactly as authored. Whichever mode the scene does not open in has
+// no correct cube map until this has run once.
 public class ShowroomMode : Script
 {
 	// The nine ceiling fills, in two groups: the one under the cells the
@@ -114,10 +119,20 @@ public class ShowroomMode : Script
 	[HideInEditor] private bool m_Hovered;
 	[HideInEditor] private bool m_Ready;
 
-	// Set the frame a mode is applied and cleared the frame after, which is
-	// the whole of the probe's re-capture window: the render that ends the
-	// frame this is set in is the one that takes the six faces.
-	[HideInEditor] private bool m_Recapturing;
+	// How many more frames the probe stays Realtime. **A count, not a flag,
+	// and that distinction was a defect**: a flag set in OnCreate and cleared
+	// in the first OnFrame can be consumed without a render ever seeing it --
+	// the scene starts, every script gets OnCreate and then OnFrame in the
+	// same update, and the probe is back to Baked before the frame it was
+	// meant to capture. It left mode 2 lit by the cube map baked during the
+	// loading frames, which are drawn *before* scripts run and therefore hold
+	// the scene as authored -- mode 1, dark. The symptom was the room's
+	// bounce collapsing (walls 55 to 21 of 255) and the traced GI going
+	// speckly against the darker ambient, neither of which points at a probe.
+	//
+	// Three frames costs three captures once per press and cannot be consumed
+	// early by any ordering of OnCreate, OnFrame and the click.
+	[HideInEditor] private int m_RecaptureFrames;
 
 	public override void OnCreate()
 	{
@@ -169,12 +184,12 @@ public class ShowroomMode : Script
 		if (!m_Ready)
 			return;
 
-		// The probe has had its frame: put it back to Baked, where it costs
+		// The probe has had its frames: put it back to Baked, where it costs
 		// nothing until the next press.
-		if (m_Recapturing)
+		if (m_RecaptureFrames > 0)
 		{
-			m_Recapturing = false;
-			if (m_Probe)
+			m_RecaptureFrames--;
+			if (m_RecaptureFrames == 0 && m_Probe)
 				m_Probe.SetComponentField("ReflectionProbeComponent", "Update", "Baked");
 		}
 
@@ -230,17 +245,17 @@ public class ShowroomMode : Script
 		Recapture();
 	}
 
-	// The probe, for one frame. Realtime ignores the "already captured" test
-	// that makes a baked probe free, and takes FacesPerFrame faces -- six, as
-	// the scene authors it -- so the cube is entirely the new room rather than
-	// part of each.
+	// The probe, for the next few frames. Realtime ignores the "already
+	// captured" test that makes a baked probe free, and takes FacesPerFrame
+	// faces -- six, as the scene authors it -- so each of those frames leaves
+	// the cube entirely the new room rather than part of each.
 	private void Recapture()
 	{
 		if (!m_Probe)
 			return;
 
 		m_Probe.SetComponentField("ReflectionProbeComponent", "Update", "Realtime");
-		m_Recapturing = true;
+		m_RecaptureFrames = 3;
 	}
 
 	private void Paint()

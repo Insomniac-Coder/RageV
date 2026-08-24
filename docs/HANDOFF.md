@@ -20,7 +20,7 @@ credit bar, left of the light switch.
 | **Mode 2 -- the showroom** | The scene as it was: full luminaire, nine fills, kickers, bay lit. |
 | **`ShowroomMode.cs`** | Nine lights, four lights, two lights, four emissive lenses and one material. |
 | **A second fitting** | `showroom_panel_studio.rmat` -- the same grid, four cells lit. |
-| **An engine fix** | Area emitters read the *entity's* emissive, not its material's. |
+| **Two engine fixes** | An enum set from a script compared *pointers*; area emitters read the material's emissive, not the entity's. |
 
 ### The three things worth carrying forward
 
@@ -46,9 +46,32 @@ credit bar, left of the light switch.
    hemisphere term subtracted the emissive a surface really had while NEE
    added the one it used to. Mode 1's paint speckle was that double count;
    fixing it cut the noise 44% (5.68 to 3.20 on the bonnet) and took the
-   room's walls from 13 to 6 of 255. Mode 2 shifts by at most 19 levels, all
-   of it the car's switched-off lamps no longer bouncing light.
-3. **A second control on the credit bar breaks the licence notice at 4:3.**
+   room's walls from 13 to 6 of 255. Mode 2 is bit-identical either way, which
+   is worth knowing before blaming it for anything: measured with the change in
+   and out, the same frame twice.
+3. **An enum written from a script never matched its own name.**
+   `ComponentFieldFromText`'s enum branch compared `const char* text` against
+   `const char* EnumNames[i]` with `==` -- two pointers, never equal -- so
+   every enum a script set by name fell through to the ordinal parse, which
+   fails on a word and leaves **zero**: the first enumerator. And it returned
+   `true`, so the caller was told it had worked. `SetComponentField(...,
+   "Update", "Realtime")` therefore meant `Baked`, silently, in both script
+   languages and for every enum in the bridge.
+
+   It surfaced as *noise*, which is why it is worth the retelling. The probe
+   would not re-bake, so mode 2 was lit by the cube map captured during the
+   **loading frames** -- 47 of them, drawn before any script runs and
+   therefore under the scene exactly as authored, which is mode 1 and dark.
+   The room's bounce collapsed (walls 55 to 21 of 255) and the traced GI's
+   speckle stood out against the darker ambient. Nothing about "the car looks
+   grainy" points at an enum comparison, and two wrong diagnoses came first:
+   the emitter fix below, and a re-capture window that was counted in frames
+   rather than held long enough. Post-fix mode 2 measures *less* speckle than
+   the scene did before this session (3.18 against 3.27), because the probe
+   now bakes at runtime under converged lighting instead of during the cold
+   loading frames.
+
+4. **A second control on the credit bar breaks the licence notice at 4:3.**
    The text centres in whatever rect it is given, and the rect ran the full
    bar -- fine at 16:9 where there is 190 units of slack, and at 4:3 the
    canvas is 1663 units instead of 1920 and the notice ran under both pills

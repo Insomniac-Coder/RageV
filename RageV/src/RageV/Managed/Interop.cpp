@@ -718,11 +718,22 @@ namespace RageV::Managed
 					// A name, as the file writes it -- and still an ordinal,
 					// because a script written before this read one out and
 					// wrote it straight back.
-					if (field.Hint.EnumNames)
+					//
+					// **`strcmp`, and it was `==` for a while.** Both sides are
+					// `const char*`, so the equality compared addresses and no
+					// name ever matched: every enum a script set by name fell
+					// through to the ordinal parse below, which fails on a word
+					// and leaves zero -- the *first* enumerator -- and then
+					// returned true, so the caller was told it had worked. It
+					// surfaced as a reflection probe that would not re-bake
+					// (`Update = "Realtime"` quietly meaning `Baked`) and it
+					// applies to every enum field in the component bridge.
+					if (field.Hint.EnumNames && text)
 					{
 						for (int i = 0; i < field.Hint.EnumCount; i++)
 						{
-							if (text == field.Hint.EnumNames[i])
+							const char* name = field.Hint.EnumNames[i];
+							if (name && std::strcmp(text, name) == 0)
 							{
 								*(int*)value = i;
 								return true;
