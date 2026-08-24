@@ -97,6 +97,67 @@ is the obvious next step for anyone who wants this covered.
 
 ---
 
+## Start here: texel emitters landed, and a design document is owed
+
+**2026-08-24, last session.** The traced bounce now aims its shadow rays at
+the *lit texels* of an emissive map instead of radiating the whole mesh
+evenly. Merged to `main`. Everything about it -- problem, idea, the three
+stages, every measurement, the pictures and the mistakes -- is in
+**`docs/TEXEL-EMITTERS.md`**, whose last section ("For the write-up") was
+written for the next job.
+
+### The next job, which the owner has already asked for
+
+**A design document, as a PDF.** They want it to explain the feature *the easy
+way* while carrying the real technical content, and to **use the before/after
+pictures**. Their headings: problem statement, idea, implementation. The
+material is all gathered:
+
+- Narrative, numbers and the honest caveats: `docs/TEXEL-EMITTERS.md`,
+  section "For the write-up".
+- Pictures, already in the repo: `docs/images/texel-emitters/`
+  -- `before-phantom.jpg` (main, one textured mesh: the whole ceiling
+  glows), `after-aimed.jpg` (same scene, same frame, this feature),
+  `before-workaround-split-mesh.jpg` (what shipping the correct picture used
+  to cost in scene surgery), and three `fixture-*.jpg` from the purpose-built
+  test room.
+- The one-line summary if a reader takes nothing else: **the branch reaches
+  from plain authoring what previously took surgery on the scene** -- grain
+  2.31 against the workaround's 2.34 and the phantom's 3.31, crawl 11 levels
+  against 91.
+
+Not started. Nothing else is pending on it.
+
+### What is genuinely open, and small
+
+- **Five per cent of frame time has no nameable home.** 7.13 ms before, 7.50
+  after, nine interleaved pairs in both orders, so it is not this laptop's
+  drift. But the RT GI pass did not get slower (3.99 -> 3.80) and a
+  pass-by-pass diff put the two builds within 0.05 ms. The owner has taken it
+  as a later question; it wants a GPU capture rather than more benchmarking.
+- **The showroom's split fitting is now dead weight.** `Luminaire Lit Block`,
+  `showroom_panel_block.rmat` and `showroom_panel_off.rmat` exist only to make
+  the emitter list's one-rectangle-per-mesh assumption true, and the
+  acceptance test above proved the assumption no longer needs helping. It was
+  deliberately left in place so the merge carried only the engine change; it
+  can go on its own merits, and the pre-workaround generators are at
+  `cbc9529^`.
+- Stage 2 engages only for Plane and Quad primitives with untransformed uv.
+  A modelled fitting or a tiled material falls back to stage 1's even
+  radiance -- correct, only average. Extending it needs the mesh to retain uv
+  for small meshes; the reasoning is in TEXEL-EMITTERS.md.
+
+### And one habit to carry, because it cost three repeats
+
+`grep -E "gi_"` matches **rt`gi_`trace.rvshader**. Reverting fixture churn
+with a pattern like that quietly reverted the shader half of a change three
+times, and the checks stayed green each time because the runtime compiles the
+shaders *staged beside the exe*. `rvcheck.require_current_shaders` is in every
+check for this reason -- trust it, and never hand-roll a revert filter over
+shader paths.
+
+---
+
 ## Start here 2: mode 1's grain was a phantom light, and the fix is a mesh
 
 **2026-08-24, the session after the modes landed.** The owner reported heavy
