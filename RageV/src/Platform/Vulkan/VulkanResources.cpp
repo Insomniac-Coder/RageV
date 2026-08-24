@@ -1112,7 +1112,13 @@ namespace RageV::Vk
 
 		VkAccelerationStructureBuildGeometryInfoKHR build{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
 		build.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-		build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+		// **ALLOW_UPDATE, so Build() can refit rather than rebuild.** The flags
+		// here and the flags there must match, because these are what the
+		// scratch and storage sizes were computed from -- and an update needs
+		// updateScratchSize, which a structure not built for updating does not
+		// report. m_Scratch below already takes the larger of the two.
+		build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
+					  VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
 		build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
 		build.geometryCount = 1;
 		build.pGeometries = &geometry;
@@ -1265,14 +1271,51 @@ namespace RageV::Vk
 		geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
 		geometry.geometry.instances = instanceData;
 
+		// **Refit where the shape of the scene has not changed.** A top level
+		// over a couple of hundred instances was rebuilt from nothing every
+		// frame; an update rewrites the same structure against moved
+		// transforms and is markedly cheaper. The bottom-level path above has
+		// worked this way since it was written -- this is the same rule, one
+		// level up.
+		//
+		// Two conditions, and both matter:
+		//
+		//   - the instance *count* must be the one the structure was built
+		//     with. An update may move what is there; it may not add or
+		//     remove. A different count is a different scene and gets a
+		//     build.
+		//   - and a refit is allowed to run only so many times in a row.
+		//     Updates preserve the tree's topology and only move its bounds,
+		//     so a structure refitted forever while its contents drift apart
+		//     keeps a partitioning chosen for where things used to be, and
+		//     traversal pays for it. Rebuilding periodically bounds that, and
+		//     the cost is one ordinary build every kRefitLimit frames.
+		//
+		// PREFER_FAST_TRACE is kept: this is the structure every shadow,
+		// reflection and bounce ray walks, and its traversal cost is worth
+		// more than its build cost.
+		constexpr uint32_t kRefitLimit = 64;
+		const bool refit = m_TopBuilt && m_TopInstances == written
+						&& m_TopRefits < kRefitLimit;
+
 		VkAccelerationStructureBuildGeometryInfoKHR build{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
 		build.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-		build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-		build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+		build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
+					  VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+		build.mode = refit ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR
+						   : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+		// In-place: source and destination the same structure, which an
+		// update is explicitly allowed to do and is why no second allocation
+		// is needed. Left null for a build, where it must be.
+		build.srcAccelerationStructure = refit ? m_Structure : VK_NULL_HANDLE;
 		build.dstAccelerationStructure = m_Structure;
 		build.geometryCount = 1;
 		build.pGeometries = &geometry;
 		build.scratchData.deviceAddress = m_Scratch.Address;
+
+		m_TopRefits = refit ? m_TopRefits + 1 : 0;
+		m_TopInstances = written;
+		m_TopBuilt = true;
 
 		VkAccelerationStructureBuildRangeInfoKHR range{};
 		range.primitiveCount = written;

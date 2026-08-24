@@ -100,6 +100,13 @@ namespace RageV::Vk
 		VkAccelerationStructureGeometryKHR m_Geometry{};
 		uint32_t m_PrimitiveCount = 0;
 		bool     m_Built = false;
+
+		// Top level only: what the last build carried, so the next one can
+		// decide between refitting the structure it already has and building
+		// a fresh one. See Build().
+		uint32_t m_TopInstances = 0;
+		uint32_t m_TopRefits = 0;
+		bool     m_TopBuilt = false;
 	};
 
 	class VulkanSampler final : public RHI::RHISampler
