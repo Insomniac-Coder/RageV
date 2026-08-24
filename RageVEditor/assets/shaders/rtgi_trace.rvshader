@@ -306,13 +306,20 @@ void main()
 									 : ShadeTraced(second, ProbeIrradiance(second.Normal, 0.0));
 		}
 
-		// **Emissive removed where the emitters answered for it.** A hit on
-		// the luminaire would otherwise be counted twice -- once by the shadow
-		// ray above and once here -- and the double count is exactly the
-		// high-variance term this is trying to be rid of. With no emitter list
-		// the subtraction does not happen and the old estimator is back,
-		// which is the fallback the cap needs.
-		vec3 shaded = max(ShadeTraced(first, arriving) - (emitters > 0 ? first.Emissive : vec3(0.0)),
+		// **Emissive removed where the emitters answered for it**, and only
+		// there. A hit on the luminaire would otherwise be counted twice --
+		// once by the shadow ray above and once here -- and the double count
+		// is exactly the high-variance term this is trying to be rid of.
+		//
+		// `first.IsEmitter`, not `emitters > 0`: membership in that list is
+		// filtered, by the strength threshold, by the degenerate-rectangle
+		// drop and by the sixteen cap. Asking only whether the list is
+		// non-empty subtracted the emissive of every surface it left out,
+		// which no shadow ray was aiming at -- so their light was removed
+		// here and added nowhere, and a scene simply lost it. With the flag
+		// the fallback the cap documents is finally the one that happens:
+		// what the list omits, the hemisphere term still finds.
+		vec3 shaded = max(ShadeTraced(first, arriving) - (first.IsEmitter ? first.Emissive : vec3(0.0)),
 						  vec3(0.0));
 
 		// **And a bound on what is left, which is the honest half of this.**

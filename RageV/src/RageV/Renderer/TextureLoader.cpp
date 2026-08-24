@@ -124,11 +124,10 @@ namespace RageV
 			return table;
 		}
 
-		// The first texel of a BC1 colour block: two RGB565 endpoints and
-		// two-bit indices. Only texel zero is read, because the only block
-		// this is ever handed is the 1x1 mip -- where the other fifteen are
-		// padding the encoder invented.
-		Vec3 DecodeBc1Texel0(const uint8_t* block)
+		// One BC1 colour block, all sixteen texels: two RGB565 endpoints, a
+		// two-bit index per texel, and two interpolation modes chosen by
+		// which endpoint is numerically larger.
+		void DecodeBc1Block(const uint8_t* block, Vec3 out[16])
 		{
 			auto expand = [](uint16_t c)
 			{
@@ -143,70 +142,145 @@ namespace RageV
 			const uint16_t c0 = (uint16_t)(block[0] | (block[1] << 8));
 			const uint16_t c1 = (uint16_t)(block[2] | (block[3] << 8));
 			const Vec3 a = expand(c0), b = expand(c1);
-			const uint32_t index = block[4] & 0x3u;
 
+			Vec3 palette[4] = { a, b, Vec3(0.0f), Vec3(0.0f) };
 			if (c0 > c1)
 			{
-				switch (index)
-				{
-					case 0: return a;
-					case 1: return b;
-					case 2: return (a * 2.0f + b) / 3.0f;
-					default: return (a + b * 2.0f) / 3.0f;
-				}
+				palette[2] = (a * 2.0f + b) / 3.0f;
+				palette[3] = (a + b * 2.0f) / 3.0f;
 			}
-			switch (index)
+			else
 			{
-				case 0: return a;
-				case 1: return b;
-				case 2: return (a + b) * 0.5f;
-				default: return Vec3(0.0f);
+				palette[2] = (a + b) * 0.5f;
+				palette[3] = Vec3(0.0f);   // the mode's transparent black
 			}
+
+			const uint32_t indices = (uint32_t)block[4] | ((uint32_t)block[5] << 8)
+								   | ((uint32_t)block[6] << 16) | ((uint32_t)block[7] << 24);
+			for (int i = 0; i < 16; i++)
+				out[i] = palette[(indices >> (i * 2)) & 0x3u];
 		}
 
-		// The mean of a cooked chain, read off its last mip -- which is the
-		// 1x1 the cooker filtered down to, **in linear space** (TextureCook
-		// converts, filters and converts back), so one texel is the exact
-		// average of the whole image and no scan is needed.
+		// The mean of a cooked chain.
+		//
+		// **Not the 1x1 mip, and that was a defect.** The obvious reading is
+		// that the smallest level *is* the average and costs one texel to
+		// read -- but the cooker halves with a box filter that takes
+		// `max(w/2,1)` and taps `min(x*2+1, w-1)`, so an odd level drops its
+		// tail row and column entirely. A 768-wide map reduces cleanly to 3
+		// and then throws away five texels of nine. Measured on this
+		// project's own emitter fixture that is 2.27x wrong, and a variant
+		// with the lit cells one row over reads exactly zero -- which would
+		// hand the emitter list a black rectangle for a surface that is
+		// visibly glowing, and stage 0's flag would then have the hemisphere
+		// term subtract light nothing ever added.
+		//
+		// So: the deepest level reachable by *even* halvings, every texel of
+		// it, linearised individually. Every reduction on the way there
+		// divided exactly, so that level's average is the image's. It is a
+		// handful of blocks -- 3x3 for the 768 case, 25x25 for a 100 -- and
+		// the arithmetic is honest at any size.
 		bool MeanOfCooked(const IO::CookedTexture& cooked, bool srgb, Vec3& out)
 		{
-			if (cooked.Mips.empty())
+			if (cooked.Mips.empty() || cooked.Width == 0 || cooked.Height == 0)
 				return false;
 
-			const std::vector<uint8_t>& last = cooked.Mips.back();
-			Vec3 encoded(0.0f);
-			switch (cooked.Format)
+			// BC4 and BC5 are data maps -- roughness, normals -- and nothing
+			// asks those for a mean. Note the cooker picks them by *file
+			// name*, so an emissive map called `..._ao.png` lands here; the
+			// caller warns, because silently keeping the unfolded radiance is
+			// the failure this whole function exists to prevent.
+			if (cooked.Format != IO::CookedPixelFormat::RGBA8
+				&& cooked.Format != IO::CookedPixelFormat::BC1
+				&& cooked.Format != IO::CookedPixelFormat::BC3)
 			{
-				case IO::CookedPixelFormat::RGBA8:
-					if (last.size() < 4)
-						return false;
-					encoded = Vec3((float)last[0], (float)last[1], (float)last[2]);
-					break;
-				case IO::CookedPixelFormat::BC1:
-					if (last.size() < 8)
-						return false;
-					encoded = DecodeBc1Texel0(last.data());
-					break;
-				case IO::CookedPixelFormat::BC3:
-					// Eight bytes of alpha, then a BC1 colour block. Alpha is
-					// not part of a colour's average.
-					if (last.size() < 16)
-						return false;
-					encoded = DecodeBc1Texel0(last.data() + 8);
-					break;
-				default:
-					// BC4 and BC5 are data maps -- roughness, normals -- and
-					// nothing asks those for a mean.
-					return false;
+				return false;
 			}
 
-			const std::array<float, 256>& table = SrgbTable();
-			auto channel = [&](float v)
+			uint32_t width = cooked.Width, height = cooked.Height, level = 0;
+			if (cooked.Format != IO::CookedPixelFormat::RGBA8)
 			{
-				const int i = (int)Math::Clamp(v + 0.5f, 0.0f, 255.0f);
-				return srgb ? table[(size_t)i] : v / 255.0f;
+				// RGBA8 is only chosen for a texture smaller than one block,
+				// and its chain is filtered in *encoded* space rather than
+				// linear -- so for that format only mip 0 is a sound answer.
+				while (level + 1 < cooked.Mips.size()
+					   && width > 1 && height > 1
+					   && (width % 2) == 0 && (height % 2) == 0)
+				{
+					width /= 2;
+					height /= 2;
+					level++;
+				}
+			}
+
+			const std::vector<uint8_t>& mip = cooked.Mips[level];
+			const std::array<float, 256>& table = SrgbTable();
+			auto channel = [&](float encoded)
+			{
+				const int i = (int)Math::Clamp(encoded + 0.5f, 0.0f, 255.0f);
+				return srgb ? table[(size_t)i] : encoded / 255.0f;
 			};
-			out = Vec3(channel(encoded.x), channel(encoded.y), channel(encoded.z));
+
+			double r = 0.0, g = 0.0, b = 0.0;
+			uint64_t counted = 0;
+
+			if (cooked.Format == IO::CookedPixelFormat::RGBA8)
+			{
+				if (mip.size() < (size_t)width * height * 4)
+					return false;
+				for (uint64_t i = 0; i < (uint64_t)width * height; i++)
+				{
+					const uint8_t* p = mip.data() + i * 4;
+					r += channel((float)p[0]);
+					g += channel((float)p[1]);
+					b += channel((float)p[2]);
+					counted++;
+				}
+			}
+			else
+			{
+				const uint32_t blocksX = (width + 3) / 4;
+				const uint32_t blocksY = (height + 3) / 4;
+				const size_t stride = cooked.Format == IO::CookedPixelFormat::BC3 ? 16 : 8;
+				// BC3 puts eight bytes of alpha in front of the colour block.
+				const size_t colour = cooked.Format == IO::CookedPixelFormat::BC3 ? 8 : 0;
+				if (mip.size() < (size_t)blocksX * blocksY * stride)
+					return false;
+
+				Vec3 texels[16];
+				for (uint32_t by = 0; by < blocksY; by++)
+				{
+					for (uint32_t bx = 0; bx < blocksX; bx++)
+					{
+						const size_t offset = ((size_t)by * blocksX + bx) * stride + colour;
+						DecodeBc1Block(mip.data() + offset, texels);
+
+						// Only the texels the image actually has: the last
+						// block of an odd-sized level is padding the encoder
+						// invented, and averaging it in would drag the answer
+						// toward whatever it invented.
+						for (uint32_t ty = 0; ty < 4; ty++)
+						{
+							for (uint32_t tx = 0; tx < 4; tx++)
+							{
+								if (bx * 4 + tx >= width || by * 4 + ty >= height)
+									continue;
+								const Vec3& t = texels[ty * 4 + tx];
+								r += channel(t.x);
+								g += channel(t.y);
+								b += channel(t.z);
+								counted++;
+							}
+						}
+					}
+				}
+			}
+
+			if (counted == 0)
+				return false;
+
+			out = Vec3((float)(r / (double)counted), (float)(g / (double)counted),
+					   (float)(b / (double)counted));
 			return true;
 		}
 
@@ -215,6 +289,9 @@ namespace RageV
 		// optimisation and the wrong one here -- a map whose bright part is
 		// four cells of a hundred and forty-four is exactly what this exists
 		// to measure, and a stride can step over all four and report black.
+		// Only asked of colour maps -- see the call site: a normal or a
+		// roughness map is never an emitter's radiance, and scanning every
+		// texel of one is a cold-load cost for an answer nobody reads.
 		Vec3 MeanOfPixels(const uint8_t* rgba, uint32_t width, uint32_t height, bool srgb)
 		{
 			const std::array<float, 256>& table = SrgbTable();
@@ -324,7 +401,21 @@ namespace RageV
 				texture->UploadMip(cooked.Mips[mip].data(), cooked.Mips[mip].size(), mip, 0);
 
 			if (Vec3 mean(1.0f); MeanOfCooked(cooked, srgb, mean))
+			{
 				s_Means[texture.get()] = mean;
+			}
+			else if (srgb)
+			{
+				// Loud, because the failure is invisible: a colour map with
+				// no mean keeps white, and an emissive one then radiates the
+				// unfolded scalar -- up to the whole phantom this exists to
+				// remove. The usual cause is the cooker choosing BC4 or BC5
+				// from the file's *name* (`..._ao`, `..._roughness`) for a
+				// map that is really a colour.
+				RV_CORE_WARN("No average could be read from '{0}', so a material using it "
+							 "as an emissive map will light the scene from its full "
+							 "scalar rather than from what the map actually emits.", path);
+			}
 
 			s_Cache[key] = texture;
 			RV_CORE_INFO("Loaded cooked texture {0} ({1}x{2}, {3} mips, {4})", path,
@@ -355,8 +446,12 @@ namespace RageV
 		auto texture = device.CreateTexture(desc);
 		texture->Upload(pixels, (uint64_t)width * height * 4);
 
-		s_Means[texture.get()] =
-			MeanOfPixels(pixels, (uint32_t)width, (uint32_t)height, srgb);
+		// Colour maps only, for the reason MeanOfPixels gives.
+		if (srgb)
+		{
+			s_Means[texture.get()] =
+				MeanOfPixels(pixels, (uint32_t)width, (uint32_t)height, srgb);
+		}
 
 		stbi_image_free(pixels);
 
@@ -634,6 +729,17 @@ namespace RageV
 	void TextureLoader::ClearCache()
 	{
 		// Must run before the device is destroyed; these hold GPU images.
+		//
+		// **s_Means goes with them, not after them.** It is keyed on a raw
+		// RHITexture pointer used purely as an identity, and this call is
+		// what destroys the objects those pointers name -- so a map that
+		// outlives it holds addresses the allocator may hand to something
+		// else, and a later texture landing on one would inherit an average
+		// belonging to an image nobody has any more. That is the same
+		// dangling-identity rule the environment filter and the probe arrays
+		// were joined to this clear for; the call site in AssetManager spells
+		// it out. It also stops the map growing once per texture ever loaded.
+		s_Means.clear();
 		s_Cache.clear();
 		s_CubeCache.clear();
 		s_IrradianceCache.clear();

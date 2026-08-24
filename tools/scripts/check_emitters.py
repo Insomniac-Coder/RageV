@@ -62,15 +62,32 @@ MEAN_BAND = (0.62, 1.6)
 # geometry the light never reaches.
 GLOW_BAND = (0.94, 1.06)
 
+# Claim 3. The same map's mean, by two entirely different pieces of code:
+# decoded off the cooked mip chain, or scanned from the raw pixels. Block
+# compression is lossy and the two will not agree to the byte, but a few per
+# cent is all the room they need -- and the defect this exists for was 2.27x.
+PATH_BAND = (0.93, 1.07)
 
-def render(exe, scene, out):
+
+def render(exe, scene, out, cooked=True):
     result = subprocess.run(
         [str(exe), "--render-defaults=on", "--raytracing=on", "--rt-gi=on",
          "--rhi=vulkan", f"--scene=scenes/{scene}.rage",
+         *([] if cooked else ["--import-cache=off"]),
          # The bounce is what is being measured, so nothing temporal or
          # spatial may sit on top of it, and the frame is pinned late enough
          # for the accumulation to have settled.
-         "--aa=none", "--import-cache=off", "--width=800", "--height=500",
+         # **The import cache left ON, deliberately.** It is the path the
+         # editor, the runtime and every packaged game take, and it is the
+         # one where the emissive map's mean is read from a cooked mip chain
+         # rather than from raw pixels -- two different pieces of code for
+         # one number. Turning the cache off here would have checked only
+         # the path nothing ships, and the cooked one was wrong by 2.27x on
+         # this very fixture while the raw one was exact.
+         #
+         # Safe because the cache keys on the source's content: regenerate a
+         # fixture and it re-cooks.
+         "--aa=none", "--width=800", "--height=500",
          "--frame-time=0.0166", "--screenshot-frame=120", f"--screenshot={out}"],
         cwd=exe.parent, capture_output=True, text=True)
 
@@ -115,6 +132,7 @@ def main():
     floors = {name: render(exe, name, shots / f"{name}.png")
               for name in ("emitter_holes", "emitter_uniform",
                            "emitter_glow", "emitter_glow_plus")}
+    raw_holes = render(exe, "emitter_holes", shots / "emitter_holes_raw.png", cooked=False)
 
     failures = 0
 
@@ -146,6 +164,28 @@ def main():
               "RAY_INSTANCE_EMITTER flag is not reaching the shader (Scene.cpp sets "
               "AreaEmitter::Owner and passes the same id to RayShadows::AddInstance; "
               "Renderer3D::EndScene matches them onto the ray instance).")
+
+    # --- claim 3 -------------------------------------------------------------
+    #
+    # **Two pieces of code compute this one number**, and only one of them
+    # ships. The cooked path reads the map's average off a mip the cooker
+    # already filtered; the raw path scans every texel. A check that turned
+    # the import cache off tested the path nothing uses, and the shipping one
+    # was 2.27x wrong on this very fixture -- exactly, and only, for a texture
+    # whose size is not a power of two, because the cooker's box filter drops
+    # an odd level's tail row.
+    ratio = floors["emitter_holes"] / max(raw_holes, 1e-6)
+    ok = PATH_BAND[0] <= ratio <= PATH_BAND[1]
+    failures += 0 if ok else 1
+    print(f"{'pass' if ok else 'FAIL'}  cooked and raw agree on the map's mean: "
+          f"{floors['emitter_holes']:.2f} against {raw_holes:.2f}, ratio {ratio:.2f} "
+          f"(band {PATH_BAND[0]}-{PATH_BAND[1]})")
+    if not ok:
+        print("      The two derivations of the emissive map's average disagree: "
+              "TextureLoader::MeanOfCooked walks the cooked chain, MeanOfPixels "
+              "scans the source. Suspect the level MeanOfCooked settles on -- it "
+              "must be the deepest one reached by even halvings, because an odd "
+              "level's reduction throws its tail away.")
 
     if failures:
         print(f"{failures} check(s) failed")
