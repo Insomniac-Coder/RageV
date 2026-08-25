@@ -78,6 +78,11 @@ namespace RageV
 				if (text == field.Hint.EnumNames[i])
 					return i;
 			}
+
+			// Checked after the current spellings, never before: an alias must
+			// not be able to shadow a name that is still real.
+			if (field.Hint.LegacyName && text == field.Hint.LegacyName)
+				return field.Hint.LegacyNameValue;
 		}
 
 		// Version 1 and 2 wrote enums as indices, so those still load.

@@ -2782,6 +2782,50 @@ namespace RageV
 		// PackProbes below still runs either way -- it rebuilds the selection
 		// table and is what keeps a baked probe readable -- so this is a guard
 		// on the transform walk alone, not an early exit.
+		// **What a capture is only valid for.** Compared before anything else
+		// decides whether to skip, because the answer to "does this probe need
+		// re-capturing" depends on it.
+		//
+		// Nothing used to raise Dirty at all, so a probe was frozen after its
+		// first capture for the life of the process. These are the
+		// invalidations that are cheap and certain: the probe moved, its reach
+		// or its clips changed, the sky changed, or someone asked. Moving
+		// geometry and changing lights are deliberately not detected -- finding
+		// those precisely costs more than it saves -- and Recapture is the
+		// verb for them.
+		// The sky, as one number. A byte hash rather than a field-by-field
+		// compare because SceneEnvironment is plain data and every field of it
+		// changes what a capture sees -- a colour, an intensity, a rotation,
+		// the handle of an HDR map. Padding rides along, which can only ever
+		// cost one unnecessary capture and never miss a real one.
+		const uint64_t environment = [this]()
+		{
+			const unsigned char* bytes = reinterpret_cast<const unsigned char*>(&m_Environment);
+			uint64_t hash = 1469598103934665603ull;          // FNV-1a
+			for (size_t i = 0; i < sizeof(m_Environment); i++)
+			{
+				hash ^= bytes[i];
+				hash *= 1099511628211ull;
+			}
+			return hash;
+		}();
+		for (auto& item : view)
+		{
+			auto [transform, probe] = view.Get<TransformComponent, ReflectionProbeComponent>(item);
+			const Vec3 position = Vec3(transform.World[3]);
+
+			if (probe.Recapture
+				|| probe.CapturedInfluence != probe.Influence
+				|| probe.CapturedNear != probe.NearClip
+				|| probe.CapturedFar != probe.FarClip
+				|| probe.CapturedEnvironment != environment
+				|| Math::Distance(position, probe.CapturedAt) > 1.0e-4f)
+			{
+				probe.Dirty = true;
+				probe.Recapture = false;
+			}
+		}
+
 		bool anyCapturing = false;
 		for (auto& item : view)
 		{
@@ -2858,6 +2902,14 @@ namespace RageV
 				});
 
 			probe.Dirty = false;
+
+			// And what it was captured under, so the next frame can tell
+			// whether it still holds.
+			probe.CapturedAt = Vec3(transform.World[3]);
+			probe.CapturedInfluence = probe.Influence;
+			probe.CapturedNear = probe.NearClip;
+			probe.CapturedFar = probe.FarClip;
+			probe.CapturedEnvironment = environment;
 
 		}
 

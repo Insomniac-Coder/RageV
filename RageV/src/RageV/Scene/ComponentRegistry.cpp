@@ -84,7 +84,9 @@ namespace
 		bool s_Initialised = false;
 
 		const char* kLightTypeNames[] = { "Directional", "Point", "Spot" };
-		const char* kProbeUpdateNames[] = { "Baked", "Realtime" };
+		// "Baked" was this list's first entry and meant "captured once at
+		// runtime"; it is read as Cached for files written before the rename.
+		const char* kProbeUpdateNames[] = { "Cached", "Realtime" };
 		const char* kProbeRateNames[] = { "15Hz", "30Hz", "45Hz", "60Hz", "PerFrame" };
 		const char* kProjectionNames[] = { "Perspective", "Orthographic" };
 		const char* kBodyTypeNames[] = { "Static", "Kinematic", "Dynamic" };
@@ -181,6 +183,18 @@ namespace
 			hint.EnumNames = names;
 			hint.EnumCount = (int)N;
 			hint.Tooltip = tooltip;
+			return hint;
+		}
+
+		// The same, for an enum whose file spelling has changed. `legacy` is
+		// still read; `names` is what gets written.
+		template<size_t N>
+		FieldHint EnumRenamed(const char* const (&names)[N], const char* legacy,
+							  int legacyValue, const char* tooltip = nullptr)
+		{
+			FieldHint hint = Enum(names, tooltip);
+			hint.LegacyName = legacy;
+			hint.LegacyNameValue = legacyValue;
 			return hint;
 		}
 
@@ -659,7 +673,8 @@ namespace
 			desc.DisplayName = "Reflection Probe";
 			desc.Fields = {
 				Field<&ReflectionProbeComponent::Update>("Update",
-					Enum(kProbeUpdateNames, "Baked captures once and costs nothing after "
+					EnumRenamed(kProbeUpdateNames, "Baked", (int)ProbeUpdate::Cached,
+						"Cached captures once and costs nothing after "
 											"that. Realtime re-captures continuously and "
 											"shows moving objects in reflections.")),
 				Field<&ReflectionProbeComponent::Resolution>("Resolution",
@@ -687,6 +702,13 @@ namespace
 						Drag(1.0f, 1.0f, 6.0f, "Six in one frame is a visible hitch; one "
 											   "per frame is a sixth of the cost and a "
 											   "sixth of a second of latency."))),
+				Field<&ReflectionProbeComponent::Recapture>("Recapture",
+					Named("Re-capture now",
+						Tip("Take a fresh capture on the next frame. Moving the probe, "
+						"resizing its influence or clips, or changing the sky already "
+						"do this by themselves; moving geometry or changing a light "
+						"do not, because finding those precisely costs more than it "
+						"saves. Use this after either."))),
 			};
 			Bind<ReflectionProbeComponent>(desc);
 			s_Components.push_back(std::move(desc));

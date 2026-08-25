@@ -47,6 +47,15 @@ namespace RageV
 		const char* const* EnumNames = nullptr;
 		int EnumCount = 0;
 
+		// A spelling an older file may carry, and what it means now. Renaming
+		// an enumerator otherwise silently loses the field: the name no longer
+		// matches, the ordinal parse fails on a word, and the value falls back
+		// -- which is how "an enum a script set by name" became a bug in this
+		// engine once already. One alias is enough for every rename so far;
+		// the day a field needs two, this becomes a small table.
+		const char* LegacyName = nullptr;
+		int LegacyNameValue = 0;
+
 		const char* Tooltip = nullptr;
 
 		// Which kind of asset an Asset field accepts, so the content browser

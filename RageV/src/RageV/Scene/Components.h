@@ -172,10 +172,22 @@ namespace RageV
 	// How often a probe re-renders what it can see.
 	enum class ProbeUpdate : uint32_t
 	{
-		// Captured once and kept. Costs nothing after the first frame, which is
-		// what makes it the right answer for a room, a corridor, or anything
-		// else whose surroundings do not move.
-		Baked = 0,
+		// Captured once at runtime and held until something invalidates it.
+		// Costs nothing after the first frame, which is what makes it the right
+		// answer for a room, a corridor, or anything else whose surroundings do
+		// not move.
+		//
+		// **This was called `Baked`, and that was a lie of a name.** Nothing is
+		// written to disk and nothing survives closing the application: the
+		// capture is re-rendered from scratch on every launch, exactly like a
+		// shadow map. Anyone arriving from an engine where "baked" means "on
+		// disk and shipped in the build" read the opposite of the truth. The
+		// name now describes the guarantee -- held, not persisted -- and leaves
+		// `Baked` free for the thing that would deserve it.
+		//
+		// Files written before the rename still say `Baked`; the field's
+		// descriptor carries that as a legacy spelling.
+		Cached = 0,
 
 		// Re-captured continuously, one face per frame by default. Costs one
 		// extra scene render per frame and shows moving objects in reflections.
@@ -207,7 +219,7 @@ namespace RageV
 	// works with one.
 	struct ReflectionProbeComponent
 	{
-		ProbeUpdate Update = ProbeUpdate::Baked;
+		ProbeUpdate Update = ProbeUpdate::Cached;
 
 		// Per face. Reflections are seen through a rough surface or a curved
 		// one, so this can be far smaller than it feels like it should be: 128
@@ -243,10 +255,45 @@ namespace RageV
 		uint32_t NextFace = 0;
 		// Seconds since the last capture step, against Rate's interval.
 		float RateAccumulator = 0.0f;
+		// **Ask for a fresh capture.** A registered field, so a script can set
+		// it by name and the inspector shows a control for it; consumed and
+		// cleared by the capture, so it reads as a verb rather than a state.
+		//
+		// This exists because the engine cannot detect everything that
+		// invalidates a capture. Moving the probe, resizing its influence or
+		// its clips, and swapping the sky are all watched below. Moving a wall
+		// or turning a light off are not -- finding those precisely costs more
+		// than it saves, and every engine punts here. So the automatic half
+		// covers what is cheap and certain, and this covers the rest.
+		//
+		// Before it existed the supported answer was the workaround in this
+		// project's own sample script: flip Update to Realtime for three
+		// frames and back.
+		bool Recapture = false;
+
 		// Set when the probe has never been captured, or when something that
-		// invalidates the capture changed. A baked probe watches this; a
+		// invalidates the capture changed. A cached probe watches this; a
 		// realtime one ignores it and re-captures regardless.
+		//
+		// **Nothing used to raise it.** `Dirty = false` in Scene.cpp was the
+		// only assignment in the tree, so after the first capture a probe was
+		// frozen for the life of the process: move it, move the geometry
+		// around it, change a light, change the sky, and it went on lighting
+		// the room from a photograph of a scene that no longer existed. The
+		// docs call that probe poisoning and record it causing wrong
+		// diagnoses three times.
 		bool Dirty = true;
+
+		// What the last capture was taken under. A capture is only valid for
+		// the placement that produced it, so these are compared each frame and
+		// any difference raises Dirty. Cheap -- four floats and a handle -- and
+		// it turns the most common invalidation, dragging a probe in the
+		// editor, from a silent staleness into an automatic re-capture.
+		Vec3  CapturedAt{ 0.0f };
+		float CapturedInfluence = -1.0f;
+		float CapturedNear = -1.0f;
+		float CapturedFar = -1.0f;
+		uint64_t CapturedEnvironment = 0;
 
 		ReflectionProbeComponent() = default;
 		ReflectionProbeComponent(const ReflectionProbeComponent&) = default;
