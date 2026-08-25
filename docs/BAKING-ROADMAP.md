@@ -32,6 +32,13 @@ Every "bake" verb in the codebase is something else: animation curve tables
 actually fires, and a `Recapture` verb. That was the prerequisite — a bake is
 only as good as the ability to say "this is stale".
 
+**Done (2026-08-26): §1.2 and §1.3.** Fields and probes are written beside their
+scene and read back on later runs, keyed per lighting, composed from however
+many volumes a scene has, and selectable through a Realtime/Baked source on both
+GI paths. The showroom runs on it: 3.73 ms against 7.4, 267 fps against 134.
+What baking does *not* yet cover is the light that moves — see HANDOFF's opening
+section, which leads on it. The account below is how §1.2 got there.
+
 **In progress (2026-08-25):** §1.2, the irradiance volume. The field is plumbed
 end to end and reads correctly (`30e15bb`), the solve's shader is written and
 its projection verified (`7194a9b`), and **the pass that runs it now exists** — a

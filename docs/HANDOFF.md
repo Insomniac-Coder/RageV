@@ -1,12 +1,118 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-25.
+**Read this first.** Updated 2026-08-26.
 
-Work on **`main`**, which is clean and **pushed** as of 2026-08-25.
+Work on **`main`**, which is clean and **pushed** as of 2026-08-26 (`86979e6`).
 
 ---
 
-## Start here: the irradiance volume, and what is left of it
+## Start here: lighting is baked now, and what that does not yet cover
+
+**2026-08-26.** BAKING-ROADMAP items 1.2 and 1.3 are built and pushed
+(`c71234b`, `077f493`, `8083baa`, `86979e6`). Indirect light can be computed
+once, written beside the scene, and read back on later runs -- which is the
+first thing in this engine's history that survives a restart.
+
+```
+done   0.  probe hygiene            Cached rename, invalidation, Recapture verb
+done   1.  the field, plumbed       30e15bb
+done   2.  the solve                a pass of its own, measured against realtime
+done   3.  the baker + on disk      fields and probes, per lighting, composed
+       never 4. lightmaps
+```
+
+**What it buys, measured.** The showroom carries a volume, is baked, and has
+both GI sources set to Baked:
+
+| | frame | fps |
+|---|---|---|
+| realtime traced GI | 7.4 ms | 134 |
+| **baked** | **3.73 ms** | **267** |
+
+The traced bounce pass leaves the frame entirely and the two pictures are 0.5
+mean levels apart. On the GI corner, where indirect actually dominates, it is
+0.83 ms against 1.62 and the pictures are 0.30% apart.
+
+### How it fits together
+
+- **`--bake=on` produces; nothing else does.** There is no cached mode and no
+  way to reach one: without the flag a missing file leaves the field empty and
+  the GI source falls back to Realtime. The solve exists to make a bake, not to
+  be a third state between realtime and baked.
+- **One file per lighting**, `field_<hash>.rvfield`, beside the scene in
+  `assets/baked/<scene>/`. The hash that already told a field it was stale now
+  also names which file to read, so baking a scene under two lightings leaves
+  two files and switching between them picks one. Creation is deliberate;
+  selection is automatic.
+- **A scene composes every volume it has into one field** -- the union of their
+  bounds at the finest spacing any of them asked for. A shader reads one field;
+  choosing between several per fragment would spend every frame on a question
+  with one answer per scene. Unity's adaptive probe volumes and Unreal's
+  volumetric lightmap take the same road. A single volume keeps its rotation;
+  several compose axis-aligned.
+- **Probes bake too**, through `ReflectionProbe::Adopt`. A baked probe is ready
+  on the frame the scene loads instead of six frames of cube faces later.
+- **`RHIDevice::ReadTexture`** is the piece that made any of it possible, on
+  both backends. The capture path that existed was a 2D RGBA8 diagnostic.
+
+### What is open, in the order I would take it
+
+1. **Per-light baked-vs-realtime, and named scenarios.** This is the one that
+   matters. The hash covers each light's *position and direction* as well as its
+   colour, so any light that moves or animates -- a day-night sun, a carried
+   torch, a swinging lamp -- changes it every frame, matches no file, and falls
+   back to Realtime forever. The feature would silently do nothing in a scene
+   with dynamic lighting. The fix is the one Unity and Unreal both have: a light
+   declares whether it contributes to baked GI, the hash covers only those, and
+   deliberate variants become *named* scenarios rather than hashes. That also
+   fixes the readability of these filenames and the editor-versus-runtime split
+   at its root.
+2. **A Bake button and a variant list in the inspector.** Baking is CLI-only
+   today and the files are named by hash, so an author cannot see which
+   lightings are baked or make one without a terminal.
+3. **The showroom's mode 2 is not baked.** The mode is set by `ShowroomMode.cs`
+   at runtime, so baking it needs the editor (flip the pill, then bake) or a way
+   to set the mode from the command line.
+4. **Probe bakes are 12.5 MB each** at 512 faces and are deliberately *not*
+   committed. BC6H in the cooker is the documented prerequisite; field bakes are
+   150-670 KB and are in the repository.
+5. **Contact-scale bleed**, ~1.9% of pixels beyond 4 levels, concentrated on
+   geometry edges. A grid cannot resolve it; nested volumes or per-surface
+   storage can.
+
+### Two traps this cost, both worth reading before touching the bake key
+
+**Never hash a struct's bytes to key anything that outlives the process.** The
+lighting hash was an FNV over whole `LightRenderData` structs, which have
+padding after their enum and bool -- and padding holds whatever the allocation
+happened to contain. MSVC writes 0xCD there in a debug build and leaves it alone
+in a release one. One unchanged scene hashed three different ways: the runtime
+baked one file, the debug editor asked for a second, the release editor asked
+for a third, and each fell back to Realtime reporting that nothing was on disk.
+
+It fails in the direction that looks like a *missing file* rather than a *broken
+key*, so baking again appears to fix it -- once per build, never twice. That is
+what made it survive a wrong diagnosis (that the editor differed because the
+mode script had not run) and a wrong fix (baking from the editor as well). Hash
+named fields, through their bit patterns.
+
+**A warning must name what it looked for.** "No baked field on disk" is true and
+useless when files are named by hash: a bake made under different lighting is a
+present file with the wrong name, and reads identically to no file at all. The
+warning now prints wanted, where, and what was found instead, which turned the
+above from an afternoon of guessing into a one-run diagnosis.
+
+### Verified at the point of writing
+
+scenetest 2393 on Vulkan and 2346 on OpenGL, Debug and Release. Validation clean
+with a volume in the scene. Bake, restart, load: bit-identical, and the stale
+bake of a moved volume is refused. `SampleProject`'s script module must be
+rebuilt after any change to a component's layout -- `PostSettings` gained a
+field this session and scenetest segfaulted at 81 checks until it was.
+
+---
+
+## The field itself: how it is solved, and what it measured against
 
 **2026-08-25.** Work started on the baking sub-roadmap
 ([BAKING-ROADMAP.md](BAKING-ROADMAP.md)) at item 2, the irradiance volume,
