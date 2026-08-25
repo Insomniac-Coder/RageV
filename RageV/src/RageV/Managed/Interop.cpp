@@ -739,6 +739,22 @@ namespace RageV::Managed
 								return true;
 							}
 						}
+
+						// **And the spelling an older script may still use.**
+						// FieldSerializer honours this for scene files; this is
+						// the same field reached by a different road, and a
+						// rename that fixes one road and not the other is worse
+						// than no rename at all. It cost a 6x regression: the
+						// sample's probe script set "Baked", the name no longer
+						// matched, the ordinal parse below failed on a word --
+						// and returned true -- so the probe stayed Realtime and
+						// re-rendered six cube faces every frame forever.
+						if (field.Hint.LegacyName
+							&& std::strcmp(text, field.Hint.LegacyName) == 0)
+						{
+							*(int*)value = field.Hint.LegacyNameValue;
+							return true;
+						}
 					}
 					Detail::ScriptFieldFromText(text, *(int*)value);
 					return true;

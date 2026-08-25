@@ -37,7 +37,7 @@ using System.Collections.Generic;
 // "re-bake" call to make, and there does not need to be one: `Update` is an
 // ordinary component field, so this flips the probe to Realtime for a few
 // frames, lets it re-capture all six faces under the new lighting, and puts it
-// back to Baked. That is the whole mechanism, and it costs three captures per
+// back to Cached. That is the whole mechanism, and it costs three captures per
 // press and nothing at all between them.
 //
 // It matters more than it sounds: the probe's *first* bake happens during the
@@ -127,7 +127,7 @@ public class ShowroomMode : Script
 	// and that distinction was a defect**: a flag set in OnCreate and cleared
 	// in the first OnFrame can be consumed without a render ever seeing it --
 	// the scene starts, every script gets OnCreate and then OnFrame in the
-	// same update, and the probe is back to Baked before the frame it was
+	// same update, and the probe is back to Cached before the frame it was
 	// meant to capture. It left mode 2 lit by the cube map baked during the
 	// loading frames, which are drawn *before* scripts run and therefore hold
 	// the scene as authored -- mode 1, dark. The symptom was the room's
@@ -188,13 +188,13 @@ public class ShowroomMode : Script
 		if (!m_Ready)
 			return;
 
-		// The probe has had its frames: put it back to Baked, where it costs
+		// The probe has had its frames: put it back to Cached, where it costs
 		// nothing until the next press.
 		if (m_RecaptureFrames > 0)
 		{
 			m_RecaptureFrames--;
 			if (m_RecaptureFrames == 0 && m_Probe)
-				m_Probe.SetComponentField("ReflectionProbeComponent", "Update", "Baked");
+				m_Probe.SetComponentField("ReflectionProbeComponent", "Update", "Cached");
 		}
 
 		// A level, not an edge -- the pointer is either on the button or it is
