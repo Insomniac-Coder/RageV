@@ -173,9 +173,36 @@ indefensible.
 
 ---
 
-## 4. What would change this plan
+## 4. The caveat, checked -- and it does not hold
 
-If the pasted-on look turns out to be mostly the **skinned motion-vector bug**
-(fixed 2026-08-25, `9b3e53b`) rather than missing bounce, the case for 2 gets
-weaker and this whole roadmap can wait. That is worth looking at before
-committing to §1.2 — one of the reasons the three defects were fixed first.
+Before committing to §1.2 it was worth asking whether the pasted-on look was
+mostly the **skinned motion-vector bug** (fixed 2026-08-25, `9b3e53b`) rather
+than missing bounce. If it were, this roadmap could wait. It is not.
+
+Measured on `ray_shadows_local` by differencing a GI-on render against a GI-off
+one -- which isolates the indirect light the character actually receives -- and
+comparing that with the fix in and out, at two resolutions and two frames:
+
+| | |
+|---|---|
+| pixels the fix changes | **0.22% of the frame**, max 58-81 levels |
+| the fox occupies | ~10% of the frame |
+| so, of the character's own pixels | **~2% changed** |
+| indirect as a share of the fox's shading | **8.7%** |
+
+The bug was real and worth fixing -- it corrupted those pixels badly, and they
+sit where the pose deviates most from bind and where the indirect gradient is
+steepest, which is the silhouette. But "pasted on" is a *whole object* reading
+wrong against its surroundings, and a defect touching two per cent of a
+character cannot produce that.
+
+What remains is structural and is what §1.2 exists for: a dynamic object's
+indirect light is one probe cube chosen for the whole object plus a
+screen-space buffer, with nothing that varies across the object and nothing
+that answers "what is the irradiance at this point in space".
+
+Two limits on the number. 8.7% is this scene -- a small test room with a strong
+direct spot; where bounce carries more of the lighting the share rises and so
+does the payoff. And one run out of five reported zero difference and could not
+be reproduced; the other four agree closely, so it is recorded as an artifact
+of that run rather than evidence.
