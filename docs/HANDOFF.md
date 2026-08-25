@@ -96,6 +96,15 @@ what made it survive a wrong diagnosis (that the editor differed because the
 mode script had not run) and a wrong fix (baking from the editor as well). Hash
 named fields, through their bit patterns.
 
+**Test a shipped build, not only the editor.** `BakedLighting::Read` opened its
+file with an ifstream: correct in the editor, correct on a loose project, and
+blind in a packaged game, where assets live in `content.pak`. Every bake fell
+back to Realtime in the built game while working everywhere it had been tested.
+Bakes go through `VFS::ReadBytes` now, which is what the scene loader has always
+done -- "a scene in a shipped pak and a scene on disk are the same call". The
+check that catches this class of bug is `rvpack` and then running the package;
+nothing short of that exercises the pak.
+
 **A warning must name what it looked for.** "No baked field on disk" is true and
 useless when files are named by hash: a bake made under different lighting is a
 present file with the wrong name, and reads identically to no file at all. The
