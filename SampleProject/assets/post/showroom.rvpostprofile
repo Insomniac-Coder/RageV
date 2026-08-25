@@ -29,6 +29,7 @@ SsrMaxDistance: 30
 SsrThickness: 0.35
 SsrIntensity: 1
 GlobalIllumination: true
+GiSource: Baked
 VoxelGlobalIllumination: false
 VoxelGiResolution: 64
 VoxelGiCascades: 3

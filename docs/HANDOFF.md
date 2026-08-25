@@ -6,7 +6,7 @@ Work on **`main`**, which is clean and **pushed** as of 2026-08-25.
 
 ---
 
-## Start here: the irradiance volume, and the one thing it still needs
+## Start here: the irradiance volume, and what is left of it
 
 **2026-08-25.** Work started on the baking sub-roadmap
 ([BAKING-ROADMAP.md](BAKING-ROADMAP.md)) at item 2, the irradiance volume,
@@ -17,89 +17,319 @@ which is the cheap road to behaving like a multi-bounce tracer.
 ```
 done   0.  probe hygiene            Cached rename, invalidation, Recapture verb
 done   1.  the field, plumbed       30e15bb  -- no-op by design
-part   2.  the solve                7194a9b  -- shader done, PASS MISSING
+done   2.  the solve                7194a9b the shader, and now the pass
        3.  the baker + on disk               -- 2 is its only oracle
        never 4. lightmaps
 ```
 
-### The next job, and it is one thing
+A field is solved once -- on the frame a scene loads, or one something
+invalidates -- and held after that. `scenes/irradiance_field.rage` is the check
+scene, and the command below is how to run it.
 
-**Add the fill as a render-graph pass in `FrameGraphBuilder`, ordered before
-the scene pass.** Everything else is built and checked.
+### Where the solve runs, and the kind of pass it needed
 
-It cannot go where the first attempt put it. `Scene::OnRender` **is** a graph
-pass's body, so a render pass is open at every point inside it: beginning one
-there nests, and ending one closes a pass this code does not own -- after which
-the indirect draws fail. The call site is parked in `Scene.cpp` with that
-written beside it (`SolvePendingIrradiance`, currently commented out), and the
-solve itself is `Renderer3D::SolveIrradianceVolume`, which is complete.
+**`RGPassKind::Standalone`**, a third kind of render-graph pass: the graph opens
+nothing for it, and the pass records its own render pass and its own barriers.
+It exists because the fill is pinned on three sides at once.
 
-Two things the pass must carry that the parked version could not:
+- **After the scene pass.** The solve traces, and the set it traces through is
+  built by BeginScene -- which is why the scene walk can only *ask* for a solve
+  (`Renderer3D::RequestIrradianceSolve`) and the graph is what runs it.
+- **Outside a render pass.** It begins one of its own to raster a fragment per
+  cell, and a barrier may not be recorded inside one either. `Scene::OnRender`
+  *is* a graph pass's body, so nowhere inside it qualifies; an ordinary graphics
+  pass of the graph does not either, because the graph has already opened one.
+- **Once per frame, not once per viewport.** The request clears when it is
+  solved, so the editor's second graph finds nothing to do.
 
-- **Put `TextureUsage::Storage` back on the volume textures**, *with* the layout
-  transitions. It was removed deliberately -- see the trap below -- and belongs
-  with the pass that writes them.
-- **A barrier** between the fill writing the images and the lit pass sampling
-  them, in the same frame. Get this wrong and it is silent and
-  timing-dependent; run it under `--validation=on`.
+The field is therefore read by the lit pass of the *next* frame. That one frame
+of latency is the trade for tracing a scene that is current rather than one a
+frame old, and it is invisible on something solved once and then held.
 
 ### What is already right, so nobody re-derives it
 
 - **It had to be a fragment shader, not compute.** The hit shading belongs to
-  `TraceSurface` and a second copy is how two renderers start disagreeing about
-  what a hit looks like. That include survives `RV_TRACE_ONLY` but not leaving
-  the fragment stage: the shadow lookups above its guard sample with an implicit
-  level of detail. Voxelisation already writes a 3D texture from a fragment
-  shader here.
+  `TraceSurface`, and a second copy of it is how two renderers start disagreeing
+  about what a hit looks like. That include survives `RV_TRACE_ONLY` but not
+  leaving the fragment stage: the shadow lookups above its guard sample with an
+  implicit level of detail. Voxelisation already writes a 3D texture from a
+  fragment shader here.
 - **Bind `slot.GiSet`, never `slot.Set`.** A descriptor set belongs to the
   layout it was allocated against. `slot.Set` is the lit pipeline's and its
   set 0 carries the vertex stage's bindings; the fill shader includes the same
   header under the same defines as `rtgi_trace`, so `GiSet` is its set exactly.
-- **The projection is a mean and twice a directed mean.** Radiance sampled
-  uniformly over the sphere, projected to SH-L1, converted to irradiance and
-  divided by pi -- the Monte Carlo weight, both basis constants and the band
-  factor all cancel. `c0 = mean(L)`, `c1 = 2 * mean(L*d)`. Verified against the
-  case with an answer by hand: uniform radiance L gives constant term L and no
-  lean, which is what stage one's placeholder writes, so the two agree by
-  construction.
-- **The lean needs three accumulators, one per channel.** Sharing one stores a
-  red wall's directionality into green and blue as well.
+- **One fill set per frame in flight.** The set is rewritten with the field
+  being solved, and a descriptor set may not be rewritten while a command buffer
+  still refers to it. A scene whose lights move asks for a solve every frame,
+  which is precisely the case that would rewrite one still in use.
+- **The projection is a mean and twice a directed mean.** `c0 = mean(L)`,
+  `c1 = 2 * mean(L*d)` -- the Monte Carlo weight, both basis constants and the
+  band factor all cancel. Verified against the case with an answer by hand:
+  uniform radiance L gives constant term L and no lean, which is what the
+  placeholder fill writes, so the two agree by construction. The lean needs
+  three accumulators, one per channel; sharing one stores a red wall's
+  directionality into green and blue as well.
 - **A field records the lighting it was solved under** -- a byte hash of the
   light list and the environment -- so the showroom's mode switch invalidates
-  it. Without that, flipping modes keeps a field solved for the other one, which
-  is a stale probe by another road. `Recapture` is the verb for what the hash
-  cannot see: moved geometry, edited materials.
+  it. `Recapture` is the verb for what the hash cannot see: moved geometry,
+  edited materials.
 
-### The trap this cost, and it is the repository's own lesson twice
+### The trap this cost, and how it was closed
 
-The volume textures were first created `Sampled | Storage`, on the reasoning
-that the solve writes into them. A storage-capable image has its **sampled**
-descriptor written against `VK_IMAGE_LAYOUT_GENERAL`, while a CPU upload leaves
-it in `SHADER_READ_ONLY_OPTIMAL` -- so every draw reading one was a layout
-mismatch, shipped in `30e15bb` and not noticed.
+The volume textures are `Sampled | Storage`, and the pair has a rule attached. A
+storage-capable image has its **sampled** descriptor written against
+`VK_IMAGE_LAYOUT_GENERAL`, while a CPU upload used to leave it in
+`SHADER_READ_ONLY_OPTIMAL` -- so every draw reading one was a layout mismatch,
+shipped in `30e15bb` and not noticed. `Storage` was then taken off to make the
+reads honest, which left the solve with nothing to write through.
 
-It was not noticed because validation was run on a scene with **no volume in
-it**, where the binding is never reached. That is *"a check that tests the path
-nothing ships is not a check"*, which this repository already learned once on
-the texel emitters' cooked-versus-raw mean.
+Both halves are one rule in one place now: **`VulkanTexture::SettledLayout()`**
+-- GENERAL for a storage image, read-only for everything else -- and every path
+that moves an image and puts it back ends there, the uploads and the mip chain
+alike. A storage texture may therefore be uploaded to, which this field needs:
+stage one fills it flat so a field is never sampled while it holds whatever the
+allocator left behind.
 
-**So: any run testing this must have a volume in the scene, under
-`--validation=on`.** A clean run without one proves nothing at all.
+None of it was noticed because validation was run on a scene with **no volume in
+it**, where the binding is never reached -- "a check that tests the path nothing
+ships is not a check", which this repository already learned once on the texel
+emitters' cooked-versus-raw mean. So, from the runtime's own directory:
 
-### Still open, beyond the pass
+```
+RageVRuntime.exe --project=<repo>/SampleProject --scene=scenes/irradiance_field.rage
+  --rhi=vulkan --validation=on --render-defaults=off --import-cache=off
+  --screenshot-frame=60 --screenshot=field.png
+```
 
-- **Amortise the solve.** It is one frame's work for the whole grid, which is a
-  hitch when a scene loads and again when the showroom's mode switch fires. It
-  also unlocks the better behaviour: converging rather than replacing, so each
-  pass carries one more bounce of history and one traced bounce starts behaving
-  like several -- what a second traced bounce costs 2.57 ms to buy.
-- **Rotation on the volume's transform is ignored.** A rotated box needs its
-  inverse carried into the shader; an axis-aligned one needs three subtractions.
-  Limitation, not oversight.
-- **One volume at a time.** Nested and overlapping volumes -- a coarse one over
-  a level, a tight one in the room that needs it -- is where this ends up, but
-  choosing between them per fragment is a second question.
-- Nothing persists. Every launch re-solves. That is item 3.
+It logs `irradiance field solved, 9x5x9 cells` once, and validation -- the
+layers and synchronisation validation both -- says nothing. Against the same
+scene without the volume (`scenes/gi_corner.rage`), the field adds a soft
+red-tinted term on the surfaces facing the red wall and a grey one opposite:
++5.5 mean levels of red against +3.7 of green and blue.
+
+### What the field is worth, measured against the thing it replaces
+
+A stored field only earns its place if the picture is at least as good as the
+realtime answer. The check that settles it: **one traced bounce plus the field,
+against a true two-bounce render.** The field is filled by the same rays that
+shade a bounce, so if it is working, one bounce terminating in it should land
+near two bounces -- and if it is not, the difference says by how much.
+
+`scenes/gi_corner.rage` and `scenes/irradiance_field.rage` are the same scene
+with and without a volume. Frame 120, Release, Vulkan, this laptop:
+
+| | GPU frame | error against a true 2-bounce render |
+|---|---|---|
+| one bounce | 1.535 ms | 1.483 |
+| **one bounce + the field** | **1.591 ms** (+0.055) | **0.720** |
+| two bounces | 1.938 ms (+0.45) | 0 by definition |
+
+(Those are the current numbers, with the visibility term and four sweeps. The
+first version of the field, before either, measured 0.735 at +0.064 ms.)
+
+Half the second bounce's quality for **a seventh of its cost**, and the cost is
+per frame while the solve is once. Error is mean absolute difference in levels
+of 255 over the whole frame; the two runs of each were within 0.008 ms of each
+other, which matters on a laptop that drifts a millisecond over a session.
+
+### The currency rule, which is what made it wrong the first time
+
+**A cell stores bounced light. Not sky, and not the whole answer.**
+
+The first version stored everything reaching a point and every reader *added* it
+to what they already had, so the first bounce and the sky were each counted
+twice. It looked like a feature -- the picture got brighter -- and it was
+brighter than two real bounces: +5.5 levels of red where the second bounce is
+worth +2.2, an error nearly four times what the field was supposed to be worth.
+
+So the field follows the rule the bounce already followed (7bb):
+
+- **The fill drops a miss** rather than storing the sky, because every reader
+  adds the probe irradiance beside it and the probe integrates the sky.
+- **`ShadeTraced` adds the field** to the flat ambient and the probe, one part
+  each, none of them standing in for the others.
+- **The lit path treats the field and the screen-space bounce as alternatives,
+  never a sum.** They carry the same quantity. The gather wins wherever it is
+  confident -- it is per pixel and sharper -- and the field answers for the rest,
+  which is the case the bounce has never had an answer for: a surface that was
+  off screen last frame, or one a moving object just uncovered.
+- **An unsolved field is zero**, so a scene with a volume renders exactly like
+  one without until the pass runs. It used to be pre-filled with the flat
+  ambient, from when a cell carried the whole answer.
+
+### The shadow half of the bake, and the four versions of it that were measured
+
+**A field now stores what stands in the light's way, and it is not optional.**
+Every solve writes, from the same rays that carry the light back, an octahedral
+map of sixty-four directions per cell: how far geometry is that way and the mean
+of its square, two bins to a texel, thirty-two tiles beside the three of light.
+There is no flag for it. A field that says where light is without saying what
+blocks it is a field that leaks, so the two are solved together or not at all.
+
+The lookup weights each of the eight surrounding cells by three things: its
+trilinear share, whether it is in front of the surface's plane at all, and
+Chebyshev's inequality against those stored distances -- the DDGI test, which
+turns "further away than the wall this cell can see" into a soft weight rather
+than a hard edge.
+
+**This took four attempts, and the first three are worth recording because each
+one looked right.**
+
+| what was stored | leak, 2 m cells | error vs 2-bounce |
+|---|---|---|
+| nothing | 3.435 | 0.735 |
+| distance as SH-L1, 4 coefficients | 3.366 | 0.794 |
+| octahedral, 16 directions | 3.591 | 0.778 |
+| octahedral, 64 directions | 3.165 | 0.778 |
+
+A first-order fit of distance says "about nine metres, more to the left", and
+what stops a wall leaking is knowing it is eight hundred millimetres off in
+exactly one direction. Sixteen directions is a forty-five degree cone that
+averages a wall with the room behind it. Sixty-four is sharp enough to mean
+something -- and still did not close the 2 m case, which is the honest result
+below.
+
+### Where the leak actually comes from, which was not where it looked
+
+It reads as a glow on the wrong side of a wall. It is not: amplified twelve
+times it is uniform salt-and-pepper across the whole frame, and it enters
+**entirely through the bounce terminator** -- disabling the field in
+`ShadeTraced` alone takes 3.591 to 0.000. Rays from all over the dark room
+occasionally land within a cell of the divider, read a lit cell, and spray that
+sample into a random pixel.
+
+A volume covering only the dark half reads 0.000, which is what rules out the
+field inventing light and pins it on the lit cells next door.
+
+### Converging, and why the sweeps do not feed on themselves
+
+A solve is amortised: a band of rows a frame, budgeted at about 2048 cells, so a
+large field arrives over several frames instead of as one hitch when a scene
+loads. It sweeps four times, each pass blending into what the last one left, so
+what accumulates is a mean over more rays than one pass can afford.
+
+**The sweeps deliberately do not read the field.** Letting them was tried, and
+it is seductive: each sweep terminates its rays in the last sweep's answer, so
+the light gains a bounce a sweep, and it measured as the best quality of
+anything here -- 0.641. It also multiplies every mistake by the same loop. The
+sealed room went from 0.15 levels to 6.3, and the 2 m case from 3.4 to 12.4,
+because five per cent of a leak fed back eight times is not five per cent. The
+bounce the field terminates belongs to the *frame*, which reads a field nothing
+is writing; `RV_IRRADIANCE_FILL` is the guard that says so.
+
+### And the same test, spent where it is worth spending
+
+Honouring the stored visibility costs the hardware's trilinear filter -- the
+eight cells have to be weighted one at a time, at four fetches each instead of
+three for the lot. Measured with it in both readers: **+0.61 ms on a 1.5 ms
+frame**, which is more than a second traced bounce costs and buys a fraction of
+what one delivers.
+
+So the lit pass takes the careful road and the bounce takes the cheap one. The
+lit pass reads the field only where the screen-space gather has no answer, which
+is a small part of a frame; the bounce reads it at every hit.
+
+| | GPU frame | error vs 2-bounce | sealed room, 1 m / 2 m / lamp |
+|---|---|---|---|
+| one bounce | 1.535 ms | 1.483 | 0 / 0 / 0 |
+| **+ the field** | **1.591 ms** (+0.055) | **0.720** | 0.000 / 3.424 / 0.000 |
+| + strict test in both readers | 2.093 ms (+0.55) | 0.767 | 0.000 / 3.216 / 0.000 |
+| two bounces | 1.938 ms (+0.45) | 0 by definition | 0 / 0 / 0 |
+
+Half a second bounce's quality for an eighth of its cost, the solve happening
+once, and a lamp on the far side of a wall now reading exactly black where it
+used to read 0.147.
+
+### Rotation, which is no longer ignored
+
+A volume's transform carries three columns, and their directions are as much a
+part of the box as their lengths. The scene walk normalises them apart -- extents
+from the lengths, axes from the directions -- and the axes go to the shader as
+the three rows that take a world vector into the box's frame. Everything is then
+asked in that frame: which cell, how far, which way, and which octahedral bin,
+because a bin written against world directions would be the right number filed
+under the wrong heading the moment a volume was turned.
+
+`scenes/irradiance_field_turned.rage` is the check: the same corner covered by a
+box turned thirty-five degrees, which lights it the same way (0.684 against
+0.720, the difference being where its cells land rather than what they hold).
+Turning a volume invalidates its field, as moving one does.
+
+### What 1.2 still owes
+
+- **The 2 m leak, which is the one thing four versions of the visibility term
+  did not close.** 3.4 levels of 255 in a sealed room beside a lit one, at cell
+  spacings coarser than the wall is thick; 0.000 at the default one-metre
+  spacing and at three. The rule to give an author is that cells want to be
+  smaller than the thinnest wall they straddle. Closing it properly is probe
+  relocation -- moving a cell that sits badly rather than describing where it
+  sits -- which is the piece of DDGI this does not have.
+- **Nested and overlapping volumes**, which BAKING-ROADMAP 1.2 scopes out and
+  which is where this ends up: a coarse field over a level and a tight one in
+  the room that needs it. Choosing between them per fragment is a second
+  question.
+- **Nothing persists.** Every launch re-solves, and the OpenGL backend never
+  solves at all -- the fill traces rays and there are none there. That is item
+  3, and it is what would bring the field to a backend that cannot bake it.
+
+### The largest error either form ever had, and it was not the field's
+
+`TraceSurface` shaded every hit with **a shadow ray for the sun alone**. Point
+and spot lights lit every traced hit through walls, floors and closed doors --
+and the bounce reads those hits, so the light came back into the room as
+indirect. On the leak scene with the sun swapped for a lamp next door, a
+**sealed** room read **165 levels of 255** where the answer is black.
+
+It now traces a shadow ray for local lights too, bounded by the distance to the
+light rather than by the sky. Same scene: **0.147**.
+
+**What it costs, and the decision it deserves:** +0.49 ms on the showroom
+(6.421 ms against 6.907, three interleaved pairs agreeing within 0.014), and it
+changes **555 pixels of 921,600** there -- because that scene is lit by area
+emitters, which next-event estimation already shadows. So it is 7.6% of the
+showroom's frame for nothing the showroom can see, and the difference between
+light and light-through-walls in any room lit by a lamp. It is on; putting it
+behind a render setting is a line of work if the trade is not wanted.
+
+This matters more for a *stored* field than for a realtime bounce: a field
+solved in a lamp-lit room would have baked the leak in and held it.
+
+### The defect this found, and the fix: one texture, three tiles
+
+**`30e15bb` took `pbr_layered` over OpenGL's sampler limit and terrain rendered
+black.** A fragment shader gets thirty-two combined samplers there. That variant
+is the widest the engine has -- twelve shadow maps, twelve layer maps, and the
+six every lit shader needs, which is thirty -- and the field's three channel
+volumes made thirty-three: `error C7612: profile doesn't support more than 32
+samplers`, no layered pipeline, a black frame wherever terrain is drawn.
+
+**The field is now one texture with three tiles stacked along z** -- red, then
+green, then blue, each `Depth` slices tall -- so it costs one sampler and the
+variant sits at thirty-one. Three fetches still, one per channel, and the
+hardware still does the trilinear blend.
+
+**Why the tiles are safe, and it is the texel-centre mapping that makes them
+so.** The lookup was already mapping into texel centres, because the grid's
+first and last samples sit *on* the box faces and a straight 0..1 mapping puts
+half a cell outside the outermost centres. That same centring means the filter's
+reach at either end of a tile is the tile's own first and last slice and never
+the channel stacked beside it: at the last centre the weight on the slice beyond
+is zero. Sampling in plain normalised coordinates would bleed red into green at
+the seam. Measured: the field's frame is identical to the three-texture version
+to within a level, its error against the two-bounce reference is the same 0.735,
+and the leak table is unchanged.
+
+**And a check, because the suite was green while terrain was black.**
+`CheckSamplerBudget` in scenetest counts the samplers the layered variant
+declares and asks the device to build it. The count fails on **either** backend,
+which is what matters -- the defect was introduced and lived on Vulkan, where
+nothing enforces the limit -- and the build is the half only OpenGL can answer,
+since the refusal comes from the driver compiling the cross-compiled GLSL.
+Verified by reintroducing the defect: both backends fail, and the message names
+the count.
+
+One consequence worth keeping: the depth term this field still owes wants a
+sampler of its own, and there is now exactly one to spare.
 
 ---
 

@@ -250,7 +250,7 @@ Nodes:
   - Id: 69
     Type: LiteralFloat
     Pos: [-600, 1720]
-    Value: [2, 0, 0, 0]
+    Value: [1, 0, 0, 0]
   - Id: 70
     Type: Divide
     Pos: [-600, 1800]

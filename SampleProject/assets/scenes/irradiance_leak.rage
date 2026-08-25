@@ -1,0 +1,161 @@
+Scene: Irradiance leak check -- a lit room and a dark one, one field over both
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 1
+  SkyHorizon: [0, 0, 0]
+  SkyZenith: [0, 0, 0]
+  SkyGround: [0, 0, 0]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 7710000000000000301
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [-6, 2, 0]
+      Rotation: [0, 1.5708, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 7710000000000000403
+  - EntityID: 7710000000000000302
+    TagComponent:
+      Tag: Sun over the open half
+    TransformComponent:
+      Position: [4, 8, 0]
+      Rotation: [-0.95, 0.35, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 1, 1]
+      Intensity: 6
+      Range: 60
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 7710000000000000303
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Position: [0, -0.1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [18, 0.2, 12]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.85, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 7710000000000000304
+    TagComponent:
+      Tag: Ceiling over the dark half only
+    TransformComponent:
+      Position: [-4.6, 4.1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [9.2, 0.2, 12]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.85, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 7710000000000000305
+    TagComponent:
+      Tag: Divider -- solid, floor to ceiling, wall to wall
+    TransformComponent:
+      Position: [0, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 4, 12]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.85, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 7710000000000000306
+    TagComponent:
+      Tag: Back wall of the dark room
+    TransformComponent:
+      Position: [-8.9, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.2, 4, 12]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.85, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 7710000000000000307
+    TagComponent:
+      Tag: Back wall of the lit room
+    TransformComponent:
+      Position: [8.9, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.2, 4, 12]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.85, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 7710000000000000308
+    TagComponent:
+      Tag: Side wall, -z
+    TransformComponent:
+      Position: [0, 2, -5.9]
+      Rotation: [0, 0, 0]
+      Scale: [18, 4, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.85, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 7710000000000000309
+    TagComponent:
+      Tag: Side wall, +z
+    TransformComponent:
+      Position: [0, 2, 5.9]
+      Rotation: [0, 0, 0]
+      Scale: [18, 4, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.85, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 7710000000000000310
+    TagComponent:
+      Tag: Irradiance Field over both rooms
+    TransformComponent:
+      Position: [0, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [18, 4, 12]
+    IrradianceVolumeComponent:
+      Spacing: 1
+      MaxResolution: 24
+      Recapture: false

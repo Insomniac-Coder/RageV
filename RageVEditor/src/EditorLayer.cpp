@@ -2431,6 +2431,16 @@ void EditorLayer::DrawStatisticsPanel()
 		StatRow("Mesh draws", std::to_string(Renderer3D::GetDrawCallCount()));
 		StatRow("Triangles",  std::to_string(Renderer3D::GetTriangleCount()));
 		StatRow("Culled",     std::to_string(Renderer3D::GetCulledCount()));
+		// **Which indirect light is in this frame**, named the way somebody
+		// reading a frame time needs it named. A baked frame and a realtime one
+		// differ by a whole pass, so "4 ms" means nothing without this.
+		{
+			const bool baked = Renderer3D::IsBakedIrradianceOnly();
+			const bool traced = Renderer3D::IsRayTracedGlobalIllumination();
+			const char* gi = traced ? (baked ? "RTGI (baked)" : "RTGI (realtime)")
+									: (baked ? "GI (baked)" : "GI (realtime)");
+			StatRow("Indirect", gi);
+		}
 		StatRow("Quad batches", std::to_string(Renderer2D::GetDrawCallCount()));
 		StatRow("Quads",      std::to_string(Renderer2D::GetQuadCount()));
 		ImGui::EndTable();

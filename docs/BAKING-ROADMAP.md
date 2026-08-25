@@ -33,11 +33,38 @@ actually fires, and a `Recapture` verb. That was the prerequisite — a bake is
 only as good as the ability to say "this is stale".
 
 **In progress (2026-08-25):** §1.2, the irradiance volume. The field is plumbed
-end to end and reads correctly (`30e15bb`); the solve's shader is written and
-its projection verified (`7194a9b`). What is missing is the render-graph pass
-that runs the solve — it cannot live inside `Scene::OnRender`, which is itself a
-graph pass's body. [HANDOFF.md](HANDOFF.md) opens with the detail, the traps and
-the testing rule that a run without a volume in the scene proves nothing.
+end to end and reads correctly (`30e15bb`), the solve's shader is written and
+its projection verified (`7194a9b`), and **the pass that runs it now exists** — a
+third render-graph pass kind, `Standalone`, because the fill has to run after the
+scene pass, outside a render pass, and record its own barriers. A field is solved
+once and held.
+
+**And it is worth what it claimed to be**, which is the part that had to be
+measured rather than asserted: one traced bounce plus the field lands at 0.735
+mean levels of error against a true two-bounce render, where one bounce alone
+is 1.483 — half the quality of a second bounce for a seventh of its per-frame
+cost, and the solve happens once. Getting there meant fixing a currency
+mismatch that had the field counting the first bounce and the sky twice over,
+and it meant giving traced hits a shadow ray for local lights, without which a
+field solved in a lamp-lit room bakes in light through walls.
+
+**§1.2 is now built out.** The visibility term this file said to budget for is
+in: every solve writes an octahedral map of sixty-four directions per cell --
+how far geometry is that way -- from the same rays that carry the light, with no
+flag to turn it off, and the lookup weights each cell by Chebyshev's test
+against it. The solve is amortised over frames and sweeps four times to average
+its noise; rotation on a volume's transform is honoured rather than ignored.
+Current: **0.720 against the two-bounce reference for +0.055 ms**, with a lamp
+behind a wall reading exactly black.
+
+What it does *not* have is probe relocation, and that is the one leak left: at
+cell spacings coarser than a wall is thick, a sealed room beside a lit one still
+reads 3.4 levels of 255 (0.000 at the default one-metre spacing). Four
+representations of stored distance were measured against that case and none
+closed it; the rule for authors is that cells want to be smaller than the
+thinnest wall they straddle. Nested volumes remain scoped out here.
+[HANDOFF.md](HANDOFF.md) opens with all of it, the numbers, and the testing rule
+that a run without a volume in the scene proves nothing.
 
 ---
 

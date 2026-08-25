@@ -15,6 +15,7 @@ Project:
     RayTracedReflections: High
     RayTracedAmbientOcclusion: Half
     RayTracedGlobalIllumination: High
+    RayTracedGiSource: Baked
     ShadowDistance: 40
     ShadowSplitLambda: 0.85
     ShadowNormalOffset: 0.9

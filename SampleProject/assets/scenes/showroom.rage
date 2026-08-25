@@ -6475,3 +6475,14 @@ Entities:
       Occlusion: 1
       OverrideNormalScale: false
       NormalScale: 1
+  - EntityID: 7710000000000009001
+    TagComponent:
+      Tag: Irradiance Volume
+    TransformComponent:
+      Position: [0, 1.85, 0.75]
+      Rotation: [0, 0, 0]
+      Scale: [11.2, 3.8, 17.6]
+    IrradianceVolumeComponent:
+      Spacing: 0.75
+      MaxResolution: 48
+      Recapture: false

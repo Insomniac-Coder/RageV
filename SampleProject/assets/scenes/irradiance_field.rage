@@ -1,0 +1,116 @@
+Scene: Irradiance field over the GI corner
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 1
+  SkyHorizon: [0, 0, 0]
+  SkyZenith: [0, 0, 0]
+  SkyGround: [0, 0, 0]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [5, 3.2, 5]
+      Rotation: [-0.3, 0.785, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 17269236342639870818
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 8, 0]
+      Rotation: [-0.95, 0.35, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 1, 1]
+      Intensity: 4
+      Range: 60
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 15755400384260043839
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Position: [0, -0.1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [16, 0.2, 16]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.85, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 8709371129873690708
+    TagComponent:
+      Tag: WhiteWall
+    TransformComponent:
+      Position: [0, 2, -4.1]
+      Rotation: [0, 0, 0]
+      Scale: [16, 4, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.85, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 1663341875487337577
+    TagComponent:
+      Tag: RedWall
+    TransformComponent:
+      Position: [-4.1, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.2, 4, 16]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.03, 0.03, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 13064056694810536062
+    TagComponent:
+      Tag: AwayPanel
+    TransformComponent:
+      Position: [2.2, 1.1, 1.2]
+      Rotation: [0, 0, 0]
+      Scale: [2.2, 2.2, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.85, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 7710000000000000201
+    TagComponent:
+      Tag: Irradiance Field
+    TransformComponent:
+      Position: [0, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [8, 4, 8]
+    IrradianceVolumeComponent:
+      Spacing: 1
+      MaxResolution: 16
+      Recapture: false
