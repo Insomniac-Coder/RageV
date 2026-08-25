@@ -2,6 +2,7 @@
 #include "BakedLighting.h"
 
 #include "RageV/Core/Log.h"
+#include "RageV/IO/VFS.h"
 #include "RageV/Project/Project.h"
 
 #include <fstream>
@@ -53,10 +54,26 @@ namespace RageV
 
 	std::filesystem::path BakedLighting::DirectoryFor(const std::string& sceneName)
 	{
-		// The scene's own name, without its path or extension, so two scenes
-		// with a `lobby.rage` in different folders do not bake over each other.
+		// **Relative to the asset root, because that is what the VFS speaks.**
+		//
+		// A packaged game serves its assets out of a pak, and a path into the
+		// filesystem finds nothing there -- which is exactly how this shipped
+		// broken: it read bakes with an ifstream, worked in the editor and on a
+		// loose project, and could not find a single field in a built game. The
+		// scene loader had the answer written beside it already: "a scene in a
+		// shipped pak and a scene on disk are the same call".
+		//
+		// So the key is `baked/<scene>/...`, the same shape as `scenes/x.rage`,
+		// and the VFS resolves it against a pak or against loose files without
+		// the caller knowing which. Writing takes the absolute path instead --
+		// only the editor and the bake tool write, and they write to disk.
 		std::filesystem::path scene(sceneName);
 		return Project::AssetRoot() / "baked" / scene.stem();
+	}
+
+	std::filesystem::path BakedLighting::WritePathFor(const std::filesystem::path& key)
+	{
+		return Project::AssetRoot() / key;
 	}
 
 	bool BakedLighting::Write(RHIDevice& device, const std::filesystem::path& file,
@@ -77,10 +94,12 @@ namespace RageV
 			return false;
 		}
 
-		std::error_code code;
-		std::filesystem::create_directories(file.parent_path(), code);
+		const std::filesystem::path onDisk = file;
 
-		std::ofstream out(file, std::ios::binary | std::ios::trunc);
+		std::error_code code;
+		std::filesystem::create_directories(onDisk.parent_path(), code);
+
+		std::ofstream out(onDisk, std::ios::binary | std::ios::trunc);
 		if (!out)
 		{
 			RV_CORE_ERROR("Bake: could not open {0} for writing", file.string());
@@ -111,13 +130,21 @@ namespace RageV
 	bool BakedLighting::Read(const std::filesystem::path& file, Kind kind,
 							 Stamp& stamp, std::vector<uint8_t>& payload)
 	{
-		std::ifstream in(file, std::ios::binary);
-		if (!in)
+		// Through the VFS, so a bake inside a shipped pak and one loose on disk
+		// are the same call.
+		std::vector<uint8_t> bytes;
+		if (!VFS::ReadBytes(file, bytes))
 			return false;       // no bake for this one, which is not an error
 
+		if (bytes.size() < sizeof(Header))
+		{
+			RV_CORE_WARN("Bake: {0} is too short to be one", file.string());
+			return false;
+		}
+
 		Header header;
-		in.read(reinterpret_cast<char*>(&header), sizeof(header));
-		if (!in || header.Magic != kMagic)
+		std::memcpy(&header, bytes.data(), sizeof(header));
+		if (header.Magic != kMagic)
 		{
 			RV_CORE_WARN("Bake: {0} is not a baked lighting file", file.string());
 			return false;
@@ -150,14 +177,14 @@ namespace RageV
 			return false;
 		}
 
-		payload.resize((size_t)header.PayloadBytes);
-		in.read(reinterpret_cast<char*>(payload.data()),
-				(std::streamsize)header.PayloadBytes);
-		if (!in)
+		if (bytes.size() - sizeof(Header) < header.PayloadBytes)
 		{
 			RV_CORE_WARN("Bake: {0} is shorter than its header says", file.string());
 			return false;
 		}
+
+		payload.assign(bytes.begin() + sizeof(Header),
+					   bytes.begin() + sizeof(Header) + (size_t)header.PayloadBytes);
 
 		stamp = header.Stamp;
 		return true;

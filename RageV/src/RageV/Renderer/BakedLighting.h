@@ -87,5 +87,10 @@ namespace RageV
 		// to be in version control, and a cache is a thing you are allowed to
 		// delete.
 		static std::filesystem::path DirectoryFor(const std::string& sceneName);
+
+		// Where a key from DirectoryFor lands on disk. Writing is the one half
+		// of this that is not virtual: only the editor and the bake tool write,
+		// and they write loose files into the project.
+		static std::filesystem::path WritePathFor(const std::filesystem::path& key);
 	};
 }
