@@ -3095,8 +3095,26 @@ namespace RageV
 		// It does not catch a moved wall or an edited material, and that is the
 		// same line the reflection probe draws: those cost more to detect than
 		// they save, and Recapture is the verb for them.
+		// **Field by field, and never the bytes between them.**
+		//
+		// This hashed whole structs -- `mix(lights.data(), count * sizeof(...))`
+		// -- which is the same idea and a different function, because a struct
+		// is not only its fields. `LightRenderData` has three floats after a
+		// bool and an enum, so it carries padding, and padding is whatever the
+		// allocation happened to contain. MSVC fills it with 0xCD in a debug
+		// build and with nothing in particular in a release one.
+		//
+		// So the same scene, unchanged, hashed three different ways: the
+		// runtime, the debug editor and the release editor each asked for a
+		// different bake and each fell back to Realtime saying nothing was on
+		// disk. A bake keyed on a value that depends on the *build* is a bake
+		// nothing can ever load, and it fails in the direction that looks like
+		// a missing file rather than a broken key.
+		//
+		// Named fields hash the lighting and nothing else, so a file baked by
+		// any build loads in every other one.
 		uint64_t lighting = 1469598103934665603ull;
-		auto mix = [&lighting](const void* data, size_t size)
+		auto mixBytes = [&lighting](const void* data, size_t size)
 		{
 			const unsigned char* bytes = reinterpret_cast<const unsigned char*>(data);
 			for (size_t i = 0; i < size; i++)
@@ -3105,9 +3123,42 @@ namespace RageV
 				lighting *= 1099511628211ull;
 			}
 		};
-		if (!lights.empty())
-			mix(lights.data(), lights.size() * sizeof(LightRenderData));
-		mix(&m_Environment, sizeof(m_Environment));
+		auto mixFloat = [&mixBytes](float value)
+		{
+			// Through the bit pattern, so 0.1f hashes as 0.1f everywhere, and
+			// a negative zero as itself rather than as a positive one.
+			mixBytes(&value, sizeof(value));
+		};
+		auto mixVec = [&mixFloat](const Vec3& v)
+		{
+			mixFloat(v.x);
+			mixFloat(v.y);
+			mixFloat(v.z);
+		};
+		auto mixUint = [&mixBytes](uint64_t value) { mixBytes(&value, sizeof(value)); };
+
+		for (const LightRenderData& light : lights)
+		{
+			mixVec(light.Position);
+			mixVec(light.Direction);
+			mixVec(light.Color);
+			mixFloat(light.Intensity);
+			mixFloat(light.Range);
+			mixFloat(light.InnerCone);
+			mixFloat(light.OuterCone);
+			mixUint((uint64_t)light.Type);
+			mixUint(light.CastShadows ? 1u : 0u);
+		}
+
+		mixVec(m_Environment.AmbientColor);
+		mixFloat(m_Environment.AmbientIntensity);
+		mixUint((uint64_t)m_Environment.Sky);
+		mixVec(m_Environment.SkyHorizon);
+		mixVec(m_Environment.SkyZenith);
+		mixVec(m_Environment.SkyGround);
+		mixFloat(m_Environment.SkyIntensity);
+		mixFloat(m_Environment.SkyRotation);
+		mixUint((uint64_t)m_Environment.SkyTexture);
 
 		// **Every volume in the scene, composed into one field.**
 		//
