@@ -463,6 +463,20 @@ namespace RageV
 		// question already answered.
 		std::vector<Mat4> Skinning;
 
+		// **Last frame's pose, for motion vectors.**
+		//
+		// Without it a skinned mesh's previous clip position was the previous
+		// *model* matrix applied to the *bind* vertex -- so a limb's own
+		// deformation produced no velocity, and worse, a bent limb reported
+		// the position its bind pose would have projected to. Everything that
+		// reprojects through motion then reads the wrong texels persistently,
+		// not only while the character moves: the lit shader's indirect fetch
+		// and the GI denoiser's history both do.
+		//
+		// Swapped rather than copied each frame, so after the first two frames
+		// this allocates nothing.
+		std::vector<Mat4> PreviousSkinning;
+
 		AnimatorComponent() = default;
 		AnimatorComponent(const AnimatorComponent&) = default;
 	};

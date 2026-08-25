@@ -3072,7 +3072,20 @@ namespace RageV
 				}
 			}
 
+			// Last frame's pose becomes the previous one before this frame's
+			// is composed. A swap, not a copy: ComposeSkinning overwrites
+			// every element it is given, so the vector it hands back is only
+			// storage, and reusing it keeps this allocation-free in the steady
+			// state.
+			animator.PreviousSkinning.swap(animator.Skinning);
 			ComposeSkinning(*skeleton, pose, animator.Skinning);
+
+			// The first frame has no previous pose. Standing in the current
+			// one makes the deformation contribute no velocity for one frame,
+			// which is right -- a pose that has only just existed has not
+			// moved.
+			if (animator.PreviousSkinning.size() != animator.Skinning.size())
+				animator.PreviousSkinning = animator.Skinning;
 		}
 	}
 
@@ -3353,7 +3366,8 @@ namespace RageV
 					{
 						Renderer3D::DrawSkinnedMesh(entry.Resolved, world, material, params,
 													animator->Skinning, probe,
-													&entry.Transform->PreviousWorld);
+													&entry.Transform->PreviousWorld,
+													&animator->PreviousSkinning);
 					}
 					else if (const Skeleton* skeleton =
 								 Assets::Manager::GetSkeleton(entry.Source->Mesh))

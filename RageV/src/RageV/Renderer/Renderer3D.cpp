@@ -3656,7 +3656,8 @@ namespace RageV
 	void Renderer3D::DrawSkinnedMesh(const Ref<Mesh>& mesh, const Mat4& transform,
 									 const Ref<Material>& material, const MaterialParams& params,
 									 const std::vector<Mat4>& bones, uint32_t probe,
-							   const Mat4* previousTransform)
+							   const Mat4* previousTransform,
+							   const std::vector<Mat4>* previousBones)
 	{
 		if (!s_Data || !s_Data->SceneActive || !mesh)
 			return;
@@ -3672,6 +3673,25 @@ namespace RageV
 			s_Data->BoneScratch.emplace_back(1.0f);
 		else
 			s_Data->BoneScratch.insert(s_Data->BoneScratch.end(), bones.begin(), bones.end());
+
+		// **And last frame's pose, immediately after this one.** In the same
+		// buffer rather than a second binding: set 0 is the scene's, four
+		// other shaders reflect its layout, and a run appended here costs a
+		// base index the instance row already has a free lane for.
+		//
+		// A run of the same length either way, so `prevBase + joint` addresses
+		// the matching bone. Without a previous pose the current one stands in
+		// and the deformation contributes no velocity -- which is what this
+		// did before, and is still right for a mesh that has no animator.
+		const uint32_t prevBase = (uint32_t)s_Data->BoneScratch.size();
+		const std::vector<Mat4>& previous =
+			previousBones && previousBones->size() == bones.size() ? *previousBones : bones;
+
+		if (previous.empty())
+			s_Data->BoneScratch.emplace_back(1.0f);
+		else
+			s_Data->BoneScratch.insert(s_Data->BoneScratch.end(),
+									   previous.begin(), previous.end());
 
 		const Ref<Material>& effective = material ? material : s_Data->DefaultMaterial;
 		if (!effective)
@@ -3702,7 +3722,7 @@ namespace RageV
 		instance.EmissiveColor = params.EmissiveColor;
 		instance.Surface = { params.Metallic, params.Roughness,
 							 params.Occlusion, params.NormalScale };
-		instance.Indices = { (float)base, (float)probe, 0.0f, 0.0f };
+		instance.Indices = { (float)base, (float)probe, 0.0f, (float)prevBase };
 
 		// The same depth the other two submission paths carry, so a skinned
 		// run is ordered front to back like the runs beside it rather than

@@ -214,7 +214,13 @@ namespace RageV
 									const RHI::Ref<Material>& material,
 									const MaterialParams& params,
 									const std::vector<Mat4>& bones, uint32_t probe,
-									const Mat4* previousTransform = nullptr);
+									const Mat4* previousTransform = nullptr,
+									// Last frame's pose, for motion vectors. Null
+									// stands the current pose in, which reports the
+									// object's movement and none of the limb's --
+									// what this did before there was a second pose
+									// to give it.
+									const std::vector<Mat4>* previousBones = nullptr);
 
 		// A mesh whose surface is four materials in painted proportions -- a
 		// terrain chunk (ENGINE-NOTES 7aq). Drawn by the third lit pipeline,

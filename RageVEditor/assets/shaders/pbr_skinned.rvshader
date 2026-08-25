@@ -78,16 +78,32 @@ void main()
 
 	gl_Position = u_Scene.ViewProjection * world;
 	v_ClipPos = gl_Position;
-	// The *previous model matrix* applied to the *current* skinned position.
+
+	// **Where this vertex was last frame, skinned by last frame's pose.**
 	//
-	// Honest about what it is: the bones are not double-buffered, so a limb's
-	// own deformation contributes no velocity and only the object's movement
-	// does. A walking figure therefore reports the motion of the character and
-	// not of the arm -- which is right for the body and wrong at the extremities.
-	// Recording it here rather than in a backlog because the fix is a second
-	// bone buffer and that is a memory decision, not an oversight.
+	// This used to be the previous model matrix applied to the *bind* vertex,
+	// and the comment here called that a memory decision rather than an
+	// oversight. It was worse than it read: a limb's deformation contributed
+	// no velocity, so a bent arm did not merely lag -- it reported the
+	// position its bind pose would have projected to, permanently, whether or
+	// not the character was moving. Everything downstream that reprojects
+	// through motion then samples the wrong texels for as long as the pose is
+	// bent: the lit shader's indirect fetch and the GI denoiser's history
+	// both do.
+	//
+	// The previous pose is the run of bones at Indices.w -- the same length as
+	// this instance's, appended directly after it, so the joint indices index
+	// both. A mesh with no animator gets its current pose there and reports
+	// only the object's movement, which is what it should.
+	int prevBase = int(instance.Indices.w);
+	mat4 prevSkin =
+		a_Weights.x * u_Bones.Bones[prevBase + int(a_Joints.x)] +
+		a_Weights.y * u_Bones.Bones[prevBase + int(a_Joints.y)] +
+		a_Weights.z * u_Bones.Bones[prevBase + int(a_Joints.z)] +
+		a_Weights.w * u_Bones.Bones[prevBase + int(a_Joints.w)];
+
 	v_PrevClipPos = u_Scene.PreviousViewProjection * instance.PreviousModel *
-					vec4(a_Position, 1.0);
+					(prevSkin * vec4(a_Position, 1.0));
 }
 
 #type fragment
