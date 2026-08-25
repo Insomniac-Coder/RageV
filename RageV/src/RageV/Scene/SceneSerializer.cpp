@@ -269,6 +269,11 @@ namespace RageV
 		// Through the VFS: a scene in a shipped pak and a scene on disk are
 		// the same call. Writes stay ordinary files -- only the editor writes,
 		// and the editor edits loose projects.
+		// Remembered before anything is read, so a scene that fails to load
+		// still knows what it was trying to be. Names its baked lighting.
+		if (m_SceneRef)
+			m_SceneRef->SetSourcePath(filepath);
+
 		std::string text;
 		if (!VFS::ReadText(filepath, text))
 		{

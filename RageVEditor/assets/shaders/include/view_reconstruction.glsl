@@ -56,16 +56,10 @@ vec2 ViewToUv(vec3 position, vec2 invProjection)
 	return ndc * 0.5 + 0.5;
 }
 
-// The surface attachment's octahedral normal, back to a unit vector. The
-// inverse of OctEncode in pbr_fragment.glsl.
-vec3 OctDecode(vec2 e)
-{
-	e = e * 2.0 - 1.0;
-	vec3 n = vec3(e.xy, 1.0 - abs(e.x) - abs(e.y));
-	if (n.z < 0.0)
-		n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
-	return normalize(n);
-}
+// The surface attachment's octahedral normal, back to a unit vector -- the
+// inverse of the encoding the PBR shader wrote it with, which is why both come
+// from one file rather than from two that happen to agree.
+#include "octahedral.glsl"
 
 // Whether a texel of the surface attachment is the clear rather than a
 // surface -- sky, grid, particles, text: anything the PBR shaders did not

@@ -116,6 +116,9 @@ namespace RageV
 		if (key == "audio")
 			return ParseBool(value, config.EnableAudio);
 
+		if (key == "bake")
+			return ParseBool(value, config.BakeLighting);
+
 		if (key == "import-cache" || key == "importcache")
 			return ParseBool(value, config.UseImportCache);
 

@@ -104,16 +104,25 @@ namespace RageV
 
 	class RenderGraph;
 
-	// Whether a pass draws or computes.
+	// What the graph opens before a pass runs.
 	//
 	// The distinction is not cosmetic: a compute dispatch inside a render pass
 	// is illegal on Vulkan, so a pass that computes must not begin one. That
 	// is the entire difference, and it is why this is a kind rather than a
 	// flag a graphics pass could also set.
+	//
+	// **Standalone** is that same rule arrived at from the other side. A pass
+	// whose product is not an attachment -- a volume texture written through
+	// imageStore -- still has to raster something to make fragments, and it
+	// still has to fence those writes against the draws that read them. A
+	// barrier may not be recorded inside a render pass either, so a pass that
+	// needs both has to own the render pass it draws in. The graph opens
+	// nothing for it and asks no target of it, exactly as with a compute pass.
 	enum class RGPassKind
 	{
 		Graphics,
 		Compute,
+		Standalone,
 	};
 
 	// What a pass declares about itself, during setup.
@@ -249,6 +258,22 @@ namespace RageV
 		// reaching for one from outside the graph is exactly what the graph
 		// exists to stop. ENGINE-NOTES 7y.
 		void AddComputePass(const char* name, PassSetup setup, PassExecute execute);
+
+		// A pass that records its own render passes, and its own barriers.
+		//
+		// The graph begins nothing for it, so it runs at a point where a
+		// barrier is legal -- which is the whole reason it exists. The
+		// irradiance fill is the case it was added for: it rasters one
+		// fragment per cell of a volume texture and writes the cells with
+		// imageStore, so the attachment it draws into is a rasteriser driver
+		// nothing reads, while what it produces is a texture the graph does
+		// not own and could not pool.
+		//
+		// It declares Sample for whatever it reads, writes no target, and is
+		// otherwise ordinary: it runs where it is declared. What comes with
+		// it is an obligation -- **the pass owns its own synchronisation**,
+		// because nothing else knows it wrote anything.
+		void AddStandalonePass(const char* name, PassSetup setup, PassExecute execute);
 
 		// Validates and allocates. False means the frame is not runnable and
 		// Errors() says why. Nothing is recorded on failure -- a half-executed

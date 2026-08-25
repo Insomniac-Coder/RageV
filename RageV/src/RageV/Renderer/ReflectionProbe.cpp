@@ -176,4 +176,36 @@ namespace RageV
 
 		return face;
 	}
+
+	bool ReflectionProbe::Adopt(RHI::RHICommandList& cmd,
+								const std::vector<uint8_t>& faces)
+	{
+		if (!m_Cube)
+			return false;
+
+		const uint64_t perFace = RHI::TextureDataSize(m_Cube->GetDesc().Format,
+													   m_FaceSize, m_FaceSize);
+		const uint64_t expected = perFace * CubeFaces::kFaceCount;
+		if (perFace == 0 || faces.size() != expected)
+		{
+			RV_CORE_WARN("ReflectionProbe: a stored cube of {0} bytes does not fit a "
+						 "{1}-pixel probe, which wants {2}",
+						 faces.size(), m_FaceSize, expected);
+			return false;
+		}
+
+		for (uint32_t face = 0; face < CubeFaces::kFaceCount; face++)
+		{
+			m_Cube->UploadLayer(faces.data() + perFace * face, perFace, face);
+		}
+
+		// The same call the capture ends with, and for the same reason it is on
+		// the command list rather than the texture: see CaptureFaces.
+		cmd.GenerateMips(m_Cube);
+
+		m_FacesCaptured = CubeFaces::kFaceCount;
+		m_Complete = true;
+		m_Generation++;
+		return true;
+	}
 }

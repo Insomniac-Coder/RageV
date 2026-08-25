@@ -98,6 +98,11 @@ layout(set = 0, binding = 0) uniform SceneData
 	// falls back to the flat ambient above, which is what this replaced.
 	vec4 IrradianceCentre;
 	vec4 IrradianceExtents;
+	// The field's rotation, as the three rows that take a world direction into
+	// the box's own axes. A box that is not axis aligned needs its inverse to
+	// find a cell, and an axis-aligned one gets the identity -- which costs
+	// three dot products and keeps one path rather than two.
+	vec4 IrradianceRotation[3];
 	vec4 ProbeCount;              // x = how many rows are real
 	vec4 ProbePlacement[15];
 	vec4 ProbeSlot[15];
@@ -454,15 +459,9 @@ layout(location = 3) out vec4 o_Indirect;
 #endif   // RV_TRANSPARENT
 #endif   // !RV_TRACE_ONLY
 
-// Octahedral encoding, unit vector to [0,1]^2. Two 8-bit channels give about a
-// degree of direction, which a reflection ray does not notice.
-vec2 OctEncode(vec3 n)
-{
-	n /= (abs(n.x) + abs(n.y) + abs(n.z));
-	vec2 e = n.z >= 0.0 ? n.xy : (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0,
-															 n.y >= 0.0 ? 1.0 : -1.0);
-	return e * 0.5 + 0.5;
-}
+// Octahedral encoding, and its inverse, shared with everything that reads what
+// this shader writes into the surface attachment.
+#include "octahedral.glsl"
 
 #ifndef RV_LAYERED
 bool HasMap(int flag) { return (u_Material.MapFlags & flag) != 0; }
@@ -719,14 +718,53 @@ vec3 RotateIntoSky(vec3 v)
 	return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
 }
 
-// **The scene's irradiance field**, one volume texture per colour channel.
+// **The scene's irradiance field**: one volume texture, three tiles stacked
+// along z -- red, then green, then blue, each Depth slices tall.
 //
-// Bindings 18 to 20 are the first free ones in set 0. Declared here rather than
-// in one shader because every lit pipeline family reflects this include, and a
-// set 0 whose layout differs between families is a set that cannot be shared.
-layout(set = 0, binding = 18) uniform sampler3D u_IrradianceR;
-layout(set = 0, binding = 19) uniform sampler3D u_IrradianceG;
-layout(set = 0, binding = 20) uniform sampler3D u_IrradianceB;
+// Binding 18 is the first free one in set 0. Declared here rather than in one
+// shader because every lit pipeline family reflects this include, and a set 0
+// whose layout differs between families is a set that cannot be shared.
+//
+// **It was three textures, and three samplers is what broke OpenGL.** A
+// fragment shader gets thirty-two there, and the layered terrain variant --
+// twelve shadow maps, twelve layer maps, and the six every lit shader needs --
+// was at thirty before this field existed. Three more made thirty-three:
+// "profile doesn't support more than 32 samplers", no layered pipeline, and
+// terrain drawn as a black frame. One texture is one sampler, and thirty-one
+// leaves room for the depth term this field still owes.
+// **Three tiles of light, eight of distance.** Both ends of the texture agree
+// on this number: IrradianceVolume::kTiles is the same eleven.
+//
+// The thirty-two are an octahedral map of sixty-four directions per cell, two
+// to a texel: how far geometry is that way, and the mean of its square beside
+// it. This has to be *sharp*, and each coarser version was measured and found
+// wanting: a first-order fit says "about nine metres, more to the left" and
+// left 3.4 levels of leak, and sixteen directions -- a cone forty-five degrees
+// wide, mixing a wall at eight hundred millimetres with a room twenty metres
+// deep -- left 3.6. What stops a wall leaking is a bin narrow enough that its
+// mean means something.
+#define RV_IRRADIANCE_TILES 7
+#define RV_IRRADIANCE_OCT   8
+#define RV_IRRADIANCE_BINS  (RV_IRRADIANCE_OCT * RV_IRRADIANCE_OCT)
+
+// Which of the sixteen a direction belongs to, and the direction at the centre
+// of one. The fill weights every ray against every bin with these; the lookup
+// asks for the one bin it needs.
+int OctBin(vec3 direction)
+{
+	const vec2 uv = OctEncode(direction);   // already zero to one
+	const ivec2 cell = clamp(ivec2(uv * float(RV_IRRADIANCE_OCT)),
+							 ivec2(0), ivec2(RV_IRRADIANCE_OCT - 1));
+	return cell.y * RV_IRRADIANCE_OCT + cell.x;
+}
+
+vec3 OctBinDirection(int bin)
+{
+	const vec2 cell = vec2(bin % RV_IRRADIANCE_OCT, bin / RV_IRRADIANCE_OCT);
+	return OctDecode((cell + 0.5) / float(RV_IRRADIANCE_OCT));
+}
+
+layout(set = 0, binding = 18) uniform sampler3D u_IrradianceField;
 
 // **What indirect light arrives at a point, from a direction.**
 //
@@ -747,35 +785,239 @@ layout(set = 0, binding = 20) uniform sampler3D u_IrradianceB;
 // curve bends, and four coefficients rather than nine.
 //
 // Returns false outside the box, leaving the caller on whatever it did before.
-bool VolumeIrradiance(vec3 position, vec3 normal, out vec3 irradiance)
+// `shadowed` asks for the stored visibility to be honoured, which costs the
+// hardware's trilinear filter: the eight cells have to be weighted one at a
+// time, and each one costs a fetch of its distances on top of its light.
+//
+// **Measured, and it is why this is a parameter rather than always on.** In the
+// lit pass it is worth it and nearly free -- that path reads the field only
+// where the screen-space bounce has no answer, which is a small part of a
+// frame. Terminating every traced ray in it is a different bargain: 32 fetches
+// against 3, +0.55 ms on a 1.5 ms frame, to take a sealed room from 0.15 levels
+// of leak to nothing. The bounce takes the cheap road and the picture takes the
+// careful one.
+bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradiance)
 {
 	irradiance = vec3(0.0);
 	if (u_Scene.IrradianceExtents.w < 0.5)
 		return false;               // no field in the scene
 
 	const vec3 extents = max(u_Scene.IrradianceExtents.xyz, vec3(1.0e-3));
-	const vec3 local = (position - u_Scene.IrradianceCentre.xyz) / extents;
+
+	// **Half a cell along the normal, before anything else** -- the cheap half
+	// of not leaking through walls.
+	//
+	// The eight cells the hardware blends between are chosen by position alone,
+	// and one of them can easily be on the far side of the wall this fragment
+	// is on the near side of. That cell is bright, this surface is not, and
+	// trilinear interpolation does not know a wall is in the way: the dark side
+	// of a partition lights up. Measured on a sealed room beside a lit one --
+	// the correct answer is black, and at two-metre cells it read 19.7 levels.
+	//
+	// Stepping the lookup off the surface along its own normal moves the sample
+	// away from whatever is behind it and into the room it faces, which is
+	// where its light comes from. Half a cell is the smallest step that
+	// reliably crosses out of the cell pair straddling a wall, and irradiance
+	// is low frequency enough that moving the question half a cell does not
+	// change the answer anywhere the geometry does not.
+	// The field's own shape, from the texture: its z is five tiles deep -- three
+	// of light and two of distance -- so a tile is a fifth of it, and nothing
+	// has to be told the grid separately.
+	const ivec3 texels = textureSize(u_IrradianceField, 0);
+	const int tile = max(texels.z / RV_IRRADIANCE_TILES, 1);
+	const vec3 cells = vec3(texels.x, texels.y, tile);
+	const vec3 grid = max(cells - 1.0, vec3(1.0));
+
+	// **Into the box's own frame first**, because a volume may be turned. The
+	// three rows take a world vector onto the box's axes, and every question
+	// below -- which cell, how far, which way -- is asked there. The rotation
+	// is orthonormal, so a dot product means the same thing on either side of
+	// it and the facing test does not care which frame it is in.
+	const vec3 delta = position - u_Scene.IrradianceCentre.xyz;
+	const vec3 placed = vec3(dot(u_Scene.IrradianceRotation[0].xyz, delta),
+							 dot(u_Scene.IrradianceRotation[1].xyz, delta),
+							 dot(u_Scene.IrradianceRotation[2].xyz, delta));
+	const vec3 facing = vec3(dot(u_Scene.IrradianceRotation[0].xyz, normal),
+							 dot(u_Scene.IrradianceRotation[1].xyz, normal),
+							 dot(u_Scene.IrradianceRotation[2].xyz, normal));
+
+	// Half a cell along the normal, in the frame the cells are spaced in.
+	const vec3 biased = placed + facing * (extents / grid);
+
+	const vec3 local = biased / extents;
 	if (any(greaterThan(abs(local), vec3(1.0))))
 		return false;               // outside it
 
-	// Zero to one across the box, then in to the texel centres. The grid's
-	// first and last samples sit *on* the faces, so mapping straight to 0..1
-	// would put half a cell of the box outside the outermost texel centres and
-	// the hardware would clamp there -- a flat band around the edge of every
-	// volume, which is the kind of artefact that reads as a lighting bug.
-	const vec3 size = vec3(textureSize(u_IrradianceR, 0));
-	const vec3 uvw = ((local * 0.5 + 0.5) * (size - 1.0) + 0.5) / size;
+	// **And fade out before the edge, rather than stopping at it.**
+	//
+	// A field ends somewhere, and what lies past it gets whatever the shading
+	// did before -- the probe, the flat ambient. Switching between the two at
+	// the boundary draws a *line* across every surface that crosses it: one
+	// pixel with a room's worth of bounced light, the next with none. It is the
+	// most visible thing a volume can do wrong, and no average of the frame
+	// shows it, because a hard edge is a small number of pixels being
+	// completely wrong rather than every pixel being slightly wrong.
+	//
+	// So the last stretch of the box ramps the field's contribution down to
+	// nothing, and the fallback comes up underneath it. A tenth of each
+	// half-extent is enough to be invisible and small enough to leave the
+	// volume doing its job over the other nine tenths. The same lesson the
+	// reflection probes learned: fade from the edge, not from the centre.
+	const vec3 fromEdge = (1.0 - abs(local)) / 0.1;
+	const float edgeFade = clamp(min(fromEdge.x, min(fromEdge.y, fromEdge.z)), 0.0, 1.0);
+	if (edgeFade <= 0.0)
+		return false;
 
-	// One fetch per channel, each returning that channel's four coefficients,
-	// and the hardware blends the eight surrounding cells on the way out --
-	// which is the whole reason this is a texture and not a buffer.
-	const vec4 shR = textureLod(u_IrradianceR, uvw, 0.0);
-	const vec4 shG = textureLod(u_IrradianceG, uvw, 0.0);
-	const vec4 shB = textureLod(u_IrradianceB, uvw, 0.0);
+	// **The eight cells around it, each asked whether it can see this surface
+	// at all.** This is where the shadow half of the bake is spent.
+	//
+	// Trilinear alone blends the eight by position, which is how a bright cell
+	// on the far side of a wall lights the dark side of it -- interpolation
+	// cannot see a wall. Three weights fix that between them, and a cell keeps
+	// only what all three allow:
+	//
+	//  * the **trilinear** weight, kept exactly, so a fragment with everything
+	//    visible reads what the hardware filter would have read;
+	//  * the **facing** weight, zero for a cell behind this surface, because
+	//    light does not arrive through the surface it is lighting;
+	//  * the **visibility** weight, which is the distance the fill stored. The
+	//    cell knows how far geometry is in the direction of this fragment; if
+	//    the fragment is further away than that, something is in between.
+	//
+	// The last one is Chebyshev's inequality, the test DDGI uses: with a mean
+	// and a mean square, the fraction of the distribution beyond a distance is
+	// bounded, and that bound is a soft visibility rather than a hard yes or no
+	// -- which is what keeps a wall's edge from becoming a hard line in the
+	// lighting. Cubed to sharpen it, as DDGI does.
+	const vec3 base = (local * 0.5 + 0.5) * grid;
+	const ivec3 corner = ivec3(floor(base));
+	const vec3 frac = base - vec3(corner);
+	const ivec3 last = ivec3(grid);
 
-	irradiance = max(vec3(shR.x + dot(shR.yzw, normal),
-						  shG.x + dot(shG.yzw, normal),
-						  shB.x + dot(shB.yzw, normal)), vec3(0.0));
+	// **The cell this fragment is nearest, and what the bake says it can see.**
+	// One fetch for the whole lookup rather than one per corner: the mask
+	// belongs to where the fragment *is*, and every corner is judged by it.
+	const ivec3 anchorCell = clamp(ivec3(floor(base + 0.5)), ivec3(0), last);
+	const int reachable = int(texelFetch(u_IrradianceField,
+										 anchorCell + ivec3(0, 0, tile * 6), 0).x + 0.5);
+
+	// **Nothing in the way of any of the six, so nothing to weigh.** This is
+	// the ordinary case -- a point in an open room -- and it is why the careful
+	// path costs what it costs only where it has to. All six bits set means no
+	// corner of the blend is behind a wall, and the hardware's filter is then
+	// exactly the answer the loop below would spend 24 fetches arriving at.
+	// **A cell inside a wall knows nothing about who can see whom.** Its mask is
+	// zero because the bake zeroed the whole cell, not because six walls stand
+	// around it -- and a fragment on a floor or against a wall very often has
+	// exactly such a cell as its nearest. Taking that zero as "nothing is
+	// reachable" collapses the lookup to a single dead cell and the surface
+	// goes black, which is precisely where a field is supposed to be at its
+	// best. So an empty mask means no information, and the blend falls back to
+	// the facing weight alone.
+	//
+	// Measured on the GI corner: the surfaces nearest walls were reading 4.6
+	// levels darker than the realtime bounce, and this was most of it.
+	if (!shadowed || reachable == 0x3F || reachable == 0)
+	{
+		// **The three faces this normal actually faces.** An ambient cube's
+		// weights are the squared components of the normal in the box's frame,
+		// and they sum to one for a unit vector -- so this is a blend, not a sum
+		// that needs normalising, and it costs the same three fetches the
+		// spherical harmonics did.
+		const vec3 uvw = (local * 0.5 + 0.5) * grid + 0.5;
+		const vec2 uv = uvw.xy / cells.xy;
+		const float depth = float(texels.z);
+		const vec3 square = facing * facing;
+
+		irradiance = vec3(0.0);
+		for (int axis = 0; axis < 3; axis++)
+		{
+			const int slot = axis * 2 + (facing[axis] >= 0.0 ? 0 : 1);
+			irradiance += square[axis] * textureLod(u_IrradianceField,
+					vec3(uv, (uvw.z + float(tile * slot)) / depth), 0.0).rgb;
+		}
+		irradiance = max(irradiance, vec3(0.0)) * edgeFade;
+		return true;
+	}
+
+	// **The cell this fragment is nearest, and what the bake says it can see.**
+	// One fetch for the whole lookup, not one per corner: the mask belongs to
+	// where the fragment *is*, and every corner is judged against it.
+	const ivec3 anchor = clamp(ivec3(floor(base + 0.5)), ivec3(0), last);
+	const int reach = int(texelFetch(u_IrradianceField,
+									 anchor + ivec3(0, 0, tile * 3), 0).x + 0.5);
+
+	vec3 accumulated = vec3(0.0);
+	float total = 0.0;
+	const vec3 square = facing * facing;
+
+	for (int c = 0; c < 8; c++)
+	{
+		const ivec3 offset = ivec3(c & 1, (c >> 1) & 1, (c >> 2) & 1);
+		const ivec3 index = clamp(corner + offset, ivec3(0), last);
+
+		const vec3 axisWeight = mix(1.0 - frac, frac, vec3(offset));
+		float weight = axisWeight.x * axisWeight.y * axisWeight.z;
+		if (weight <= 0.0)
+			continue;
+
+		// Where that cell is, and which way this fragment lies from it -- both
+		// in the box's frame, where the cells are.
+		const vec3 cellPosition = (vec3(index) / grid * 2.0 - 1.0) * extents;
+		const vec3 toCell = cellPosition - placed;
+		const float span = length(toCell);
+		const vec3 towardCell = span > 1.0e-4 ? toCell / span : facing;
+
+		weight *= max(dot(towardCell, facing), 0.0);
+		if (weight <= 0.0)
+			continue;
+
+		// **What the bake already decided: can the cell this fragment sits in
+		// see the cell being blended in?** A corner reached by stepping along
+		// one axis needs that axis's bit; a diagonal one needs every axis it
+		// steps along, which is the right way round -- it can refuse a corner
+		// light could have reached, and it cannot admit one behind a wall.
+		const ivec3 stepping = index - anchorCell;
+		bool allowed = true;
+		for (int axis = 0; axis < 3; axis++)
+		{
+			if (stepping[axis] == 0)
+				continue;
+			const int bit = axis * 2 + (stepping[axis] > 0 ? 0 : 1);
+			if ((reachable & (1 << bit)) == 0)
+				allowed = false;
+		}
+		if (!allowed)
+			continue;
+
+		// The three faces this normal faces, from this cell.
+		vec3 here = vec3(0.0);
+		bool alive = false;
+		for (int axis = 0; axis < 3; axis++)
+		{
+			const int slot = axis * 2 + (facing[axis] >= 0.0 ? 0 : 1);
+			const vec4 stored = texelFetch(u_IrradianceField,
+										   index + ivec3(0, 0, tile * slot), 0);
+			here += square[axis] * stored.rgb;
+			alive = alive || stored.a > 0.5;
+		}
+
+		// **A dead cell is skipped, not averaged in.** It holds zero because it
+		// is buried in geometry, and blending that zero is the difference
+		// between a surface against a wall reading the room's light and reading
+		// three quarters of it.
+		if (!alive)
+			continue;
+
+		accumulated += here * weight;
+		total += weight;
+	}
+
+	// Nothing visible: the probe alone is a better answer than a wrong one.
+	if (total <= 0.0)
+		return false;
+
+	irradiance = max(accumulated / total, vec3(0.0)) * edgeFade;
 	return true;
 }
 
@@ -1173,6 +1415,24 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 			const float ratio = clamp(1.0 - t * t, 0.0, 1.0);
 			L = toLight * inversesqrt(max(distance2, 1.0e-8));
 			attenuation = (ratio * ratio) / max(distance2, 0.0001);
+
+			// **And a shadow ray for this one too, not the sun alone.**
+			//
+			// Without it every hit in the level is lit by every lamp in it,
+			// through walls, floors and closed doors -- and what reads that
+			// answer is the bounce, so a sealed room beside a lit one glowed:
+			// 165 levels of 255 where the right answer was black. Measured on
+			// the leak scene, and it is the largest single error either the
+			// bounce or the field has had.
+			//
+			// Bounded by the distance to the light rather than by the sky:
+			// what is behind a lamp cannot shadow it, and a ray that stops at
+			// the source is the cheaper half of the same question.
+			if (int(light.Shadow.x) != 0)
+			{
+				shadow = TraceShadowFrom(hitPosition, hitNormal, L,
+										 sqrt(max(distance2, 1.0e-8)));
+			}
 			float cosInner = light.Params.y;
 			float cosOuter = light.Params.z;
 			if (cosOuter < cosInner)
@@ -1219,15 +1479,45 @@ vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
 	// knows the hit's position and can say otherwise.
 	//
 	// It is also the cheap road to more bounces. The field is filled from these
-	// same traces, so each frame it carries one more bounce of history, and one
-	// traced bounce terminating in it behaves like several -- which is what a
+	// same traces, so each solve carries one more bounce of history, and one
+	// traced bounce terminating in it behaves like two -- which is what a
 	// second traced bounce costs 2.57 ms to buy.
+	//
+	// **Added to the flat ambient, not put in its place.** The field stores
+	// bounced light only, and `arriving` is the probe -- the sky half. Each of
+	// the three is a different part of what reaches this hit, and every one of
+	// them is counted once. Replacing the constant here is what an earlier
+	// version did, when a cell still held sky as well, and it made the field
+	// stand in for terms it was already standing beside.
 	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
+#ifndef RV_IRRADIANCE_FILL
+	// **Except while the field is being solved**, and that exception is the
+	// difference between converging and running away.
+	//
+	// A solve reads the field at every hit, so each sweep would carry the last
+	// one's answer one bounce further -- which sounds like multi-bounce and
+	// measures like it, right up until something is wrong. Whatever a sweep
+	// gets wrong, the next sweep treats as light and spreads: a sealed room
+	// beside a lit one reads 0.15 levels after one sweep and 6.3 after eight,
+	// because five per cent of a leak fed back eight times is not five per
+	// cent. The sweeps are for the noise of sixty-four rays, and they stay
+	// that; the bounce the field terminates belongs to the *frame*, which
+	// reads a field nothing is writing.
 	{
 		vec3 stored;
-		if (VolumeIrradiance(surface.Position, surface.Normal, stored))
-			ambientLight = stored;
+		// Whether this reader pays for the stored visibility is the renderer's
+		// call, not this file's: see Renderer3D::SetIrradianceShadowing. The
+		// lit pass below always does -- it reads the field rarely enough that
+		// the test is nearly free there.
+#ifdef RV_FIELD_SHADOWED
+		const bool testVisibility = true;
+#else
+		const bool testVisibility = false;
+#endif
+		if (VolumeIrradiance(surface.Position, surface.Normal, testVisibility, stored))
+			ambientLight += stored;
 	}
+#endif
 	return surface.Direct + surface.Diffuse * (ambientLight + arriving) + surface.Emissive;
 }
 
@@ -1768,21 +2058,11 @@ void main()
 	// it is somewhere.
 	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
 
-	// **Or the stored field, where a volume covers this fragment.** The
-	// constant above is the same everywhere, which is the thing a field exists
-	// to stop being true: a corner belongs darker than the middle of a room and
-	// no constant can say so.
-	//
-	// Stage one fills every cell with that same constant, so a scene with a
-	// volume renders identically to one without. That is deliberate -- it puts
-	// the plumbing under test before any change to the picture has to be argued
-	// about, and the pass that solves the cells replaces the fill and nothing
-	// else.
-	{
-		vec3 stored;
-		if (VolumeIrradiance(v_WorldPos, N, stored))
-			ambientLight = stored;
-	}
+	// **The stored field is read further down**, with the bounce it belongs
+	// beside, and not here. It holds bounced light -- the same quantity
+	// u_Indirect holds -- so adding it to the flat ambient would put the same
+	// light in the picture twice over: measured on the GI corner, once as
+	// +5.5 levels of red where a true second bounce is worth +2.2.
 
 	// **Blended between the probes that cover this fragment**, rather than
 	// taken wholly from the one the CPU chose for the object. v_Probe is still
@@ -1836,6 +2116,11 @@ void main()
 	// it back off (ENGINE-NOTES 7ay): it reads this image, and an image that
 	// already contains indirect light feeds a gather its own answer.
 	vec3 indirectTerm = vec3(0.0);
+	// How much of the bounce the screen answered for. One where the gather has
+	// a confident sample for this fragment, zero where it has none at all --
+	// off the edge of last frame's frame, freshly disoccluded, or the feature
+	// off entirely.
+	float bounceAnswered = 0.0;
 	if (u_Scene.Indirect.x > 0.0)
 	{
 		vec2 previousIndirectNDC = thenNDC - u_Scene.Jitter.zw;
@@ -1847,8 +2132,29 @@ void main()
 		{
 			vec4 bounced = texture(u_Indirect, indirectUV);
 			indirectTerm = max(bounced.rgb, vec3(0.0)) * bounced.a * u_Scene.Indirect.x;
+			bounceAnswered = clamp(bounced.a, 0.0, 1.0);
 			irradiance += indirectTerm;
 		}
+	}
+
+	// **And the field answers for the rest of it.**
+	//
+	// The two carry the same quantity -- bounced light arriving here -- so they
+	// are alternatives and never a sum: adding both counts one bounce twice,
+	// which is the whole of what made a field brighten a scene past where a
+	// second traced bounce puts it. The screen-space answer is per pixel and
+	// sharper wherever it exists, so it wins where it is confident; the field
+	// is what a fragment gets where it does not, which is exactly the case the
+	// bounce has never had an answer for -- a surface that was off screen last
+	// frame, or one a moving object just uncovered.
+	//
+	// It costs nothing to say so: with the gather confident this multiplies by
+	// zero, and with no field the fetch returns false.
+	if (bounceAnswered < 1.0)
+	{
+		vec3 storedBounce;
+		if (VolumeIrradiance(v_WorldPos, N, true, storedBounce))
+			irradiance += storedBounce * (1.0 - bounceAnswered);
 	}
 
 	float NdotV = max(dot(N, V), 0.0);

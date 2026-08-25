@@ -102,6 +102,11 @@ layout(set = 0, binding = 0) uniform SceneData
 	// falls back to the flat ambient above, which is what this replaced.
 	vec4 IrradianceCentre;
 	vec4 IrradianceExtents;
+	// The field's rotation, as the three rows that take a world direction into
+	// the box's own axes. A box that is not axis aligned needs its inverse to
+	// find a cell, and an axis-aligned one gets the identity -- which costs
+	// three dot products and keeps one path rather than two.
+	vec4 IrradianceRotation[3];
 	vec4 ProbeCount;              // x = how many rows are real
 	vec4 ProbePlacement[15];
 	vec4 ProbeSlot[15];

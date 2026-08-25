@@ -26,6 +26,9 @@
 //   --width=N --height=N    window size
 //   --audio=on|off          open an output device at all
 //   --import-cache=on|off   read and write cooked assets (default on)
+//   --bake=on|off           solve the scene's irradiance fields and write them
+//                           beside the scene, for later runs to load instead of
+//                           solving (default off)
 //   --depth-sort=on|off     order opaque batches front to back (default on)
 //   --bindless=on|off       material textures through the bindless heap where
 //                           the device can (default on; no effect on OpenGL)
@@ -373,6 +376,14 @@ namespace RageV
 		// folder and hoping nothing else moved. The same reason --benchmark
 		// and --frame-time exist.
 		bool         UseImportCache = true;
+
+		// **Solve the scene's lighting and write it to disk.**
+		//
+		// Off by default, because a bake overwrites authored content: the file
+		// it writes is the answer every later run will trust without checking
+		// the scene again beyond its stamp. So it happens when somebody asks
+		// for it, and never as a side effect of running the game.
+		bool         BakeLighting = false;
 
 		// Whether to open an audio device. Off means the engine still tracks
 		// every sound it would have played and simply plays none of them, which

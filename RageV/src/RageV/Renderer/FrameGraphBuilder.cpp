@@ -637,7 +637,20 @@ namespace RageV
 		const bool voxelGi = !rayGi && ResolveVoxelGlobalIllumination(desc.Post)
 						  && VoxelGI::HasGrid();
 		const bool voxelWanted = !rayGi && ResolveVoxelGlobalIllumination(desc.Post);
+		// **Nothing computes indirect light when the field answers for it.**
+		//
+		// This is where baking stops being a quality feature and becomes a
+		// performance one: with a stored field the whole chain -- the gather or
+		// the traced bounce, and the denoise behind it -- is not added to the
+		// frame at all. Measured on the showroom, that is a 3.59 ms pass gone
+		// and a 7.45 ms frame becoming 4.07.
+		//
+		// The renderer is told this by the scene rather than reading the
+		// setting itself, because the setting says what the author *wants* and
+		// only the scene knows whether a bake exists to honour it.
+		const bool bakedOnly = Renderer3D::IsBakedIrradianceOnly();
 		const bool wantIndirect = (desc.Post.GlobalIllumination || rayGi)
+							   && !bakedOnly
 							   && desc.Indirect != nullptr
 							   && PostProcess::IsReady()
 							   && (!voxelWanted || voxelGi);
@@ -1195,6 +1208,39 @@ namespace RageV
 				});
 
 			desc.Indirect->Advance();
+		}
+
+		// **A field waiting to be solved**, filled here and not in the scene.
+		//
+		// Here means three things at once, and each of them rules out
+		// somewhere else. It is **after the scene pass**, because the solve
+		// traces and the set it traces through is built by BeginScene -- which
+		// is why the scene walk can only ask for this and not do it. It is
+		// **outside a render pass**, because it begins one of its own and
+		// fences its writes with barriers, neither of which is legal inside
+		// another; that is what the standalone kind is. And it is **once per
+		// frame**, not once per viewport: the request clears when it is
+		// solved, so the editor's second graph finds nothing to do.
+		//
+		// The field it writes is read by the lit pass of the *next* frame,
+		// which is the one frame of latency this design accepts. A field is
+		// solved when it is created or invalidated and held after that, so the
+		// alternative -- solving before the scene pass, against the previous
+		// frame's set -- would buy one frame of freshness for a scene that is
+		// one frame stale. This way the rays see the scene as it is.
+		if (Renderer3D::HasPendingIrradianceSolve())
+		{
+			graph.AddStandalonePass("Irradiance fill",
+				[&](RGPassBuilder&)
+				{
+					// Nothing declared: what it reads is the scene's traced
+					// structure and what it writes is a volume texture, and
+					// the graph owns neither.
+				},
+				[](RGPassContext& context)
+				{
+					Renderer3D::SolvePendingIrradiance(context.Cmd);
+				});
 		}
 
 		// The traced form answers where it runs, exactly as it always has --

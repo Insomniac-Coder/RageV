@@ -9,6 +9,9 @@
 #include "RageV/Core/Application.h"
 #include "RageV/Core/FrameClock.h"
 #include "RageV/Renderer/Renderer2D.h"
+#include "RageV/Renderer/BakedLighting.h"
+#include "RageV/Renderer/Cubemap.h"
+#include "RageV/Core/EngineConfig.h"
 #include "RageV/Renderer/EditorIcons.h"
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/Renderer.h"
@@ -1650,8 +1653,66 @@ namespace RageV
 		// resolve. Its dial is the post profile's, handed to the renderer
 		// here so the lit shader has it: zero while the traced form is not
 		// running, which is what makes the shader's block cost nothing.
-		Renderer3D::SetRayTracedGlobalIllumination(
-			ResolveRayTracedGlobalIllumination(Project::Render()) != RayDetail::Off);
+		const RayDetail giDetail = ResolveRayTracedGlobalIllumination(Project::Render());
+
+		// **Baked means baked, and says so when it cannot be.**
+		//
+		// A source of Baked asks the frame to stop computing indirect light and
+		// read what was stored instead. That is only an instruction the engine
+		// can follow if something *was* stored: it needs an irradiance volume
+		// in the scene and a bake to have been run over it. Where either is
+		// missing the setting is not quietly ignored and not quietly obeyed --
+		// obeying it would render a scene with no indirect light at all, which
+		// reads as an art problem rather than a setting.
+		//
+		// Said once per scene rather than per frame: it is a fact about how the
+		// scene is set up, and a line a frame is a line nobody reads.
+		const bool wantsBaked = giDetail != RayDetail::Off
+			? Project::Render().RayTracedGiSource == GiSource::Baked
+			: GetPostSettings().GiSource == GiSource::Baked;
+		const bool canBake = HasBakedIrradiance();
+
+		// **Not before the field has had a chance to exist.**
+		//
+		// This runs before the frame graph is built, and the field is composed
+		// and loaded further in, inside the scene pass -- so on the first frame
+		// of a scene there is nothing to report on yet. Asking then would warn
+		// about a bake that is about to load and fall back for the life of the
+		// scene. One frame of Realtime while the answer arrives costs nothing;
+		// a wrong warning costs somebody an afternoon.
+		// **Once the state has settled, not the moment it first looks wrong.**
+		//
+		// A scene's lighting hash is not final on frame one: lights arrive as
+		// the registry is walked, and the field is composed and looked up
+		// inside the frame after this runs. A warning fired in that window
+		// names a bake that is about to load, and then sticks for the life of
+		// the scene because it only fires once. Half a second of settling costs
+		// nothing and makes the warning mean what it says.
+		if (m_FieldEvaluated && !canBake)
+			m_UnbakedFrames++;
+		else
+			m_UnbakedFrames = 0;
+
+		if (wantsBaked && !canBake && m_UnbakedFrames > 30 && !m_WarnedMissingBake
+			&& !Renderer3D::HasPendingIrradianceSolve())
+		{
+			m_WarnedMissingBake = true;
+			RV_CORE_WARN("Global illumination is set to Baked, but this scene has {0}. "
+						 "Falling back to Realtime -- add an Irradiance Volume and run a "
+						 "bake to use the stored answer.",
+						 m_FieldVolumes == 0 ? "no irradiance volume in it"
+											 : "no baked field on disk for its volumes");
+		}
+
+		// Realtime is what happens unless Baked can actually be honoured.
+		Renderer3D::SetBakedIrradianceOnly(wantsBaked && canBake && m_FieldEvaluated);
+		Renderer3D::SetRayTracedGlobalIllumination(giDetail != RayDetail::Off);
+		// **And whether a bounce pays to respect what the field stored about
+		// what is in the way.** On the top rung of the same dial: it is the
+		// difference between a sealed room beside a lit one reading 3.4 levels
+		// of light it should not have and reading 0.06, and it costs about what
+		// a second traced bounce costs.
+		Renderer3D::SetIrradianceShadowing(giDetail == RayDetail::High);
 
 		RenderShadowMaps(camera, cameraTransform);
 
@@ -2853,6 +2914,51 @@ namespace RageV
 			if (!realtime && captured && !probe.Dirty)
 				continue;
 
+			// **A stored cube, if one was baked for this probe.**
+			//
+			// Only for a probe that is not realtime: one that re-captures every
+			// frame is asking for what the scene looks like *now*, and handing
+			// it a file would be answering a different question. For the rest
+			// this is the whole point of baking -- a scene with fifteen probes
+			// renders ninety cube faces before its first frame otherwise.
+			//
+			// The stamp carries where the probe is and what it was captured
+			// under, so a moved probe or changed lighting falls through to the
+			// capture below exactly as it would have without a file.
+			if (!realtime && !m_SourcePath.empty() && probe.Probe && cmd)
+			{
+				BakedLighting::Stamp wanted;
+				wanted.Centre = Vec3(transform.World[3]);
+				wanted.Extents = Vec3(probe.Influence);
+				wanted.Width = probe.Probe->GetFaceSize();
+				wanted.Height = probe.Probe->GetFaceSize();
+				wanted.Depth = CubeFaces::kFaceCount;
+				wanted.Tiles = 1;
+				wanted.Lighting = environment;
+
+				const std::filesystem::path file =
+					BakedLighting::DirectoryFor(m_SourcePath) /
+					(std::to_string(Entity{ item, this }.GetUUID()) + ".rvprobe");
+
+				BakedLighting::Stamp stored;
+				std::vector<uint8_t> payload;
+				if (!probe.Baked
+					&& BakedLighting::Read(file, BakedLighting::Kind::ReflectionProbe,
+										   stored, payload)
+					&& stored.Matches(wanted)
+					&& probe.Probe->Adopt(*cmd, payload))
+				{
+					probe.Baked = true;
+					probe.Dirty = false;
+					probe.CapturedAt = wanted.Centre;
+					probe.CapturedInfluence = probe.Influence;
+					probe.CapturedNear = probe.NearClip;
+					probe.CapturedFar = probe.FarClip;
+					probe.CapturedEnvironment = environment;
+					continue;
+				}
+			}
+
 			// A realtime probe at a Hz rate takes its next capture step only
 			// when the interval has elapsed. Gated only once the probe is
 			// complete -- the first capture is always immediate, because an
@@ -2903,6 +3009,37 @@ namespace RageV
 
 			probe.Dirty = false;
 
+			// **And write it out, if anybody asked and it is finished.**
+			//
+			// Realtime probes are never written: one that re-captures every
+			// frame is asking what the scene looks like now, and a file cannot
+			// answer that. The rest are exactly what baking is for -- fifteen
+			// probes is ninety cube faces of scene render before the first
+			// frame otherwise.
+			if (EngineConfig::Get().BakeLighting && !probe.Baked && !m_SourcePath.empty()
+				&& !realtime && probe.Probe->IsComplete())
+			{
+				BakedLighting::Stamp stamp;
+				stamp.Centre = Vec3(transform.World[3]);
+				stamp.Extents = Vec3(probe.Influence);
+				stamp.Width = probe.Probe->GetFaceSize();
+				stamp.Height = probe.Probe->GetFaceSize();
+				stamp.Depth = CubeFaces::kFaceCount;
+				stamp.Tiles = 1;
+				stamp.Lighting = environment;
+
+				const std::filesystem::path file =
+					BakedLighting::DirectoryFor(m_SourcePath) /
+					(std::to_string(Entity{ item, this }.GetUUID()) + ".rvprobe");
+
+				if (BakedLighting::Write(Renderer::GetDevice(), file,
+										 BakedLighting::Kind::ReflectionProbe,
+										 stamp, probe.Probe->GetCube()))
+				{
+					probe.Baked = true;
+				}
+			}
+
 			// And what it was captured under, so the next frame can tell
 			// whether it still holds.
 			probe.CapturedAt = Vec3(transform.World[3]);
@@ -2916,33 +3053,6 @@ namespace RageV
 		m_CapturingProbes = false;
 
 		PackProbes(*cmd);
-	}
-
-	void Scene::SolvePendingIrradiance()
-	{
-		if (!m_PendingIrradiance.Volume || m_CapturingProbes)
-			return;
-
-		RHI::RHICommandList* cmd = Renderer::GetCommandList();
-		if (!cmd)
-			return;
-
-		// Far enough that a cell in the middle of a room can see its far wall,
-		// derived from the box rather than guessed: a volume over a corridor
-		// and one over a stadium want different answers and neither wants a
-		// constant.
-		const float reach = Math::Max(Math::Length(m_PendingIrradiance.Extents) * 4.0f, 10.0f);
-
-		// Cleared only on success. A frame that could not solve -- no traced
-		// set yet, no rays on this device -- leaves the request standing, so
-		// the field is either solved or still asking, and never quietly
-		// holding the placeholder while believing itself done.
-		if (Renderer3D::SolveIrradianceVolume(*cmd, m_PendingIrradiance.Volume,
-											  m_PendingIrradiance.Centre,
-											  m_PendingIrradiance.Extents, 64, reach))
-		{
-			m_PendingIrradiance.Volume = nullptr;
-		}
 	}
 
 	void Scene::UpdateIrradianceVolumes(const LightList& lights)
@@ -2975,117 +3085,296 @@ namespace RageV
 		if (!lights.empty())
 			mix(lights.data(), lights.size() * sizeof(LightRenderData));
 		mix(&m_Environment, sizeof(m_Environment));
+
+		// **Every volume in the scene, composed into one field.**
+		//
+		// A shader reads one field: one texture, one box, one lookup, which is
+		// what keeps the runtime cost of the whole feature at a fetch. Authors
+		// want more than one volume -- a coarse box over a level and a tight
+		// one in the room that needs it -- and the way to have both is to
+		// compose at *bake* time rather than choose at *shade* time. It is what
+		// Unity's adaptive probe volumes and Unreal's volumetric lightmap both
+		// do, and for the same reason: the alternative spends per fragment,
+		// every frame, forever, on a question that has one answer per scene.
+		//
+		// So a volume component is a request for coverage and density, not an
+		// object the renderer knows about. The composition is:
+		//
+		//   * **one volume** -- taken as it is, rotation and all, because a
+		//     single authored box is exactly the field it describes;
+		//   * **several** -- the union of their world bounds at the finest
+		//     spacing any of them asked for, axis aligned, because a union of
+		//     boxes at different angles has no angle of its own.
+		//
+		// The cost of that union is cells over empty space between volumes.
+		// Measured before worrying about it: a room-sized field is under a
+		// megabyte, and sparsity is a complication to add when something
+		// actually cannot afford it.
 		auto view = m_Registry.GetView<TransformComponent, IrradianceVolumeComponent>();
 
-		// The first volume that has a field, and that is deliberate for now:
-		// one binding, one box, one lookup. Nested and overlapping volumes are
-		// how this ends up -- a coarse one over the level and a tight one in
-		// the room that needs it -- but choosing between them per fragment is a
-		// second question, and answering it before the first one works would be
-		// guessing at both.
-		Renderer3D::SetIrradianceVolume(nullptr, Vec3(0.0f), Vec3(1.0f));
+		uint32_t count = 0;
+		Vec3 unionMin(0.0f);
+		Vec3 unionMax(0.0f);
+		Vec3 single(0.0f);
+		Vec3 singleExtents(1.0f);
+		Mat3 singleRotation(1.0f);
+		float spacing = 0.0f;
+		int cap = 2;
+		bool recapture = false;
 
 		for (auto& item : view)
 		{
 			auto [transform, volume] =
 				view.Get<TransformComponent, IrradianceVolumeComponent>(item);
 
-			// A unit box, scaled and placed by the transform. **Rotation is
-			// ignored**, and that is a limitation rather than an oversight: a
-			// rotated box needs its inverse carried into the shader so a
-			// fragment can find its cell, and an axis-aligned one needs three
-			// subtractions. Worth revisiting; not worth blocking on.
+			// A unit box, scaled, turned and placed by the transform. The three
+			// columns are the box's own axes: their lengths are what it spans,
+			// their directions which way it faces.
 			const Vec3 centre = Vec3(transform.World[3]);
-			const Vec3 extents = Vec3(Math::Length(Vec3(transform.World[0])),
-									  Math::Length(Vec3(transform.World[1])),
-									  Math::Length(Vec3(transform.World[2]))) * 0.5f;
+			const Vec3 axisX = Vec3(transform.World[0]);
+			const Vec3 axisY = Vec3(transform.World[1]);
+			const Vec3 axisZ = Vec3(transform.World[2]);
+			const Vec3 extents = Vec3(Math::Length(axisX), Math::Length(axisY),
+									  Math::Length(axisZ)) * 0.5f;
 
-			const float spacing = Math::Max(volume.Spacing, 0.05f);
-			const int cap = Math::Clamp(volume.MaxResolution, 2, 128);
+			// The world box a turned volume occupies: its half-extents along
+			// each world axis are how far its own axes reach along that one,
+			// which is the absolute of the rotation applied to its extents.
+			const Vec3 reach(
+				Math::Abs(axisX.x) * 0.5f + Math::Abs(axisY.x) * 0.5f + Math::Abs(axisZ.x) * 0.5f,
+				Math::Abs(axisX.y) * 0.5f + Math::Abs(axisY.y) * 0.5f + Math::Abs(axisZ.y) * 0.5f,
+				Math::Abs(axisX.z) * 0.5f + Math::Abs(axisY.z) * 0.5f + Math::Abs(axisZ.z) * 0.5f);
 
-			// Two cells a side at minimum: one cannot be interpolated, and a
-			// field that cannot be interpolated is a constant with overheads.
-			auto axis = [&](float halfExtent)
+			if (count == 0)
 			{
-				const int wanted = (int)Math::Ceil(2.0f * halfExtent / spacing) + 1;
-				return (uint32_t)Math::Clamp(wanted, 2, cap);
-			};
-			const uint32_t nx = axis(extents.x);
-			const uint32_t ny = axis(extents.y);
-			const uint32_t nz = axis(extents.z);
-
-			// What the field was built for, checked the way the reflection
-			// probe's capture is: anything that changes the box changes which
-			// points were solved, so the answer stops applying.
-			if (volume.Recapture
-				|| volume.BuiltSpacing != spacing
-				|| volume.BuiltLighting != lighting
-				|| Math::Distance(volume.BuiltCentre, centre) > 1.0e-4f
-				|| Math::Distance(volume.BuiltExtents, extents) > 1.0e-4f)
+				unionMin = centre - reach;
+				unionMax = centre + reach;
+				single = centre;
+				singleExtents = extents;
+				singleRotation = Mat3(
+					extents.x > 1.0e-6f ? axisX / (extents.x * 2.0f) : Vec3(1.0f, 0.0f, 0.0f),
+					extents.y > 1.0e-6f ? axisY / (extents.y * 2.0f) : Vec3(0.0f, 1.0f, 0.0f),
+					extents.z > 1.0e-6f ? axisZ / (extents.z * 2.0f) : Vec3(0.0f, 0.0f, 1.0f));
+				spacing = Math::Max(volume.Spacing, 0.05f);
+			}
+			else
 			{
-				volume.Dirty = true;
-				volume.Recapture = false;
+				unionMin = Math::Min(unionMin, centre - reach);
+				unionMax = Math::Max(unionMax, centre + reach);
+				// **The finest anybody asked for.** A tight volume exists to
+				// say "this part wants more detail", and honouring the coarsest
+				// request instead would answer the opposite question.
+				spacing = Math::Min(spacing, Math::Max(volume.Spacing, 0.05f));
 			}
 
-			if (!volume.Volume || volume.Volume->Width() != nx
-				|| volume.Volume->Height() != ny || volume.Volume->Depth() != nz)
-			{
-				volume.Volume = IrradianceVolume::Create(Renderer::GetDevice(), nx, ny, nz);
-				volume.Dirty = true;
-			}
-
-			if (!volume.Volume)
-				continue;
-
-			if (volume.Dirty)
-			{
-				// **Stage one fills every cell with the scene's flat ambient**,
-				// which is what the lit shader added before this existed. That
-				// is the point: with the field carrying the old answer, reading
-				// the field instead of the constant has to leave the picture
-				// unchanged, and the plumbing is proved before any argument
-				// about lighting enters. The pass that solves these properly
-				// replaces this loop and nothing else.
-				const Vec3 ambient = m_Environment.AmbientColor * m_Environment.AmbientIntensity;
-
-				std::vector<IrradianceVolume::Cell> cells(volume.Volume->CellCount());
-				for (IrradianceVolume::Cell& cell : cells)
-				{
-					// L0 carries a value that is the same from every direction;
-					// the three L1 terms lean it toward an axis and are zero for
-					// something uniform. See the convention in the shader.
-					cell.R = Vec4(ambient.x, 0.0f, 0.0f, 0.0f);
-					cell.G = Vec4(ambient.y, 0.0f, 0.0f, 0.0f);
-					cell.B = Vec4(ambient.z, 0.0f, 0.0f, 0.0f);
-				}
-				volume.Volume->Upload(cells);
-
-				// **And ask for it to be solved properly after EndScene.** The
-				// fill above is only what the field holds until the traced
-				// gather lands -- a flat constant is a poor answer but a
-				// defined one, and it means a field is never sampled while it
-				// holds whatever the allocator left behind.
-				//
-				// Not during a probe capture: that re-enters this whole path,
-				// and a field solved from inside a cube face is solved against
-				// a scene being rendered for a different purpose.
-				if (!m_CapturingProbes)
-				{
-					m_PendingIrradiance.Volume = volume.Volume;
-					m_PendingIrradiance.Centre = centre;
-					m_PendingIrradiance.Extents = extents;
-				}
-
-				volume.Dirty = false;
-				volume.BuiltCentre = centre;
-				volume.BuiltExtents = extents;
-				volume.BuiltSpacing = spacing;
-				volume.BuiltLighting = lighting;
-			}
-
-			Renderer3D::SetIrradianceVolume(volume.Volume, centre, extents);
-			break;
+			cap = Math::Max(cap, Math::Clamp(volume.MaxResolution, 2, 256));
+			recapture |= volume.Recapture;
+			volume.Recapture = false;
+			count++;
 		}
+
+		if (count == 0)
+		{
+			// Nothing to light with, and nothing to hold on to: a scene that
+			// had its volume deleted should stop reading the field it built.
+			m_Field.reset();
+			m_FieldVolumes = 0;
+			m_FieldUsable = false;
+			m_FieldEvaluated = true;
+			Renderer3D::SetIrradianceVolume(nullptr, Vec3(0.0f), Vec3(1.0f), Mat3(1.0f));
+			return;
+		}
+
+		const bool composed = count > 1;
+		const Vec3 centre = composed ? (unionMin + unionMax) * 0.5f : single;
+		const Vec3 extents = composed ? Math::Max((unionMax - unionMin) * 0.5f, Vec3(0.05f))
+									  : singleExtents;
+		const Mat3 rotation = composed ? Mat3(1.0f) : singleRotation;
+
+		// Two cells a side at minimum: one cannot be interpolated, and a field
+		// that cannot be interpolated is a constant with overheads.
+		auto axis = [&](float halfExtent)
+		{
+			const int wanted = (int)Math::Ceil(2.0f * halfExtent / spacing) + 1;
+			return (uint32_t)Math::Clamp(wanted, 2, cap);
+		};
+		const uint32_t nx = axis(extents.x);
+		const uint32_t ny = axis(extents.y);
+		const uint32_t nz = axis(extents.z);
+
+		// What the field was built for, checked the way the reflection probe's
+		// capture is: anything that changes the box, the grid, the lighting or
+		// how many volumes describe it changes which points were solved, so the
+		// stored answer stops applying.
+		const bool shapeChanged = !m_Field
+							   || m_Field->Width() != nx || m_Field->Height() != ny
+							   || m_Field->Depth() != nz
+							   || m_FieldVolumes != count
+							   || m_FieldSpacing != spacing
+							   || m_FieldLighting != lighting
+							   || Math::Distance(m_FieldCentre, centre) > 1.0e-4f
+							   || Math::Distance(m_FieldExtents, extents) > 1.0e-4f
+							   || Math::Distance(m_FieldRotation[0], rotation[0]) > 1.0e-4f
+							   || Math::Distance(m_FieldRotation[1], rotation[1]) > 1.0e-4f;
+
+		if (shapeChanged || recapture)
+		{
+			if (!m_Field || m_Field->Width() != nx || m_Field->Height() != ny
+				|| m_Field->Depth() != nz)
+			{
+				m_Field = IrradianceVolume::Create(Renderer::GetDevice(), nx, ny, nz);
+			}
+
+			if (!m_Field)
+				return;
+
+			m_FieldCentre = centre;
+			m_FieldExtents = extents;
+			m_FieldRotation = rotation;
+			m_FieldSpacing = spacing;
+			m_FieldLighting = lighting;
+			m_FieldVolumes = count;
+			m_FieldBaked = false;
+
+			BakedLighting::Stamp wanted;
+			wanted.Centre = centre;
+			wanted.Extents = extents;
+			wanted.AxisX = rotation[0];
+			wanted.AxisY = rotation[1];
+			wanted.Width = nx;
+			wanted.Height = ny;
+			wanted.Depth = nz;
+			wanted.Tiles = IrradianceVolume::kTiles;
+			wanted.Lighting = lighting;
+
+			// **A bake, if one is on disk and still describes this scene.**
+			//
+			// Tried before the solve is asked for, so a baked scene never
+			// solves at all: the field arrives filled and the runtime cost of
+			// the whole feature is the lookup alone. The stamp is what makes
+			// that safe -- box, grid and lighting hash -- so a file made for a
+			// moved volume or different lights is refused and the solve happens
+			// exactly as it did before.
+			BakedLighting::Stamp stored;
+			std::vector<uint8_t> payload;
+			const bool loaded = !m_SourcePath.empty()
+							 && BakedLighting::Read(FieldBakePath(lighting),
+													BakedLighting::Kind::IrradianceField,
+													stored, payload)
+							 && stored.Matches(wanted)
+							 && m_Field->UploadRaw(payload);
+
+			if (loaded)
+			{
+				m_FieldBaked = true;   // already on disk; nothing to write
+			}
+			else
+			{
+				// **Zero until it is solved, which is what "no bounce known
+				// yet" means.** A cell holds bounced light and nothing else --
+				// the sky is the probe's to answer and the flat ambient is the
+				// scene's -- so an unsolved field contributes nothing and a
+				// scene with a volume renders exactly like one without until
+				// the pass runs.
+				//
+				// Uploaded rather than left as the allocator found it: a field
+				// is sampled on the frame it is created, and undefined memory
+				// read as light is the one thing this must never be.
+				const std::vector<IrradianceVolume::Cell> cells(m_Field->CellCount());
+				m_Field->Upload(cells);
+
+				// **Solved only while baking, and never as a mode of its own.**
+				//
+				// A field that is solved at runtime and kept in memory is a
+				// third state between realtime and baked -- it looks like
+				// baking, costs like realtime on the frames it runs, and
+				// survives nothing. There is no author-facing option for it, so
+				// there is no reason for the engine to enter it: the solve
+				// exists to *produce* a bake, and outside that a missing file
+				// means the field stays empty and the GI source falls back to
+				// Realtime, which says so.
+				//
+				// Not during a probe capture either: that re-enters this whole
+				// path, and a field solved from inside a cube face is solved
+				// against a scene being rendered for a different purpose.
+				if (!m_CapturingProbes && EngineConfig::Get().BakeLighting)
+					Renderer3D::RequestIrradianceSolve(m_Field, centre, extents, rotation);
+			}
+		}
+
+		Renderer3D::SetIrradianceVolume(m_Field, centre, extents, rotation);
+		m_FieldUsable = m_FieldBaked;
+		m_FieldEvaluated = true;
+
+		// **And write it out, once it is finished and if anybody asked.**
+		//
+		// After the solve rather than during it: a field is written over
+		// several frames and several sweeps, and a file made from a half-solved
+		// one would be a worse answer than no file at all -- the loader would
+		// trust it, and nothing would ever notice. So the bake waits for the
+		// request to clear, which is the renderer saying the last sweep landed.
+		// **Only once the lighting has stopped moving.**
+		//
+		// The hash is not final on the first frames of a scene: lights arrive
+		// as the registry is walked, a script may set one in its first update,
+		// and each distinct value is a different bake under this naming. The
+		// showroom wrote four files for one lighting before this guard existed
+		// -- three of them for states that lasted a frame and will never be
+		// asked for again.
+		if (m_FieldLighting != m_SettledLighting)
+		{
+			m_SettledLighting = m_FieldLighting;
+			m_SettledFrames = 0;
+		}
+		else if (m_SettledFrames < 1000)
+		{
+			m_SettledFrames++;
+		}
+
+		if (EngineConfig::Get().BakeLighting && !m_FieldBaked && !m_SourcePath.empty()
+			&& m_SettledFrames > 30
+			&& !Renderer3D::HasPendingIrradianceSolve())
+		{
+			BakedLighting::Stamp stamp;
+			stamp.Centre = centre;
+			stamp.Extents = extents;
+			stamp.AxisX = rotation[0];
+			stamp.AxisY = rotation[1];
+			stamp.Width = m_Field->Width();
+			stamp.Height = m_Field->Height();
+			stamp.Depth = m_Field->Depth();
+			stamp.Tiles = IrradianceVolume::kTiles;
+			stamp.Lighting = lighting;
+
+			if (BakedLighting::Write(Renderer::GetDevice(), FieldBakePath(lighting),
+									 BakedLighting::Kind::IrradianceField, stamp,
+									 m_Field->Texture()))
+			{
+				m_FieldBaked = true;
+			}
+		}
+	}
+
+	std::filesystem::path Scene::FieldBakePath(uint64_t lighting) const
+	{
+		// **One file per lighting the scene can be in**, not one per scene.
+		//
+		// A scene has one field, however many volumes compose it -- but it can
+		// have more than one *lighting*, and the showroom is the case that
+		// proves it: two modes on a switch, nine lights against four, a
+		// different fitting emissive. They are two different answers to the
+		// same geometry, and a single file could only ever hold one of them.
+		//
+		// So the lighting hash names the file. Bake under one mode and you get
+		// its file; bake under the other and you get a second beside it; switch
+		// at runtime and the hash changes, which is already how the field knows
+		// it is stale -- it now also knows which file to read instead. Nothing
+		// has to enumerate the modes, and a mode nobody baked simply has no
+		// file and says so.
+		char name[64];
+		std::snprintf(name, sizeof(name), "field_%016llx.rvfield",
+					  (unsigned long long)lighting);
+		return BakedLighting::DirectoryFor(m_SourcePath) / name;
 	}
 
 	void Scene::PackProbes(RHI::RHICommandList& cmd)
@@ -3414,38 +3703,15 @@ namespace RageV
 			// offset is not the surface moving. Passed rather than read from
 			// the renderer, so a caller that did not jitter its camera cannot
 			// accidentally get the correction applied to it.
-			// **A field waiting from a previous frame, solved before anything
-			// opens a render pass.**
-			//
-			// It cannot go where it was first put -- after EndScene -- for two
-			// reasons that only validation says out loud: a render pass is
-			// already open there, and this begins one of its own; and the
-			// descriptor set it needs is not the lit pass's.
-			//
-			// So it runs here, on the request the *previous* frame left. One
-			// frame of latency on a field that is solved once and then held is
-			// not a cost worth engineering away, and the request stays pending
-			// until it actually runs -- so a first frame with no traced set yet
-			// defers rather than solving against nothing and calling it done.
-			// **Not yet called, and the reason is architectural.**
-			//
-			// The solve begins a render pass of its own, and there is nowhere
-			// inside OnRender to do that: OnRender *is* a render-graph pass's
-			// body, so a pass is already open at every point in it. Calling it
-			// here ends one this code does not own, and the indirect draws
-			// after it fail -- which validation says plainly and a driver
-			// might not.
-			//
-			// It belongs in FrameGraphBuilder as a pass of its own, ordered
-			// before the scene pass so a field is fresh for the frame that
-			// reads it. Everything else it needs is built and checked: the
-			// shader compiles, the projection is verified against the uniform
-			// case, the outputs bind, and the request survives until it can
-			// run. What is missing is the pass, and nothing else.
-			//   SolvePendingIrradiance();
-
 			// The irradiance field, before BeginScene for the same reason the
 			// probes are: the block that carries its bounds is uploaded there.
+			//
+			// **Sizing only.** A field that needs solving is asked for here and
+			// solved by the frame graph's fill pass, because there is nowhere
+			// inside OnRender to solve one: OnRender *is* a render-graph pass's
+			// body, so a render pass is open at every point in it, and the
+			// solve opens one of its own and records barriers, neither of which
+			// is legal inside another. See Renderer3D::RequestIrradianceSolve.
 			UpdateIrradianceVolumes(lights);
 
 			// **Before BeginScene, because the scene block carries the probes

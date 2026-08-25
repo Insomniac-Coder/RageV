@@ -1,4 +1,5 @@
 #pragma once
+#include <filesystem>
 #include "ECS.h"
 #include "RageV/Core/Timestep.h"
 #include "RageV/Core/UUID.h"
@@ -51,6 +52,13 @@ namespace RageV
 		// First match, or an invalid entity. Names are not unique -- they are a
 		// label, not an identity -- so FindEntitiesByName exists for the cases
 		// where that matters.
+		// **Where this scene was loaded from**, which is what its baked
+		// lighting is filed under. Set by the serializer; empty for a scene
+		// built in memory, which is exactly the scene that has nothing to bake
+		// to and no name to bake under.
+		void SetSourcePath(const std::string& path) { m_SourcePath = path; }
+		const std::string& GetSourcePath() const { return m_SourcePath; }
+
 		Entity FindEntityByName(const std::string& name);
 		std::vector<Entity> FindEntitiesByName(const std::string& name);
 
@@ -495,21 +503,51 @@ namespace RageV
 		// IrradianceVolumeComponent.
 		void UpdateIrradianceVolumes(const LightList& lights);
 
-		// Runs a pending solve, if one can run yet. See PendingIrradiance.
-		void SolvePendingIrradiance();
+		std::string m_SourcePath;
 
-		// **A field waiting to be solved.** Sizing has to happen before
-		// BeginScene, because the block carrying the box's bounds is uploaded
-		// there; the solve has to happen after EndScene, because it traces and
-		// nothing it traces against exists until then. So the first half
-		// records what the second half should do.
-		struct PendingIrradiance
-		{
-			RHI::Ref<IrradianceVolume> Volume;
-			Vec3 Centre{ 0.0f };
-			Vec3 Extents{ 1.0f };
-		};
-		PendingIrradiance m_PendingIrradiance;
+		// **The scene's one irradiance field**, composed from every volume
+		// component in it -- see UpdateIrradianceVolumes for why composition
+		// happens here rather than per fragment in the shader. The state beside
+		// it is what the field was built for, and what a change in any of it
+		// invalidates.
+		RHI::Ref<IrradianceVolume> m_Field;
+		Vec3 m_FieldCentre{ 0.0f };
+		Vec3 m_FieldExtents{ 1.0f };
+		Mat3 m_FieldRotation{ 1.0f };
+		float m_FieldSpacing = 0.0f;
+		uint64_t m_FieldLighting = 0;
+		uint32_t m_FieldVolumes = 0;
+		bool m_FieldBaked = false;
+
+		// **Whether "Baked" can actually be honoured**: a field exists and it
+		// came off disk. Asked by the frame graph before it decides whether to
+		// skip the realtime chain, because a Baked setting with nothing baked
+		// must fall back rather than render a scene with no indirect light.
+		bool m_FieldUsable = false;
+		// Said once, not once a frame. Cleared when a scene loads.
+		bool m_WarnedMissingBake = false;
+		// Whether the field walk has run at all this scene. Until it has, there
+		// is nothing true to say about whether a bake exists.
+		bool m_FieldEvaluated = false;
+		// How long the scene has wanted a bake it does not have. See the
+		// warning in RenderShadows.
+		uint32_t m_UnbakedFrames = 0;
+		// The lighting a bake may be written for, and how long it has held.
+		// A hash that changed this frame is not a lighting anybody chose.
+		uint64_t m_SettledLighting = 0;
+		uint32_t m_SettledFrames = 0;
+
+		// Where this scene's composed field is stored under a given lighting.
+		// One file per lighting the scene can be in -- see the definition.
+		std::filesystem::path FieldBakePath(uint64_t lighting) const;
+
+	public:
+		// Whether this scene has indirect light stored and loaded -- what a
+		// `GiSource::Baked` setting needs to be true. False means the setting
+		// cannot be honoured and the caller should say so and use Realtime.
+		bool HasBakedIrradiance() const { return m_FieldUsable; }
+
+	private:
 
 		void PackProbes(RHI::RHICommandList& cmd);
 		// One subtree, top down. Returns whether this node's world matrix

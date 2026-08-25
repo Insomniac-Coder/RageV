@@ -2094,6 +2094,48 @@ namespace RageV::GL
 		m_Capture = std::move(callback);
 	}
 
+	bool OpenGLDevice::ReadTexture(const RHI::Ref<RHI::RHITexture>& texture,
+								   std::vector<uint8_t>& out)
+	{
+		if (!texture)
+			return false;
+
+		const RHI::TextureDesc& desc = texture->GetDesc();
+		const bool volume = desc.Type == RHI::TextureType::Texture3D;
+		const uint32_t depth = volume ? Math::Max(desc.Depth, 1u) : 1u;
+		const uint32_t layers = volume ? 1u : RHI::EffectiveLayers(desc);
+		const uint64_t size = RHI::TextureDataSize(desc.Format, desc.Width, desc.Height)
+							 * depth * layers;
+		if (size == 0)
+			return false;
+
+		// Straight from the texture object, which is the one place OpenGL makes
+		// easier than Vulkan: no staging buffer, no layout to restore.
+		OpenGLTextureRHI* image = static_cast<OpenGLTextureRHI*>(texture.get());
+		const GLenum target = ToGLTarget(desc.Type);
+
+		GLenum format = GL_RGBA;
+		GLenum type = GL_UNSIGNED_BYTE;
+		if (desc.Format == RHI::Format::R16G16B16A16_SFLOAT)
+		{
+			type = GL_HALF_FLOAT;
+		}
+		else if (desc.Format != RHI::Format::R8G8B8A8_UNORM &&
+				 desc.Format != RHI::Format::R8G8B8A8_SRGB)
+		{
+			RV_CORE_ERROR("ReadTexture: '{0}' has a format this backend cannot read "
+						  "back yet", desc.DebugName);
+			return false;
+		}
+
+		out.resize((size_t)size);
+		glBindTexture(target, image->GetHandle());
+		glPixelStorei(GL_PACK_ALIGNMENT, 1);
+		glGetTexImage(target, 0, format, type, out.data());
+		glBindTexture(target, 0);
+		return true;
+	}
+
 	void OpenGLDevice::RequestTextureCapture(const RHI::Ref<RHI::RHITexture>& texture,
 											 CaptureCallback callback)
 	{

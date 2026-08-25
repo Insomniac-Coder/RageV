@@ -42,6 +42,15 @@ namespace RageV
 			return;
 		}
 
+		if (pass.Kind == RGPassKind::Standalone)
+		{
+			m_Graph.m_Errors.push_back("standalone pass '" + pass.Name + "' cannot "
+									   "write a target; the graph begins no render "
+									   "pass for it, so an attachment it declared "
+									   "here would never be bound");
+			return;
+		}
+
 		if (pass.Output != kRGInvalid)
 		{
 			m_Graph.m_Errors.push_back("pass '" + pass.Name + "' writes more than one target");
@@ -254,6 +263,11 @@ namespace RageV
 		AddPassOfKind(name, RGPassKind::Compute, std::move(setup), std::move(execute));
 	}
 
+	void RenderGraph::AddStandalonePass(const char* name, PassSetup setup, PassExecute execute)
+	{
+		AddPassOfKind(name, RGPassKind::Standalone, std::move(setup), std::move(execute));
+	}
+
 	void RenderGraph::AddPassOfKind(const char* name, RGPassKind kind,
 									PassSetup setup, PassExecute execute)
 	{
@@ -333,8 +347,9 @@ namespace RageV
 		for (const Pass& pass : m_Passes)
 		{
 			// "Writes nothing" is the error for a graphics pass and the
-			// contract for a compute one, whose result is a buffer the graph
-			// neither owns nor pools.
+			// contract for the two kinds the graph opens nothing for, whose
+			// results -- a buffer, a volume texture -- it neither owns nor
+			// pools.
 			if (pass.Kind == RGPassKind::Graphics && pass.Output == kRGInvalid)
 				m_Errors.push_back("pass '" + pass.Name + "' writes nothing");
 
@@ -343,6 +358,14 @@ namespace RageV
 				m_Errors.push_back("compute pass '" + pass.Name + "' declared a "
 								   "target to draw into. A dispatch cannot write "
 								   "an attachment; write a buffer, or make it a "
+								   "graphics pass");
+			}
+
+			if (pass.Kind == RGPassKind::Standalone && pass.Output != kRGInvalid)
+			{
+				m_Errors.push_back("standalone pass '" + pass.Name + "' declared a "
+								   "target to draw into. The graph begins no render "
+								   "pass for it; it binds its own, or it is a "
 								   "graphics pass");
 			}
 		}
@@ -457,11 +480,14 @@ namespace RageV
 			// A compute pass has no attachment to begin, so it skips straight
 			// to its lambda -- a dispatch recorded inside a render pass is
 			// illegal on Vulkan, which is the reason this kind exists at all.
+			// A standalone pass takes the same road for the same reason one
+			// step further out: it begins its own render pass, and the
+			// barriers around it may not be recorded inside one.
 			//
 			// Its context takes the frame's dimensions rather than a target's,
 			// because it has no target. A pass dispatching over something it
 			// sampled should ask that texture its size, not assume the frame's.
-			if (pass.Kind == RGPassKind::Compute)
+			if (pass.Kind != RGPassKind::Graphics)
 			{
 				RGPassContext context{ cmd };
 				context.Graph = this;

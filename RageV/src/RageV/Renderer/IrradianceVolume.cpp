@@ -63,38 +63,44 @@ namespace RageV
 		volume->m_Height = y;
 		volume->m_Depth = z;
 
-		static const char* kNames[3] = { "irradiance.r", "irradiance.g", "irradiance.b" };
-		for (int i = 0; i < 3; i++)
 		{
 			TextureDesc desc;
 			desc.Type = TextureType::Texture3D;
 			desc.Width = x;
 			desc.Height = y;
-			desc.Depth = z;
+			// **Thirty-five tiles of the field, stacked**: red, green and blue,
+			// then thirty-two of the octahedral map of what stands in the way.
+			// One texture is one sampler, and a fragment shader has thirty-two
+			// of those on OpenGL -- which the layered terrain variant had
+			// already nearly spent before this existed.
+			desc.Depth = z * kTiles;
 			desc.MipLevels = 1;
 			// Half floats: the values are irradiance, which is unbounded above
 			// and needs more range than eight bits, and four times finer than
 			// the difference anyone can see in a diffuse term.
 			desc.Format = Format::R16G16B16A16_SFLOAT;
-			// **Sampled only, until there is a pass that writes them.**
+			// **Sampled and storage**: the solve writes these through
+			// imageStore and every shader that reads a field samples them.
 			//
-			// Storage was here first, on the reasoning that the solve writes
-			// straight into these. It is needed for that and it is wrong until
-			// then: a storage-capable image has its sampled descriptor written
-			// against VK_IMAGE_LAYOUT_GENERAL, while a CPU upload leaves it in
-			// SHADER_READ_ONLY_OPTIMAL, and every draw that reads it is then a
-			// layout mismatch. Validation says so plainly -- and said nothing
-			// at all until a scene actually contained a volume, which is the
-			// "a check that tests the path nothing ships is not a check"
-			// lesson arriving a second time.
+			// The pair carries a rule with it, and getting it wrong cost a day.
+			// A storage-capable image has its sampled descriptor written
+			// against VK_IMAGE_LAYOUT_GENERAL, so anything moving it out of
+			// that layout and leaving it there makes a mismatch of every later
+			// read -- and a CPU upload used to do exactly that. This volume *is*
+			// uploaded: stage one fills it flat so a field is never sampled
+			// while it holds whatever the allocator left. So the upload path
+			// settles a storage texture back in GENERAL rather than read-only;
+			// see VulkanTexture::SettledLayout.
 			//
-			// The solve adds Storage back together with the transitions that
-			// make it honest, because the two belong to each other.
-			desc.Usage = TextureUsage::Sampled;
-			desc.DebugName = kNames[i];
+			// Validation said nothing about any of it until a scene actually
+			// contained a volume, which is "a check that tests the path nothing
+			// ships is not a check" arriving a second time. Any run testing
+			// this has to load a scene with a volume in it.
+			desc.Usage = TextureUsage::Sampled | TextureUsage::Storage;
+			desc.DebugName = "irradiance.field";
 
-			volume->m_Channels[i] = device.CreateTexture(desc);
-			if (!volume->m_Channels[i])
+			volume->m_Texture = device.CreateTexture(desc);
+			if (!volume->m_Texture)
 			{
 				RV_CORE_ERROR("IrradianceVolume: could not create {0}x{1}x{2} volume texture",
 							  x, y, z);
@@ -116,6 +122,24 @@ namespace RageV
 		return volume->m_Sampler ? volume : nullptr;
 	}
 
+	bool IrradianceVolume::UploadRaw(const std::vector<uint8_t>& bytes)
+	{
+		// Four halves a cell, every tile: the same arithmetic the texture was
+		// created with, so a mismatch here means the file describes a different
+		// volume than this one.
+		const size_t expected = CellCount() * 4 * sizeof(uint16_t) * kTiles;
+		if (bytes.size() != expected || !m_Texture)
+		{
+			RV_CORE_WARN("IrradianceVolume: a baked payload of {0} bytes does not fit "
+						 "a {1}x{2}x{3} field, which wants {4}",
+						 bytes.size(), m_Width, m_Height, m_Depth, expected);
+			return false;
+		}
+
+		m_Texture->Upload(bytes.data(), bytes.size());
+		return true;
+	}
+
 	void IrradianceVolume::Upload(const std::vector<Cell>& cells)
 	{
 		if (cells.size() != CellCount())
@@ -127,29 +151,41 @@ namespace RageV
 
 		// Split channel by channel. The cells arrive interleaved because that
 		// is how they are computed -- one point's whole answer at a time -- and
-		// the textures want them separated, so exactly one of the two has to
-		// pay for a repack. Doing it here keeps the fill's loop readable and
-		// keeps the scratch buffer's lifetime with the thing it belongs to.
-		// Four halves a cell, because the textures are RGBA16F. Half rather
-		// than full float deliberately: linear filtering of a 32-bit float
-		// image is not something every device offers, and the hardware blend
-		// between cells is the entire reason this is a texture.
-		m_Scratch.resize(cells.size() * 4);
+		// the texture wants them separated into its three tiles, so exactly one
+		// of the two has to pay for a repack. Doing it here keeps the fill's
+		// loop readable and keeps the scratch buffer's lifetime with the thing
+		// it belongs to.
+		//
+		// **One upload, because the tiles are already contiguous.** A 3D
+		// texture takes its data slice by slice, so channel c's slices are
+		// exactly the c-th third of the buffer -- the same three runs the loop
+		// below writes, back to back.
+		//
+		// Four halves a cell, because the texture is RGBA16F. Half rather than
+		// full float deliberately: linear filtering of a 32-bit float image is
+		// not something every device offers, and the hardware blend between
+		// cells is the entire reason this is a texture.
+		// Every tile, not only the three the cells describe: the two distance
+		// tiles have no CPU-side answer and are left at zero, which reads as
+		// "nothing is visible from here" and so contributes no light. That is
+		// the right default for a field nothing has solved yet -- the same
+		// thing its zeroed light says, said twice.
+		m_Scratch.assign(cells.size() * 4 * kTiles, 0);
 		for (int channel = 0; channel < 3; channel++)
 		{
+			const size_t tile = (size_t)channel * cells.size() * 4;
 			for (size_t i = 0; i < cells.size(); i++)
 			{
 				const Vec4& sh = channel == 0 ? cells[i].R
 							   : channel == 1 ? cells[i].G
 											  : cells[i].B;
-				m_Scratch[i * 4 + 0] = ToHalf(sh.x);
-				m_Scratch[i * 4 + 1] = ToHalf(sh.y);
-				m_Scratch[i * 4 + 2] = ToHalf(sh.z);
-				m_Scratch[i * 4 + 3] = ToHalf(sh.w);
+				m_Scratch[tile + i * 4 + 0] = ToHalf(sh.x);
+				m_Scratch[tile + i * 4 + 1] = ToHalf(sh.y);
+				m_Scratch[tile + i * 4 + 2] = ToHalf(sh.z);
+				m_Scratch[tile + i * 4 + 3] = ToHalf(sh.w);
 			}
-
-			m_Channels[channel]->Upload(m_Scratch.data(),
-										m_Scratch.size() * sizeof(uint16_t));
 		}
+
+		m_Texture->Upload(m_Scratch.data(), m_Scratch.size() * sizeof(uint16_t));
 	}
 }

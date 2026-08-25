@@ -10,6 +10,7 @@
 #include "RHIResourceSet.h"
 #include "RHICommandList.h"
 #include <functional>
+#include <vector>
 
 namespace RageV::RHI
 {
@@ -106,6 +107,26 @@ namespace RageV::RHI
 		// window" are not the same mistake.
 		virtual void RequestTextureCapture(const Ref<RHITexture>& texture,
 										   CaptureCallback callback) = 0;
+
+		// **Reads a texture back, now, in whatever format it holds.**
+		//
+		// Not the capture path above and deliberately not shaped like it. That
+		// one is a diagnostic: armed for the next frame, RGBA8 only, and
+		// satisfied asynchronously because a frame is a bad place to wait. This
+		// one blocks until the copy is done and hands back the raw bytes, which
+		// is exactly right for the job it exists for -- **baking**, where a
+		// tool or an editor action computes something once and writes it to
+		// disk, and the frame it stalls is a frame nobody is watching.
+		//
+		// Handles volumes and array layers as well as plain 2D, because the
+		// things worth baking are a field (a 3D texture) and a probe (a cube
+		// array). Bytes come back tightly packed in the texture's own format,
+		// slice by slice, which is the same order Upload takes them in -- so a
+		// bake is a read here and a write there with nothing in between.
+		//
+		// False if the device cannot do it, leaving `out` untouched.
+		virtual bool ReadTexture(const Ref<RHITexture>& texture,
+								 std::vector<uint8_t>& out) = 0;
 		virtual void OnResize(uint32_t width, uint32_t height) = 0;
 		virtual void SetVSync(bool enabled) = 0;
 

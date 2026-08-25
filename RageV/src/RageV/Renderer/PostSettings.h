@@ -89,6 +89,26 @@ namespace RageV
 		High,
 	};
 
+	// **Where indirect light comes from: solved every frame, or read off disk.**
+	//
+	// Two options and deliberately not three. A field that is solved at runtime
+	// and kept in memory -- what the reflection probes call `Cached` -- is a
+	// useful thing for the engine to do while *producing* a bake, and a
+	// confusing thing to offer an author: it looks like baking, costs like
+	// realtime on the frames it runs, and survives nothing. So the choice is
+	// between computing indirect light continuously and reading the answer that
+	// was computed once.
+	//
+	// **Baked needs a field on disk**, which needs an irradiance volume in the
+	// scene and a bake to have been run. Without either, the renderer says so
+	// and falls back to Realtime rather than rendering a scene with no indirect
+	// light at all and letting somebody wonder why it looks flat.
+	enum class GiSource : uint32_t
+	{
+		Realtime,
+		Baked,
+	};
+
 	enum class GiDetail : uint32_t
 	{
 		Low,      // half resolution, 12 taps
@@ -356,6 +376,11 @@ namespace RageV
 		// screen and in front of the camera -- the two failures the ray-traced
 		// form exists to fix. Off adds no pass and is exact.
 		bool GlobalIllumination = false;
+
+		// Realtime or baked, for the rasterised form. Only means anything while
+		// `GlobalIllumination` is on, which is why the inspector hides it
+		// otherwise.
+		GiSource GiSource = GiSource::Realtime;
 
 		// World metres a bounce may travel. Small is colour bleeding in
 		// corners; large is room-scale and costs cache misses, the same trade

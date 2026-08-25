@@ -281,6 +281,12 @@ namespace RageV
 		// traces at the frame's own resolution instead of half of it.
 		RayDetail RayTracedGlobalIllumination = RayDetail::Off;
 
+		// **Where the traced form's indirect light comes from.** The same two
+		// options the rasterised form has and the same rule: Baked reads a
+		// field off disk and needs one to exist, Realtime traces every frame.
+		// Only means anything while the dial above is not Off.
+		GiSource RayTracedGiSource = GiSource::Realtime;
+
 		// GiBounces and the whole of the voxel form moved to the post profile
 		// on 2026-08-20 (10.6, ENGINE-NOTES 7bg), where the rest of the GI
 		// settings already were. What stays here is the *hardware* budget --

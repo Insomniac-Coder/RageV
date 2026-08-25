@@ -336,6 +336,8 @@ namespace RageV::GL
 		void EndFrame() override;
 		void WaitIdle() override;
 		void RequestCapture(CaptureCallback callback) override;
+		bool ReadTexture(const RHI::Ref<RHI::RHITexture>& texture,
+						 std::vector<uint8_t>& out) override;
 		void RequestTextureCapture(const RHI::Ref<RHI::RHITexture>& texture,
 								   CaptureCallback callback) override;
 		void OnResize(uint32_t width, uint32_t height) override;

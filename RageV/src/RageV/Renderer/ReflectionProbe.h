@@ -37,6 +37,23 @@ namespace RageV
 		// drawn yet, so callers fall back to the sky until this is true.
 		bool IsComplete() const { return m_Complete; }
 
+		// **Fills this probe from bytes somebody stored earlier.**
+		//
+		// Six faces of mip zero, in the layer order the cube indexes them by --
+		// which is exactly what RHIDevice::ReadTexture hands back for a cube,
+		// so a bake is a read at one end and this at the other with no
+		// reinterpretation in between.
+		//
+		// The chain is rebuilt here rather than stored: it is a box filter over
+		// mip zero, so keeping it would be storing something derivable, and the
+		// convolution the probe array does is separate and happens anyway. The
+		// probe comes out complete and a generation newer, which is what makes
+		// everything derived from it rebuild.
+		//
+		// False if the bytes do not describe this cube, leaving the probe as it
+		// was -- so a stale file means a capture, not a broken reflection.
+		bool Adopt(RHI::RHICommandList& cmd, const std::vector<uint8_t>& faces);
+
 		// Bumped each time a full round of faces lands, and never otherwise.
 		//
 		// What reads it is the probe array, which has to decide whether the

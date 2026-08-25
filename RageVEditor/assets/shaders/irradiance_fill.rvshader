@@ -34,10 +34,10 @@ void main()
 
 layout(location = 0) out vec4 o_Unused;
 
-// The three channels of the field being solved, written directly.
-layout(set = 3, binding = 0, rgba16f) uniform writeonly image3D u_FillR;
-layout(set = 3, binding = 1, rgba16f) uniform writeonly image3D u_FillG;
-layout(set = 3, binding = 2, rgba16f) uniform writeonly image3D u_FillB;
+// The field being solved, written directly. One image with three tiles stacked
+// along z -- red, then green, then blue -- because one texture is one sampler
+// where it is read, and a fragment shader has thirty-two of those on OpenGL.
+layout(set = 3, binding = 0, rgba16f) uniform image3D u_FillField;
 
 layout(push_constant) uniform FillParams
 {
@@ -50,8 +50,21 @@ layout(push_constant) uniform FillParams
 
 	// x how far a ray may travel before it is called a miss; y a counter the
 	// directions are hashed against so successive solves of the same cell do
-	// not repeat one another.
+	// not repeat one another; **z how much of this pass to keep**, which is
+	// what turns repeated solving into converging rather than replacing.
+	//
+	// One on the first pass over a field -- there is nothing to keep -- and
+	// less after it, so each pass adds its rays to what the last one found
+	// instead of throwing them away. Sixty-four rays a cell is a thin estimate
+	// of a sphere; eight passes of it is not, and the same averaging sharpens
+	// the distances the visibility test reads, which are spread over sixty-four
+	// directions and need it more than the light does.
 	vec4 Trace;
+
+	// The box's own axes, as columns: where a cell sits in the world is the
+	// centre plus this applied to where it sits in the box. Identity for a
+	// volume nobody turned, and three multiply-adds either way.
+	vec4 Rotation[3];
 } u_Fill;
 
 // A direction on the sphere, uniformly.
@@ -87,19 +100,59 @@ void main()
 	// is written against -- the two have to agree or the field is offset by
 	// half a cell and nothing says so.
 	const vec3 t = vec3(cell) / max(vec3(grid) - 1.0, vec3(1.0));
-	const vec3 origin = u_Fill.Centre.xyz + (t * 2.0 - 1.0) * u_Fill.Extents.xyz;
+	const vec3 inBox = (t * 2.0 - 1.0) * u_Fill.Extents.xyz;
+	const vec3 origin = u_Fill.Centre.xyz
+					  + u_Fill.Rotation[0].xyz * inBox.x
+					  + u_Fill.Rotation[1].xyz * inBox.y
+					  + u_Fill.Rotation[2].xyz * inBox.z;
 
 	uint seed = GiHash(uint(cell.x) * 73856093u ^ uint(cell.y) * 19349663u
 					   ^ uint(cell.z) * 83492791u ^ uint(u_Fill.Trace.y));
 
-	// The constant term is one number a channel; the lean is a *direction* a
-	// channel, so it needs three accumulators and not one. Sharing one would
-	// store a red wall's lean into green and blue as well.
-	vec3 sum = vec3(0.0);
-	vec3 leanR = vec3(0.0);
-	vec3 leanG = vec3(0.0);
-	vec3 leanB = vec3(0.0);
+	// **Six faces, not a constant and a lean.**
+	//
+	// The first version stored first-order spherical harmonics: one number and
+	// one direction a channel. It is the cheapest thing that can say "brighter
+	// from over there", and it was measured against the realtime bounce and
+	// found wanting in exactly the place a field is supposed to earn its keep
+	// -- against a wall. A surface on a wall sees a hemisphere; the cell half a
+	// cell off it sees the whole sphere, half of which is the wall's dark back.
+	// One lobe cannot hold that step, so the reconstruction split the
+	// difference and every surface near geometry read dark: 4.6 levels of it
+	// beside the red wall.
+	//
+	// An ambient cube holds it. Six irradiances, one per axis of the box, each
+	// the answer for a surface facing that way -- so the step from "facing the
+	// wall" to "facing the room" is two separate numbers rather than two ends
+	// of one lobe. Three of the six answer any given normal, so a reader still
+	// spends three fetches; it is the storage that grows, not the lookup.
+	vec3 face[6];
+	for (int f = 0; f < 6; f++)
+		face[f] = vec3(0.0);
 
+	// **How often this cell found itself looking at the back of a surface**,
+	// which is how a point in the air says it is not in the air at all. A cell
+	// buried in a wall or under the floor sees that wall's inside from every
+	// direction; a cell in a room sees backfaces only where geometry is
+	// one-sided or inside out.
+	int backfaces = 0;
+
+	// **How far the geometry is, per direction -- the shadow half of the bake.**
+	//
+	// The same rays that carry the light back carry how far they went, and that
+	// is the whole of what a stored field needs to stop lighting the far side
+	// of a wall. It is not optional and there is no flag for it: a field that
+	// says where light is without saying what stands in the way is a field that
+	// leaks, so the light and its visibility are solved together or not at all.
+	//
+	// **Sixteen directions, not four coefficients.** A first-order fit of
+	// distance was tried and measured and it is not enough -- it says "about
+	// nine metres, more that way", and the thing that stops a wall leaking is
+	// knowing it is eight hundred millimetres off in one direction while the
+	// room is twenty metres deep in another. So: an octahedral map, and every
+	// ray contributes to every bin by how well it points that way, which is
+	// what lets sixty-four rays fill sixteen bins without any of them being a
+	// single noisy sample.
 	for (int i = 0; i < rays; i++)
 	{
 		const vec3 direction = SphereDirection(seed);
@@ -110,42 +163,149 @@ void main()
 		// sideways nudge off a face that does not exist.
 		TracedSurface hit = TraceSurface(origin, direction, direction, u_Fill.Trace.x);
 
-		// A miss is the sky, which is a real answer here and not the omission
-		// it is inside the bounce: a cell near a window is lit by the window.
-		vec3 radiance = hit.Missed ? hit.Sky
-								   : ShadeTraced(hit, ProbeIrradiance(hit.Normal, 0.0));
+		// **A miss is nothing, not the sky**, which is the same rule the bounce
+		// follows (7bb) and for the same reason: every consumer of this field
+		// adds the probe irradiance beside it, and the probe already integrates
+		// the sky over the whole sphere. Storing the sky here too would count
+		// it twice at every reader.
+		//
+		// So what a cell holds is the *bounced* light arriving at it -- the
+		// same currency as u_Indirect, and the currency the readers are
+		// written against. A cell by a window still ends up bright: the window
+		// light reaches it through the probe term, not through this one.
+		if (hit.Missed)
+			continue;
 
-		sum += radiance;
-		leanR += radiance.r * direction;
-		leanG += radiance.g * direction;
-		leanB += radiance.b * direction;
+		// Facing away from the ray that found it: the ray started inside the
+		// solid this surface bounds.
+		if (dot(hit.Normal, direction) > 0.0)
+		{
+			backfaces++;
+			continue;
+		}
+
+		const vec3 radiance = ShadeTraced(hit, ProbeIrradiance(hit.Normal, 0.0));
+
+		// **The ray's direction in the box's frame**, because that is the frame
+		// the faces are named in and the frame a reader asks in. Orthonormal,
+		// so three dots and no renormalising.
+		const vec3 binDirection = vec3(dot(u_Fill.Rotation[0].xyz, direction),
+									   dot(u_Fill.Rotation[1].xyz, direction),
+									   dot(u_Fill.Rotation[2].xyz, direction));
+
+		// Each face takes what arrives on its side, weighted by how squarely.
+		// This is the cosine integral that face's surface would do, done once
+		// here so a reader never has to.
+		for (int axis = 0; axis < 3; axis++)
+		{
+			const float along = binDirection[axis];
+			if (along > 0.0)
+				face[axis * 2] += radiance * along;
+			else
+				face[axis * 2 + 1] += radiance * (-along);
+		}
 	}
 
-	// **The projection, and it is this short for a reason worth keeping.**
-	//
-	// Radiance sampled uniformly over the sphere, projected to first-order
-	// spherical harmonics, converted to irradiance by the standard band
-	// factors, and divided by pi -- because what the shading multiplies by
-	// albedo is irradiance over pi, not irradiance. Every constant in that
-	// chain cancels:
-	//
-	//   the Monte Carlo weight is      4*pi/N
-	//   the band-0 basis squared is    0.282095^2 = 1/(4*pi)   -> 1/N
-	//   the band-1 basis squared is    0.488603^2 = 3/(4*pi)
-	//   times the band-1 irradiance factor 2/3                 -> 2/N
-	//
-	// Checked against the case that has an answer by hand: radiance L from
-	// every direction gives sum = N*L and every lean zero, so the constant term
-	// is L and there is no lean -- which is what a uniformly lit point should
-	// store, and is exactly what stage one's placeholder wrote by hand.
-	const float inverse = 1.0 / float(rays);
-	const vec3 constantTerm = sum * inverse;
-	const float leanScale = 2.0 * inverse;
+	// How much of this pass to keep against what the field already holds.
+	// Clamped rather than trusted: a blend outside zero to one would either
+	// undo the history or run away from it.
+	const float blend = clamp(u_Fill.Trace.z, 0.0, 1.0);
 
-	// Negative lean is legitimate -- it is what "brighter from that side"
-	// means -- and the evaluation clamps the result rather than the
-	// coefficients, because nothing here can usefully second-guess a direction.
-	imageStore(u_FillR, cell, vec4(constantTerm.r, leanR * leanScale));
-	imageStore(u_FillG, cell, vec4(constantTerm.g, leanG * leanScale));
-	imageStore(u_FillB, cell, vec4(constantTerm.b, leanB * leanScale));
+	// **A cell inside geometry stores nothing at all.**
+	//
+	// Whatever it accumulated describes the inside of a wall, and the only
+	// thing that ever reads it is a surface *outside* that wall being
+	// interpolated toward it -- so a cell in a solid contributing anything is
+	// leaking by definition. A quarter of the sphere is the threshold DDGI
+	// uses and it is the right shape of number here: a cell honestly in a room
+	// sees a few backfaces off one-sided geometry, never a quarter of them.
+	//
+	// Written flat rather than blended: this is not an estimate that gets
+	// better with more rays, it is a cell that should never be read.
+	if (backfaces * 4 > rays)
+	{
+		for (int f = 0; f < 6; f++)
+			imageStore(u_FillField, cell + ivec3(0, 0, grid.z * f), vec4(0.0));
+		// And nothing visible from it, so no reader takes light from it either.
+		imageStore(u_FillField, cell + ivec3(0, 0, grid.z * 6), vec4(0.0));
+		return;
+	}
+
+	// **What each face holds, and why the four is the whole of the maths.**
+	//
+	// A face stores the irradiance a surface pointing that way would receive,
+	// over pi -- the same quantity the readers multiply by albedo. Monte Carlo
+	// over the sphere weights each sample by 4*pi/N; the cosine integral divides
+	// by pi; what is left is 4/N.
+	//
+	// Checked against the case with an answer by hand: radiance L from every
+	// direction gives each face L * 4/N * sum(cos over its hemisphere), and that
+	// sum tends to N/4, so every face reads L -- which is what a uniformly lit
+	// point should store, and what an unsolved field's zero means the absence of.
+	const float faceScale = 4.0 / float(rays);
+
+	// **Blended into what is already there, not written over it.** Each pass
+	// traces its own directions -- the hash counter moves per pass -- so what
+	// accumulates is a mean over more rays than one pass can afford.
+	for (int f = 0; f < 6; f++)
+	{
+		const ivec3 slot = cell + ivec3(0, 0, grid.z * f);
+		// **The alpha says the cell is worth reading**, and it rides along free
+		// in a lane the faces do not use. A cell zeroed for being inside
+		// geometry reads zero there, and a reader that blends it in anyway
+		// drags its answer toward black -- which is exactly what was happening
+		// against every wall, because a volume drawn to the walls puts its
+		// outermost cells *in* them.
+		imageStore(u_FillField, slot,
+				   mix(imageLoad(u_FillField, slot),
+					   vec4(face[f] * faceScale, 1.0), blend));
+	}
+
+	// **Whether this cell can see the six cells next to it.**
+	//
+	// This is the leak, stated as the question it actually is. A field leaks
+	// when two cells on opposite sides of a wall are blended together, and no
+	// amount of describing where the light *is* answers that -- what answers it
+	// is whether one cell can see the other. Six rays, one per neighbour, each
+	// stopping where that neighbour is: anything hit before it arrives is a wall
+	// standing between them.
+	//
+	// **Six rays a cell, once, read by a fetch and a few bit tests.** What this
+	// replaced described distance in sixty-four directions per cell and made
+	// every reader weigh eight cells against it: thirty-two tiles of memory and
+	// +0.6 ms a frame, which is more than the second traced bounce the whole
+	// field exists to stand in for. Same truth, in the form the reader needs.
+	const vec3 step = 2.0 * u_Fill.Extents.xyz / max(vec3(grid) - 1.0, vec3(1.0));
+	float neighbours = 0.0;
+	for (int axis = 0; axis < 3; axis++)
+	{
+		for (int side = 0; side < 2; side++)
+		{
+			vec3 towards = u_Fill.Rotation[axis].xyz;
+			if (side == 1)
+				towards = -towards;
+
+			// A neighbour off the end of the grid is nobody, and nothing will ever
+			// blend with it. Called visible, so the bit means "no wall between"
+			// rather than "no neighbour".
+			const int next = cell[axis] + (side == 0 ? 1 : -1);
+			bool visible = true;
+			if (next >= 0 && next < grid[axis])
+			{
+				// Stopping just short of the neighbour, so a neighbour sitting
+				// against a surface does not report it as a wall between them.
+				const TracedSurface between =
+					TraceSurface(origin, towards, towards, step[axis] * 0.98);
+				visible = between.Missed;
+			}
+
+			if (visible)
+				neighbours += float(1 << (axis * 2 + side));
+		}
+	}
+
+	// Written flat rather than blended: it is a fact about geometry, not an
+	// estimate that improves with rays, and a blended bitmask is not a bitmask.
+	imageStore(u_FillField, cell + ivec3(0, 0, grid.z * 6),
+			   vec4(neighbours, 0.0, 0.0, 0.0));
 }

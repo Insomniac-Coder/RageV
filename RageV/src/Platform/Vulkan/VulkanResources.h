@@ -162,6 +162,25 @@ namespace RageV::Vk
 		// ask, because the layout they name has to be the one the image is in.
 		bool IsStorage() const { return RHI::HasFlag(m_Desc.Usage, RHI::TextureUsage::Storage); }
 
+		// **The layout this image settles in** when nothing is writing it, and
+		// the one every read of it is written against.
+		//
+		// A storage image never leaves GENERAL: imageStore requires it, its
+		// sampled descriptor is written against it, and an image that never
+		// changes layout needs nothing to track which one it is in. Everything
+		// else settles read-only, which samples faster.
+		//
+		// Every path that moves an image and puts it back -- an upload, a mip
+		// chain -- ends here rather than at a literal. Ending at a literal is
+		// what left a CPU-uploaded storage image read-only while every
+		// descriptor said GENERAL, which is a mismatch validation reports and a
+		// driver may simply read as rubbish.
+		VkImageLayout SettledLayout() const
+		{
+			return IsStorage() ? VK_IMAGE_LAYOUT_GENERAL
+							   : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		}
+
 		// Records a layout transition covering every mip and layer.
 		//
 		// The stage and access are implied by the two layouts, which is enough

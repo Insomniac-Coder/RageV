@@ -1567,6 +1567,75 @@ namespace RageV::Vk
 		m_Capture = std::move(callback);
 	}
 
+	bool VulkanDevice::ReadTexture(const RHI::Ref<RHI::RHITexture>& texture,
+								   std::vector<uint8_t>& out)
+	{
+		if (!texture)
+			return false;
+
+		VulkanTexture* image = static_cast<VulkanTexture*>(texture.get());
+		const RHI::TextureDesc& desc = image->GetDesc();
+
+		// A volume's slices are its depth; everything else counts layers. Cubes
+		// are six of those, which EffectiveLayers already knows.
+		const bool volume = desc.Type == RHI::TextureType::Texture3D;
+		const uint32_t depth = volume ? Math::Max(desc.Depth, 1u) : 1u;
+		const uint32_t layers = volume ? 1u : RHI::EffectiveLayers(desc);
+		const uint64_t slice = RHI::TextureDataSize(desc.Format, desc.Width, desc.Height);
+		const uint64_t size = slice * depth * layers;
+		if (size == 0)
+			return false;
+
+		VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+		bufferInfo.size = size;
+		bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo allocInfo{};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+						  VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+		VkBuffer buffer = VK_NULL_HANDLE;
+		VmaAllocation allocation = nullptr;
+		VmaAllocationInfo allocated{};
+		if (vmaCreateBuffer(m_Allocator, &bufferInfo, &allocInfo, &buffer, &allocation,
+							&allocated) != VK_SUCCESS)
+		{
+			RV_CORE_ERROR("ReadTexture: could not allocate {0} bytes to read '{1}' into",
+						  size, desc.DebugName);
+			return false;
+		}
+
+		// **Put it back in the layout it was in.** A field is read between
+		// frames and goes on being sampled afterwards; a storage image that came
+		// back in TRANSFER_SRC would be a layout mismatch on every later read,
+		// which is the same trap the uploads settle for.
+		const VkImageLayout restore = image->GetLayout();
+
+		ImmediateSubmit([&](VkCommandBuffer cmd)
+		{
+			image->TransitionTo(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+			VkBufferImageCopy region{};
+			region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			region.imageSubresource.mipLevel = 0;
+			region.imageSubresource.baseArrayLayer = 0;
+			region.imageSubresource.layerCount = layers;
+			region.imageExtent = { desc.Width, desc.Height, depth };
+			vkCmdCopyImageToBuffer(cmd, image->GetImage(),
+								   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+								   buffer, 1, &region);
+
+			image->TransitionTo(cmd, restore);
+		});
+
+		out.resize((size_t)size);
+		memcpy(out.data(), allocated.pMappedData, (size_t)size);
+		vmaDestroyBuffer(m_Allocator, buffer, allocation);
+		return true;
+	}
+
 	void VulkanDevice::RequestTextureCapture(const RHI::Ref<RHI::RHITexture>& texture,
 											 CaptureCallback callback)
 	{

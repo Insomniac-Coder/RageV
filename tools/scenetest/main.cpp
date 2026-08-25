@@ -6825,6 +6825,63 @@ void main()
 		}
 	}
 
+	// **The sampler budget, which only one backend enforces.**
+	//
+	// A fragment shader gets thirty-two combined samplers on OpenGL. Nothing
+	// before the driver says so: glslang accepts the SPIR-V, Vulkan has no such
+	// limit, and the refusal arrives as "profile doesn't support more than 32
+	// samplers" when the cross-compiled GLSL is built at shader creation.
+	//
+	// The layered variant is the widest the engine has -- twelve shadow maps,
+	// twelve layer maps, and the six every lit shader needs -- and it went one
+	// over when the irradiance field took three bindings for its three channel
+	// volumes (30e15bb). Terrain rendered as a black frame on OpenGL, this
+	// suite stayed green on both backends, and it was found by eye weeks later.
+	//
+	// So: count what the shader declares, which fails on either backend and is
+	// the half a Vulkan-only session can see, and then ask the device to build
+	// it, which is the half only OpenGL can answer.
+	void CheckSamplerBudget()
+	{
+		// No defines: the shape OpenGL actually compiles. Without the bindless
+		// heap the material samplers are declared one by one, and without ray
+		// queries the shadow maps are there too -- so this is the widest this
+		// shader is ever asked to be.
+		auto layered = RHI::ShaderCompiler::CompileFromFile("assets/shaders/pbr_layered.rvshader");
+		Check(layered.has_value(), "the layered variant compiles");
+		if (!layered)
+			return;
+
+		uint32_t samplers = 0;
+		for (const RHI::ResourceSetLayoutDesc& set : layered->Reflection.Sets)
+		{
+			for (const RHI::ResourceBinding& binding : set.Bindings)
+			{
+				if (binding.Type != RHI::ResourceType::CombinedImageSampler)
+					continue;
+				// Count zero is a runtime-sized array -- the bindless heap,
+				// which this variant does not declare and which OpenGL could
+				// not take in any case.
+				samplers += Math::Max(binding.Count, 1u);
+			}
+		}
+
+		Check(samplers <= 32,
+			  "and declares no more than the 32 samplers OpenGL gives a fragment shader");
+		if (samplers > 32)
+		{
+			RV_CORE_ERROR("  the layered variant declares {0} samplers; OpenGL allows 32, "
+						  "so terrain will render black there", samplers);
+		}
+
+		if (Renderer::HasDevice())
+		{
+			Check(Renderer::GetDevice().CreateShader(*layered) != nullptr,
+				  "and the device builds it -- which on OpenGL is the driver "
+				  "compiling the GLSL this was cross-compiled into");
+		}
+	}
+
 	// Diffuse irradiance.
 	//
 	// The half of image-based lighting that replaces a flat ambient colour, and
@@ -15441,6 +15498,7 @@ int RunTests(int argc, char** argv)
 	CheckShadowToggle();
 	CheckShadowCascades();
 	CheckIrradiance();
+	CheckSamplerBudget();
 	CheckEnvironmentBRDF();
 	CheckFrustumCulling();
 	CheckLightGrid();

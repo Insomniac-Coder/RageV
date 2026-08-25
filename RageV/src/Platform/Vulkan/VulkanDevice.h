@@ -59,6 +59,8 @@ namespace RageV::Vk
 		// from the first IsDeviceLost() that answers yes.
 		void ReportGpuCrashDetails() const;
 		void RequestCapture(CaptureCallback callback) override;
+		bool ReadTexture(const RHI::Ref<RHI::RHITexture>& texture,
+						 std::vector<uint8_t>& out) override;
 		void RequestTextureCapture(const RHI::Ref<RHI::RHITexture>& texture,
 								   CaptureCallback callback) override;
 		void CaptureSwapchainImage();

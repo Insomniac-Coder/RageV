@@ -168,6 +168,12 @@ namespace RageV
 			// reader falls back to the flat ambient.
 			Vec4 IrradianceCentre{ 0.0f };
 			Vec4 IrradianceExtents{ 1.0f, 1.0f, 1.0f, 0.0f };
+			// The rows of the field's inverse rotation. Mirrored by hand in
+			// scene_block.glsl and pbr_fragment.glsl, as everything in this
+			// block is.
+			Vec4 IrradianceRotation[3] = { Vec4(1.0f, 0.0f, 0.0f, 0.0f),
+										   Vec4(0.0f, 1.0f, 0.0f, 0.0f),
+										   Vec4(0.0f, 0.0f, 1.0f, 0.0f) };
 			Vec4 ProbeCount{ 0.0f };
 			Vec4 ProbePlacement[15]{};
 			Vec4 ProbeSlot[15]{};
@@ -369,7 +375,13 @@ namespace RageV
 			Ref<RHIRenderTarget> IrradianceFillTarget;
 			uint32_t IrradianceFillWidth = 0;
 			uint32_t IrradianceFillHeight = 0;
-			Ref<RHIResourceSet> IrradianceFillSet;
+			// One set per frame in flight, and that is not tidiness: the set is
+			// rewritten with the field being solved, and a descriptor set may
+			// not be rewritten while a command buffer still refers to it. A
+			// scene whose lighting changes every frame -- a moving light --
+			// asks for a solve every frame, which is exactly the case that
+			// would rewrite one still in use.
+			std::vector<Ref<RHIResourceSet>> IrradianceFillSets;
 			uint32_t IrradianceFrame = 0;
 
 			// The emissive rectangles the bounce aims at, as the shader reads
@@ -422,6 +434,39 @@ namespace RageV
 			Ref<IrradianceVolume> Irradiance;
 			Vec3 IrradianceCentre{ 0.0f };
 			Vec3 IrradianceExtents{ 1.0f };
+			// The box's axes, unit length, as columns. Identity for a volume
+			// nobody rotated, which is most of them.
+			Mat3 IrradianceRotation{ 1.0f };
+
+			// **A field waiting to be solved.** The two halves of the job are
+			// pinned to opposite ends of the frame: sizing has to happen before
+			// BeginScene, because the block carrying the box's bounds is
+			// uploaded there, and the solve has to happen after the scene pass,
+			// because it traces and nothing it traces against exists until
+			// then. So the scene walk records the request and the frame graph's
+			// fill pass runs it.
+			//
+			// It stands until a pass actually solves it, which is what lets a
+			// first frame with no traced set defer rather than solve against
+			// nothing and call the field done.
+			Ref<IrradianceVolume> PendingIrradiance;
+			Vec3 PendingIrradianceCentre{ 0.0f };
+			Vec3 PendingIrradianceExtents{ 1.0f };
+			// **How far through the field this solve has got.** A band of rows
+			// a frame rather than the whole grid at once: solving a large field
+			// in one pass is a hitch exactly when a scene loads, which is the
+			// worst moment to have one. The row is into the unrolled grid, so
+			// it is a run of (y, z) pairs.
+			Mat3 PendingIrradianceRotation{ 1.0f };
+			uint32_t PendingIrradianceRow = 0;
+			// Sweeps finished. The first replaces what a field holds and the
+			// rest converge onto it, which is what buys both a mean over more
+			// rays than one pass can afford and a bounce of history per sweep.
+			uint32_t PendingIrradianceSweep = 0;
+			// Which field the line below was last written about, so a scene
+			// whose lighting changes every frame -- a moving light -- says it
+			// once rather than filling the log. Compared and never dereferenced.
+			const IrradianceVolume* AnnouncedIrradiance = nullptr;
 			Format           GiTargetColor = Format::Undefined;
 			Ref<RHISampler>  PointSampler;
 			Format TargetColor = Format::R8G8B8A8_UNORM;
@@ -682,6 +727,19 @@ namespace RageV
 			// define, so it recompiles the lit shaders the way the other two
 			// do.
 			bool RayGlobalIlluminationOn = false;
+			// **Whether a traced hit honours the field's stored visibility.**
+			//
+			// It always honours it where the picture is shaded directly -- that
+			// path reads the field rarely and the test is nearly free there.
+			// This is about the other reader, the one every bounce ray hits,
+			// where weighting the eight cells one at a time costs +0.6 ms
+			// against +0.055. Worth it when the dial is asking for the best
+			// bounce there is, and not worth it below that.
+			bool IrradianceShadowingOn = false;
+			// Indirect light is read from the field rather than computed. Set
+			// per frame by the scene, which is the only thing that knows
+			// whether a bake exists to read.
+			bool BakedIrradianceOnly = false;
 			std::vector<GpuRayInstance> RayInstanceScratch;
 
 			// The depth-only pipeline. Its own shader and its own pipeline
@@ -868,6 +926,7 @@ namespace RageV
 		s_Data->SceneSlots.resize(device.GetFramesInFlight());
 		s_Data->ShadowSlots.resize(device.GetFramesInFlight());
 		s_Data->CulledShadowSets.resize(device.GetFramesInFlight());
+		s_Data->IrradianceFillSets.resize(device.GetFramesInFlight());
 
 		s_Data->DefaultMaterial = Material::CreateDefault(device);
 
@@ -966,8 +1025,22 @@ namespace RageV
 		// so. Turning the flag off here is what makes the fallback whole:
 		// every shader below is then compiled for the screen-space form, and
 		// the graph resolves to it for the same reason.
+		// **Compiled whenever rays are available, not only when the screen's
+		// bounce is switched on.**
+		//
+		// This shader is two things at once: the traced bounce, and the set-0
+		// layout the irradiance fill allocates its descriptors against -- the
+		// fill includes the same header under the same defines precisely so the
+		// two agree. Tying it to the bounce's switch therefore tied *baking* to
+		// it as well: a project that turned the realtime bounce off to live on
+		// a baked field instead got no field either, because there was no
+		// layout to bind one through, and the picture fell back to no indirect
+		// light at all while nothing said so.
+		//
+		// The pipeline costs one compile at startup and nothing per frame when
+		// no pass draws with it.
 		s_Data->GiShader = nullptr;
-		if (s_Data->RayGlobalIlluminationOn && s_Data->Bindless && s_Data->RayShadowsOn)
+		if (s_Data->Bindless && s_Data->RayShadowsOn)
 		{
 			std::vector<std::string> traceDefines;
 			if (s_Data->Bindless)
@@ -976,6 +1049,8 @@ namespace RageV
 			if (s_Data->RayReflectionsOn)
 				traceDefines.push_back("RV_RAY_REFLECTIONS");
 			traceDefines.push_back("RV_RAY_GI");
+			if (s_Data->IrradianceShadowingOn)
+				traceDefines.push_back("RV_FIELD_SHADOWED");
 
 			if (auto gi = ShaderCompiler::CompileFromFile("assets/shaders/rtgi_trace.rvshader",
 														 traceDefines))
@@ -993,10 +1068,16 @@ namespace RageV
 
 		// **The pass that solves an irradiance field.** Same defines as the
 		// bounce, because it borrows the same TraceSurface and has to see the
-		// same engine; same conditions, because it traces and cannot run
-		// without rays either.
+		// same engine.
+		//
+		// **Not the same conditions, though, and that distinction is the point
+		// of a stored field.** It needs rays and the heap, as anything tracing
+		// does; it does not need the screen-space bounce to be running, and
+		// riding that switch meant a project that turned the realtime bounce
+		// off lost the ability to bake a field as well -- which is precisely
+		// the configuration someone turns it off *for*.
 		s_Data->IrradianceFillShader = nullptr;
-		if (s_Data->RayGlobalIlluminationOn && s_Data->Bindless && s_Data->RayShadowsOn)
+		if (s_Data->Bindless && s_Data->RayShadowsOn)
 		{
 			std::vector<std::string> fillDefines;
 			fillDefines.push_back("RV_BINDLESS");
@@ -1004,6 +1085,13 @@ namespace RageV
 			if (s_Data->RayReflectionsOn)
 				fillDefines.push_back("RV_RAY_REFLECTIONS");
 			fillDefines.push_back("RV_RAY_GI");
+			if (s_Data->IrradianceShadowingOn)
+				fillDefines.push_back("RV_FIELD_SHADOWED");
+			// **The solve does not read the field it is writing.** See the
+			// guard this sets in ShadeTraced: sweeps are for the noise of one
+			// pass's rays, and a sweep that fed on the last one's answer would
+			// compound its mistakes as fast as its light.
+			fillDefines.push_back("RV_IRRADIANCE_FILL");
 
 			if (auto fill = ShaderCompiler::CompileFromFile(
 					"assets/shaders/irradiance_fill.rvshader", fillDefines))
@@ -1028,6 +1116,10 @@ namespace RageV
 			defines.push_back("RV_RAY_REFLECTIONS");
 		if (s_Data->RayGlobalIlluminationOn)
 			defines.push_back("RV_RAY_GI");
+			// The bounce's reader of the field, told what to spend. See
+			// IrradianceShadowingOn.
+			if (s_Data->IrradianceShadowingOn)
+				defines.push_back("RV_FIELD_SHADOWED");
 
 		// The meshlet lit stage compiles with the identical define set, so
 		// its fragment half is bit-for-bit the classic one's: same bindless
@@ -1335,6 +1427,29 @@ namespace RageV
 			s_Data->PipelineDirty = true;
 	}
 
+	void Renderer3D::SetIrradianceShadowing(bool enabled)
+	{
+		if (!s_Data || s_Data->IrradianceShadowingOn == enabled)
+			return;
+
+		s_Data->IrradianceShadowingOn = enabled;
+		RV_CORE_INFO("Renderer3D: traced bounces {0} the field's stored visibility",
+					 enabled ? "test" : "do not test");
+		if (CompileLitShaders())
+			s_Data->PipelineDirty = true;
+	}
+
+	void Renderer3D::SetBakedIrradianceOnly(bool enabled)
+	{
+		if (s_Data)
+			s_Data->BakedIrradianceOnly = enabled;
+	}
+
+	bool Renderer3D::IsBakedIrradianceOnly()
+	{
+		return s_Data && s_Data->BakedIrradianceOnly;
+	}
+
 	bool Renderer3D::IsRayTracedGlobalIllumination()
 	{
 		return s_Data && s_Data->RayGlobalIlluminationOn;
@@ -1382,13 +1497,15 @@ namespace RageV
 	}
 
 	void Renderer3D::SetIrradianceVolume(const Ref<IrradianceVolume>& volume,
-										 const Vec3& centre, const Vec3& extents)
+										 const Vec3& centre, const Vec3& extents,
+										 const Mat3& rotation)
 	{
 		if (!s_Data)
 			return;
 
 		s_Data->Irradiance = volume;
 		s_Data->IrradianceCentre = centre;
+		s_Data->IrradianceRotation = rotation;
 		// Guarded against a degenerate box: the shader divides by these to find
 		// a cell, and a zero extent would put every fragment at infinity.
 		s_Data->IrradianceExtents = Vec3(Math::Max(extents.x, 1.0e-3f),
@@ -1399,7 +1516,10 @@ namespace RageV
 	bool Renderer3D::SolveIrradianceVolume(RHICommandList& cmd,
 										   const Ref<IrradianceVolume>& volume,
 										   const Vec3& centre, const Vec3& extents,
-										   int rays, float reach)
+										   const Mat3& rotation,
+										   int rays, float reach,
+										   uint32_t rowBegin, uint32_t rowCount,
+										   float blend)
 	{
 		if (!s_Data || !s_Data->IrradianceFillShader || !volume)
 			return false;
@@ -1458,22 +1578,27 @@ namespace RageV
 			fill.DepthFormat = Format::Undefined;
 
 			s_Data->IrradianceFillPipeline = s_Data->Device->CreatePipeline(fill);
-			s_Data->IrradianceFillSet = nullptr;
+			// The sets were allocated against the pipeline that has just been
+			// replaced, so they belong to a layout that no longer exists.
+			for (Ref<RHIResourceSet>& set : s_Data->IrradianceFillSets)
+				set = nullptr;
 		}
 		if (!s_Data->IrradianceFillPipeline)
 			return false;
 
-		if (!s_Data->IrradianceFillSet)
-		{
-			s_Data->IrradianceFillSet =
-				s_Data->Device->CreateResourceSet(s_Data->IrradianceFillPipeline, 3);
-		}
-		if (!s_Data->IrradianceFillSet)
+		if (s_Data->IrradianceFillSets.empty())
 			return false;
 
-		for (int channel = 0; channel < 3; channel++)
-			s_Data->IrradianceFillSet->SetStorageImage(channel, volume->Channel(channel), 0);
-		s_Data->IrradianceFillSet->Commit();
+		Ref<RHIResourceSet>& fillSet =
+			s_Data->IrradianceFillSets[s_Data->Device->GetFrameIndex()
+									   % s_Data->IrradianceFillSets.size()];
+		if (!fillSet)
+			fillSet = s_Data->Device->CreateResourceSet(s_Data->IrradianceFillPipeline, 3);
+		if (!fillSet)
+			return false;
+
+		fillSet->SetStorageImage(0, volume->Texture(), 0);
+		fillSet->Commit();
 
 		struct FillParams
 		{
@@ -1481,16 +1606,35 @@ namespace RageV
 			Vec4 Extents;
 			Vec4 Grid;
 			Vec4 Trace;
+			// The box's own axes, as columns: a cell's place in the world is
+			// the centre plus this applied to its place in the box.
+			Vec4 Rotation[3];
 		} params{};
 
 		params.Centre = Vec4(centre, 0.0f);
 		params.Extents = Vec4(extents, 0.0f);
 		params.Grid = Vec4((float)volume->Width(), (float)volume->Height(),
-						   (float)volume->Depth(), (float)Math::Clamp(rays, 1, 256));
+						   (float)volume->Depth(), (float)Math::Clamp(rays, 1, 4096));
 		// The counter the ray directions are hashed against. It moves per solve
 		// rather than per frame, so re-solving a field that did not change is
 		// not a way to make it flicker.
-		params.Trace = Vec4(reach, (float)s_Data->IrradianceFrame++, 0.0f, 0.0f);
+		params.Trace = Vec4(reach, (float)s_Data->IrradianceFrame++, blend, 0.0f);
+		for (int axis = 0; axis < 3; axis++)
+			params.Rotation[axis] = Vec4(rotation[axis], 0.0f);
+
+		// **The writes, fenced in both directions**, and both directions matter.
+		// The frame before this one sampled these textures while shading, and
+		// this pass overwrites them: without ShaderRead -> FragmentWrite the
+		// overwrite can land while that read is still running. And without the
+		// reverse afterwards, the draw that reads the new field may be handed
+		// the old one -- the direction that looks like it works, because it
+		// only fails under load.
+		//
+		// Recorded outside the render pass below, which is where a barrier is
+		// legal, and which is why this runs as a standalone pass of the frame
+		// graph rather than inside one of its ordinary ones.
+		cmd.TextureBarrier(volume->Texture(), TextureSync::ShaderRead,
+						   TextureSync::FragmentWrite);
 
 		RenderPassBeginInfo begin;
 		begin.Target = s_Data->IrradianceFillTarget.get();
@@ -1501,6 +1645,13 @@ namespace RageV
 		// Only the cells this field has, whatever the target grew to for a
 		// larger one: a fragment outside the grid discards, but not generating
 		// it at all is cheaper and says the intent.
+		//
+		// **And only the band of them this pass is solving.** The viewport
+		// stays the whole grid so gl_FragCoord still names a cell the same way
+		// -- the shader maps a row to a (y, z) pair and that mapping must not
+		// depend on which band is running -- while the scissor is what limits
+		// the work. Getting that the other way round would solve the right
+		// number of cells and write them into the wrong ones.
 		Viewport viewport;
 		viewport.X = 0.0f;
 		viewport.Y = 0.0f;
@@ -1508,22 +1659,149 @@ namespace RageV
 		viewport.Height = (float)height;
 		cmd.SetViewport(viewport);
 
+		const uint32_t bandBegin = Math::Min(rowBegin, height);
+		const uint32_t bandEnd = Math::Min(rowBegin + rowCount, height);
+
 		Rect2D scissor;
 		scissor.X = 0;
-		scissor.Y = 0;
+		scissor.Y = (int32_t)bandBegin;
 		scissor.Width = width;
-		scissor.Height = height;
+		scissor.Height = bandEnd - bandBegin;
+		if (scissor.Height == 0)
+		{
+			cmd.EndRenderPass();
+			return false;
+		}
 		cmd.SetScissor(scissor);
 
 		cmd.BindPipeline(s_Data->IrradianceFillPipeline);
 		cmd.BindResourceSet(0, slot.GiSet);
 		if (s_Data->Heap)
 			cmd.BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
-		cmd.BindResourceSet(3, s_Data->IrradianceFillSet);
+		cmd.BindResourceSet(3, fillSet);
 		cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
 		cmd.Draw(3);
 		cmd.EndRenderPass();
 
+		// And the other half of the fence: what this pass stored is what the
+		// next draw sampling the field has to see.
+		cmd.TextureBarrier(volume->Texture(), TextureSync::FragmentWrite,
+						   TextureSync::ShaderRead);
+
+		return true;
+	}
+
+	void Renderer3D::RequestIrradianceSolve(const Ref<IrradianceVolume>& volume,
+											const Vec3& centre, const Vec3& extents,
+											const Mat3& rotation)
+	{
+		if (!s_Data)
+			return;
+
+		s_Data->PendingIrradiance = volume;
+		s_Data->PendingIrradianceCentre = centre;
+		s_Data->PendingIrradianceExtents = extents;
+		s_Data->PendingIrradianceRotation = rotation;
+		// A new request starts its sweeps over. Asking again mid-solve is what
+		// a scene whose lighting moved does, and it wants the answer for the
+		// lighting it has now rather than a blend of two of them.
+		s_Data->PendingIrradianceRow = 0;
+		s_Data->PendingIrradianceSweep = 0;
+	}
+
+	bool Renderer3D::HasPendingIrradianceSolve()
+	{
+		// **And whether one could run**, not only whether one was asked for.
+		// Without rays there is no fill shader and never will be on this
+		// device, and a request that cannot be served would otherwise put a
+		// pass that returns immediately into every frame for the rest of the
+		// run. The request itself stands: a device that gains the shader --
+		// the lit shaders recompile when the ray settings change -- solves it
+		// then.
+		return s_Data && s_Data->PendingIrradiance != nullptr
+			&& s_Data->IrradianceFillShader != nullptr;
+	}
+
+	bool Renderer3D::SolvePendingIrradiance(RHICommandList& cmd)
+	{
+		if (!s_Data || !s_Data->PendingIrradiance)
+			return false;
+
+		const IrradianceVolume& field = *s_Data->PendingIrradiance;
+		const uint32_t rows = field.Height() * field.Depth();
+
+		// **How many rays a cell gets, and it is not a small number.**
+		//
+		// Sixty-four was the first answer and it is wrong for a reason no
+		// average of the frame reveals: the variance left in a cell is
+		// spatially *coherent* once trilinear interpolation spreads it over a
+		// cell's width, so it reads as mottling -- patches of a wall slightly
+		// lighter and darker than their neighbours, which the eye picks out
+		// instantly and a mean absolute error scores at a third of a level.
+		//
+		// Variance falls as one over the ray count, and every one of these rays
+		// is spent once. This is the whole argument for baking: the expensive,
+		// converged answer is affordable precisely because no frame has to pay
+		// for it twice.
+		constexpr int kRaysPerCell = 512;
+
+		// **What one frame is allowed to solve**, held as a ray budget rather
+		// than a cell count so that raising the rays above lengthens the solve
+		// instead of deepening the hitch. Cells never drop below one row, or a
+		// field wider than the budget would never finish.
+		constexpr uint32_t kRayBudget = 131072;
+		const uint32_t cellsPerFrame = Math::Max(kRayBudget / (uint32_t)kRaysPerCell, 1u);
+		const uint32_t rowsPerFrame = Math::Max(cellsPerFrame / Math::Max(field.Width(), 1u), 1u);
+
+		// **The first sweep replaces, the rest converge.** A cell reads the
+		// field at every hit, so each sweep terminates its rays in what the
+		// last one left: the light gains a bounce a sweep, and the distances
+		// the visibility test reads gain the samples that make them mean
+		// something. Eight is where both stop moving on the scenes measured.
+		constexpr uint32_t kSweeps = 4;
+		const float blend = s_Data->PendingIrradianceSweep == 0 ? 1.0f : 0.35f;
+
+		// Far enough that a cell in the middle of a room can see its far wall,
+		// derived from the box rather than guessed: a volume over a corridor
+		// and one over a stadium want different answers and neither wants a
+		// constant.
+		const float reach =
+			Math::Max(Math::Length(s_Data->PendingIrradianceExtents) * 4.0f, 10.0f);
+
+		// **Cleared only on success.** A frame that could not solve -- no
+		// traced set yet, no rays on this device -- leaves the request
+		// standing, so the field is either solved or still asking, and never
+		// quietly holding the placeholder while believing itself done.
+		if (!SolveIrradianceVolume(cmd, s_Data->PendingIrradiance,
+								   s_Data->PendingIrradianceCentre,
+								   s_Data->PendingIrradianceExtents,
+								   s_Data->PendingIrradianceRotation, kRaysPerCell, reach,
+								   s_Data->PendingIrradianceRow, rowsPerFrame, blend))
+		{
+			return false;
+		}
+
+		s_Data->PendingIrradianceRow += rowsPerFrame;
+		if (s_Data->PendingIrradianceRow < rows)
+			return true;        // more of this sweep to go
+
+		s_Data->PendingIrradianceRow = 0;
+		if (++s_Data->PendingIrradianceSweep < kSweeps)
+			return true;        // another sweep onto what this one left
+
+		// Once per field, not once per solve: a scene whose lights move asks
+		// for one every frame, and this is a fact about a field existing
+		// rather than a running commentary.
+		if (s_Data->AnnouncedIrradiance != s_Data->PendingIrradiance.get())
+		{
+			RV_CORE_INFO("Renderer3D: irradiance field solved, {0}x{1}x{2} cells "
+						 "over {3} sweeps",
+						 field.Width(), field.Height(), field.Depth(), kSweeps);
+			s_Data->AnnouncedIrradiance = s_Data->PendingIrradiance.get();
+		}
+
+		s_Data->PendingIrradiance = nullptr;
+		s_Data->PendingIrradianceSweep = 0;
 		return true;
 	}
 
@@ -2148,6 +2426,16 @@ namespace RageV
 			s_Data->Scene.ProbeSlot[i] = s_Data->Probes[i].Slot;
 		}
 
+		// **The rows that take a world vector into the box's axes**, which for
+		// an orthonormal rotation are its columns read across. Sent rather than
+		// inverted in the shader: an inverse per fragment for a matrix that
+		// changes once a frame is work in the wrong place.
+		for (int axis = 0; axis < 3; axis++)
+		{
+			s_Data->Scene.IrradianceRotation[axis] =
+				Vec4(s_Data->IrradianceRotation[axis], 0.0f);
+		}
+
 		s_Data->Scene.IrradianceCentre = Vec4(s_Data->IrradianceCentre, 0.0f);
 		s_Data->Scene.IrradianceExtents =
 			Vec4(s_Data->IrradianceExtents, s_Data->Irradiance ? 1.0f : 0.0f);
@@ -2198,23 +2486,19 @@ namespace RageV
 		// sky -- so the stand-in has to be one too. A plain cube here is a
 		// different descriptor type, which is a validation error rather than a
 		// dark reflection.
-		// **The irradiance field, three volumes, one per colour channel.**
-		// Bindings 18 to 20 -- the first free ones in set 0, whose layout every
-		// lit pipeline family reflects, which is why they are declared in the
-		// shared fragment include rather than in one shader.
-		{
-			const Ref<RHITexture> fallback = TextureLoader::BlackVolume(*s_Data->Device);
-			const Ref<RHISampler> sampler = s_Data->Irradiance
-										  ? s_Data->Irradiance->Sampler()
-										  : s_Data->PointSampler;
-			for (int channel = 0; channel < 3; channel++)
-			{
-				sceneSet->SetTexture(18 + channel,
-									 s_Data->Irradiance ? s_Data->Irradiance->Channel(channel)
-														: fallback,
-									 sampler);
-			}
-		}
+		// **The irradiance field: one volume, three tiles.** Binding 18 -- the
+		// first free one in set 0, whose layout every lit pipeline family
+		// reflects, which is why it is declared in the shared fragment include
+		// rather than in one shader.
+		//
+		// It was three bindings, one per colour channel, until the count
+		// mattered: OpenGL gives a fragment shader thirty-two samplers and the
+		// layered terrain variant was at thirty without this.
+		sceneSet->SetTexture(18,
+							 s_Data->Irradiance ? s_Data->Irradiance->Texture()
+												: TextureLoader::BlackVolume(*s_Data->Device),
+							 s_Data->Irradiance ? s_Data->Irradiance->Sampler()
+												: s_Data->PointSampler);
 
 		sceneSet->SetTexture(1, environmentMap ? environmentMap
 											   : TextureLoader::BlackCubeArray(*s_Data->Device),
@@ -2297,21 +2581,13 @@ namespace RageV
 			slot.GiSet->SetStorageBuffer(8, slot.Lights, 0,
 										 (uint64_t)lightSlots * sizeof(GpuLight));
 			// The GI set reflects the same include, so it declares the same
-			// three bindings and must fill them too.
-			{
-				const Ref<RHITexture> fallback = TextureLoader::BlackVolume(*s_Data->Device);
-				const Ref<RHISampler> sampler = s_Data->Irradiance
-											  ? s_Data->Irradiance->Sampler()
-											  : s_Data->PointSampler;
-				for (int channel = 0; channel < 3; channel++)
-				{
-					slot.GiSet->SetTexture(18 + channel,
-										   s_Data->Irradiance
-											   ? s_Data->Irradiance->Channel(channel)
-											   : fallback,
-										   sampler);
-				}
-			}
+			// binding and must fill it too.
+			slot.GiSet->SetTexture(18,
+								   s_Data->Irradiance
+									   ? s_Data->Irradiance->Texture()
+									   : TextureLoader::BlackVolume(*s_Data->Device),
+								   s_Data->Irradiance ? s_Data->Irradiance->Sampler()
+													  : s_Data->PointSampler);
 
 			slot.GiSet->SetTexture(1, environmentMap ? environmentMap
 													 : TextureLoader::BlackCubeArray(*s_Data->Device),

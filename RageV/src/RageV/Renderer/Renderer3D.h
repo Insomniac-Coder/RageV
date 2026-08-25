@@ -65,8 +65,12 @@ namespace RageV
 		// **The scene's irradiance field**, and the box it covers in world
 		// space. Null unbinds it and every reader falls back to what it did
 		// before, which is the flat ambient constant.
+		// `rotation` carries the box's own axes as columns, so a volume that
+		// was turned is still a box rather than the axis-aligned one its
+		// bounds would suggest.
 		static void SetIrradianceVolume(const RHI::Ref<IrradianceVolume>& volume,
-										const Vec3& centre, const Vec3& extents);
+										const Vec3& centre, const Vec3& extents,
+										const Mat3& rotation);
 
 		// **Solves a field**: one traced gather per cell, written straight into
 		// the volume's textures. Runs when a field is dirty and not otherwise,
@@ -76,10 +80,43 @@ namespace RageV
 		// shader did not compile -- and a caller that gets false leaves the
 		// field holding whatever it had, which is the flat ambient a fresh one
 		// is created with.
+		// `rowBegin`/`rowCount` are the band of the unrolled grid this call
+		// solves -- the whole of it, or a slice, which is what keeps a large
+		// field from arriving as one frame's hitch. `blend` is how much of
+		// this pass to keep against what the field already holds: one to
+		// replace, less to converge.
 		static bool SolveIrradianceVolume(RHI::RHICommandList& cmd,
 										  const RHI::Ref<IrradianceVolume>& volume,
 										  const Vec3& centre, const Vec3& extents,
-										  int rays, float reach);
+										  const Mat3& rotation,
+										  int rays, float reach,
+										  uint32_t rowBegin, uint32_t rowCount,
+										  float blend);
+
+		// **Asks for a field to be solved**, rather than solving it here. The
+		// caller is the scene walk, which runs before BeginScene because the
+		// block carrying the box's bounds is uploaded there -- and the solve
+		// traces, so nothing it needs exists that early. The frame graph's fill
+		// pass runs the request once the scene pass has built what it traces
+		// against.
+		//
+		// Asking twice for the same field is asking once: there is one request,
+		// and it stands until a pass solves it.
+		static void RequestIrradianceSolve(const RHI::Ref<IrradianceVolume>& volume,
+										   const Vec3& centre, const Vec3& extents,
+										   const Mat3& rotation);
+
+		// Whether a request is standing, asked by the frame graph before it
+		// declares a fill pass -- so a frame with no field to solve, which is
+		// almost every frame, has no pass at all.
+		static bool HasPendingIrradianceSolve();
+
+		// Runs the standing request if it can run yet, and clears it if it did.
+		//
+		// **Must be recorded outside a render pass**: it opens one of its own,
+		// and it records the barriers fencing the volume's writes against the
+		// draws that read them. That is what RGPassKind::Standalone is for.
+		static bool SolvePendingIrradiance(RHI::RHICommandList& cmd);
 
 		static void SetWireframe(bool enabled);
 
@@ -305,6 +342,23 @@ namespace RageV
 		// structure and bindless for the heap, exactly as reflections do, and
 		// silently stays off without either. Recompiles the lit shaders.
 		static void SetRayTracedGlobalIllumination(bool enabled);
+		// **Whether every traced bounce tests the field's stored visibility**,
+		// or only the pass that shades the picture does. Measured at +0.6 ms
+		// against +0.055 on a scene with a field, and the difference between a
+		// sealed room reading 3.4 levels of leaked light and 0.06. Follows the
+		// GI dial: the top rung pays for it. Recompiles the lit shaders.
+		static void SetIrradianceShadowing(bool enabled);
+
+		// **Whether indirect light is read rather than computed.**
+		//
+		// True stops the frame graph adding the gather or the traced bounce at
+		// all: the field answers alone, which is the whole saving -- measured
+		// at 0.83 ms against 1.62 on the GI corner, and 4.07 against 7.45 on
+		// the showroom. Only set where a bake actually exists to read; the
+		// scene checks that and says so when it does not.
+		static void SetBakedIrradianceOnly(bool enabled);
+		static bool IsBakedIrradianceOnly();
+
 		static bool IsRayTracedGlobalIllumination();
 
 		// What the traced bounce needs to put a screen pixel back in the world:

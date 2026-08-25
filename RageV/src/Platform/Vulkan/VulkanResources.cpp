@@ -333,9 +333,11 @@ namespace RageV::Vk
 		// A storage texture lives in the general layout from here on (ENGINE-
 		// NOTES 7bc): imageStore needs it, sampling permits it, and an image
 		// that never changes layout needs nothing to track which one it is in.
-		// Uploads and mip generation still work -- their transitions go from
-		// whatever m_Layout says -- but they would leave it read-only, which is
-		// why a storage texture is written by shaders rather than uploaded.
+		// Uploads and mip generation move it and put it back -- they settle at
+		// SettledLayout(), which is this same rule -- so a storage texture may
+		// be uploaded to as well as written by shaders. The irradiance field is
+		// both: filled flat from the CPU so it is never sampled uninitialised,
+		// then solved by a pass that writes it through imageStore.
 		if (RHI::HasFlag(m_Desc.Usage, RHI::TextureUsage::Storage))
 		{
 			m_Device.ImmediateSubmit([&](VkCommandBuffer cmd)
@@ -580,7 +582,7 @@ namespace RageV::Vk
 
 			vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-			TransitionTo(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			TransitionTo(cmd, SettledLayout());
 		});
 
 		vmaDestroyBuffer(m_Device.GetAllocator(), staging, stagingAllocation);
@@ -626,7 +628,7 @@ namespace RageV::Vk
 
 			vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-			TransitionTo(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			TransitionTo(cmd, SettledLayout());
 		});
 
 		vmaDestroyBuffer(m_Device.GetAllocator(), staging, stagingAllocation);
@@ -703,12 +705,16 @@ namespace RageV::Vk
 				vkCmdPipelineBarrier2(cmd, &dependency);
 			};
 
-			// The whole image is currently SHADER_READ_ONLY; walk it down level
-			// by level, blitting each mip from the one above.
+			// The whole image is currently in the layout it settles in -- which
+			// is read-only for most textures and GENERAL for a storage one, and
+			// naming it rather than assuming the first is what lets a storage
+			// image have a mip chain generated at all. Walk it down level by
+			// level, blitting each mip from the one above.
+			const VkImageLayout settled = SettledLayout();
 			for (uint32_t level = 1; level < m_Desc.MipLevels; level++)
 			{
-				barrierFor(level - 1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-				barrierFor(level, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+				barrierFor(level - 1, settled, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+				barrierFor(level, settled, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
 				VkImageBlit blit{};
 				blit.srcSubresource.aspectMask = m_Aspect;
@@ -729,12 +735,12 @@ namespace RageV::Vk
 							   m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 							   1, &blit, VK_FILTER_LINEAR);
 
-				barrierFor(level - 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-				barrierFor(level, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+				barrierFor(level - 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, settled);
+				barrierFor(level, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, settled);
 			}
 		}
 
-		m_Layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		m_Layout = SettledLayout();
 	}
 
 	uint64_t VulkanTexture::GetImGuiHandle()

@@ -299,6 +299,12 @@ namespace RageV
 		float CapturedFar = -1.0f;
 		uint64_t CapturedEnvironment = 0;
 
+		// Whether this probe has been read from, or written to, disk this
+		// session. Runtime state: a bake is a thing that happened, not a
+		// property of the scene, and it stops a probe being written again on
+		// every frame after it completes.
+		bool Baked = false;
+
 		ReflectionProbeComponent() = default;
 		ReflectionProbeComponent(const ReflectionProbeComponent&) = default;
 	};
@@ -558,18 +564,13 @@ namespace RageV
 		// than as a coarser answer.
 		int MaxResolution = 32;
 
-		// Runtime state. Not serialized, for the reason the reflection probe's
-		// capture is not: it is derived from the scene, and writing a solved
-		// lighting field into a text scene description is storing a render in
-		// a scene. The stage that puts one on disk gives it an asset of its
-		// own.
-		std::shared_ptr<IrradianceVolume> Volume;
+		// **No texture here, and that is the design.** A volume component asks
+		// for coverage and density; the *scene* composes every such request
+		// into the one field a shader reads. See Scene::UpdateIrradianceVolumes
+		// -- putting a texture on each component would imply the renderer can
+		// read several, which it cannot and should not have to.
 
-		// Set when there is no field yet, or when something that invalidates
-		// one changed. Same shape as the reflection probe's, and for the same
-		// reason -- a stored answer nobody can invalidate is an answer that
-		// silently stops being true.
-		bool Dirty = true;
+
 
 		// **Solve it again.** Registered, so a script can set it by name and
 		// the inspector shows a control, and consumed by the solve so it reads
@@ -581,21 +582,7 @@ namespace RageV
 
 		// What the current field was built for, so a change to any of it can
 		// raise Dirty without anyone having to remember to.
-		Vec3  BuiltCentre{ 0.0f };
-		Vec3  BuiltExtents{ 0.0f };
-		float BuiltSpacing = -1.0f;
 
-		// **And what it was lit by.** A field is a solved answer to a lighting
-		// question, so it stops being true the moment the lighting changes --
-		// and unlike a moved box, nothing about the volume itself says so.
-		//
-		// The showroom is the case that makes this concrete: it has two
-		// lighting modes on a switch, and flipping between them changes which
-		// lights are on and which fitting is emissive. A field solved under one
-		// mode and kept under the other lights the room from a scene that no
-		// longer exists -- the same failure as a stale probe, arriving through
-		// a different door.
-		uint64_t BuiltLighting = 0;
 	};
 
 	// Takes part in the physics simulation. Needs a ColliderComponent to have
