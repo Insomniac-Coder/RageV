@@ -6,53 +6,100 @@ Work on **`main`**, which is clean and **pushed** as of 2026-08-25.
 
 ---
 
-## Start here: the baking sub-roadmap is the next job
+## Start here: the irradiance volume, and the one thing it still needs
 
-**2026-08-25.** The owner has read the plan and wants the work started next
-session. Full reasoning, costs and pitfalls are in
-[BAKING-ROADMAP.md](BAKING-ROADMAP.md); this is only the order.
+**2026-08-25.** Work started on the baking sub-roadmap
+([BAKING-ROADMAP.md](BAKING-ROADMAP.md)) at item 2, the irradiance volume,
+because it is the piece that serves dynamic objects and it turned out to be
+worth more than that -- it is also the terminal term of every traced bounce ray,
+which is the cheap road to behaving like a multi-bounce tracer.
 
 ```
 done   0.  probe hygiene            Cached rename, invalidation, Recapture verb
-       1.  reflection probes to disk        S/M    needs BC6H in the cooker first
-       2.  irradiance volume, runtime-filled M/L   ** the one that matters **
-       3.  the baker + volume on disk        M     2 is its only oracle
-       never 4. lightmaps                    XL    revisit only if 3 leaves a gap
+done   1.  the field, plumbed       30e15bb  -- no-op by design
+part   2.  the solve                7194a9b  -- shader done, PASS MISSING
+       3.  the baker + on disk               -- 2 is its only oracle
+       never 4. lightmaps
 ```
 
-**Start at 2, not 1.** Probes-to-disk is a load-time win; the irradiance volume
-is the thing that changes how *dynamic objects* look, which is the actual
-complaint. 1 is listed first only because it is smaller, and its prerequisite
-(BC6H) is independently useful. If only one of them ever gets built, build 2.
+### The next job, and it is one thing
 
-**3 comes after 2 and not before, on purpose.** The RHI has no readback
-(`ENGINE-NOTES.md:1005-1012`), so nothing can inspect a baked result's
-contents. The runtime-converged volume is the only oracle a bake can be checked
-against — "baked and runtime agree within tolerance on the same scene" is the
-whole test, and it exists only if 2 was built first.
+**Add the fill as a render-graph pass in `FrameGraphBuilder`, ordered before
+the scene pass.** Everything else is built and checked.
 
-**Three things that will bite, in the order they will bite:**
+It cannot go where the first attempt put it. `Scene::OnRender` **is** a graph
+pass's body, so a render pass is open at every point inside it: beginning one
+there nests, and ending one closes a pass this code does not own -- after which
+the indirect draws fail. The call site is parked in `Scene.cpp` with that
+written beside it (`SolvePendingIrradiance`, currently commented out), and the
+solve itself is `Renderer3D::SolveIrradianceVolume`, which is complete.
 
-1. **Light leaking.** A volume cell inside a wall interpolates into a room it
-   cannot see. Every shipping implementation needs a visibility term (DDGI's
-   chebyshev test, or per-cell occlusion). Budget it as part of the feature.
-2. **Nowhere to put a per-object value.** `InstanceData` is exactly 256 bytes
-   under a `static_assert` and every `Indices` lane is spoken for (x bone base,
-   y probe, z material, w previous bone base). Per-object needs the struct
-   widened; per-fragment needs the volume reachable from the lit shader, and
-   set 0's bindings 0-17 are all used. The scene UBO took the probe table for
-   exactly this reason and is the likely home again.
-3. **`BeginScene` opens with `s_Data->Scene = {}`** (`Renderer3D.cpp:1650`).
-   Anything written into the scene block before it is silently zeroed. This
-   cost an hour on the probe table: the rows vanished, every fragment blended
-   between fifteen empty probes, and the showroom went 35% darker with the
-   cause nowhere near the shader that had just changed.
+Two things the pass must carry that the parked version could not:
 
-**And one thing already checked, so nobody re-checks it.** The question of
-whether the pasted-on look was really the skinned motion-vector bug rather than
-missing bounce is settled: it was not. The fix moved 0.22% of the frame, about
-two per cent of the character's own pixels. `BAKING-ROADMAP.md` §4 has the
-measurement. The volume is still worth building.
+- **Put `TextureUsage::Storage` back on the volume textures**, *with* the layout
+  transitions. It was removed deliberately -- see the trap below -- and belongs
+  with the pass that writes them.
+- **A barrier** between the fill writing the images and the lit pass sampling
+  them, in the same frame. Get this wrong and it is silent and
+  timing-dependent; run it under `--validation=on`.
+
+### What is already right, so nobody re-derives it
+
+- **It had to be a fragment shader, not compute.** The hit shading belongs to
+  `TraceSurface` and a second copy is how two renderers start disagreeing about
+  what a hit looks like. That include survives `RV_TRACE_ONLY` but not leaving
+  the fragment stage: the shadow lookups above its guard sample with an implicit
+  level of detail. Voxelisation already writes a 3D texture from a fragment
+  shader here.
+- **Bind `slot.GiSet`, never `slot.Set`.** A descriptor set belongs to the
+  layout it was allocated against. `slot.Set` is the lit pipeline's and its
+  set 0 carries the vertex stage's bindings; the fill shader includes the same
+  header under the same defines as `rtgi_trace`, so `GiSet` is its set exactly.
+- **The projection is a mean and twice a directed mean.** Radiance sampled
+  uniformly over the sphere, projected to SH-L1, converted to irradiance and
+  divided by pi -- the Monte Carlo weight, both basis constants and the band
+  factor all cancel. `c0 = mean(L)`, `c1 = 2 * mean(L*d)`. Verified against the
+  case with an answer by hand: uniform radiance L gives constant term L and no
+  lean, which is what stage one's placeholder writes, so the two agree by
+  construction.
+- **The lean needs three accumulators, one per channel.** Sharing one stores a
+  red wall's directionality into green and blue as well.
+- **A field records the lighting it was solved under** -- a byte hash of the
+  light list and the environment -- so the showroom's mode switch invalidates
+  it. Without that, flipping modes keeps a field solved for the other one, which
+  is a stale probe by another road. `Recapture` is the verb for what the hash
+  cannot see: moved geometry, edited materials.
+
+### The trap this cost, and it is the repository's own lesson twice
+
+The volume textures were first created `Sampled | Storage`, on the reasoning
+that the solve writes into them. A storage-capable image has its **sampled**
+descriptor written against `VK_IMAGE_LAYOUT_GENERAL`, while a CPU upload leaves
+it in `SHADER_READ_ONLY_OPTIMAL` -- so every draw reading one was a layout
+mismatch, shipped in `30e15bb` and not noticed.
+
+It was not noticed because validation was run on a scene with **no volume in
+it**, where the binding is never reached. That is *"a check that tests the path
+nothing ships is not a check"*, which this repository already learned once on
+the texel emitters' cooked-versus-raw mean.
+
+**So: any run testing this must have a volume in the scene, under
+`--validation=on`.** A clean run without one proves nothing at all.
+
+### Still open, beyond the pass
+
+- **Amortise the solve.** It is one frame's work for the whole grid, which is a
+  hitch when a scene loads and again when the showroom's mode switch fires. It
+  also unlocks the better behaviour: converging rather than replacing, so each
+  pass carries one more bounce of history and one traced bounce starts behaving
+  like several -- what a second traced bounce costs 2.57 ms to buy.
+- **Rotation on the volume's transform is ignored.** A rotated box needs its
+  inverse carried into the shader; an axis-aligned one needs three subtractions.
+  Limitation, not oversight.
+- **One volume at a time.** Nested and overlapping volumes -- a coarse one over
+  a level, a tight one in the room that needs it -- is where this ends up, but
+  choosing between them per fragment is a second question.
+- Nothing persists. Every launch re-solves. That is item 3.
 
 ---
 

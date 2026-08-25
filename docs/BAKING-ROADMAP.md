@@ -32,6 +32,13 @@ Every "bake" verb in the codebase is something else: animation curve tables
 actually fires, and a `Recapture` verb. That was the prerequisite — a bake is
 only as good as the ability to say "this is stale".
 
+**In progress (2026-08-25):** §1.2, the irradiance volume. The field is plumbed
+end to end and reads correctly (`30e15bb`); the solve's shader is written and
+its projection verified (`7194a9b`). What is missing is the render-graph pass
+that runs the solve — it cannot live inside `Scene::OnRender`, which is itself a
+graph pass's body. [HANDOFF.md](HANDOFF.md) opens with the detail, the traps and
+the testing rule that a run without a volume in the scene proves nothing.
+
 ---
 
 ## 1. The five candidates, costed
