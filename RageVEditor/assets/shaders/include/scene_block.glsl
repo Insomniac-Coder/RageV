@@ -82,6 +82,23 @@ layout(set = 0, binding = 0) uniform SceneData
 	// mirrored by hand and OpenGL links both stages into one program; the
 	// fragment stage is the only one that reads it.
 	vec4 Indirect;
+
+	// **Where the reflection probes stand.** xyz the position, w the influence
+	// radius, in world units; ProbeSlot[i].x is that probe's index into the
+	// irradiance and environment cube arrays.
+	//
+	// Here rather than behind a binding of their own: set 0's bindings run 0
+	// to 17 with none free, and every pipeline family allocates its own set
+	// against its own layout, so a new binding would have to be declared and
+	// written in each. This block is already bound everywhere and had room.
+	//
+	// Read by the lit shader, which blends the two that cover a fragment
+	// instead of taking the one the CPU chose for the whole object. That is
+	// what stops a mesh flipping its entire ambient and reflection in one
+	// frame as it crosses an influence boundary.
+	vec4 ProbeCount;              // x = how many rows are real
+	vec4 ProbePlacement[15];
+	vec4 ProbeSlot[15];
 } u_Scene;
 
 // Per instance, indexed by the draw's instance number.

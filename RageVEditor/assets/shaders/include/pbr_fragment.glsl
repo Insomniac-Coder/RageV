@@ -78,6 +78,23 @@ layout(set = 0, binding = 0) uniform SceneData
 	// Last frame's indirect diffuse (ENGINE-NOTES 7av). x = intensity, zero
 	// when nothing is bound; y = the row sign. Mirrored in scene_vertex.glsl.
 	vec4 Indirect;
+
+	// **Where the reflection probes stand.** xyz the position, w the influence
+	// radius, in world units; ProbeSlot[i].x is that probe's index into the
+	// irradiance and environment cube arrays.
+	//
+	// Here rather than behind a binding of their own: set 0's bindings run 0
+	// to 17 with none free, and every pipeline family allocates its own set
+	// against its own layout, so a new binding would have to be declared and
+	// written in each. This block is already bound everywhere and had room.
+	//
+	// Read by the lit shader, which blends the two that cover a fragment
+	// instead of taking the one the CPU chose for the whole object. That is
+	// what stops a mesh flipping its entire ambient and reflection in one
+	// frame as it crosses an influence boundary.
+	vec4 ProbeCount;              // x = how many rows are real
+	vec4 ProbePlacement[15];
+	vec4 ProbeSlot[15];
 } u_Scene;
 
 // Every light in the scene, however many that is.
@@ -695,6 +712,118 @@ vec3 RotateIntoSky(vec3 v)
 	float s = u_Scene.Environment.w;
 	return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
 }
+
+// **Which probes cover this point, and how much each is worth.**
+//
+// The CPU picks one probe per object, against the object's bounds centre, and
+// that is the right answer for the emitter list and for a small prop. For a
+// surface it is not: a floor spanning two rooms gets one room's probe for all
+// of it, and an object walking across an influence boundary flips its whole
+// ambient and reflection in a single frame. Per fragment there is no boundary
+// to cross -- the weights slide.
+//
+// Two probes and the sky, never more: the blend costs a cube fetch per slot in
+// each of two arrays, and a third contributor buys less than it costs. The
+// weight falls linearly to zero at the influence radius, so a probe stops
+// mattering exactly where the CPU's own test says it stops applying, and
+// whatever the two do not claim goes to the sky. That is what makes the edge
+// of a probe's reach a fade rather than a step.
+// How much of a probe's radius is fade rather than full strength. A quarter:
+// wide enough that a walking character crosses it over many frames, narrow
+// enough that most of a probe's volume is still exactly what the CPU's binary
+// test would have given.
+const float kProbeBlendShell = 0.25;
+
+void ProbeBlendAt(vec3 position, out float slotA, out float slotB,
+				  out float weightA, out float weightB)
+{
+	slotA = 0.0; slotB = 0.0;          // the sky
+	weightA = 0.0; weightB = 0.0;
+
+	const int count = clamp(int(u_Scene.ProbeCount.x + 0.5), 0, 15);
+
+	for (int i = 0; i < count; i++)
+	{
+		const vec4 placement = u_Scene.ProbePlacement[i];
+		const float radius = max(placement.w, 1.0e-4);
+
+		// **Full weight until the outer shell, then a fade.** Falling off from
+		// the probe's centre instead was the first attempt and it is wrong by
+		// a lot: the CPU's rule is binary -- inside the influence you get the
+		// probe -- so a linear falloff from the middle leaves a fragment at
+		// three quarters of the radius taking three quarters of its light from
+		// the *sky*. Measured on the showroom that darkened the room by 35%.
+		//
+		// The shell is where the pop was, and the only place a fade is owed.
+		// Inside it this agrees with ProbeSlotFor exactly, which is the
+		// property that matters: the lit pass and the traced bounce have to
+		// light the same square metre the same way.
+		const float shell = radius * kProbeBlendShell;
+		const float distance = length(position - placement.xyz);
+		const float weight = clamp((radius - distance) / max(shell, 1.0e-4), 0.0, 1.0);
+		if (weight <= 0.0)
+			continue;
+
+		const float slot = u_Scene.ProbeSlot[i].x;
+		if (weight > weightA)
+		{
+			slotB = slotA; weightB = weightA;
+			slotA = slot;  weightA = weight;
+		}
+		else if (weight > weightB)
+		{
+			slotB = slot;  weightB = weight;
+		}
+	}
+
+	// Normalised only when they would over-claim. Under one they are left
+	// alone and the remainder is the sky's, which is the fade.
+	const float total = weightA + weightB;
+	if (total > 1.0)
+	{
+		weightA /= total;
+		weightB /= total;
+	}
+}
+
+// **A cube captured at a point is only right at that point.**
+//
+// Everywhere else the reflected ray should be traced to where it actually
+// leaves the probe's volume and looked up from *there*, or a wall's reflection
+// slides with the camera instead of staying put. The volume here is the
+// influence sphere the probe already carries, which is the same shape the
+// blend weights use -- so a probe is one radius, not two.
+//
+// A point outside the sphere has nothing to correct against and keeps its
+// direction; so does a ray that never leaves it, which cannot happen for a
+// point inside but is cheap to be safe about.
+vec3 ProbeParallax(vec3 position, vec3 direction, float slot)
+{
+	const int count = clamp(int(u_Scene.ProbeCount.x + 0.5), 0, 15);
+
+	for (int i = 0; i < count; i++)
+	{
+		if (abs(u_Scene.ProbeSlot[i].x - slot) > 0.5)
+			continue;
+
+		const vec4 placement = u_Scene.ProbePlacement[i];
+		const vec3 offset = position - placement.xyz;
+		const float b = dot(offset, direction);
+		const float c = dot(offset, offset) - placement.w * placement.w;
+		const float h = b * b - c;
+		if (h <= 0.0)
+			return direction;          // outside the sphere: nothing to say
+
+		const float t = -b + sqrt(h);
+		if (t <= 0.0)
+			return direction;
+
+		return normalize(position + direction * t - placement.xyz);
+	}
+
+	return direction;                  // the sky, which has no position
+}
+
 
 #if defined(RV_RAY_REFLECTIONS) || defined(RV_RAY_GI)
 // The radiance the mirror ray from `origin` along `direction` finds
@@ -1557,7 +1686,21 @@ void main()
 	// the ground side by ground, which is most of what makes a scene look like
 	// it is somewhere.
 	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
-	vec3 irradiance = textureLod(u_Irradiance, vec4(RotateIntoSky(N), v_Probe), 0.0).rgb *
+
+	// **Blended between the probes that cover this fragment**, rather than
+	// taken wholly from the one the CPU chose for the object. v_Probe is still
+	// what the emitter list and the traced bounce agree on for the object as a
+	// whole; here the surface asks for itself. Whatever the probes do not
+	// claim is the sky's, which is slot zero -- so the two fetches below are
+	// the whole answer and there is never a third.
+	float probeA, probeB, probeWa, probeWb;
+	ProbeBlendAt(v_WorldPos, probeA, probeB, probeWa, probeWb);
+	const float probeSky = max(1.0 - probeWa - probeWb, 0.0);
+
+	const vec3 skyDirection = RotateIntoSky(N);
+	vec3 irradiance = (textureLod(u_Irradiance, vec4(skyDirection, probeA), 0.0).rgb * probeWa
+					 + textureLod(u_Irradiance, vec4(skyDirection, probeB), 0.0).rgb * probeWb
+					 + textureLod(u_Irradiance, vec4(skyDirection, 0.0), 0.0).rgb * probeSky) *
 					  u_Scene.Environment.x;
 
 #ifdef RV_RAY_GI
@@ -1668,7 +1811,17 @@ void main()
 	float lod = max(roughness * u_Scene.Environment.y,
 					log2(max(texelsPerPixel, 1.0)));
 
-	vec3 prefiltered = textureLod(u_Environment, vec4(reflection, v_Probe), lod).rgb *
+	// The same blend, and each slot's own parallax: a cube is only correct at
+	// the point it was captured, so the reflected ray is carried out to where
+	// it leaves that probe's sphere and looked up from there. Without it a
+	// wall's reflection slides with the camera instead of staying on the wall.
+	vec3 prefiltered = (textureLod(u_Environment,
+								   vec4(ProbeParallax(v_WorldPos, reflection, probeA), probeA),
+								   lod).rgb * probeWa
+					  + textureLod(u_Environment,
+								   vec4(ProbeParallax(v_WorldPos, reflection, probeB), probeB),
+								   lod).rgb * probeWb
+					  + textureLod(u_Environment, vec4(reflection, 0.0), lod).rgb * probeSky) *
 					   u_Scene.Environment.x;
 
 	// Screen-space reflections replace the probe *here* -- the radiance the

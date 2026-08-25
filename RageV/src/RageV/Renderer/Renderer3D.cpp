@@ -158,6 +158,14 @@ namespace RageV
 			// into one program -- and it does not fail, it renders differently
 			// every run.
 			Vec4 Indirect;
+
+			// Mirrors the block in scene_block.glsl and pbr_fragment.glsl --
+			// both, by hand, because OpenGL links the two stages into one
+			// program and two spellings of one uniform block is undefined
+			// ground. See the note there.
+			Vec4 ProbeCount{ 0.0f };
+			Vec4 ProbePlacement[15]{};
+			Vec4 ProbeSlot[15]{};
 		};
 
 		// Where a batch starts in the instance buffer. The model matrix used to
@@ -1343,6 +1351,7 @@ namespace RageV
 			row.Slot = Vec4((float)probe.Slot, 0.0f, 0.0f, 0.0f);
 			s_Data->Probes.push_back(row);
 		}
+
 	}
 
 	void Renderer3D::SetAreaEmitters(const std::vector<AreaEmitter>& emitters)
@@ -1922,6 +1931,26 @@ namespace RageV
 			LightGrid::SliceScale(nearPlane, farPlane),
 			LightGrid::SliceBias(nearPlane, farPlane),
 		};
+
+		// **The probes, written here rather than where they are set.**
+		// BeginScene clears the whole block (`s_Data->Scene = {}` above), so
+		// anything a caller wrote into it beforehand is gone by now -- which
+		// is exactly what happened to the first draft of this: SetProbeVolumes
+		// filled the rows, BeginScene zeroed them a moment later, and every
+		// fragment blended between fifteen empty probes and took all of its
+		// ambient from the sky. The room went 35% darker and the cause was
+		// nowhere near the shader.
+		//
+		// s_Data->Probes outlives the clear, so the copy belongs on this side
+		// of it. Capped at the block's fifteen rows, which is ProbeArray's own
+		// cap too, so a scene cannot hold more than fit.
+		const uint32_t probeRows = Math::Min((uint32_t)s_Data->Probes.size(), 15u);
+		s_Data->Scene.ProbeCount = Vec4((float)probeRows, 0.0f, 0.0f, 0.0f);
+		for (uint32_t i = 0; i < probeRows; i++)
+		{
+			s_Data->Scene.ProbePlacement[i] = s_Data->Probes[i].Placement;
+			s_Data->Scene.ProbeSlot[i] = s_Data->Probes[i].Slot;
+		}
 
 		// Written after the grid, because the grid decides the two vectors
 		// above and the block is uploaded once.

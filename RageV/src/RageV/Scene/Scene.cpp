@@ -3192,6 +3192,19 @@ namespace RageV
 			// offset is not the surface moving. Passed rather than read from
 			// the renderer, so a caller that did not jitter its camera cannot
 			// accidentally get the correction applied to it.
+			// **Before BeginScene, because the scene block carries the probes
+			// now and BeginScene uploads it.** Two readers: the lit shader
+			// blends between them per fragment, and the traced bounce picks
+			// one per hit -- the same table for both, so the two forms cannot
+			// disagree about which probe lights a place.
+			//
+			// Empty while capturing, which reproduces exactly what
+			// ProbeSlotFor does then: a capture reflects the sky and never
+			// another probe, or two probes facing each other capture each
+			// other one frame deeper every frame.
+			Renderer3D::SetProbeVolumes(m_CapturingProbes ? std::vector<ProbeSlot>{}
+														  : m_ProbeSlots);
+
 			Renderer3D::BeginScene(camera, cameraTransform, lights, m_Environment,
 								   Project::Render(), environment, irradiance, jitter);
 
@@ -3300,15 +3313,6 @@ namespace RageV
 			// ones that mattered -- which looked exactly like the estimator not
 			// working.
 			Renderer3D::SetAreaEmitters(m_Emitters);
-
-			// And where the probes stand, so the traced bounce can ask the
-			// same question about a hit that ProbeSlotFor asks about an
-			// object. Empty while capturing, which reproduces exactly what
-			// ProbeSlotFor does then: a capture reflects the sky, never
-			// another probe, or two probes facing each other capture each
-			// other one frame deeper every frame.
-			Renderer3D::SetProbeVolumes(m_CapturingProbes ? std::vector<ProbeSlot>{}
-														  : m_ProbeSlots);
 
 			// Everything the table does not hold: the skinned meshes, anything
 			// with too few indices to draw indexed, and -- when there is no
