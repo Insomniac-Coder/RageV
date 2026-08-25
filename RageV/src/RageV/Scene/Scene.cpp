@@ -2918,6 +2918,101 @@ namespace RageV
 		PackProbes(*cmd);
 	}
 
+	void Scene::UpdateIrradianceVolumes()
+	{
+		auto view = m_Registry.GetView<TransformComponent, IrradianceVolumeComponent>();
+
+		// The first volume that has a field, and that is deliberate for now:
+		// one binding, one box, one lookup. Nested and overlapping volumes are
+		// how this ends up -- a coarse one over the level and a tight one in
+		// the room that needs it -- but choosing between them per fragment is a
+		// second question, and answering it before the first one works would be
+		// guessing at both.
+		Renderer3D::SetIrradianceVolume(nullptr, Vec3(0.0f), Vec3(1.0f));
+
+		for (auto& item : view)
+		{
+			auto [transform, volume] =
+				view.Get<TransformComponent, IrradianceVolumeComponent>(item);
+
+			// A unit box, scaled and placed by the transform. **Rotation is
+			// ignored**, and that is a limitation rather than an oversight: a
+			// rotated box needs its inverse carried into the shader so a
+			// fragment can find its cell, and an axis-aligned one needs three
+			// subtractions. Worth revisiting; not worth blocking on.
+			const Vec3 centre = Vec3(transform.World[3]);
+			const Vec3 extents = Vec3(Math::Length(Vec3(transform.World[0])),
+									  Math::Length(Vec3(transform.World[1])),
+									  Math::Length(Vec3(transform.World[2]))) * 0.5f;
+
+			const float spacing = Math::Max(volume.Spacing, 0.05f);
+			const int cap = Math::Clamp(volume.MaxResolution, 2, 128);
+
+			// Two cells a side at minimum: one cannot be interpolated, and a
+			// field that cannot be interpolated is a constant with overheads.
+			auto axis = [&](float halfExtent)
+			{
+				const int wanted = (int)Math::Ceil(2.0f * halfExtent / spacing) + 1;
+				return (uint32_t)Math::Clamp(wanted, 2, cap);
+			};
+			const uint32_t nx = axis(extents.x);
+			const uint32_t ny = axis(extents.y);
+			const uint32_t nz = axis(extents.z);
+
+			// What the field was built for, checked the way the reflection
+			// probe's capture is: anything that changes the box changes which
+			// points were solved, so the answer stops applying.
+			if (volume.BuiltSpacing != spacing
+				|| Math::Distance(volume.BuiltCentre, centre) > 1.0e-4f
+				|| Math::Distance(volume.BuiltExtents, extents) > 1.0e-4f)
+			{
+				volume.Dirty = true;
+			}
+
+			if (!volume.Volume || volume.Volume->Width() != nx
+				|| volume.Volume->Height() != ny || volume.Volume->Depth() != nz)
+			{
+				volume.Volume = IrradianceVolume::Create(Renderer::GetDevice(), nx, ny, nz);
+				volume.Dirty = true;
+			}
+
+			if (!volume.Volume)
+				continue;
+
+			if (volume.Dirty)
+			{
+				// **Stage one fills every cell with the scene's flat ambient**,
+				// which is what the lit shader added before this existed. That
+				// is the point: with the field carrying the old answer, reading
+				// the field instead of the constant has to leave the picture
+				// unchanged, and the plumbing is proved before any argument
+				// about lighting enters. The pass that solves these properly
+				// replaces this loop and nothing else.
+				const Vec3 ambient = m_Environment.AmbientColor * m_Environment.AmbientIntensity;
+
+				std::vector<IrradianceVolume::Cell> cells(volume.Volume->CellCount());
+				for (IrradianceVolume::Cell& cell : cells)
+				{
+					// L0 carries a value that is the same from every direction;
+					// the three L1 terms lean it toward an axis and are zero for
+					// something uniform. See the convention in the shader.
+					cell.R = Vec4(ambient.x, 0.0f, 0.0f, 0.0f);
+					cell.G = Vec4(ambient.y, 0.0f, 0.0f, 0.0f);
+					cell.B = Vec4(ambient.z, 0.0f, 0.0f, 0.0f);
+				}
+				volume.Volume->Upload(cells);
+
+				volume.Dirty = false;
+				volume.BuiltCentre = centre;
+				volume.BuiltExtents = extents;
+				volume.BuiltSpacing = spacing;
+			}
+
+			Renderer3D::SetIrradianceVolume(volume.Volume, centre, extents);
+			break;
+		}
+	}
+
 	void Scene::PackProbes(RHI::RHICommandList& cmd)
 	{
 		m_ProbeSlots.clear();
@@ -3244,6 +3339,10 @@ namespace RageV
 			// offset is not the surface moving. Passed rather than read from
 			// the renderer, so a caller that did not jitter its camera cannot
 			// accidentally get the correction applied to it.
+			// The irradiance field, before BeginScene for the same reason the
+			// probes are: the block that carries its bounds is uploaded there.
+			UpdateIrradianceVolumes();
+
 			// **Before BeginScene, because the scene block carries the probes
 			// now and BeginScene uploads it.** Two readers: the lit shader
 			// blends between them per fragment, and the traced bounce picks

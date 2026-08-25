@@ -90,6 +90,13 @@ namespace RageV
 		// Cached 1x1 defaults, created on first use.
 		static RHI::Ref<RHI::RHITexture> White(RHI::RHIDevice& device);
 		static RHI::Ref<RHI::RHITexture> Black(RHI::RHIDevice& device);
+
+		// A one-texel volume of zeroes, for the irradiance bindings on a frame
+		// with no field in the scene. A declared binding left unwritten is a
+		// validation error rather than a harmless omission, and a *2D* stand-in
+		// in a sampler3D slot is a different descriptor type -- which is also
+		// a validation error, and the one that is easy to reach for.
+		static RHI::Ref<RHI::RHITexture> BlackVolume(RHI::RHIDevice& device);
 		// Zero in every channel, alpha included -- Black is opaque. Bound
 		// where a shader reads alpha as a weight and "nothing" has to weigh
 		// nothing: last frame's reflection trace before there is one.

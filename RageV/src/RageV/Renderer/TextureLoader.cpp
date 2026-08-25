@@ -50,6 +50,7 @@ namespace RageV
 		Ref<RHITexture> s_Magenta;
 		Ref<RHITexture> s_BlackCube;
 		Ref<RHITexture> s_BlackCubeArray;
+		Ref<RHITexture> s_BlackVolume;
 
 		// The suffixes a six-file skybox set uses, in the layer order the APIs
 		// index faces by.
@@ -786,6 +787,36 @@ namespace RageV
 		return s_White;
 	}
 
+	Ref<RHITexture> TextureLoader::BlackVolume(RHIDevice& device)
+	{
+		// Beside its siblings rather than in a function-local static, and that
+		// is not style: a static inside the function is destroyed at process
+		// exit, which is *after* the device, and Vulkan says every child object
+		// must be gone before the device is. It reported exactly that -- a
+		// clean run with one validation error at shutdown and nothing wrong in
+		// any frame. ClearCache is what runs at the right moment.
+		if (s_BlackVolume)
+			return s_BlackVolume;
+
+		TextureDesc desc;
+		desc.Type = TextureType::Texture3D;
+		desc.Width = desc.Height = desc.Depth = 1;
+		desc.MipLevels = 1;
+		// The same format the real fields use, because a descriptor is happier
+		// when the stand-in and the thing it stands in for agree.
+		desc.Format = Format::R16G16B16A16_SFLOAT;
+		desc.Usage = TextureUsage::Sampled;
+		desc.DebugName = "black.volume";
+
+		s_BlackVolume = device.CreateTexture(desc);
+		if (s_BlackVolume)
+		{
+			const uint16_t zero[4] = { 0, 0, 0, 0 };
+			s_BlackVolume->Upload(zero, sizeof(zero));
+		}
+		return s_BlackVolume;
+	}
+
 	Ref<RHITexture> TextureLoader::Black(RHIDevice& device)
 	{
 		if (!s_Black)
@@ -840,6 +871,7 @@ namespace RageV
 		// it out. It also stops the map growing once per texture ever loaded.
 		s_Means.clear();
 		s_Cache.clear();
+		s_BlackVolume.reset();
 		s_CubeCache.clear();
 		s_IrradianceCache.clear();
 		s_White.reset();

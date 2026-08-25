@@ -92,6 +92,12 @@ layout(set = 0, binding = 0) uniform SceneData
 	// instead of taking the one the CPU chose for the whole object. That is
 	// what stops a mesh flipping its entire ambient and reflection in one
 	// frame as it crosses an influence boundary.
+
+	// **The irradiance field's box**, in world space. xyz the centre; the
+	// extents' w says whether there is a field at all -- zero and every reader
+	// falls back to the flat ambient above, which is what this replaced.
+	vec4 IrradianceCentre;
+	vec4 IrradianceExtents;
 	vec4 ProbeCount;              // x = how many rows are real
 	vec4 ProbePlacement[15];
 	vec4 ProbeSlot[15];
@@ -713,6 +719,66 @@ vec3 RotateIntoSky(vec3 v)
 	return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
 }
 
+// **The scene's irradiance field**, one volume texture per colour channel.
+//
+// Bindings 18 to 20 are the first free ones in set 0. Declared here rather than
+// in one shader because every lit pipeline family reflects this include, and a
+// set 0 whose layout differs between families is a set that cannot be shared.
+layout(set = 0, binding = 18) uniform sampler3D u_IrradianceR;
+layout(set = 0, binding = 19) uniform sampler3D u_IrradianceG;
+layout(set = 0, binding = 20) uniform sampler3D u_IrradianceB;
+
+// **What indirect light arrives at a point, from a direction.**
+//
+// The question the renderer could not previously ask. A reflection probe
+// answers it once per object -- so a long surface gets one answer and anything
+// crossing a boundary changes all at once -- and the traced bounce answers it
+// only where a ray happens to land. A field answers it anywhere inside its box,
+// and slides between stored samples rather than switching.
+//
+// **The convention, because a stored SH is meaningless without one.** Each
+// texel holds four coefficients for its channel: x is the constant term and yzw
+// lean the answer toward an axis, so
+//
+//     irradiance(n) = L0 + dot(L1, n)
+//
+// evaluated per channel. First order: enough that the sky side of an object is
+// lit by sky and the ground side by ground, which is where the cost-to-quality
+// curve bends, and four coefficients rather than nine.
+//
+// Returns false outside the box, leaving the caller on whatever it did before.
+bool VolumeIrradiance(vec3 position, vec3 normal, out vec3 irradiance)
+{
+	irradiance = vec3(0.0);
+	if (u_Scene.IrradianceExtents.w < 0.5)
+		return false;               // no field in the scene
+
+	const vec3 extents = max(u_Scene.IrradianceExtents.xyz, vec3(1.0e-3));
+	const vec3 local = (position - u_Scene.IrradianceCentre.xyz) / extents;
+	if (any(greaterThan(abs(local), vec3(1.0))))
+		return false;               // outside it
+
+	// Zero to one across the box, then in to the texel centres. The grid's
+	// first and last samples sit *on* the faces, so mapping straight to 0..1
+	// would put half a cell of the box outside the outermost texel centres and
+	// the hardware would clamp there -- a flat band around the edge of every
+	// volume, which is the kind of artefact that reads as a lighting bug.
+	const vec3 size = vec3(textureSize(u_IrradianceR, 0));
+	const vec3 uvw = ((local * 0.5 + 0.5) * (size - 1.0) + 0.5) / size;
+
+	// One fetch per channel, each returning that channel's four coefficients,
+	// and the hardware blends the eight surrounding cells on the way out --
+	// which is the whole reason this is a texture and not a buffer.
+	const vec4 shR = textureLod(u_IrradianceR, uvw, 0.0);
+	const vec4 shG = textureLod(u_IrradianceG, uvw, 0.0);
+	const vec4 shB = textureLod(u_IrradianceB, uvw, 0.0);
+
+	irradiance = max(vec3(shR.x + dot(shR.yzw, normal),
+						  shG.x + dot(shG.yzw, normal),
+						  shB.x + dot(shB.yzw, normal)), vec3(0.0));
+	return true;
+}
+
 // **Which probes cover this point, and how much each is worth.**
 //
 // The CPU picks one probe per object, against the object's bounds centre, and
@@ -1146,7 +1212,22 @@ vec3 ProbeIrradiance(vec3 normal, float probe)
 // throws away.
 vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
 {
+	// **And here is where a field earns most of its keep.** This is what every
+	// bounce ray terminates on: the trace stops at the first hit, so whatever
+	// stands in for the light arriving *there* decides what the whole bounce is
+	// worth. A constant makes every hit in the level equally lit; the field
+	// knows the hit's position and can say otherwise.
+	//
+	// It is also the cheap road to more bounces. The field is filled from these
+	// same traces, so each frame it carries one more bounce of history, and one
+	// traced bounce terminating in it behaves like several -- which is what a
+	// second traced bounce costs 2.57 ms to buy.
 	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
+	{
+		vec3 stored;
+		if (VolumeIrradiance(surface.Position, surface.Normal, stored))
+			ambientLight = stored;
+	}
 	return surface.Direct + surface.Diffuse * (ambientLight + arriving) + surface.Emissive;
 }
 
@@ -1686,6 +1767,22 @@ void main()
 	// the ground side by ground, which is most of what makes a scene look like
 	// it is somewhere.
 	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
+
+	// **Or the stored field, where a volume covers this fragment.** The
+	// constant above is the same everywhere, which is the thing a field exists
+	// to stop being true: a corner belongs darker than the middle of a room and
+	// no constant can say so.
+	//
+	// Stage one fills every cell with that same constant, so a scene with a
+	// volume renders identically to one without. That is deliberate -- it puts
+	// the plumbing under test before any change to the picture has to be argued
+	// about, and the pass that solves the cells replaces the fill and nothing
+	// else.
+	{
+		vec3 stored;
+		if (VolumeIrradiance(v_WorldPos, N, stored))
+			ambientLight = stored;
+	}
 
 	// **Blended between the probes that cover this fragment**, rather than
 	// taken wholly from the one the CPU chose for the object. v_Probe is still

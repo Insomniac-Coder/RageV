@@ -1,6 +1,7 @@
 #pragma once
 #include "RageV/Math/Math.h"
 #include "Camera.h"
+#include "IrradianceVolume.h"
 #include "Light.h"
 #include "Environment.h"
 #include "RenderSettings.h"
@@ -60,6 +61,12 @@ namespace RageV
 		// Pass an empty list to force the sky, which is what a probe capture
 		// itself must do: a capture reflects the sky, never another probe.
 		static void SetProbeVolumes(const std::vector<ProbeVolume>& probes);
+
+		// **The scene's irradiance field**, and the box it covers in world
+		// space. Null unbinds it and every reader falls back to what it did
+		// before, which is the flat ambient constant.
+		static void SetIrradianceVolume(const RHI::Ref<IrradianceVolume>& volume,
+										const Vec3& centre, const Vec3& extents);
 
 		static void SetWireframe(bool enabled);
 

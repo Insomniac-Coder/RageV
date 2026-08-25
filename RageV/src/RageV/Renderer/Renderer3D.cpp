@@ -163,6 +163,11 @@ namespace RageV
 			// both, by hand, because OpenGL links the two stages into one
 			// program and two spellings of one uniform block is undefined
 			// ground. See the note there.
+			// xyz the field's centre, w unused; and its half-extents, with w
+			// carrying whether there is a field at all -- zero means every
+			// reader falls back to the flat ambient.
+			Vec4 IrradianceCentre{ 0.0f };
+			Vec4 IrradianceExtents{ 1.0f, 1.0f, 1.0f, 0.0f };
 			Vec4 ProbeCount{ 0.0f };
 			Vec4 ProbePlacement[15]{};
 			Vec4 ProbeSlot[15]{};
@@ -400,6 +405,13 @@ namespace RageV
 			static_assert(sizeof(GpuProbe) == 32,
 						  "Must match GiProbe in rtgi_trace.rvshader");
 			std::vector<GpuProbe> Probes;
+
+			// The scene's irradiance field and the box it covers. Held rather
+			// than passed through because BeginScene clears the block these
+			// bounds live in, so the copy has to happen on its far side.
+			Ref<IrradianceVolume> Irradiance;
+			Vec3 IrradianceCentre{ 0.0f };
+			Vec3 IrradianceExtents{ 1.0f };
 			Format           GiTargetColor = Format::Undefined;
 			Ref<RHISampler>  PointSampler;
 			Format TargetColor = Format::R8G8B8A8_UNORM;
@@ -1331,6 +1343,21 @@ namespace RageV
 		s_Data->PipelineDirty = true;
 	}
 
+	void Renderer3D::SetIrradianceVolume(const Ref<IrradianceVolume>& volume,
+										 const Vec3& centre, const Vec3& extents)
+	{
+		if (!s_Data)
+			return;
+
+		s_Data->Irradiance = volume;
+		s_Data->IrradianceCentre = centre;
+		// Guarded against a degenerate box: the shader divides by these to find
+		// a cell, and a zero extent would put every fragment at infinity.
+		s_Data->IrradianceExtents = Vec3(Math::Max(extents.x, 1.0e-3f),
+										 Math::Max(extents.y, 1.0e-3f),
+										 Math::Max(extents.z, 1.0e-3f));
+	}
+
 	void Renderer3D::SetProbeVolumes(const std::vector<ProbeVolume>& probes)
 	{
 		if (!s_Data)
@@ -1952,6 +1979,10 @@ namespace RageV
 			s_Data->Scene.ProbeSlot[i] = s_Data->Probes[i].Slot;
 		}
 
+		s_Data->Scene.IrradianceCentre = Vec4(s_Data->IrradianceCentre, 0.0f);
+		s_Data->Scene.IrradianceExtents =
+			Vec4(s_Data->IrradianceExtents, s_Data->Irradiance ? 1.0f : 0.0f);
+
 		// Written after the grid, because the grid decides the two vectors
 		// above and the block is uploaded once.
 		slot.Buffer->Upload(&s_Data->Scene, sizeof(SceneUniforms));
@@ -1998,6 +2029,24 @@ namespace RageV
 		// sky -- so the stand-in has to be one too. A plain cube here is a
 		// different descriptor type, which is a validation error rather than a
 		// dark reflection.
+		// **The irradiance field, three volumes, one per colour channel.**
+		// Bindings 18 to 20 -- the first free ones in set 0, whose layout every
+		// lit pipeline family reflects, which is why they are declared in the
+		// shared fragment include rather than in one shader.
+		{
+			const Ref<RHITexture> fallback = TextureLoader::BlackVolume(*s_Data->Device);
+			const Ref<RHISampler> sampler = s_Data->Irradiance
+										  ? s_Data->Irradiance->Sampler()
+										  : s_Data->PointSampler;
+			for (int channel = 0; channel < 3; channel++)
+			{
+				sceneSet->SetTexture(18 + channel,
+									 s_Data->Irradiance ? s_Data->Irradiance->Channel(channel)
+														: fallback,
+									 sampler);
+			}
+		}
+
 		sceneSet->SetTexture(1, environmentMap ? environmentMap
 											   : TextureLoader::BlackCubeArray(*s_Data->Device),
 							 s_Data->EnvironmentSampler);
@@ -2078,6 +2127,23 @@ namespace RageV
 			slot.GiSet->SetUniformBuffer(0, slot.Buffer, 0, sizeof(SceneUniforms));
 			slot.GiSet->SetStorageBuffer(8, slot.Lights, 0,
 										 (uint64_t)lightSlots * sizeof(GpuLight));
+			// The GI set reflects the same include, so it declares the same
+			// three bindings and must fill them too.
+			{
+				const Ref<RHITexture> fallback = TextureLoader::BlackVolume(*s_Data->Device);
+				const Ref<RHISampler> sampler = s_Data->Irradiance
+											  ? s_Data->Irradiance->Sampler()
+											  : s_Data->PointSampler;
+				for (int channel = 0; channel < 3; channel++)
+				{
+					slot.GiSet->SetTexture(18 + channel,
+										   s_Data->Irradiance
+											   ? s_Data->Irradiance->Channel(channel)
+											   : fallback,
+										   sampler);
+				}
+			}
+
 			slot.GiSet->SetTexture(1, environmentMap ? environmentMap
 													 : TextureLoader::BlackCubeArray(*s_Data->Device),
 								   s_Data->EnvironmentSampler);

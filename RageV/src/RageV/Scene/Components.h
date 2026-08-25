@@ -19,6 +19,10 @@
 
 namespace RageV
 {
+	// Declared rather than included: a component names the field it owns and
+	// never looks inside one. See Renderer/IrradianceVolume.h.
+	class IrradianceVolume;
+
 	class Terrain;
 
 	// Stable identity. Added to every entity at creation, preserved across
@@ -526,6 +530,52 @@ namespace RageV
 
 		AnimatorComponent() = default;
 		AnimatorComponent(const AnimatorComponent&) = default;
+	};
+
+	// **A box of stored indirect light, sampled by position.**
+	//
+	// Place one over the space you want lit and size it to the room. Inside it
+	// the engine can answer a question it has never been able to answer: what
+	// is the indirect light *at this point*? Everything that moves needs that
+	// -- a reflection probe answers it once per object, so a character crossing
+	// a boundary changes lighting all at once and a long object gets one value
+	// for both of its ends -- and so does every ray the traced bounce
+	// terminates, which is where most of the value turns out to be.
+	//
+	// Sized by the entity's transform: the volume is a unit box scaled by it,
+	// so moving and resizing it is dragging a gizmo rather than editing
+	// numbers.
+	struct IrradianceVolumeComponent
+	{
+		// Metres between samples. The grid is derived from this and the box's
+		// world size, so a bigger room costs more cells rather than coarser
+		// ones -- which is the behaviour that surprises nobody.
+		float Spacing = 1.0f;
+
+		// A ceiling on that derivation. A volume dragged out to cover a level
+		// at one-metre spacing would otherwise ask for a grid no memory budget
+		// survives, and the failure would arrive as an allocation error rather
+		// than as a coarser answer.
+		int MaxResolution = 32;
+
+		// Runtime state. Not serialized, for the reason the reflection probe's
+		// capture is not: it is derived from the scene, and writing a solved
+		// lighting field into a text scene description is storing a render in
+		// a scene. The stage that puts one on disk gives it an asset of its
+		// own.
+		std::shared_ptr<IrradianceVolume> Volume;
+
+		// Set when there is no field yet, or when something that invalidates
+		// one changed. Same shape as the reflection probe's, and for the same
+		// reason -- a stored answer nobody can invalidate is an answer that
+		// silently stops being true.
+		bool Dirty = true;
+
+		// What the current field was built for, so a change to any of it can
+		// raise Dirty without anyone having to remember to.
+		Vec3  BuiltCentre{ 0.0f };
+		Vec3  BuiltExtents{ 0.0f };
+		float BuiltSpacing = -1.0f;
 	};
 
 	// Takes part in the physics simulation. Needs a ColliderComponent to have

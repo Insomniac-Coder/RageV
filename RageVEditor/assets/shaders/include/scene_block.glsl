@@ -96,6 +96,12 @@ layout(set = 0, binding = 0) uniform SceneData
 	// instead of taking the one the CPU chose for the whole object. That is
 	// what stops a mesh flipping its entire ambient and reflection in one
 	// frame as it crosses an influence boundary.
+
+	// **The irradiance field's box**, in world space. xyz the centre; the
+	// extents' w says whether there is a field at all -- zero and every reader
+	// falls back to the flat ambient above, which is what this replaced.
+	vec4 IrradianceCentre;
+	vec4 IrradianceExtents;
 	vec4 ProbeCount;              // x = how many rows are real
 	vec4 ProbePlacement[15];
 	vec4 ProbeSlot[15];

@@ -714,6 +714,29 @@ namespace
 			s_Components.push_back(std::move(desc));
 		}
 
+		// --- Irradiance volume ------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "IrradianceVolumeComponent";
+			desc.DisplayName = "Irradiance Volume";
+			desc.Fields = {
+				Field<&IrradianceVolumeComponent::Spacing>("Spacing",
+					Drag(0.1f, 0.25f, 16.0f,
+						 "Metres between stored samples. The grid follows the box's "
+						 "size, so a larger room costs more cells rather than coarser "
+						 "ones. Tighter resolves a doorway or a corner; looser is "
+						 "cheaper and smoother.")),
+				Field<&IrradianceVolumeComponent::MaxResolution>("MaxResolution",
+					Drag(1.0f, 4.0f, 128.0f,
+						 "A ceiling on cells per axis, whatever the spacing asks for. "
+						 "A volume dragged across a level would otherwise request a "
+						 "grid no memory budget survives, and would fail as an "
+						 "allocation error rather than as a coarser answer.")),
+			};
+			Bind<IrradianceVolumeComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
 		// --- Animator ---------------------------------------------------------
 		{
 			ComponentDesc desc;

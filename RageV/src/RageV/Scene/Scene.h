@@ -490,6 +490,10 @@ namespace RageV
 
 		// Convolves the sky and every complete probe into their array slices,
 		// and records which slice each probe went to.
+		// Sizes, fills and hands over the scene's irradiance field. See
+		// IrradianceVolumeComponent.
+		void UpdateIrradianceVolumes();
+
 		void PackProbes(RHI::RHICommandList& cmd);
 		// One subtree, top down. Returns whether this node's world matrix
 		// actually changed, which is what lets its children skip: a child's
