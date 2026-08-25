@@ -1,0 +1,28 @@
+# Binary assets, marked so no checkout ever rewrites their line endings.
+#
+# Git guesses text-or-binary by looking for NUL bytes near the start of a file,
+# and a PDF whose first stream happens not to have one is guessed wrong. Adding
+# docs/texel-emitters-design.pdf produced "LF will be replaced by CRLF the next
+# time Git touches it" on a 570 KB binary -- harmless in this working tree,
+# because the blob went in untouched, and a corrupted file on the next clone
+# with core.autocrlf set the other way.
+#
+# The images have survived on luck rather than on a rule. This is the rule.
+*.pdf   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary
+*.ttf   binary
+*.otf   binary
+*.fbx   binary
+*.glb   binary
+*.dll   binary
+*.exe   binary
+*.wav   binary
+*.ogg   binary
+
+# Cooked and packed containers: the import cache's own formats.
+*.rvtx  binary
+*.rvmesh binary
+*.rvpak binary
