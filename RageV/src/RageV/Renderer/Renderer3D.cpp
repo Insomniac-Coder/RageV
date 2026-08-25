@@ -361,6 +361,16 @@ namespace RageV
 			// its own holding the depth and surface it reconstructs from.
 			Ref<RHIShader>   GiShader;
 			Ref<RHIPipeline> GiPipeline;
+			Ref<RHIShader>   IrradianceFillShader;
+			Ref<RHIPipeline> IrradianceFillPipeline;
+			// The target the fill rasterises into, and the set its outputs are
+			// bound through. Both follow the largest field solved so far and
+			// stay there, so a steady scene stops allocating.
+			Ref<RHIRenderTarget> IrradianceFillTarget;
+			uint32_t IrradianceFillWidth = 0;
+			uint32_t IrradianceFillHeight = 0;
+			Ref<RHIResourceSet> IrradianceFillSet;
+			uint32_t IrradianceFrame = 0;
 
 			// The emissive rectangles the bounce aims at, as the shader reads
 			// them: centre and area, the two half-extents, the radiance, and
@@ -981,6 +991,34 @@ namespace RageV
 			}
 		}
 
+		// **The pass that solves an irradiance field.** Same defines as the
+		// bounce, because it borrows the same TraceSurface and has to see the
+		// same engine; same conditions, because it traces and cannot run
+		// without rays either.
+		s_Data->IrradianceFillShader = nullptr;
+		if (s_Data->RayGlobalIlluminationOn && s_Data->Bindless && s_Data->RayShadowsOn)
+		{
+			std::vector<std::string> fillDefines;
+			fillDefines.push_back("RV_BINDLESS");
+			fillDefines.push_back("RV_RAY_SHADOWS");
+			if (s_Data->RayReflectionsOn)
+				fillDefines.push_back("RV_RAY_REFLECTIONS");
+			fillDefines.push_back("RV_RAY_GI");
+
+			if (auto fill = ShaderCompiler::CompileFromFile(
+					"assets/shaders/irradiance_fill.rvshader", fillDefines))
+			{
+				s_Data->IrradianceFillShader = s_Data->Device->CreateShader(*fill);
+				RV_CORE_INFO("Renderer3D: irradiance fill shader compiled");
+			}
+			else
+			{
+				RV_CORE_ERROR("Renderer3D: assets/shaders/irradiance_fill.rvshader did not "
+							  "compile; irradiance fields keep whatever they were last "
+							  "filled with");
+			}
+		}
+
 		std::vector<std::string> defines;
 		if (s_Data->Bindless)
 			defines.push_back("RV_BINDLESS");
@@ -1356,6 +1394,137 @@ namespace RageV
 		s_Data->IrradianceExtents = Vec3(Math::Max(extents.x, 1.0e-3f),
 										 Math::Max(extents.y, 1.0e-3f),
 										 Math::Max(extents.z, 1.0e-3f));
+	}
+
+	bool Renderer3D::SolveIrradianceVolume(RHICommandList& cmd,
+										   const Ref<IrradianceVolume>& volume,
+										   const Vec3& centre, const Vec3& extents,
+										   int rays, float reach)
+	{
+		if (!s_Data || !s_Data->IrradianceFillShader || !volume)
+			return false;
+		if (!s_Data->ActiveScene)
+			return false;
+
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+
+		// **The traced bounce's set 0, not the lit pass's.** A descriptor set
+		// belongs to the layout it was allocated against, and slot.Set was
+		// allocated against the lit pipeline -- whose set 0 has the vertex
+		// stage's bindings in it. This shader includes the same header under
+		// the same RV_TRACE_ONLY and the same defines as rtgi_trace, so its
+		// set 0 is that one exactly, and GiSet is the set already allocated
+		// for it. Binding the lit one instead is a layout mismatch, which
+		// validation reports and a driver may simply read as rubbish.
+		if (!slot.GiSet)
+			return false;
+
+		// **The target exists to make fragments and for nothing else.** A
+		// fragment shader only runs where a triangle covers a pixel, so the
+		// volume is unrolled into one: x is the cell's x, and y carries its y
+		// and z stacked. Nothing is written to it and nothing reads it -- the
+		// cells leave through imageStore -- so its format is the cheapest one
+		// that can be an attachment.
+		const uint32_t width = volume->Width();
+		const uint32_t height = volume->Height() * volume->Depth();
+
+		if (!s_Data->IrradianceFillTarget
+			|| s_Data->IrradianceFillWidth < width
+			|| s_Data->IrradianceFillHeight < height)
+		{
+			RenderTargetDesc target;
+			target.Width = s_Data->IrradianceFillWidth = Math::Max(width, s_Data->IrradianceFillWidth);
+			target.Height = s_Data->IrradianceFillHeight = Math::Max(height, s_Data->IrradianceFillHeight);
+			target.ColorAttachments = { { Format::R8G8B8A8_UNORM } };
+			target.HasDepth = false;
+			target.DebugName = "irradiance.fill";
+
+			s_Data->IrradianceFillTarget = s_Data->Device->CreateRenderTarget(target);
+			if (!s_Data->IrradianceFillTarget)
+				return false;
+		}
+
+		if (!s_Data->IrradianceFillPipeline)
+		{
+			GraphicsPipelineDesc fill;
+			fill.Name = "Renderer3D.irradiancefill";
+			fill.Shader = s_Data->IrradianceFillShader;
+			fill.Topology = PrimitiveTopology::TriangleList;
+			fill.Rasterizer.Cull = CullMode::None;
+			fill.Blend = BlendPreset::Opaque;
+			fill.DepthStencil.DepthTestEnable = false;
+			fill.DepthStencil.DepthWriteEnable = false;
+			fill.ColorFormats = { Format::R8G8B8A8_UNORM };
+			fill.DepthFormat = Format::Undefined;
+
+			s_Data->IrradianceFillPipeline = s_Data->Device->CreatePipeline(fill);
+			s_Data->IrradianceFillSet = nullptr;
+		}
+		if (!s_Data->IrradianceFillPipeline)
+			return false;
+
+		if (!s_Data->IrradianceFillSet)
+		{
+			s_Data->IrradianceFillSet =
+				s_Data->Device->CreateResourceSet(s_Data->IrradianceFillPipeline, 3);
+		}
+		if (!s_Data->IrradianceFillSet)
+			return false;
+
+		for (int channel = 0; channel < 3; channel++)
+			s_Data->IrradianceFillSet->SetStorageImage(channel, volume->Channel(channel), 0);
+		s_Data->IrradianceFillSet->Commit();
+
+		struct FillParams
+		{
+			Vec4 Centre;
+			Vec4 Extents;
+			Vec4 Grid;
+			Vec4 Trace;
+		} params{};
+
+		params.Centre = Vec4(centre, 0.0f);
+		params.Extents = Vec4(extents, 0.0f);
+		params.Grid = Vec4((float)volume->Width(), (float)volume->Height(),
+						   (float)volume->Depth(), (float)Math::Clamp(rays, 1, 256));
+		// The counter the ray directions are hashed against. It moves per solve
+		// rather than per frame, so re-solving a field that did not change is
+		// not a way to make it flicker.
+		params.Trace = Vec4(reach, (float)s_Data->IrradianceFrame++, 0.0f, 0.0f);
+
+		RenderPassBeginInfo begin;
+		begin.Target = s_Data->IrradianceFillTarget.get();
+		begin.ClearColor = true;
+		begin.UseDepth = false;
+
+		cmd.BeginRenderPass(begin);
+		// Only the cells this field has, whatever the target grew to for a
+		// larger one: a fragment outside the grid discards, but not generating
+		// it at all is cheaper and says the intent.
+		Viewport viewport;
+		viewport.X = 0.0f;
+		viewport.Y = 0.0f;
+		viewport.Width = (float)width;
+		viewport.Height = (float)height;
+		cmd.SetViewport(viewport);
+
+		Rect2D scissor;
+		scissor.X = 0;
+		scissor.Y = 0;
+		scissor.Width = width;
+		scissor.Height = height;
+		cmd.SetScissor(scissor);
+
+		cmd.BindPipeline(s_Data->IrradianceFillPipeline);
+		cmd.BindResourceSet(0, slot.GiSet);
+		if (s_Data->Heap)
+			cmd.BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd.BindResourceSet(3, s_Data->IrradianceFillSet);
+		cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
+		cmd.Draw(3);
+		cmd.EndRenderPass();
+
+		return true;
 	}
 
 	void Renderer3D::SetProbeVolumes(const std::vector<ProbeVolume>& probes)

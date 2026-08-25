@@ -68,6 +68,19 @@ namespace RageV
 		static void SetIrradianceVolume(const RHI::Ref<IrradianceVolume>& volume,
 										const Vec3& centre, const Vec3& extents);
 
+		// **Solves a field**: one traced gather per cell, written straight into
+		// the volume's textures. Runs when a field is dirty and not otherwise,
+		// which is a scene loading and then only what invalidates one.
+		//
+		// Returns false when it could not run -- no rays on this device, the
+		// shader did not compile -- and a caller that gets false leaves the
+		// field holding whatever it had, which is the flat ambient a fresh one
+		// is created with.
+		static bool SolveIrradianceVolume(RHI::RHICommandList& cmd,
+										  const RHI::Ref<IrradianceVolume>& volume,
+										  const Vec3& centre, const Vec3& extents,
+										  int rays, float reach);
+
 		static void SetWireframe(bool enabled);
 
 		// Whether this frame recorded any blended draws, and the pass that

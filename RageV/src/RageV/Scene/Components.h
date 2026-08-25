@@ -571,11 +571,31 @@ namespace RageV
 		// silently stops being true.
 		bool Dirty = true;
 
+		// **Solve it again.** Registered, so a script can set it by name and
+		// the inspector shows a control, and consumed by the solve so it reads
+		// as a verb. The same shape the reflection probe's Recapture has, for
+		// the same reason: what the engine can detect automatically is a
+		// subset of what invalidates a stored answer, and the rest needs
+		// saying.
+		bool Recapture = false;
+
 		// What the current field was built for, so a change to any of it can
 		// raise Dirty without anyone having to remember to.
 		Vec3  BuiltCentre{ 0.0f };
 		Vec3  BuiltExtents{ 0.0f };
 		float BuiltSpacing = -1.0f;
+
+		// **And what it was lit by.** A field is a solved answer to a lighting
+		// question, so it stops being true the moment the lighting changes --
+		// and unlike a moved box, nothing about the volume itself says so.
+		//
+		// The showroom is the case that makes this concrete: it has two
+		// lighting modes on a switch, and flipping between them changes which
+		// lights are on and which fitting is emissive. A field solved under one
+		// mode and kept under the other lights the room from a scene that no
+		// longer exists -- the same failure as a stale probe, arriving through
+		// a different door.
+		uint64_t BuiltLighting = 0;
 	};
 
 	// Takes part in the physics simulation. Needs a ColliderComponent to have

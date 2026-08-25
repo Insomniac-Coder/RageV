@@ -2918,8 +2918,63 @@ namespace RageV
 		PackProbes(*cmd);
 	}
 
-	void Scene::UpdateIrradianceVolumes()
+	void Scene::SolvePendingIrradiance()
 	{
+		if (!m_PendingIrradiance.Volume || m_CapturingProbes)
+			return;
+
+		RHI::RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd)
+			return;
+
+		// Far enough that a cell in the middle of a room can see its far wall,
+		// derived from the box rather than guessed: a volume over a corridor
+		// and one over a stadium want different answers and neither wants a
+		// constant.
+		const float reach = Math::Max(Math::Length(m_PendingIrradiance.Extents) * 4.0f, 10.0f);
+
+		// Cleared only on success. A frame that could not solve -- no traced
+		// set yet, no rays on this device -- leaves the request standing, so
+		// the field is either solved or still asking, and never quietly
+		// holding the placeholder while believing itself done.
+		if (Renderer3D::SolveIrradianceVolume(*cmd, m_PendingIrradiance.Volume,
+											  m_PendingIrradiance.Centre,
+											  m_PendingIrradiance.Extents, 64, reach))
+		{
+			m_PendingIrradiance.Volume = nullptr;
+		}
+	}
+
+	void Scene::UpdateIrradianceVolumes(const LightList& lights)
+	{
+		// **What the field was solved under.** A stored answer to a lighting
+		// question stops being true when the lighting changes, and unlike a
+		// moved box nothing about the volume itself says so. The showroom makes
+		// it concrete: two lighting modes on a switch, and a field solved under
+		// one and kept under the other lights the room from a scene that is no
+		// longer there.
+		//
+		// The lights and the environment, as one number. Both are plain data,
+		// so a byte hash catches every field of them -- an intensity, a colour,
+		// a cone angle, a light appearing or disappearing -- without anyone
+		// having to list which ones matter.
+		//
+		// It does not catch a moved wall or an edited material, and that is the
+		// same line the reflection probe draws: those cost more to detect than
+		// they save, and Recapture is the verb for them.
+		uint64_t lighting = 1469598103934665603ull;
+		auto mix = [&lighting](const void* data, size_t size)
+		{
+			const unsigned char* bytes = reinterpret_cast<const unsigned char*>(data);
+			for (size_t i = 0; i < size; i++)
+			{
+				lighting ^= bytes[i];
+				lighting *= 1099511628211ull;
+			}
+		};
+		if (!lights.empty())
+			mix(lights.data(), lights.size() * sizeof(LightRenderData));
+		mix(&m_Environment, sizeof(m_Environment));
 		auto view = m_Registry.GetView<TransformComponent, IrradianceVolumeComponent>();
 
 		// The first volume that has a field, and that is deliberate for now:
@@ -2962,11 +3017,14 @@ namespace RageV
 			// What the field was built for, checked the way the reflection
 			// probe's capture is: anything that changes the box changes which
 			// points were solved, so the answer stops applying.
-			if (volume.BuiltSpacing != spacing
+			if (volume.Recapture
+				|| volume.BuiltSpacing != spacing
+				|| volume.BuiltLighting != lighting
 				|| Math::Distance(volume.BuiltCentre, centre) > 1.0e-4f
 				|| Math::Distance(volume.BuiltExtents, extents) > 1.0e-4f)
 			{
 				volume.Dirty = true;
+				volume.Recapture = false;
 			}
 
 			if (!volume.Volume || volume.Volume->Width() != nx
@@ -3002,10 +3060,27 @@ namespace RageV
 				}
 				volume.Volume->Upload(cells);
 
+				// **And ask for it to be solved properly after EndScene.** The
+				// fill above is only what the field holds until the traced
+				// gather lands -- a flat constant is a poor answer but a
+				// defined one, and it means a field is never sampled while it
+				// holds whatever the allocator left behind.
+				//
+				// Not during a probe capture: that re-enters this whole path,
+				// and a field solved from inside a cube face is solved against
+				// a scene being rendered for a different purpose.
+				if (!m_CapturingProbes)
+				{
+					m_PendingIrradiance.Volume = volume.Volume;
+					m_PendingIrradiance.Centre = centre;
+					m_PendingIrradiance.Extents = extents;
+				}
+
 				volume.Dirty = false;
 				volume.BuiltCentre = centre;
 				volume.BuiltExtents = extents;
 				volume.BuiltSpacing = spacing;
+				volume.BuiltLighting = lighting;
 			}
 
 			Renderer3D::SetIrradianceVolume(volume.Volume, centre, extents);
@@ -3339,9 +3414,39 @@ namespace RageV
 			// offset is not the surface moving. Passed rather than read from
 			// the renderer, so a caller that did not jitter its camera cannot
 			// accidentally get the correction applied to it.
+			// **A field waiting from a previous frame, solved before anything
+			// opens a render pass.**
+			//
+			// It cannot go where it was first put -- after EndScene -- for two
+			// reasons that only validation says out loud: a render pass is
+			// already open there, and this begins one of its own; and the
+			// descriptor set it needs is not the lit pass's.
+			//
+			// So it runs here, on the request the *previous* frame left. One
+			// frame of latency on a field that is solved once and then held is
+			// not a cost worth engineering away, and the request stays pending
+			// until it actually runs -- so a first frame with no traced set yet
+			// defers rather than solving against nothing and calling it done.
+			// **Not yet called, and the reason is architectural.**
+			//
+			// The solve begins a render pass of its own, and there is nowhere
+			// inside OnRender to do that: OnRender *is* a render-graph pass's
+			// body, so a pass is already open at every point in it. Calling it
+			// here ends one this code does not own, and the indirect draws
+			// after it fail -- which validation says plainly and a driver
+			// might not.
+			//
+			// It belongs in FrameGraphBuilder as a pass of its own, ordered
+			// before the scene pass so a field is fresh for the frame that
+			// reads it. Everything else it needs is built and checked: the
+			// shader compiles, the projection is verified against the uniform
+			// case, the outputs bind, and the request survives until it can
+			// run. What is missing is the pass, and nothing else.
+			//   SolvePendingIrradiance();
+
 			// The irradiance field, before BeginScene for the same reason the
 			// probes are: the block that carries its bounds is uploaded there.
-			UpdateIrradianceVolumes();
+			UpdateIrradianceVolumes(lights);
 
 			// **Before BeginScene, because the scene block carries the probes
 			// now and BeginScene uploads it.** Two readers: the lit shader
@@ -3580,6 +3685,7 @@ namespace RageV
 			}
 
 			Renderer3D::EndScene();
+
 		}
 
 		// After the meshes. The depth test is what keeps the sky out of the

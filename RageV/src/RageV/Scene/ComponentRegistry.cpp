@@ -732,6 +732,13 @@ namespace
 						 "A volume dragged across a level would otherwise request a "
 						 "grid no memory budget survives, and would fail as an "
 						 "allocation error rather than as a coarser answer.")),
+				Field<&IrradianceVolumeComponent::Recapture>("Recapture",
+					Named("Solve again",
+						Tip("Solve the field again on the next frame. Moving or "
+							"resizing the volume already does this by itself, and so "
+							"does a change to the scene's lights -- but moving "
+							"geometry or editing a material does not, because "
+							"finding those precisely costs more than it saves."))),
 			};
 			Bind<IrradianceVolumeComponent>(desc);
 			s_Components.push_back(std::move(desc));

@@ -5,6 +5,7 @@
 #include "RageV/Physics/PhysicsWorld.h"
 #include "RageV/Renderer/Environment.h"
 #include "RageV/Renderer/GpuCull.h"
+#include "RageV/Renderer/IrradianceVolume.h"
 #include "RageV/Renderer/Light.h"
 #include "RageV/Renderer/PostSettings.h"
 #include "RageV/Renderer/ViewportGrid.h"
@@ -492,7 +493,23 @@ namespace RageV
 		// and records which slice each probe went to.
 		// Sizes, fills and hands over the scene's irradiance field. See
 		// IrradianceVolumeComponent.
-		void UpdateIrradianceVolumes();
+		void UpdateIrradianceVolumes(const LightList& lights);
+
+		// Runs a pending solve, if one can run yet. See PendingIrradiance.
+		void SolvePendingIrradiance();
+
+		// **A field waiting to be solved.** Sizing has to happen before
+		// BeginScene, because the block carrying the box's bounds is uploaded
+		// there; the solve has to happen after EndScene, because it traces and
+		// nothing it traces against exists until then. So the first half
+		// records what the second half should do.
+		struct PendingIrradiance
+		{
+			RHI::Ref<IrradianceVolume> Volume;
+			Vec3 Centre{ 0.0f };
+			Vec3 Extents{ 1.0f };
+		};
+		PendingIrradiance m_PendingIrradiance;
 
 		void PackProbes(RHI::RHICommandList& cmd);
 		// One subtree, top down. Returns whether this node's world matrix

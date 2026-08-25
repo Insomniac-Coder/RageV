@@ -76,9 +76,21 @@ namespace RageV
 			// and needs more range than eight bits, and four times finer than
 			// the difference anyone can see in a diffuse term.
 			desc.Format = Format::R16G16B16A16_SFLOAT;
-			// Sampled now; Storage as well because the fill that replaces the
-			// placeholder one is a compute pass writing straight into these.
-			desc.Usage = TextureUsage::Sampled | TextureUsage::Storage;
+			// **Sampled only, until there is a pass that writes them.**
+			//
+			// Storage was here first, on the reasoning that the solve writes
+			// straight into these. It is needed for that and it is wrong until
+			// then: a storage-capable image has its sampled descriptor written
+			// against VK_IMAGE_LAYOUT_GENERAL, while a CPU upload leaves it in
+			// SHADER_READ_ONLY_OPTIMAL, and every draw that reads it is then a
+			// layout mismatch. Validation says so plainly -- and said nothing
+			// at all until a scene actually contained a volume, which is the
+			// "a check that tests the path nothing ships is not a check"
+			// lesson arriving a second time.
+			//
+			// The solve adds Storage back together with the transitions that
+			// make it honest, because the two belong to each other.
+			desc.Usage = TextureUsage::Sampled;
 			desc.DebugName = kNames[i];
 
 			volume->m_Channels[i] = device.CreateTexture(desc);
