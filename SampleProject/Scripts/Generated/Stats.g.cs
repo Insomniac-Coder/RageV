@@ -11,18 +11,21 @@ public class Stats : Script
 	// The graph's variables. Fields rather than locals, because
 	// that is what makes them survive between one event and the next.
 	private string feat;
+	private float frameMs;
 	private bool shown;
 
 	public override void OnFrame(float deltaTime)
 	{
-		var value255 = "";
+		var value66 = (frameMs + (((deltaTime * 1000.0f) - frameMs) * 0.0500000007f));
+		var value261 = "";
 
+		frameMs = value66;
 		if (shown)
 		{
-			var target75 = Entity.FindByName("Stats Frame");
-			target75.Text = Text.Join(Text.Join(Text.FromNumber((deltaTime * 1000.0f), 2.0f), " ms      "), Text.Join(Text.FromNumber((1.0f / deltaTime), 0.0f), " FPS"));
-			var target84 = Entity.FindByName("Stats Mode");
-			target84.Text = Text.Join(Text.Join(Graphics.Api, "      "), RenderSettings.Get("AntiAliasing"));
+			var target81 = Entity.FindByName("Stats Frame");
+			target81.Text = Text.Join(Text.Join(Text.FromNumber(value66, 2.0f), " ms      "), Text.Join(Text.FromNumber((1000.0f / value66), 0.0f), " FPS"));
+			var target90 = Entity.FindByName("Stats Mode");
+			target90.Text = Text.Join(Text.Join(Graphics.Api, "      "), RenderSettings.Get("AntiAliasing"));
 			feat = "";
 			if (Graphics.IsActive("Shadows"))
 			{
@@ -48,8 +51,8 @@ public class Stats : Script
 			{
 				feat = Text.Join(feat, "VoxelGI  ");
 			}
-			var target140 = Entity.FindByName("Stats Render");
-			target140.Text = feat;
+			var target146 = Entity.FindByName("Stats Render");
+			target146.Text = feat;
 			feat = "";
 			if (Text.Same(RenderSettings.Get("BloomEnabled"), "true"))
 			{
@@ -95,19 +98,19 @@ public class Stats : Script
 			{
 				feat = Text.Join(feat, "Grain  ");
 			}
-			var target254 = Entity.FindByName("Stats Post");
-			target254.Text = feat;
+			var target260 = Entity.FindByName("Stats Post");
+			target260.Text = feat;
 		}
 		else
 		{
-			var target258 = Entity.FindByName("Stats Frame");
-			target258.Text = value255;
-			var target261 = Entity.FindByName("Stats Mode");
-			target261.Text = value255;
-			var target264 = Entity.FindByName("Stats Render");
-			target264.Text = value255;
-			var target267 = Entity.FindByName("Stats Post");
-			target267.Text = value255;
+			var target264 = Entity.FindByName("Stats Frame");
+			target264.Text = value261;
+			var target267 = Entity.FindByName("Stats Mode");
+			target267.Text = value261;
+			var target270 = Entity.FindByName("Stats Render");
+			target270.Text = value261;
+			var target273 = Entity.FindByName("Stats Post");
+			target273.Text = value261;
 		}
 	}
 

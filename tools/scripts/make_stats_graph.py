@@ -218,8 +218,10 @@ visibility(show_check, 1, "false", -140)
 # and because a number redrawn 60 times a second is redrawn often enough.
 live = g.node("GetFlag", -1150, 1400, "shown")
 live_branch = g.node("Branch", -880, 1340)
-g.link(on_frame, 0, live_branch, 0)
 g.link(live, 0, live_branch, 1)
+# The exec edge into this branch is wired further down, *through* the frame-time
+# smoothing, so the average keeps running while the overlay is hidden and is
+# already settled the moment F3 shows it.
 
 
 def label(entity_name, x, y):
@@ -241,15 +243,66 @@ thousand = g.number(x - 240, y + 320, 1000)
 g.link(on_frame, 1, delta_ms, 0)
 g.link(thousand, 0, delta_ms, 1)
 
+# --- and smoothed, because a raw frame time is unreadable --------------------
+#
+# The number this used to show was the frame's own delta, redrawn every frame.
+# At 60 to 200 frames a second that is not a reading, it is a flicker: the two
+# decimals never hold still long enough to be read, and the eye takes an
+# average anyway -- badly, and with an unwarranted impression of instability.
+#
+# An exponential moving average, in the graph, in five nodes:
+#
+#     smoothed = smoothed + (this frame - smoothed) * 0.05
+#
+# 0.05 is the same constant FrameProfiler uses for the editor's own panel
+# (kSmoothing), so the overlay and the panel agree about how fast a number is
+# allowed to move. It settles in about twenty frames, which is a third of a
+# second -- slow enough to read, fast enough that a real change still registers
+# as one.
+#
+# **On the exec path rather than inside the visibility branch**, so the average
+# keeps running while the overlay is hidden. Otherwise the first second after
+# pressing F3 shows a number climbing from zero, and FPS -- which divides by it
+# -- shows infinity before it shows anything true.
+smooth_prev = g.node("GetNumber", x - 240, y + 60, "frameMs")
+smooth_diff = g.node("Subtract", x, y + 60)
+g.link(delta_ms, 0, smooth_diff, 0)
+g.link(smooth_prev, 0, smooth_diff, 1)
+
+smooth_rate = g.number(x - 240, y + 140, 0.05)
+smooth_step = g.node("Multiply", x + 220, y + 60)
+g.link(smooth_diff, 0, smooth_step, 0)
+g.link(smooth_rate, 0, smooth_step, 1)
+
+smoothed = g.node("Add", x + 440, y + 60)
+g.link(smooth_prev, 0, smoothed, 0)
+g.link(smooth_step, 0, smoothed, 1)
+
+smooth_set = g.node("SetNumber", x + 660, y - 60, "frameMs")
+g.link(smoothed, 0, smooth_set, 1)
+
+# The frame's exec edge: update the average, then decide whether to draw.
+g.link(on_frame, 0, smooth_set, 0)
+g.link(smooth_set, 0, live_branch, 0)
+
 ms_text = g.node("NumberToText", x + 220, y + 260)
 ms_places = g.number(x, y + 380, 2)
-g.link(delta_ms, 0, ms_text, 0)
+g.link(smoothed, 0, ms_text, 0)
 g.link(ms_places, 0, ms_text, 1)
 
+# **From the smoothed millisecond, not from the raw delta.** Deriving them
+# independently let the two disagree -- 16.60 ms beside 62 FPS, which is
+# 16.13 -- and a reader who checks one against the other finds the overlay
+# lying to them about one of the two.
 fps = g.node("Divide", x, y + 460)
-one = g.number(x - 240, y + 440, 1)
-g.link(one, 0, fps, 0)
-g.link(on_frame, 1, fps, 1)
+# **Its own thousand, not the one above.** Sharing that literal put its
+# declaration after the smoothing expression that reads it -- the generator
+# emits a pure node where its last consumer needs it, and the smoothing is now
+# the first thing on the frame's exec path. A second literal is one node; a
+# generator that hoists by dependency is not.
+fps_thousand = g.number(x - 240, y + 520, 1000)
+g.link(fps_thousand, 0, fps, 0)
+g.link(smoothed, 0, fps, 1)
 
 fps_text = g.node("NumberToText", x + 220, y + 460)
 fps_places = g.number(x, y + 560, 0)
