@@ -1697,11 +1697,34 @@ namespace RageV
 			&& !Renderer3D::HasPendingIrradianceSolve())
 		{
 			m_WarnedMissingBake = true;
-			RV_CORE_WARN("Global illumination is set to Baked, but this scene has {0}. "
-						 "Falling back to Realtime -- add an Irradiance Volume and run a "
-						 "bake to use the stored answer.",
-						 m_FieldVolumes == 0 ? "no irradiance volume in it"
-											 : "no baked field on disk for its volumes");
+			// **Named, so it can be acted on.** "No baked field" is true and
+			// useless: the file is named after the lighting, so the thing an
+			// author needs to know is which lighting this is and where it was
+			// looked for. A bake made under different lighting -- the editor
+			// showing a scene whose mode script has not run, say -- is a
+			// present file with the wrong name, and that reads identically to
+			// no file at all unless the message says otherwise.
+			if (m_FieldVolumes == 0)
+			{
+				RV_CORE_WARN("Global illumination is set to Baked, but this scene has no "
+							 "Irradiance Volume in it. Falling back to Realtime.");
+			}
+			else
+			{
+				RV_CORE_WARN("Global illumination is set to Baked, but no bake matches "
+							 "this scene's current lighting. Falling back to Realtime."
+							 " wanted {0}, in {1}",
+							 FieldBakePath(m_FieldLighting).filename().string(),
+							 BakedLighting::DirectoryFor(m_SourcePath).string());
+
+				std::error_code code;
+				for (const auto& entry : std::filesystem::directory_iterator(
+						 BakedLighting::DirectoryFor(m_SourcePath), code))
+				{
+					if (entry.path().extension() == ".rvfield")
+						RV_CORE_WARN("    found:  {0}", entry.path().filename().string());
+				}
+			}
 		}
 
 		// Realtime is what happens unless Baked can actually be honoured.
