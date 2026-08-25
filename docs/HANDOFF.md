@@ -1,9 +1,58 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-23.
+**Read this first.** Updated 2026-08-25.
 
-Work on **`main`**, which is clean and **ahead of what has been pushed**.
-Pushing is the owner's.
+Work on **`main`**, which is clean and **pushed** as of 2026-08-25.
+
+---
+
+## Start here: the baking sub-roadmap is the next job
+
+**2026-08-25.** The owner has read the plan and wants the work started next
+session. Full reasoning, costs and pitfalls are in
+[BAKING-ROADMAP.md](BAKING-ROADMAP.md); this is only the order.
+
+```
+done   0.  probe hygiene            Cached rename, invalidation, Recapture verb
+       1.  reflection probes to disk        S/M    needs BC6H in the cooker first
+       2.  irradiance volume, runtime-filled M/L   ** the one that matters **
+       3.  the baker + volume on disk        M     2 is its only oracle
+       never 4. lightmaps                    XL    revisit only if 3 leaves a gap
+```
+
+**Start at 2, not 1.** Probes-to-disk is a load-time win; the irradiance volume
+is the thing that changes how *dynamic objects* look, which is the actual
+complaint. 1 is listed first only because it is smaller, and its prerequisite
+(BC6H) is independently useful. If only one of them ever gets built, build 2.
+
+**3 comes after 2 and not before, on purpose.** The RHI has no readback
+(`ENGINE-NOTES.md:1005-1012`), so nothing can inspect a baked result's
+contents. The runtime-converged volume is the only oracle a bake can be checked
+against — "baked and runtime agree within tolerance on the same scene" is the
+whole test, and it exists only if 2 was built first.
+
+**Three things that will bite, in the order they will bite:**
+
+1. **Light leaking.** A volume cell inside a wall interpolates into a room it
+   cannot see. Every shipping implementation needs a visibility term (DDGI's
+   chebyshev test, or per-cell occlusion). Budget it as part of the feature.
+2. **Nowhere to put a per-object value.** `InstanceData` is exactly 256 bytes
+   under a `static_assert` and every `Indices` lane is spoken for (x bone base,
+   y probe, z material, w previous bone base). Per-object needs the struct
+   widened; per-fragment needs the volume reachable from the lit shader, and
+   set 0's bindings 0-17 are all used. The scene UBO took the probe table for
+   exactly this reason and is the likely home again.
+3. **`BeginScene` opens with `s_Data->Scene = {}`** (`Renderer3D.cpp:1650`).
+   Anything written into the scene block before it is silently zeroed. This
+   cost an hour on the probe table: the rows vanished, every fragment blended
+   between fifteen empty probes, and the showroom went 35% darker with the
+   cause nowhere near the shader that had just changed.
+
+**And one thing already checked, so nobody re-checks it.** The question of
+whether the pasted-on look was really the skinned motion-vector bug rather than
+missing bounce is settled: it was not. The fix moved 0.22% of the frame, about
+two per cent of the character's own pixels. `BAKING-ROADMAP.md` §4 has the
+measurement. The volume is still worth building.
 
 ---
 
