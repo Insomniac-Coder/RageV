@@ -108,6 +108,24 @@ layout(std430, set = 3, binding = 3) readonly buffer GiEmitterCdfBlock
 	float u_EmitterCdf[];
 };
 
+// **Where the reflection probes stand.** A bounce needs an ambient term for
+// the surface it lands on, and which probe answers for a point is a question
+// about that *point* -- not about the pixel that cast the ray, and not about
+// the sky.
+struct GiProbe
+{
+	// xyz where it stands, w how far it reaches, both in world units.
+	vec4 Placement;
+	// x its slot in the irradiance cube array; the rest unused.
+	vec4 Slot;
+};
+
+layout(std430, set = 3, binding = 4) readonly buffer GiProbeBlock
+{
+	GiProbe u_Probes[];
+};
+
+
 layout(push_constant) uniform GiParams
 {
 	float NearClip;
@@ -125,7 +143,10 @@ layout(push_constant) uniform GiParams
 	// scene with no emissive geometry, or more of it than the cap allows,
 	// still gets correct light and merely a noisier estimate of it.
 	float Emitters;
-	float _pad1;
+	// How many rows of u_Probes are real. Zero means every hit stands on the
+	// sky, which is both the fallback and what a probe capture must use --
+	// a capture reflects the sky, never another probe.
+	float Probes;
 
 	// The camera-to-world rotation as three rows, and where the camera is:
 	// what carries a reconstructed point out into the world the rays are cast
@@ -135,6 +156,34 @@ layout(push_constant) uniform GiParams
 	vec4 CameraRow2;
 	vec4 CameraPosition;
 } u_Gi;
+
+// The nearest probe whose influence contains `position`, or the sky.
+//
+// The same rule Scene::ProbeSlotFor applies on the CPU for the lit pass, and
+// deliberately the same: an object and the bounce that lands on it must agree
+// about which probe lights that place, or the traced form disagrees with the
+// rasterised one about the same square metre of wall. Fifteen rows at most,
+// so a scan is the whole of it.
+float GiProbeSlotAt(vec3 position)
+{
+	const int count = clamp(int(u_Gi.Probes + 0.5), 0, 15);
+
+	float best = 0.0;          // the sky
+	float nearest = 1.0e30;
+
+	for (int i = 0; i < count; i++)
+	{
+		const vec4 placement = u_Probes[i].Placement;
+		const float distance = length(position - placement.xyz);
+		if (distance > placement.w || distance >= nearest)
+			continue;
+
+		nearest = distance;
+		best = u_Probes[i].Slot.x;
+	}
+
+	return best;
+}
 
 void main()
 {
@@ -422,24 +471,31 @@ void main()
 		if (first.Missed)
 			continue;
 
-		// **Probe slot 0, the sky, rather than the shading instance's own.**
-		// The in-shader version read v_Probe -- which probe the *receiving*
-		// object was assigned -- and a fullscreen pass has no instance to ask.
-		// Slot 0 is what an object with no probe of its own gets, and a hit is
-		// not the receiver anyway.
-		// Fetched only when nothing is going to overwrite it. The store was
+		// **The probe that answers for where the ray landed.**
+		//
+		// This used to be slot 0 -- the sky -- for every hit in every scene.
+		// The reasoning was that a fullscreen pass has no instance to ask, and
+		// that is true; the conclusion did not follow. Which probe lights a
+		// surface is a question about that surface's *position*, and the trace
+		// knows the position exactly. Indoors the old answer stood every
+		// bounce on sky irradiance, which is the one value a probe is placed
+		// to replace, so a room's bounce carried the outdoors into it.
+		//
+		// Fetched only when nothing is going to overwrite it: the store was
 		// live on the not-taken path, so the compiler could not sink it, and a
 		// two-bounce frame paid for an irradiance sample it discarded.
 		vec3 arriving;
 		if (bounces < 2)
-			arriving = ProbeIrradiance(first.Normal, 0.0);
+			arriving = ProbeIrradiance(first.Normal, GiProbeSlotAt(first.Position));
 		if (bounces >= 2)
 		{
 			seed += 0x68BC21EBu;
 			const vec3 onward = CosineDirection(first.Normal, seed);
 			TracedSurface second = TraceSurface(first.Position, first.Normal, onward, reach);
-			arriving = second.Missed ? second.Sky
-									 : ShadeTraced(second, ProbeIrradiance(second.Normal, 0.0));
+			arriving = second.Missed
+					 ? second.Sky
+					 : ShadeTraced(second, ProbeIrradiance(second.Normal,
+														   GiProbeSlotAt(second.Position)));
 		}
 
 		// **Emissive removed where the emitters answered for it**, and only

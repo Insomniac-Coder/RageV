@@ -73,6 +73,22 @@ namespace RageV
 	// looks inside it.
 	struct TextureStats;
 
+	// **Where a reflection probe stands, and how far it reaches.**
+	//
+	// Here rather than in Scene.h because two consumers need it and neither
+	// owns it: the scene picks a probe per object with this, and the traced
+	// bounce picks one per *hit* with the same rule. Those two answers have to
+	// be the same rule, and the surest way to keep them so is one type and one
+	// table.
+	struct ProbeVolume
+	{
+		Vec3 Position{ 0.0f };
+		float Influence = 0.0f;
+		// Index into the irradiance and environment cube arrays. Slot 0 is
+		// the sky, which is what a point inside no probe's influence gets.
+		uint32_t Slot = 0;
+	};
+
 	struct AreaEmitter
 	{
 		Vec3 Centre{ 0.0f };

@@ -549,12 +549,10 @@ namespace RageV
 		// probe's slot and an object's choice of slot have to be the same
 		// answer -- deriving them from two walks of the registry would agree
 		// until one of the walks grew a condition the other did not.
-		struct ProbeSlot
-		{
-			Vec3 Position{ 0.0f };
-			float Influence = 0.0f;
-			uint32_t Slot = 0;
-		};
+		// The renderer's type, not a second copy of it: the traced bounce
+		// selects a probe per hit from this same table, and two structs that
+		// had to agree would eventually not.
+		using ProbeSlot = ProbeVolume;
 		// Set by UpdateWorldTransforms, cleared by RefreshDrawList.
 		//
 		// **The flag is what makes calling Refresh from every render entry

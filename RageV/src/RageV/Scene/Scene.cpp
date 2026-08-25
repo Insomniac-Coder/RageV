@@ -3288,6 +3288,15 @@ namespace RageV
 			// working.
 			Renderer3D::SetAreaEmitters(m_Emitters);
 
+			// And where the probes stand, so the traced bounce can ask the
+			// same question about a hit that ProbeSlotFor asks about an
+			// object. Empty while capturing, which reproduces exactly what
+			// ProbeSlotFor does then: a capture reflects the sky, never
+			// another probe, or two probes facing each other capture each
+			// other one frame deeper every frame.
+			Renderer3D::SetProbeVolumes(m_CapturingProbes ? std::vector<ProbeSlot>{}
+														  : m_ProbeSlots);
+
 			// Everything the table does not hold: the skinned meshes, anything
 			// with too few indices to draw indexed, and -- when there is no
 			// cull pass -- all of it.

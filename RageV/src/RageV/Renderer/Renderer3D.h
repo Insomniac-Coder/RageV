@@ -50,6 +50,17 @@ namespace RageV
 		// refreshed in between (7bw).
 		static void SetAreaEmitters(const std::vector<AreaEmitter>& emitters);
 
+		// **Where the reflection probes stand**, so the traced bounce can pick
+		// one per hit instead of standing every hit on the sky.
+		//
+		// The lit pass resolves a probe per *object* on the CPU and ships the
+		// slot in its instance row; a fullscreen trace has no instance to ask,
+		// so it was passing slot 0 -- the sky -- as the ambient behind every
+		// bounce. Indoors that is the one answer a probe exists to replace.
+		// Pass an empty list to force the sky, which is what a probe capture
+		// itself must do: a capture reflects the sky, never another probe.
+		static void SetProbeVolumes(const std::vector<ProbeVolume>& probes);
+
 		static void SetWireframe(bool enabled);
 
 		// Whether this frame recorded any blended draws, and the pass that

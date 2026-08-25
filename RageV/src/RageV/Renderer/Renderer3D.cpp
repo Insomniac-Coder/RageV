@@ -379,6 +379,19 @@ namespace RageV
 			// per emitter because sixteen bindings would be sixteen
 			// descriptors for four kilobytes each.
 			std::vector<float> EmitterCdf;
+
+			// The probes the traced bounce may land inside, as the shader
+			// reads them. Mirrors GiProbe in rtgi_trace.rvshader, std430.
+			struct GpuProbe
+			{
+				// xyz where it stands, w how far it reaches.
+				Vec4 Placement{ 0.0f };
+				// x its slot in the irradiance array; the rest unused.
+				Vec4 Slot{ 0.0f };
+			};
+			static_assert(sizeof(GpuProbe) == 32,
+						  "Must match GiProbe in rtgi_trace.rvshader");
+			std::vector<GpuProbe> Probes;
 			Format           GiTargetColor = Format::Undefined;
 			Ref<RHISampler>  PointSampler;
 			Format TargetColor = Format::R8G8B8A8_UNORM;
@@ -438,6 +451,8 @@ namespace RageV
 				// own set rather than set 0, which four other shaders reflect
 				// and which the comment on GiInputs is about.
 				Ref<RHIBuffer> GiEmitters;
+				uint32_t GiProbeCapacity = 0;
+				Ref<RHIBuffer> GiProbes;
 				uint32_t GiEmitterCdfCapacity = 0;
 				Ref<RHIBuffer> GiEmitterCdf;
 				uint32_t GiEmitterCapacity = 0;
@@ -1123,6 +1138,29 @@ namespace RageV
 											(uint64_t)cdfCount * sizeof(float));
 		}
 
+		// The probe placements, for the same reason and by the same rules: at
+		// least one row so a declared binding is never left unwritten.
+		const uint32_t probeRows = Math::Max((uint32_t)s_Data->Probes.size(), 1u);
+		if (EnsureInstanceBuffer(slot.GiProbes, slot.GiProbeCapacity, probeRows,
+								 sizeof(Renderer3DData::GpuProbe), "Renderer3D.giprobes"))
+		{
+			if (s_Data->Probes.empty())
+			{
+				const Renderer3DData::GpuProbe none{};
+				slot.GiProbes->Upload(&none, sizeof(none));
+			}
+			else
+			{
+				slot.GiProbes->Upload(s_Data->Probes.data(),
+									  (uint64_t)s_Data->Probes.size()
+										  * sizeof(Renderer3DData::GpuProbe));
+			}
+
+			slot.GiInputs->SetStorageBuffer(4, slot.GiProbes, 0,
+											(uint64_t)probeRows
+												* sizeof(Renderer3DData::GpuProbe));
+		}
+
 		slot.GiInputs->Commit();
 
 		struct GiParams
@@ -1131,7 +1169,10 @@ namespace RageV
 			// Pad0 is the emitter count now. Kept in the padding rather than
 			// appended, so the block stays the size every other trace pass's
 			// does and nothing about the layout moves.
-			float FlipY, Rays, Emitters, Pad1;
+			// Pad1 is the probe count now, taken the same way Emitters took
+			// Pad0: in the padding, so the block stays the size every other
+			// trace pass's is.
+			float FlipY, Rays, Emitters, Probes;
 			Vec4  CameraRow0, CameraRow1, CameraRow2, CameraPosition;
 		} params{};
 
@@ -1145,6 +1186,7 @@ namespace RageV
 		params.FlipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
 		params.Rays = (float)Math::Clamp(rays, 1, 32);
 		params.Emitters = (float)s_Data->Emitters.size();
+		params.Probes = (float)s_Data->Probes.size();
 
 		// The camera transform is the view's inverse; the rotation part of an
 		// inverse is the transpose, so the camera's rows are the view's
@@ -1279,6 +1321,28 @@ namespace RageV
 		s_Data->TargetIndirect = indirect;
 		s_Data->TargetDepth = depth;
 		s_Data->PipelineDirty = true;
+	}
+
+	void Renderer3D::SetProbeVolumes(const std::vector<ProbeVolume>& probes)
+	{
+		if (!s_Data)
+			return;
+
+		s_Data->Probes.clear();
+		s_Data->Probes.reserve(probes.size());
+
+		for (const ProbeVolume& probe : probes)
+		{
+			// A probe with no reach selects nothing, and uploading it would
+			// only make the shader's scan longer for a row that can never win.
+			if (probe.Influence <= 0.0f)
+				continue;
+
+			Renderer3DData::GpuProbe row;
+			row.Placement = Vec4(probe.Position, probe.Influence);
+			row.Slot = Vec4((float)probe.Slot, 0.0f, 0.0f, 0.0f);
+			s_Data->Probes.push_back(row);
+		}
 	}
 
 	void Renderer3D::SetAreaEmitters(const std::vector<AreaEmitter>& emitters)
