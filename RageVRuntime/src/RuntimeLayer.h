@@ -66,6 +66,8 @@ private:
 	uint32_t m_Width = 0;
 	uint32_t m_Height = 0;
 	bool m_Ready = false;
+	// How long a forced bake has had nothing left to store. See OnUpdate.
+	uint32_t m_BakeSettledFrames = 0;
 
 	// Which scene was opened, carried from OnLoad so OnLoaded can name it in
 	// the one line a shipped game logs about starting.

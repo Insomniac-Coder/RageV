@@ -20,7 +20,9 @@
 #include <sstream>
 
 #include <cstring>
+#include "RageV/Core/EngineConfig.h"
 #include "RageV/Renderer/Renderer.h"
+#include "RageV/Renderer/Renderer3D.h"
 
 namespace RageV::Managed
 {
@@ -961,7 +963,45 @@ namespace RageV::Managed
 			if (key == "SSR")              return f.ScreenSpaceReflections ? 1 : 0;
 			if (key == "SSGI")             return f.ScreenSpaceGlobalIllumination ? 1 : 0;
 			if (key == "AmbientOcclusion") return f.AmbientOcclusion ? 1 : 0;
+
+			// **Whether the last frame's indirect light came off disk.** It
+			// belongs here rather than beside IsBakingLighting for the reason
+			// this whole call exists: it is what the frame *did*, not what was
+			// asked for. A scene set to Baked with no file for its current
+			// lighting answers 0, which is the honest report and the one a
+			// bake sweep needs -- a script walking a scene's lightings has to
+			// know when the one it is standing in has actually landed, and a
+			// fixed frame count is a guess that is wrong on both sides: too
+			// long for a small field, far too short for a fine one.
+			//
+			// **The file, not the frame.** Asking the renderer whether it is
+			// *reading* a baked field answers no whenever the GI source is set
+			// to Realtime -- which is the normal state of a scene somebody is
+			// about to bake for the first time. A sweep waiting on that waits
+			// forever, and the second lighting never gets a file. The scene's
+			// own answer is "a field exists and it came off disk", which is
+			// the question being asked and is true either way.
+			if (key == "BakedGI")
+				return (s_Scene && s_Scene->HasBakedIrradiance()) ? 1 : 0;
+			// **Everything a bake can store for this lighting has been
+			// stored** -- both flavours of the field and every cached probe.
+			// This is what a bake sweep waits for before switching lightings:
+			// "BakedGI" alone says the *active* flavour landed, which since
+			// the flavour split is true while the other file is still being
+			// solved, and a sweep that moves on then leaves it unmade.
+			if (key == "BakedLightingSettled")
+				return (s_Scene && s_Scene->BakedLightingSettled()) ? 1 : 0;
 			return -1;
+		}
+
+		// **Not a renderer feature**, which is why it is its own entry rather
+		// than another name in IsFeatureActive: that answers what the last
+		// frame drew, and this answers what the *process* was started to do.
+		// It is decided by `--bake=on` before a window exists and never
+		// changes, and a shipped game never has it on.
+		int32_t __cdecl IsBakingLighting()
+		{
+			return EngineConfig::Get().BakeLighting ? 1 : 0;
 		}
 
 		int32_t __cdecl GetRenderSetting(const char* name, char* buffer, int32_t capacity)
@@ -1066,6 +1106,7 @@ namespace RageV::Managed
 			api.IsUIButtonHovered = &IsUIButtonHovered;
 			api.GetGraphicsApi = &GetGraphicsApi;
 			api.IsFeatureActive = &IsFeatureActive;
+			api.IsBakingLighting = &IsBakingLighting;
 			return api;
 		}
 	}

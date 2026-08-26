@@ -154,6 +154,36 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	if (!m_Ready)
 		return;
 
+	// **A forced bake run ends itself when there is nothing left to store.**
+	//
+	// `--bake=force` exists to produce files -- the editor's Bake button runs
+	// exactly this, as a child process -- and a producer that keeps rendering
+	// after the last file lands is a producer somebody has to watch and kill.
+	// Settled has to *hold*, not merely happen: a script sweeping a scene's
+	// lightings (the showroom's mode pill) drops it back to false when it
+	// switches, and the hold is what keeps the run alive across that gap.
+	// Two seconds of frames is far past any sweep's switch and costs nothing.
+	//
+	// Not when a screenshot was asked for -- that run is a measurement and
+	// its frame numbers are its protocol. A benchmark ceiling still applies
+	// as the backstop for a scene that can never settle (a light animating
+	// changes the lighting every frame, and no bake can ever match it).
+	if (EngineConfig::Get().ForceLightingBake && m_Scene
+		&& EngineConfig::Get().ScreenshotPath.empty())
+	{
+		if (m_Scene->BakedLightingSettled())
+			m_BakeSettledFrames++;
+		else
+			m_BakeSettledFrames = 0;
+
+		if (m_BakeSettledFrames == 120)
+		{
+			RV_INFO("Bake complete; exiting.");
+			Application::Get().Close();
+			return;
+		}
+	}
+
 	// A rolling average rather than the instantaneous value, which is
 	// unreadable at any frame rate worth having.
 	m_FrameTimeAccum += ts.GetSeconds() * 1000.0f;

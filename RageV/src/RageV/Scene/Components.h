@@ -305,6 +305,12 @@ namespace RageV
 		// every frame after it completes.
 		bool Baked = false;
 
+		// Whether the stored cube has been looked for. One look per probe per
+		// scene: the lookup needs the lighting hash, which does not exist on
+		// the frame a scene loads, and a probe with no file on disk must not
+		// re-ask every frame forever.
+		bool AdoptChecked = false;
+
 		ReflectionProbeComponent() = default;
 		ReflectionProbeComponent(const ReflectionProbeComponent&) = default;
 	};
@@ -553,6 +559,34 @@ namespace RageV
 	// numbers.
 	struct IrradianceVolumeComponent
 	{
+		// **The box, in metres, half-extents -- and it is the component's own.**
+		//
+		// It was the transform's scale, which is the wrong place for it twice
+		// over. A scale is a property of a *thing being drawn*: it multiplies a
+		// mesh, it composes down a hierarchy, and a gizmo drags it. A volume has
+		// no mesh, so the scale meant nothing except here -- and a volume
+		// parented to anything inherited its parent's scale and silently
+		// changed size. The transform now does what it does everywhere else,
+		// which is say where the box is and which way it is turned.
+		//
+		// Half-extents rather than a size, matching every other box in the
+		// engine (ColliderComponent::HalfExtents, the emitter's spawn box, the
+		// debug renderer's own DrawBox).
+		Vec3 Extents{ 5.0f, 2.0f, 5.0f };
+
+		// **Fit the box to the scene instead of authoring it** -- the same
+		// road as Unity's Global probe volumes, and the answer to the trap a
+		// hand-drawn box carries: geometry outside it gets no baked light at
+		// all, and the boundary shows as a line across whatever crosses it.
+		// On, the box is the union of every static mesh's world bounds,
+		// snapped outward to the cell grid so sub-cell jitter cannot rename
+		// a bake; the transform and Extents are ignored while it is on.
+		// Off by default, deliberately: a hand-adjusted box is a legitimate
+		// choice, not a mistake to be corrected. Skinned meshes and terrain
+		// are excluded from the fit -- scenes built around either should
+		// author the box by hand.
+		bool AutoFit = false;
+
 		// Metres between samples. The grid is derived from this and the box's
 		// world size, so a bigger room costs more cells rather than coarser
 		// ones -- which is the behaviour that surprises nobody.
@@ -563,6 +597,31 @@ namespace RageV
 		// survives, and the failure would arrive as an allocation error rather
 		// than as a coarser answer.
 		int MaxResolution = 32;
+
+		// **How many times the solve goes over the grid, and how many rays a
+		// cell spends each time.** Both are bake-time cost and nothing else: a
+		// solved field is read by one fetch however it was made, which is the
+		// entire argument for baking.
+		//
+		// **Passes are bounces.** The solve runs with feedback -- each
+		// sweep's rays read the previous sweep's completed field at their
+		// hits (Jacobi: the solve writes one texture and samples the other,
+		// swapped per sweep), so a pass past the first is a bounce and the
+		// half-and-half blend converges the store on the full multi-bounce
+		// answer. Both flavour files currently carry that same content, by
+		// the owner's ruling that the screen flavour chase the voxel stack's
+		// level -- the multi-bounce field is the brightest honest content
+		// there is (see Scene::UpdateIrradianceVolumes). The feedback was
+		// once disabled for amplifying leaks; it is safe now because the
+		// solve's read always honours the stored visibility, and the
+		// sealed-room fixtures gate it.
+		//
+		// Eight passes is visually converged for ordinary albedos; the default
+		// leans higher because bake time is the cheap currency here and every
+		// extra pass buys both convergence and noise. More rays take out the
+		// cell-scale mottling interpolation would otherwise spread.
+		int Passes = 8;
+		int RaysPerCell = 512;
 
 		// **No texture here, and that is the design.** A volume component asks
 		// for coverage and density; the *scene* composes every such request

@@ -46,6 +46,19 @@ namespace RageV
 		// first that asks. A second set of cascades is four more scene renders
 		// for a light that, in almost every scene, is a fill.
 		bool CastShadows = true;
+
+		// **Whether this light is part of the baked lighting** -- the
+		// mobility split every baking engine carries (Unity's Baked/Realtime
+		// modes, Unreal's Static/Movable). On, the light contributes to the
+		// solve and any change to it names a different bake. Off, the light
+		// is a realtime light: it renders direct light and shadows exactly
+		// as before, but the lighting hash skips it entirely -- so a script
+		// can flip it on and off without invalidating a single file -- and
+		// the solve does not see it, so its own bounce is simply absent from
+		// baked GI, which for a headlight or a flashlight nobody has ever
+		// noticed. On by default so every existing scene keeps its hash and
+		// its bakes.
+		bool IsBaked = true;
 	};
 
 	// One emissive surface, as a rectangle a traced bounce can aim at.
@@ -146,6 +159,9 @@ namespace RageV
 		float OuterCone = 30.0f;
 		Light::LightType Type = Light::LightType::Directional;
 		bool CastShadows = false;
+		// See Light::IsBaked: hashed into the lighting only when set, and the
+		// solve shades hits with this light only when set.
+		bool IsBaked = true;
 	};
 
 	using LightList = std::vector<LightRenderData>;

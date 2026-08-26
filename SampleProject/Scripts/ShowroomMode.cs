@@ -123,6 +123,38 @@ public class ShowroomMode : Script
 	[HideInEditor] private bool m_Hovered;
 	[HideInEditor] private bool m_Ready;
 
+	// **A bake run visits both modes, because only this script can reach the
+	// second one.**
+	//
+	// Indirect light is baked one file per *lighting*, keyed on the lights
+	// themselves, and mode 2's lighting does not exist anywhere until this has
+	// applied it. So a baker left to itself captures the mode the scene opens
+	// in and nothing else, and pressing the pill at runtime -- in the editor,
+	// in the standalone runtime, in a packaged game -- lands on a lighting with
+	// no file, falls back to realtime GI and says so in the log. That warning
+	// is the symptom; the missing state is the cause, and this is the only
+	// place that knows there are two.
+	//
+	// Costs nothing outside a bake: `Graphics.IsBakingLighting` is false in
+	// every build a player or an author ever runs.
+	[HideInEditor] private bool m_Baking;
+	[HideInEditor] private int m_BakeFrames;
+	[HideInEditor] private int m_BakeReadyFrames;
+	[HideInEditor] private bool m_BakeSwitched;
+	[HideInEditor] private bool m_BakeSwept;
+
+	// **Waited for, not counted.** The first version held each mode for a fixed
+	// 180 frames, which is a guess that is wrong in both directions: far too
+	// long for a coarse field, and nowhere near enough for a fine one -- a
+	// 46x17x72 grid at 512 rays a cell solves over about two thousand frames,
+	// and the sweep moved on halfway through and left the first mode unbaked.
+	//
+	// `Graphics.IsActive("BakedGI")` is the renderer saying the last frame read
+	// a field off disk, which is exactly "this mode has landed". The counters
+	// below are only a floor and a ceiling around that answer.
+	private const int BakeSettleFrames = 20;
+	private const int BakeGiveUpFrames = 20000;
+
 	// How many more frames the probe stays Realtime. **A count, not a flag,
 	// and that distinction was a defect**: a flag set in OnCreate and cleared
 	// in the first OnFrame can be consumed without a render ever seeing it --
@@ -162,6 +194,11 @@ public class ShowroomMode : Script
 		m_Ready = true;
 		m_Studio = StartMode != 2;
 
+		m_Baking = Graphics.IsBakingLighting;
+		if (m_Baking)
+			Log.Info("ShowroomMode: baking. Holding this mode, then the other, "
+					 + "so both lightings get a file.");
+
 		// The scene is authored in mode 1, so opening in it is already the
 		// state on disk and this writes the same numbers back. Applied anyway:
 		// a default that is only correct because the file happens to agree
@@ -187,6 +224,55 @@ public class ShowroomMode : Script
 	{
 		if (!m_Ready)
 			return;
+
+		// The bake sweep, through Toggle rather than beside it. That is the
+		// point: the file this leaves behind is keyed on the lighting the
+		// *button* produces, so it is the one a press at runtime asks for. A
+		// second path that set the same values would be a second thing to keep
+		// identical, and a hash is unforgiving about "almost".
+		if (m_Baking && !m_BakeSwept)
+		{
+			m_BakeFrames++;
+
+			// Held until the scene reports everything a bake can store for
+			// this lighting has been stored -- both flavours of the field and
+			// the probes -- and then a moment longer: the report is per frame,
+			// and one frame of it is not a state that has finished settling.
+			// "BakedGI" alone is not enough since the flavour split: it says
+			// the active flavour landed, which is true while the other file
+			// is still being solved, and switching then leaves it unmade.
+			if (Graphics.IsActive("BakedLightingSettled"))
+				m_BakeReadyFrames++;
+			else
+				m_BakeReadyFrames = 0;
+
+			bool ready = m_BakeReadyFrames >= BakeSettleFrames;
+
+			// The ceiling is a backstop, not a schedule. It fires when a mode
+			// simply cannot be baked -- no volume, a light that moves every
+			// frame -- and saying so beats hanging in the first mode forever.
+			if (!ready && m_BakeFrames > BakeGiveUpFrames)
+			{
+				Log.Warn("ShowroomMode: this mode never reported a baked field. "
+						 + "Moving on so the other mode still gets one.");
+				ready = true;
+			}
+
+			if (ready && !m_BakeSwitched)
+			{
+				m_BakeSwitched = true;
+				m_BakeFrames = 0;
+				m_BakeReadyFrames = 0;
+				Log.Info("ShowroomMode: first mode is baked; switching for the second.");
+				Toggle();
+			}
+			else if (ready && m_BakeSwitched)
+			{
+				m_BakeSwept = true;
+				Log.Info("ShowroomMode: both modes are baked. The files beside the "
+						 + "scene are now one per mode.");
+			}
+		}
 
 		// The probe has had its frames: put it back to Cached, where it costs
 		// nothing until the next press.

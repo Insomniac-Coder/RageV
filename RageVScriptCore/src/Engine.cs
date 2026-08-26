@@ -988,6 +988,41 @@ public static unsafe class Graphics
 			};
 		}
 	}
+
+	/// <summary>Whether this run was started to produce lighting bakes.</summary>
+	/// <remarks>
+	/// <para>
+	/// True only under <c>--bake=on</c>. A player's copy of a game never has
+	/// it on, and neither does an ordinary editor session — so anything behind
+	/// this is invisible to everyone except whoever is baking.
+	/// </para>
+	/// <para>
+	/// <b>What it is for: a scene that owns more than one lighting.</b> Indirect
+	/// light is baked per lighting, keyed on the lights themselves, and a
+	/// lighting a script puts the scene into does not exist until the script
+	/// has put it there. So a baker left alone can only ever capture the state
+	/// the scene opens in, and every other state falls back to realtime at
+	/// runtime and reports a bake file it cannot find. A script that owns those
+	/// states walks them here, and one bake run leaves one file per state:
+	/// </para>
+	/// <code>
+	/// public override void OnFrame(float dt)
+	/// {
+	///     if (!Graphics.IsBakingLighting || m_Swept)
+	///         return;
+	///
+	///     // Long enough for the field to settle and solve under each.
+	///     if (++m_Frames == 120) Toggle();
+	///     else if (m_Frames >= 240) m_Swept = true;
+	/// }
+	/// </code>
+	/// <para>
+	/// Walk the states, and nothing else. It is not a quality dial and not a
+	/// way to tell a scene it is being rendered offline.
+	/// </para>
+	/// </remarks>
+	public static bool IsBakingLighting =>
+		Native.IsReady && Native.Api.IsBakingLighting() != 0;
 }
 
 /// <summary>Turning values into text, for anything that displays them.</summary>

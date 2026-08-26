@@ -385,6 +385,17 @@ namespace RageV
 		// for it, and never as a side effect of running the game.
 		bool         BakeLighting = false;
 
+		// **And do it again even where a file already matches** (`--bake=force`).
+		//
+		// The two are different requests. `on` produces what a scene is
+		// missing, so it loads a bake whose stamp still fits and writes
+		// nothing -- which is what makes it cheap to leave on. `force` is the
+		// command-line half of the inspector's Bake button: the stamp covers
+		// the box, the grid and the lights, and *not* the geometry or the
+		// materials, so after a wall moves the only thing that knows the stored
+		// answer is stale is the person who moved it.
+		bool         ForceLightingBake = false;
+
 		// Whether to open an audio device. Off means the engine still tracks
 		// every sound it would have played and simply plays none of them, which
 		// is the same path a machine with no output device takes -- so turning

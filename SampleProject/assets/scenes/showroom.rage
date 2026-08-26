@@ -1,4 +1,4 @@
-Scene: The showroom
+﻿Scene: The showroom
 Version: 6
 Environment:
   AmbientColor: [0.5, 0.54, 0.62]
@@ -527,6 +527,7 @@ Entities:
       InnerCone: 15
       OuterCone: 30
       CastShadows: false
+      IsBaked: false
   - EntityID: 17043282302990482894
     TagComponent:
       Tag: Headlamp Beam Right
@@ -542,6 +543,7 @@ Entities:
       InnerCone: 15
       OuterCone: 30
       CastShadows: false
+      IsBaked: false
   - EntityID: 16933430478517993665
     TagComponent:
       Tag: Tail Glow Left
@@ -557,6 +559,7 @@ Entities:
       InnerCone: 22
       OuterCone: 46
       CastShadows: false
+      IsBaked: false
   - EntityID: 11454287864178063394
     TagComponent:
       Tag: Tail Glow Right
@@ -572,6 +575,7 @@ Entities:
       InnerCone: 22
       OuterCone: 46
       CastShadows: false
+      IsBaked: false
   - EntityID: 14459092172172403445
     TagComponent:
       Tag: Bay Floor
@@ -6481,8 +6485,11 @@ Entities:
     TransformComponent:
       Position: [0, 1.85, 0.75]
       Rotation: [0, 0, 0]
-      Scale: [11.2, 3.8, 17.6]
+      Scale: [1, 1, 1]
     IrradianceVolumeComponent:
-      Spacing: 0.75
-      MaxResolution: 48
+      Extents: [5.6, 1.9, 8.8]
+      Spacing: 0.25
+      MaxResolution: 96
+      Passes: 16
+      RaysPerCell: 2048
       Recapture: false

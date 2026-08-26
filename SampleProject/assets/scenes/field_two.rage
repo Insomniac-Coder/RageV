@@ -154,8 +154,9 @@ Entities:
     TransformComponent:
       Position: [-4.5, 2, 0]
       Rotation: [0, 0, 0]
-      Scale: [9, 4, 12]
+      Scale: [1, 1, 1]
     IrradianceVolumeComponent:
+      Extents: [4.5, 2, 6]
       Spacing: 1
       MaxResolution: 24
       Recapture: false
@@ -165,8 +166,9 @@ Entities:
     TransformComponent:
       Position: [4.5, 2, 0]
       Rotation: [0, 0, 0]
-      Scale: [9, 4, 12]
+      Scale: [1, 1, 1]
     IrradianceVolumeComponent:
+      Extents: [4.5, 2, 6]
       Spacing: 1
       MaxResolution: 24
       Recapture: false

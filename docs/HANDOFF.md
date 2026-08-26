@@ -2,11 +2,244 @@
 
 **Read this first.** Updated 2026-08-26.
 
-Work on **`main`**, which is clean and **pushed** as of 2026-08-26 (`86979e6`).
+Work on **`main`**. Pushed through `9293f16` (2026-08-26); the baked-lighting
+and frame-counter fixes below are **in the working tree and not yet committed**.
 
 ---
 
-## Start here: lighting is baked now, and what that does not yet cover
+## Start here: baked GI is rebuilt, eye-approved, and a pair of flavours
+
+**2026-08-26, later the same day. The rebuild the section below asked for
+is DONE and the owner passed both results by eye.** Full account:
+ENGINE-NOTES 7cw. The shape of the product now:
+
+- **Baked means baked, both dropdowns.** A Baked source that can be
+  honoured drops the whole indirect chain (traced bounce, gather, voxel)
+  and the lit pass reads the field per pixel. The hybrid is deleted.
+- **A bake is a PAIR of files per lighting** -- `_rt` and `_ss`,
+  loaded by whichever GI form is active. **Both currently carry the same
+  multi-bounce field**: the ss flavour began as a converged single bounce
+  matching the gather, and the owner then ruled it must chase the *voxel*
+  stack's level, which measures 4.08 mean levels ABOVE a two-bounce
+  reference on the fixture (the cones' own bias) -- the multi-bounce
+  field is the brightest honest content, so one solve runs and the store
+  writes it under both names. The pair machinery (naming, per-flavour
+  loader, settled bookkeeping) stands for the day they diverge again.
+  Old unsuffixed files are ignored. `BakedLightingSettled` is a script
+  IsActive key and holds only when both files stand; ShowroomMode waits
+  on it. NOTE: this also means the ss path now carries the rt flavour's
+  sealed-room residue (open item 1) -- the single-bounce ss was exactly
+  0.00 there.
+- **The solver is Jacobi**: IrradianceVolume carries a swap pair
+  (`SolveTarget`/`FlipSolve`); sweeps read the previous sweep's completed
+  field. Blend 1.0 then 0.5. Ray budget 1M/frame; passes clamp 64; the
+  editor never solves (child process does).
+- **The three defects the eye test found, all fixed** (7cw): volume
+  coverage (the authored box MUST cover everything visible -- the
+  fixture's "sharp vertical line" was the box edge crossing a 16 m wall),
+  box-proportional edge fade (now one cell wide), and a two-cell solve pad
+  so geometry authored ON the box boundary reads full strength.
+- **Acceptance was per-pixel diff images, owner's eye as judge.** Scalar
+  means are banned as verdicts (owner said so twice). diffmap.py /
+  signedmap.py patterns are described in the memory file; red = baked
+  darker = bad, green = surplus = usually fine.
+- **`Light::IsBaked` ("Is Baked" in the inspector, default true)**: off =
+  realtime light -- direct and shadows as always, excluded from the
+  lighting hash AND from the solve's hit shading (GpuLight.Params.w under
+  RV_IRRADIANCE_FILL), so toggling it never invalidates a bake and its
+  bounce is absent from baked GI. The showroom's four car lamps are
+  flagged; the light switch no longer causes a realtime fallback.
+- **`IrradianceVolumeComponent::AutoFit` ("Auto Fit", default off)**: the
+  box becomes the union of the static meshes' world bounds, snapped
+  outward to the cell grid; transform and Extents are ignored while on
+  (Extents hides in the inspector). Skinned meshes and terrain are
+  excluded -- author by hand there. Off by default because a hand-drawn
+  box is a choice, not a mistake (owner's ruling). The editor overlay
+  draws the DERIVED box (Scene::GetAutoFitBox), never a re-derivation.
+- **Probe cubes ship as BC6H** -- a file format, not a texture format:
+  BakedLighting encodes on Write (mode-11 single-partition, the right
+  tool for smooth radiance) and decodes on Read, so every caller still
+  meets raw RGBA16F and old uncompressed files load by their header's
+  word. 12,288 KB -> 1,536 KB per cube (8:1); parity vs uncompressed
+  measured at x12 diff gain: black except pixel speckle on the car's
+  mirror highlights. Format::BC6H_UFLOAT exists in the RHI enum with
+  both backend mappings for the day a probe samples it natively.
+
+### NEXT SESSION'S JOB, owner-set 2026-08-26: the on-plane-cell defects
+
+The one open quality item is really one mechanism with two faces, and it
+is the next session's whole task:
+
+1. **Sealed-room leak residue**: 3.2 mean levels at 1 m cells under the
+   multi-bounce field (a pitch-black room reads faintly grey; the
+   point-light room reads 8.4). The carrier is MEASURED, not guessed:
+   cells sitting exactly on grid-coincident surfaces trace half their
+   rays from inside geometry, oscillate around the backface death
+   threshold between sweeps, and feed a whisper of the lit side into the
+   feedback loop.
+2. **The divider's thin-edge bright strip** on the GI fixture -- the
+   same cells, seen from the other side: a survivor on the plane stores
+   a poison mix of both sides and the thin face reads over-bright.
+
+The named fix is the APV/DDGI **virtual offset** (lift trace origins off
+surfaces before casting). It was implemented once and measured MIXED --
+point-light room 8.4 -> 0.2 (outright fix), sun-lit rooms 3.2 -> 15.6
+(worse: waking the on-floor cell layer from dead to alive changes which
+cells anchor the reads above it) -- and reverted with the data in 7cw.
+The rebuild must treat the lift and the alive/dead/visibility rules as
+ONE design, not a bolt-on: decide what a lifted cell's backface count
+means, which mask a lifted cell publishes, and gate on all four
+sealed-room fixtures plus the divider strip. At 3 m cells the reader
+leaks regardless (68 levels; a half-cell bias is 1.5 m against 0.2 m
+walls) -- out of envelope, document spacing guidance rather than chase
+it.
+3. **The voxel-bias fork, ruled 2026-08-26**: the owner chose to leave
+   baked at the physically-correct level (option 3) -- no fudge factor.
+   Voxel realtime runs measurably hot (4.08 mean levels above a 2-bounce
+   reference on the fixture, its cones' own bias); calibrating it down
+   toward truth -- where baked already sits, so the two would then match
+   for free -- is deferred work for its own session.
+4. The `.rvprobe` size decision: per-lighting cubes are 12.5 MB each.
+   BC6H in the cooker, or stop persisting probe cubes.
+5. An auto-fit "Global" volume mode (Unity-APV-style) so under-coverage
+   becomes impossible instead of an authoring trap.
+
+### What this session fixed that the plan stands on (all verified)
+
+- **The committed bakes were files of zeros** -- every pre-2026-08-26
+  "baked" number was fiction, which is how the quality gap stayed hidden.
+  Bake ordering, per-lighting probe files, the never-executed probe adopt,
+  and the play-vs-edit brightness jump are fixed (7cp, 7cs).
+- **Realtime is pure**: the field binds only for a Baked source (or while
+  baking). A stale bake cannot silently bend a Realtime render.
+- **The editor's black wedge was RTAO self-intersection at small render
+  heights** -- fixed engine-wide with a slope-proportional ray-origin lift,
+  free at full resolution (7cu). It was never the baked system.
+- **The Bake button is a non-blocking child process** teeing into the Build
+  Log; forced bake runs end themselves when everything is stored (7cv).
+- The measurement protocol that produced every number above is in 7ct;
+  reuse it. Traps that cost time this session: `--rt-ao=half` and project
+  `RayTracedGlobalIllumination: Half` both coerce to OFF (there is no
+  half-res GI rung); a bake on OpenGL writes zeros; staged shaders reset on
+  every build; mode 2 is reachable without baking by sed'ing the scene's
+  `StartMode: 1` to 2; the runtime window clamps to 640 tall.
+
+### Also open
+
+- The `.rvprobe` size decision: per-lighting cubes are 12.5 MB each, ~31 MB
+  uncommitted for the showroom. BC6H in the cooker, or stop persisting
+  probe cubes.
+
+## What this session measured mode by mode (superseded as direction -- see Start here)
+
+**2026-08-26, end of day.** Everything below is in the working tree,
+**not committed**. scenetest is green on both backends (2393 Vulkan, 2346
+OpenGL). Full accounts: ENGINE-NOTES 7ct (the semantics), 7cu (the editor's
+black wedge), 7cv (the Bake button).
+
+**The one-line summary: the field was never the problem; the mode was.**
+A loaded bake used to drop the whole traced GI chain and answer indirect
+alone -- measured honestly against a two-bounce reference that is a 5.73
+where one traced bounce is a 1.48. The same field *terminating* the traced
+bounce scores **0.73, better than realtime, at the traced bounce's cost**.
+So that is what the sources mean now:
+
+- **RT GI on + source Baked -> the hybrid** (chain runs, rays terminate in
+  the field): two bounces of transport for one bounce of rays.
+- **RT GI off + post source Baked -> field-only**: the explicit perf mode
+  (showroom 3.9 ms vs 7.2), coarse at walls and contacts by construction.
+- **Realtime is pure**: the field binds only for a Baked source (or while
+  baking), so a stale bake can never silently bend a Realtime render.
+
+Showroom mode 2 -- the "26% of pixels wrong" scene -- is 2.98% under the
+hybrid. The old "0.3% apart at half the cost" claim was validated against
+bakes that were files of zeros; treat any pre-2026-08-26 baked-GI number
+with suspicion.
+
+**The editor's black wedge is fixed, and it was never the baked system.**
+RTAO's ray origin sat below its own floor wherever a texel of grazing
+surface spans more depth than the fixed lift -- true of any render shorter
+than ~500 px, which only the editor's Game panel ever is. The lift now adds
+the measured per-texel depth slope (rtao_compute.rvshader): 45.2% -> 0.0%
+black at panel size, 0.002 mean levels at 1600x900. The runtime never
+reproduced it because its window clamps to 640 tall.
+
+**The Bake button runs a child process** (Vulkan runtime, `--bake=force`,
+output teed to the Build Log, editor stays live) and a forced bake run
+exits itself once everything is stored -- the fixture bakes and quits in
+2.6 s. The editor reloads the files on completion.
+
+### Open, in the order worth taking
+
+1. **The `.rvprobe` repo-size decision.** Per-lighting probe cubes are
+   12.5 MB each and the showroom now has two, plus two 3 MB fields --
+   ~31 MB none of which is committed. Either BC6H in the cooker (the
+   documented prerequisite) or stop persisting probe cubes and accept six
+   cube faces at load.
+2. **Field-only's contact halos.** 5.73 on the fixture is dark halos at
+   cell scale; DDGI-style relocation or finer storage is the road if the
+   perf mode ever needs to look better than it does.
+3. **Hybrid costs +21% on the showroom** (7.2 -> 8.7 ms) -- the per-hit
+   field fetch across a heavy ray budget. Skipping the field on reflection
+   rays is the first thing to try if that ever matters.
+4. **`--rt-ao` CLI values silently coerce** -- `half` parsed as a bool once
+   during diagnosis; worth an explicit value list like the other ray flags.
+
+## Start here: both showroom modes are baked now, and two bakes that were doing nothing
+
+**2026-08-26.** Switching the showroom's lighting mode reported `no bake matches
+this scene's current lighting` -- in the editor, in the standalone runtime and
+in a game built with **Build Game**. Fixing it turned up three defects, only the
+first of which was the one being looked for. Full account in ENGINE-NOTES §7cp.
+
+1. **Mode 2 could not be baked at all.** A bake is one file per lighting, and
+   mode 2's lighting is applied by `ShowroomMode.cs` at runtime -- so it does
+   not exist until the script has run, and `--bake=on` only ever saw the mode
+   the scene opens in. **A scene knows its lightings and the baker does not**,
+   so the scene says: `Graphics.IsBakingLighting` (interop protocol 12) is true
+   only under `--bake=on`, and `ShowroomMode` holds each mode for 180 frames and
+   calls its own `Toggle` between them. One run, one file per mode.
+2. **A solve consumed inside a probe capture was never re-asked for.** The
+   capture runs before the main pass and re-enters the scene walk per cube face,
+   where a solve is refused -- and a script that changes the lighting dirties the
+   probe in the same breath, so *every* mode switch landed there. The field
+   stayed at zeros, and under `--bake=on` the zeros were written. The showroom's
+   committed mode-1 bake was 44 non-zero bytes in 156 896. Wanting a solve is
+   now state (`m_FieldSolveWanted`), and the bake refuses to write while it is
+   set.
+3. **`ReflectionProbe::Adopt` had never run.** It sat above the line that builds
+   the probe object, so it declined on its own null guard at load and was
+   unreachable after. Every bake wrote a 12.5 MB `.rvprobe` that no run read.
+
+**Where it stands:** `assets/baked/showroom/` holds a real field per mode, both
+ship in `content.pak`, and a mode switch in a packaged build loads its bake with
+no solve and no warning. 3.6 ms. Verified with `rvpack` and running the package
+-- **nothing short of that exercises the pak**.
+
+**To re-bake after touching the showroom's lights:**
+
+```
+build/bin/Release/RageVRuntime/RageVRuntime.exe --rhi=vulkan \
+  --project=<repo>/SampleProject --scene=scenes/showroom.rage \
+  --bake=on --render-defaults=off --benchmark=800 --vsync=off
+```
+
+Vulkan is not optional: **OpenGL solves nothing**, because the fill traces rays
+and there are none there. A bake run on OpenGL writes a file of zeros that every
+later run will load and trust. The staged runtime's `ragev.ini` says
+`rhi = opengl`, so pass `--rhi=vulkan` explicitly.
+
+### The Statistics panel's Renderer rows
+
+They read `155 mesh draws, 0 triangles, 0 culled` -- three true numbers, because
+a GPU-driven frame keeps its survivor counts in device memory. Triangles are now
+counted as *submitted* across every pass that counts a draw, each row says which
+half of the frame it describes, and the two quad rows are gone (nothing calls
+`Renderer2D::DrawQuad`, so they were structurally zero). ENGINE-NOTES §7cq.
+
+---
+
+## Lighting is baked, and what that does not yet cover
 
 **2026-08-26.** BAKING-ROADMAP items 1.2 and 1.3 are built and pushed
 (`c71234b`, `077f493`, `8083baa`, `86979e6`). Indirect light can be computed
@@ -29,8 +262,11 @@ both GI sources set to Baked:
 | realtime traced GI | 7.4 ms | 134 |
 | **baked** | **3.73 ms** | **267** |
 
-The traced bounce pass leaves the frame entirely and the two pictures are 0.5
-mean levels apart. On the GI corner, where indirect actually dominates, it is
+**Correction, 2026-08-26:** the "0.5 levels apart" half of this claim was
+measured against bakes that later turned out to be files of zeros, and the
+chain-dropping mode it describes scores 4x worse than realtime on the GI
+fixtures. The speed is real; the near-equal quality was not. See
+ENGINE-NOTES 7ct for the honest mode-by-mode table and what Baked means now. On the GI corner, where indirect actually dominates, it is
 0.83 ms against 1.62 and the pictures are 0.30% apart.
 
 ### How it fits together
@@ -70,12 +306,12 @@ mean levels apart. On the GI corner, where indirect actually dominates, it is
 2. **A Bake button and a variant list in the inspector.** Baking is CLI-only
    today and the files are named by hash, so an author cannot see which
    lightings are baked or make one without a terminal.
-3. **The showroom's mode 2 is not baked.** The mode is set by `ShowroomMode.cs`
-   at runtime, so baking it needs the editor (flip the pill, then bake) or a way
-   to set the mode from the command line.
-4. **Probe bakes are 12.5 MB each** at 512 faces and are deliberately *not*
-   committed. BC6H in the cooker is the documented prerequisite; field bakes are
-   150-670 KB and are in the repository.
+3. ~~**The showroom's mode 2 is not baked.**~~ **Done 2026-08-26** -- see
+   "Both showroom modes are baked now" below. A scene can walk its own lightings
+   during a bake run through `Graphics.IsBakingLighting`.
+4. **Probe bakes are 12.5 MB each** at 512 faces. The showroom's is committed;
+   BC6H in the cooker is still the prerequisite before this scales past one.
+   Field bakes are 150-670 KB and are in the repository.
 5. **Contact-scale bleed**, ~1.9% of pixels beyond 4 levels, concentrated on
    geometry edges. A grid cannot resolve it; nested volumes or per-surface
    storage can.

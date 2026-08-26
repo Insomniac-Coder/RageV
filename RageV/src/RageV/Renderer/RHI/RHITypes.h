@@ -68,6 +68,12 @@ namespace RageV::RHI
 		BC3_SRGB,
 		BC4_UNORM,
 		BC5_UNORM,
+		// HDR block compression, 16 bytes a 4x4 block, RGB only. Today it is
+		// a *file* format: BakedLighting stores probe cubes in it and decodes
+		// on load, so no texture is created with it yet -- but the backend
+		// mappings exist, so the day a probe samples it natively nothing
+		// below this enum has to move.
+		BC6H_UFLOAT,
 
 		D16_UNORM,
 		D32_SFLOAT,

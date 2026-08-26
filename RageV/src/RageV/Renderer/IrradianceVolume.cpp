@@ -106,6 +106,25 @@ namespace RageV
 							  x, y, z);
 				return nullptr;
 			}
+
+			// **And its swap partner, for the solve** (see SolveTarget). Same
+			// shape, same rule about layouts -- and zero-filled here for the
+			// same reason the front is zero-filled by the scene: its first use
+			// is a barrier that believes the texture has settled, and a
+			// texture never uploaded has not. Zeros are also the honest
+			// content -- "no sweep has written this yet".
+			desc.DebugName = "irradiance.field.solve";
+			volume->m_Solve = device.CreateTexture(desc);
+			if (!volume->m_Solve)
+			{
+				RV_CORE_ERROR("IrradianceVolume: could not create the solve half of a "
+							  "{0}x{1}x{2} volume", x, y, z);
+				return nullptr;
+			}
+
+			const std::vector<uint8_t> zeros(
+				(size_t)x * y * z * kTiles * 4 * sizeof(uint16_t), 0);
+			volume->m_Solve->Upload(zeros.data(), zeros.size());
 		}
 
 		SamplerDesc sampler;

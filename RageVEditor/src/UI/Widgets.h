@@ -1,5 +1,6 @@
 #pragma once
 #include "imgui.h"
+#include <functional>
 #include "RageV/Math/Math.h"
 #include "AssetIcons.h"
 
@@ -42,6 +43,8 @@
 // the control starts. A fixed column removes the raggedness, which is why
 // every professional inspector uses one and why this is a table rather than
 // text-then-widget.
+
+namespace RageV { class Scene; }
 
 namespace RageV::UI
 {
@@ -214,4 +217,40 @@ namespace RageV::UI
 					   ImU32 fill, float cut);
 	void ChamferedRectOutline(ImDrawList* draw, const ImVec2& min, const ImVec2& max,
 							  ImU32 colour, float cut, float thickness = 1.0f);
+
+	// **What a `Baked` GI source is actually doing**, drawn under whichever
+	// dropdown asked for it.
+	//
+	// There are two of those dropdowns -- the post profile's, for the
+	// rasterised gather, and the project's RT GI source, for the traced bounce
+	// -- and only one of them is in force at a time, because the traced form
+	// takes over when it is on and the rasterised control hides itself. So
+	// both call this and the scene answers for whichever is live: the renderer
+	// makes the decision once, in one place, and neither panel re-derives it.
+	//
+	// Draws nothing when Baked is being honoured, when it was not asked for,
+	// or during the settling window after a scene loads. Returns whether it
+	// drew. Null scene draws nothing.
+	//
+	// **It does not change the setting.** See the note at the call site in
+	// EditorLayer: a bake is a thing that arrives, and rewriting the author's
+	// intent to Realtime throws it away at the moment it becomes recoverable.
+	bool BakedGiNotice(Scene* scene);
+
+	// **How a Bake button actually bakes.**
+	//
+	// Two panels own a Bake button -- the Irradiance Volume block and the
+	// baked-GI notice -- and neither may block the editor for the minutes a
+	// fine field takes, so neither calls the scene directly. The editor
+	// installs a launcher here (a child runtime process, teeing into the
+	// Build Log); the buttons call whatever is installed, and fall back to
+	// the scene's own in-process request when nothing is -- which is what a
+	// tool embedding these widgets without an editor gets.
+	//
+	// `running` is the launcher's own answer to "is one still going", asked
+	// by the buttons to disable themselves; the scene's LightingBakePending
+	// only knows about in-process bakes.
+	void SetBakeLauncher(std::function<bool()> launch, std::function<bool()> running);
+	bool LaunchBake(Scene* scene);
+	bool BakeRunning(Scene* scene);
 }

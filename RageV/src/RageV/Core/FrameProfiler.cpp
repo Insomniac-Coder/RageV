@@ -741,8 +741,13 @@ namespace RageV
 		// runs have been compared as though they measured the same thing.
 		RV_CORE_INFO("[benchmark]   {0} area emitters, {1} with a per-texel aiming table",
 					 Renderer3D::GetAreaEmitterCount(), Renderer3D::GetAimedEmitterCount());
-		RV_CORE_INFO("[benchmark]   {0} mesh draws, {1} culled, {2} triangles",
-					 Renderer3D::GetDrawCallCount(), Renderer3D::GetCulledCount(),
-					 Renderer3D::GetTriangleCount());
+		// **Named for what they are**, because a GPU-driven frame can only
+		// report half of this: the draws exactly, and the triangles and the
+		// culling only as far as the CPU was involved. See the same three rows
+		// in the editor's Statistics panel.
+		RV_CORE_INFO("[benchmark]   {0} mesh draws ({1} indirect), {2} triangles "
+					 "submitted, {3} culled on the CPU",
+					 Renderer3D::GetDrawCallCount(), Renderer3D::GetIndirectDrawCount(),
+					 Renderer3D::GetTriangleCount(), Renderer3D::GetCulledCount());
 	}
 }

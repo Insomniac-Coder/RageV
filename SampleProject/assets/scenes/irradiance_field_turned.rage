@@ -109,8 +109,9 @@ Entities:
     TransformComponent:
       Position: [0, 2, 0]
       Rotation: [0, 0.6109, 0]
-      Scale: [11, 4, 11]
+      Scale: [1, 1, 1]
     IrradianceVolumeComponent:
+      Extents: [5.5, 2, 5.5]
       Spacing: 1
       MaxResolution: 16
       Recapture: false

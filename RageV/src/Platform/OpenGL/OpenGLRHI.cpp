@@ -44,6 +44,8 @@ namespace RageV::GL
 				case Format::BC3_SRGB:   return { GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT, 0, 0 };
 				case Format::BC4_UNORM:  return { GL_COMPRESSED_RED_RGTC1, 0, 0 };
 				case Format::BC5_UNORM:  return { GL_COMPRESSED_RG_RGTC2, 0, 0 };
+				// BPTC's HDR half, core since GL 4.2.
+				case Format::BC6H_UFLOAT: return { 0x8E8F /* GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT */, 0, 0 };
 				case Format::R8_UNORM:            return { GL_R8,      GL_RED,  GL_UNSIGNED_BYTE };
 				case Format::R8G8_UNORM:          return { GL_RG8,     GL_RG,   GL_UNSIGNED_BYTE };
 				case Format::R8G8B8A8_UNORM:      return { GL_RGBA8,   GL_RGBA, GL_UNSIGNED_BYTE };

@@ -13,7 +13,7 @@ Project:
     ShadowsEnabled: true
     RayTracing: true
     RayTracedReflections: High
-    RayTracedAmbientOcclusion: Half
+    RayTracedAmbientOcclusion: Full
     RayTracedGlobalIllumination: High
     RayTracedGiSource: Baked
     ShadowDistance: 40

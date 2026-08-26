@@ -1693,6 +1693,18 @@ namespace RageV
 		else
 			m_UnbakedFrames = 0;
 
+		// **The same answer the warning gives, for anything that has a screen.**
+		// Written every frame rather than once, because a bake can arrive --
+		// somebody presses Bake -- and a state that only ever goes one way
+		// would leave the editor showing a fallback that has stopped happening.
+		// It waits out the same settling window the warning does, so a scene
+		// does not open with a complaint about a bake that is still loading.
+		m_BakedGi = !wantsBaked      ? BakedGi::NotAsked
+				  : canBake          ? BakedGi::Honoured
+				  : m_UnbakedFrames <= 30 ? BakedGi::Settling
+				  : m_FieldVolumes == 0   ? BakedGi::NoVolume
+										  : BakedGi::NoBake;
+
 		if (wantsBaked && !canBake && m_UnbakedFrames > 30 && !m_WarnedMissingBake
 			&& !Renderer3D::HasPendingIrradianceSolve())
 		{
@@ -1714,7 +1726,8 @@ namespace RageV
 				RV_CORE_WARN("Global illumination is set to Baked, but no bake matches "
 							 "this scene's current lighting. Falling back to Realtime."
 							 " wanted {0}, in {1}",
-							 FieldBakePath(m_FieldLighting).filename().string(),
+							 FieldBakePath(m_FieldLighting, ActiveGiIsTraced())
+								 .filename().string(),
 							 BakedLighting::DirectoryFor(m_SourcePath).string());
 
 				std::error_code code;
@@ -1727,15 +1740,31 @@ namespace RageV
 			}
 		}
 
-		// Realtime is what happens unless Baked can actually be honoured.
-		Renderer3D::SetBakedIrradianceOnly(wantsBaked && canBake && m_FieldEvaluated);
-		Renderer3D::SetRayTracedGlobalIllumination(giDetail != RayDetail::Off);
-		// **And whether a bounce pays to respect what the field stored about
-		// what is in the way.** On the top rung of the same dial: it is the
-		// difference between a sealed room beside a lit one reading 3.4 levels
-		// of light it should not have and reading 0.06, and it costs about what
-		// a second traced bounce costs.
-		Renderer3D::SetIrradianceShadowing(giDetail == RayDetail::High);
+		// **Baked means baked, under both forms.** A source of Baked stops the
+		// frame computing indirect light -- the screen-space gather on the
+		// rasterised path, the traced bounce under the traced one -- and reads
+		// the stored field instead. The saving is the entire point of a bake:
+		// one-time compute, recreated per frame for the cost of a fetch.
+		//
+		// An earlier version kept the traced chain running under a Baked
+		// source, with the field terminating its rays. It rendered the best
+		// picture anything here has rendered and it cost MORE frame time than
+		// realtime -- which is exactly backwards for a bake, and the owner
+		// said so. What that chain added at runtime is now baked into the
+		// field itself: the solve's sweeps read the previous sweep's completed
+		// answer, so the stored field carries the multi-bounce transport
+		// (Renderer3D::SolvePendingIrradiance) and no frame ray is needed to
+		// recover it.
+		//
+		// Realtime is what happens unless Baked can actually be honoured --
+		// no volume, no matching bake, still solving -- and the scene says so
+		// rather than quietly obeying or ignoring: m_BakedGi above is what the
+		// editor's notice and both dropdowns read.
+		const bool fieldReady = canBake && m_FieldEvaluated;
+		const bool bakedHonoured = wantsBaked && fieldReady;
+		Renderer3D::SetBakedIrradianceOnly(bakedHonoured);
+		Renderer3D::SetRayTracedGlobalIllumination(giDetail != RayDetail::Off
+												   && !bakedHonoured);
 
 		RenderShadowMaps(camera, cameraTransform);
 
@@ -2206,6 +2235,7 @@ namespace RageV
 			{
 				m_CullSlots[i].InstanceBase = base;
 				m_CullMeshes[i].InstanceBase = base;
+				m_CullMeshes[i].InstanceCount = m_CullCounts[i];
 				base += m_CullCounts[i];
 			}
 
@@ -2231,6 +2261,7 @@ namespace RageV
 			{
 				m_BlendSlots[i].InstanceBase = base;
 				m_BlendMeshes[i].InstanceBase = base;
+				m_BlendMeshes[i].InstanceCount = m_BlendCounts[i];
 				base += m_BlendCounts[i];
 			}
 
@@ -2709,6 +2740,7 @@ namespace RageV
 			data.OuterCone = light.Light.OuterCone;
 			data.Type = light.Light.Type;
 			data.CastShadows = light.Light.CastShadows;
+			data.IsBaked = light.Light.IsBaked;
 
 			lights.push_back(data);
 		}
@@ -2934,8 +2966,58 @@ namespace RageV
 			const bool realtime = probe.Update == ProbeUpdate::Realtime;
 			const bool captured = probe.Probe && probe.Probe->IsComplete();
 
-			if (!realtime && captured && !probe.Dirty)
+			// **A finished cube that has never been stored is work a bake
+			// still owes**, even though there is nothing left to capture.
+			//
+			// A probe put to Realtime for a few frames and then back to Cached
+			// -- which is exactly how a script re-captures a room after
+			// changing its lighting -- comes out of that holding a good cube,
+			// not dirty, and never written: realtime probes are deliberately
+			// never stored, and by the time it is storable the test below has
+			// already decided there is nothing to do. So the bake sat waiting
+			// for a probe that had finished long before it started.
+			const bool storeable = captured && !realtime && !probe.Baked
+								&& !m_SourcePath.empty() && BakingLighting();
+
+			// **And a stored cube is worth one look, on the frame the lighting
+			// hash exists.**
+			//
+			// The hash names the file, and it is computed in the scene walk --
+			// which runs *after* this, later in the same frame. So on the first
+			// frame of a scene there is no hash yet and no file to look for;
+			// the probe captures as it always did, and this asks on the next
+			// frame, by which time the walk has run. `AdoptChecked` is what
+			// makes it one look rather than a reason to fall through this test
+			// every frame for the rest of the scene.
+			const bool adoptable = !realtime && !probe.AdoptChecked && !probe.Baked
+								&& m_FieldEvaluated && !ForcingBake()
+								&& !m_SourcePath.empty();
+
+			if (!realtime && captured && !probe.Dirty && !storeable && !adoptable)
 				continue;
+
+			// **The cube first, because a stored one needs somewhere to land.**
+			//
+			// This used to sit below the adopt, which made the adopt dead code
+			// and nothing said so. On the frame a scene loads there is no probe
+			// object yet, so the adopt's own `probe.Probe &&` guard declined;
+			// the probe was then built and captured all six faces; and on every
+			// frame after that the "already captured" test above returned
+			// before the adopt could be reached a second time. So a baked probe
+			// was written on every bake run and read on none of them -- the
+			// scene paid six cube faces at load exactly as it had before
+			// baking existed, and the file on disk was ballast.
+			//
+			// It fails silently in the direction that looks like success: the
+			// reflections are right, because a capture of the same room is what
+			// the file holds.
+			const uint32_t resolution = (uint32_t)Math::Clamp(probe.Resolution, 16, 1024);
+			if (!probe.Probe || probe.Probe->GetFaceSize() != resolution ||
+				probe.Probe->GetSamples() != Renderer::GetTargetSamples())
+			{
+				probe.Probe = std::make_shared<ReflectionProbe>(Renderer::GetDevice(), resolution);
+				probe.NextFace = 0;
+			}
 
 			// **A stored cube, if one was baked for this probe.**
 			//
@@ -2948,8 +3030,15 @@ namespace RageV
 			// The stamp carries where the probe is and what it was captured
 			// under, so a moved probe or changed lighting falls through to the
 			// capture below exactly as it would have without a file.
-			if (!realtime && !m_SourcePath.empty() && probe.Probe && cmd)
+			//
+			// **Not when a bake was asked for by hand**, on the same rule the
+			// field's load follows: a press means "make this one again", and
+			// adopting the file it is about to replace would make the button
+			// do nothing.
+			if (!realtime && !ForcingBake() && !m_SourcePath.empty() && probe.Probe && cmd
+				&& m_FieldEvaluated)
 			{
+				probe.AdoptChecked = true;
 				BakedLighting::Stamp wanted;
 				wanted.Centre = Vec3(transform.World[3]);
 				wanted.Extents = Vec3(probe.Influence);
@@ -2960,8 +3049,7 @@ namespace RageV
 				wanted.Lighting = environment;
 
 				const std::filesystem::path file =
-					BakedLighting::DirectoryFor(m_SourcePath) /
-					(std::to_string(Entity{ item, this }.GetUUID()) + ".rvprobe");
+					ProbeBakePath(Entity{ item, this }.GetUUID());
 
 				BakedLighting::Stamp stored;
 				std::vector<uint8_t> payload;
@@ -3007,14 +3095,6 @@ namespace RageV
 				probe.RateAccumulator = Math::FMod(probe.RateAccumulator, interval);
 			}
 
-			const uint32_t resolution = (uint32_t)Math::Clamp(probe.Resolution, 16, 1024);
-			if (!probe.Probe || probe.Probe->GetFaceSize() != resolution ||
-				probe.Probe->GetSamples() != Renderer::GetTargetSamples())
-			{
-				probe.Probe = std::make_shared<ReflectionProbe>(Renderer::GetDevice(), resolution);
-				probe.NextFace = 0;
-			}
-
 			// The first capture always does all six. Spreading it would only
 			// delay the moment anything can reflect at all, since an incomplete
 			// cube is not usable.
@@ -3039,8 +3119,29 @@ namespace RageV
 			// answer that. The rest are exactly what baking is for -- fifteen
 			// probes is ninety cube faces of scene render before the first
 			// frame otherwise.
-			if (EngineConfig::Get().BakeLighting && !probe.Baked && !m_SourcePath.empty()
-				&& !realtime && probe.Probe->IsComplete())
+			// **Not before the field it is photographing exists.**
+			//
+			// A probe capture renders the scene, and the scene reads the
+			// irradiance field -- so a cube stored while that field is still
+			// the zeros it was created with is a photograph of a room with no
+			// bounced light in it. The two are mutually dependent, because the
+			// field's own solve traces against the probe, so a bake has to take
+			// them in order: capture, solve, capture again, store.
+			//
+			// It failed silently and looked like something else entirely. The
+			// stored cube was written a minute before the field finished
+			// solving; the editor adopted it and drew the showroom seven levels
+			// too dark, and hitting Play re-captured the probe and the room
+			// jumped. Which reads as "Play changes the lighting", not as "the
+			// bake wrote its two halves in the wrong order".
+			const bool fieldSettledForProbe =
+				m_FieldEvaluated &&
+				(m_FieldVolumes == 0
+				 || (m_FieldBaked && m_FieldBakedAlt && !m_FieldSolveWanted
+					 && !Renderer3D::HasPendingIrradianceSolve()));
+
+			if (BakingLighting() && !probe.Baked && !m_SourcePath.empty()
+				&& !realtime && probe.Probe->IsComplete() && fieldSettledForProbe)
 			{
 				BakedLighting::Stamp stamp;
 				stamp.Centre = Vec3(transform.World[3]);
@@ -3052,8 +3153,7 @@ namespace RageV
 				stamp.Lighting = environment;
 
 				const std::filesystem::path file =
-					BakedLighting::DirectoryFor(m_SourcePath) /
-					(std::to_string(Entity{ item, this }.GetUUID()) + ".rvprobe");
+					ProbeBakePath(Entity{ item, this }.GetUUID());
 
 				if (BakedLighting::Write(Renderer::GetDevice(), file,
 										 BakedLighting::Kind::ReflectionProbe,
@@ -3080,6 +3180,19 @@ namespace RageV
 
 	void Scene::UpdateIrradianceVolumes(const LightList& lights)
 	{
+		// **`--bake=force`, which is the Bake button by another route.**
+		//
+		// Asked once per scene, here rather than at load, because a request
+		// needs the volumes and probes to exist and this is the first place
+		// that is guaranteed. Not during a probe capture: the request dirties
+		// every probe, and dirtying one from inside its own capture is a loop.
+		if (EngineConfig::Get().ForceLightingBake && !m_ForcedBakeAsked
+			&& !m_CapturingProbes && !m_SourcePath.empty())
+		{
+			m_ForcedBakeAsked = true;
+			RequestLightingBake();
+		}
+
 		// **What the field was solved under.** A stored answer to a lighting
 		// question stops being true when the lighting changes, and unlike a
 		// moved box nothing about the volume itself says so. The showroom makes
@@ -3139,6 +3252,15 @@ namespace RageV
 
 		for (const LightRenderData& light : lights)
 		{
+			// **A realtime light is not part of the lighting.** It renders as
+			// it always did, but the bake neither stores its bounce nor keys a
+			// file on it -- so a script flipping a headlamp on and off keeps
+			// reading the same .rvfield instead of demanding a bake per
+			// combination of switches. Skipped wholesale: a light the solve
+			// cannot see must not be able to rename the file either.
+			if (!light.IsBaked)
+				continue;
+
 			mixVec(light.Position);
 			mixVec(light.Direction);
 			mixVec(light.Color);
@@ -3194,22 +3316,104 @@ namespace RageV
 		Mat3 singleRotation(1.0f);
 		float spacing = 0.0f;
 		int cap = 2;
+		// **The most any volume asked for**, on the same rule the spacing takes
+		// the finest: a composed field is one solve, so a volume that wanted
+		// four bounces and one that wanted eight get eight. Erring towards the
+		// more expensive answer is right for a cost paid once, in a baker.
+		int passes = 1;
+		int rays = 64;
 		bool recapture = false;
+
+		// Stale the moment no volume is fitting itself; set again below when
+		// one is. The editor's overlay reads it to draw the derived box.
+		m_AutoFitValid = false;
+
+		// The union of the scene's static mesh bounds, computed once and only
+		// if some volume asked to fit itself to it.
+		bool autoTried = false;
+		bool autoValid = false;
+		Vec3 autoMin(0.0f), autoMax(0.0f);
+		auto sceneBounds = [&]()
+		{
+			if (autoTried)
+				return autoValid;
+			autoTried = true;
+
+			auto meshes = m_Registry.GetView<TransformComponent, MeshComponent>();
+			for (auto& entry : meshes)
+			{
+				auto [meshTransform, mesh] =
+					meshes.Get<TransformComponent, MeshComponent>(entry);
+				RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh);
+				// Skinned meshes move; a fit that follows them renames the
+				// bake every animation frame. See the component's comment.
+				if (!resolved || resolved->IsSkinned())
+					continue;
+
+				Vec3 meshCentre, meshExtents;
+				Frustum::TransformBounds(resolved->GetBounds(), meshTransform.World,
+										 meshCentre, meshExtents);
+				if (!autoValid)
+				{
+					autoMin = meshCentre - meshExtents;
+					autoMax = meshCentre + meshExtents;
+					autoValid = true;
+				}
+				else
+				{
+					autoMin = Math::Min(autoMin, meshCentre - meshExtents);
+					autoMax = Math::Max(autoMax, meshCentre + meshExtents);
+				}
+			}
+			return autoValid;
+		};
 
 		for (auto& item : view)
 		{
 			auto [transform, volume] =
 				view.Get<TransformComponent, IrradianceVolumeComponent>(item);
 
-			// A unit box, scaled, turned and placed by the transform. The three
-			// columns are the box's own axes: their lengths are what it spans,
-			// their directions which way it faces.
-			const Vec3 centre = Vec3(transform.World[3]);
-			const Vec3 axisX = Vec3(transform.World[0]);
-			const Vec3 axisY = Vec3(transform.World[1]);
-			const Vec3 axisZ = Vec3(transform.World[2]);
-			const Vec3 extents = Vec3(Math::Length(axisX), Math::Length(axisY),
-									  Math::Length(axisZ)) * 0.5f;
+			// **The box is the component's; the transform places and turns it.**
+			//
+			// The three columns of the world matrix are the box's axes. Their
+			// *directions* are which way it faces and are all that is taken
+			// from them -- their lengths are the transform's scale, which a
+			// volume deliberately ignores now: a scale multiplies a mesh, a
+			// volume has no mesh, and a volume parented to something scaled
+			// used to change size with nothing having touched it.
+			//
+			// Normalised rather than assumed unit: a scaled parent still puts
+			// length in these columns even though nothing here wants it.
+			Vec3 centre = Vec3(transform.World[3]);
+			Vec3 extents = Math::Max(volume.Extents, Vec3(0.05f));
+			Vec3 axisX = Math::Normalize(Vec3(transform.World[0])) * extents.x * 2.0f;
+			Vec3 axisY = Math::Normalize(Vec3(transform.World[1])) * extents.y * 2.0f;
+			Vec3 axisZ = Math::Normalize(Vec3(transform.World[2])) * extents.z * 2.0f;
+
+			// **Or the box fits itself to the scene** (see the component): the
+			// union of the static meshes' world bounds, axis-aligned, snapped
+			// OUTWARD to the cell grid so geometry drifting within a cell
+			// cannot move the box and rename the bake. The transform and the
+			// authored Extents are ignored while the flag is on; an empty
+			// scene keeps the authored box rather than fitting to nothing.
+			if (volume.AutoFit && sceneBounds())
+			{
+				const float snap = Math::Max(volume.Spacing, 0.05f);
+				const Vec3 lo(Math::Floor(autoMin.x / snap) * snap,
+							  Math::Floor(autoMin.y / snap) * snap,
+							  Math::Floor(autoMin.z / snap) * snap);
+				const Vec3 hi(Math::Ceil(autoMax.x / snap) * snap,
+							  Math::Ceil(autoMax.y / snap) * snap,
+							  Math::Ceil(autoMax.z / snap) * snap);
+				centre = (lo + hi) * 0.5f;
+				extents = Math::Max((hi - lo) * 0.5f, Vec3(0.05f));
+				axisX = Vec3(extents.x * 2.0f, 0.0f, 0.0f);
+				axisY = Vec3(0.0f, extents.y * 2.0f, 0.0f);
+				axisZ = Vec3(0.0f, 0.0f, extents.z * 2.0f);
+				m_AutoFitCentre = centre;
+				m_AutoFitExtents = extents;
+				m_AutoFitValid = true;
+			}
 
 			// The world box a turned volume occupies: its half-extents along
 			// each world axis are how far its own axes reach along that one,
@@ -3242,6 +3446,8 @@ namespace RageV
 			}
 
 			cap = Math::Max(cap, Math::Clamp(volume.MaxResolution, 2, 256));
+			passes = Math::Max(passes, Math::Clamp(volume.Passes, 1, 64));
+			rays = Math::Max(rays, Math::Clamp(volume.RaysPerCell, 64, 4096));
 			recapture |= volume.Recapture;
 			volume.Recapture = false;
 			count++;
@@ -3255,15 +3461,35 @@ namespace RageV
 			m_FieldVolumes = 0;
 			m_FieldUsable = false;
 			m_FieldEvaluated = true;
+			m_FieldSolveWanted = false;   // nothing left to solve it into
 			Renderer3D::SetIrradianceVolume(nullptr, Vec3(0.0f), Vec3(1.0f), Mat3(1.0f));
 			return;
 		}
 
 		const bool composed = count > 1;
 		const Vec3 centre = composed ? (unionMin + unionMax) * 0.5f : single;
-		const Vec3 extents = composed ? Math::Max((unionMax - unionMin) * 0.5f, Vec3(0.05f))
-									  : singleExtents;
+		const Vec3 authored = composed
+								  ? Math::Max((unionMax - unionMin) * 0.5f, Vec3(0.05f))
+								  : singleExtents;
 		const Mat3 rotation = composed ? Mat3(1.0f) : singleRotation;
+
+		// **Solved two cells past what was authored, on every side.**
+		//
+		// A room's volume is drawn to the room -- that is how everyone
+		// authors one -- which puts the walls *at* the box faces, and very
+		// often a skirting's thickness past them. The reader fades the field
+		// out over its last cell to hide the boundary step, and it biases
+		// its sample only half a cell off a surface: a wall on the authored
+		// boundary would therefore always sit inside the fade band and read
+		// a fraction of its stored light. Measured before this existed:
+		// every wall of the GI fixture at 40-60% strength, darker the finer
+		// the bake -- and with a single cell of pad, the fixture's walls
+		// (10 cm past the authored box) still read faded at their far ends.
+		// Two cells put the fade band clear of anything an author drew the
+		// box around, at the price of two rings of cells -- and the pad is
+		// spacing-sized, so the coverage an author sees is the coverage they
+		// get at any density.
+		const Vec3 extents = authored + Vec3(2.0f * spacing);
 
 		// Two cells a side at minimum: one cannot be interpolated, and a field
 		// that cannot be interpolated is a constant with overheads.
@@ -3276,6 +3502,11 @@ namespace RageV
 		const uint32_t ny = axis(extents.y);
 		const uint32_t nz = axis(extents.z);
 
+		// Which flavour of bake the active GI form reads -- and therefore
+		// which file the loader wants resident, which the solver makes last,
+		// and which the warnings name.
+		const bool activeRt = ActiveGiIsTraced();
+
 		// What the field was built for, checked the way the reflection probe's
 		// capture is: anything that changes the box, the grid, the lighting or
 		// how many volumes describe it changes which points were solved, so the
@@ -3285,7 +3516,16 @@ namespace RageV
 							   || m_Field->Depth() != nz
 							   || m_FieldVolumes != count
 							   || m_FieldSpacing != spacing
+							   // **Quality invalidates too.** A field solved at one
+							   // bounce is a different answer from the same grid at
+							   // eight, and nothing else here would notice.
+							   || m_FieldPasses != passes
+							   || m_FieldRays != rays
 							   || m_FieldLighting != lighting
+							   // **And so does the GI form.** The traced form reads
+							   // the rt flavour, the screen forms the ss one, and a
+							   // toggle between them is a different file.
+							   || m_FieldFlavourRt != activeRt
 							   || Math::Distance(m_FieldCentre, centre) > 1.0e-4f
 							   || Math::Distance(m_FieldExtents, extents) > 1.0e-4f
 							   || Math::Distance(m_FieldRotation[0], rotation[0]) > 1.0e-4f
@@ -3306,9 +3546,16 @@ namespace RageV
 			m_FieldExtents = extents;
 			m_FieldRotation = rotation;
 			m_FieldSpacing = spacing;
+			m_FieldPasses = passes;
+			m_FieldRays = rays;
 			m_FieldLighting = lighting;
 			m_FieldVolumes = count;
 			m_FieldBaked = false;
+			m_FieldFlavourRt = activeRt;
+			// A shape change abandons whatever solve was in flight: its result
+			// describes a field that no longer exists, and the store block must
+			// not write it under the new name.
+			m_FieldSolvePhase = 0;
 
 			BakedLighting::Stamp wanted;
 			wanted.Centre = centre;
@@ -3329,18 +3576,40 @@ namespace RageV
 			// that safe -- box, grid and lighting hash -- so a file made for a
 			// moved volume or different lights is refused and the solve happens
 			// exactly as it did before.
+			//
+			// **Except when a bake was asked for by hand.** A press means "make
+			// this one again", and the reasons somebody presses it -- a moved
+			// wall, an edited material -- are exactly the ones the stamp cannot
+			// see. Loading the stale file and calling the job done would make
+			// the button do nothing, convincingly.
 			BakedLighting::Stamp stored;
 			std::vector<uint8_t> payload;
-			const bool loaded = !m_SourcePath.empty()
-							 && BakedLighting::Read(FieldBakePath(lighting),
+			const bool loaded = !ForcingBake()
+							 && !m_SourcePath.empty()
+							 && BakedLighting::Read(FieldBakePath(lighting, activeRt),
 													BakedLighting::Kind::IrradianceField,
 													stored, payload)
 							 && stored.Matches(wanted)
 							 && m_Field->UploadRaw(payload);
 
+			// **And whether the other flavour's file is already good**, checked
+			// here because everything that invalidates the active one -- the
+			// box, the grid, the lighting, a forced bake -- invalidates it by
+			// the same stamp. A bake run is not finished until both files
+			// stand; outside a bake run this is bookkeeping nothing reads.
+			BakedLighting::Stamp altStored;
+			std::vector<uint8_t> altPayload;
+			m_FieldBakedAlt = !ForcingBake()
+						   && !m_SourcePath.empty()
+						   && BakedLighting::Read(FieldBakePath(lighting, !activeRt),
+												  BakedLighting::Kind::IrradianceField,
+												  altStored, altPayload)
+						   && altStored.Matches(wanted);
+
 			if (loaded)
 			{
 				m_FieldBaked = true;   // already on disk; nothing to write
+				m_FieldSolveWanted = false;
 			}
 			else
 			{
@@ -3357,26 +3626,71 @@ namespace RageV
 				const std::vector<IrradianceVolume::Cell> cells(m_Field->CellCount());
 				m_Field->Upload(cells);
 
-				// **Solved only while baking, and never as a mode of its own.**
-				//
-				// A field that is solved at runtime and kept in memory is a
-				// third state between realtime and baked -- it looks like
-				// baking, costs like realtime on the frames it runs, and
-				// survives nothing. There is no author-facing option for it, so
-				// there is no reason for the engine to enter it: the solve
-				// exists to *produce* a bake, and outside that a missing file
-				// means the field stays empty and the GI source falls back to
-				// Realtime, which says so.
-				//
-				// Not during a probe capture either: that re-enters this whole
-				// path, and a field solved from inside a cube face is solved
-				// against a scene being rendered for a different purpose.
-				if (!m_CapturingProbes && EngineConfig::Get().BakeLighting)
-					Renderer3D::RequestIrradianceSolve(m_Field, centre, extents, rotation);
+				// **Recorded as wanted, not asked for here.** The frame that
+				// notices a lighting change is very often one that may not act
+				// on it -- see m_FieldSolveWanted -- so the want outlives this
+				// branch and is served below, on the first frame that can.
+				m_FieldSolveWanted = true;
 			}
 		}
 
-		Renderer3D::SetIrradianceVolume(m_Field, centre, extents, rotation);
+		// **Solved only while baking, and never as a mode of its own.**
+		//
+		// A field that is solved at runtime and kept in memory is a third state
+		// between realtime and baked -- it looks like baking, costs like
+		// realtime on the frames it runs, and survives nothing. There is no
+		// author-facing option for it, so there is no reason for the engine to
+		// enter it: the solve exists to *produce* a bake, and outside that a
+		// missing file means the field stays empty and the GI source falls back
+		// to Realtime, which says so.
+		//
+		// Not during a probe capture: that re-enters this whole path, and a
+		// field solved from inside a cube face is solved against a scene being
+		// rendered for a different purpose. Not while one is already in flight
+		// either -- the pass takes several frames and re-asking would restart
+		// it -- which is what makes this safe to run every frame rather than
+		// only on the frame something changed.
+		// A phase left over from a bake that ended -- gave up, or was killed --
+		// would block the next one from ever starting.
+		if (m_FieldSolvePhase != 0 && !BakingLighting()
+			&& !Renderer3D::HasPendingIrradianceSolve())
+			m_FieldSolvePhase = 0;
+
+		// **One solve serves both flavours now.** The screen flavour began as
+		// a converged single bounce, matching the gather's estimate -- and
+		// then the owner ruled that it must chase the *voxel* stack, which
+		// measures BRIGHTER than a two-bounce reference over most of a frame
+		// (4.08 mean levels off truth on the GI fixture, its cones' own
+		// bias). The multi-bounce field is the brightest honest content there
+		// is, so both files carry it: the solve runs once with feedback and
+		// the store below writes it under both names. The pair of files, the
+		// per-flavour loader and the settled bookkeeping all stand -- the day
+		// the flavours diverge again, only this request and the store change
+		// back.
+		if (m_Field && !m_CapturingProbes && BakingLighting()
+			&& !Renderer3D::HasPendingIrradianceSolve()
+			&& m_FieldSolvePhase == 0 && m_FieldSolveWanted)
+		{
+			Renderer3D::RequestIrradianceSolve(m_Field, centre, extents, rotation,
+											   (uint32_t)m_FieldPasses,
+											   (uint32_t)m_FieldRays, true);
+			m_FieldSolvePhase = 2;
+			m_FieldSolveWanted = false;
+		}
+
+		// **Bound only for a source that asked for it, or while a bake is
+		// producing it.** The traced bounce reads whatever field is bound at
+		// every hit, so binding one unconditionally made "Realtime" quietly
+		// mean "realtime plus whichever bake happens to be on disk" -- and a
+		// stale bake, whose stamp covers the lights but not a moved wall,
+		// would silently bend a mode whose whole name promises it computes
+		// everything fresh. A Baked source opts into the stored answer;
+		// Realtime never touches it.
+		const bool fieldWanted = WantsBakedGi() || BakingLighting();
+		if (fieldWanted)
+			Renderer3D::SetIrradianceVolume(m_Field, centre, extents, rotation);
+		else
+			Renderer3D::SetIrradianceVolume(nullptr, Vec3(0.0f), Vec3(1.0f), Mat3(1.0f));
 		m_FieldUsable = m_FieldBaked;
 		m_FieldEvaluated = true;
 
@@ -3405,8 +3719,18 @@ namespace RageV
 			m_SettledFrames++;
 		}
 
-		if (EngineConfig::Get().BakeLighting && !m_FieldBaked && !m_SourcePath.empty()
+		// **And not before the solve it belongs to has completed.** The phase
+		// marker is set when a solve is requested and read back here, so this
+		// cannot fire in the window between wanting a solve and being allowed
+		// to ask for one -- the probe-capture window a mode switch lands in,
+		// where the old guard once let a field of zeros reach the disk.
+		//
+		// Nor from inside a capture: the write reads the texture back through
+		// the device, and a capture has a render pass open.
+		if (BakingLighting() && !m_SourcePath.empty()
 			&& m_SettledFrames > 30
+			&& (m_FieldSolvePhase != 0 || (m_FieldBaked && !m_FieldBakedAlt))
+			&& !m_CapturingProbes
 			&& !Renderer3D::HasPendingIrradianceSolve())
 		{
 			BakedLighting::Stamp stamp;
@@ -3420,18 +3744,64 @@ namespace RageV
 			stamp.Tiles = IrradianceVolume::kTiles;
 			stamp.Lighting = lighting;
 
-			if (BakedLighting::Write(Renderer::GetDevice(), FieldBakePath(lighting),
-									 BakedLighting::Kind::IrradianceField, stamp,
-									 m_Field->Texture()))
+			if (m_FieldSolvePhase == 2)
 			{
-				m_FieldBaked = true;
+				// The completed solve is both flavours' content; two names,
+				// one texture. Written active-first so a failure mid-pair
+				// leaves the file the scene reads rather than its twin.
+				if (BakedLighting::Write(Renderer::GetDevice(),
+										 FieldBakePath(lighting, activeRt),
+										 BakedLighting::Kind::IrradianceField, stamp,
+										 m_Field->Texture()))
+				{
+					m_FieldSolvePhase = 0;
+					m_FieldBaked = true;
+					m_FieldBakedAlt =
+						BakedLighting::Write(Renderer::GetDevice(),
+											 FieldBakePath(lighting, !activeRt),
+											 BakedLighting::Kind::IrradianceField,
+											 stamp, m_Field->Texture());
+
+					// **And now the probes, again, with the field in the
+					// room.** Whatever cube a probe is holding was captured
+					// before this light existed, so it is the wrong photograph
+					// of the right room -- and it is the one that would be
+					// stored and adopted on every later run. Marking them
+					// dirty costs six faces once, at the end of a bake nobody
+					// is watching, and is the difference between a stored cube
+					// that agrees with the stored field and one that does not.
+					auto probes = m_Registry.GetView<TransformComponent,
+													 ReflectionProbeComponent>();
+					for (auto& item : probes)
+					{
+						ReflectionProbeComponent& probe =
+							probes.Get<ReflectionProbeComponent>(item);
+						if (probe.Update == ProbeUpdate::Realtime)
+							continue;   // answers "now"; there is nothing to store
+
+						probe.Baked = false;
+						probe.Dirty = true;
+					}
+				}
+			}
+			else if (m_FieldBaked && !m_FieldBakedAlt && !m_FieldSolveWanted)
+			{
+				// The active file loaded off disk and its twin is missing --
+				// same content under the other name, written from the
+				// resident texture without a solve.
+				m_FieldBakedAlt =
+					BakedLighting::Write(Renderer::GetDevice(),
+										 FieldBakePath(lighting, !activeRt),
+										 BakedLighting::Kind::IrradianceField,
+										 stamp, m_Field->Texture());
 			}
 		}
 	}
 
-	std::filesystem::path Scene::FieldBakePath(uint64_t lighting) const
+	std::filesystem::path Scene::FieldBakePath(uint64_t lighting, bool rtFlavour) const
 	{
-		// **One file per lighting the scene can be in**, not one per scene.
+		// **One pair of files per lighting the scene can be in**, not one per
+		// scene.
 		//
 		// A scene has one field, however many volumes compose it -- but it can
 		// have more than one *lighting*, and the showroom is the case that
@@ -3440,15 +3810,302 @@ namespace RageV
 		// same geometry, and a single file could only ever hold one of them.
 		//
 		// So the lighting hash names the file. Bake under one mode and you get
-		// its file; bake under the other and you get a second beside it; switch
-		// at runtime and the hash changes, which is already how the field knows
-		// it is stale -- it now also knows which file to read instead. Nothing
-		// has to enumerate the modes, and a mode nobody baked simply has no
-		// file and says so.
+		// its files; bake under the other and you get a second pair beside
+		// them; switch at runtime and the hash changes, which is already how
+		// the field knows it is stale -- it now also knows which file to read
+		// instead. Nothing has to enumerate the modes, and a mode nobody baked
+		// simply has no file and says so.
+		//
+		// **And the flavour is in the name**, because a bake stands in for a
+		// specific realtime form: `rt` is the traced flavour (solved with
+		// feedback, multi-bounce, matching realtime RTGI), `ss` the screen
+		// flavour (a converged single bounce, matching what the gather and the
+		// voxel form estimate). An old unsuffixed file predates the split and
+		// is deliberately not read: nothing records which flavour it was.
 		char name[64];
-		std::snprintf(name, sizeof(name), "field_%016llx.rvfield",
-					  (unsigned long long)lighting);
+		std::snprintf(name, sizeof(name), "field_%016llx_%s.rvfield",
+					  (unsigned long long)lighting, rtFlavour ? "rt" : "ss");
 		return BakedLighting::DirectoryFor(m_SourcePath) / name;
+	}
+
+	std::filesystem::path Scene::ProbeBakePath(UUID probe) const
+	{
+		// **Named for the probe *and* the lighting**, exactly as a field is.
+		//
+		// It used to be the probe alone, and a scene with more than one
+		// lighting cannot store a cube that way: the showroom baked mode 1,
+		// then baked mode 2 over the top of it, and what was left on disk was a
+		// photograph of the bright bay that the editor then adopted while
+		// standing in the dark studio. The room drew seven levels too dark
+		// until Play re-captured it, which reads as "Play changes the
+		// lighting" and sent the search a long way from here.
+		//
+		// A cube is 12.5 MB at 512 faces, so a scene with several lightings
+		// pays for several. That is the argument for BC6H in the cooker, not
+		// an argument for storing one cube and hoping.
+		char name[80];
+		std::snprintf(name, sizeof(name), "%llu_%016llx.rvprobe",
+					  (unsigned long long)(uint64_t)probe,
+					  (unsigned long long)m_FieldLighting);
+		return BakedLighting::DirectoryFor(m_SourcePath) / name;
+	}
+
+	bool Scene::WantsBakedGi()
+	{
+		// The same question RenderShadows answers when it decides the chain:
+		// which GI source is in force, and does it say Baked. One expression
+		// shared by the flag hand-off and the field binding, because the two
+		// disagreeing is a field read by a chain that was told there is none.
+		const RayDetail giDetail =
+			ResolveRayTracedGlobalIllumination(Project::Render());
+		return giDetail != RayDetail::Off
+			? Project::Render().RayTracedGiSource == GiSource::Baked
+			: GetPostSettings().GiSource == GiSource::Baked;
+	}
+
+	bool Scene::ActiveGiIsTraced() const
+	{
+		return ResolveRayTracedGlobalIllumination(Project::Render()) != RayDetail::Off;
+	}
+
+	bool Scene::BakingLighting() const
+	{
+		return EngineConfig::Get().BakeLighting || m_BakeRequested;
+	}
+
+	bool Scene::ForcingBake() const
+	{
+		// **Whether what is already on disk should be ignored.** A press is one
+		// lighting -- the one the scene is standing in -- and ends when that
+		// file is written. `--bake=force` is the whole run, so a scene that
+		// visits several lightings while it is on re-makes every one of them
+		// rather than only the first.
+		return m_BakeRequested || EngineConfig::Get().ForceLightingBake;
+	}
+
+	bool Scene::BakedLightingSettled()
+	{
+		if (m_BakeRequested || m_FieldSolveWanted
+			|| Renderer3D::HasPendingIrradianceSolve())
+			return false;
+
+		// Both flavours, not one: a bake is a pair of files, and a run that
+		// stops after the first would leave the other GI form falling back to
+		// realtime with nothing saying so until somebody toggled it.
+		if (m_FieldVolumes > 0 && (!m_FieldBaked || !m_FieldBakedAlt))
+			return false;
+
+		auto probes = m_Registry.GetView<TransformComponent, ReflectionProbeComponent>();
+		for (auto& item : probes)
+		{
+			const ReflectionProbeComponent& probe =
+				probes.Get<ReflectionProbeComponent>(item);
+			if (probe.Update != ProbeUpdate::Realtime && !probe.Baked)
+				return false;
+		}
+
+		return m_FieldEvaluated;
+	}
+
+	void Scene::ReloadBakedLighting()
+	{
+		// An impossible lighting value, so the next UpdateIrradianceVolumes
+		// sees a mismatch, takes the shape-changed path, and tries the disk
+		// again -- where the child's file now sits. Zero is not impossible
+		// (an empty light list hashes to the FNV basis, not zero, but zero is
+		// still a value a hash could take); ~0 is not a value the mixer can
+		// land on for any real scene and reads as deliberate.
+		m_FieldBaked = false;
+		m_FieldBakedAlt = false;
+		m_FieldSolvePhase = 0;
+		m_FieldLighting = ~0ull;
+		m_WarnedMissingBake = false;
+		m_UnbakedFrames = 0;
+
+		// And the probes' one-look memory, so the adopt path runs again.
+		// Dirty stays as it is: a probe that finds no file will re-capture
+		// only if something else asked it to, exactly as at scene load.
+		auto probes = m_Registry.GetView<ReflectionProbeComponent>();
+		for (auto& item : probes)
+		{
+			ReflectionProbeComponent& probe =
+				probes.Get<ReflectionProbeComponent>(item);
+			if (probe.Update == ProbeUpdate::Realtime)
+				continue;
+
+			probe.Baked = false;
+			probe.AdoptChecked = false;
+		}
+
+		RV_CORE_INFO("Baked lighting reloaded from disk.");
+	}
+
+	void Scene::RequestLightingBake()
+	{
+		if (m_SourcePath.empty())
+		{
+			// A bake is written beside its scene, and a scene that has never
+			// been saved has no beside. Said rather than silently dropped: the
+			// button is otherwise a button that does nothing.
+			RV_CORE_WARN("Bake: save the scene first -- a bake is stored beside "
+						 "the scene file, and this one has no file yet.");
+			return;
+		}
+
+		m_BakeRequested = true;
+		m_BakeFrames = 0;
+		m_BakeStalledFrames = 0;
+
+		// **Everything stored is asked to make itself again.** The field
+		// through the volumes' own verb, so this goes down exactly the path a
+		// author pressing "Solve again" goes down; the probes by clearing what
+		// makes a capture unnecessary. A bake nobody can force is a bake that
+		// silently keeps an answer from before the geometry moved.
+		auto volumes = m_Registry.GetView<IrradianceVolumeComponent>();
+		uint32_t count = 0;
+		for (auto& item : volumes)
+		{
+			volumes.Get<IrradianceVolumeComponent>(item).Recapture = true;
+			count++;
+		}
+
+		auto probes = m_Registry.GetView<ReflectionProbeComponent>();
+		for (auto& item : probes)
+		{
+			ReflectionProbeComponent& probe = probes.Get<ReflectionProbeComponent>(item);
+			if (probe.Update == ProbeUpdate::Realtime)
+				continue;   // a probe answering "now" has no stored answer
+
+			// Under `--bake=force` the stored cube is already being ignored for
+			// the whole run, so a probe that has stored itself did so from a
+			// fresh capture moments ago. Clearing the flag again would only
+			// make it repeat a twelve-megabyte write, and print a second line
+			// that reads like a defect.
+			if (probe.Baked && EngineConfig::Get().ForceLightingBake)
+				continue;
+
+			probe.Baked = false;
+			probe.Dirty = true;
+		}
+
+		// A warning rather than a refusal. Probes are worth baking on their
+		// own, and a scene with no volume that bakes its probes is a scene
+		// that starts faster -- but the author almost certainly meant to have
+		// a volume, and nothing else would tell them.
+		if (count == 0)
+		{
+			RV_CORE_WARN("Bake: this scene has no Irradiance Volume, so there is no "
+						 "indirect light to store. Reflection probes will still bake.");
+		}
+
+		RV_CORE_INFO("Bake: started for the lighting the scene is in now.");
+	}
+
+	void Scene::UpdateLightingBake()
+	{
+		if (!m_BakeRequested)
+			return;
+
+		m_BakeFrames++;
+
+		// A probe that is not realtime has an answer worth storing, and until
+		// every one of them has stored it the bake is not finished.
+		//
+		// **Against the same view the capture walks**, transform included. A
+		// probe on an entity with no transform has nowhere to be captured
+		// from, so the capture never visits it -- and a completion test over a
+		// wider view than the work it is waiting on waits forever.
+		bool probesDone = true;
+		std::string waitingOn;
+		auto probes = m_Registry.GetView<TransformComponent, ReflectionProbeComponent>();
+		for (auto& item : probes)
+		{
+			const ReflectionProbeComponent& probe =
+				probes.Get<ReflectionProbeComponent>(item);
+			if (probe.Update != ProbeUpdate::Realtime && !probe.Baked)
+			{
+				probesDone = false;
+				waitingOn = Entity{ item, this }.GetName();
+				break;
+			}
+		}
+
+		const bool fieldDone = m_FieldVolumes == 0
+							|| (m_FieldBaked && m_FieldBakedAlt);
+
+		if (fieldDone && probesDone)
+		{
+			m_BakeRequested = false;
+			RV_CORE_INFO("Bake: done in {0} frames -- {1}",
+						 m_BakeFrames,
+						 m_FieldVolumes == 0
+							 ? "probes only, this scene has no volume"
+							 : FieldBakePath(m_FieldLighting, ActiveGiIsTraced())
+								   .filename().string() + " and its pair");
+			return;
+		}
+
+		// **A ceiling on being stuck, not on taking a while.**
+		//
+		// A field solves over as many frames as it needs -- the sweeps are
+		// amortised at a couple of thousand cells each, so a 33x12x52 volume is
+		// hundreds of frames of honest work. Timing that out gave up on exactly
+		// the bakes that most needed one: the fine grids, which are the whole
+		// reason to raise the resolution. So the counter resets whenever a
+		// solve is in flight or waiting for its turn, and what is left measures
+		// the thing a ceiling is actually for -- a lighting hash that never
+		// holds still, because a light in the scene moves every frame.
+		if (Renderer3D::HasPendingIrradianceSolve() || m_FieldSolveWanted)
+			m_BakeStalledFrames = 0;
+		else
+			m_BakeStalledFrames++;
+
+		if (m_BakeStalledFrames > 600)
+		{
+			m_BakeRequested = false;
+
+			// **Names what is outstanding, not what is likely.** The first
+			// version guessed between the two halves and named the wrong one,
+			// which is worse than naming neither: it sent the reading straight
+			// past the half that was actually stuck.
+			if (!fieldDone)
+			{
+				RV_CORE_WARN("Bake: gave up after {0} frames. The field never settled "
+							 "-- a light that moves or animates changes the lighting "
+							 "every frame, and a bake is named after a lighting that "
+							 "holds still.", m_BakeFrames);
+			}
+			else
+			{
+				RV_CORE_WARN("Bake: gave up after {0} frames. The reflection probe "
+							 "'{1}' never stored its capture.", m_BakeFrames, waitingOn);
+			}
+		}
+	}
+
+	Scene::FieldStatus Scene::GetFieldStatus() const
+	{
+		FieldStatus status;
+		status.Volumes = m_FieldVolumes;
+		status.Spacing = m_FieldSpacing;
+		status.Lighting = m_FieldLighting;
+		status.Loaded = m_FieldUsable;
+		status.Solving = m_FieldSolveWanted || Renderer3D::HasPendingIrradianceSolve();
+
+		if (m_Field)
+		{
+			status.Width = m_Field->Width();
+			status.Height = m_Field->Height();
+			status.Depth = m_Field->Depth();
+		}
+
+		if (!m_SourcePath.empty())
+		{
+			status.Directory = BakedLighting::DirectoryFor(m_SourcePath);
+			status.File = FieldBakePath(m_FieldLighting, ActiveGiIsTraced());
+		}
+
+		return status;
 	}
 
 	void Scene::PackProbes(RHI::RHICommandList& cmd)
@@ -3787,6 +4444,12 @@ namespace RageV
 			// solve opens one of its own and records barriers, neither of which
 			// is legal inside another. See Renderer3D::RequestIrradianceSolve.
 			UpdateIrradianceVolumes(lights);
+
+			// **Once a frame, not once a cube face.** A probe capture re-enters
+			// OnRender six times over, and a bake that counted those would time
+			// itself out six times faster than the clock it is written against.
+			if (!m_CapturingProbes)
+				UpdateLightingBake();
 
 			// **Before BeginScene, because the scene block carries the probes
 			// now and BeginScene uploads it.** Two readers: the lit shader

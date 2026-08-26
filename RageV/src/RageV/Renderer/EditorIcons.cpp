@@ -76,6 +76,8 @@ namespace RageV
 				kind = EditorIconKind::Probe;
 			else if (registry.AllOf<AudioSourceComponent>(handle))
 				kind = EditorIconKind::Audio;
+			else if (registry.AllOf<IrradianceVolumeComponent>(handle))
+				kind = EditorIconKind::Volume;
 			else
 				continue;
 

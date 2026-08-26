@@ -1098,6 +1098,13 @@ namespace RageV::UI
 				Assets::PostProfileSerializer::Save(*profile, file);
 		}
 
+		// **What this profile's `Source: Baked` is actually doing.** The same
+		// notice the project's RT GI source carries, from the same answer:
+		// exactly one of the two controls is live -- the traced form takes
+		// over when it is on, and this one hides itself then -- so both ask
+		// the scene and the scene reports the decision the renderer made.
+		UI::BakedGiNotice(scene);
+
 		ImGui::Unindent();
 	}
 

@@ -117,7 +117,20 @@ namespace RageV
 			return ParseBool(value, config.EnableAudio);
 
 		if (key == "bake")
+		{
+			// "force" is "on" plus "ignore what is already on disk". Spelled as
+			// a third value of the same flag rather than as a second flag,
+			// because `--bake=force --bake=off` should not be a thing anybody
+			// can write.
+			if (ToLower(value) == "force")
+			{
+				config.BakeLighting = true;
+				config.ForceLightingBake = true;
+				return true;
+			}
+			config.ForceLightingBake = false;
 			return ParseBool(value, config.BakeLighting);
+		}
 
 		if (key == "import-cache" || key == "importcache")
 			return ParseBool(value, config.UseImportCache);

@@ -84,14 +84,17 @@ namespace RageV
 		// solves -- the whole of it, or a slice, which is what keeps a large
 		// field from arriving as one frame's hitch. `blend` is how much of
 		// this pass to keep against what the field already holds: one to
-		// replace, less to converge.
+		// replace, less to converge. `feedback` is whether this pass's rays
+		// read the previous sweep's field at their hits -- the traced flavour's
+		// bounces -- or shade against the probe alone, the screen flavour's
+		// single bounce.
 		static bool SolveIrradianceVolume(RHI::RHICommandList& cmd,
 										  const RHI::Ref<IrradianceVolume>& volume,
 										  const Vec3& centre, const Vec3& extents,
 										  const Mat3& rotation,
 										  int rays, float reach,
 										  uint32_t rowBegin, uint32_t rowCount,
-										  float blend);
+										  float blend, bool feedback);
 
 		// **Asks for a field to be solved**, rather than solving it here. The
 		// caller is the scene walk, which runs before BeginScene because the
@@ -102,9 +105,21 @@ namespace RageV
 		//
 		// Asking twice for the same field is asking once: there is one request,
 		// and it stands until a pass solves it.
+		//
+		// `passes` and `raysPerCell` are the solve's quality, and both are paid
+		// once in the baker. With `feedback` true -- the traced flavour --
+		// every pass past the first is a bounce: its rays read the previous
+		// sweep's completed field at their hits, and the sweeps converge on
+		// the multi-bounce answer. With it false -- the screen flavour -- the
+		// passes average a single bounce, matching what the gather and the
+		// voxel form estimate. Either way the passes also buy the mottling
+		// out. They come from the volume components rather than from constants
+		// here, because the right answer is a property of the room.
 		static void RequestIrradianceSolve(const RHI::Ref<IrradianceVolume>& volume,
 										   const Vec3& centre, const Vec3& extents,
-										   const Mat3& rotation);
+										   const Mat3& rotation,
+										   uint32_t passes, uint32_t raysPerCell,
+										   bool feedback);
 
 		// Whether a request is standing, asked by the frame graph before it
 		// declares a fill pass -- so a frame with no field to solve, which is
@@ -298,6 +313,13 @@ namespace RageV
 
 		// How many meshes were skipped by frustum culling this frame, across
 		// every pass. Reported so the saving is visible rather than assumed.
+		//
+		// **On the CPU only.** Everything in a GPU-driven table is rejected by
+		// a compute pass whose survivor count stays in device memory, so this
+		// counts what the CPU walk rejected and nothing else. A frame drawn
+		// entirely through the indirect path honestly reports zero, which is
+		// why the panel says which kind of culling it is reporting -- read as
+		// a bare "Culled: 0" it looks like culling stopped working.
 		static unsigned int GetCulledCount();
 		static void CountCulled();
 
@@ -308,7 +330,14 @@ namespace RageV
 		static unsigned int GetLightCount();
 
 		static unsigned int GetDrawCallCount();
+
+		// Triangles *submitted* this frame, over every pass that counted a
+		// draw. Exact for a classic draw; for an indirect one it is the slot's
+		// reserved length, because what survived the cull is a number only the
+		// GPU has. GetIndirectDrawCount says how much of the frame that
+		// applies to.
 		static unsigned int GetTriangleCount();
+		static unsigned int GetIndirectDrawCount();
 
 		// The area emitters the traced bounce aims shadow rays at, and how
 		// many of those carry a per-texel aiming table.
@@ -342,12 +371,6 @@ namespace RageV
 		// structure and bindless for the heap, exactly as reflections do, and
 		// silently stays off without either. Recompiles the lit shaders.
 		static void SetRayTracedGlobalIllumination(bool enabled);
-		// **Whether every traced bounce tests the field's stored visibility**,
-		// or only the pass that shades the picture does. Measured at +0.6 ms
-		// against +0.055 on a scene with a field, and the difference between a
-		// sealed room reading 3.4 levels of leaked light and 0.06. Follows the
-		// GI dial: the top rung pays for it. Recompiles the lit shaders.
-		static void SetIrradianceShadowing(bool enabled);
 
 		// **Whether indirect light is read rather than computed.**
 		//

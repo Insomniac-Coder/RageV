@@ -6,6 +6,7 @@
 #include "RageV/Project/Project.h"
 #include <cctype>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <algorithm>
 #include <iomanip>
@@ -730,6 +731,206 @@ namespace
 								  "the two across a surface.");
 		}
 	}
+
+	// --- baking, which used to be a command-line flag -----------------------
+	//
+	// **A feature an author cannot see is a feature they do not have.** The
+	// field could be solved and written to disk since 1.3, and every part of
+	// that was `--bake=on`: no button, no way to tell whether a scene was
+	// baked, and files named `field_<sixteen hex digits>.rvfield` -- a naming
+	// that is right for the engine (one lighting, one name, nothing to
+	// enumerate) and unreadable for a person. So the whole feature was
+	// invisible from inside the editor, and the only way to know whether a
+	// scene had a bake was to run it and watch the log fall back to Realtime.
+	//
+	// This is that half. It says what the field is, what is stored for it,
+	// which stored thing is the one in use, and it bakes.
+
+	std::string HumanSize(uintmax_t bytes)
+	{
+		if (bytes >= 1024 * 1024)
+			return std::to_string((bytes + 512 * 1024) / (1024 * 1024)) + " MB";
+		return std::to_string((bytes + 512) / 1024) + " KB";
+	}
+
+	// One `.rvfield` beside the scene.
+	struct BakeFile
+	{
+		std::string Name;
+		uintmax_t Bytes = 0;
+		bool Current = false;   // the one this lighting asks for
+	};
+
+	// **Re-read on a timer, not every frame.** The panel is drawn sixty times
+	// a second and a directory listing is a syscall; the answer changes only
+	// when a bake lands, which is not a thing that happens between two frames
+	// anybody is looking at. Half a second is under the threshold where a
+	// person notices a list is stale.
+	const std::vector<BakeFile>& BakesOnDisk(const std::filesystem::path& directory,
+											 const std::string& currentName)
+	{
+		static std::vector<BakeFile> files;
+		static std::string lastDirectory;
+		static double lastRead = -1.0;
+
+		const double now = ImGui::GetTime();
+		if (lastRead >= 0.0 && now - lastRead < 0.5
+			&& lastDirectory == directory.string())
+		{
+			return files;
+		}
+
+		lastRead = now;
+		lastDirectory = directory.string();
+		files.clear();
+
+		std::error_code code;
+		for (const auto& entry : std::filesystem::directory_iterator(directory, code))
+		{
+			if (code || entry.path().extension() != ".rvfield")
+				continue;
+
+			BakeFile file;
+			file.Name = entry.path().filename().string();
+			file.Bytes = entry.file_size(code);
+			file.Current = file.Name == currentName;
+			files.push_back(std::move(file));
+		}
+
+		std::sort(files.begin(), files.end(),
+				  [](const BakeFile& a, const BakeFile& b) { return a.Name < b.Name; });
+		return files;
+	}
+
+	void DrawIrradianceBake(Scene& scene)
+	{
+		const Scene::FieldStatus status = scene.GetFieldStatus();
+
+		ImGui::Spacing();
+		ImGui::SeparatorText("Baked lighting");
+
+		if (status.Directory.empty())
+		{
+			ImGui::TextDisabled("Save the scene first.");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("A bake is stored beside the scene file, so a scene "
+								  "that has never been saved has nowhere to put one.");
+			return;
+		}
+
+		const std::string currentName = status.File.filename().string();
+
+		// **What the field actually is**, which no field on this component
+		// says: the grid is derived from every volume in the scene together,
+		// so a number on one component would be a number about something else.
+		if (ImGui::BeginTable("##FieldStatus", 2, ImGuiTableFlags_SizingStretchProp))
+		{
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Grid");
+			ImGui::TableSetColumnIndex(1);
+			if (status.Width > 0)
+			{
+				ImGui::Text("%u x %u x %u   %u cells", status.Width, status.Height,
+							status.Depth,
+							status.Width * status.Height * status.Depth);
+			}
+			else
+			{
+				ImGui::TextDisabled("not built yet");
+			}
+
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Composed from");
+			ImGui::TableSetColumnIndex(1);
+			ImGui::Text("%u volume%s", status.Volumes, status.Volumes == 1 ? "" : "s");
+			if (ImGui::IsItemHovered())
+			{
+				ImGui::SetTooltip("A scene has one field however many volumes describe "
+								  "it: their bounds are unioned at the finest spacing "
+								  "any of them asked for. A shader reads one field, so "
+								  "choosing between several would be a cost paid every "
+								  "frame on a question with one answer per scene.");
+			}
+
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("This lighting");
+			ImGui::TableSetColumnIndex(1);
+			if (status.Loaded)
+				ImGui::TextColored(EditorTheme::Colors().Success, "baked, in use");
+			else if (scene.LightingBakePending())
+				ImGui::TextColored(EditorTheme::Colors().Warning, "baking...");
+			else
+				ImGui::TextColored(EditorTheme::Colors().Warning, "not baked");
+
+			if (ImGui::IsItemHovered())
+			{
+				ImGui::SetTooltip("%s\n\nA bake is one file per lighting, named after "
+								  "the lights themselves. Change a light and this "
+								  "becomes a different file -- which is how a scene "
+								  "with two lighting modes has two bakes and picks "
+								  "between them without anyone listing them.",
+								  currentName.c_str());
+			}
+
+			ImGui::EndTable();
+		}
+
+		// --- the button ------------------------------------------------------
+		// Through the installed launcher -- a child runtime teeing into the
+		// Build Log -- so the minutes a fine field takes never freeze the
+		// editor. See UI::SetBakeLauncher for the fallback rules.
+		const bool pending = UI::BakeRunning(&scene);
+		ImGui::BeginDisabled(pending);
+		if (ImGui::Button(pending ? "Baking..." : "Bake lighting", ImVec2(-1.0f, 0.0f)))
+			UI::LaunchBake(&scene);
+		ImGui::EndDisabled();
+
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Bake the scene as saved, in the background: a runtime "
+							  "runs the scene with the baker on, writes the field and "
+							  "every probe beside it, and the editor loads the files "
+							  "the moment it finishes. Progress is in the Build Log.\n\n"
+							  "A scene whose scripts own several lightings -- a mode "
+							  "switch, a night state -- bakes each of them in that one "
+							  "run, because the scripts run in the baker too.");
+		}
+
+		// --- what is on disk --------------------------------------------------
+		const std::vector<BakeFile>& files = BakesOnDisk(status.Directory, currentName);
+		if (files.empty())
+		{
+			ImGui::TextDisabled("Nothing baked for this scene yet.");
+			return;
+		}
+
+		if (!ImGui::TreeNodeEx("##BakeFiles", ImGuiTreeNodeFlags_SpanAvailWidth,
+							   "%zu file%s on disk", files.size(),
+							   files.size() == 1 ? "" : "s"))
+		{
+			return;
+		}
+
+		for (const BakeFile& file : files)
+		{
+			// The hash is not readable and is not meant to be. What a person
+			// needs is which one is *this* lighting, and that is a mark rather
+			// than a name.
+			if (file.Current)
+				ImGui::TextColored(EditorTheme::Colors().Success, "> %s", file.Name.c_str());
+			else
+				ImGui::TextDisabled("   %s", file.Name.c_str());
+
+			ImGui::SameLine();
+			ImGui::TextDisabled("  %s", HumanSize(file.Bytes).c_str());
+		}
+
+		ImGui::Spacing();
+		ImGui::TextDisabled("A file with no lighting left to match is dead weight, "
+							"but harmless: nothing loads it.");
+
+		ImGui::TreePop();
+	}
 }
 
 void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
@@ -854,6 +1055,9 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 
 			if (std::string(desc.Name) == "MeshComponent")
 				DrawMaterialAdvice(*static_cast<MeshComponent*>(component));
+
+			if (std::string(desc.Name) == "IrradianceVolumeComponent" && m_SceneRef)
+				DrawIrradianceBake(*m_SceneRef);
 
 			if (std::string(desc.Name) == "TerrainComponent" && m_TerrainTool)
 				DrawTerrainBrush(*m_TerrainTool, *static_cast<TerrainComponent*>(component),

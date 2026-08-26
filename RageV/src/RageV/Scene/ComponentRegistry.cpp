@@ -242,6 +242,11 @@ namespace
 			return static_cast<const LightComponent*>(component)->Light.Type == Light::LightType::Spot;
 		}
 
+		bool NotAutoFit(const void* component)
+		{
+			return !static_cast<const IrradianceVolumeComponent*>(component)->AutoFit;
+		}
+
 		bool EmitsFromBox(const void* component)
 		{
 			return static_cast<const ParticleEmitterComponent*>(component)->Shape
@@ -661,6 +666,15 @@ namespace
 							   "costs scene renders: a directional light four, a spot one, "
 							   "a point six. Only the first directional light to ask gets "
 							   "cascades; four spot and four point lights cast at once." }),
+				Field<&LightComponent::Light, &Light::IsBaked>("IsBaked",
+					Named("Is Baked",
+						Tip("Whether this light is part of the baked lighting. On, it "
+							"contributes to bakes and changing it means re-baking. Off, "
+							"it is a realtime light: direct light and shadows render as "
+							"always, scripts can switch it freely without invalidating "
+							"any bake, and its own bounce is simply absent from baked "
+							"GI -- the right setting for headlights, flashlights and "
+							"anything that toggles at runtime."))),
 			};
 			Bind<LightComponent>(desc);
 			s_Components.push_back(std::move(desc));
@@ -720,6 +734,23 @@ namespace
 			desc.Name = "IrradianceVolumeComponent";
 			desc.DisplayName = "Irradiance Volume";
 			desc.Fields = {
+				Field<&IrradianceVolumeComponent::AutoFit>("AutoFit",
+					Named("Auto Fit",
+						Tip("Fit the box to the scene's static meshes instead of "
+							"authoring it, snapped outward to the cell grid -- so "
+							"nothing visible can sit outside the baked light. While "
+							"on, the transform and Extents are ignored. Skinned "
+							"meshes and terrain are not part of the fit; scenes "
+							"built around either should author the box by hand, "
+							"which is why this is a choice and not the default."))),
+				Field<&IrradianceVolumeComponent::Extents>("Extents",
+					OnlyWhen(NotAutoFit,
+						Drag(0.1f, 0.05f, 500.0f,
+							 "Half the box, in metres, so 5 covers ten metres. The "
+							 "transform places and turns the volume and its scale is "
+							 "ignored -- a volume has no mesh for a scale to multiply, "
+							 "and one parented to something scaled used to change size "
+							 "without anyone touching it."))),
 				Field<&IrradianceVolumeComponent::Spacing>("Spacing",
 					Drag(0.1f, 0.25f, 16.0f,
 						 "Metres between stored samples. The grid follows the box's "
@@ -732,6 +763,23 @@ namespace
 						 "A volume dragged across a level would otherwise request a "
 						 "grid no memory budget survives, and would fail as an "
 						 "allocation error rather than as a coarser answer.")),
+				Field<&IrradianceVolumeComponent::Passes>("Passes",
+					Drag(1.0f, 1.0f, 64.0f,
+						 "How many times the solve goes over the grid -- and every "
+						 "pass past the first is a bounce: its rays read what the "
+						 "previous pass stored, so the answer converges on full "
+						 "multi-bounce light while the passes average out the "
+						 "mottling. Eight is visually converged for ordinary rooms; "
+						 "more costs bake time and nothing else.")),
+				Field<&IrradianceVolumeComponent::RaysPerCell>("RaysPerCell",
+					Named("Rays per cell",
+						Drag(64.0f, 64.0f, 4096.0f,
+							 "What each cell spends deciding what reaches it. The "
+							 "error this leaves is not noise but mottling -- "
+							 "interpolation spreads a cell's error over a cell's "
+							 "width, so it reads as patches of a wall lighter than "
+							 "their neighbours. Variance falls as one over this, and "
+							 "every ray is spent once, in the baker."))),
 				Field<&IrradianceVolumeComponent::Recapture>("Recapture",
 					Named("Solve again",
 						Tip("Solve the field again on the next frame. Moving or "
@@ -1735,12 +1783,14 @@ namespace
 				Field<&RenderSettings::RayTracedGiSource>("RayTracedGiSource",
 					Named("RT GI source", OnlyWhen(TracesGi,
 						Enum(kGiSourceNames,
-							"Realtime traces the bounce every frame. Baked reads the "
-							"field stored beside the scene instead, which needs an "
-							"Irradiance Volume in it and a bake to have been run -- "
-							"without either, the renderer says so in the log and falls "
-							"back to Realtime. Baked costs a fetch where Realtime costs "
-							"a pass: measured at 0.83 ms against 1.62 on the GI corner.")))),
+							"Realtime traces one bounce from scratch every frame. "
+							"Baked keeps that bounce and terminates its rays in the "
+							"field stored beside the scene, so each hit inherits a "
+							"stored bounce and the frame carries two bounces of light "
+							"for one bounce of rays -- measured at 0.73 error against "
+							"a two-bounce reference where Realtime scores 1.48, at "
+							"the same cost. Needs an Irradiance Volume and a bake; "
+							"without either it renders Realtime and says so.")))),
 				Field<&RenderSettings::ShadowDistance>("ShadowDistance",
 					Named("Distance", OnlyWhen(UsesCascades,
 						Drag(0.5f, 1.0f, 500.0f,
@@ -2138,12 +2188,14 @@ namespace
 				Field<&PostSettings::GiSource>("GiSource",
 					Named("Source", OnlyWhen(GiGatherRuns,
 						Enum(kGiSourceNames,
-							"Realtime gathers indirect light every frame. Baked "
-							"reads what was stored beside the scene, which needs "
-							"an Irradiance Volume in it and a bake to have been "
-							"run -- without either, the renderer says so in the "
-							"log and falls back to Realtime rather than rendering "
-							"a scene with no indirect light at all.")))),
+							"Realtime gathers indirect light from the screen every "
+							"frame, and can only find what is on screen. Baked "
+							"replaces that gather with the field stored beside the "
+							"scene -- cheaper, and it knows about surfaces the "
+							"screen cannot see, though it stays coarser than the "
+							"traced form at walls and contacts. Needs an Irradiance "
+							"Volume and a bake; without either it renders Realtime "
+							"and says so.")))),
 				Field<&PostSettings::GiQuality>("GiQuality",
 					Named("Quality", OnlyWhen(GiGatherRuns, DisabledWhen(GiIsBaked,
 						"The source is Baked, so nothing is gathered and this "

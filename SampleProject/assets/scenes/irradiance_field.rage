@@ -109,8 +109,11 @@ Entities:
     TransformComponent:
       Position: [0, 2, 0]
       Rotation: [0, 0, 0]
-      Scale: [8, 4, 8]
+      Scale: [1, 1, 1]
     IrradianceVolumeComponent:
-      Spacing: 1
-      MaxResolution: 16
+      Extents: [8.5, 2, 8.5]
+      Spacing: 0.125
+      MaxResolution: 160
+      Passes: 16
+      RaysPerCell: 4096
       Recapture: false

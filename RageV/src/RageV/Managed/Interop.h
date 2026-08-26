@@ -304,6 +304,21 @@ namespace RageV::Managed
 		// -1 for a name that is not a feature, so "unknown" stays
 		// distinguishable from "off".
 		int32_t (__cdecl* IsFeatureActive)(const char* name);
+
+		// --- appended for protocol 12: whether this run is baking lighting ---
+		//
+		// **A scene knows its lightings; the baker does not.** A bake is
+		// written per lighting hash, and the hash for a state a script puts
+		// the scene into -- the showroom's second mode, a level's night --
+		// exists only once something has put it there. So the baker can only
+		// ever produce the state the scene opens in, and every other one falls
+		// back to Realtime at runtime, reporting a file it cannot find.
+		//
+		// This is the missing half: with it a script that owns two lightings
+		// walks both while `--bake=on` is watching, and one run leaves one file
+		// per state. Nothing else should read it -- it is not a quality dial
+		// and a game is never launched with it on.
+		int32_t (__cdecl* IsBakingLighting)();
 	};
 
 	// One raycast hit, as it crosses the boundary. Mirrors RageV::RayHit,
@@ -485,7 +500,10 @@ namespace RageV::Managed
 		//     frame actually ran -- as opposed to which were asked for. Not a render *setting* --
 		//     nothing can change it while the engine is up -- so it could not
 		//     ride the by-name bridge protocol 8 added.
-		static constexpr int32_t kProtocolVersion = 11;
+		// 12: whether this run was started to produce lighting bakes, so a
+		//     scene that has more than one lighting can walk them while the
+		//     baker is watching. See IsBakingLighting.
+		static constexpr int32_t kProtocolVersion = 12;
 
 		// Every bit RageV.Interop.SelfTest sets when nothing is wrong, mirrored
 		// here so scenetest asserts against a name rather than against a number

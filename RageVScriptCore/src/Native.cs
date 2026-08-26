@@ -132,6 +132,9 @@ internal unsafe struct NativeApi
 
 	/// <summary>1 on, 0 off, -1 not a feature. Protocol 11.</summary>
 	public delegate* unmanaged[Cdecl]<byte*, int> IsFeatureActive;
+
+	/// <summary>1 while this run is producing lighting bakes. Protocol 12.</summary>
+	public delegate* unmanaged[Cdecl]<int> IsBakingLighting;
 }
 
 /// <summary>Mirrors <c>RageV::Managed::RayHitData</c>, field for field.</summary>

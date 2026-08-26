@@ -45,7 +45,10 @@ public static unsafe class Interop
 	// 8: the render settings, by name and as text.
 	// 9: the ground under a point -- terrain height (ENGINE-NOTES 7au).
 	// 10: a button's hover state, which nothing could read before.
-	public const int ProtocolVersion = 11;
+	// 11: which backend is running, and which effects the last frame ran.
+	// 12: whether this run is producing lighting bakes, so a scene that owns
+	//     more than one lighting can walk them while the baker is watching.
+	public const int ProtocolVersion = 12;
 
 	/// <summary>
 	/// The first call the engine makes. Confirms the protocol and takes the

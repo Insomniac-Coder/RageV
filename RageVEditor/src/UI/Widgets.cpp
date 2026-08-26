@@ -1,5 +1,6 @@
 #include "Widgets.h"
 #include "EditorTheme.h"
+#include "RageV/Scene/Scene.h"
 #include <algorithm>
 #include <cstdarg>
 
@@ -553,5 +554,92 @@ namespace RageV::UI
 		ImGui::PopStyleVar();
 		ImGui::PopID();
 		return chosen;
+	}
+
+	namespace
+	{
+		// Installed by the editor; empty in any host that has no better idea.
+		std::function<bool()> s_LaunchBake;
+		std::function<bool()> s_BakeRunning;
+	}
+
+	void SetBakeLauncher(std::function<bool()> launch, std::function<bool()> running)
+	{
+		s_LaunchBake = std::move(launch);
+		s_BakeRunning = std::move(running);
+	}
+
+	bool LaunchBake(Scene* scene)
+	{
+		if (s_LaunchBake)
+			return s_LaunchBake();
+		if (scene)
+			scene->RequestLightingBake();
+		return scene != nullptr;
+	}
+
+	bool BakeRunning(Scene* scene)
+	{
+		if (s_BakeRunning && s_BakeRunning())
+			return true;
+		return scene && scene->LightingBakePending();
+	}
+
+	bool BakedGiNotice(Scene* scene)
+	{
+		if (!scene)
+			return false;
+
+		const Scene::BakedGi baked = scene->GetBakedGiState();
+		if (baked != Scene::BakedGi::NoVolume && baked != Scene::BakedGi::NoBake)
+			return false;
+
+		ImGui::Spacing();
+		ImGui::TextColored(EditorTheme::Colors().Warning,
+						   "Baked GI is not available: rendering Realtime");
+
+		if (baked == Scene::BakedGi::NoVolume)
+		{
+			ImGui::TextDisabled("This scene has no Irradiance Volume, so there is "
+								"nothing stored to read.");
+			if (ImGui::IsItemHovered())
+			{
+				ImGui::SetTooltip("Add an entity with an Irradiance Volume component, "
+								  "scale it to cover the space that needs indirect "
+								  "light, and bake it from that component.");
+			}
+			return true;
+		}
+
+		const Scene::FieldStatus status = scene->GetFieldStatus();
+		ImGui::TextDisabled("No bake matches this scene's current lighting.");
+		if (ImGui::IsItemHovered() && !status.File.empty())
+		{
+			// **Named, so it can be acted on.** The same argument the log line
+			// makes: the files are hash-named, so "no bake" without a name is
+			// true and useless.
+			ImGui::SetTooltip("Looked for %s\nin %s\n\nA bake is one file per "
+							  "lighting. Change a light -- or let a script change one "
+							  "-- and the scene asks for a different file, so each "
+							  "lighting a scene can be in needs its own bake.",
+							  status.File.filename().string().c_str(),
+							  status.Directory.string().c_str());
+		}
+
+		const bool pending = BakeRunning(scene);
+		ImGui::BeginDisabled(pending);
+		if (ImGui::Button(pending ? "Baking..." : "Bake lighting now"))
+			LaunchBake(scene);
+		ImGui::EndDisabled();
+
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Bakes the scene as saved, in the background -- the "
+							  "editor stays free and the Build Log shows the "
+							  "baker's progress. The files land beside the scene "
+							  "and load the moment they do.");
+		}
+
+		return true;
 	}
 }

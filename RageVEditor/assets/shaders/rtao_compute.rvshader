@@ -150,7 +150,18 @@ vec3 WorldPositionOf(vec3 p, bool flip)
 // chosen-neighbour reconstruction SSAO uses (7ac, 7an). The geometry the
 // rays are cast into is exactly what this depth buffer describes, so this
 // is the normal that geometry implies.
-vec3 ReconstructedWorldNormal(vec2 uv, vec3 centre, vec2 texel, bool flip)
+// `slack` is how far the surface falls away within one texel -- the depth
+// buffer's own slope, in metres -- and it is the ray origin's problem as much
+// as the normal's. The reconstructed point is the texel centre's depth, but
+// the surface the rays are cast against is wherever the rasteriser sampled
+// it, up to a texel away: at a grazing angle that difference is centimetres,
+// and it GROWS as the render gets smaller because a texel covers more floor.
+// An origin lifted by less than it starts inside the very surface it stands
+// on, and every ray hits at t~0 -- which is how the editor's game panel,
+// the only surface in the engine that renders shorter than ~500 pixels,
+// blacked out its floors while every full-window render was clean.
+vec3 ReconstructedWorldNormal(vec2 uv, vec3 centre, vec2 texel, bool flip,
+							  out float slack)
 {
 	const vec3 right = ViewPositionAt(uv + vec2(texel.x, 0.0));
 	const vec3 left  = ViewPositionAt(uv - vec2(texel.x, 0.0));
@@ -159,6 +170,9 @@ vec3 ReconstructedWorldNormal(vec2 uv, vec3 centre, vec2 texel, bool flip)
 
 	const vec3 dx = abs(right.z - centre.z) < abs(centre.z - left.z) ? right - centre : centre - left;
 	const vec3 dy = abs(up.z - centre.z) < abs(centre.z - down.z) ? up - centre : centre - down;
+
+	// The chosen neighbours, so a depth edge does not masquerade as a cliff.
+	slack = max(abs(dx.z), abs(dy.z));
 
 	vec3 normal = normalize(cross(dy, dx));
 	// Against the ray to the point (7an), never the view axis.
@@ -212,7 +226,8 @@ void main()
 	const float kAgreement = 0.96;
 
 	const vec4 surface = texture(u_Surface, uv);
-	const vec3 geometric = ReconstructedWorldNormal(uv, centre, texel, flip);
+	float slack;
+	const vec3 geometric = ReconstructedWorldNormal(uv, centre, texel, flip, slack);
 	vec3 normal = geometric;
 	if (!SurfaceIsEmpty(surface))
 	{
@@ -222,7 +237,9 @@ void main()
 	}
 
 	const vec3 world = WorldPositionOf(centre, flip);
-	const vec3 origin = world + normal * (kLift + kLiftPerMetre * centre.z);
+	// The constant lift covers depth-buffer precision; the slack covers the
+	// slope. Both, because either alone fails at the other's scale.
+	const vec3 origin = world + normal * (kLift + kLiftPerMetre * centre.z + slack);
 
 	const vec3 axis = abs(normal.x) < 0.7 ? vec3(1, 0, 0) : vec3(0, 1, 0);
 	const vec3 tangent = normalize(cross(axis, normal));

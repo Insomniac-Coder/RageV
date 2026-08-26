@@ -29,7 +29,7 @@ namespace RageV
 			Vec4 Position;    // xyz, w = 1 positional / 0 directional
 			Vec4 Direction;   // xyz forward axis
 			Vec4 Color;       // rgb, a = intensity
-			Vec4 Params;      // range, cos(inner), cos(outer)
+			Vec4 Params;      // range, cos(inner), cos(outer), IsBaked
 			Vec4 Shadow;      // kind, slot, far, texel scale
 		};
 		static_assert(sizeof(GpuLight) == 80, "Must match GpuLight in pbr.rvshader");
@@ -463,6 +463,14 @@ namespace RageV
 			// rest converge onto it, which is what buys both a mean over more
 			// rays than one pass can afford and a bounce of history per sweep.
 			uint32_t PendingIrradianceSweep = 0;
+			// The quality the volumes asked for, held with the request because
+			// the solve runs frames after the ask.
+			uint32_t PendingIrradiancePasses = 4;
+			// Whether the pending solve's rays read the previous sweep's field
+			// at their hits -- the traced flavour's bounces -- or not, the
+			// screen flavour's converged single bounce.
+			bool PendingIrradianceFeedback = false;
+			uint32_t PendingIrradianceRays = 512;
 			// Which field the line below was last written about, so a scene
 			// whose lighting changes every frame -- a moving light -- says it
 			// once rather than filling the log. Compared and never dereferenced.
@@ -735,7 +743,6 @@ namespace RageV
 			// where weighting the eight cells one at a time costs +0.6 ms
 			// against +0.055. Worth it when the dial is asking for the best
 			// bounce there is, and not worth it below that.
-			bool IrradianceShadowingOn = false;
 			// Indirect light is read from the field rather than computed. Set
 			// per frame by the scene, which is the only thing that knows
 			// whether a bake exists to read.
@@ -765,8 +772,19 @@ namespace RageV
 			bool SceneActive = false;
 
 			unsigned int DrawCalls = 0;
+			// **Submitted, over every pass that counted a draw.** The two
+			// numbers have to describe the same set of draws or the panel that
+			// shows them side by side is lying with true numbers: this counted
+			// the camera's classic draws alone for a while, so a frame that
+			// went entirely through the GPU-driven path or spent itself on
+			// shadow maps read "155 draws, 0 triangles". For an indirect draw
+			// it is the slot's reserved length -- what was handed to the cull,
+			// not what survived it, which is a number only the GPU has.
 			unsigned int Triangles = 0;
 			unsigned int Culled = 0;
+			// How many of DrawCalls were indirect, so a reader can tell which
+			// half of the frame the counts above are approximate for.
+			unsigned int IndirectDraws = 0;
 
 			bool Ready = false;
 		};
@@ -1049,8 +1067,6 @@ namespace RageV
 			if (s_Data->RayReflectionsOn)
 				traceDefines.push_back("RV_RAY_REFLECTIONS");
 			traceDefines.push_back("RV_RAY_GI");
-			if (s_Data->IrradianceShadowingOn)
-				traceDefines.push_back("RV_FIELD_SHADOWED");
 
 			if (auto gi = ShaderCompiler::CompileFromFile("assets/shaders/rtgi_trace.rvshader",
 														 traceDefines))
@@ -1085,12 +1101,16 @@ namespace RageV
 			if (s_Data->RayReflectionsOn)
 				fillDefines.push_back("RV_RAY_REFLECTIONS");
 			fillDefines.push_back("RV_RAY_GI");
-			if (s_Data->IrradianceShadowingOn)
-				fillDefines.push_back("RV_FIELD_SHADOWED");
-			// **The solve does not read the field it is writing.** See the
-			// guard this sets in ShadeTraced: sweeps are for the noise of one
-			// pass's rays, and a sweep that fed on the last one's answer would
-			// compound its mistakes as fast as its light.
+			// **The solve is the one compile that reads the field at a hit** --
+			// see the block this enables in ShadeTraced. The sampled field is
+			// the previous sweep's completed answer (the solve writes the
+			// volume's second texture and the two swap at each sweep boundary),
+			// so each sweep carries the last one's transport a bounce further
+			// and the sweeps converge on the full multi-bounce answer. The
+			// read always tests the stored visibility: feedback amplifies
+			// whatever it reads, and the visibility term is what makes the
+			// loop safe to close (a sealed room went 0.15 levels to 6.3 over
+			// eight sweeps without it).
 			fillDefines.push_back("RV_IRRADIANCE_FILL");
 
 			if (auto fill = ShaderCompiler::CompileFromFile(
@@ -1116,10 +1136,6 @@ namespace RageV
 			defines.push_back("RV_RAY_REFLECTIONS");
 		if (s_Data->RayGlobalIlluminationOn)
 			defines.push_back("RV_RAY_GI");
-			// The bounce's reader of the field, told what to spend. See
-			// IrradianceShadowingOn.
-			if (s_Data->IrradianceShadowingOn)
-				defines.push_back("RV_FIELD_SHADOWED");
 
 		// The meshlet lit stage compiles with the identical define set, so
 		// its fragment half is bit-for-bit the classic one's: same bindless
@@ -1427,18 +1443,6 @@ namespace RageV
 			s_Data->PipelineDirty = true;
 	}
 
-	void Renderer3D::SetIrradianceShadowing(bool enabled)
-	{
-		if (!s_Data || s_Data->IrradianceShadowingOn == enabled)
-			return;
-
-		s_Data->IrradianceShadowingOn = enabled;
-		RV_CORE_INFO("Renderer3D: traced bounces {0} the field's stored visibility",
-					 enabled ? "test" : "do not test");
-		if (CompileLitShaders())
-			s_Data->PipelineDirty = true;
-	}
-
 	void Renderer3D::SetBakedIrradianceOnly(bool enabled)
 	{
 		if (s_Data)
@@ -1519,7 +1523,7 @@ namespace RageV
 										   const Mat3& rotation,
 										   int rays, float reach,
 										   uint32_t rowBegin, uint32_t rowCount,
-										   float blend)
+										   float blend, bool feedback)
 	{
 		if (!s_Data || !s_Data->IrradianceFillShader || !volume)
 			return false;
@@ -1597,7 +1601,11 @@ namespace RageV
 		if (!fillSet)
 			return false;
 
-		fillSet->SetStorageImage(0, volume->Texture(), 0);
+		// The solve writes the volume's back texture while its front stays
+		// bound for sampling -- the frame's preview, and the solve's own
+		// feedback read of the previous sweep. FlipSolve exchanges the two at
+		// each sweep boundary, in SolvePendingIrradiance.
+		fillSet->SetStorageImage(0, volume->SolveTarget(), 0);
 		fillSet->Commit();
 
 		struct FillParams
@@ -1617,23 +1625,25 @@ namespace RageV
 						   (float)volume->Depth(), (float)Math::Clamp(rays, 1, 4096));
 		// The counter the ray directions are hashed against. It moves per solve
 		// rather than per frame, so re-solving a field that did not change is
-		// not a way to make it flicker.
-		params.Trace = Vec4(reach, (float)s_Data->IrradianceFrame++, blend, 0.0f);
+		// not a way to make it flicker. `w` is the feedback switch the fill
+		// hands to ShadeTraced: which flavour this pass is producing.
+		params.Trace = Vec4(reach, (float)s_Data->IrradianceFrame++, blend,
+							feedback ? 1.0f : 0.0f);
 		for (int axis = 0; axis < 3; axis++)
 			params.Rotation[axis] = Vec4(rotation[axis], 0.0f);
 
 		// **The writes, fenced in both directions**, and both directions matter.
-		// The frame before this one sampled these textures while shading, and
-		// this pass overwrites them: without ShaderRead -> FragmentWrite the
-		// overwrite can land while that read is still running. And without the
-		// reverse afterwards, the draw that reads the new field may be handed
-		// the old one -- the direction that looks like it works, because it
-		// only fails under load.
+		// The back texture was last left readable -- by the closing barrier of
+		// the previous band, or by the frames that sampled it before the flip
+		// handed it over -- and this pass overwrites it: without ShaderRead ->
+		// FragmentWrite the overwrite can land while such a read is still
+		// running. The front needs no fence here; the fill only samples it,
+		// beside every other reader.
 		//
 		// Recorded outside the render pass below, which is where a barrier is
 		// legal, and which is why this runs as a standalone pass of the frame
 		// graph rather than inside one of its ordinary ones.
-		cmd.TextureBarrier(volume->Texture(), TextureSync::ShaderRead,
+		cmd.TextureBarrier(volume->SolveTarget(), TextureSync::ShaderRead,
 						   TextureSync::FragmentWrite);
 
 		RenderPassBeginInfo begin;
@@ -1684,8 +1694,9 @@ namespace RageV
 		cmd.EndRenderPass();
 
 		// And the other half of the fence: what this pass stored is what the
-		// next draw sampling the field has to see.
-		cmd.TextureBarrier(volume->Texture(), TextureSync::FragmentWrite,
+		// first sampler of this texture -- next frame's set write, after the
+		// sweep-boundary flip makes it the front -- has to see.
+		cmd.TextureBarrier(volume->SolveTarget(), TextureSync::FragmentWrite,
 						   TextureSync::ShaderRead);
 
 		return true;
@@ -1693,11 +1704,18 @@ namespace RageV
 
 	void Renderer3D::RequestIrradianceSolve(const Ref<IrradianceVolume>& volume,
 											const Vec3& centre, const Vec3& extents,
-											const Mat3& rotation)
+											const Mat3& rotation,
+											uint32_t passes, uint32_t raysPerCell,
+											bool feedback)
 	{
 		if (!s_Data)
 			return;
 
+		// Clamped here rather than trusted: these come from a scene file, and a
+		// nought would be a solve that never runs while claiming it did.
+		s_Data->PendingIrradiancePasses = Math::Clamp(passes, 1u, 64u);
+		s_Data->PendingIrradianceFeedback = feedback;
+		s_Data->PendingIrradianceRays = Math::Clamp(raysPerCell, 64u, 4096u);
 		s_Data->PendingIrradiance = volume;
 		s_Data->PendingIrradianceCentre = centre;
 		s_Data->PendingIrradianceExtents = extents;
@@ -1743,23 +1761,42 @@ namespace RageV
 		// is spent once. This is the whole argument for baking: the expensive,
 		// converged answer is affordable precisely because no frame has to pay
 		// for it twice.
-		constexpr int kRaysPerCell = 512;
+		const int kRaysPerCell = (int)s_Data->PendingIrradianceRays;
 
 		// **What one frame is allowed to solve**, held as a ray budget rather
 		// than a cell count so that raising the rays above lengthens the solve
 		// instead of deepening the hitch. Cells never drop below one row, or a
 		// field wider than the budget would never finish.
-		constexpr uint32_t kRayBudget = 131072;
+		//
+		// A megaray, not the old 131072: the solve only runs while a bake is
+		// producing a file -- the editor's Bake button is a child process --
+		// so the frame it stretches belongs to nobody, and bake time buys
+		// accuracy at eight times the old rate.
+		constexpr uint32_t kRayBudget = 1u << 20;
 		const uint32_t cellsPerFrame = Math::Max(kRayBudget / (uint32_t)kRaysPerCell, 1u);
 		const uint32_t rowsPerFrame = Math::Max(cellsPerFrame / Math::Max(field.Width(), 1u), 1u);
 
-		// **The first sweep replaces, the rest converge.** A cell reads the
-		// field at every hit, so each sweep terminates its rays in what the
-		// last one left: the light gains a bounce a sweep, and the distances
-		// the visibility test reads gain the samples that make them mean
-		// something. Eight is where both stop moving on the scenes measured.
-		constexpr uint32_t kSweeps = 4;
-		const float blend = s_Data->PendingIrradianceSweep == 0 ? 1.0f : 0.35f;
+		// **Each pass is a bounce now, and this time the sentence is true.**
+		//
+		// Sweep 0 replaces: it reads a zeroed front and stores one bounce of
+		// light. Every later sweep traces fresh rays whose hits read the
+		// *previous sweep's completed field* -- the Jacobi discipline the
+		// volume's swap pair enforces -- so its estimate carries one more
+		// bounce of transport than the field it read, and the blend walks the
+		// store toward the multi-bounce fixed point while averaging the ray
+		// noise on the way. Half and half: the residual halves per sweep on
+		// top of the transport's own decay (albedo is under one), so eight
+		// sweeps sit within a fraction of a per cent of converged and sixteen
+		// is bake-time cheap.
+		//
+		// This feedback existed once and was disabled for amplifying leaks --
+		// a sealed room went 0.15 levels to 6.3 over eight sweeps -- BEFORE
+		// the stored visibility existed. It is safe to close now because the
+		// solve's field read always tests that visibility (see the fill's
+		// defines), and the sealed-room fixtures are part of the acceptance
+		// test rather than a surprise.
+		const uint32_t kSweeps = s_Data->PendingIrradiancePasses;
+		const float blend = s_Data->PendingIrradianceSweep == 0 ? 1.0f : 0.5f;
 
 		// Far enough that a cell in the middle of a room can see its far wall,
 		// derived from the box rather than guessed: a volume over a corridor
@@ -1776,7 +1813,8 @@ namespace RageV
 								   s_Data->PendingIrradianceCentre,
 								   s_Data->PendingIrradianceExtents,
 								   s_Data->PendingIrradianceRotation, kRaysPerCell, reach,
-								   s_Data->PendingIrradianceRow, rowsPerFrame, blend))
+								   s_Data->PendingIrradianceRow, rowsPerFrame, blend,
+								   s_Data->PendingIrradianceFeedback))
 		{
 			return false;
 		}
@@ -1785,9 +1823,16 @@ namespace RageV
 		if (s_Data->PendingIrradianceRow < rows)
 			return true;        // more of this sweep to go
 
+		// The sweep is complete: what it wrote becomes the front everything
+		// samples -- the frame's preview, and the next sweep's feedback and
+		// history -- and the old front becomes the next sweep's target. The
+		// bound descriptors catch up on the next frame's set write, which is
+		// also the first read of the new front.
+		s_Data->PendingIrradiance->FlipSolve();
+
 		s_Data->PendingIrradianceRow = 0;
 		if (++s_Data->PendingIrradianceSweep < kSweeps)
-			return true;        // another sweep onto what this one left
+			return true;        // another sweep, one bounce deeper
 
 		// Once per field, not once per solve: a scene whose lights move asks
 		// for one every frame, and this is a fact about a field existing
@@ -1795,8 +1840,11 @@ namespace RageV
 		if (s_Data->AnnouncedIrradiance != s_Data->PendingIrradiance.get())
 		{
 			RV_CORE_INFO("Renderer3D: irradiance field solved, {0}x{1}x{2} cells "
-						 "over {3} sweeps",
-						 field.Width(), field.Height(), field.Depth(), kSweeps);
+						 "over {3} sweeps ({4})",
+						 field.Width(), field.Height(), field.Depth(), kSweeps,
+						 s_Data->PendingIrradianceFeedback
+							 ? "traced flavour, sweeps are bounces"
+							 : "screen flavour, single bounce");
 			s_Data->AnnouncedIrradiance = s_Data->PendingIrradiance.get();
 		}
 
@@ -2097,6 +2145,7 @@ namespace RageV
 		s_Data->DrawCalls = 0;
 		s_Data->Triangles = 0;
 		s_Data->Culled = 0;
+		s_Data->IndirectDraws = 0;
 	}
 
 	void Renderer3D::BeginScene(const Camera& camera, const Mat4& cameraTransform,
@@ -2240,7 +2289,11 @@ namespace RageV
 			const float outer = light.Type == Light::LightType::Spot
 							  ? Math::Cos(Math::Radians(light.OuterCone)) : 1.0f;
 
-			entry.Params = { Math::Max(light.Range, 0.0001f), inner, outer, 0.0f };
+			// w carries Light::IsBaked, read only by the irradiance fill: the
+			// solve must shade its hits without the realtime lights, or their
+			// bounce would be stored into files their toggles cannot rename.
+			entry.Params = { Math::Max(light.Range, 0.0001f), inner, outer,
+							 light.IsBaked ? 1.0f : 0.0f };
 			entry.Shadow = Vec4(0.0f);
 
 			s_Data->LightScratch.push_back(entry);
@@ -3310,10 +3363,15 @@ namespace RageV
 										 (uint64_t)i * sizeof(GpuCull::SlotCommand),
 										 1, sizeof(GpuCull::SlotCommand));
 
-				// The draw is counted; its triangles are not, and cannot be --
-				// how many instances it draws is a number in device memory the
-				// CPU never reads back, which is the point.
+				// The draw is counted, and its triangles at the count that was
+				// *submitted* -- the slot's reserved length. How many of them
+				// survive is in device memory the CPU never reads back, which
+				// is the point; reporting nothing at all instead made the
+				// panel read as broken on every frame this path drew.
 				s_Data->DrawCalls++;
+				s_Data->IndirectDraws++;
+				s_Data->Triangles +=
+					(entry.MeshRef->GetIndexCount() / 3) * entry.InstanceCount;
 			}
 
 			// The loop below has to bind its own pipeline and set again.
@@ -3578,6 +3636,9 @@ namespace RageV
 										 1, sizeof(GpuCull::SlotCommand));
 
 				s_Data->DrawCalls++;
+				s_Data->IndirectDraws++;
+				s_Data->Triangles +=
+					(entry.MeshRef->GetIndexCount() / 3) * entry.InstanceCount;
 			}
 		}
 
@@ -3893,11 +3954,12 @@ namespace RageV
 									 (uint64_t)i * sizeof(GpuCull::SlotCommand),
 									 1, sizeof(GpuCull::SlotCommand));
 
-			// The draw is counted; the triangles are not, and cannot be. How
-			// many instances this command draws is a number in device memory
-			// that the CPU never reads back -- which is the whole point -- so
-			// the statistics line reports the draws honestly and stops.
+			// Counted the same way the camera's indirect draws are: the draw
+			// exactly, the triangles at what was submitted to the cull.
 			s_Data->DrawCalls++;
+			s_Data->IndirectDraws++;
+			s_Data->Triangles +=
+				(entry.MeshRef->GetIndexCount() / 3) * entry.InstanceCount;
 		}
 	}
 
@@ -4093,6 +4155,8 @@ namespace RageV
 						// x spans the meshlets, y the instances of this run.
 						cmd->DrawMeshTasks(meshlets.Count, end - start, 1);
 						s_Data->DrawCalls++;
+						s_Data->Triangles +=
+							(mesh->GetIndexCount() / 3) * (end - start);
 
 						start = end;
 						continue;
@@ -4140,6 +4204,7 @@ namespace RageV
 			cmd->DrawIndexed(mesh->GetIndexCount(), end - start);
 
 			s_Data->DrawCalls++;
+			s_Data->Triangles += (mesh->GetIndexCount() / 3) * (end - start);
 
 			start = end;
 		}
@@ -4362,4 +4427,5 @@ namespace RageV
 
 	unsigned int Renderer3D::GetDrawCallCount() { return s_Data ? s_Data->DrawCalls : 0; }
 	unsigned int Renderer3D::GetTriangleCount() { return s_Data ? s_Data->Triangles : 0; }
+	unsigned int Renderer3D::GetIndirectDrawCount() { return s_Data ? s_Data->IndirectDraws : 0; }
 }

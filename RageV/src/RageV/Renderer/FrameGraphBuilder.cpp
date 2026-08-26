@@ -637,13 +637,13 @@ namespace RageV
 		const bool voxelGi = !rayGi && ResolveVoxelGlobalIllumination(desc.Post)
 						  && VoxelGI::HasGrid();
 		const bool voxelWanted = !rayGi && ResolveVoxelGlobalIllumination(desc.Post);
-		// **Nothing computes indirect light when the field answers for it.**
-		//
-		// This is where baking stops being a quality feature and becomes a
-		// performance one: with a stored field the whole chain -- the gather or
-		// the traced bounce, and the denoise behind it -- is not added to the
-		// frame at all. Measured on the showroom, that is a 3.59 ms pass gone
-		// and a 7.45 ms frame becoming 4.07.
+		// **A Baked source that can be honoured drops the whole indirect
+		// chain, under both forms.** No gather, no traced bounce, no history
+		// buffer: the lit pass reads the stored field per pixel and that is
+		// the frame's entire indirect cost -- which is what baked means. The
+		// transport the traced chain used to add at runtime is baked into the
+		// field itself now (the solve's sweeps are bounces), so dropping the
+		// chain no longer trades quality for the saving.
 		//
 		// The renderer is told this by the scene rather than reading the
 		// setting itself, because the setting says what the author *wants* and
@@ -948,6 +948,7 @@ namespace RageV
 		// position from its depth can take it back out again (7bq).
 		reconstruction.JitterX = jitter.x;
 		reconstruction.JitterY = jitter.y;
+
 
 		// --- SSAO --------------------------------------------------------------
 		//

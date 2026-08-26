@@ -197,6 +197,7 @@ namespace RageV::Vk
 			case Format::BC3_SRGB:            return VK_FORMAT_BC3_SRGB_BLOCK;
 			case Format::BC4_UNORM:           return VK_FORMAT_BC4_UNORM_BLOCK;
 			case Format::BC5_UNORM:           return VK_FORMAT_BC5_UNORM_BLOCK;
+			case Format::BC6H_UFLOAT:         return VK_FORMAT_BC6H_UFLOAT_BLOCK;
 			case Format::D32_SFLOAT:          return VK_FORMAT_D32_SFLOAT;
 			case Format::D24_UNORM_S8_UINT:   return VK_FORMAT_D24_UNORM_S8_UINT;
 			case Format::D32_SFLOAT_S8_UINT:  return VK_FORMAT_D32_SFLOAT_S8_UINT;

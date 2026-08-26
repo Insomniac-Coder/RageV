@@ -19,6 +19,10 @@ namespace RageV
 		Camera,
 		Probe,
 		Audio,
+		// An irradiance volume: a box, drawn as one. It has no mesh and no
+		// collider, so without a mark the only way to select one is the
+		// hierarchy -- the same argument the other four are here for.
+		Volume,
 		Count
 	};
 

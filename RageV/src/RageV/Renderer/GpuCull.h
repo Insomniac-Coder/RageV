@@ -106,10 +106,20 @@ namespace RageV
 
 		// What the draw side needs and the GPU does not: which mesh to bind
 		// before a slot's indirect draw, and where the slot's instances start.
+		//
+		// `InstanceCount` is how many objects *named* this slot, which is the
+		// length of its reserved range -- not how many survived the cull. That
+		// number lives in device memory and the CPU never reads it back, which
+		// is the point of the whole pass. It is here because a statistics line
+		// that reports zero triangles for a frame that plainly drew some reads
+		// as a broken counter rather than as an honest "cannot know": the
+		// submitted count is knowable, is what a person is actually asking for
+		// when they read a triangle count, and is an upper bound on what drew.
 		struct Slot
 		{
 			RHI::Ref<Mesh> MeshRef;
 			uint32_t InstanceBase = 0;
+			uint32_t InstanceCount = 0;
 		};
 
 		// One view's culled result: the arguments its draws read, and the

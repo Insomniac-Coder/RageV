@@ -858,12 +858,19 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	// shows it, because a hard edge is a small number of pixels being
 	// completely wrong rather than every pixel being slightly wrong.
 	//
-	// So the last stretch of the box ramps the field's contribution down to
-	// nothing, and the fallback comes up underneath it. A tenth of each
-	// half-extent is enough to be invisible and small enough to leave the
-	// volume doing its job over the other nine tenths. The same lesson the
-	// reflection probes learned: fade from the edge, not from the centre.
-	const vec3 fromEdge = (1.0 - abs(local)) / 0.1;
+	// **One cell wide, not a tenth of the box.** The step this hides is an
+	// interpolation artefact, so the interpolation scale is its natural
+	// width. The tenth-of-half-extent band it replaces was measured doing
+	// real damage: a room's walls sit at the box its author drew, the sample
+	// bias only steps half a *cell* off a surface, so at fine spacings every
+	// wall landed deep inside a 40 cm fade band and read 40-60% of its
+	// stored light -- and the finer the bake, the darker the walls, which is
+	// exactly backwards. (1 - |local|) is the distance to the face in local
+	// units; times grid/2 it is that distance in cells. The solve also pads
+	// the box a cell past the authored extents -- see
+	// Scene::UpdateIrradianceVolumes -- so a surface *on* the authored
+	// boundary sits a full cell from the real edge and reads full strength.
+	const vec3 fromEdge = (1.0 - abs(local)) * grid * 0.5;
 	const float edgeFade = clamp(min(fromEdge.x, min(fromEdge.y, fromEdge.z)), 0.0, 1.0);
 	if (edgeFade <= 0.0)
 		return false;
@@ -939,13 +946,6 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		irradiance = max(irradiance, vec3(0.0)) * edgeFade;
 		return true;
 	}
-
-	// **The cell this fragment is nearest, and what the bake says it can see.**
-	// One fetch for the whole lookup, not one per corner: the mask belongs to
-	// where the fragment *is*, and every corner is judged against it.
-	const ivec3 anchor = clamp(ivec3(floor(base + 0.5)), ivec3(0), last);
-	const int reach = int(texelFetch(u_IrradianceField,
-									 anchor + ivec3(0, 0, tile * 3), 0).x + 0.5);
 
 	vec3 accumulated = vec3(0.0);
 	float total = 0.0;
@@ -1345,6 +1345,15 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	for (int i = 0; i < u_Scene.LightCount; ++i)
 	{
 		GpuLight light = u_Lights.Lights[i];
+#ifdef RV_IRRADIANCE_FILL
+		// **The solve shades its hits without the realtime lights.**
+		// Params.w carries Light::IsBaked; a light the lighting hash skips
+		// must not put its bounce into a file its toggles cannot rename --
+		// that is the whole mobility contract. Every frame compile keeps the
+		// loop as it was: realtime forms light everything, always.
+		if (light.Params.w < 0.5)
+			continue;
+#endif
 		vec3 lightColor = light.Color.rgb * light.Color.a;
 		vec3 L;
 		float attenuation = 1.0;
@@ -1467,22 +1476,18 @@ vec3 ProbeIrradiance(vec3 normal, float probe)
 			  u_Scene.Environment.x;
 }
 
+#ifdef RV_IRRADIANCE_FILL
+// Which flavour the solve is producing, set from the push constants at the
+// top of the fill's main -- a global because ShadeTraced is shared with
+// compiles that have no push-constant block to read it from.
+bool g_FillFeedback = false;
+#endif
+
 // A described hit plus what arrives at it. Callers check `Missed` first: this
 // deliberately does not, so a miss does not pay for an irradiance fetch it
 // throws away.
 vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
 {
-	// **And here is where a field earns most of its keep.** This is what every
-	// bounce ray terminates on: the trace stops at the first hit, so whatever
-	// stands in for the light arriving *there* decides what the whole bounce is
-	// worth. A constant makes every hit in the level equally lit; the field
-	// knows the hit's position and can say otherwise.
-	//
-	// It is also the cheap road to more bounces. The field is filled from these
-	// same traces, so each solve carries one more bounce of history, and one
-	// traced bounce terminating in it behaves like two -- which is what a
-	// second traced bounce costs 2.57 ms to buy.
-	//
 	// **Added to the flat ambient, not put in its place.** The field stores
 	// bounced light only, and `arriving` is the probe -- the sky half. Each of
 	// the three is a different part of what reaches this hit, and every one of
@@ -1490,31 +1495,37 @@ vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
 	// version did, when a cell still held sky as well, and it made the field
 	// stand in for terms it was already standing beside.
 	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
-#ifndef RV_IRRADIANCE_FILL
-	// **Except while the field is being solved**, and that exception is the
-	// difference between converging and running away.
+#ifdef RV_IRRADIANCE_FILL
+	// **Only the solve reads the field at a hit, and only for the traced
+	// flavour -- this is what turns its passes into bounces.** No frame
+	// compile enters this block: a Baked source does not trace at all -- the
+	// frame reads the field per pixel and the saving is the whole point --
+	// and Realtime answers without the bake by definition. What is left is
+	// the solve shading its own rays' hits, where the sampled field is the
+	// *previous* sweep's completed answer (the solve writes a second texture
+	// and the two swap at each sweep boundary; see
+	// Renderer3D::SolvePendingIrradiance). Sweep k's rays therefore inherit
+	// k-1 bounces of stored transport, and the fixed point the sweeps
+	// converge to is the full multi-bounce answer -- bought once, at bake
+	// time, and read back per frame for the cost of a fetch.
 	//
-	// A solve reads the field at every hit, so each sweep would carry the last
-	// one's answer one bounce further -- which sounds like multi-bounce and
-	// measures like it, right up until something is wrong. Whatever a sweep
-	// gets wrong, the next sweep treats as light and spreads: a sealed room
-	// beside a lit one reads 0.15 levels after one sweep and 6.3 after eight,
-	// because five per cent of a leak fed back eight times is not five per
-	// cent. The sweeps are for the noise of sixty-four rays, and they stay
-	// that; the bounce the field terminates belongs to the *frame*, which
-	// reads a field nothing is writing.
+	// `g_FillFeedback` is the flavour switch, set from the push constants at
+	// the top of the fill's main: the screen flavour skips this read and
+	// stores a converged single bounce, matching what the gather and the
+	// voxel form estimate; the traced flavour takes it and matches realtime
+	// RTGI. Uniform across the draw, so the branch costs nothing.
+	//
+	// **The visibility test is not optional here.** Feedback amplifies
+	// whatever it reads: a sealed room beside a lit one measured 0.15 levels
+	// of leak after one unguarded sweep and 6.3 after eight, because five per
+	// cent of a leak fed back eight times is not five per cent. The stored
+	// visibility is what makes the loop safe to close, so this reader always
+	// takes the careful path -- at bake time it costs bake time, which is the
+	// cheap currency.
+	if (g_FillFeedback)
 	{
 		vec3 stored;
-		// Whether this reader pays for the stored visibility is the renderer's
-		// call, not this file's: see Renderer3D::SetIrradianceShadowing. The
-		// lit pass below always does -- it reads the field rarely enough that
-		// the test is nearly free there.
-#ifdef RV_FIELD_SHADOWED
-		const bool testVisibility = true;
-#else
-		const bool testVisibility = false;
-#endif
-		if (VolumeIrradiance(surface.Position, surface.Normal, testVisibility, stored))
+		if (VolumeIrradiance(surface.Position, surface.Normal, true, stored))
 			ambientLight += stored;
 	}
 #endif

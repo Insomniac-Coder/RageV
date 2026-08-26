@@ -515,9 +515,63 @@ namespace RageV
 		Vec3 m_FieldExtents{ 1.0f };
 		Mat3 m_FieldRotation{ 1.0f };
 		float m_FieldSpacing = 0.0f;
+		// The solve quality the volumes asked for, kept beside the shape for
+		// the same reason: a change to either makes the stored answer wrong.
+		int m_FieldPasses = 0;
+		int m_FieldRays = 0;
 		uint64_t m_FieldLighting = 0;
 		uint32_t m_FieldVolumes = 0;
 		bool m_FieldBaked = false;
+
+		// The box the last walk derived for an AutoFit volume, held so the
+		// editor's overlay can draw the box the bake actually uses rather
+		// than re-deriving one that might disagree. Valid only while some
+		// volume in the scene has AutoFit on.
+		Vec3 m_AutoFitCentre{ 0.0f };
+		Vec3 m_AutoFitExtents{ 1.0f };
+		bool m_AutoFitValid = false;
+
+		// **A bake is a pair of files, one per flavour of GI it stands in
+		// for.** The traced flavour is solved with feedback -- passes become
+		// bounces -- so it matches (and slightly surpasses) realtime RTGI; the
+		// screen flavour is solved without, a converged single bounce, so it
+		// matches what the gather and the voxel form estimate. Handing the
+		// screen path the traced flavour would brighten a scene the moment its
+		// author switched to Baked, which is exactly the disparity the owner
+		// ruled out. The reader picks the file by which GI form is active.
+		//
+		// `m_FieldFlavourRt` is the flavour the resident field was loaded (or
+		// last solved) for; `m_FieldBakedAlt` says the *other* flavour's file
+		// is on disk and matches. A bake run is not done until both are.
+		bool m_FieldFlavourRt = false;
+		bool m_FieldBakedAlt = false;
+
+		// Which flavour the solve in flight belongs to: 0 none, 1 the other
+		// flavour (solved first, stored, then the field is handed back), 2 the
+		// active one (solved last so it is resident when the probes capture
+		// and when the bake ends). The store block reads this to know which
+		// file the completed solve is.
+		int m_FieldSolvePhase = 0;
+
+		// **That the field wants solving is state, not an event.**
+		//
+		// The change is *noticed* once -- the frame the lighting hash moves --
+		// but the frame that notices is very often one that may not act on it.
+		// A reflection probe capture re-enters the whole scene walk, once per
+		// cube face, before the main pass of the same frame runs; and a script
+		// that changes the lighting almost always dirties the probe in the same
+		// breath, because a room that changed is a room whose reflections
+		// changed. The showroom's mode switch does exactly that.
+		//
+		// So the notice landed inside the capture, where solving is refused,
+		// and the main pass a moment later saw a field whose recorded lighting
+		// already matched and asked for nothing. The field stayed at the zeros
+		// it had just been cleared to, for the life of the mode -- and under
+		// `--bake=on` those zeros are what got written to disk, which is worse
+		// than no file at all because a later run loads them and trusts them.
+		//
+		// Held as a want, it survives the frames that cannot serve it.
+		bool m_FieldSolveWanted = false;
 
 		// **Whether "Baked" can actually be honoured**: a field exists and it
 		// came off disk. Asked by the frame graph before it decides whether to
@@ -537,11 +591,149 @@ namespace RageV
 		uint64_t m_SettledLighting = 0;
 		uint32_t m_SettledFrames = 0;
 
-		// Where this scene's composed field is stored under a given lighting.
-		// One file per lighting the scene can be in -- see the definition.
-		std::filesystem::path FieldBakePath(uint64_t lighting) const;
+		// **A bake somebody pressed a button for**, as opposed to `--bake=on`.
+		//
+		// The two are not the same request and must not share a flag. The
+		// command line says "produce whatever this scene is missing", so it
+		// loads a file that already matches and writes nothing. A press says
+		// "make this one again" -- the author has moved a wall or changed a
+		// material, neither of which the lighting hash covers, so the stored
+		// answer is stale in a way nothing can detect. So a requested bake
+		// skips the load and overwrites.
+		bool m_BakeRequested = false;
+		uint32_t m_BakeFrames = 0;
+		// Frames in a row in which nothing moved. A solve that is running is
+		// not a bake that is stuck, however long it runs.
+		uint32_t m_BakeStalledFrames = 0;
+		// `--bake=force` asks once per scene, not once a frame.
+		bool m_ForcedBakeAsked = false;
+
+		// Whether the GI source in force says Baked -- asked by the field
+		// binding and by RenderShadows' flag hand-off, which must agree.
+		bool WantsBakedGi();
+
+		// Which flavour of bake the active GI form reads: true when the traced
+		// bounce is the form in force, false when the screen forms are. The
+		// same resolve RenderShadows makes, shared so the loader, the solver
+		// and the warnings all name the same file.
+		bool ActiveGiIsTraced() const;
+
+		// Either kind of bake. Every write and the solve behind them ask this
+		// rather than the config, so there is one answer to "are we baking".
+		bool BakingLighting() const;
+
+		// Whether a bake in progress should ignore what is already on disk.
+		bool ForcingBake() const;
+
+		// Ends a requested bake once its field and its probes are on disk, or
+		// gives up with a reason. Called once per field update.
+		void UpdateLightingBake();
+
+		// Where this scene's composed field is stored under a given lighting
+		// and flavour -- one pair of files per lighting the scene can be in;
+		// see the definition.
+		std::filesystem::path FieldBakePath(uint64_t lighting, bool rtFlavour) const;
+
+		// Where one probe's cube is stored under the scene's current lighting.
+		// One file per probe *per lighting*, for the reason the definition
+		// gives: a scene can be in more than one, and a cube captured in one is
+		// the wrong photograph in the other.
+		std::filesystem::path ProbeBakePath(UUID probe) const;
 
 	public:
+		// **Bake this scene's stored lighting now.**
+		//
+		// The editor's half of `--bake=on`: solves the irradiance field under
+		// the lighting the scene is in *at this moment* and writes it beside
+		// the scene, along with a fresh cube for every non-realtime reflection
+		// probe. Takes a few dozen frames -- the lighting hash has to hold
+		// still before a file can be named for it -- so it is a request rather
+		// than a call that returns a result.
+		//
+		// **The moment matters, and it is why this exists.** A scene can be in
+		// more than one lighting, a bake is one file per lighting, and the
+		// only way to reach a lighting a script applies is to be standing in
+		// it. Pressed while the game is playing, this bakes what is on screen.
+		void RequestLightingBake();
+
+		// Whether a requested bake is still running. False under `--bake=on`,
+		// which is not a request and never finishes.
+		bool LightingBakePending() const { return m_BakeRequested; }
+
+		// **Whether everything a bake can store for the current lighting is
+		// stored.** True between lightings too -- a script sweeping a scene's
+		// modes drops it back to false the moment it switches -- so a caller
+		// waiting for a whole run to finish waits for this to *hold*, not
+		// merely to happen. See RuntimeLayer's exit-when-settled.
+		bool BakedLightingSettled();
+
+		// **Pick up bakes that landed on disk after this scene loaded.**
+		//
+		// The editor's Bake button runs the baker as a child process -- a
+		// whole runtime, baking the scene as saved -- so the files appear
+		// under a scene that has already decided nothing on disk matches.
+		// Nothing re-asks by itself: the field load runs only when the
+		// field's shape or lighting changes, and a probe looks for its cube
+		// exactly once per scene. This clears both memories, so the next
+		// frame walks the load paths again and finds what the child wrote.
+		void ReloadBakedLighting();
+
+		// Everything true about the field and what is stored for it, in one
+		// read. For the inspector, which has to say something accurate about a
+		// feature whose files are named by a hash nobody can read.
+		struct FieldStatus
+		{
+			uint32_t Volumes = 0;          // components composing the field
+			uint32_t Width = 0;
+			uint32_t Height = 0;
+			uint32_t Depth = 0;
+			float    Spacing = 0.0f;       // metres, the finest any asked for
+			uint64_t Lighting = 0;         // names this lighting's file
+			bool     Loaded = false;       // the field came off disk
+			bool     Solving = false;      // a solve is in flight or waiting
+			std::filesystem::path File;      // this lighting's bake
+			std::filesystem::path Directory; // where every lighting's bake lives
+		};
+		FieldStatus GetFieldStatus() const;
+
+		// **Why a `Baked` GI source is not being honoured, when it is not.**
+		//
+		// The renderer already made this decision -- it has to, before it can
+		// choose which chain to build -- and until now it said so only in the
+		// log, once per scene. A setting that reads `Baked` while the frame is
+		// rendering Realtime is a control that lies about what it is doing, and
+		// the log is not where somebody looking at that control is looking.
+		//
+		// Recorded where the decision is made rather than derived again in the
+		// editor, so the panel and the frame cannot disagree.
+		enum class BakedGi
+		{
+			NotAsked,   // the setting says Realtime; nothing to report
+			Honoured,   // a bake is loaded and the frame is reading it
+			Settling,   // asked for, not true yet, and too early to call it
+			NoVolume,   // asked for, and this scene has no Irradiance Volume
+			NoBake,     // asked for, there is a volume, no file fits the lighting
+		};
+		BakedGi GetBakedGiState() const { return m_BakedGi; }
+
+		// The box an AutoFit volume derived on the last walk, so the editor's
+		// overlay draws the box the bake actually uses. False while nothing
+		// in the scene is auto-fitting.
+		bool GetAutoFitBox(Vec3& centre, Vec3& extents) const
+		{
+			centre = m_AutoFitCentre;
+			extents = m_AutoFitExtents;
+			return m_AutoFitValid;
+		}
+
+	private:
+		// Written once a frame beside the decision it describes. Declared here
+		// rather than with the other field state because a member cannot name
+		// a type its own class has not declared yet.
+		BakedGi m_BakedGi = BakedGi::NotAsked;
+
+	public:
+
 		// Whether this scene has indirect light stored and loaded -- what a
 		// `GiSource::Baked` setting needs to be true. False means the setting
 		// cannot be honoured and the caller should say so and use Realtime.

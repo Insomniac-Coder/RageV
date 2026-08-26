@@ -59,7 +59,8 @@ namespace RageV::RHI
 			case Format::BC3_UNORM:
 			case Format::BC3_SRGB:
 			case Format::BC4_UNORM:
-			case Format::BC5_UNORM:             return 0;
+			case Format::BC5_UNORM:
+			case Format::BC6H_UFLOAT:           return 0;
 			case Format::Undefined:             return 0;
 		}
 		return 0;
@@ -75,6 +76,7 @@ namespace RageV::RHI
 			case Format::BC3_SRGB:
 			case Format::BC4_UNORM:
 			case Format::BC5_UNORM:
+			case Format::BC6H_UFLOAT:
 				return true;
 			default:
 				return false;

@@ -95,6 +95,24 @@ namespace RageV
 		// which is three times a field's, so nothing has to be told.
 		const RHI::Ref<RHI::RHITexture>& Texture() const { return m_Texture; }
 
+		// **The solve's write target -- the other half of a swap pair.**
+		//
+		// A solve that reads the texture it is writing is a race within a
+		// sweep and a muddle between them: cells written early in a sweep leak
+		// into cells solved later, and "one pass, one bounce" stops being
+		// true. So the solve writes this one while every reader -- the frame,
+		// and the solve's own feedback -- samples Texture(), and FlipSolve()
+		// exchanges the two at each sweep boundary. Sweep k then reads exactly
+		// what sweep k-1 finished, nothing newer.
+		const RHI::Ref<RHI::RHITexture>& SolveTarget() const { return m_Solve; }
+
+		// Called once per completed sweep, after its last rows are recorded:
+		// what was just written becomes what everything samples, and the old
+		// front becomes the next sweep's target. The bound descriptors catch
+		// up on the next frame's set write, which is also when the first
+		// reader of the new front runs.
+		void FlipSolve() { std::swap(m_Texture, m_Solve); }
+
 		// Linear, clamped. Linear because the whole point is the blend between
 		// cells; clamped because a sample just outside the box should read its
 		// edge rather than wrap to the far side of the room.
@@ -106,6 +124,7 @@ namespace RageV
 		uint32_t m_Depth = 0;
 
 		RHI::Ref<RHI::RHITexture> m_Texture;
+		RHI::Ref<RHI::RHITexture> m_Solve;
 		RHI::Ref<RHI::RHISampler> m_Sampler;
 
 		// Scratch for the channel split and the half conversion, kept so an

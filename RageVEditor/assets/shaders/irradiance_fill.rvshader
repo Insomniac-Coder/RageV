@@ -50,15 +50,21 @@ layout(push_constant) uniform FillParams
 
 	// x how far a ray may travel before it is called a miss; y a counter the
 	// directions are hashed against so successive solves of the same cell do
-	// not repeat one another; **z how much of this pass to keep**, which is
-	// what turns repeated solving into converging rather than replacing.
+	// not repeat one another; **z how much of this pass to keep** against the
+	// previous pass's completed field.
 	//
-	// One on the first pass over a field -- there is nothing to keep -- and
-	// less after it, so each pass adds its rays to what the last one found
-	// instead of throwing them away. Sixty-four rays a cell is a thin estimate
-	// of a sphere; eight passes of it is not, and the same averaging sharpens
-	// the distances the visibility test reads, which are spread over sixty-four
-	// directions and need it more than the light does.
+	// One on the first pass -- there is nothing to keep -- and less after it.
+	// The history it blends against is the *previous sweep's* field, read
+	// through the sampler (this pass writes a different texture and the two
+	// swap at each sweep boundary).
+	//
+	// **w is the flavour switch.** With it set, each sweep's rays also read
+	// that previous field at their hits -- so a pass is not merely more rays,
+	// it is one more bounce of transport, and the blend walks the store
+	// toward the multi-bounce fixed point: the traced flavour, matching
+	// realtime RTGI. With it clear the hits shade against the probe alone and
+	// every pass re-estimates the same single bounce: the screen flavour,
+	// matching what the gather and the voxel form estimate.
 	vec4 Trace;
 
 	// The box's own axes, as columns: where a cell sits in the world is the
@@ -85,6 +91,12 @@ void main()
 {
 	o_Unused = vec4(0.0);
 
+	// Which flavour this pass produces: with feedback the rays read the
+	// previous sweep's field at their hits and passes become bounces (the
+	// traced flavour); without, every pass re-estimates the same single
+	// bounce (the screen flavour). See ShadeTraced's guarded block.
+	g_FillFeedback = u_Fill.Trace.w > 0.5;
+
 	const ivec3 grid = ivec3(u_Fill.Grid.xyz + 0.5);
 	const int rays = max(int(u_Fill.Grid.w + 0.5), 1);
 
@@ -106,6 +118,17 @@ void main()
 					  + u_Fill.Rotation[1].xyz * inBox.y
 					  + u_Fill.Rotation[2].xyz * inBox.z;
 
+	// **No virtual offset here, and that is a measured decision, not an
+	// omission.** The APV/DDGI-style lift -- step a cell's trace origin off
+	// any surface it sits on -- was implemented and run against the sealed
+	// -room fixtures on 2026-08-26. It fixed the point-light room outright
+	// (8.4 levels of glow to 0.2) and made every sun-lit one *worse* (3.2
+	// to 15.6 at one-metre cells): waking the on-floor cell layer from dead
+	// to alive changes which cells anchor the reads above the floor, and
+	// the sun fixtures lose more to that than they gain. The mechanism is
+	// right -- cells on grid-coincident surfaces really are the residual
+	// leak carriers -- but the lift needs to come with its own pass over
+	// the alive/dead and visibility story, not ride in on a constant.
 	uint seed = GiHash(uint(cell.x) * 73856093u ^ uint(cell.y) * 19349663u
 					   ^ uint(cell.z) * 83492791u ^ uint(u_Fill.Trace.y));
 
@@ -184,6 +207,9 @@ void main()
 			continue;
 		}
 
+		// For the traced flavour, ShadeTraced reads the previous sweep's
+		// field at this hit -- the feedback that turns passes into bounces.
+		// The screen flavour skips it; see g_FillFeedback at the top of main.
 		const vec3 radiance = ShadeTraced(hit, ProbeIrradiance(hit.Normal, 0.0));
 
 		// **The ray's direction in the box's frame**, because that is the frame
@@ -244,9 +270,13 @@ void main()
 	// point should store, and what an unsolved field's zero means the absence of.
 	const float faceScale = 4.0 / float(rays);
 
-	// **Blended into what is already there, not written over it.** Each pass
-	// traces its own directions -- the hash counter moves per pass -- so what
-	// accumulates is a mean over more rays than one pass can afford.
+	// **Blended against the previous sweep's field, not this texture's own
+	// bytes.** The pass writes one texture and samples the other -- see the
+	// swap in Renderer3D::SolvePendingIrradiance -- so the history read here
+	// has to come through the sampler too: what this texture held before the
+	// swap is a sweep further back than the one being blended with. The
+	// sampler and the image share a layout texel for texel, so the fetch is
+	// exact.
 	for (int f = 0; f < 6; f++)
 	{
 		const ivec3 slot = cell + ivec3(0, 0, grid.z * f);
@@ -257,7 +287,7 @@ void main()
 		// against every wall, because a volume drawn to the walls puts its
 		// outermost cells *in* them.
 		imageStore(u_FillField, slot,
-				   mix(imageLoad(u_FillField, slot),
+				   mix(texelFetch(u_IrradianceField, slot, 0),
 					   vec4(face[f] * faceScale, 1.0), blend));
 	}
 

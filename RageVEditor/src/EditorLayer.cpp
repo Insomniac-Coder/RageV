@@ -21,6 +21,7 @@
 #include "RageV/Project/ProjectPackager.h"
 #include "RageV/Core/FrameProfiler.h"
 #include "RageV/Core/EngineConfig.h"
+#include "RageV/Core/ChildProcess.h"
 #include "RageV/Particles/ParticleSystem.h"
 #include "RageV/Renderer/ParticleRenderer.h"
 #include "RageV/Renderer/UIRenderer.h"
@@ -50,6 +51,17 @@ namespace
 	}
 
 	// A label/value row used throughout the panels.
+	// A triangle count is seven digits on any real scene, and seven digits in a
+	// row is a number nobody reads -- it is there to be compared against the
+	// last one, and grouping is what makes two of them comparable at a glance.
+	std::string Grouped(unsigned int value)
+	{
+		std::string digits = std::to_string(value);
+		for (int at = (int)digits.size() - 3; at > 0; at -= 3)
+			digits.insert((size_t)at, " ");
+		return digits;
+	}
+
 	void StatRow(const char* label, const std::string& value)
 	{
 		ImGui::TableNextRow();
@@ -76,6 +88,12 @@ EditorLayer::~EditorLayer()
 		m_BuildCancel = true;
 		m_BuildThread.join();
 	}
+
+	if (m_BakeThread.joinable())
+	{
+		m_BakeCancel = true;
+		m_BakeThread.join();
+	}
 }
 
 void EditorLayer::OnAttach()
@@ -96,6 +114,11 @@ void EditorLayer::OnAttach()
 
 	EditorTheme::Apply(m_Theme);
 	m_RevealAfterBuild = EngineConfig::Get().RevealAfterBuild;
+
+	// The Bake buttons in the inspector and the baked-GI notice bake through
+	// this: a child runtime, teeing into the Build Log, editor untouched.
+	UI::SetBakeLauncher([this] { return StartLightingBake(); },
+						[this] { return m_BakeInFlight; });
 
 	// The project is already open by the time a layer attaches -- the runtime
 	// needs it to find the start scene -- so this is the first moment the
@@ -349,6 +372,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// The frame a background build finishes, its results are published here --
 	// on this thread, before anything else reads them.
 	FinishBuild();
+	FinishLightingBake();
 	m_FrameSeconds = ts.GetSeconds();
 
 	// Before anything draws, so a mesh that changed on disk is already out of
@@ -357,6 +381,42 @@ void EditorLayer::OnUpdate(Timestep ts)
 	// it reloaded.
 	PollAssetChanges(ts.GetSeconds());
 	m_TerrainTool.Playing = m_SceneState != SceneState::Edit;
+
+	// **A fallback nobody can see is a fallback nobody fixes.**
+	//
+	// A `Baked` GI source that cannot be honoured has always been a single
+	// line in the log, said once per scene -- and the log panel is closed most
+	// of the time, so the observable symptom was a scene that quietly rendered
+	// twice as slowly as its settings implied. Said on the status bar too, on
+	// the edge rather than every frame, so it appears when the answer changes
+	// and does not nag while it stays changed.
+	if (m_Scene)
+	{
+		const Scene::BakedGi baked = m_Scene->GetBakedGiState();
+		if (baked != m_LastBakedGi)
+		{
+			m_LastBakedGi = baked;
+
+			if (baked == Scene::BakedGi::NoVolume)
+			{
+				m_StatusBar.Post(EditorUI::StatusBar::Kind::Warning,
+								 "Baked GI unavailable", "no Irradiance Volume in this scene");
+			}
+			else if (baked == Scene::BakedGi::NoBake)
+			{
+				m_StatusBar.Post(EditorUI::StatusBar::Kind::Warning,
+								 "Baked GI unavailable",
+								 "no bake for this lighting -- rendering Realtime");
+			}
+			else if (baked == Scene::BakedGi::Honoured)
+			{
+				// The other edge, and it is worth saying: it is what a bake
+				// finishing looks like from outside.
+				m_StatusBar.Post(EditorUI::StatusBar::Kind::Info,
+								 "Baked GI in use", "reading the field beside the scene");
+			}
+		}
+	}
 
 	// --brush, once, after the scene has loaded and the renderer can build
 	// the terrain's runtime: the frame after OnLoaded rather than in it, so
@@ -494,6 +554,13 @@ void EditorLayer::OnUpdate(Timestep ts)
 
 	// Cascades are fitted to a frustum, so they belong to whichever camera is
 	// about to be drawn. The game view below re-renders them for its own.
+	// Only when the viewport will actually draw -- the same rule 7cl gave its
+	// graph. A hidden tab's fit renders every shadow map and runs every cull
+	// for a camera nothing draws through; the game view refits for its own
+	// camera immediately below either way. (Ruled out as the cause of the
+	// small-panel RTAO wedge -- that was the ray origin's lift, see the
+	// shader -- but the waste is real on its own.)
+	if (m_ViewportVisible && m_ViewportSize.x >= 1.0f && m_ViewportSize.y >= 1.0f)
 	{
 		RV_PROFILE_PHASE(FramePhase::Shadows);
 
@@ -1017,11 +1084,75 @@ void EditorLayer::DrawColliderOverlay()
 		Physics::DrawColliders(*m_Scene, selected);
 	if (m_ShowEmitters)
 		DrawEmitterVolumes();
+	// **Always, not behind a toggle.** An irradiance volume is invisible in
+	// every other way -- no mesh, no collider -- and its box is the whole of
+	// what an author is editing: which room it covers and how far past the
+	// walls it reaches. A toggle would make the default state of the editor
+	// one where the thing being authored cannot be seen.
+	DrawIrradianceVolumes(selected);
 	// The brush's ring on the ground under the cursor, in the same overlay
 	// (7ar). Only in edit mode: the tool is inert in Play.
 	if (m_SceneState == SceneState::Edit)
 		m_TerrainTool.DrawOverlay();
 	DebugRenderer::EndScene();
+}
+
+// Every irradiance volume's box, in the overlay the colliders use.
+//
+// **The box comes from the component, and the transform only places it.** That
+// is the property worth drawing: the same two lines the scene walk uses to
+// build the field, so an overlay that disagrees with the bake is impossible
+// rather than merely unlikely. A volume used to take its size from the
+// transform's scale, which meant a volume parented to anything scaled silently
+// covered a different room than the box on screen.
+void EditorLayer::DrawIrradianceVolumes(UUID selected)
+{
+	// Cool white, and brighter when selected. Not the amber the emitters wear:
+	// two kinds of box in one viewport want telling apart, and this one is a
+	// region light is *stored* in rather than one things come out of.
+	constexpr Vec4 kColor{ 0.42f, 0.72f, 0.95f, 1.0f };
+	constexpr Vec4 kSelected{ 1.0f, 0.62f, 0.24f, 1.0f };
+
+	auto view = m_Scene->GetRegistry().GetView<TransformComponent,
+											   IrradianceVolumeComponent>();
+	for (auto handle : view)
+	{
+		auto [transform, volume] =
+			view.Get<TransformComponent, IrradianceVolumeComponent>(handle);
+
+		const bool isSelected =
+			selected == Entity{ handle, m_Scene.get() }.GetUUID();
+
+		// **An auto-fitting volume draws the box the scene derived**, asked
+		// for rather than re-derived here -- the same rule the emitter
+		// overlay states: an overlay that agrees with the bake by
+		// coincidence is a measurement of the wrong thing.
+		Vec3 fittedCentre, fittedExtents;
+		if (volume.AutoFit && m_Scene->GetAutoFitBox(fittedCentre, fittedExtents))
+		{
+			Mat4 frame(1.0f);
+			frame[3] = Vec4(fittedCentre, 1.0f);
+			DebugRenderer::DrawBox(frame, fittedExtents,
+								   isSelected ? kSelected : kColor);
+			continue;
+		}
+
+		// Position and rotation from the transform, size from the component,
+		// scale deliberately dropped -- the same three sentences
+		// Scene::UpdateIrradianceVolumes acts on.
+		Mat4 frame(1.0f);
+		for (int i = 0; i < 3; i++)
+		{
+			const Vec3 axis = Vec3(transform.World[i]);
+			const float length = Math::Length(axis);
+			frame[i] = Vec4(length > 1.0e-6f ? axis / length
+											 : Vec3(i == 0, i == 1, i == 2), 0.0f);
+		}
+		frame[3] = transform.World[3];
+
+		DebugRenderer::DrawBox(frame, Math::Max(volume.Extents, Vec3(0.05f)),
+							   isSelected ? kSelected : kColor);
+	}
 }
 
 // Every box emitter's spawn volume, inside the overlay the colliders use.
@@ -2428,21 +2559,52 @@ void EditorLayer::DrawStatisticsPanel()
 	ImGui::SeparatorText("Renderer");
 	if (ImGui::BeginTable("##RendererStats", 2, ImGuiTableFlags_SizingStretchProp))
 	{
-		StatRow("Mesh draws", std::to_string(Renderer3D::GetDrawCallCount()));
-		StatRow("Triangles",  std::to_string(Renderer3D::GetTriangleCount()));
-		StatRow("Culled",     std::to_string(Renderer3D::GetCulledCount()));
+		// **Every row says which half of the frame it is describing.**
+		//
+		// A GPU-driven frame knows exactly how many draws it issued and
+		// exactly nothing about how many objects or triangles came out the
+		// other side of the cull -- those counts are in device memory that is
+		// never read back, which is the whole saving. Reported as bare numbers
+		// the panel read "155 mesh draws, 0 triangles, 0 culled", which is
+		// three true numbers arranged to look like a broken counter.
+		const unsigned int draws = Renderer3D::GetDrawCallCount();
+		const unsigned int indirect = Renderer3D::GetIndirectDrawCount();
+
+		StatRow("Mesh draws", indirect
+				? Grouped(draws) + "   " + std::to_string(indirect) + " indirect"
+				: Grouped(draws));
+
+		// Submitted: exact for a classic draw, the slot's reserved length for
+		// an indirect one. An upper bound, and the number a person reading a
+		// frame time is actually asking for.
+		StatRow("Triangles", indirect
+				? Grouped(Renderer3D::GetTriangleCount()) + "   submitted"
+				: Grouped(Renderer3D::GetTriangleCount()));
+
+		StatRow("Culled", indirect
+				? Grouped(Renderer3D::GetCulledCount()) + "   on CPU, rest on GPU"
+				: Grouped(Renderer3D::GetCulledCount()));
 		// **Which indirect light is in this frame**, named the way somebody
 		// reading a frame time needs it named. A baked frame and a realtime one
 		// differ by a whole pass, so "4 ms" means nothing without this.
+		//
+		// Baked has no traced variant any more: a Baked source that can be
+		// honoured drops the chain under both dropdowns and the field answers
+		// alone, so "Baked field" is the whole story of such a frame.
 		{
 			const bool baked = Renderer3D::IsBakedIrradianceOnly();
 			const bool traced = Renderer3D::IsRayTracedGlobalIllumination();
-			const char* gi = traced ? (baked ? "RTGI (baked)" : "RTGI (realtime)")
-									: (baked ? "GI (baked)" : "GI (realtime)");
+			const char* gi = baked ? "Baked field"
+					   : traced ? "RTGI (realtime)"
+								: "GI (realtime)";
 			StatRow("Indirect", gi);
 		}
-		StatRow("Quad batches", std::to_string(Renderer2D::GetDrawCallCount()));
-		StatRow("Quads",      std::to_string(Renderer2D::GetQuadCount()));
+		// **No quad rows.** They reported Renderer2D, and nothing in the engine
+		// or the editor calls Renderer2D::DrawQuad -- sprites are not a
+		// component and the UI has its own renderer -- so the two rows were
+		// structurally zero on every frame of every scene. Two counters that
+		// can only ever say nothing are worse than absent: a reader who sees
+		// them assumes the panel is wrong about the rows above them too.
 		ImGui::EndTable();
 	}
 
@@ -2664,6 +2826,25 @@ void EditorLayer::DrawRenderSettingsPanel()
 								  "ragev.ini. Changing the value above clears the "
 								  "disagreement.");
 		}
+
+		// **And the same courtesy for a GI source that is not being honoured.**
+		//
+		// The dropdown above can say Baked while the frame renders Realtime --
+		// a scene with no Irradiance Volume in it, or with one and no bake for
+		// the lighting it is currently in. The renderer has always known and
+		// has always said so in the log, once, which is not where somebody
+		// looking at the dropdown is looking.
+		//
+		// **The setting is not rewritten to match.** It is the author's stated
+		// intent, and a bake is a thing that arrives: switching it to Realtime
+		// on their behalf would throw the intent away at the exact moment it
+		// became recoverable, and pressing Bake would then fix the light and
+		// leave the setting wrong. So the control keeps saying what was asked
+		// for, and this says what is happening.
+		//
+		// The same call sits under the post profile's own GI source. One of
+		// the two is live at a time and the scene answers for whichever it is.
+		UI::BakedGiNotice(m_Scene.get());
 	}
 
 	// --- where the frame is: the scene --------------------------------------
@@ -4437,6 +4618,128 @@ void EditorLayer::BuildInto(const std::filesystem::path& output,
 	});
 }
 
+
+// Bake the scene's stored lighting in a child process.
+//
+// **A whole runtime, not a thread in this one.** The baker needs the scene
+// simulated -- scripts run in it, which is how a scene that owns several
+// lightings (the showroom's mode pill) gets every one of them into files in a
+// single run -- and simulating the scene a second time inside the editor's
+// own process would mean two registries fighting over one set of renderer
+// singletons. A child pays a few seconds of startup and in exchange the
+// editor stays interactive for the minutes a fine field takes to solve.
+//
+// stdout tees into the Build Log, exactly as a script build's does; the
+// finished files are picked up by FinishLightingBake on the main thread.
+bool EditorLayer::StartLightingBake()
+{
+	if (!Project::GetActive() || !m_Scene)
+		return false;
+
+	// One consumer of the Build Log at a time -- interleaving a bake's lines
+	// with a compiler's would make both unreadable.
+	if (m_BakeInFlight || m_BuildInFlight)
+	{
+		m_ShowScriptBuild = true;
+		m_FocusBuildLog = 4;
+		return false;
+	}
+
+	const std::string scenePath = m_Scene->GetSourcePath();
+	if (scenePath.empty())
+	{
+		m_StatusBar.Post(EditorUI::StatusBar::Kind::Warning, "Cannot bake",
+						 "save the scene first -- a bake is stored beside the scene file");
+		return false;
+	}
+
+	// The child bakes the scene as saved, so what is on disk has to be what
+	// is on screen. Said on the status bar rather than silently: a save is a
+	// side effect worth a sentence.
+	if (m_Commands.IsSceneDirty())
+	{
+		SaveScene();
+		m_StatusBar.Post(EditorUI::StatusBar::Kind::Info, "Scene saved",
+						 "the baker reads the scene from disk");
+	}
+
+	const std::filesystem::path runtime = FindRuntime();
+	if (runtime.empty())
+	{
+		m_StatusBar.Post(EditorUI::StatusBar::Kind::Error, "Cannot bake",
+						 "no RageVRuntime.exe beside the editor or in the build tree");
+		return false;
+	}
+
+	// **Always Vulkan.** The fill traces rays and OpenGL has none, so a bake
+	// run there solves nothing and writes a field of zeros that every later
+	// run would load and trust -- the exact trap the bake key already fell
+	// into once. A machine with no Vulkan driver fails loudly instead, which
+	// is the right direction to fail in.
+	//
+	// The benchmark count is a ceiling, not a schedule: the run ends when it
+	// is reached, and a bake that has not finished by twenty thousand frames
+	// is a bake that was never going to. Scenes finish long before it and the
+	// tail costs nothing anybody watches.
+	const std::string command =
+		"\"" + runtime.string() + "\""
+		+ " --project=\"" + Project::Root().string() + "\""
+		+ " --scene=" + scenePath
+		+ " --rhi=vulkan --bake=force --render-defaults=off --vsync=off"
+		+ " --benchmark=20000";
+
+	m_ShowScriptBuild = true;
+	m_FocusBuildLog = 4;
+	m_BakeInFlight = true;
+	m_BakeCancel = false;
+	m_BakeDone = false;
+	{
+		std::lock_guard<std::mutex> lock(m_BuildLogMutex);
+		m_BuildLiveLog = "Baking " + scenePath + "\n" + command + "\n\n";
+	}
+
+	m_StatusBar.Post(EditorUI::StatusBar::Kind::Working, "Baking lighting", scenePath);
+
+	m_BakeThread = std::thread([this, command]()
+	{
+		const ChildProcess::Result run = ChildProcess::Run(
+			command, &m_BakeCancel,
+			[this](const char* data, size_t size)
+			{
+				std::lock_guard<std::mutex> lock(m_BuildLogMutex);
+				m_BuildLiveLog.append(data, size);
+			});
+
+		m_BakeExit = run.Launched ? run.ExitCode : -1;
+		m_BakeDone = true;
+	});
+
+	return true;
+}
+
+void EditorLayer::FinishLightingBake()
+{
+	if (!m_BakeInFlight || !m_BakeDone)
+		return;
+
+	m_BakeThread.join();
+	m_BakeInFlight = false;
+
+	if (m_BakeExit == 0)
+	{
+		// The files are on disk; the scene decided long ago that they were
+		// not. Clear that memory and the next frame loads them.
+		if (m_Scene)
+			m_Scene->ReloadBakedLighting();
+		m_StatusBar.Post(EditorUI::StatusBar::Kind::Info, "Bake finished",
+						 "baked lighting loaded");
+	}
+	else
+	{
+		m_StatusBar.Post(EditorUI::StatusBar::Kind::Error, "Bake failed",
+						 "see the Build Log");
+	}
+}
 
 // Start building the project's scripts -- the C++ module, then C# -- on a
 // worker thread.

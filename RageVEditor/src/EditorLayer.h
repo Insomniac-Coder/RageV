@@ -112,6 +112,11 @@ public:
 	// Called each frame from OnUpdate; joins the worker and publishes its
 	// results the frame the build finishes.
 	void FinishBuild();
+	// Starts the child-process lighting bake; false if it could not start.
+	bool StartLightingBake();
+	// Publishes a finished bake on the main thread, exactly as FinishBuild
+	// publishes a build: join, reload the baked files, say how it went.
+	void FinishLightingBake();
 	void DrawScriptBuildPanel();
 	void DrawBuildResult(const RageV::Managed::BuildResult& result);
 
@@ -143,6 +148,15 @@ public:
 	// thing touched from both sides at once, and it has the mutex.
 	std::thread m_BuildThread;
 	std::atomic<bool> m_BuildCancel{ false };
+
+	// The lighting baker, as its own worker rather than a rider on the build
+	// thread: FinishBuild's hand-back restarts Play and reloads modules, none
+	// of which a bake wants, and a bake can take minutes a build never does.
+	std::thread m_BakeThread;
+	std::atomic<bool> m_BakeCancel{ false };
+	std::atomic<bool> m_BakeDone{ false };
+	std::atomic<int> m_BakeExit{ -1 };
+	bool m_BakeInFlight = false;   // the main thread's view
 	std::atomic<bool> m_BuildDone{ false };
 	bool m_BuildInFlight = false;   // the main thread's view
 	RageV::Managed::BuildResult m_WorkerModule;
@@ -417,6 +431,8 @@ private:
 	void ApplyPendingResizes();
 	void DrawColliderOverlay();
 	void DrawEmitterVolumes();
+	// Every irradiance volume's box. `selected` is highlighted.
+	void DrawIrradianceVolumes(RageV::UUID selected);
 
 	// Polls the asset folder and reloads whatever changed. Called once a frame;
 	// the watcher decides how often that turns into a scan.
@@ -478,6 +494,11 @@ private:
 	// scene did not help either*.
 	RageV::Assets::AssetWatcher m_AssetWatcher;
 	RageV::EditorUI::StatusBar m_StatusBar;
+	// The last baked-GI answer this layer announced, so the status bar speaks
+	// on the edge rather than once a frame. NotAsked is the right start: a
+	// scene that opens already honouring a bake says so on its first frame,
+	// which is the confirmation an author wants after pressing Bake.
+	RageV::Scene::BakedGi m_LastBakedGi = RageV::Scene::BakedGi::NotAsked;
 
 	bool m_ShowColliders = false;
 
