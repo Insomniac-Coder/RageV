@@ -573,14 +573,24 @@ namespace RageV
 		// off -- no device check, no "if OpenGL". The reasons live in the
 		// Resolve* functions above, once. ENGINE-NOTES 7cm.
 		{
+			// **A honoured Baked source means neither GI form ran.** The
+			// chain is dropped and the lit pass reads the stored field, so
+			// reporting the traced or screen form here would name a pass
+			// that did not execute -- which is exactly what put "RT GI" and
+			// "RT GI (baked)" side by side in the stats overlay. The baked
+			// case is reported by the RTGIBaked / SSGIBaked interop keys,
+			// which split it by the dropdown that owned the frame.
+			const bool bakedGi = Renderer3D::IsBakedIrradianceOnly();
+
 			Renderer::Features active;
 			active.Shadows = desc.Render.ShadowsEnabled;
 			active.RayTracing = ResolveRayTracing(desc.Render);
 			active.RayTracedReflections = rayReflections;
 			active.RayTracedAmbientOcclusion = rayOcclusion;
-			active.RayTracedGlobalIllumination = rayGi;
+			active.RayTracedGlobalIllumination = rayGi && !bakedGi;
 			active.ScreenSpaceReflections = wantReflections;
-			active.ScreenSpaceGlobalIllumination = desc.Post.GlobalIllumination && !rayGi;
+			active.ScreenSpaceGlobalIllumination =
+				desc.Post.GlobalIllumination && !rayGi && !bakedGi;
 			active.AmbientOcclusion =
 				(rayOcclusion ? rayAo : desc.Post.AmbientOcclusion) != AoDetail::Off;
 			Renderer::SetActiveFeatures(active);
