@@ -983,6 +983,18 @@ namespace RageV::Managed
 			// the question being asked and is true either way.
 			if (key == "BakedGI")
 				return (s_Scene && s_Scene->HasBakedIrradiance()) ? 1 : 0;
+			// **Which GI form the baked field is standing in for**, split by
+			// the dropdown that owns the frame -- what the stats overlay
+			// prints beside "RT GI"/"SSGI". Honoured-baked turns the chain
+			// off, so the plain feature keys read false exactly when these
+			// read true; a HUD that only asked the plain keys showed no GI
+			// row at all under a bake, which is how this went unnoticed.
+			if (key == "RTGIBaked")
+				return (s_Scene && Renderer3D::IsBakedIrradianceOnly()
+						&& s_Scene->ActiveGiIsTraced()) ? 1 : 0;
+			if (key == "SSGIBaked")
+				return (s_Scene && Renderer3D::IsBakedIrradianceOnly()
+						&& !s_Scene->ActiveGiIsTraced()) ? 1 : 0;
 			// **Everything a bake can store for this lighting has been
 			// stored** -- both flavours of the field and every cached probe.
 			// This is what a bake sweep waits for before switching lightings:

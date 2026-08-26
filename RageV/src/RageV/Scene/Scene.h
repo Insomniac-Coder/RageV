@@ -612,12 +612,6 @@ namespace RageV
 		// binding and by RenderShadows' flag hand-off, which must agree.
 		bool WantsBakedGi();
 
-		// Which flavour of bake the active GI form reads: true when the traced
-		// bounce is the form in force, false when the screen forms are. The
-		// same resolve RenderShadows makes, shared so the loader, the solver
-		// and the warnings all name the same file.
-		bool ActiveGiIsTraced() const;
-
 		// Either kind of bake. Every write and the solve behind them ask this
 		// rather than the config, so there is one answer to "are we baking".
 		bool BakingLighting() const;
@@ -715,6 +709,13 @@ namespace RageV
 			NoBake,     // asked for, there is a volume, no file fits the lighting
 		};
 		BakedGi GetBakedGiState() const { return m_BakedGi; }
+
+		// Which flavour of bake the active GI form reads: true when the
+		// traced bounce is the form in force, false when the screen forms
+		// are. The same resolve RenderShadows makes, shared so the loader,
+		// the solver, the warnings and the stats overlay's interop keys all
+		// name the same file.
+		bool ActiveGiIsTraced() const;
 
 		// The box an AutoFit volume derived on the last walk, so the editor's
 		// overlay draws the box the bake actually uses. False while nothing

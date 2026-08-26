@@ -41,7 +41,11 @@ public class Stats : Script
 			}
 			if (Graphics.IsActive("RTGlobalIllumination"))
 			{
-				feat = Text.Join(feat, "RT GI  ");
+				feat = Text.Join(feat, "RT GI (realtime)  ");
+			}
+			if (Graphics.IsActive("RTGIBaked"))
+			{
+				feat = Text.Join(feat, "RT GI (baked)  ");
 			}
 			if (Graphics.IsActive("RTAmbientOcclusion"))
 			{
@@ -76,7 +80,11 @@ public class Stats : Script
 			}
 			if (Graphics.IsActive("SSGI"))
 			{
-				feat = Text.Join(feat, "SSGI  ");
+				feat = Text.Join(feat, "SSGI (realtime)  ");
+			}
+			if (Graphics.IsActive("SSGIBaked"))
+			{
+				feat = Text.Join(feat, "SSGI (baked)  ");
 			}
 			if (Text.Same(RenderSettings.Get("MotionBlur"), "true"))
 			{

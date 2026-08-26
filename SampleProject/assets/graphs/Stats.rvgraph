@@ -1,6 +1,6 @@
 ScriptGraph: 1
-NextNodeId: 274
-NextLinkId: 293
+NextNodeId: 290
+NextLinkId: 309
 Nodes:
   - Id: 1
     Type: OnFrame
@@ -434,7 +434,7 @@ Nodes:
   - Id: 122
     Type: LiteralString
     Pos: [420, 4610]
-    Text: 'RT GI  '
+    Text: 'RT GI (realtime)  '
   - Id: 123
     Type: JoinText
     Pos: [660, 4560]
@@ -712,7 +712,7 @@ Nodes:
   - Id: 201
     Type: LiteralString
     Pos: [420, 8590]
-    Text: 'SSGI  '
+    Text: 'SSGI (realtime)  '
   - Id: 202
     Type: JoinText
     Pos: [660, 8540]
@@ -965,6 +965,62 @@ Nodes:
   - Id: 273
     Type: SetUIText
     Pos: [-60, 12180]
+  - Id: 274
+    Type: Sequence
+    Pos: [1460, 4240]
+  - Id: 275
+    Type: LiteralString
+    Pos: [1460, 4440]
+    Text: 'RTGIBaked'
+  - Id: 276
+    Type: FeatureActive
+    Pos: [1940, 4440]
+  - Id: 277
+    Type: Branch
+    Pos: [2420, 4300]
+  - Id: 278
+    Type: GetText
+    Pos: [2420, 4540]
+    Text: 'feat'
+  - Id: 279
+    Type: LiteralString
+    Pos: [2420, 4610]
+    Text: 'RT GI (baked)  '
+  - Id: 280
+    Type: JoinText
+    Pos: [2660, 4560]
+  - Id: 281
+    Type: SetText
+    Pos: [2900, 4300]
+    Text: 'feat'
+  - Id: 282
+    Type: Sequence
+    Pos: [1460, 8220]
+  - Id: 283
+    Type: LiteralString
+    Pos: [1460, 8420]
+    Text: 'SSGIBaked'
+  - Id: 284
+    Type: FeatureActive
+    Pos: [1940, 8420]
+  - Id: 285
+    Type: Branch
+    Pos: [2420, 8280]
+  - Id: 286
+    Type: GetText
+    Pos: [2420, 8520]
+    Text: 'feat'
+  - Id: 287
+    Type: LiteralString
+    Pos: [2420, 8590]
+    Text: 'SSGI (baked)  '
+  - Id: 288
+    Type: JoinText
+    Pos: [2660, 8540]
+  - Id: 289
+    Type: SetText
+    Pos: [2900, 8280]
+    Text: 'feat'
 Links:
   - Id: 1
     From: [2, 0]
@@ -1388,7 +1444,7 @@ Links:
     To: [124, 1]
   - Id: 141
     From: [117, 1]
-    To: [125, 0]
+    To: [274, 0]
   - Id: 142
     From: [126, 0]
     To: [127, 0]
@@ -1625,7 +1681,7 @@ Links:
     To: [203, 1]
   - Id: 220
     From: [196, 1]
-    To: [204, 0]
+    To: [282, 0]
   - Id: 221
     From: [205, 0]
     To: [206, 0]
@@ -1842,3 +1898,51 @@ Links:
   - Id: 292
     From: [261, 0]
     To: [273, 2]
+  - Id: 293
+    From: [275, 0]
+    To: [276, 0]
+  - Id: 294
+    From: [274, 0]
+    To: [277, 0]
+  - Id: 295
+    From: [276, 0]
+    To: [277, 1]
+  - Id: 296
+    From: [278, 0]
+    To: [280, 0]
+  - Id: 297
+    From: [279, 0]
+    To: [280, 1]
+  - Id: 298
+    From: [277, 0]
+    To: [281, 0]
+  - Id: 299
+    From: [280, 0]
+    To: [281, 1]
+  - Id: 300
+    From: [274, 1]
+    To: [125, 0]
+  - Id: 301
+    From: [283, 0]
+    To: [284, 0]
+  - Id: 302
+    From: [282, 0]
+    To: [285, 0]
+  - Id: 303
+    From: [284, 0]
+    To: [285, 1]
+  - Id: 304
+    From: [286, 0]
+    To: [288, 0]
+  - Id: 305
+    From: [287, 0]
+    To: [288, 1]
+  - Id: 306
+    From: [285, 0]
+    To: [289, 0]
+  - Id: 307
+    From: [288, 0]
+    To: [289, 1]
+  - Id: 308
+    From: [282, 1]
+    To: [204, 0]
