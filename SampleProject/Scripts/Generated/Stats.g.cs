@@ -51,7 +51,7 @@ public class Stats : Script
 			{
 				feat = Text.Join(feat, "RT AO  ");
 			}
-			if (Text.Same(RenderSettings.Get("VoxelGlobalIllumination"), "true"))
+			if (Graphics.IsActive("VoxelGI"))
 			{
 				feat = Text.Join(feat, "VoxelGI  ");
 			}

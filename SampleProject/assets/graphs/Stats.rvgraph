@@ -476,17 +476,10 @@ Nodes:
   - Id: 134
     Type: LiteralString
     Pos: [-540, 5360]
-    Text: 'VoxelGlobalIllumination'
+    Text: 'VoxelGI'
   - Id: 135
-    Type: RenderSettingText
-    Pos: [-300, 5360]
-  - Id: 136
-    Type: LiteralString
-    Pos: [-300, 5430]
-    Text: 'true'
-  - Id: 137
-    Type: TextEquals
-    Pos: [-60, 5370]
+    Type: FeatureActive
+    Pos: [-60, 5360]
   - Id: 138
     Type: Branch
     Pos: [420, 5220]
@@ -1474,16 +1467,10 @@ Links:
     To: [135, 0]
   - Id: 151
     From: [135, 0]
-    To: [137, 0]
-  - Id: 152
-    From: [136, 0]
-    To: [137, 1]
+    To: [138, 1]
   - Id: 153
     From: [133, 0]
     To: [138, 0]
-  - Id: 154
-    From: [137, 0]
-    To: [138, 1]
   - Id: 155
     From: [139, 0]
     To: [141, 0]

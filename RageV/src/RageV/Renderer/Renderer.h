@@ -144,6 +144,11 @@ namespace RageV
 			bool RayTracedGlobalIllumination = false;
 			bool ScreenSpaceReflections = false;
 			bool ScreenSpaceGlobalIllumination = false;
+			// The voxel form, and like the two GI lines around it this says
+			// the gather *ran*: the profile can ask for it while rays win,
+			// while a bake is honoured, or before a grid exists, and in all
+			// three the frame drew no voxel light.
+			bool VoxelGlobalIllumination = false;
 			bool AmbientOcclusion = false;
 			bool Shadows = false;
 		};

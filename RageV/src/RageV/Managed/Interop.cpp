@@ -962,6 +962,7 @@ namespace RageV::Managed
 			if (key == "RTGlobalIllumination") return f.RayTracedGlobalIllumination ? 1 : 0;
 			if (key == "SSR")              return f.ScreenSpaceReflections ? 1 : 0;
 			if (key == "SSGI")             return f.ScreenSpaceGlobalIllumination ? 1 : 0;
+			if (key == "VoxelGI")          return f.VoxelGlobalIllumination ? 1 : 0;
 			if (key == "AmbientOcclusion") return f.AmbientOcclusion ? 1 : 0;
 
 			// **Whether the last frame's indirect light came off disk.** It

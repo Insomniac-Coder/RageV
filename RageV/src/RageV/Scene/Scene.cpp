@@ -2767,9 +2767,18 @@ namespace RageV
 		// `GetPostSettings` resolves the *primary camera's* profile -- the
 		// same one the graph is handed as `desc.Post`, so the grid this builds
 		// and the gather that reads it cannot disagree about its size.
+		// **And not at all under a bake that can be honoured**, which is the
+		// same exclusion rays get one line down and was missing here: the
+		// graph drops the whole indirect chain for a Baked source, so the
+		// grid this builds is voxelised, lit and then read by nobody. It is
+		// not a small waste -- voxelisation walks every static mesh in the
+		// cascades and lights the result -- and it was invisible because the
+		// frame still looked right. Safe to ask here: this runs at the end of
+		// RenderShadows, after the same function set the flag.
 		const PostSettings post = GetPostSettings();
 		const bool voxel = ResolveVoxelGlobalIllumination(post)
-						&& ResolveRayTracedGlobalIllumination(Project::Render()) == RayDetail::Off;
+						&& ResolveRayTracedGlobalIllumination(Project::Render()) == RayDetail::Off
+						&& !Renderer3D::IsBakedIrradianceOnly();
 		if (!voxel || !VoxelGI::IsReady())
 		{
 			VoxelGI::Invalidate();

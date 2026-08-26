@@ -572,25 +572,50 @@ namespace RageV
 		// It also means nothing downstream needs to know *why* a feature is
 		// off -- no device check, no "if OpenGL". The reasons live in the
 		// Resolve* functions above, once. ENGINE-NOTES 7cm.
-		{
-			// **A honoured Baked source means neither GI form ran.** The
-			// chain is dropped and the lit pass reads the stored field, so
-			// reporting the traced or screen form here would name a pass
-			// that did not execute -- which is exactly what put "RT GI" and
-			// "RT GI (baked)" side by side in the stats overlay. The baked
-			// case is reported by the RTGIBaked / SSGIBaked interop keys,
-			// which split it by the dropdown that owned the frame.
-			const bool bakedGi = Renderer3D::IsBakedIrradianceOnly();
+		// **A Baked source that can be honoured drops the whole indirect
+		// chain, under every form.** No gather, no voxel cones, no traced
+		// bounce, no history buffer: the lit pass reads the stored field per
+		// pixel and that is the frame's entire indirect cost -- which is what
+		// baked means. The transport the traced chain used to add at runtime
+		// is baked into the field itself now (the solve's sweeps are
+		// bounces), so dropping the chain no longer trades quality for the
+		// saving.
+		//
+		// The renderer is told this by the scene rather than reading the
+		// setting itself, because the setting says what the author *wants*
+		// and only the scene knows whether a bake exists to honour it.
+		const bool bakedOnly = Renderer3D::IsBakedIrradianceOnly();
 
+		// The voxel form (ENGINE-NOTES 7bc) replaces the screen gather at the
+		// head of the same chain, where the profile asks for GI and rays do
+		// not win. Only with a grid lit this frame: the scene updates it
+		// beside the shadow maps, and a frame without one -- a probe capture,
+		// no camera -- adds no chain rather than reading a stale grid.
+		//
+		// Declared here rather than beside the chain below because the
+		// feature report needs the same answer, and two expressions for one
+		// question is how a report starts disagreeing with the frame.
+		const bool voxelGi = !rayGi && ResolveVoxelGlobalIllumination(desc.Post)
+						  && VoxelGI::HasGrid();
+		const bool voxelWanted = !rayGi && ResolveVoxelGlobalIllumination(desc.Post);
+
+		{
 			Renderer::Features active;
 			active.Shadows = desc.Render.ShadowsEnabled;
 			active.RayTracing = ResolveRayTracing(desc.Render);
 			active.RayTracedReflections = rayReflections;
 			active.RayTracedAmbientOcclusion = rayOcclusion;
-			active.RayTracedGlobalIllumination = rayGi && !bakedGi;
+			// **None of the three GI lines survives a honoured bake**, which
+			// is what put "RT GI" and "RT GI (baked)" side by side in the
+			// stats overlay: this struct is what the frame *ran*, and a baked
+			// frame ran none of them. The baked case is reported by the
+			// RTGIBaked / SSGIBaked keys, split by the dropdown that owned
+			// the frame.
+			active.RayTracedGlobalIllumination = rayGi && !bakedOnly;
 			active.ScreenSpaceReflections = wantReflections;
 			active.ScreenSpaceGlobalIllumination =
-				desc.Post.GlobalIllumination && !rayGi && !bakedGi;
+				desc.Post.GlobalIllumination && !rayGi && !voxelGi && !bakedOnly;
+			active.VoxelGlobalIllumination = voxelGi && !bakedOnly;
 			active.AmbientOcclusion =
 				(rayOcclusion ? rayAo : desc.Post.AmbientOcclusion) != AoDetail::Off;
 			Renderer::SetActiveFeatures(active);
@@ -638,27 +663,9 @@ namespace RageV
 		// multiplies by the surface's own base colour. That multiply moving
 		// into the shader is what retired SSGI's lit-pixel stand-in.
 		// Either form fills it -- that is the point of one buffer -- so this
-		// asks whether *anything* will, not which.
-		// The voxel form (ENGINE-NOTES 7bc) replaces the screen gather at the
-		// head of the same chain, where the profile asks for GI and rays do
-		// not win. Only with a grid lit this frame: the scene updates it
-		// beside the shadow maps, and a frame without one -- a probe capture,
-		// no camera -- adds no chain rather than reading a stale grid.
-		const bool voxelGi = !rayGi && ResolveVoxelGlobalIllumination(desc.Post)
-						  && VoxelGI::HasGrid();
-		const bool voxelWanted = !rayGi && ResolveVoxelGlobalIllumination(desc.Post);
-		// **A Baked source that can be honoured drops the whole indirect
-		// chain, under both forms.** No gather, no traced bounce, no history
-		// buffer: the lit pass reads the stored field per pixel and that is
-		// the frame's entire indirect cost -- which is what baked means. The
-		// transport the traced chain used to add at runtime is baked into the
-		// field itself now (the solve's sweeps are bounces), so dropping the
-		// chain no longer trades quality for the saving.
-		//
-		// The renderer is told this by the scene rather than reading the
-		// setting itself, because the setting says what the author *wants* and
-		// only the scene knows whether a bake exists to honour it.
-		const bool bakedOnly = Renderer3D::IsBakedIrradianceOnly();
+		// asks whether *anything* will, not which. `voxelGi`, `voxelWanted`
+		// and `bakedOnly` are resolved above, beside the feature report that
+		// has to agree with them.
 		const bool wantIndirect = (desc.Post.GlobalIllumination || rayGi)
 							   && !bakedOnly
 							   && desc.Indirect != nullptr
