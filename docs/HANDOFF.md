@@ -65,7 +65,55 @@ ENGINE-NOTES 7cw. The shape of the product now:
   mirror highlights. Format::BC6H_UFLOAT exists in the RHI enum with
   both backend mappings for the day a probe samples it natively.
 
-### NEXT SESSION'S JOB, owner-set 2026-08-26: the on-plane-cell defects
+### NEXT SESSION, owner-set 2026-08-26: sky occlusion, then the on-plane cells
+
+Two jobs queued, in this order. The first is new capability; the second
+is the standing defect below.
+
+#### 1. Sky occlusion in the irradiance volume
+
+**What it is:** store per cell how much of the sky that cell can see,
+and multiply it by the *live* sky colour at shade time. Static ambient
+shadowing -- recesses, doorways, under eaves -- that still follows a
+changing sky. It is the only baked-shadow technique that fits this
+engine without a vertex-format change; lightmaps and shadowmasks both
+need the second UV set `MeshVertex` does not have (see the note under
+"Lightmaps" thinking in 7cw's neighbourhood), and direct-light shadows
+need surface-scale sharpness a cell cannot hold. Unity's APV ships
+exactly this feature, for exactly this reason.
+
+**Why it is nearly free at bake time:** the solve already traces a full
+sphere of rays per cell and *discards* the misses -- "a miss is nothing,
+not the sky" in irradiance_fill, because the probe term already
+integrates the sky and counting it here would double it. Sky occlusion
+is the fraction of those same rays that missed. No new rays, no second
+pass; record what is currently thrown away.
+
+**Where it goes:** the visibility tile (index 6) stores its neighbour
+bitmask in `.x` only -- `.y`, `.z`, `.w` are free. A scalar sky
+visibility fits in `.y` at zero storage cost and with no change to
+`IrradianceVolume::kTiles`, so the field's shape, stamp and file size
+all stay as they are. (If a *directional* answer is wanted later --
+sky visibility per axis, so a wall reads its own side -- that wants the
+three spare lanes or a tile of its own, and a kTiles bump breaks every
+stamp; decide before building, not after.)
+
+**The trap that must be handled first:** because the shape does not
+change, every existing bake still loads -- and reads 0 in the new lane,
+which means "sees no sky at all" and would darken every scene that has
+not been re-baked. Bump `BakedLighting::kVersion` so old files are
+refused and re-baked, rather than trusting a lane nothing wrote. The
+refusal costs a re-bake; the alternative is a lighting bug nobody can
+find, which is the same argument the version field already carries.
+
+**Reader side:** the lit pass multiplies the stored fraction into the
+sky/ambient term only -- not into the field's bounced light, which
+already carries its own occlusion. Getting that wrong double-darkens,
+which is the same double-count the "a miss is nothing" rule exists to
+prevent. Gate acceptance on the usual per-pixel diff maps plus a scene
+with an obvious sky-lit recess.
+
+#### 2. The on-plane-cell defects
 
 The one open quality item is really one mechanism with two faces, and it
 is the next session's whole task:
