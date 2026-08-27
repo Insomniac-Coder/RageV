@@ -1609,6 +1609,40 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 			L = toLight * inversesqrt(max(distance2, 1.0e-8));
 			attenuation = (ratio * ratio) / max(distance2, 0.0001);
 
+			// **Out of range, and outside the cone** -- the two remaining ways a
+			// light contributes exactly nothing to this hit, tested before the
+			// ray rather than multiplied in after it.
+			//
+			// This is the argument the back-face test above already makes, and
+			// it was left half made. Both numbers were being computed anyway --
+			// the falloff here, the cone below the shadow ray -- and a lamp on
+			// the far side of the room, or a spot aimed somewhere else, still
+			// paid for a full traversal of the acceleration structure before
+			// its contribution was multiplied by zero.
+			//
+			// **The cone moves above the ray; it does not change.** attenuation
+			// is still built by the same two multiplies in the same order, and
+			// nothing between them touched it, so this is bit-identical for the
+			// reason the back-face test is: X * 0.0 is 0.0 for every finite X.
+			//
+			// It pays where clustering cannot help at all -- a traced hit is not
+			// on screen and has no cluster, so this loop runs every light in the
+			// scene. The showroom has twenty, with ranges of six to eleven
+			// metres, in a room eleven metres by seventeen.
+			if (ratio <= 0.0)
+				continue;
+
+			float cosInner = light.Params.y;
+			float cosOuter = light.Params.z;
+			if (cosOuter < cosInner)
+			{
+				float theta = dot(L, -light.Direction.xyz);
+				float cone = clamp((theta - cosOuter) / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
+				if (cone <= 0.0)
+					continue;
+				attenuation *= cone;
+			}
+
 			// **And a shadow ray for this one too, not the sun alone.**
 			//
 			// Without it every hit in the level is lit by every lamp in it,
@@ -1625,13 +1659,6 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 			{
 				shadow = TraceShadowFrom(hitPosition, hitNormal, L,
 										 sqrt(max(distance2, 1.0e-8)));
-			}
-			float cosInner = light.Params.y;
-			float cosOuter = light.Params.z;
-			if (cosOuter < cosInner)
-			{
-				float theta = dot(L, -light.Direction.xyz);
-				attenuation *= clamp((theta - cosOuter) / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
 			}
 		}
 		lit += diffuse / PI * lightColor * attenuation * max(dot(hitNormal, L), 0.0) * shadow;
@@ -2181,6 +2208,21 @@ void main()
 				attenuation *= clamp((theta - cosOuter) / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
 			}
 		}
+
+		// **A light that reaches zero here reaches zero everywhere below.**
+		// Out of range the windowed falloff is exactly zero, and outside a
+		// spot's cone the cone factor is; `radiance` is lightColor times this,
+		// and `Lo +=` multiplies the whole term by radiance. Under traced
+		// shadows that zero was costing a ray into the scene.
+		//
+		// Clustering is supposed to be what spares this loop, and in this
+		// scene it spares it nothing: the benchmark reports twenty lights and
+		// a busiest cluster holding twenty. A cluster bounds which lights
+		// *might* reach a cell, not which ones do.
+		//
+		// Bit-identical, by the same argument as the NdotL hoist below.
+		if (attenuation <= 0.0)
+			continue;
 
 		// **Hoisted above the BRDF and the shadow ray**, because line `Lo +=`
 		// below multiplies all of it by this and a back-facing light makes
