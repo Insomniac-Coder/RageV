@@ -106,7 +106,8 @@ float CascadeShadow(vec3 worldPos, vec3 N, vec3 L)
 		const vec3 coordinate = lightSpace.xyz / lightSpace.w;
 		if (any(lessThan(coordinate.xy, vec2(0.0))) || any(greaterThan(coordinate.xy, vec2(1.0))))
 			continue;
-		if (coordinate.z > 1.0)
+		// Past the cascade's far plane, which is 0 under reverse-Z.
+		if (coordinate.z < 0.0)
 			return 1.0;
 		return SampleCascade(cascade, coordinate);
 	}

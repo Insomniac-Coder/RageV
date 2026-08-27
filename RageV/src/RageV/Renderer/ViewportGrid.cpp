@@ -134,18 +134,21 @@ namespace RageV
 
 		// Written the same way round as the shader, and for the same reason: a
 		// NaN fails every comparison, so this rejects it and the negated form
-		// would not. The ceiling is well past 1: NDC depth for a point in front
-		// of the camera asymptotes just above it, so anything meaningfully
-		// beyond is the plane going edge-on rather than a place in the world.
-		constexpr float kDepthCeiling = 2.0f;
-		if (!(solved >= 0.0f && solved < kDepthCeiling))
+		// would not. **Reverse-Z**, so the far plane is 0 and the overshoot
+		// past it runs *below* zero rather than above one -- the bound that
+		// was a ceiling at 2 is a floor at -1. This pair has to move with
+		// grid.rvshader in lockstep: it is the same solve written twice, and
+		// the two disagreeing is a grid that draws in one place and picks in
+		// another.
+		constexpr float kDepthFloor = -1.0f;
+		if (!(solved <= 1.0f && solved > kDepthFloor))
 			return false;
 
 		const Vec4 hit = inverseViewProjection * Vec4(ndcX, ndcY, solved, 1.0f);
 		if (hit.w <= 0.0f)
 			return false;   // behind the viewer, or past the horizon
 
-		depth = Math::Min(solved, 1.0f);
+		depth = Math::Max(solved, 0.0f);   // pinned to the far plane, which is 0
 		return true;
 	}
 
@@ -173,7 +176,7 @@ namespace RageV
 			// which is the whole point of computing it.
 			desc.DepthStencil.DepthTestEnable = true;
 			desc.DepthStencil.DepthWriteEnable = false;
-			desc.DepthStencil.DepthCompare = CompareOp::LessOrEqual;
+			desc.DepthStencil.DepthCompare = kDepthCompare;
 
 			desc.ColorFormats = { s_Data->TargetColor };
 			desc.Samples = s_Data->TargetSamples;

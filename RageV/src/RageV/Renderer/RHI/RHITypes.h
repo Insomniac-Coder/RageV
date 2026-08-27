@@ -228,6 +228,44 @@ namespace RageV::RHI
 	};
 
 	// ---------------------------------------------------------------------
+	// **Reverse-Z: the near plane is 1 and the far plane is 0.**
+	//
+	// A depth buffer stores 1/z, which is dense near the camera and sparse
+	// far from it. A float stores its own values densely near zero. Line the
+	// two up the conventional way -- near at 0, far at 1 -- and the two
+	// densities land on the same end, so the far half of the scene is
+	// described by almost no distinct values at all. At the Golden Gate's
+	// scale, a 5 cm near clip against a 4 km far plane, that leaves the far
+	// deck and the cables sharing depth values and z-fighting.
+	//
+	// Flipping the projection puts the float's dense end where 1/z is sparse
+	// and the two errors cancel almost exactly. It is not a quality setting
+	// or a trade: it is free, and the conventional arrangement is simply the
+	// wrong way round for a float buffer.
+	//
+	// **It only pays on a float depth buffer.** Fixed-point depth quantises
+	// uniformly and does not care which end is which, so a D24_UNORM target
+	// gets nothing from this -- neither does it break. The scene and the
+	// shadow maps are D32_SFLOAT, which is what makes it worth doing.
+	//
+	// **One convention, engine-wide.** Perspective, orthographic, shadow
+	// maps, the UI: all of it. Two conventions in one engine is a pipeline
+	// that forgot to override a default and a depth test that silently keeps
+	// the wrong fragment -- which looks like a geometry bug, not a depth one.
+	// So the rule is stated here and referred to, never re-typed.
+	//
+	// A pass that genuinely wants the other sense -- there are none today --
+	// must say so out loud rather than leave the default alone.
+	inline constexpr CompareOp kDepthCompare = CompareOp::GreaterOrEqual;
+	inline constexpr float     kDepthClear   = 0.0f;
+
+	// A depth bias pushes a fragment away from the camera to keep it off the
+	// surface it is compared with. "Away" is now *down*, so every bias that
+	// was positive is negative -- and a bias left with its old sign pulls the
+	// fragment forward instead, which is shadow acne turned up rather than
+	// off.
+
+	// ---------------------------------------------------------------------
 	// Textures and samplers
 	// ---------------------------------------------------------------------
 	enum class TextureUsage : uint32_t
@@ -325,7 +363,7 @@ namespace RageV::RHI
 		// sampled depth against a reference, which is how hardware PCF shadow
 		// filtering works. Maps to sampler2DShadow in GLSL.
 		bool      CompareEnable = false;
-		CompareOp Compare = CompareOp::LessOrEqual;
+		CompareOp Compare = kDepthCompare;
 
 		bool operator==(const SamplerDesc&) const = default;
 	};
@@ -370,7 +408,7 @@ namespace RageV::RHI
 	{
 		bool      DepthTestEnable  = true;
 		bool      DepthWriteEnable = true;
-		CompareOp DepthCompare     = CompareOp::LessOrEqual;
+		CompareOp DepthCompare     = kDepthCompare;
 
 		bool operator==(const DepthStencilState&) const = default;
 	};
@@ -554,7 +592,7 @@ namespace RageV::RHI
 	struct ClearValue
 	{
 		float    Color[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-		float    Depth    = 1.0f;
+		float    Depth    = kDepthClear;
 		uint32_t Stencil  = 0;
 	};
 

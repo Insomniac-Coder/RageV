@@ -87,9 +87,11 @@ namespace RageV
 
 	void EditorCamera::RecalculateProjection()
 	{
-		// Math::Perspective emits depth in [0, 1] rather than [-1, 1],
-		// so this already produces Vulkan's [0,1] depth range and the OpenGL
-		// backend compensates once at the swapchain. Nothing to adjust here.
+		// Math::Perspective emits depth in [0, 1] rather than [-1, 1], and
+		// **reversed** -- near at 1, far at 0 (RHITypes.h says why). So this
+		// already produces Vulkan's [0,1] depth range and the OpenGL backend
+		// compensates once at the swapchain. Nothing to adjust here: the
+		// reversal lives in the projection, not in its callers.
 		m_Projection = Math::Perspective(Math::Radians(m_FOV), m_AspectRatio, m_Near, m_Far);
 	}
 

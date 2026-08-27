@@ -22,12 +22,21 @@ namespace RageV
 		m_Planes[2] = r3 + r1;   // bottom
 		m_Planes[3] = r3 - r1;   // top
 
-		// Near is r2 alone, not r3 + r2: this engine's projections use
-		// GLM_FORCE_DEPTH_ZERO_TO_ONE, so the near plane is z = 0 rather than
-		// z = -w. Using the OpenGL form here culls everything in front of the
-		// camera on half the frustum's depth.
-		m_Planes[4] = r2;        // near
-		m_Planes[5] = r3 - r2;   // far
+		// The depth pair is r2 and r3 - r2, not r3 + r2 and r3 - r2: this
+		// engine's projections put clip depth in [0, w] rather than [-w, w],
+		// so one bound is z = 0. Using the OpenGL form here culls everything
+		// in front of the camera on half the frustum's depth.
+		//
+		// **Reverse-Z swaps which is which and changes nothing else.** The
+		// clip test is still 0 <= z <= w, so the same two half-spaces bound
+		// the same volume -- but z = 0 is now the *far* plane and z = w the
+		// near one. Every caller tests all six uniformly, so culling is
+		// unaffected; the labels are corrected because a later reader
+		// reaching for "the near plane" by index would otherwise get the far
+		// one, and a frustum that culls correctly is the worst place to hide
+		// a wrong name.
+		m_Planes[4] = r2;        // far
+		m_Planes[5] = r3 - r2;   // near
 
 		for (Vec4& plane : m_Planes)
 		{

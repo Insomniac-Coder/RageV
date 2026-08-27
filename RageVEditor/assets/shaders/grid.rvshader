@@ -147,9 +147,15 @@ const float kMinCellPixels = 9.0;
 const float kMaxLevel = 12.0;
 
 // Where the reconstruction stops. NDC depth for a point in front of the camera
-// asymptotes just above 1 as it recedes, so anything meaningfully past that is
-// the plane going edge-on rather than a place in the world.
-const float kDepthCeiling = 2.0;
+// asymptotes towards the far plane as it recedes and then just past it, so
+// anything meaningfully beyond is the plane going edge-on rather than a place
+// in the world.
+//
+// **Under reverse-Z that overshoot is below zero, not above one.** The far
+// plane is 0 and the sliver past it runs down to -near/(far-near), a small
+// negative number -- so the bound that was a ceiling at 2 is a floor at -1,
+// and every comparison against it reverses with it.
+const float kDepthFloor = -1.0;
 const float kMaxDistance = 1.0e7;
 
 // Coverage of the nearest line of a set, antialiased.
@@ -207,7 +213,7 @@ void main()
 	// wherever the far clip crossed the plane -- at a thousand units out the
 	// grid simply stopped, well short of the horizon, which is the one thing an
 	// infinite grid must not do. A far clip is where the *scene* ends.
-	bool ahead = depth >= 0.0 && depth < kDepthCeiling;
+	bool ahead = depth <= 1.0 && depth > kDepthFloor;
 
 	// Clamped for the arithmetic below whether or not it was in range, because
 	// everything after this takes derivatives. A derivative is a difference
@@ -215,7 +221,7 @@ void main()
 	// ruins the three beside it -- and at the horizon the pixel beside an
 	// in-range one is precisely the one that was not. Keeping it finite turns
 	// that boundary into the fade it should be.
-	float solved = ahead ? depth : kDepthCeiling;
+	float solved = ahead ? depth : kDepthFloor;
 
 	// --- the position, which does *not* come from that depth ---------------
 	//
@@ -309,10 +315,10 @@ void main()
 	// contributes nothing -- and a discard here would be a discard *after* the
 	// derivatives above, which leaves the neighbouring pixels' derivatives
 	// undefined. Multiplying it out is free and has no such rule.
-	// Pinned to the far plane on the way out. Everything past it is further than
-	// anything that could occlude it, so one value serves them all -- and it is
-	// still the value the *test* wants, because the buffer holds the far plane
-	// wherever nothing was drawn.
-	gl_FragDepth = min(solved, 1.0);
+	// Pinned to the far plane on the way out -- which is 0, not 1, so the clamp
+	// is a max. Everything past it is further than anything that could occlude
+	// it, so one value serves them all -- and it is still the value the *test*
+	// wants, because the buffer holds the far plane wherever nothing was drawn.
+	gl_FragDepth = max(solved, 0.0);
 	o_Color = vec4(color, alpha * ((ahead && inFront) ? 1.0 : 0.0));
 }

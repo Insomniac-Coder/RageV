@@ -3958,9 +3958,16 @@ namespace RageV
 			// moves away from whatever cast it, and on an object the size of a
 			// few texels the shadow ends up looking like it belongs to
 			// something else standing nearby.
+			//
+			// **Negative, because depth is reversed.** A bias pushes the
+			// fragment away from the light, and away is now *down* -- the far
+			// plane is 0. The magnitudes are the ones tuned above; only the
+			// direction changed. Left positive they would pull each caster
+			// towards the light instead, which is acne turned up rather than
+			// off, and it reads as a shadow bug rather than a sign error.
 			desc.Rasterizer.DepthBiasEnable = true;
-			desc.Rasterizer.DepthBiasConstant = 0.6f;
-			desc.Rasterizer.DepthBiasSlope = 1.4f;
+			desc.Rasterizer.DepthBiasConstant = -0.6f;
+			desc.Rasterizer.DepthBiasSlope = -1.4f;
 
 			desc.DepthStencil.DepthTestEnable = true;
 			desc.DepthStencil.DepthWriteEnable = true;

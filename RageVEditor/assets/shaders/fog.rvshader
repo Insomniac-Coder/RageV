@@ -97,7 +97,7 @@ void main()
 	// distance rather than as a cut-out pasted on the horizon. Without this
 	// the fog stops at the last object and the sky stays crisp behind it,
 	// which is the giveaway of every fog that was applied as a filter.
-	const bool background = raw >= 0.999999;
+	const bool background = raw <= 0.000001;
 
 	const float z = background ? u_Fog.FarClip
 							   : LinearDepth(raw, u_Fog.NearClip, u_Fog.FarClip);

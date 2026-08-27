@@ -11307,8 +11307,11 @@ void main()
 		}
 
 		// --- near and far are the right way round -----------------------------
-		// A reversed depth range renders a grid that looks entirely correct
-		// until something is drawn in front of it.
+		// Getting this backwards renders a grid that looks entirely correct
+		// until something is drawn in front of it. **Reverse-Z**, so nearer is
+		// the *larger* depth -- see RHITypes.h. That is the whole content of
+		// this check, and it is the one a flip is most likely to get wrong,
+		// because both senses produce a picture.
 		{
 			auto depthOf = [&](const Vec3& world)
 			{
@@ -11319,8 +11322,8 @@ void main()
 				return depth;
 			};
 
-			Check(depthOf({ 3.0f, 0.0f, 8.0f }) < depthOf({ 3.0f, 0.0f, -30.0f }),
-				  "a nearer piece of the plane has the smaller depth");
+			Check(depthOf({ 3.0f, 0.0f, 8.0f }) > depthOf({ 3.0f, 0.0f, -30.0f }),
+				  "a nearer piece of the plane has the larger depth");
 		}
 
 		// --- past the far plane the grid keeps going --------------------------
@@ -11334,12 +11337,12 @@ void main()
 			const Vec4 clip = viewProjection * Vec4(distant, 1.0f);
 			const Vec3 ndc = Vec3(clip) / clip.w;
 
-			Check(ndc.z > 1.0f, "the instrument is looking past the far plane");
+			Check(ndc.z < 0.0f, "the instrument is looking past the far plane");
 
 			float depth = -1.0f;
 			const bool hit = ViewportGrid::PlaneDepthAt(inverse, ndc.x, ndc.y, depth);
 			Check(hit, "a piece of the plane beyond the far clip is still drawn");
-			Check(hit && Math::Abs(depth - 1.0f) < 1e-5f,
+			Check(hit && Math::Abs(depth) < 1e-5f,
 				  "and is pinned to the far plane, behind everything that could occlude it");
 		}
 
@@ -16425,12 +16428,30 @@ int RunTests(int argc, char** argv)
 			  "Rotate matches glm");
 		Check(closeM4(Scale(m, b), glm::scale(gm, gb)), "Scale matches glm");
 
+		// **Reverse-Z, stated as the identity it is**: our projection is glm's
+		// with the two clip planes exchanged. Comparing against a hand-written
+		// expected matrix would pass just as well and prove less -- this form
+		// still holds us to glm for handedness, field of view and the [0, 1]
+		// clip range, and fails if any of those drift. RHITypes.h says why the
+		// planes are the way round they are.
 		Check(closeM4(Perspective(Radians(60.0f), 16.0f / 9.0f, 0.1f, 500.0f),
-					  glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 500.0f)),
-			  "Perspective matches glm");
+					  glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 500.0f, 0.1f)),
+			  "Perspective is glm's with the clip planes exchanged");
 		Check(closeM4(Orthographic(-4.0f, 4.0f, -3.0f, 3.0f, 0.1f, 100.0f),
-					  glm::ortho(-4.0f, 4.0f, -3.0f, 3.0f, 0.1f, 100.0f)),
-			  "Orthographic matches glm");
+					  glm::ortho(-4.0f, 4.0f, -3.0f, 3.0f, 100.0f, 0.1f)),
+			  "Orthographic is glm's with the clip planes exchanged");
+
+		// And the consequence, checked directly rather than inferred from the
+		// matrix: a point on the near plane lands at 1 and one on the far
+		// plane at 0. A sign error in either matrix above survives a
+		// coefficient comparison far more easily than it survives this.
+		{
+			const Mat4 p = Perspective(Radians(60.0f), 16.0f / 9.0f, 0.1f, 500.0f);
+			const Vec4 atNear = p * Vec4{ 0.0f, 0.0f, -0.1f, 1.0f };
+			const Vec4 atFar  = p * Vec4{ 0.0f, 0.0f, -500.0f, 1.0f };
+			Check(closeF(atNear.z / atNear.w, 1.0f), "the near plane projects to depth 1");
+			Check(closeF(atFar.z / atFar.w, 0.0f), "and the far plane to depth 0");
+		}
 		Check(closeM4(LookAt(a, b, Vec3{ 0.0f, 1.0f, 0.0f }),
 					  glm::lookAt(ga, gb, glm::vec3(0.0f, 1.0f, 0.0f))),
 			  "LookAt matches glm");

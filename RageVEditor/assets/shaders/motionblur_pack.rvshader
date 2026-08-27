@@ -49,11 +49,13 @@ layout(push_constant) uniform Params
 // Depth buffer value back to metres along the view axis. The same function
 // dof_prepass uses, restated rather than shared because a .rvshader has no
 // include mechanism for fragments across files.
+#include "include/view_reconstruction.glsl"
+
+// Supplies this pass's clip planes; the formula itself is in
+// view_reconstruction.glsl and is deliberately not restated here.
 float LinearDepth(float depth)
 {
-	const float n = u_Params.NearClip;
-	const float f = u_Params.FarClip;
-	return (n * f) / max(f - depth * (f - n), 1.0e-6);
+	return LinearDepth(depth, u_Params.NearClip, u_Params.FarClip);
 }
 
 void main()

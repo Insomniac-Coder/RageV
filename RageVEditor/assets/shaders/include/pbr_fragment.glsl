@@ -528,8 +528,11 @@ float CascadeFactor(int cascade, vec3 worldPos, vec3 N, vec3 L)
 	vec3 coordinate = lightSpace.xyz / lightSpace.w;
 
 	// Beyond the far plane of the cascade there is nothing recorded, and the
-	// honest answer is lit.
-	if (coordinate.z > 1.0)
+	// honest answer is lit. **Under reverse-Z the far plane is 0**, so past it
+	// is below zero rather than above one -- and the test left as `> 1.0`
+	// would never fire, quietly shadowing everything past the last cascade
+	// with whatever stale depth the map happened to hold.
+	if (coordinate.z < 0.0)
 		return 1.0;
 
 	// 3x3 of hardware 2x2 taps. Nine fetches is the point at which the edge
@@ -675,7 +678,7 @@ float SpotShadow(int slot, vec3 lightPos, float texelScale, vec3 worldPos, vec3 
 		return 1.0;
 
 	vec3 coordinate = lightSpace.xyz / lightSpace.w;
-	if (coordinate.z > 1.0)
+	if (coordinate.z < 0.0)
 		return 1.0;
 
 	return SampleSpot(slot, coordinate);
@@ -699,10 +702,14 @@ float PointShadow(int slot, vec3 lightPos, float farClip, float texelScale,
 	if (major <= POINT_SHADOW_NEAR || major >= farClip)
 		return 1.0;
 
-	// The depth glm's perspective would have written for a point this far down
-	// the face's axis, with GLM_FORCE_DEPTH_ZERO_TO_ONE.
-	float depth = (farClip / (farClip - POINT_SHADOW_NEAR)) *
-				  (1.0 - POINT_SHADOW_NEAR / major);
+	// The depth the projection would have written for a point this far down
+	// the face's axis, in [0, 1] -- **reverse-Z, so the near plane is 1 and
+	// the far plane 0**, matching Math::Perspective exactly. This is the one
+	// place a projection's depth is rebuilt by hand rather than rasterised,
+	// which makes it the one place the flip has to be repeated: at `major`
+	// = near it is 1, and at `major` = farClip it is 0.
+	float depth = (POINT_SHADOW_NEAR / (farClip - POINT_SHADOW_NEAR)) *
+				  (farClip / major - 1.0);
 
 	return SamplePoint(slot, vec4(toFragment, depth));
 }

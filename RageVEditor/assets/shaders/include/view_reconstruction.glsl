@@ -33,9 +33,20 @@
 // keeps a two-line wrapper that reads its own depth texture.
 
 // The camera's near/far planes turn the buffer's 0..1 back into metres.
+//
+// **Reverse-Z**: 1 is the near plane and 0 the far one, which is why the
+// denominator counts up from `nearClip` rather than down from `farClip`.
+// See RHITypes.h for why the buffer is stored that way.
+//
+// **This is the only copy of this formula.** Three passes used to keep their
+// own, identical, pasted; they are one-line wrappers over this now. That is
+// not tidiness -- flipping the sense here while three copies kept the old
+// one would have left depth of field, motion blur and the SSR pyramid each
+// reconstructing a different scene from the same buffer, and each looking
+// like its own unrelated bug.
 float LinearDepth(float depth, float nearClip, float farClip)
 {
-	return (nearClip * farClip) / max(farClip - depth * (farClip - nearClip), 1.0e-6);
+	return (nearClip * farClip) / max(nearClip + depth * (farClip - nearClip), 1.0e-6);
 }
 
 // A sampling-space uv and its linear depth to a point in the reconstruction

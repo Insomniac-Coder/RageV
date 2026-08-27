@@ -180,29 +180,44 @@ namespace RageV::Math
 
 	Mat4 Perspective(float verticalFovRadians, float aspect, float nearPlane, float farPlane)
 	{
-		// Right-handed, depth in [0, 1]. The [-1, 1] form in most textbooks
-		// differs in [2].z and [3].z, and against a Vulkan-style clip volume it
-		// throws away half the depth range while still producing a picture.
+		// Right-handed, depth in [0, 1], **reverse-Z**: the near plane maps to
+		// 1 and the far plane to 0. RHITypes.h says why at length; the short
+		// version is that a float buffer is dense near zero and 1/z is sparse
+		// far away, so the conventional arrangement stacks both errors at the
+		// far end. The [-1, 1] form in most textbooks differs in [2].z and
+		// [3].z, and against a Vulkan-style clip volume it throws away half
+		// the depth range while still producing a picture.
+		//
+		// The reversal is exactly the conventional matrix with near and far
+		// exchanged, which is worth seeing rather than deriving: at -near the
+		// quotient is near*(far-near) / ((far-near)*near) = 1, and at -far the
+		// numerator cancels to 0.
 		const float tanHalfFov = Tan(verticalFovRadians * 0.5f);
 
 		Mat4 result(0.0f);
 		result[0].x = 1.0f / (aspect * tanHalfFov);
 		result[1].y = 1.0f / tanHalfFov;
-		result[2].z = farPlane / (nearPlane - farPlane);
+		result[2].z = nearPlane / (farPlane - nearPlane);
 		result[2].w = -1.0f;
-		result[3].z = -(farPlane * nearPlane) / (farPlane - nearPlane);
+		result[3].z = (farPlane * nearPlane) / (farPlane - nearPlane);
 		return result;
 	}
 
 	Mat4 Orthographic(float left, float right, float bottom, float top, float nearPlane, float farPlane)
 	{
+		// **Reverse-Z as well**, so the engine has one depth convention rather
+		// than one per projection. An orthographic depth is linear and gains
+		// no precision from the flip -- but a directional shadow map is drawn
+		// with this matrix and tested against the same GreaterOrEqual as
+		// everything else, and a matrix that disagreed with the test would
+		// simply reject every fragment.
 		Mat4 result(1.0f);
 		result[0].x = 2.0f / (right - left);
 		result[1].y = 2.0f / (top - bottom);
-		result[2].z = -1.0f / (farPlane - nearPlane);
+		result[2].z = 1.0f / (farPlane - nearPlane);
 		result[3].x = -(right + left) / (right - left);
 		result[3].y = -(top + bottom) / (top - bottom);
-		result[3].z = -nearPlane / (farPlane - nearPlane);
+		result[3].z = farPlane / (farPlane - nearPlane);
 		return result;
 	}
 

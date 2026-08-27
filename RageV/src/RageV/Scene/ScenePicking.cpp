@@ -136,10 +136,13 @@ namespace RageV
 		// orthographic one is on the near plane, and unprojecting both ends
 		// gets that right without the camera having to say which it is.
 		//
-		// z = 0 is the near plane and z = 1 the far one: the project is built
-		// with GLM_FORCE_DEPTH_ZERO_TO_ONE to match Vulkan's clip range.
-		Vec4 nearPoint = inverseViewProjection * Vec4(ndc.x, ndc.y, 0.0f, 1.0f);
-		Vec4 farPoint = inverseViewProjection * Vec4(ndc.x, ndc.y, 1.0f, 1.0f);
+		// **z = 1 is the near plane and z = 0 the far one**: the projection is
+		// reverse-Z (RHITypes.h) within a [0, 1] clip range. Taken the other
+		// way round the two points swap, and the ray runs from the far plane
+		// backwards through the eye -- so every pick misses everything in
+		// front of the camera and hits whatever is behind it.
+		Vec4 nearPoint = inverseViewProjection * Vec4(ndc.x, ndc.y, 1.0f, 1.0f);
+		Vec4 farPoint = inverseViewProjection * Vec4(ndc.x, ndc.y, 0.0f, 1.0f);
 
 		if (Math::Abs(nearPoint.w) < 1e-9f || Math::Abs(farPoint.w) < 1e-9f)
 			return {};

@@ -388,7 +388,7 @@ namespace RageV
 			// LessOrEqual, not Less: the sky sits exactly on the cleared value,
 			// so a strict comparison rejects every pixel and the sky never
 			// appears at all.
-			desc.DepthStencil.DepthCompare = CompareOp::LessOrEqual;
+			desc.DepthStencil.DepthCompare = kDepthCompare;
 
 			desc.ColorFormats = { s_Data->TargetColor };
 			desc.Samples = s_Data->TargetSamples;

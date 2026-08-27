@@ -130,7 +130,7 @@ namespace RageV
 			begin.ClearColor = true;
 			begin.ClearDepth = true;
 			begin.UseDepth = true;
-			begin.Clear.Depth = 1.0f;
+			begin.Clear.Depth = kDepthClear;
 
 			cmd.PushDebugGroup("Reflection probe face");
 			cmd.BeginRenderPass(begin);

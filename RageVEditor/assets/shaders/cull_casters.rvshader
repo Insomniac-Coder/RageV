@@ -91,10 +91,14 @@ layout(push_constant) uniform Params
 // distance, only its sign, and dividing a plane by the positive length of its
 // normal cannot change that.
 //
-// Near is row 2 alone rather than row 3 plus row 2, because this engine's
-// projections put the near plane at z = 0 (GLM_FORCE_DEPTH_ZERO_TO_ONE) on
-// both backends. The OpenGL form would cull everything in the near half of
-// the frustum.
+// The depth pair is row 2 alone and row 3 minus row 2, rather than row 3 plus
+// row 2, because this engine's projections put clip depth in [0, w] on both
+// backends. The OpenGL form would cull everything in half the frustum's
+// depth.
+//
+// **Reverse-Z swaps which of the two is near and which is far**, and nothing
+// else: the clip test is unchanged, so the same pair bounds the same volume
+// and all six are tested alike. Labels below say which is which now.
 bool Visible(vec3 centre, vec3 extents)
 {
 	mat4 m = u_Params.ViewProjection;
@@ -108,8 +112,8 @@ bool Visible(vec3 centre, vec3 extents)
 	planes[1] = r3 - r0;   // right
 	planes[2] = r3 + r1;   // bottom
 	planes[3] = r3 - r1;   // top
-	planes[4] = r2;        // near
-	planes[5] = r3 - r2;   // far
+	planes[4] = r2;        // far
+	planes[5] = r3 - r2;   // near
 
 	for (int i = 0; i < 6; i++)
 	{

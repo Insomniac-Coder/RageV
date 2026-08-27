@@ -329,7 +329,7 @@ namespace RageV
 			std::vector<RGAttachment> Attachments;
 
 			Vec4 ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
-			float ClearDepth = 1.0f;
+			float ClearDepth = RHI::kDepthClear;
 			bool UseDepth = true;
 			// Set by PreserveDepth: clear colour, keep depth.
 			bool KeepDepth = false;

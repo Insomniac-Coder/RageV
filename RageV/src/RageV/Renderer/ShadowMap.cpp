@@ -90,7 +90,7 @@ namespace RageV
 		// meaningless -- the average of two depths is not the average of two
 		// answers.
 		sampler.CompareEnable = true;
-		sampler.Compare = CompareOp::LessOrEqual;
+		sampler.Compare = kDepthCompare;
 		sampler.MinFilter = FilterMode::Linear;
 		sampler.MagFilter = FilterMode::Linear;
 		sampler.MaxLod = 0.0f;
@@ -291,7 +291,7 @@ namespace RageV
 		begin.ClearColor = false;
 		begin.ClearDepth = true;
 		begin.UseDepth = true;
-		begin.Clear.Depth = 1.0f;
+		begin.Clear.Depth = kDepthClear;
 
 		cmd.PushDebugGroup("Spot shadow");
 		if (casters.Prepare)
@@ -367,7 +367,7 @@ namespace RageV
 			begin.ClearColor = false;
 			begin.ClearDepth = true;
 			begin.UseDepth = true;
-			begin.Clear.Depth = 1.0f;
+			begin.Clear.Depth = kDepthClear;
 
 			// The same face basis a reflection probe captures with. Two
 			// features that disagreed about which way a cube face points would
@@ -558,7 +558,7 @@ namespace RageV
 			begin.ClearColor = false;
 			begin.ClearDepth = true;
 			begin.UseDepth = true;
-			begin.Clear.Depth = 1.0f;
+			begin.Clear.Depth = kDepthClear;
 
 			cmd.PushDebugGroup("Shadow cascade");
 			if (casters.Prepare)

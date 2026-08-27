@@ -6,10 +6,12 @@ namespace RageV
 {
 	void LightGrid::DepthRangeOf(const Mat4& projection, float& nearPlane, float& farPlane)
 	{
-		// For a zero-to-one perspective projection:
-		//   P[2][2] = far / (near - far)
-		//   P[3][2] = (far * near) / (near - far)
-		// so near is their ratio and far falls out of P[2][2] + 1.
+		// For a zero-to-one **reverse-Z** perspective projection:
+		//   P[2][2] = near / (far - near)
+		//   P[3][2] = (far * near) / (far - near)
+		// so their ratio is *far* and P[2][2] + 1 yields *near* -- exactly the
+		// two the conventional form produces, exchanged. Which is the whole
+		// character of the flip: the algebra is the same and the labels swap.
 		const float m22 = projection[2][2];
 		const float m32 = projection[3][2];
 
@@ -24,9 +26,9 @@ namespace RageV
 			return;
 		}
 
-		nearPlane = m32 / m22;
+		farPlane = m32 / m22;
 		const float denominator = m22 + 1.0f;
-		farPlane = Math::Abs(denominator) < 1e-9f ? nearPlane * 1000.0f : m32 / denominator;
+		nearPlane = Math::Abs(denominator) < 1e-9f ? farPlane * 0.001f : m32 / denominator;
 
 		nearPlane = Math::Max(nearPlane, 0.0001f);
 		farPlane = Math::Max(farPlane, nearPlane * 1.001f);

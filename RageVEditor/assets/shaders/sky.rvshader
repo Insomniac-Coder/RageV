@@ -19,11 +19,12 @@ void main()
 	vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
 	v_NDC = uv * 2.0 - 1.0;
 
-	// z = w puts every fragment exactly on the far plane. Both backends clip
-	// depth to [0, 1] here -- glm is built with GLM_FORCE_DEPTH_ZERO_TO_ONE --
-	// so this is 1.0 in each, which is also what the depth buffer was cleared
-	// to. With LessOrEqual that means "wherever nothing was drawn".
-	gl_Position = vec4(v_NDC, 1.0, 1.0);
+	// z = 0 puts every fragment exactly on the far plane. Both backends clip
+	// depth to [0, 1] here, and **the far plane is 0 under reverse-Z** -- see
+	// RHITypes.h -- which is also what the depth buffer was cleared to. With
+	// GreaterOrEqual that means "wherever nothing was drawn", exactly as z = w
+	// against LessOrEqual used to.
+	gl_Position = vec4(v_NDC, 0.0, 1.0);
 }
 
 #type fragment

@@ -64,11 +64,13 @@ const float kSensorHeight = 0.024;
 // Standard 0..1 depth, not reversed: the projection puts the near plane at 0
 // and the far plane at 1, and the mapping between them is not linear, which is
 // the entire reason this function exists.
+#include "include/view_reconstruction.glsl"
+
+// Supplies this pass's clip planes; the formula itself is in
+// view_reconstruction.glsl and is deliberately not restated here.
 float LinearDepth(float depth)
 {
-	const float n = u_Params.NearClip;
-	const float f = u_Params.FarClip;
-	return (n * f) / max(f - depth * (f - n), 1.0e-6);
+	return LinearDepth(depth, u_Params.NearClip, u_Params.FarClip);
 }
 
 // Signed circle of confusion in pixels. Negative in front of the focus plane,

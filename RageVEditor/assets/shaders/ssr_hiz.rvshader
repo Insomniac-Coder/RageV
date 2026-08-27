@@ -61,12 +61,13 @@ layout(push_constant) uniform Params
 } u_Params;
 
 #include "include/hiz_atlas.glsl"
+#include "include/view_reconstruction.glsl"
 
+// Supplies this pass's clip planes; the formula itself is in
+// view_reconstruction.glsl and is deliberately not restated here.
 float LinearDepth(float depth)
 {
-	const float n = u_Params.NearClip;
-	const float f = u_Params.FarClip;
-	return (n * f) / max(f - depth * (f - n), 1.0e-6);
+	return LinearDepth(depth, u_Params.NearClip, u_Params.FarClip);
 }
 
 void main()
