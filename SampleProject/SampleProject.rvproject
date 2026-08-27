@@ -1,10 +1,10 @@
-﻿Project:
+Project:
   Name: Sample
   AssetDirectory: assets
   StartScene: scenes/showroom.rage
   FixedHz: 60
   RenderSettings:
-    AntiAliasing: MSAA
+    AntiAliasing: TAA
     MsaaSamples: 4
     SupersampleFactor: 2
     TemporalFeedback: 0.9
@@ -16,6 +16,9 @@
     RayTracedAmbientOcclusion: Full
     RayTracedGlobalIllumination: High
     RayTracedGiSource: Baked
+    RayBudget: Fractional
+    RayBudgetMs: 4
+    RayBudgetFraction: 0.4
     ShadowDistance: 40
     ShadowSplitLambda: 0.85
     ShadowNormalOffset: 0.9

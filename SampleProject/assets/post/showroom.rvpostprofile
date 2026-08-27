@@ -19,7 +19,7 @@ BloomClamp: 28
 DepthOfField: true
 Focus: Target
 FocusTarget: 16167290979463119363
-SubjectCoverage: 0.684
+SubjectCoverage: 0.747
 FocusDistance: 7.3
 FocalLength: 60
 Aperture: 8
@@ -29,12 +29,12 @@ SsrMaxDistance: 30
 SsrThickness: 0.35
 SsrIntensity: 1
 GlobalIllumination: true
-GiSource: Baked
 VoxelGlobalIllumination: false
 VoxelGiResolution: 64
 VoxelGiCascades: 3
 VoxelGiVoxelSize: 0.25
 GiRadius: 8
+GiSource: Baked
 GiQuality: Medium
 GiIntensity: 1
 GiBounces: 1
