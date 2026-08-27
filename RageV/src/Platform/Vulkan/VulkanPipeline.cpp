@@ -359,6 +359,12 @@ namespace RageV::Vk
 			}
 
 			ApplyBlendPreset(preset, blendAttachments[i]);
+
+			// Depth only: the blend equation is irrelevant when no channel is
+			// written, so this goes last and overrides whatever the preset
+			// chose.
+			if (!m_Desc.ColorWrite)
+				blendAttachments[i].colorWriteMask = 0;
 		}
 
 		VkPipelineColorBlendStateCreateInfo colorBlend{ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };

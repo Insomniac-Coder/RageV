@@ -380,6 +380,14 @@ namespace RageV
 			// its own holding the depth and surface it reconstructs from.
 			Ref<RHIShader>   GiShader;
 			Ref<RHIPipeline> GiPipeline;
+
+			// The depth prepass: the lit pipeline's twin with an empty
+			// fragment stage and colour writes masked off. Null when the
+			// shader is absent, which is the whole of the on/off switch --
+			// nothing else has to be gated, because the draw below asks for
+			// the pipeline and skips when there is not one.
+			Ref<RHIShader>   PrepassShader;
+			Ref<RHIPipeline> PrepassPipeline;
 			Ref<RHIShader>   IrradianceFillShader;
 			Ref<RHIPipeline> IrradianceFillPipeline;
 			// The target the fill rasterises into, and the set its outputs are
@@ -546,6 +554,11 @@ namespace RageV
 				// Its depth and surface inputs, which change per view rather
 				// than per scene.
 				Ref<RHIResourceSet> GiInputs;
+				// The prepass's set 0. Its own object because its layout is a
+				// subset of everything else's: the prepass shader has no
+				// fragment stage worth the name, so only the three bindings
+				// the *vertex* stage reads survive reflection.
+				Ref<RHIResourceSet> PrepassSet;
 				// The emissive rectangles, uploaded per frame. On the GI pass's
 				// own set rather than set 0, which four other shaders reflect
 				// and which the comment on GiInputs is about.
@@ -1180,6 +1193,29 @@ namespace RageV
 			return false;
 		}
 		s_Data->Shader = s_Data->Device->CreateShader(*compiled);
+
+		// **The depth prepass, from the same defines.** Its vertex stage is
+		// pbr.rvshader's include for include, so the depth it writes is the
+		// depth the lit pass would have written -- and the defines have to
+		// match too, because scene_block.glsl's layout depends on them and a
+		// prepass that positioned vertices from a differently laid out
+		// instance buffer would write believable, wrong depth.
+		//
+		// A failure here is not fatal: no pipeline, no prepass, and the frame
+		// draws exactly as it did before. That is deliberate -- the last time
+		// a missing shader silently changed the picture it cost an afternoon.
+		s_Data->PrepassShader = nullptr;
+		if (auto prepass = ShaderCompiler::CompileFromFile(
+				"assets/shaders/depth_prepass.rvshader", defines))
+		{
+			s_Data->PrepassShader = s_Data->Device->CreateShader(*prepass);
+			RV_CORE_INFO("Renderer3D: depth prepass on");
+		}
+		else
+		{
+			RV_CORE_WARN("Renderer3D: assets/shaders/depth_prepass.rvshader did not "
+						 "compile; drawing without a depth prepass");
+		}
 
 		// **The same shader, compiled to write two attachments instead of
 		// four.** Not a second material model and not a second lighting path:
@@ -2036,6 +2072,32 @@ namespace RageV
 
 		s_Data->Pipeline = s_Data->Device->CreatePipeline(desc);
 
+		// **The prepass twin: same everything, minus the colour.**
+		//
+		// Same target formats and sample count, because it draws *into the
+		// scene pass* rather than into a pass of its own -- so the pipeline
+		// has to describe the attachments that pass binds even though it
+		// writes none of them. Same depth state, because writing depth is the
+		// entire job. Taken from `desc` before the skinned and layered
+		// variants edit it, so it cannot inherit their shader by accident.
+		if (s_Data->PrepassShader)
+		{
+			GraphicsPipelineDesc prepass = desc;
+			prepass.Name = "Renderer3D.depthprepass";
+			prepass.Shader = s_Data->PrepassShader;
+			prepass.ColorWrite = false;
+			s_Data->PrepassPipeline = s_Data->Device->CreatePipeline(prepass);
+
+			// A set belongs to the layout it was allocated against.
+			for (auto& frame : s_Data->SceneSlots)
+				for (auto& slot : frame)
+					slot.PrepassSet = nullptr;
+		}
+		else
+		{
+			s_Data->PrepassPipeline = nullptr;
+		}
+
 		// The meshlet twin: the same targets, samples, raster and depth state
 		// -- a different front end and nothing else, the depth path's
 		// contract again.
@@ -2576,6 +2638,14 @@ namespace RageV
 		// differs only where EndScene says.
 		if (s_Data->Pipeline && !slot.GpuSet)
 			slot.GpuSet = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0);
+
+		// The prepass's, on the same terms. It is filled where the GPU path's
+		// visible indices are written rather than in the loop below, because
+		// the loop writes bindings this layout does not declare -- and a
+		// binding a layout does not declare is a validation error, not a
+		// harmless extra.
+		if (s_Data->PrepassPipeline && !slot.PrepassSet)
+			slot.PrepassSet = s_Data->Device->CreateResourceSet(s_Data->PrepassPipeline, 0);
 
 		Ref<RHIResourceSet> targets[] = { slot.Set, slot.SkinnedSet, slot.LayeredSet,
 										  slot.GpuSet, slot.TransparentSet,
@@ -3255,6 +3325,20 @@ namespace RageV
 			slot.GpuSet->SetStorageBuffer(7, slot.Instances, 0,
 										  (uint64_t)instanceRows * sizeof(InstanceData));
 			slot.GpuSet->SetStorageBuffer(kVisibleBinding, s_Data->IndirectView.Instances);
+
+			// **The prepass reads the cull pass's survivors, not the sort's.**
+			// It has to draw exactly what the lit pass will draw, through the
+			// same indirection, or the depth it writes describes a different
+			// set of objects than the one tested against it.
+			if (slot.PrepassSet)
+			{
+				slot.PrepassSet->SetUniformBuffer(0, slot.Buffer, 0, sizeof(SceneUniforms));
+				slot.PrepassSet->SetStorageBuffer(7, slot.Instances, 0,
+												  (uint64_t)instanceRows * sizeof(InstanceData));
+				slot.PrepassSet->SetStorageBuffer(kVisibleBinding,
+												  s_Data->IndirectView.Instances);
+				slot.PrepassSet->Commit();
+			}
 			if (s_Data->Bindless)
 			{
 				slot.GpuSet->SetStorageBuffer(13, slot.Materials, 0,
@@ -3393,6 +3477,57 @@ namespace RageV
 		// the order between the two is free -- and doing it first means the
 		// static geometry has written depth before the skinned and layered
 		// draws are shaded.
+		// **The depth prepass, over the same indirect draws.**
+		//
+		// Inside the scene pass rather than before it, which is what the
+		// colour mask buys: the instance buffer is uploaded and the sets are
+		// committed by the time this runs, and none of that has to be split
+		// out of EndScene and handed to a second pass.
+		//
+		// What it buys is early-Z on geometry the sort cannot help. Instances
+		// are already ordered front to back, so a crate behind a wall is
+		// rejected without this; what is not ordered is the inside of a single
+		// mesh, and a 490k-triangle car has bodywork, interior and engine bay
+		// overlapping in index order. Every one of those hidden fragments runs
+		// the full shader -- twenty lights, a shadow ray each under traced
+		// shadows, and a mirror ray if it is glossy.
+		//
+		// It costs a second rasterisation of the same geometry, at four
+		// samples, writing nothing but depth. Whether that trade pays is a
+		// measurement and not an argument.
+		if (haveIndirect && slot.PrepassSet && s_Data->PrepassPipeline)
+		{
+			cmd->BindPipeline(s_Data->PrepassPipeline);
+			cmd->BindResourceSet(0, slot.PrepassSet);
+
+			const std::vector<GpuCull::Slot>& indirect = s_Data->IndirectSlots;
+			const uint32_t slotCount =
+				Math::Min((uint32_t)indirect.size(), s_Data->IndirectView.SlotCount);
+
+			for (uint32_t i = 0; i < slotCount; i++)
+			{
+				const GpuCull::Slot& entry = indirect[i];
+				if (!entry.MeshRef)
+					continue;
+
+				ObjectPushConstants object;
+				object.BaseInstance = (int32_t)entry.InstanceBase;
+				cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+
+				cmd->BindVertexBuffer(0, entry.MeshRef->GetVertexBuffer());
+				cmd->BindIndexBuffer(entry.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+				cmd->DrawIndexedIndirect(s_Data->IndirectView.Commands,
+										 (uint64_t)i * sizeof(GpuCull::SlotCommand),
+										 1, sizeof(GpuCull::SlotCommand));
+			}
+
+			// **Deliberately not counted.** The draw and triangle totals
+			// describe what the scene is made of, and this draws the same
+			// geometry a second time -- adding it would report the showroom as
+			// twice the scene it is. The cost is not hidden: it lands in the
+			// scene pass's GPU time, which is where the profiler looks.
+		}
+
 		if (haveIndirect && slot.GpuSet)
 		{
 			cmd->BindPipeline(s_Data->Pipeline);

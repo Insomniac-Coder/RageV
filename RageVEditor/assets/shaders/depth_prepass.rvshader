@@ -1,0 +1,31 @@
+// Depth only, from the camera's point of view.
+//
+// **The vertex stage is pbr.rvshader's, include for include, and that is the
+// whole design.** A prepass is only useful if the depth it writes is the depth
+// the lit pass would have written; if the two stages reach gl_Position by
+// different routes the optimiser is free to fold them differently, the values
+// disagree in the last bit, and a LessOrEqual test then drops scattered
+// fragments of every surface -- which reads as speckled holes in the model and
+// not as a depth bug. Sharing the source makes that impossible rather than
+// unlikely.
+//
+// The fragment stage writes nothing, exactly as shadow_depth.rvshader's does:
+// depth is written by the fixed-function stage, and a stage with no output and
+// no discard is what lets the hardware reject a hidden fragment before it runs
+// at all -- which is the entire point of the pass.
+//
+// The varyings scene_vertex.glsl declares go unread here. That is allowed and
+// costs a little vertex bandwidth; the alternative is a second copy of the
+// vertex stage, which is the one thing this file must not have.
+#type vertex
+#version 450 core
+
+#include "include/scene_vertex.glsl"
+#include "include/static_vertex.glsl"
+
+#type fragment
+#version 450 core
+
+void main()
+{
+}

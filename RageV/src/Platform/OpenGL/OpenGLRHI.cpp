@@ -742,6 +742,13 @@ namespace RageV::GL
 		// 4.6, and using them unconditionally would be correct but would also
 		// rewrite state for attachments that do not exist -- so the single
 		// case stays on the plain calls it always used.
+		// **Set every time, because it is context state and it persists.** A
+		// depth-only pipeline that masked colour off and did not put it back
+		// would leave the next pipeline over the same target drawing nothing
+		// -- the same trap the draw-buffer selection above carries.
+		const GLboolean writeColor = m_Desc.ColorWrite ? GL_TRUE : GL_FALSE;
+		glColorMask(writeColor, writeColor, writeColor, writeColor);
+
 		const size_t attachments = Math::Max<size_t>(1, m_Desc.ColorFormats.size());
 
 		if (m_Desc.BlendPerAttachment.empty())

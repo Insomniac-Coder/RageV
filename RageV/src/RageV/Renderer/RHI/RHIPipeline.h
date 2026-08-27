@@ -37,6 +37,18 @@ namespace RageV::RHI
 		std::vector<Format>  ColorFormats;
 		Format               DepthFormat = Format::D24_UNORM_S8_UINT;
 		uint32_t             Samples     = 1;
+
+		// **Whether this pipeline's fragments reach the colour attachments at
+		// all.** False is a depth-only draw *inside* a pass that has colour
+		// bound -- which is what the depth prepass is: it runs in the scene
+		// pass, before the lit draws, over the same target.
+		//
+		// It cannot be done by leaving the fragment stage empty and hoping.
+		// An output a shader does not write is undefined, not preserved, so a
+		// shader-less stage scribbles over the scene -- and on a multisampled
+		// target it does it once per sample. Masking is the only way to say
+		// "write depth, touch nothing else" without a second render pass.
+		bool                 ColorWrite  = true;
 	};
 
 	class RHIPipeline
