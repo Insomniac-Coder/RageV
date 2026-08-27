@@ -1,9 +1,122 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-26.
+**Read this first.** Updated 2026-08-27 (evening).
 
-Work on **`main`**. Pushed through `9293f16` (2026-08-26); the baked-lighting
-and frame-counter fixes below are **in the working tree and not yet committed**.
+Work is on branch **`perf/ray-budget-and-prepass`**, pushed. It is not merged
+to `main`; `main` is still at `38fed70`. Six commits, all measured:
+
+| | |
+|---|---|
+| `7a15f24` | exponential height fog (off by default) |
+| `88af9ea` | bay downlights cast shadows + showroom rebaked |
+| `4d9a60c` | ray budget — settings dropdown, Off by default |
+| `f3f1f5f` | depth prepass — unconditional, bit-identical |
+| `3c8c5e0` | ray rejection — bit-identical |
+
+The only uncommitted files are the owner's own pre-session edits to
+`showroom.rvpostprofile` and two `.meta` files. Leave them.
+
+---
+
+## The performance session — 2026-08-27
+
+**The complaint:** frame time swung badly with how close the camera was to the
+car, in both baked and realtime modes, on Vulkan with ray tracing.
+
+**What it turned out to be.** Primary ray count never changes with distance --
+that part of the design document was right and its proposed fix was not.
+What changes is how many *fragments* run expensive per-pixel work. Measured at
+2560x1600, close (4.6 m) versus far (9.0 m), triangle count held constant:
+
+| | close | far | swing |
+|---|---|---|---|
+| Vulkan + RT | 12.39 ms | 8.01 ms | 4.37 ms (1.55x) |
+| Vulkan, RT off | 6.93 | 5.67 | 1.26 |
+| OpenGL | 9.59 | 7.87 | 1.72 |
+
+So ray tracing is ~71% of the swing, and **OpenGL has the same problem at
+1.22x** with no rays at all.
+
+**What shipped, and what each is worth** (2560x1600, close camera):
+
+- **Depth prepass** -- 12.51 -> 9.15 ms (**-27%**, 80 -> 109 FPS), swing
+  4.42 -> 2.22 ms, **bit-identical** (0 of 4,019,200 pixels). It runs *inside*
+  the scene pass with a colour-write mask rather than as its own pass, which
+  is what avoided splitting `EndScene`. **Neutral on OpenGL** (9.656 vs 9.668,
+  overlapping) -- the win is not fewer shaded pixels, it is fewer *rays* from
+  pixels nobody sees. No toggle exists and none should.
+- **Ray rejection** -- Vulkan -3.9%, **OpenGL -3.2%**, bit-identical. Skips
+  the shadow ray for a light that is out of range or outside its spot cone.
+- **Ray budget** -- `RenderSettings::RayBudget`: Off / Absolute ray time /
+  Fractional, shown under Ray tracing. Off by default.
+- **Height fog** -- off by default, 0.014 ms GPU.
+
+### The ray budget, and why it is built the way it is
+
+**It budgets the ray passes, not the frame.** Budgeting the whole frame is a
+category error: most of a frame is raster, shadow maps and post that no ray
+count can pay for, so a weaker GPU whose fixed costs already exceed the target
+would pin the rays at their floor forever and still miss it -- stripped of
+quality *and* slow. The ray passes therefore carry their own timestamp pair,
+always, which is four timestamps against the seventy the by-pass table costs.
+
+**Fractional is the one that travels.** A slower GPU renders a longer frame
+and spends the same *share* on rays. Absolute stays for fixed hardware.
+
+Four things it got wrong first, each found by measuring, each worth not
+rediscovering:
+
+- **Fractional chased its own tail.** Target = share of frame, so cutting rays
+  shortened the frame, which lowered the target. It ratcheted two levels in
+  under a second. Solved directly instead: `rays = f * fixed / (1 - f)`.
+- **Both GPU averages started at zero** and eased up, so early frames claimed
+  the rays were cheap and the quality step landed a second after the scene
+  appeared. Seeded with the first real sample.
+- **A continuous scale on an integer count flickers** whatever the damping.
+  Discrete levels: 8, 6, 4, 2 taps.
+- **The level ladder had a limit cycle** on its last step, which halves the
+  rays. The climb test is predictive now: move up only if the level above
+  would still fit.
+
+### Traps this session paid for
+
+- **Auto-exposure invalidates absolute brightness comparisons.** Turning a
+  light off and measuring the region's brightness reads as *no change*,
+  because exposure opens to compensate. Measure a patch against a nearby
+  reference region instead -- the ratio cancels exposure. This wasted hours:
+  bay-lights-off read as -3.03 absolute (nothing) and 1.336 -> 1.180 as a
+  ratio (everything).
+- **Push-constant vec4s are 16-byte aligned.** A block whose scalars end at 40
+  gets padded to 48 by the shader and not by the struct, and every field after
+  is read eight bytes out. The fog came out pink. `RtaoComputeParams` never
+  hits it because its six scalars end at 48 already.
+- **`--bake=on` does not bake.** It writes only what is missing and never
+  triggers the solve; 2000 frames produced nothing. **`--bake=force` with a
+  large frame budget (8000) is what works** -- the write needs
+  `m_SettledFrames > 30` and a solve to have been requested.
+- **`CastShadows: false` is not "weak shadows"** -- it is no occlusion test at
+  all. The lit shader leaves the shadow term at 1.0 with no ray cast and no
+  map sampled, so the light passes through walls by construction.
+- **The showroom's post profile has no trailing newline and is CRLF.**
+  Appending a key with `printf 'Key: v\n'` concatenates onto the last line and
+  the key is silently ignored.
+- **`RayTracing: true` with `RayTracedReflections: Off`** crashed once mid-
+  session and did **not** reproduce in isolation; the failing run also had
+  `ScreenSpaceReflections: false` in the profile. Unresolved, low priority.
+
+### Two things still open from this session
+
+- **Point-shadow slots are now full**: 4 of `ShadowMap::kMaxLocal`, 1 of 4
+  spot. A fifth shadow-casting point light in the showroom is silently
+  demoted to "light but do not shadow". Relevant to the bridge's lamp count.
+- **The reflection pass was built and reverted.** It gave -17% but could not
+  be made bit-identical: `kNormalFormat` is `R8G8B8A8_UNORM`, so a screen-
+  space pass can only recover an 8-bit octahedral normal and a mirror doubles
+  that error. Widening to 16-bit removed 41% of the difference and the rest is
+  MSAA sample-zero depth resolve plus the missing geometric normal. The patch
+  is `scratchpad/reflection_pass.patch` if it is ever revisited -- but the
+  depth prepass beat it (-27% vs -17%) at zero visual cost, so it is probably
+  dead.
 
 ---
 

@@ -51,12 +51,17 @@ Golden Gate scene's largest avoidable cost and compounds the missing LODs.
 half must go inside the ray-query traversal loop, because this engine has no
 any-hit stage to write.** Full brief in HANDOFF.
 
-### 1 · Exponential height fog — ~1 day
-One fullscreen pass over the depth buffer. The single largest visual return
-available: it is most of what separates a render of a night bridge from a
-photograph of one, and nothing else on this list changes an image as much per
-hour spent. The engine has **no fog of any kind** — a search of the whole
-renderer returns nothing.
+### ~~1 · Exponential height fog~~ — ✅ **done 2026-08-27**
+One fullscreen pass over the depth buffer, 0.014 ms GPU, off by default.
+Height fog with the density integrated in closed form along the view ray, so
+it stays right with the camera inside the layer or above it; the sky is fogged
+to full depth so a distant headland reads as distance rather than a cut-out.
+Applied after occlusion and **before** depth of field and bloom, so a fogged
+lamp blooms as the fog's colour instead of having grey painted over its bloom.
+Seven fields on the post profile.
+
+Not done: **volumetric shafts** (item 6) are still the separate, larger job.
+This is the cheap half of the mood and it was always meant to come first.
 
 ### 2 · Reverse-Z depth — ~1 day
 **A correctness bug, not a feature.** Depth is conventional `LessOrEqual`
