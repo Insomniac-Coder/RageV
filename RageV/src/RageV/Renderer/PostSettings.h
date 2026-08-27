@@ -103,6 +103,44 @@ namespace RageV
 	// scene and a bake to have been run. Without either, the renderer says so
 	// and falls back to Realtime rather than rendering a scene with no indirect
 	// light at all and letting somebody wonder why it looks flat.
+	// **How ray counts are spent against a cost target.**
+	//
+	// The counts are otherwise fixed per quality rung while their *cost* is
+	// not: a ray that hits geometry costs far more than one that escapes, so
+	// the same eight ambient-occlusion rays a pixel measured 3.30 ms with the
+	// showroom's car close and 2.17 ms with it far. Making the count the
+	// variable is what turns that into a flat frame rather than a visible dip.
+	enum class RayBudgetMode : uint32_t
+	{
+		// Every rung gets its full count and an expensive view simply takes
+		// longer. The default, because a renderer that quietly lowers its own
+		// quality is worse than a slow one when nobody asked.
+		Off,
+
+		// **A ceiling in milliseconds on the ray passes themselves.**
+		//
+		// The ray passes, not the frame: budgeting the whole frame is a
+		// category error, because most of a frame is raster, shadow maps and
+		// post that no ray count can pay for. A machine whose fixed costs
+		// already exceed the target would pin the rays at their floor forever
+		// and still miss it -- stripped of quality *and* slow.
+		//
+		// Still absolute, so it says nothing about the hardware. Right for a
+		// fixed target -- a console, a kiosk, this scene on this laptop.
+		Absolute,
+
+		// **A share of the frame the rays may occupy.**
+		//
+		// Hardware-relative, which is the difference that matters: a slower
+		// GPU renders a longer frame and spends the same *proportion* of it on
+		// rays, rather than being stripped bare trying to hit a number it was
+		// never going to reach. Raising the resolution or turning on
+		// supersampling lengthens the frame and the rays get proportionally
+		// more, which is also right -- their share of the picture has not
+		// changed.
+		Fractional,
+	};
+
 	enum class GiSource : uint32_t
 	{
 		Realtime,

@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+namespace RageV::RHI { class RHICommandList; }
+
 namespace RageV
 {
 	// Where a frame's CPU time went, and what a run of frames cost.
@@ -115,6 +117,24 @@ namespace RageV
 		// rather than an already-averaged one.
 		static float LastCpuFrameMs();
 		static float MeanGpuFrameMs();
+
+		// --- ray work, timed whether or not anything is profiling ----------
+		//
+		// **The ray budget needs this and cannot use the by-pass table.** That
+		// table is off by default for a good reason -- seventy timestamps a
+		// frame is not free, and a profiler that is always on is part of what
+		// it measures -- but a controller that spends ray counts has to know
+		// what the rays cost, every frame, in a shipping build.
+		//
+		// So the ray passes carry their own pair. Two passes, four timestamps,
+		// against the seventy the full table costs.
+		//
+		// It is *not* a FramePhase, deliberately: phases are the shape of a
+		// frame and are summed against it, and these passes run inside the
+		// render graph's phase already. Adding one would double-count and make
+		// "accounted" exceed the frame.
+		static bool  ClaimRayGpuScope(uint32_t& beginSlot, uint32_t& endSlot);
+		static float LiveRayGpuMs();
 		static float MeanGpuPhaseMs(FramePhase phase);
 
 		// A GPU scope named at runtime.
@@ -234,6 +254,30 @@ namespace RageV
 		// False when there was no command list to record into, or the frame ran
 		// out of slots.
 		bool m_Gpu = false;
+	};
+}
+
+namespace RageV
+{
+	// One ray pass's GPU span. Constructed inside a pass's execute body, where
+	// the command list is; the destructor closes it.
+	//
+	// Out of line for the reason ProfileScope's helpers are: writing a
+	// timestamp needs the command list, and this header is included from
+	// places that must not pull the renderer in.
+	class RayGpuScope
+	{
+	public:
+		explicit RayGpuScope(RHI::RHICommandList& cmd);
+		~RayGpuScope();
+
+		RayGpuScope(const RayGpuScope&) = delete;
+		RayGpuScope& operator=(const RayGpuScope&) = delete;
+
+	private:
+		RHI::RHICommandList* m_Cmd = nullptr;
+		uint32_t m_EndSlot = 0;
+		bool     m_Open = false;
 	};
 }
 

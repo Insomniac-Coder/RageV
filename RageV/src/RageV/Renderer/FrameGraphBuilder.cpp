@@ -2,6 +2,7 @@
 #include "FrameGraphBuilder.h"
 #include "PostProcess.h"
 #include "RageV/Core/EngineConfig.h"
+#include "RageV/Core/FrameProfiler.h"
 #include "RayShadows.h"
 #include "VoxelGI.h"
 #include "Renderer3D.h"
@@ -488,7 +489,30 @@ namespace RageV
 		const RayDetail reflectionDetail = ResolveRayTracedReflections(desc.Render);
 		const bool rayReflections = reflectionDetail != RayDetail::Off;
 		// The window the lit shader weighs a mirror ray in over.
-		Renderer::SetReflectionGloss(RayDetailGloss(reflectionDetail));
+		// **Reflections spend the budget too, and their currency is the
+		// window.** A mirror ray is cast per glossy *fragment*, so the count
+		// is decided by how much of the screen is smooth enough to qualify --
+		// and the window is the only thing that moves that while the ray is
+		// cast inside the lit shader.
+		//
+		// Narrowing pulls the upper bound down toward the lower, so the
+		// roughest surfaces still taking a ray give theirs up first and a
+		// mirror stays a mirror. It pays into the transparent pass as well as
+		// the lit one: glass casts these rays too, which is why that pass
+		// nearly halves between a close view of the car and a far one.
+		//
+		// **Weak on a car, and honestly so.** Automotive paint sits near 0.1
+		// roughness, below even the narrowest window's lower bound, so it
+		// keeps its ray at any scale -- narrowing High to Medium moved the
+		// showroom's lit pass 7.28 ms to 6.78 and no further. What this
+		// reclaims is the mid-gloss majority of a scene, not the hero object.
+		{
+			Vec2 gloss = RayDetailGloss(reflectionDetail);
+			const float scale = Renderer::GetRayScale();
+			if (scale < 1.0f)
+				gloss.y = gloss.x + (gloss.y - gloss.x) * scale;
+			Renderer::SetReflectionGloss(gloss);
+		}
 		const AoDetail rayAo = ResolveRayTracedAmbientOcclusion(desc.Render);
 		const bool rayOcclusion = rayAo != AoDetail::Off;
 		// The third twin (7at). Where it runs, the lit shader casts the bounce
@@ -1188,9 +1212,16 @@ namespace RageV
 					builder.Sample(sceneHDR);
 					builder.DisableDepth();
 				},
-				[sceneHDR, normalIndex, traceView, rays = RayDetailRays(giDetail)]
+				// Scaled by the same budget, floored at one: a bounce pass
+				// that casts no rays writes black and the field it feeds
+				// darkens the whole scene, which is a worse failure than a
+				// noisy bounce.
+				[sceneHDR, normalIndex, traceView,
+				 rays = Math::Max((int)(RayDetailRays(giDetail)
+										* Renderer::GetRayScale() + 0.5f), 1)]
 				(RGPassContext& context)
 				{
+					RayGpuScope rayTime(context.Cmd);
 					Renderer3D::TraceGlobalIllumination(context.Cmd,
 														context.Depth(sceneHDR),
 														context.Color(sceneHDR, normalIndex),
@@ -1274,9 +1305,27 @@ namespace RageV
 			// resolution; the screen-space one has no rays to trade and
 			// spends resolution, which is what this dial has always meant for
 			// it. See AoDetail.
-			const uint32_t aoTaps = aoLevel == AoDetail::Full    ? 8u
-								  : aoLevel == AoDetail::Quarter ? 2u
-																 : 4u;
+			uint32_t aoTaps = aoLevel == AoDetail::Full    ? 8u
+							: aoLevel == AoDetail::Quarter ? 2u
+														   : 4u;
+
+			// **The budget is spent here first, because this is where the
+			// variation is.** With the depth prepass in, ambient occlusion is
+			// 58% of what remains of the showroom's close-versus-far swing --
+			// 3.30 ms against 2.17 -- and it is the cheapest term to trade:
+			// the count is already a runtime argument, and the result is
+			// blurred by a 9x9 separable filter afterwards, so fewer samples
+			// cost less than they would anywhere else in the frame.
+			//
+			// Only the traced form. The screen-space one spends resolution
+			// rather than rays (see AoDetail), so scaling its tap count would
+			// be changing a different quantity than the one under budget.
+			if (rayOcclusion)
+			{
+				const float scale = Renderer::GetRayScale();
+				if (scale < 1.0f)
+					aoTaps = Math::Max((uint32_t)(aoTaps * scale + 0.5f), 2u);
+			}
 			const uint32_t divisor = rayOcclusion                  ? 1u
 								   : aoLevel == AoDetail::Full     ? 1u
 								   : aoLevel == AoDetail::Quarter  ? 4u
@@ -1324,8 +1373,11 @@ namespace RageV
 				{
 					// Depth and the surface attachment: the real normal where
 					// the scene wrote one, reconstruction where it did not.
+					// Timed for the ray budget, always -- see FrameProfiler's
+					// ClaimRayGpuScope. Scoped so it closes before the pass does.
 					if (rayOcclusion)
 					{
+						RayGpuScope rayTime(context.Cmd);
 						PostProcess::RtaoCompute(context.Cmd, context.Depth(sceneHDR),
 												 context.Color(sceneHDR, normalIndex),
 												 RayShadows::GetStructure(),

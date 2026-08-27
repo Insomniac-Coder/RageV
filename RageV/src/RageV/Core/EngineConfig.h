@@ -68,6 +68,8 @@
 //   --ui-scale=N|auto       editor UI scale; auto follows the monitor
 //   --theme=dark|light      editor theme; default is whatever was last used
 //   --camera=x,y,z,d,yaw,pitch   where the editor camera starts (degrees)
+//   --ray-budget=<ms>       hold this GPU frame time by scaling ray counts;
+//                           0 (default) spends the quality rung's full count
 
 #include "RageV/Renderer/RHI/RHITypes.h"
 #include "RageV/Renderer/RenderSettings.h"
@@ -197,6 +199,18 @@ namespace RageV
 		// by hand to check them is not a check anybody repeats, and "it looked
 		// fine from the default angle" is how a horizon full of moire ships.
 		// Ignored by the runtime, which renders through the scene's camera.
+		// **A GPU frame time to hold, in milliseconds, by spending fewer
+		// rays.** Zero -- the default -- means the quality rungs get their
+		// full ray counts and a costly view simply takes longer.
+		//
+		// It exists because ray counts are otherwise fixed per rung while
+		// their *cost* is not: an ambient-occlusion ray that hits geometry
+		// costs far more than one that escapes, so the same eight rays a
+		// pixel measured 3.30 ms with the showroom's car close and 2.17 ms
+		// with it far. Making the count the variable is what turns that into
+		// a flat frame instead of a visible dip.
+		float RayBudgetMs = 0.0f;
+
 		bool  HasCameraPose = false;
 		Vec3  CameraFocus{ 0.0f, 0.0f, 0.0f };
 		float CameraDistance = 10.0f;

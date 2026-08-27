@@ -287,6 +287,21 @@ namespace RageV
 		// Only means anything while the dial above is not Off.
 		GiSource RayTracedGiSource = GiSource::Realtime;
 
+		// **What the ray counts are spent against.** Only means anything while
+		// ray tracing is on -- there is nothing to budget otherwise -- which
+		// is why the panel shows it under that switch.
+		RayBudgetMode RayBudget = RayBudgetMode::Off;
+
+		// The ceiling under Absolute: milliseconds of GPU time the ray passes
+		// may take. Measured on the ray passes alone, so it is unaffected by
+		// what the rest of the frame costs.
+		float RayBudgetMs = 4.0f;
+
+		// The share under Fractional: how much of the GPU frame the ray passes
+		// may occupy. 0.4 is a reasonable place to start -- rays are a large
+		// part of a traced frame and starving them helps nothing.
+		float RayBudgetFraction = 0.4f;
+
 		// GiBounces and the whole of the voxel form moved to the post profile
 		// on 2026-08-20 (10.6, ENGINE-NOTES 7bg), where the rest of the GI
 		// settings already were. What stays here is the *hardware* budget --

@@ -12,6 +12,8 @@
 #include "VoxelGI.h"
 #include "EnvironmentIBL.h"
 #include "ProbeArray.h"
+#include "RageV/Core/EngineConfig.h"
+#include "RageV/Project/Project.h"
 #include "PostProcess.h"
 #include "AutoExposure.h"
 
@@ -40,6 +42,15 @@ namespace RageV
 	void Renderer::Init(RHI::RHIDevice& device)
 	{
 		s_Device = &device;
+
+		ResetRayBudget();
+		if (EngineConfig::Get().RayBudgetMs > 0.0f)
+		{
+			RV_CORE_INFO("Ray budget: holding {0} ms of ray-pass GPU time (command "
+						 "line, overrides the project's mode); counts scale between "
+						 "{1} and 1.0", EngineConfig::Get().RayBudgetMs, kMinRayScale);
+		}
+
 		Renderer2D::Init(device);
 		Renderer3D::Init(device);
 		DebugRenderer::Init(device);
@@ -176,6 +187,229 @@ namespace RageV
 	float Renderer::GetGiReach()
 	{
 		return s_GiReach;
+	}
+
+	namespace
+	{
+		float s_RayScale = 1.0f;
+
+		// Frames of measurement seen since the target was set. The controller
+		// ignores the first few: see UpdateRayBudget.
+		int  s_RayBudgetSamples = 0;
+		bool s_RayBudgetEngaged = false;
+
+		// **Discrete levels, because the thing being set is an integer.**
+		//
+		// Ray counts are whole numbers -- eight taps, or seven, never 7.4 --
+		// so a scale that drifts continuously lands either side of a rounding
+		// boundary and the count flips between two values frame after frame.
+		// Each flip is a different amount of ambient-occlusion noise over the
+		// whole image, and the eye reads that as flicker. It is not the
+		// controller being unstable; it is a continuous control on a quantised
+		// output, which flickers no matter how gently the control moves.
+		//
+		// So the levels are named, they are far enough apart to be worth
+		// moving between, and nothing lands between them. Eight taps, six,
+		// four, two.
+		const float kRayLevels[] = { 1.0f, 0.75f, 0.5f, 0.25f };
+		constexpr int kRayLevelCount = 4;
+		int s_RayLevel = 0;
+
+		// Frames to wait after a change before considering another.
+		//
+		// The reading is smoothed, so it describes the frames *before* the
+		// last change for a while after it. A controller that acts on that
+		// sees its own correction as not having worked, corrects again, and
+		// overshoots -- which is the second half of the flicker. Waiting for
+		// the measurement to catch up costs nothing: the level is already
+		// close, and holding it is exactly what stability looks like.
+		constexpr int kRayCooldown = 20;
+		int s_RayCooldown = 0;
+	}
+
+	void Renderer::ResetRayBudget()
+	{
+		s_RayBudgetSamples = 0;
+		s_RayBudgetEngaged = false;
+		s_RayLevel = 0;
+		s_RayCooldown = 0;
+		s_RayScale = 1.0f;
+	}
+
+	float Renderer::GetRayScale()        { return s_RayScale; }
+
+	void Renderer::UpdateRayBudget(float rayGpuMs, float frameGpuMs)
+	{
+		const RenderSettings& render = Project::Render();
+
+		// **The command line wins, and forces Absolute.** It exists so a
+		// benchmark can pin a target without editing the project, which is the
+		// only way to A/B a controller against itself.
+		const float override = EngineConfig::Get().RayBudgetMs;
+		const RayBudgetMode mode = override > 0.0f ? RayBudgetMode::Absolute
+												   : render.RayBudget;
+
+		if (mode == RayBudgetMode::Off)
+		{
+			s_RayScale = 1.0f;
+			return;
+		}
+
+		// **What the rays may cost, in milliseconds either way.**
+		//
+		// Fractional resolves to a number here rather than being compared as a
+		// ratio, so both modes share one controller and one set of constants.
+		// A frame that has not been measured yet gives Fractional nothing to
+		// take a share of, so it waits rather than guessing.
+		float targetMs = 0.0f;
+		if (mode == RayBudgetMode::Absolute)
+		{
+			targetMs = override > 0.0f ? override : render.RayBudgetMs;
+		}
+		else
+		{
+			if (frameGpuMs <= 0.0f || rayGpuMs <= 0.0f)
+				return;
+
+			// **Solved, not chased.**
+			//
+			// The obvious form -- fraction times the frame -- is a target that
+			// moves when the thing it controls moves. Cutting rays shortens
+			// the frame, which lowers the target, which asks for fewer rays
+			// still: it ratchets down through the levels instead of settling,
+			// and every step of that ratchet is a visible change in ambient
+			// occlusion. Measured on the showroom's ceiling: two drops in
+			// under a second, ending two levels below where it belonged, with
+			// the corners visibly under-occluded.
+			//
+			// The rest of the frame is what does not move. Asking for
+			//     rays / (fixed + rays) = f
+			// gives rays = f * fixed / (1 - f) directly -- a fixed point,
+			// reached in one step and stable once there.
+			const float fraction = Math::Clamp(render.RayBudgetFraction, 0.05f, 0.9f);
+			const float fixedMs = Math::Max(frameGpuMs - rayGpuMs, 0.01f);
+			targetMs = fraction * fixedMs / (1.0f - fraction);
+		}
+
+		if (targetMs <= 0.0f)
+		{
+			s_RayScale = 1.0f;
+			return;
+		}
+
+		// **Measured on the ray passes, not the frame.**
+		//
+		// Budgeting the whole frame is a category error: most of a frame is
+		// raster, shadow maps and post, and no ray count can pay for any of
+		// it. A machine whose fixed costs already exceeded the target would
+		// pin the rays at their floor forever and still miss it -- stripped of
+		// quality and slow, with the controller cutting the one thing that was
+		// not the cause.
+		if (rayGpuMs <= 0.0f)
+			return;
+
+		// **The first frames of a scene are not a measurement of it.**
+		//
+		// Shader compilation, first-frame allocation, the first environment
+		// prefilter and the first probe capture all land in the frames just
+		// after a load, and the reading this controller gets is smoothed, so
+		// it arrives at the truth over several frames rather than at once. A
+		// controller that believed those frames pulled the ray count down to
+		// its floor and then walked it back up as the scene settled -- a
+		// visible dip and recovery right when somebody is first looking.
+		//
+		// So it watches without acting for long enough that both are past.
+		// Holding at 1.0 while it waits is deliberate: full quality is the
+		// right thing to show when you do not yet know what you can afford.
+		constexpr int kSettleFrames = 10;
+		if (s_RayBudgetSamples < kSettleFrames)
+		{
+			++s_RayBudgetSamples;
+			return;
+		}
+
+		// Let the last change show up in the measurement before judging it.
+		if (s_RayCooldown > 0)
+		{
+			--s_RayCooldown;
+			return;
+		}
+
+		const float ratio = rayGpuMs / targetMs;
+
+		// **Asymmetric, and deliberately so.** Over budget is a problem now,
+		// so it drops as soon as the overshoot is real. Under budget is not a
+		// problem at all, so it only climbs back when there is enough headroom
+		// that the higher level will still fit -- a level costs about a third
+		// more than the one below it, so anything less than that margin buys a
+		// climb followed immediately by a drop, which is the flicker again
+		// wearing a different hat.
+		constexpr float kDropAbove = 1.10f;
+
+		int wanted = s_RayLevel;
+		if (ratio > kDropAbove)
+		{
+			// **The first move goes straight to the right level.** Nobody has
+			// seen a settled image yet, so there is nothing to be gradual
+			// from, and stepping one level at a time would spend a cooldown
+			// on each -- most of a second of visibly wrong quality. Later
+			// moves are one level, because by then the picture is one somebody
+			// is already looking at.
+			if (!s_RayBudgetEngaged)
+			{
+				wanted = kRayLevelCount - 1;
+				for (int i = 0; i < kRayLevelCount; i++)
+				{
+					if (kRayLevels[i] <= 1.0f / ratio)
+					{
+						wanted = i;
+						break;
+					}
+				}
+			}
+			else
+			{
+				wanted = s_RayLevel + 1;
+			}
+		}
+		else if (s_RayLevel > 0)
+		{
+			// **Climb only if the climb would hold.**
+			//
+			// A fixed "under budget by this much" test is what makes a
+			// controller on discrete levels oscillate, and the levels here are
+			// not evenly spaced: the last step halves the rays. Sitting at 0.5
+			// and ten per cent over budget, dropping to 0.25 puts the ratio at
+			// about 0.56 -- under any sensible raise threshold -- so it climbs
+			// straight back, is over budget again, and drops. A limit cycle
+			// with the cooldown for a period, which at a hundred and thirty
+			// frames a second is flicker at about six hertz.
+			//
+			// So the test is not "is there room now" but "would there still be
+			// room after". Ray time is close to linear in ray count, so the
+			// ratio at the level above is this one scaled by the ratio of
+			// their counts. Climb only if that predicted ratio clears the drop
+			// threshold with a margin -- otherwise the climb is a drop waiting
+			// for its cooldown to expire.
+			//
+			// This is correct for any spacing, which is what makes it the fix
+			// rather than a tuning of the numbers.
+			constexpr float kClimbMargin = 0.05f;
+			const float step = kRayLevels[s_RayLevel - 1] / kRayLevels[s_RayLevel];
+			if (ratio * step < kDropAbove - kClimbMargin)
+				wanted = s_RayLevel - 1;
+		}
+
+		wanted = Math::Clamp(wanted, 0, kRayLevelCount - 1);
+		if (wanted == s_RayLevel)
+			return;
+
+		RV_CORE_INFO("Ray budget: level {0} -> {1} (scale {2}), rays {3} ms against {4} ms",
+					 s_RayLevel, wanted, kRayLevels[wanted], rayGpuMs, targetMs);
+		s_RayLevel = wanted;
+		s_RayScale = kRayLevels[s_RayLevel];
+		s_RayBudgetEngaged = true;
+		s_RayCooldown = kRayCooldown;
 	}
 
 	void Renderer::SetReflectionGloss(const Vec2& window)

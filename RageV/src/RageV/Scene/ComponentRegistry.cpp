@@ -1464,6 +1464,7 @@ namespace
 		const char* const kAoDetailNames[] = { "Off", "Quarter", "Half", "Full" };
 		// Off, then the two the rasterised dial uses -- rays, then resolution.
 		const char* const kRayDetailNames[] = { "Off", "Low", "Medium", "High" };
+		const char* const kRayBudgetNames[] = { "Off", "Absolute ray time", "Fractional" };
 
 		const char* const kFocusModeNames[] = { "Manual", "Target" };
 		const char* const kMsaaCountNames[] = { "2x", "4x", "8x" };
@@ -1509,6 +1510,22 @@ namespace
 		{
 			return OffersRayTracing(block) && static_cast<const RenderSettings*>(block)->RayTracing;
 		}
+		// The two ray-budget parameters, each shown only under the mode that
+		// reads it -- a millisecond ceiling means nothing under Fractional and
+		// a share means nothing under Absolute.
+		bool RayBudgetIsAbsolute(const void* block)
+		{
+			return RayTracingOn(block)
+				&& static_cast<const RenderSettings*>(block)->RayBudget
+					   == RayBudgetMode::Absolute;
+		}
+		bool RayBudgetIsFractional(const void* block)
+		{
+			return RayTracingOn(block)
+				&& static_cast<const RenderSettings*>(block)->RayBudget
+					   == RayBudgetMode::Fractional;
+		}
+
 		// Reflections shade a hit through the bindless heap, so they are
 		// offered only where materials are bindless as well.
 		bool OffersRayReflections(const void* block)
@@ -1791,6 +1808,46 @@ namespace
 							"a two-bounce reference where Realtime scores 1.48, at "
 							"the same cost. Needs an Irradiance Volume and a bake; "
 							"without either it renders Realtime and says so.")))),
+				Field<&RenderSettings::RayBudget>("RayBudget",
+					Named("Ray budget", OnlyWhen(RayTracingOn,
+						Enum(kRayBudgetNames,
+							"Spend ray counts against a cost target instead of "
+							"fixing them per quality rung. The counts are otherwise "
+							"constant while their cost is not -- a ray that hits "
+							"geometry costs far more than one that escapes -- so the "
+							"same eight occlusion rays a pixel measured 3.30 ms with "
+							"the showroom's car close and 2.17 ms with it far, and "
+							"the frame visibly dips as you approach. Under a budget "
+							"the count moves instead and the frame holds.\n\n"
+							"Off spends every rung's full count.\n\n"
+							"Absolute ray time holds a millisecond ceiling on the "
+							"ray passes themselves -- not on the frame, which is "
+							"mostly raster and post that no ray count can pay for. "
+							"Right for fixed hardware.\n\n"
+							"Fractional holds a share of the frame instead, which is "
+							"the one that travels: a slower GPU renders a longer "
+							"frame and spends the same proportion on rays, rather "
+							"than being stripped of quality chasing a number it was "
+							"never going to reach.")))),
+
+				Field<&RenderSettings::RayBudgetMs>("RayBudgetMs",
+					Named("Ray time", OnlyWhen(RayBudgetIsAbsolute,
+						Drag(0.05f, 0.5f, 20.0f,
+							"Milliseconds of GPU time the ray passes may take. "
+							"Measured on those passes alone, so what the rest of the "
+							"frame costs does not move it.\n\n"
+							"There is a floor: ray counts stop at a quarter of the "
+							"rung's, so a target below what a quarter costs is met "
+							"as closely as it can be and no further.")))),
+
+				Field<&RenderSettings::RayBudgetFraction>("RayBudgetFraction",
+					Named("Frame share", OnlyWhen(RayBudgetIsFractional,
+						Drag(0.01f, 0.05f, 0.9f,
+							"How much of the GPU frame the ray passes may occupy. "
+							"Starving them helps nothing -- rays are a large part of "
+							"a traced frame by design -- so this is a ceiling on "
+							"their share, not a target to sit at.")))),
+
 				Field<&RenderSettings::ShadowDistance>("ShadowDistance",
 					Named("Distance", OnlyWhen(UsesCascades,
 						Drag(0.5f, 1.0f, 500.0f,

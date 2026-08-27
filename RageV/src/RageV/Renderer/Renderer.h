@@ -123,6 +123,37 @@ namespace RageV
 		static void SetReflectionGloss(const Vec2& window);
 		static Vec2 GetReflectionGloss();
 
+		// --- the ray budget ------------------------------------------------
+		//
+		// **Ray counts spent against a cost target**, which is the "degrade
+		// gracefully" half of dynamic ray budgeting. The counts are otherwise
+		// fixed per quality rung while their cost is not: an occlusion ray
+		// that hits geometry costs far more than one that escapes, so the same
+		// eight rays a pixel measured 3.30 ms with the showroom's car close and
+		// 2.17 ms with it far. Making the count the variable is what turns that
+		// into a flat frame rather than a visible dip.
+		//
+		// The mode and its parameters live in RenderSettings, so a project
+		// carries them and the panel edits them. See RayBudgetMode.
+
+		// Called once a frame with what the ray passes cost and what the whole
+		// GPU frame cost -- the first is what is being budgeted, the second is
+		// what Fractional takes its share of.
+		static void  UpdateRayBudget(float rayGpuMs, float frameGpuMs);
+
+		// Forget what was learned and hold full quality until the frame is
+		// worth measuring again. For a scene load or any other cut after which
+		// the last scene's cost says nothing about this one's.
+		static void  ResetRayBudget();
+
+		// What to multiply a pass's ray count by, in [kMinRayScale, 1].
+		static float GetRayScale();
+
+		// The floor. A quarter, so ambient occlusion's eight rays bottom out
+		// at two -- which is the Quarter rung the dial already offers, not a
+		// new and worse thing invented under load.
+		static constexpr float kMinRayScale = 0.25f;
+
 		// What the last frame graph actually built, as opposed to what was
 		// asked for.
 		//
