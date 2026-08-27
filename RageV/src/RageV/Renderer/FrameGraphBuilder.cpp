@@ -1439,6 +1439,64 @@ namespace RageV
 			shaded = occluded;
 		}
 
+		// --- fog ---------------------------------------------------------------
+		//
+		// **After occlusion and before depth of field**, which is the same
+		// argument SSAO's apply pass makes one line above: fog is light, not a
+		// filter over a finished picture. Put it here and a fogged headlamp
+		// blooms as the fog's colour and defocuses with the air it is in; put
+		// it after the bloom and tone map and it is grey paint over a finished
+		// frame, which is what every fog that reads as a filter has done.
+		//
+		// Before SSR's trace as well, for the reason the trace's own comment
+		// gives about occlusion: what a reflection ray finds should already
+		// carry the haze of the distance it was found at.
+		if (desc.Post.Fog && PostProcess::IsReady())
+		{
+			RGTargetDesc foggedDesc;
+			foggedDesc.Name = "Fogged";
+			foggedDesc.Color = Format::R16G16B16A16_SFLOAT;
+			foggedDesc.Depth = Format::Undefined;
+			const RGResource fogged = graph.CreateTarget(foggedDesc);
+
+			FogSettings fogSettings;
+			fogSettings.Enabled = true;
+			fogSettings.Color = desc.Post.FogColor;
+			fogSettings.Density = desc.Post.FogDensity;
+			fogSettings.HeightFalloff = desc.Post.FogHeightFalloff;
+			fogSettings.Height = desc.Post.FogHeight;
+			fogSettings.StartDistance = desc.Post.FogStartDistance;
+			fogSettings.MaxOpacity = desc.Post.FogMaxOpacity;
+
+			PostProcess::FogView fogView;
+			fogView.NearClip = desc.NearClip;
+			fogView.FarClip = desc.FarClip;
+			fogView.InvProjection0 = desc.InvProjection0;
+			fogView.InvProjection1 = desc.InvProjection1;
+			fogView.View = desc.View;
+
+			const RGResource clear = shaded;
+
+			graph.AddPass("Fog",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(fogged);
+					builder.Sample(clear);
+					// The scene's depth, which is where every pixel's distance
+					// and height come from.
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[clear, sceneHDR, fog = fogSettings, fogView](RGPassContext& context)
+				{
+					PostProcess::Fog(context.Cmd, context.Color(clear),
+									 context.Depth(sceneHDR), fog, fogView,
+									 Format::R16G16B16A16_SFLOAT);
+				});
+
+			shaded = fogged;
+		}
+
 		// --- SSR: this frame's trace, for next frame's lighting -----------------
 		//
 		// After SSAO and before depth of field: the radiance a ray finds

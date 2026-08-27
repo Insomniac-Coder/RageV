@@ -1,0 +1,165 @@
+// Exponential height fog, over the depth buffer.
+//
+// The engine had no fog of any kind -- a search of the renderer returned
+// nothing -- and for a night exterior that is most of the difference between
+// a render and a photograph. Air is not clear: distance desaturates, the far
+// end of a bridge goes to the colour of the sky behind it, and a lamp two
+// hundred metres away is a smudge rather than a point.
+//
+// **Height fog rather than distance fog, and the integral rather than a
+// curve.** Fog sits in a layer: it is thick at the water and thin at the
+// tower tops, so how much a ray accumulates depends on where it starts,
+// where it ends, and how steeply it climbs between them. A plain
+// exp(-density * distance) cannot express that -- it fogs the tower and the
+// deck equally -- and a screen-space fade fogs them by where they landed in
+// the frame, which swims when the camera turns.
+//
+// So the density is integrated along the view ray:
+//
+//     density(y) = D * exp(-F * (y - H))
+//
+// which has a closed form over a straight segment, evaluated below. The
+// camera can be inside the layer or above it and the answer stays right; fly
+// the camera up and the fog thins under you rather than following.
+//
+// **Before tone mapping, on the linear image**, for the reason SSAO's apply
+// pass gives about occlusion: fog is light, not a filter over a finished
+// picture. It has to bloom, defocus and expose like the light it replaces --
+// a fogged headlamp should bloom as the fog's colour, not have grey painted
+// over its bloom afterwards.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+#include "include/view_reconstruction.glsl"
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Scene;
+layout(set = 0, binding = 1) uniform sampler2D u_Depth;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;          // PostParams' shared header
+	float TexelY;
+	float Density;         // the header's A
+	float HeightFalloff;   // B
+	float MaxOpacity;      // C
+	float FlipY;
+
+	float NearClip;
+	float FarClip;
+	float InvP0;
+	float InvP1;
+
+	// **Before the vec4s, because a vec4 here is 16-byte aligned.** The
+	// header plus the four scalars above ends at 40; without these two the
+	// shader would pad to 48 and read every field after by eight bytes off
+	// the struct that filled it. StartDistance is how far the ray travels
+	// before any fog accumulates -- zero is physically right and unhelpful
+	// for a bonnet a metre from the camera.
+	float StartDistance;
+	float Pad;
+
+	vec4 CameraRow0;       // rows of the camera-to-world rotation
+	vec4 CameraRow1;
+	vec4 CameraRow2;
+	vec4 CameraPosition;
+
+	// rgb: what the fog is. w: the world height the density is quoted at,
+	// so a scene can put the layer at the water rather than at the origin.
+	vec4 Color;
+} u_Fog;
+
+void main()
+{
+	const bool flip = u_Fog.FlipY > 0.5;
+	const vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	const vec4 scene = texture(u_Scene, uv);
+	const float raw = texture(u_Depth, uv).r;
+
+	// **The sky is fogged too, and to its full depth.** Anything that wrote
+	// no geometry sits at the far plane, and the honest answer for it is the
+	// whole column of air -- which is what makes a distant headland read as
+	// distance rather than as a cut-out pasted on the horizon. Without this
+	// the fog stops at the last object and the sky stays crisp behind it,
+	// which is the giveaway of every fog that was applied as a filter.
+	const bool background = raw >= 0.999999;
+
+	const float z = background ? u_Fog.FarClip
+							   : LinearDepth(raw, u_Fog.NearClip, u_Fog.FarClip);
+	const vec3 frame = ViewPosition(uv, z, vec2(u_Fog.InvP0, u_Fog.InvP1));
+
+	// The reconstruction frame out to the world: undo the row direction and
+	// the depth axis, then the camera. The same three lines rtgi_trace and
+	// rtao_compute use, and deliberately identical -- three passes
+	// disagreeing about where a pixel is would be three different bugs.
+	const vec3 view = vec3(frame.x, flip ? -frame.y : frame.y, -frame.z);
+	const vec3 world = u_Fog.CameraPosition.xyz
+					 + vec3(dot(u_Fog.CameraRow0.xyz, view),
+							dot(u_Fog.CameraRow1.xyz, view),
+							dot(u_Fog.CameraRow2.xyz, view));
+
+	vec3 ray = world - u_Fog.CameraPosition.xyz;
+	float distance = length(ray);
+
+	const float start = max(u_Fog.StartDistance, 0.0);
+	if (distance <= start || distance <= 1e-4)
+	{
+		o_Color = scene;
+		return;
+	}
+
+	// Only the part of the ray past the start distance accumulates, and it
+	// starts from where the ray had got to -- not from the camera, or a
+	// windscreen at half a metre would haze the moment the start was cleared.
+	const vec3 direction = ray / distance;
+	const float travel = distance - start;
+	const vec3 origin = u_Fog.CameraPosition.xyz + direction * start;
+
+	const float falloff = max(u_Fog.HeightFalloff, 0.0);
+	const float relative = origin.y - u_Fog.Color.w;
+
+	// **The integral of density along the segment.**
+	//
+	//     integral of D*exp(-F*(y0 + t*dy)) dt, t from 0 to travel
+	//   = D*exp(-F*y0) * (1 - exp(-F*dy*travel)) / (F*dy)
+	//
+	// The horizontal case is not a special case of that expression -- it is
+	// 0/0 -- so it is written out. Ten centimetres of climb over a kilometre
+	// is horizontal for this purpose, and the branch is uniform across any
+	// run of pixels looking the same way, so it costs nothing to take.
+	const float climb = falloff * direction.y;
+	float optical;
+	if (abs(climb) < 1.0e-5 || falloff <= 0.0)
+	{
+		// A layer of uniform density, or a ray that never leaves its height.
+		optical = u_Fog.Density * exp(-falloff * relative) * travel;
+	}
+	else
+	{
+		optical = u_Fog.Density * exp(-falloff * relative)
+				* (1.0 - exp(-climb * travel)) / climb;
+	}
+
+	// Beer-Lambert, then the author's ceiling. The clamp is not physical: it
+	// is how a scene keeps a distant landmark readable through fog thick
+	// enough to sell the air in front of it.
+	const float fog = clamp((1.0 - exp(-max(optical, 0.0)))
+							* clamp(u_Fog.MaxOpacity, 0.0, 1.0), 0.0, 1.0);
+
+	o_Color = vec4(mix(scene.rgb, u_Fog.Color.rgb, fog), scene.a);
+}

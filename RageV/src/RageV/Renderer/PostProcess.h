@@ -293,6 +293,26 @@ namespace RageV
 							 RHI::Format outputFormat);
 
 		// 4: the multiply onto the linear HDR image.
+		// Exponential height fog over the depth buffer, on the linear image
+		// before tone mapping. `view` is what the pass needs to put a pixel
+		// back in the world: the same reconstruction RTAO and the traced
+		// bounce use, because three passes disagreeing about where a pixel is
+		// would be three different bugs.
+		struct FogView
+		{
+			float NearClip = 0.05f;
+			float FarClip = 1000.0f;
+			float InvProjection0 = 1.0f;
+			float InvProjection1 = 1.0f;
+			Mat4  View{ 1.0f };
+		};
+
+		static void Fog(RHI::RHICommandList& cmd,
+						const RHI::Ref<RHI::RHITexture>& scene,
+						const RHI::Ref<RHI::RHITexture>& depth,
+						const FogSettings& fog, const FogView& view,
+						RHI::Format outputFormat);
+
 		static void SsaoApply(RHI::RHICommandList& cmd,
 							  const RHI::Ref<RHI::RHITexture>& scene,
 							  const RHI::Ref<RHI::RHITexture>& occlusion,
@@ -393,6 +413,7 @@ namespace RageV
 			// Appended, never inserted: ShaderPath below is indexed by this
 			// enum's order.
 			SsgiCompute, SsgiBlur, GiDenoise,
+			Fog,
 			Count
 		};
 

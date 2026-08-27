@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <rvpch.h>
 #include "PostProcess.h"
 #include "Renderer.h"
@@ -79,7 +80,8 @@ namespace RageV
 				case 24: return "assets/shaders/rtao_compute.rvshader";
 				case 25: return "assets/shaders/ssgi_compute.rvshader";
 				case 26: return "assets/shaders/ssgi_blur.rvshader";
-				default: return "assets/shaders/gi_denoise.rvshader";
+				case 27: return "assets/shaders/gi_denoise.rvshader";
+				default: return "assets/shaders/fog.rvshader";
 			}
 		}
 
@@ -159,7 +161,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 28,
+		static_assert((int)Shader::Count <= 29,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -922,6 +924,78 @@ namespace RageV
 
 		Dispatch(cmd, Shader::SsaoBlur, outputFormat, source, nullptr,
 				 &params, sizeof(params), Sampling::Point);
+	}
+
+	namespace
+	{
+		// 128 bytes exactly -- the push-constant size every Vulkan device
+		// guarantees, and the budget RtaoComputeParams already spends to the
+		// byte. The fog's three scalars ride in the shared header's A, B and C
+		// rather than being appended, which is what keeps it inside that.
+		struct FogParams
+		{
+			PostParams Base;                              // A density, B falloff, C max
+			float NearClip = 0.05f;
+			float FarClip = 1000.0f;
+			float InvP0 = 1.0f;
+			float InvP1 = 1.0f;
+
+			// **These two sit here to align the vec4s, not for tidiness.**
+			//
+			// A vec4 in a push-constant block is 16-byte aligned, and the
+			// header plus the four clip scalars ends at 40 -- so the shader
+			// would pad to 48 while this struct would not, and every field
+			// after it would be read eight bytes out. It renders as fog the
+			// wrong colour, because Color lands on part of CameraPosition.
+			// RtaoComputeParams never hits this: its six scalars end at 48
+			// already. Two floats of real payload close the gap instead of
+			// padding, and the block still ends at exactly 128.
+			float StartDistance = 0.0f;
+			float Pad = 0.0f;
+
+			Vec4 CameraRow0{ 1.0f, 0.0f, 0.0f, 0.0f };
+			Vec4 CameraRow1{ 0.0f, 1.0f, 0.0f, 0.0f };
+			Vec4 CameraRow2{ 0.0f, 0.0f, 1.0f, 0.0f };
+			Vec4 CameraPosition{ 0.0f, 0.0f, 0.0f, 0.0f };
+			Vec4 Color{ 0.55f, 0.60f, 0.68f, 0.0f };      // w: the reference height
+		};
+		static_assert(offsetof(FogParams, CameraRow0) % 16 == 0,
+					  "the camera rows must be 16-byte aligned or the shader reads them shifted");
+		static_assert(sizeof(FogParams) <= 128, "fog push constants must fit the guaranteed 128 bytes");
+	}
+
+	void PostProcess::Fog(RHICommandList& cmd, const Ref<RHITexture>& scene,
+						  const Ref<RHITexture>& depth, const FogSettings& fog,
+						  const FogView& view, Format outputFormat)
+	{
+		if (!s_Data || !scene || !depth)
+			return;
+
+		FogParams params;
+		params.Base.A = Math::Max(fog.Density, 0.0f);
+		params.Base.B = Math::Max(fog.HeightFalloff, 0.0f);
+		params.Base.C = Math::Clamp(fog.MaxOpacity, 0.0f, 1.0f);
+		params.NearClip = view.NearClip;
+		params.FarClip = view.FarClip;
+		params.InvP0 = view.InvProjection0;
+		params.InvP1 = view.InvProjection1;
+		params.Color = Vec4(fog.Color.x, fog.Color.y, fog.Color.z, fog.Height);
+		params.StartDistance = Math::Max(fog.StartDistance, 0.0f);
+
+		// The camera transform is the view's inverse; the rotation part of an
+		// inverse is the transpose, so the camera's rows are the view's
+		// columns, and the position falls out of the full inverse.
+		const Mat4 camera = Math::Inverse(view.View);
+		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0], 0.0f);
+		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);
+		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], 0.0f);
+		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2], 0.0f);
+
+		// **Depth is point sampled.** A linear fetch across a silhouette
+		// averages two depths that describe nothing, and the fog would read a
+		// point floating between the near object and the far one.
+		Dispatch(cmd, Shader::Fog, outputFormat, scene, depth,
+				 &params, sizeof(params), Sampling::Linear, Sampling::Point);
 	}
 
 	void PostProcess::SsaoApply(RHICommandList& cmd, const Ref<RHITexture>& scene,

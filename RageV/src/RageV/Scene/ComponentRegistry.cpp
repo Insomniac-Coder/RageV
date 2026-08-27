@@ -1513,6 +1513,11 @@ namespace
 		// The two ray-budget parameters, each shown only under the mode that
 		// reads it -- a millisecond ceiling means nothing under Fractional and
 		// a share means nothing under Absolute.
+		bool UsesFog(const void* block)
+		{
+			return static_cast<const PostSettings*>(block)->Fog;
+		}
+
 		bool RayBudgetIsAbsolute(const void* block)
 		{
 			return RayTracingOn(block)
@@ -1955,6 +1960,56 @@ namespace
 		std::vector<FieldDesc> BuildPostSettings()
 		{
 			return {
+				Field<&PostSettings::Fog>("Fog",
+					Named("Fog", Tip(
+						"Exponential height fog: density falls off with world "
+						"height, so the air is thick at ground level and thin "
+						"above it. One fullscreen pass over the depth buffer, "
+						"applied on the linear image before depth of field and "
+						"bloom -- fog is light, not a filter over a finished "
+						"frame, so a fogged lamp blooms as the fog's colour "
+						"rather than having grey painted over its bloom."))),
+
+				Field<&PostSettings::FogColor>("FogColor",
+					Named("Fog colour", OnlyWhen(UsesFog, Color(
+						"What the fog is, in linear HDR. Distant geometry tends "
+						"to this and so does the sky, so it is effectively the "
+						"horizon colour.")))),
+
+				Field<&PostSettings::FogDensity>("FogDensity",
+					Named("Density", OnlyWhen(UsesFog,
+						Drag(0.001f, 0.0f, 1.0f,
+							"Density at the reference height, per metre. 0.005 "
+							"is a clear evening; 0.05 is weather.")))),
+
+				Field<&PostSettings::FogHeightFalloff>("FogHeightFalloff",
+					Named("Height falloff", OnlyWhen(UsesFog,
+						Drag(0.005f, 0.0f, 2.0f,
+							"How fast density falls with height, per metre. Zero "
+							"is a uniform volume -- plain distance fog, as a "
+							"special case rather than a second mode.")))),
+
+				Field<&PostSettings::FogHeight>("FogHeight",
+					Named("Layer height", OnlyWhen(UsesFog,
+						Drag(0.1f, -1000.0f, 1000.0f,
+							"The world height the density is quoted at. Put it at "
+							"the water, not at the origin, or a scene built above "
+							"zero starts in clear air.")))),
+
+				Field<&PostSettings::FogStartDistance>("FogStartDistance",
+					Named("Start distance", OnlyWhen(UsesFog,
+						Drag(0.05f, 0.0f, 500.0f,
+							"How far a ray travels before any fog accumulates. "
+							"Physically zero; in practice a bonnet or a cockpit a "
+							"metre from the camera should not haze.")))),
+
+				Field<&PostSettings::FogMaxOpacity>("FogMaxOpacity",
+					Named("Max opacity", OnlyWhen(UsesFog,
+						Drag(0.01f, 0.0f, 1.0f,
+							"The most the fog may take. Not physical -- it is how "
+							"a scene keeps a landmark readable through air thick "
+							"enough to sell the distance in front of it.")))),
+
 				Field<&PostSettings::Exposure>("Exposure",
 					Drag(0.01f, 0.01f, 16.0f,
 						"Applied before the tone curve, which is what makes this "

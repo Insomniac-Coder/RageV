@@ -110,6 +110,41 @@ namespace RageV
 	// the same eight ambient-occlusion rays a pixel measured 3.30 ms with the
 	// showroom's car close and 2.17 ms with it far. Making the count the
 	// variable is what turns that into a flat frame rather than a visible dip.
+	// **Exponential height fog.** Density falls off with world height, so the
+	// air is thick at ground level and thin above it -- which is what a valley,
+	// a harbour or a night bridge actually look like, and what a plain
+	// distance fog cannot express.
+	struct FogSettings
+	{
+		bool Enabled = false;
+
+		// What the fog is, in linear HDR. Distant geometry tends to this, and
+		// so does the sky, so it is effectively the horizon colour.
+		Vec3 Color{ 0.55f, 0.60f, 0.68f };
+
+		// Density at the reference height, per metre. The scale that matters:
+		// 0.005 is a clear evening, 0.05 is weather.
+		float Density = 0.02f;
+
+		// How fast density falls with height, per metre. Zero is a uniform
+		// volume -- distance fog, as a special case rather than a second mode.
+		float HeightFalloff = 0.12f;
+
+		// The world height the density is quoted at. Put it at the water, not
+		// at the origin, or a scene built above zero starts in clear air.
+		float Height = 0.0f;
+
+		// How far a ray travels before any fog accumulates. Physically zero;
+		// in practice a cockpit or a bonnet a metre from the camera should not
+		// haze, and that is what this is for.
+		float StartDistance = 0.0f;
+
+		// The most the fog may take. Not physical -- it is how a scene keeps a
+		// landmark readable through air thick enough to sell the distance in
+		// front of it.
+		float MaxOpacity = 1.0f;
+	};
+
 	enum class RayBudgetMode : uint32_t
 	{
 		// Every rung gets its full count and an expensive view simply takes
@@ -177,6 +212,19 @@ namespace RageV
 		// Applied before the tone curve, which is what makes it an exposure
 		// control rather than a brightness one: it slides the scene along the
 		// response curve instead of scaling the result of it.
+		// **Flat, like every other post field**, because the registry that
+		// serialises the profile and draws the panel takes a pointer to a
+		// member -- so a nested struct would need machinery that nothing else
+		// here needs. FogSettings above is the shape the *pass* is handed;
+		// FrameGraphBuilder fills one from these.
+		bool  Fog = false;
+		Vec3  FogColor{ 0.55f, 0.60f, 0.68f };
+		float FogDensity = 0.02f;
+		float FogHeightFalloff = 0.12f;
+		float FogHeight = 0.0f;
+		float FogStartDistance = 0.0f;
+		float FogMaxOpacity = 1.0f;
+
 		float Exposure = 1.0f;
 
 		bool BloomEnabled = true;
