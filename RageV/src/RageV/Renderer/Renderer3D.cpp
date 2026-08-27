@@ -3174,7 +3174,26 @@ namespace RageV
 			// build order, each naming its buffers by address and its material
 			// by the same record index the draws use -- so a material seen
 			// only in a reflection still gets a record this frame.
-			if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
+			//
+			// **Filling it and having it are two different conditions**, and
+			// conflating them was a null dereference for anyone who turned ray
+			// tracing on without the two effects that shade a hit.
+			//
+			// Only reflections and the traced bounce ever *read* a row, so
+			// only they are worth the walk over the casters. But the buffer
+			// has to exist for every descriptor set that declares the binding,
+			// and `rtgi_trace.rvshader` always compiles with `RV_RAY_GI` --
+			// the fill pass needs it whether or not the realtime bounce is
+			// running -- so the GI set declares the binding whenever ray
+			// shadows are on at all, and a declared binding must be written.
+			// Writing it from a table nobody built passed a null buffer
+			// straight to the backend.
+			//
+			// So: build the table when something reads it, and keep one empty
+			// row when nothing does. The same "smallest honest filler" the
+			// bone buffer below uses, and for the same reason.
+			const bool tracesHits = s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn;
+			if (tracesHits)
 			{
 				const std::vector<RayCaster>& casters = RayShadows::GetCasters();
 				s_Data->RayInstanceScratch.clear();
@@ -3242,6 +3261,16 @@ namespace RageV
 					s_Data->RayInstanceScratch.push_back(row);
 				}
 
+			}
+			else
+			{
+				s_Data->RayInstanceScratch.clear();
+			}
+
+			// `GiPipeline` is the exact condition `GiSet` is created under, so
+			// this covers every set that will be asked for the binding.
+			if (tracesHits || s_Data->GiPipeline)
+			{
 				const uint32_t rows = Math::Max((uint32_t)s_Data->RayInstanceScratch.size(), 1u);
 				if (!EnsureInstanceBuffer(slot.RayInstances, slot.RayInstanceCapacity, rows,
 										  sizeof(GpuRayInstance), "Renderer3D.rayinstances"))

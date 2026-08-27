@@ -101,8 +101,32 @@ rediscovering:
   Appending a key with `printf 'Key: v\n'` concatenates onto the last line and
   the key is silently ignored.
 - **`RayTracing: true` with `RayTracedReflections: Off`** crashed once mid-
-  session and did **not** reproduce in isolation; the failing run also had
-  `ScreenSpaceReflections: false` in the profile. Unresolved, low priority.
+  session and did not reproduce at the time. ✅ **Found and fixed 2026-08-27.**
+  It was a null buffer, not a race, and it reproduced every time once the
+  condition was stated properly: **ray tracing on with *both* reflections and
+  the traced bounce off**. Ambient occlusion made no difference either way,
+  which is why "with RayTracedReflections: Off" looked like the wrong lead.
+
+  `slot.RayInstances` was built only when something traced a *hit* --
+  reflections or the bounce -- but `rtgi_trace.rvshader` always compiles with
+  `RV_RAY_GI`, because the irradiance fill pass needs it whether or not the
+  realtime bounce runs. So its descriptor set declared the ray-instance
+  binding whenever ray shadows were on, and `EndScene` wrote that binding from
+  a buffer nobody had allocated. Five sibling writes guard on
+  `RayReflectionsOn || RayGlobalIlluminationOn`; the GI set's did not, and
+  correctly so -- a declared binding *must* be written. The fault was
+  conflating "build the table" with "have the table".
+
+  Fixed by separating the two conditions: the casters are walked only when
+  something reads a row, and the buffer is kept at one empty row otherwise --
+  the same filler the bone buffer uses. Verified clean under validation
+  layers with zero errors, on both backends.
+
+  **The reason it hid for so long**: `SampleProject` runs reflections High and
+  GI High, so no ordinary run of the project can reach it. Only
+  `--render-defaults=on --raytracing=on`, which takes the settings' own
+  defaults (all three effects `Off`), gets there -- which is exactly what
+  `check_ssao.py` does, and why that script had been failing.
 
 ### Two things still open from this session
 
