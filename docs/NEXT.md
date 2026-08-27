@@ -63,14 +63,35 @@ Seven fields on the post profile.
 Not done: **volumetric shafts** (item 6) are still the separate, larger job.
 This is the cheap half of the mood and it was always meant to come first.
 
-### 2 · Reverse-Z depth — ~1 day
-**A correctness bug, not a feature.** Depth is conventional `LessOrEqual`
-with a conventional projection. At the Golden Gate's scale — a 4 km far plane
-against a 5 cm near clip — precision collapses at distance and the far deck
-and cables will z-fight. The fix is mechanical: flip the projection, clear to
-zero, compare `Greater`. It touches every pipeline's depth state, the shadow
-maps, and every pass that reconstructs position from depth (RTAO, SSR, the GI
-chain), so it is careful rather than clever.
+### ~~2 · Reverse-Z depth~~ — ✅ **done 2026-08-27**
+The near plane is 1 and the far plane 0, one convention engine-wide, stated
+in `RHITypes.h` (`kDepthCompare`, `kDepthClear`) and referred to rather than
+re-typed. Free: same buffer, same bandwidth, planes the other way round.
+
+Measured on the D32_SFLOAT the scene already uses, at a 5 cm near clip
+against a 4 km far plane — the smallest separation two surfaces can have and
+still be told apart:
+
+| | conventional | reverse-Z |
+|---|---|---|
+| 1 km | 43 cm | 0.03 mm |
+| 2 km | **4.4 m** | 0.06 mm |
+| 4 km | **23 m** | 0.12 mm |
+
+So the prediction was right: at 2 km the conventional buffer cannot separate
+surfaces four metres apart, and the deck and cables are closer than that.
+
+Four things beyond the obvious flip, worth not rediscovering: the **shadow
+depth bias is negated** (away from the light is down); the **point-light cube
+shadow rebuilds the projection's depth by hand** and is the only place the
+formula is repeated; **"past the far plane" tests invert** — left as `> 1.0`
+they never fire; and **frustum extraction is unchanged**, because the clip
+test is still `0 <= z <= w` — only the near/far labels swap.
+
+Verified: scenetest green on both backends, `check_depth_sort` 0 of 4,320,000
+pixels changed with early-z still rejecting 73x, depth of field and motion
+blur unchanged to the byte, showroom max diff 8 levels (Vulkan) on
+high-contrast edges only.
 
 ### 3 · Sky occlusion in the irradiance volume — ~2–3 days
 Already briefed in HANDOFF, already chosen by the owner. Store per cell how
