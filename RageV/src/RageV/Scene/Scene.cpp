@@ -1978,9 +1978,28 @@ namespace RageV
 			const RHI::Ref<Material> resolvedMaterial =
 				Assets::Manager::GetMaterial(mesh.Material);
 			const bool blended = resolvedMaterial
-							  && resolvedMaterial->GetBlendMode() != BlendMode::Opaque;
+							  && IsBlended(resolvedMaterial->GetBlendMode());
 			m_HasBlended = m_HasBlended || blended;
 			entry.Blended = blended;
+
+			// **And not a masked one either, for now.**
+			//
+			// A cull slot is keyed by *mesh*, not by material, so one mesh
+			// drawn opaque here and cut out there would share a slot and one
+			// of the two would draw through the wrong pipeline. Blended solved
+			// that with a second table; masked would want a third, and that is
+			// a table, a cull call, a slot base and a draw loop of its own.
+			//
+			// Until it has one, masked geometry takes the CPU path -- which
+			// already sorts it into its own bucket and draws it with its own
+			// pipeline, so the picture is right. What it gives up is GPU
+			// culling for cutouts specifically, which matters for a scene made
+			// of railings and will want the third table then. It is a cost,
+			// not a defect, and it is the reason a cutout does not appear in
+			// the indirect draw count.
+			const bool masked = resolvedMaterial
+							 && resolvedMaterial->GetBlendMode() == BlendMode::Masked;
+			entry.Masked = masked;
 
 			// **Emissive geometry becomes something the traced bounce can aim
 			// at** (7cb). Collected here because this is the one place that
@@ -2139,7 +2158,7 @@ namespace RageV
 			// A skinned caster is posed from bones the CPU composed this
 			// frame, and an indexless mesh has nothing for an indexed draw to
 			// draw.
-			if (gpuCull && !entry.Skinned && !blended && resolved->GetIndexCount() >= 3)
+			if (gpuCull && !entry.Skinned && !blended && !masked && resolved->GetIndexCount() >= 3)
 			{
 				uint32_t slot = slotFor(resolved.get());
 				if (slot == kNoCullSlot)
@@ -2373,6 +2392,24 @@ namespace RageV
 				// transmits most of what reaches it, and the honest choice
 				// between "all of the light" and "none of it" is all.
 				if (entry.Blended)
+					return;
+
+				// **And a cutout casts nothing either, for now.**
+				//
+				// Not because that is right -- a railing should throw a
+				// railing's shadow -- but because the alternative available
+				// today is worse. The shadow pass is position-only by design:
+				// no texture coordinate in its vertex layout, no material
+				// descriptor set, one matrix per caster and nothing else. A
+				// masked caster drawn through it casts the solid shadow of its
+				// whole sheet, so a chain-link fence shadows like a wall.
+				//
+				// Missing shadow versus wrong shadow, and missing is the
+				// quieter of the two. Giving the shadow pass the UV, the
+				// material index and a cutout variant is the follow-up; it is
+				// a change to the instance format, which is why it is not in
+				// the same commit as the material mode.
+				if (entry.Masked)
 					return;
 
 				const Mat4& world = entry.Transform->World;
@@ -2652,7 +2689,7 @@ namespace RageV
 				// What is given up is a reflection seeing the glass -- a car
 				// reflected in the floor loses its windows. That is a smaller
 				// wrong than a car with no interior.
-				if (material->GetBlendMode() != BlendMode::Opaque)
+				if (!TracedAsGeometry(material->GetBlendMode()))
 					continue;
 
 				const MaterialParams params =
@@ -2842,7 +2879,7 @@ namespace RageV
 					// directly and dark indirectly. The honest choice between
 					// "all of the light" and "none of it" is all, in both
 					// systems, for the same reason.
-					if (material && material->GetBlendMode() != BlendMode::Opaque)
+					if (material && !TracedAsGeometry(material->GetBlendMode()))
 						continue;
 
 					const MaterialParams params =

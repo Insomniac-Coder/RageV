@@ -223,6 +223,7 @@ namespace RageV
 		out.MapFlags    = m_Params.MapFlags;
 		out.Specular    = m_Params.Specular;
 		out.HeightScale = m_Params.HeightScale;
+		out.AlphaCutoff = m_Params.AlphaCutoff;
 	}
 
 	uint64_t Material::GetBatchKey(bool bindless) const
@@ -279,6 +280,11 @@ namespace RageV
 		mixBits(&m_Params.MapFlags, sizeof(m_Params.MapFlags));
 		mixBits(&m_Params.Specular, sizeof(m_Params.Specular));
 		mixBits(&m_Params.HeightScale, sizeof(m_Params.HeightScale));
+		// The masked variant reads this from the block, so it belongs here for
+		// exactly the reason the paragraph above gives about tiling: two
+		// cutouts sharing their maps and differing only in cutoff would batch
+		// as one run and the second would be tested at the first one's cutoff.
+		mixBits(&m_Params.AlphaCutoff, sizeof(m_Params.AlphaCutoff));
 		mixBits(&m_Params.UvTransform, sizeof(m_Params.UvTransform));
 
 		return hash;

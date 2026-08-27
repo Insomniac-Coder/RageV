@@ -285,7 +285,9 @@ struct GpuMaterial
 	int   MapFlags;
 	float Specular;
 	float HeightScale;
-	int   _pad0;
+	// See MaterialParams::AlphaCutoff. Per material rather than per pipeline,
+	// which is what lets one masked draw carry many different cutouts.
+	float AlphaCutoff;
 };
 
 layout(std430, set = 0, binding = 13) readonly buffer MaterialBlock
@@ -2128,6 +2130,26 @@ void main()
 
 	// The surface, every map read, from whichever body this variant has.
 	Surface surface = SampleSurface(Ngeo, V);
+
+#ifdef RV_ALPHA_CUTOUT
+	// **The cutout, as early as the alpha is known** -- before the lighting,
+	// the shadows and the rays, none of which a discarded fragment should pay
+	// for.
+	//
+	// Behind a define rather than a cutoff of zero on every other material,
+	// because the mere *presence* of `discard` in a shader is what makes the
+	// hardware fall back from early-z to late-z, whether or not the branch is
+	// ever taken. Compiled into the shared opaque shader it would have cost
+	// every opaque surface in the frame its early rejection -- and undone the
+	// depth prepass, which is worth 27% here. So masked geometry is its own
+	// pipeline, drawn from its own bucket, and the opaque shader stays clean.
+	//
+	// The cutoff is read from the material rather than the define, so one
+	// masked pipeline still draws a railing and a leaf with different cutoffs
+	// in a single indirect call.
+	if (surface.BaseColor.a < u_Material.AlphaCutoff)
+		discard;
+#endif
 
 	vec4 baseColor = surface.BaseColor;
 	vec3 albedo = baseColor.rgb;

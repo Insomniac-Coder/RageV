@@ -9321,6 +9321,47 @@ void main()
 			std::error_code error;
 			std::filesystem::remove(path, error);
 		}
+
+		// **The cutout mode round-trips, and the other two do not gain a
+		// cutoff.** The mode is written as a word, so the risk is not that it
+		// is dropped but that "Masked" reads back as the wrong one of three --
+		// and a cutout silently loaded as Blend stops writing depth.
+		{
+			const std::filesystem::path path =
+				std::filesystem::temp_directory_path() / "rv_material_cutout.rmat";
+
+			Assets::MaterialDesc out;
+			out.Name = "Cutout";
+			out.Blend = BlendMode::Masked;
+			out.Params.AlphaCutoff = 0.25f;
+			Check(Assets::MaterialSerializer::Save(out, path), "a masked material saves");
+
+			Assets::MaterialDesc in;
+			Check(Assets::MaterialSerializer::Load(in, path), "and loads");
+			Check(in.Blend == BlendMode::Masked, "still masked rather than blended");
+			Check(in.Params.AlphaCutoff == 0.25f, "keeping its cutoff");
+
+			// The predicates the renderer routes on, checked against all three
+			// modes rather than against the one that changed: the bug this
+			// guards is a fourth mode arriving and inheriting `!= Opaque`.
+			Check(!IsBlended(BlendMode::Masked), "a cutout is not routed as blended");
+			Check(IsBlended(BlendMode::Blend), "glass is");
+			Check(!IsBlended(BlendMode::Opaque), "and stone is not");
+			Check(TracedAsGeometry(BlendMode::Opaque), "rays carry opaque geometry");
+			Check(!TracedAsGeometry(BlendMode::Blend), "not glass");
+			Check(!TracedAsGeometry(BlendMode::Masked), "and not cutouts, yet");
+
+			// Round-tripping the other two must not invent a cutoff key.
+			Assets::MaterialDesc plain;
+			plain.Name = "Plain";
+			Check(Assets::MaterialSerializer::Save(plain, path), "an opaque material saves");
+			Assets::MaterialDesc back;
+			Check(Assets::MaterialSerializer::Load(back, path), "and loads");
+			Check(back.Blend == BlendMode::Opaque, "still opaque");
+
+            std::error_code error;
+			std::filesystem::remove(path, error);
+		}
 	}
 
 	// Per-object probe selection, and the arrays the choice indexes into.

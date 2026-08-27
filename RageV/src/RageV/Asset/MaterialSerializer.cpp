@@ -64,7 +64,15 @@ namespace RageV::Assets
 		// transparency existed still round-trips byte for byte -- which is what
 		// keeps a regenerated scene's diff to what actually changed.
 		if (material.Blend != BlendMode::Opaque)
-			emitter << YAML::Key << "Blend" << YAML::Value << "Blend";
+		{
+			emitter << YAML::Key << "Blend" << YAML::Value
+					<< (material.Blend == BlendMode::Masked ? "Masked" : "Blend");
+		}
+
+		// Beside the mode and only with it, for the same reason: a material
+		// that never asked to be cut out gains no key.
+		if (material.Blend == BlendMode::Masked)
+			emitter << YAML::Key << "AlphaCutoff" << YAML::Value << params.AlphaCutoff;
 
 		// Written as a pair of pairs rather than a raw vec4, because "Tiling:
 		// [8, 8]" is what somebody editing this by hand is looking for.
@@ -155,9 +163,15 @@ namespace RageV::Assets
 
 		if (const YAML::Node blend = root["Blend"])
 		{
-			material.Blend = blend.as<std::string>() == "Blend" ? BlendMode::Blend
-															   : BlendMode::Opaque;
+			// An unrecognised value reads as Opaque rather than throwing: a
+			// material written by a newer build should lose its cutout, not
+			// stop the project from opening.
+			const std::string mode = blend.as<std::string>();
+			material.Blend = mode == "Blend"  ? BlendMode::Blend
+						   : mode == "Masked" ? BlendMode::Masked
+											  : BlendMode::Opaque;
 		}
+		if (root["AlphaCutoff"]) params.AlphaCutoff = root["AlphaCutoff"].as<float>();
 
 		auto readPair = [](const YAML::Node& node, float& x, float& y)
 		{

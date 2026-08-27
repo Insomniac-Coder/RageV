@@ -22,10 +22,12 @@ layout(set = 1, binding = 0) uniform MaterialData
 	float Specular;
 	// Depth of the parallax displacement, in UV units.
 	float HeightScale;
-	// std140 pads out to a vec4 boundary, so this must be declared or the
-	// offsets here and in MaterialParams disagree -- and a uniform block that
-	// disagrees does not fail, it reads the wrong sixteen bytes.
-	int   _pad0;
+	// Below this, a masked fragment is discarded. This word was the padding
+	// std140 needs to reach a vec4 boundary -- the one that had to be declared
+	// or the offsets here and in MaterialParams would disagree and the block
+	// would read the wrong sixteen bytes rather than fail. It is still that
+	// padding; it now carries something.
+	float AlphaCutoff;
 	// xy scale, zw offset. See MaterialParams::UvTransform.
 	vec4  UvTransform;
 } u_Material;

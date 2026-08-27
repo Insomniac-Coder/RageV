@@ -448,7 +448,23 @@ namespace RageV::RHI
 			shader.setPreamble(preamble.c_str());
 		shader.setEnvInput(glslang::EShSourceGlsl, language, glslang::EShClientVulkan, 100);
 		shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
-		shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_6);
+		// **SPIR-V 1.5, not 1.6, and the reason is `discard`.**
+		//
+		// One module is produced here and two backends consume it: Vulkan
+		// takes it directly, OpenGL cross-compiles it back to GLSL. At 1.6
+		// glslang lowers `discard` to `OpDemoteToHelperInvocation`, which has
+		// no OpenGL form at all -- SPIRV-Cross rejects the whole module with
+		// "GL_EXT_demote_to_helper_invocation is only supported in Vulkan
+		// GLSL", so the *fragment stage does not exist* on that backend. The
+		// alpha-cutout variant was the first shader in this engine to contain
+		// a discard, and it drew every cutout as a solid black box on OpenGL
+		// while Vulkan was perfect.
+		//
+		// At 1.5 the same `discard` becomes `OpKill`, which cross-compiles.
+		// Nothing here needs 1.6: ray queries want SPIR-V 1.4, and Vulkan 1.3
+		// accepts any module up to 1.6, so this costs nothing and keeps the
+		// two backends reading the same bytes.
+		shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_5);
 
 		const EShMessages messages = (EShMessages)(EShMsgSpvRules | EShMsgVulkanRules);
 		const int defaultVersion = 450;

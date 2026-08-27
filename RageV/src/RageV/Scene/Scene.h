@@ -173,6 +173,11 @@ namespace RageV
 			// answer when there is a cull pass to have put it in a table.
 			// **Shadow casting reads this**: glass does not cast one.
 			bool Blended = false;
+			// Alpha-tested. Kept apart from Blended because the two want
+			// opposite answers nearly everywhere: a cutout is opaque where it
+			// survives, so it writes depth and sorts with the opaque geometry,
+			// where glass does neither.
+			bool Masked = false;
 		};
 
 		static constexpr uint32_t kNoCullSlot = ~0u;

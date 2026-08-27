@@ -232,8 +232,9 @@ namespace RageV::Assets
 
 			int32_t blend = 0;
 			reader.Get(blend);
-			material.Blend = blend == (int32_t)BlendMode::Blend ? BlendMode::Blend
-															   : BlendMode::Opaque;
+			material.Blend = blend == (int32_t)BlendMode::Blend  ? BlendMode::Blend
+						   : blend == (int32_t)BlendMode::Masked ? BlendMode::Masked
+																 : BlendMode::Opaque;
 
 			int32_t indices[5] = { -1, -1, -1, -1, -1 };
 			for (int32_t& index : indices)

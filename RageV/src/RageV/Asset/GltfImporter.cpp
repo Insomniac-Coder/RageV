@@ -221,23 +221,28 @@ namespace RageV::Assets
 		{
 			out.Name = source.name ? source.name : "Material";
 
-			// **`alphaMode`, which this dropped until something needed it.**
-			// MASK is read as BLEND rather than as its own mode: a cutout is
-			// cheaper and sharper than a blend, but it needs the cutoff in the
-			// shader and a discard, and until something in this project has
-			// foliage in it that is a pass and a variant for nobody. Blending a
-			// cutout is a soft edge where there should be a hard one, which is
-			// a much smaller wrong than ignoring the alpha entirely.
-			if (source.alpha_mode != cgltf_alpha_mode_opaque)
+			// **`alphaMode`, all three of them.**
+			//
+			// MASK was read as BLEND until the masked mode existed, with a
+			// warning that the edge would be soft. It maps to its own mode
+			// now, and `alpha_cutoff` comes with it -- cgltf defaults that to
+			// 0.5 when the file omits it, which is glTF's own default, so a
+			// file that says nothing gets what every authoring tool assumed
+			// it would.
+			switch (source.alpha_mode)
 			{
-				out.Blend = BlendMode::Blend;
+				case cgltf_alpha_mode_blend:
+					out.Blend = BlendMode::Blend;
+					break;
 
-				if (source.alpha_mode == cgltf_alpha_mode_mask)
-				{
-					RV_CORE_WARN("Material '{0}' is alphaMode MASK, which is read as "
-								 "BLEND: its cutout edge will be soft rather than hard",
-								 out.Name);
-				}
+				case cgltf_alpha_mode_mask:
+					out.Blend = BlendMode::Masked;
+					out.Params.AlphaCutoff = source.alpha_cutoff;
+					break;
+
+				case cgltf_alpha_mode_opaque:
+				default:
+					break;
 			}
 
 			if (source.has_pbr_metallic_roughness)

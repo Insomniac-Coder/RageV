@@ -264,6 +264,10 @@ namespace RageV
 		// is entirely one kind, and the sort puts the kinds in this order.
 		enum class DrawKind : uint8_t { Static, Skinned, Layered };
 
+		// Which pass a draw belongs to. Ordered: the sort packs this in the
+		// key's top bits, so the values *are* the drawing order.
+		enum class DrawBucket : uint8_t { Opaque, Masked, Blended };
+
 		struct PendingDraw
 		{
 			// Sort key: the bound state a draw needs. Meshes first because
@@ -275,13 +279,24 @@ namespace RageV
 			// a run has to be one of them.
 			DrawKind Kind = DrawKind::Static;
 
-			// **Above the kind in the sort key**, so the transparent draws land
-			// in one contiguous block at the end of the list and the opaque
-			// pass can simply stop where it begins. Nothing else about the
-			// record differs -- the same instance table, the same material,
-			// the same batching -- which is what keeps the second pass a second
-			// loop rather than a second renderer.
-			bool Transparent = false;
+			// **Above the kind in the sort key**, so each bucket lands in one
+			// contiguous block and the opaque pass can simply stop where the
+			// blended one begins. Nothing else about the record differs -- the
+			// same instance table, the same material, the same batching --
+			// which is what keeps the second pass a second loop rather than a
+			// second renderer.
+			//
+			// **The order of the values is the drawing order and is load-
+			// bearing.** Opaque first; then Masked, so every cutout tests
+			// against a depth buffer the opaque geometry has already filled and
+			// its discarded fragments cost nothing; then Blended last, over a
+			// finished opaque image.
+			//
+			// This was a bool until cutouts existed, and every site that asked
+			// about it asked `!= Opaque` -- exact for two modes and silently
+			// wrong for three, since it would have routed every cutout into the
+			// blended pass and stopped it writing depth.
+			DrawBucket Bucket = DrawBucket::Opaque;
 
 			Ref<Mesh> MeshRef;
 			Ref<Material> MaterialRef;
@@ -363,6 +378,16 @@ namespace RageV
 			// not Opaque. Drawn in a pass of its own, after everything opaque.
 			Ref<RHIShader>   TransparentShader;
 			Ref<RHIPipeline> TransparentPipeline;
+
+			// **The same lit shader with the cutout test compiled in**, for
+			// alpha-tested materials. A separate variant and not a uniform
+			// branch: `discard` present in a shader costs early-z whether or
+			// not it is reached, so compiling it into the shared opaque shader
+			// would charge every opaque surface in the frame -- and undo the
+			// depth prepass. Masked geometry is its own bucket, its own run,
+			// and its own pipeline; the opaque shader stays clean.
+			Ref<RHIShader>   MaskedShader;
+			Ref<RHIPipeline> MaskedPipeline;
 			// Where the transparent block begins in Pending, which the sort put
 			// at the end. Equal to the size when there is nothing blended,
 			// which is every scene this project had until the showroom.
@@ -602,6 +627,15 @@ namespace RageV
 				// set 0 of a different pipeline object, and a set is allocated
 				// against one layout.
 				Ref<RHIResourceSet> LayeredSet;
+				// **And the masked pipeline's**, whose layout is identical to
+				// the static one -- the cutout variant adds a test, not a
+				// binding. Identical is not the same as interchangeable: a set
+				// is allocated against a pipeline, and OpenGL resolves its
+				// bindings against that program rather than against a layout.
+				// Reusing the static set here drew every cutout black on that
+				// backend while Vulkan, where compatible layouts really are
+				// interchangeable, showed nothing wrong at all.
+				Ref<RHIResourceSet> MaskedSet;
 				// **And one for the transparent pipeline**, which is a fourth
 				// layout and therefore a fourth set. Sharing the opaque one
 				// looked like it worked -- the geometry drew, the lighting was
@@ -1215,6 +1249,31 @@ namespace RageV
 		{
 			RV_CORE_WARN("Renderer3D: assets/shaders/depth_prepass.rvshader did not "
 						 "compile; drawing without a depth prepass");
+		}
+
+		// **The same shader again, with the cutout test.** One define, and the
+		// same defines otherwise -- a masked variant that disagreed with the
+		// opaque one about bindless or ray shadows would shade the same
+		// surface two ways.
+		//
+		// A failure is not fatal, on the same reasoning as the prepass above:
+		// without the variant the material still draws, opaque, with a hard
+		// edge nowhere -- visibly wrong but not a black frame, and it says so.
+		s_Data->MaskedShader = nullptr;
+		{
+			std::vector<std::string> masked = defines;
+			masked.push_back("RV_ALPHA_CUTOUT");
+
+			if (auto cutout = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader",
+															  masked))
+			{
+				s_Data->MaskedShader = s_Data->Device->CreateShader(*cutout);
+			}
+			else
+			{
+				RV_CORE_ERROR("Renderer3D: the alpha-cutout variant of pbr.rvshader did "
+							  "not compile; masked materials will draw as solid");
+			}
 		}
 
 		// **The same shader, compiled to write two attachments instead of
@@ -2072,6 +2131,31 @@ namespace RageV
 
 		s_Data->Pipeline = s_Data->Device->CreatePipeline(desc);
 
+		// **The masked twin: the opaque pipeline with the cutout shader.**
+		//
+		// Every state identical, including depth write and back-face culling:
+		// a cutout is opaque wherever it survives the test, so it occludes and
+		// sorts exactly as opaque geometry does. Only the fragment stage
+		// differs.
+		//
+		// Culling stays on. A single-sided railing quad will vanish when seen
+		// from behind, which is the honest consequence of this engine having
+		// no per-material two-sidedness yet -- glTF carries `doubleSided` and
+		// nothing reads it. That is a separate gap, not a cutout one, and
+		// making masked materials two-sided here would hide it while charging
+		// every cutout twice the fill.
+		if (s_Data->MaskedShader)
+		{
+			GraphicsPipelineDesc cutout = desc;
+			cutout.Name = "Renderer3D.pbr.masked";
+			cutout.Shader = s_Data->MaskedShader;
+			s_Data->MaskedPipeline = s_Data->Device->CreatePipeline(cutout);
+		}
+		else
+		{
+			s_Data->MaskedPipeline = nullptr;
+		}
+
 		// **The prepass twin: same everything, minus the colour.**
 		//
 		// Same target formats and sample count, because it draws *into the
@@ -2217,6 +2301,7 @@ namespace RageV
 				slot.Set.reset();
 				slot.SkinnedSet.reset();
 				slot.LayeredSet.reset();
+				slot.MaskedSet.reset();
 				slot.GpuSet.reset();
 				// Every set in the slot. Forgetting one is a crash on resize
 				// rather than a wrong picture -- which is the note above, and
@@ -2628,6 +2713,8 @@ namespace RageV
 			slot.SkinnedSet = s_Data->Device->CreateResourceSet(s_Data->SkinnedPipeline, 0);
 		if (s_Data->LayeredPipeline && !slot.LayeredSet)
 			slot.LayeredSet = s_Data->Device->CreateResourceSet(s_Data->LayeredPipeline, 0);
+		if (s_Data->MaskedPipeline && !slot.MaskedSet)
+			slot.MaskedSet = s_Data->Device->CreateResourceSet(s_Data->MaskedPipeline, 0);
 		if (s_Data->TransparentPipeline && !slot.TransparentSet)
 			slot.TransparentSet = s_Data->Device->CreateResourceSet(s_Data->TransparentPipeline, 0);
 		if (s_Data->TransparentPipeline && !slot.TransparentGpuSet)
@@ -2648,8 +2735,8 @@ namespace RageV
 			slot.PrepassSet = s_Data->Device->CreateResourceSet(s_Data->PrepassPipeline, 0);
 
 		Ref<RHIResourceSet> targets[] = { slot.Set, slot.SkinnedSet, slot.LayeredSet,
-										  slot.GpuSet, slot.TransparentSet,
-										  slot.TransparentGpuSet };
+										  slot.MaskedSet, slot.GpuSet,
+										  slot.TransparentSet, slot.TransparentGpuSet };
 
 		for (const Ref<RHIResourceSet>& sceneSet : targets)
 		{
@@ -2923,12 +3010,17 @@ namespace RageV
 		// alternative was a bit off the depth, which is a float and has no
 		// spare.
 		//
-		//   63     transparent
-		//   61-62  kind
-		//   47-60  mesh
+		//   62-63  bucket: opaque, then masked, then blended
+		//   60-61  kind
+		//   47-59  mesh
 		//   32-46  material
 		//   0-31   depth, or the submission index with depth sorting off
-		constexpr uint32_t kMaxPackedMeshId = (1u << 14) - 1;
+		//
+		// The bucket took a second bit when cutouts arrived and the mesh field
+		// gave it up, 14 bits to 13. That is 8191 distinct meshes in one frame
+		// before `packable` falls back to the unpacked path, which is the
+		// graceful answer already written for exactly this.
+		constexpr uint32_t kMaxPackedMeshId = (1u << 13) - 1;
 		constexpr uint32_t kMaxPackedId = (1u << 15) - 1;
 		bool packable = true;
 
@@ -2997,8 +3089,8 @@ namespace RageV
 				memcpy(&low, &depth, sizeof(low));
 			}
 
-			const uint64_t key = ((uint64_t)(draw.Transparent ? 1 : 0) << 63)
-							   | ((uint64_t)draw.Kind << 61)
+			const uint64_t key = ((uint64_t)draw.Bucket << 62)
+							   | ((uint64_t)draw.Kind << 60)
 							   | ((uint64_t)meshId << 47)
 							   | ((uint64_t)materialId << 32)
 							   | (uint64_t)low;
@@ -3050,8 +3142,8 @@ namespace RageV
 						  // The same order the packed key produces, field for
 						  // field. Two orderings of one list that disagree is a
 						  // picture that changes with the mesh count.
-						  if (a.Transparent != b.Transparent)
-							  return !a.Transparent;
+						  if (a.Bucket != b.Bucket)
+							  return a.Bucket < b.Bucket;
 						  if (a.Kind != b.Kind)
 							  return a.Kind < b.Kind;
 						  if (a.MeshKey != b.MeshKey)
@@ -3090,7 +3182,7 @@ namespace RageV
 					// every other field (the same mesh, once painted and once
 					// glazed) and would merge across the boundary. A run is
 					// one pipeline, so it is cut there too.
-					if (next.Transparent != first.Transparent ||
+					if (next.Bucket != first.Bucket ||
 						next.Kind != first.Kind || next.MeshKey != first.MeshKey ||
 						next.MaterialKey != first.MaterialKey ||
 						next.IndexCount != first.IndexCount)
@@ -3128,8 +3220,8 @@ namespace RageV
 								 {
 									 const PendingDraw& firstA = pending[order[a.Begin]];
 									 const PendingDraw& firstB = pending[order[b.Begin]];
-									 if (firstA.Transparent != firstB.Transparent)
-										 return !firstA.Transparent;
+									 if (firstA.Bucket != firstB.Bucket)
+										 return firstA.Bucket < firstB.Bucket;
 									 if (firstA.Kind != firstB.Kind)
 										 return firstA.Kind < firstB.Kind;
 									 return a.Nearest < b.Nearest;
@@ -3487,6 +3579,28 @@ namespace RageV
 			slot.LayeredSet->Commit();
 		}
 
+		// **The masked set carries exactly what the static one does.** Its
+		// layout is identical -- the cutout variant adds a test, not a binding
+		// -- so every binding the static set fills, this one must fill too.
+		// Written here, in one place and next to the commit, because the
+		// static set is filled in two separate blocks above and a mirror
+		// beside each of them is a mirror that drifts.
+		if (slot.MaskedSet)
+		{
+			slot.MaskedSet->SetStorageBuffer(7, slot.Instances, 0,
+											 (uint64_t)instanceRows * sizeof(InstanceData));
+			slot.MaskedSet->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
+											 (uint64_t)Math::Max(count, 1u) * sizeof(uint32_t));
+			if (s_Data->Bindless)
+			{
+				slot.MaskedSet->SetStorageBuffer(13, slot.Materials, 0,
+												 (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
+					slot.MaskedSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+			}
+			slot.MaskedSet->Commit();
+		}
+
 		slot.Set->Commit();
 
 		// The traced bounce's set with them. Written in two places -- the
@@ -3499,6 +3613,11 @@ namespace RageV
 		// Bound per run rather than once, because the run decides which of the
 		// three pipelines draws it.
 		DrawKind boundKind = DrawKind::Static;
+		// The bucket is part of what a bound pipeline is, not just the kind:
+		// masked and opaque share a kind and differ in pipeline, so tracking
+		// only the kind would draw a cutout run through whichever of the two
+		// happened to be bound.
+		DrawBucket boundBucket = DrawBucket::Opaque;
 		bool anyPipelineBound = false;
 
 		// **The GPU-driven half, first.** Its instance counts live in device
@@ -3606,10 +3725,14 @@ namespace RageV
 		// block at the end, so this is a scan for the first of them rather than
 		// a partition -- and when there are none it is `count`, which is the
 		// loop the renderer has always run.
+		//
+		// Masked draws are *before* this point, not after: they write depth and
+		// belong to the opaque pass. They form their own runs within it,
+		// because the merge below compares the whole bucket.
 		s_Data->TransparentBegin = count;
 		for (uint32_t i = 0; i < count; i++)
 		{
-			if (s_Data->Pending[i].Transparent)
+			if (s_Data->Pending[i].Bucket == DrawBucket::Blended)
 			{
 				s_Data->TransparentBegin = i;
 				break;
@@ -3630,7 +3753,7 @@ namespace RageV
 			// a kind boundary -- the same shape as the transparent bit
 			// above: a field the sort separates and the merge forgot.
 			while (end < opaqueCount &&
-				   s_Data->Pending[end].Transparent == s_Data->Pending[start].Transparent &&
+				   s_Data->Pending[end].Bucket == s_Data->Pending[start].Bucket &&
 				   s_Data->Pending[end].Kind == s_Data->Pending[start].Kind &&
 				   s_Data->Pending[end].MeshKey == s_Data->Pending[start].MeshKey &&
 				   s_Data->Pending[end].MaterialKey == s_Data->Pending[start].MaterialKey &&
@@ -3706,9 +3829,17 @@ namespace RageV
 			// pipeline reads joint indices as texture coordinates and scatters
 			// across the world, and a layered chunk through it binds a set the
 			// layout does not describe.
+			// **Masked replaces the static pipeline only.** A skinned or a
+			// layered cutout would each need their own variant and neither
+			// exists yet, so one of those falls back to drawing solid -- the
+			// same choice the skinned transparent path documents, and for the
+			// same reason: a visible material with a hard edge missing beats
+			// a material that does not draw.
+			const bool masked = first.Bucket == DrawBucket::Masked;
 			const Ref<RHIPipeline>& pipeline =
 				first.Kind == DrawKind::Skinned ? s_Data->SkinnedPipeline
 				: first.Kind == DrawKind::Layered ? s_Data->LayeredPipeline
+				: (masked && s_Data->MaskedPipeline) ? s_Data->MaskedPipeline
 				: s_Data->Pipeline;
 			if (!pipeline)
 			{
@@ -3719,6 +3850,7 @@ namespace RageV
 			const Ref<RHIResourceSet>& sceneSet =
 				first.Kind == DrawKind::Skinned ? slot.SkinnedSet
 				: first.Kind == DrawKind::Layered ? slot.LayeredSet
+				: (masked && s_Data->MaskedPipeline && slot.MaskedSet) ? slot.MaskedSet
 				: slot.Set;
 			if (!sceneSet)
 			{
@@ -3726,7 +3858,7 @@ namespace RageV
 				continue;
 			}
 
-			if (!anyPipelineBound || boundKind != first.Kind)
+			if (!anyPipelineBound || boundKind != first.Kind || boundBucket != first.Bucket)
 			{
 				cmd->BindPipeline(pipeline);
 				cmd->BindResourceSet(0, sceneSet);
@@ -3736,6 +3868,7 @@ namespace RageV
 				if (s_Data->Bindless)
 					cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
 				boundKind = first.Kind;
+				boundBucket = first.Bucket;
 				anyPipelineBound = true;
 			}
 
@@ -4461,7 +4594,9 @@ namespace RageV
 		draw.MeshRef = mesh;
 		draw.MaterialRef = effective;
 		draw.IndexCount = mesh->GetIndexCount();
-		draw.Transparent = effective->GetBlendMode() != BlendMode::Opaque;
+		draw.Bucket = IsBlended(effective->GetBlendMode())   ? DrawBucket::Blended
+					: effective->GetBlendMode() == BlendMode::Masked ? DrawBucket::Masked
+																	 : DrawBucket::Opaque;
 
 		InstanceData& instance = AllocateInstance(draw);
 		instance.Model = transform;
@@ -4548,7 +4683,9 @@ namespace RageV
 		// what it believes is glass. The transparent pass then skips it and
 		// says so (no skinned transparent variant exists), which is the
 		// documented contract.
-		draw.Transparent = effective->GetBlendMode() != BlendMode::Opaque;
+		draw.Bucket = IsBlended(effective->GetBlendMode())   ? DrawBucket::Blended
+					: effective->GetBlendMode() == BlendMode::Masked ? DrawBucket::Masked
+																	 : DrawBucket::Opaque;
 
 		InstanceData& instance = AllocateInstance(draw);
 		instance.Model = transform;

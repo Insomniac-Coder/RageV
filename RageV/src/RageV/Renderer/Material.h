@@ -37,7 +37,44 @@ namespace RageV
 		// resolved over the opaque image. Depth-tested and not depth-written,
 		// because two panes of glass both have to survive.
 		Blend = 1,
+
+		// **Alpha-tested.** The fragment is kept whole or discarded outright,
+		// on `AlphaCutoff`; nothing is ever partly transparent. That makes it
+		// opaque in every way that matters to the frame -- it writes depth, it
+		// sorts with the opaque geometry, and it needs no blending -- and it
+		// is what a railing, a grate, a chain-link fence or a leaf wants. The
+		// alternative is modelling every gap as geometry, which is what this
+		// engine required until now and what makes a suspension bridge
+		// expensive.
+		//
+		// It is not a cheaper `Blend` and must not be routed like one: a
+		// masked fragment that went into the OIT pair would stop writing
+		// depth, and a railing that writes no depth stops occluding anything
+		// behind it.
+		Masked = 2,
 	};
+
+	// **Two questions, and only one of them used to have an answer.**
+	//
+	// Every site that cared wrote `!= BlendMode::Opaque`, which was exact
+	// while there were two modes and silently wrong the moment there were
+	// three -- it would have routed every cutout into the transparent pass.
+	// The two meanings are separated here so that adding a fourth mode is a
+	// compile-time question at each site rather than a behaviour change at all
+	// of them.
+
+	// Goes through the blended pass: accumulate/revealage, no depth write.
+	// Only true blending does.
+	constexpr bool IsBlended(BlendMode mode) { return mode == BlendMode::Blend; }
+
+	// Whether this material's geometry is carried in the ray acceleration
+	// structure. Blended geometry is excluded so a car keeps its interior
+	// (Scene.cpp says why at length), and masked geometry is excluded for
+	// now as well -- the structure has no per-triangle alpha test, so a
+	// cutout in it would cast the solid shadow of its bounding sheet, which
+	// is a louder wrong than casting none. Lifting that is the ray-query
+	// traversal work, tracked separately.
+	constexpr bool TracedAsGeometry(BlendMode mode) { return mode == BlendMode::Opaque; }
 
 	// Mirrors the std140 MaterialData block in pbr.rvshader.
 	struct MaterialParams
@@ -70,7 +107,16 @@ namespace RageV
 		// centimetres of relief on a metre-scale tile; 0 turns parallax off
 		// even when a map is bound.
 		float HeightScale = 0.05f;
-		int32_t _padding = 0;
+
+		// **Below this, the fragment is discarded**; at or above it the
+		// fragment is fully opaque. glTF's own default, and the value every
+		// authoring tool assumes. Only read by the masked variant of the lit
+		// shader, so it costs nothing for the other two modes.
+		//
+		// In the padding word rather than appended, for the reason `Specular`
+		// gives above: the block stays 80 bytes and the std140 layout does not
+		// move, so no cooked material on disk has to be reissued.
+		float AlphaCutoff = 0.5f;
 
 		// How this material's maps meet the surface: xy scales the texture
 		// coordinate, zw offsets it. (1, 1, 0, 0) is the mesh's own UVs.
@@ -114,7 +160,11 @@ namespace RageV
 		int32_t  MapFlags = 0;
 		float    Specular = 0.5f;
 		float    HeightScale = 0.05f;
-		int32_t  _padding = 0;
+		// As MaterialParams::AlphaCutoff, in the word this struct was already
+		// padding to 64 bytes with. The bindless path reads the cutoff from
+		// here, per instance, which is what lets one masked pipeline draw many
+		// different cutouts in a single indirect call.
+		float    AlphaCutoff = 0.5f;
 	};
 	static_assert(sizeof(GpuMaterial) == 64,
 				  "Must match GpuMaterial in include/pbr_fragment.glsl");
