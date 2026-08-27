@@ -652,7 +652,7 @@ Entities:
       Range: 6
       InnerCone: 20
       OuterCone: 30
-      CastShadows: false
+      CastShadows: true
   - EntityID: 14588253152979754604
     TagComponent:
       Tag: Bay Downlight 1
@@ -679,7 +679,7 @@ Entities:
       Range: 6
       InnerCone: 20
       OuterCone: 30
-      CastShadows: false
+      CastShadows: true
   - EntityID: 14588256451514639237
     TagComponent:
       Tag: Bay Downlight 2
@@ -706,7 +706,7 @@ Entities:
       Range: 6
       InnerCone: 20
       OuterCone: 30
-      CastShadows: false
+      CastShadows: true
   - EntityID: 14588255352003011026
     TagComponent:
       Tag: Bay Downlight 3
@@ -733,7 +733,7 @@ Entities:
       Range: 6
       InnerCone: 20
       OuterCone: 30
-      CastShadows: false
+      CastShadows: true
   - EntityID: 14792399011891642881
     TagComponent:
       Tag: Convex Mirror
