@@ -3317,13 +3317,19 @@ namespace RageV
 		// actually cannot afford it.
 		auto view = m_Registry.GetView<TransformComponent, IrradianceVolumeComponent>();
 
+		// **One region per volume, and no union anywhere.**
+		//
+		// Every volume in the scene used to be merged into a single box -- the
+		// union of their bounds at the finest spacing any of them asked for --
+		// which meant two volumes at opposite ends of a level produced one
+		// enormous grid spanning the emptiness between them. It made "more
+		// volumes" mean "a bigger box", which is the opposite of what an
+		// author reaches for a second volume to say. They are independent now:
+		// each keeps its own grid, its own spacing and its own rotation, and
+		// they share only a texture (see IrradianceVolume::Region for why they
+		// must share one).
+		std::vector<IrradianceVolume::Region> regions;
 		uint32_t count = 0;
-		Vec3 unionMin(0.0f);
-		Vec3 unionMax(0.0f);
-		Vec3 single(0.0f);
-		Vec3 singleExtents(1.0f);
-		Mat3 singleRotation(1.0f);
-		float spacing = 0.0f;
 		int cap = 2;
 		// **The most any volume asked for**, on the same rule the spacing takes
 		// the finest: a composed field is one solve, so a volume that wanted
@@ -3424,37 +3430,52 @@ namespace RageV
 				m_AutoFitValid = true;
 			}
 
-			// The world box a turned volume occupies: its half-extents along
-			// each world axis are how far its own axes reach along that one,
-			// which is the absolute of the rotation applied to its extents.
-			const Vec3 reach(
-				Math::Abs(axisX.x) * 0.5f + Math::Abs(axisY.x) * 0.5f + Math::Abs(axisZ.x) * 0.5f,
-				Math::Abs(axisX.y) * 0.5f + Math::Abs(axisY.y) * 0.5f + Math::Abs(axisZ.y) * 0.5f,
-				Math::Abs(axisX.z) * 0.5f + Math::Abs(axisY.z) * 0.5f + Math::Abs(axisZ.z) * 0.5f);
-
-			if (count == 0)
+			// **Past the cap it is dropped, not merged.** Merging is the
+			// behaviour this replaced, so quietly falling back to it would be
+			// the one wrong answer; a scene that wants a ninth volume wants to
+			// be told.
+			if (count >= Renderer3D::kMaxIrradianceVolumes)
 			{
-				unionMin = centre - reach;
-				unionMax = centre + reach;
-				single = centre;
-				singleExtents = extents;
-				singleRotation = Mat3(
-					extents.x > 1.0e-6f ? axisX / (extents.x * 2.0f) : Vec3(1.0f, 0.0f, 0.0f),
-					extents.y > 1.0e-6f ? axisY / (extents.y * 2.0f) : Vec3(0.0f, 1.0f, 0.0f),
-					extents.z > 1.0e-6f ? axisZ / (extents.z * 2.0f) : Vec3(0.0f, 0.0f, 1.0f));
-				spacing = Math::Max(volume.Spacing, 0.05f);
-			}
-			else
-			{
-				unionMin = Math::Min(unionMin, centre - reach);
-				unionMax = Math::Max(unionMax, centre + reach);
-				// **The finest anybody asked for.** A tight volume exists to
-				// say "this part wants more detail", and honouring the coarsest
-				// request instead would answer the opposite question.
-				spacing = Math::Min(spacing, Math::Max(volume.Spacing, 0.05f));
+				if (!m_WarnedVolumeCap)
+				{
+					m_WarnedVolumeCap = true;
+					RV_CORE_WARN("This scene has more Irradiance Volumes than the {0} one "
+								 "field can hold; the rest are ignored. Cover more ground "
+								 "with fewer, larger volumes rather than more of them.",
+								 Renderer3D::kMaxIrradianceVolumes);
+				}
+				continue;
 			}
 
-			cap = Math::Max(cap, Math::Clamp(volume.MaxResolution, 2, 256));
+			// **Two cells past the authored box, as before**, so geometry drawn
+			// on the boundary is not read through the reader's edge fade. Per
+			// volume now rather than once over the union.
+			const float spacing = Math::Max(volume.Spacing, 0.05f);
+			const Vec3 padded = extents + Vec3(2.0f * spacing);
+
+			IrradianceVolume::Region region;
+			region.Centre = centre;
+			region.Extents = padded;
+			region.Rotation = Mat3(
+				extents.x > 1.0e-6f ? axisX / (extents.x * 2.0f) : Vec3(1.0f, 0.0f, 0.0f),
+				extents.y > 1.0e-6f ? axisY / (extents.y * 2.0f) : Vec3(0.0f, 1.0f, 0.0f),
+				extents.z > 1.0e-6f ? axisZ / (extents.z * 2.0f) : Vec3(0.0f, 0.0f, 1.0f));
+			region.Spacing = spacing;
+
+			// Two cells a side at minimum: one cannot be interpolated, and a
+			// field that cannot be interpolated is a constant with overheads.
+			const int volumeCap = Math::Clamp(volume.MaxResolution, 2, 256);
+			auto axisCells = [&](float halfExtent)
+			{
+				const int wanted = (int)Math::Ceil(2.0f * halfExtent / spacing) + 1;
+				return (uint32_t)Math::Clamp(wanted, 2, volumeCap);
+			};
+			region.Width  = axisCells(padded.x);
+			region.Height = axisCells(padded.y);
+			region.Depth  = axisCells(padded.z);
+
+			regions.push_back(region);
+
 			passes = Math::Max(passes, Math::Clamp(volume.Passes, 1, 64));
 			rays = Math::Max(rays, Math::Clamp(volume.RaysPerCell, 64, 4096));
 			recapture |= volume.Recapture;
@@ -3471,60 +3492,49 @@ namespace RageV
 			m_FieldUsable = false;
 			m_FieldEvaluated = true;
 			m_FieldSolveWanted = false;   // nothing left to solve it into
-			Renderer3D::SetIrradianceVolume(nullptr, Vec3(0.0f), Vec3(1.0f), Mat3(1.0f));
+			Renderer3D::SetIrradianceVolumes(nullptr);
 			return;
 		}
-
-		const bool composed = count > 1;
-		const Vec3 centre = composed ? (unionMin + unionMax) * 0.5f : single;
-		const Vec3 authored = composed
-								  ? Math::Max((unionMax - unionMin) * 0.5f, Vec3(0.05f))
-								  : singleExtents;
-		const Mat3 rotation = composed ? Mat3(1.0f) : singleRotation;
-
-		// **Solved two cells past what was authored, on every side.**
-		//
-		// A room's volume is drawn to the room -- that is how everyone
-		// authors one -- which puts the walls *at* the box faces, and very
-		// often a skirting's thickness past them. The reader fades the field
-		// out over its last cell to hide the boundary step, and it biases
-		// its sample only half a cell off a surface: a wall on the authored
-		// boundary would therefore always sit inside the fade band and read
-		// a fraction of its stored light. Measured before this existed:
-		// every wall of the GI fixture at 40-60% strength, darker the finer
-		// the bake -- and with a single cell of pad, the fixture's walls
-		// (10 cm past the authored box) still read faded at their far ends.
-		// Two cells put the fade band clear of anything an author drew the
-		// box around, at the price of two rings of cells -- and the pad is
-		// spacing-sized, so the coverage an author sees is the coverage they
-		// get at any density.
-		const Vec3 extents = authored + Vec3(2.0f * spacing);
-
-		// Two cells a side at minimum: one cannot be interpolated, and a field
-		// that cannot be interpolated is a constant with overheads.
-		auto axis = [&](float halfExtent)
-		{
-			const int wanted = (int)Math::Ceil(2.0f * halfExtent / spacing) + 1;
-			return (uint32_t)Math::Clamp(wanted, 2, cap);
-		};
-		const uint32_t nx = axis(extents.x);
-		const uint32_t ny = axis(extents.y);
-		const uint32_t nz = axis(extents.z);
 
 		// Which flavour of bake the active GI form reads -- and therefore
 		// which file the loader wants resident, which the solver makes last,
 		// and which the warnings name.
 		const bool activeRt = ActiveGiIsTraced();
 
+		// **What the whole set was built for, as one number.**
+		//
+		// The stamp carries the atlas's own shape, but a texture of the right
+		// size can hold a completely different arrangement of boxes -- so the
+		// layout is hashed and stamped beside it. Every field a reader depends
+		// on goes in: move one volume a centimetre, or renumber them, and the
+		// bake stops applying.
+		uint64_t layout = 1469598103934665603ull;
+		auto mixLayout = [&layout](const void* data, size_t size)
+		{
+			const unsigned char* bytes = static_cast<const unsigned char*>(data);
+			for (size_t i = 0; i < size; i++)
+			{
+				layout ^= bytes[i];
+				layout *= 1099511628211ull;
+			}
+		};
+		for (const IrradianceVolume::Region& region : regions)
+		{
+			mixLayout(&region.Centre, sizeof(region.Centre));
+			mixLayout(&region.Extents, sizeof(region.Extents));
+			mixLayout(&region.Rotation, sizeof(region.Rotation));
+			mixLayout(&region.Width, sizeof(region.Width));
+			mixLayout(&region.Height, sizeof(region.Height));
+			mixLayout(&region.Depth, sizeof(region.Depth));
+		}
+
 		// What the field was built for, checked the way the reflection probe's
-		// capture is: anything that changes the box, the grid, the lighting or
-		// how many volumes describe it changes which points were solved, so the
-		// stored answer stops applying.
+		// capture is: anything that changes a box, a grid, the lighting or how
+		// many volumes describe the scene changes which points were solved, so
+		// the stored answer stops applying.
 		const bool shapeChanged = !m_Field
-							   || m_Field->Width() != nx || m_Field->Height() != ny
-							   || m_Field->Depth() != nz
 							   || m_FieldVolumes != count
-							   || m_FieldSpacing != spacing
+							   || m_FieldLayout != layout
 							   // **Quality invalidates too.** A field solved at one
 							   // bounce is a different answer from the same grid at
 							   // eight, and nothing else here would notice.
@@ -3534,31 +3544,23 @@ namespace RageV
 							   // **And so does the GI form.** The traced form reads
 							   // the rt flavour, the screen forms the ss one, and a
 							   // toggle between them is a different file.
-							   || m_FieldFlavourRt != activeRt
-							   || Math::Distance(m_FieldCentre, centre) > 1.0e-4f
-							   || Math::Distance(m_FieldExtents, extents) > 1.0e-4f
-							   || Math::Distance(m_FieldRotation[0], rotation[0]) > 1.0e-4f
-							   || Math::Distance(m_FieldRotation[1], rotation[1]) > 1.0e-4f;
+							   || m_FieldFlavourRt != activeRt;
 
 		if (shapeChanged || recapture)
 		{
-			if (!m_Field || m_Field->Width() != nx || m_Field->Height() != ny
-				|| m_Field->Depth() != nz)
-			{
-				m_Field = IrradianceVolume::Create(Renderer::GetDevice(), nx, ny, nz);
-			}
-
+			m_Field = IrradianceVolume::CreateAtlas(Renderer::GetDevice(), regions);
 			if (!m_Field)
 				return;
 
-			m_FieldCentre = centre;
-			m_FieldExtents = extents;
-			m_FieldRotation = rotation;
-			m_FieldSpacing = spacing;
+			// The laid-out regions, with their atlas offsets filled in.
+			regions = m_Field->Regions();
+
+			m_FieldSpacing = regions[0].Spacing;
 			m_FieldPasses = passes;
 			m_FieldRays = rays;
 			m_FieldLighting = lighting;
 			m_FieldVolumes = count;
+			m_FieldLayout = layout;
 			m_FieldBaked = false;
 			m_FieldFlavourRt = activeRt;
 			// A shape change abandons whatever solve was in flight: its result
@@ -3567,15 +3569,16 @@ namespace RageV
 			m_FieldSolvePhase = 0;
 
 			BakedLighting::Stamp wanted;
-			wanted.Centre = centre;
-			wanted.Extents = extents;
-			wanted.AxisX = rotation[0];
-			wanted.AxisY = rotation[1];
-			wanted.Width = nx;
-			wanted.Height = ny;
-			wanted.Depth = nz;
+			wanted.Centre = Vec3(0.0f);
+			wanted.Extents = Vec3(1.0f);
+			wanted.AxisX = Vec3(1.0f, 0.0f, 0.0f);
+			wanted.AxisY = Vec3(0.0f, 1.0f, 0.0f);
+			wanted.Width = m_Field->Width();
+			wanted.Height = m_Field->Height();
+			wanted.Depth = m_Field->Depth();
 			wanted.Tiles = IrradianceVolume::kTiles;
 			wanted.Lighting = lighting;
+			wanted.Layout = layout;
 
 			// **A bake, if one is on disk and still describes this scene.**
 			//
@@ -3680,7 +3683,11 @@ namespace RageV
 			&& !Renderer3D::HasPendingIrradianceSolve()
 			&& m_FieldSolvePhase == 0 && m_FieldSolveWanted)
 		{
-			Renderer3D::RequestIrradianceSolve(m_Field, centre, extents, rotation,
+			// Every region, in one request: the boxes ride on the volume now,
+			// so the solver walks them itself -- and it must, because the
+			// sweeps have to advance in lockstep across all of them. See
+			// SolvePendingIrradiance.
+			Renderer3D::RequestIrradianceSolve(m_Field,
 											   (uint32_t)m_FieldPasses,
 											   (uint32_t)m_FieldRays, true);
 			m_FieldSolvePhase = 2;
@@ -3696,10 +3703,7 @@ namespace RageV
 		// everything fresh. A Baked source opts into the stored answer;
 		// Realtime never touches it.
 		const bool fieldWanted = WantsBakedGi() || BakingLighting();
-		if (fieldWanted)
-			Renderer3D::SetIrradianceVolume(m_Field, centre, extents, rotation);
-		else
-			Renderer3D::SetIrradianceVolume(nullptr, Vec3(0.0f), Vec3(1.0f), Mat3(1.0f));
+		Renderer3D::SetIrradianceVolumes(fieldWanted ? m_Field : nullptr);
 		m_FieldUsable = m_FieldBaked;
 		m_FieldEvaluated = true;
 
@@ -3742,16 +3746,19 @@ namespace RageV
 			&& !m_CapturingProbes
 			&& !Renderer3D::HasPendingIrradianceSolve())
 		{
+			// The atlas's own shape, plus the layout hash that says which
+			// boxes are arranged inside it -- see m_FieldLayout.
 			BakedLighting::Stamp stamp;
-			stamp.Centre = centre;
-			stamp.Extents = extents;
-			stamp.AxisX = rotation[0];
-			stamp.AxisY = rotation[1];
+			stamp.Centre = Vec3(0.0f);
+			stamp.Extents = Vec3(1.0f);
+			stamp.AxisX = Vec3(1.0f, 0.0f, 0.0f);
+			stamp.AxisY = Vec3(0.0f, 1.0f, 0.0f);
 			stamp.Width = m_Field->Width();
 			stamp.Height = m_Field->Height();
 			stamp.Depth = m_Field->Depth();
 			stamp.Tiles = IrradianceVolume::kTiles;
 			stamp.Lighting = lighting;
+			stamp.Layout = m_FieldLayout;
 
 			if (m_FieldSolvePhase == 2)
 			{

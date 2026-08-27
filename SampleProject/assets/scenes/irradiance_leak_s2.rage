@@ -1,4 +1,4 @@
-Scene: Irradiance leak check -- a lit room and a dark one, one field over both
+﻿Scene: Irradiance leak check -- a lit room and a dark one, one field over both
 Version: 6
 Environment:
   AmbientColor: [0, 0, 0]

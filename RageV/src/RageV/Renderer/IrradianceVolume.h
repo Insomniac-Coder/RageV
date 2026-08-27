@@ -62,11 +62,55 @@ namespace RageV
 			Vec4 B{ 0.0f };
 		};
 
+		// **One volume's place in the atlas**, and the box it stands for.
+		//
+		// Several volumes share one texture because they must: a fragment
+		// shader has thirty-two samplers on OpenGL and the layered terrain
+		// variant already spends thirty-one of them, so N fields cannot be N
+		// bindings. They are packed instead -- every volume keeps its own
+		// grid, its own spacing and its own rotation, and gives up only the
+		// right to be its own texture.
+		//
+		// Packed along z *within each tile*: volume v's tile t occupies the
+		// slices [t * AtlasDepth + ZOffset, ... + Depth). The tile stride is
+		// therefore the atlas depth rather than a field's own, which is the
+		// one line every reader of this layout has to get right.
+		struct Region
+		{
+			// The box in the world. Axes as columns, unit length.
+			Vec3 Centre{ 0.0f };
+			Vec3 Extents{ 1.0f };
+			Mat3 Rotation{ 1.0f };
+
+			// Cells this volume has, which need not match its neighbours'.
+			uint32_t Width = 0;
+			uint32_t Height = 0;
+			uint32_t Depth = 0;
+
+			// Where its slices begin inside a tile.
+			uint32_t ZOffset = 0;
+
+			// Metres between cells, kept for the stamp and the inspector.
+			float Spacing = 0.0f;
+		};
+
 		// Null if the device cannot make the textures, which is the only way
 		// this fails; a caller that gets null carries on without a volume and
 		// the shading falls back to what it did before.
 		static RHI::Ref<IrradianceVolume> Create(RHI::RHIDevice& device,
 												 uint32_t x, uint32_t y, uint32_t z);
+
+		// **An atlas holding several volumes.** The regions arrive already
+		// laid out -- the scene decides who sits where, because it is the
+		// scene that knows which boxes exist. Width and height are the widest
+		// and tallest any region asked for; the depth is their sum.
+		static RHI::Ref<IrradianceVolume> CreateAtlas(RHI::RHIDevice& device,
+													  const std::vector<Region>& regions);
+
+		// The regions packed into this texture, in the order they were laid
+		// out. Empty for a volume made by Create, which is one region that
+		// happens to fill the whole texture.
+		const std::vector<Region>& Regions() const { return m_Regions; }
 
 		// Cells in x-major order: index = (z * Height + y) * Width + x, which is
 		// the order a 3D texture upload expects and the order Fill writes.
@@ -121,7 +165,10 @@ namespace RageV
 	private:
 		uint32_t m_Width = 0;
 		uint32_t m_Height = 0;
+		// The atlas depth: the sum of the regions' depths, and the stride
+		// between one tile and the next.
 		uint32_t m_Depth = 0;
+		std::vector<Region> m_Regions;
 
 		RHI::Ref<RHI::RHITexture> m_Texture;
 		RHI::Ref<RHI::RHITexture> m_Solve;

@@ -45,6 +45,17 @@ namespace RageV
 		// answer now, matched onto the ray instance in EndScene.
 		static constexpr uint32_t kMaxAreaEmitters = 16;
 
+		// **How many irradiance volumes one scene may hold**, each with its
+		// own grid and its own place in the shared atlas.
+		//
+		// Eight because the table lives in the scene block and costs five
+		// rows a volume there, and because eight local boxes is already a
+		// different order of coverage from the one composed box this
+		// replaced -- a corridor scene wants four or five. Volumes past the
+		// cap are dropped with a warning rather than silently merged, since
+		// merging is exactly the behaviour this exists to end.
+		static constexpr uint32_t kMaxIrradianceVolumes = 8;
+
 		// Handed over by the scene each frame, before EndScene. Copied rather
 		// than referenced: the upload happens later, and a span into the
 		// scene's own vector is a span into something a probe capture may have
@@ -62,15 +73,17 @@ namespace RageV
 		// itself must do: a capture reflects the sky, never another probe.
 		static void SetProbeVolumes(const std::vector<ProbeVolume>& probes);
 
-		// **The scene's irradiance field**, and the box it covers in world
-		// space. Null unbinds it and every reader falls back to what it did
-		// before, which is the flat ambient constant.
-		// `rotation` carries the box's own axes as columns, so a volume that
+		// **The scene's irradiance volumes**, however many it has. Null unbinds
+		// them and every reader falls back to what it did before, which is the
+		// flat ambient constant.
+		//
+		// The boxes come off the volume's own region list rather than being
+		// passed: they were one composed box until 2026-08-27, and a caller
+		// that still describes "the" box is a caller working from the model
+		// this replaced. Each region keeps its own rotation, so a volume that
 		// was turned is still a box rather than the axis-aligned one its
 		// bounds would suggest.
-		static void SetIrradianceVolume(const RHI::Ref<IrradianceVolume>& volume,
-										const Vec3& centre, const Vec3& extents,
-										const Mat3& rotation);
+		static void SetIrradianceVolumes(const RHI::Ref<IrradianceVolume>& volume);
 
 		// **Solves a field**: one traced gather per cell, written straight into
 		// the volume's textures. Runs when a field is dirty and not otherwise,
@@ -90,8 +103,7 @@ namespace RageV
 		// single bounce.
 		static bool SolveIrradianceVolume(RHI::RHICommandList& cmd,
 										  const RHI::Ref<IrradianceVolume>& volume,
-										  const Vec3& centre, const Vec3& extents,
-										  const Mat3& rotation,
+										  const IrradianceVolume::Region& region,
 										  int rays, float reach,
 										  uint32_t rowBegin, uint32_t rowCount,
 										  float blend, bool feedback);
@@ -115,9 +127,10 @@ namespace RageV
 		// voxel form estimate. Either way the passes also buy the mottling
 		// out. They come from the volume components rather than from constants
 		// here, because the right answer is a property of the room.
+		// The boxes ride on the volume itself now -- one request covers every
+		// region it holds, because the sweeps have to advance across all of
+		// them together (see SolvePendingIrradiance).
 		static void RequestIrradianceSolve(const RHI::Ref<IrradianceVolume>& volume,
-										   const Vec3& centre, const Vec3& extents,
-										   const Mat3& rotation,
 										   uint32_t passes, uint32_t raysPerCell,
 										   bool feedback);
 

@@ -521,6 +521,13 @@ namespace RageV
 		int m_FieldRays = 0;
 		uint64_t m_FieldLighting = 0;
 		uint32_t m_FieldVolumes = 0;
+		// **The arrangement of every volume, hashed.** The atlas's dimensions
+		// cannot stand in for it -- one texture of a given size holds any
+		// number of layouts -- so this is what notices a volume moving, or two
+		// of them swapping order. Stamped into the bake beside the lighting.
+		uint64_t m_FieldLayout = 0;
+		// Said once per scene, not once a frame.
+		bool m_WarnedVolumeCap = false;
 		bool m_FieldBaked = false;
 
 		// The box the last walk derived for an AutoFit volume, held so the

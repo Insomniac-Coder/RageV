@@ -49,6 +49,32 @@ namespace RageV
 		}
 	}
 
+	Ref<IrradianceVolume> IrradianceVolume::CreateAtlas(RHIDevice& device,
+														const std::vector<Region>& regions)
+	{
+		if (regions.empty())
+			return nullptr;
+
+		// The atlas is as wide and tall as the greediest region and as deep as
+		// all of them together. Regions differing in width waste the
+		// difference, which is the price of one sampler and is small beside
+		// what the gaps between volumes used to cost.
+		uint32_t width = 0, height = 0, depth = 0;
+		std::vector<Region> laid = regions;
+		for (Region& region : laid)
+		{
+			region.ZOffset = depth;
+			width = Math::Max(width, region.Width);
+			height = Math::Max(height, region.Height);
+			depth += region.Depth;
+		}
+
+		Ref<IrradianceVolume> volume = Create(device, width, height, depth);
+		if (volume)
+			volume->m_Regions = std::move(laid);
+		return volume;
+	}
+
 	Ref<IrradianceVolume> IrradianceVolume::Create(RHIDevice& device,
 												   uint32_t x, uint32_t y, uint32_t z)
 	{

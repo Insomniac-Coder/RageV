@@ -7,7 +7,84 @@ and frame-counter fixes below are **in the working tree and not yet committed**.
 
 ---
 
-## Start here: baked GI is rebuilt, eye-approved, and a pair of flavours
+## Start here — 2026-08-27
+
+**`docs/NEXT.md` is the single ordered list of what to do next.** It unifies
+the three roadmaps that were running in parallel (the engine's phases, the
+baking sub-roadmap, and the demo scene's demands) and says which one still
+owns which detail. Read it before picking anything up; read the rest of this
+file for the state of the work in flight.
+
+### In flight, unfinished
+
+**1 · The on-plane-cell defects — fixed, verification incomplete.** This was
+the standing item from 2026-08-26 and the cause turned out to be nothing the
+old notes predicted. Four changes, all in the working tree:
+
+- **`TracedSurface::Backface`** — the root cause. `TraceSurface` turns every
+  hit normal to face the ray (shading depends on it), and the irradiance
+  fill tested `dot(hit.Normal, direction) > 0` to find cells buried in
+  geometry. After the turn that is *structurally impossible*: `backfaces` was
+  always nought, **no cell in any bake this engine ever produced was
+  classified as buried**, and cells sitting inside walls stored what they saw
+  through them. Proven by dumping a field: 3 519 of 3 519 cells alive with
+  alpha exactly 1.0, including cells inside a 200 mm divider holding 0.08–0.10
+  of light. The fact is now recorded before the flip.
+- **The reader's dead-anchor path no longer falls through to the fast path.**
+  With buried cells finally existing, an empty visibility mask was dropping to
+  plain hardware trilinear — no visibility, no facing, no aliveness, the most
+  permissive read in the function.
+- **The lookup steps off a buried anchor** to a cell that was actually
+  surveyed, so the mask it judges its corners by means something.
+- **The solve reads one cell, unblended, at a buried anchor** where the frame
+  interpolates. Interpolation is the part that reaches across a wall, and a
+  stored guess becomes the next sweep's fact.
+
+Sealed rooms: `irradiance_leak`, `_point` and `_s2` all render **exactly
+0.000**, bit-identical to realtime, from 2.5 / 8.4 / 2.9 this morning. `_s3`
+(3 m cells) sits at 60.6 and stays out of envelope — a half-cell bias of 1.5 m
+against 200 mm walls samples straight through them.
+
+**What is NOT verified: whether the GI fixture's walls kept their light.** An
+earlier cut of the strict guard cost them 3 levels uniformly (the diff image
+showed whole wall faces, not contact bands), which is why the single-cell read
+replaced the outright refusal. A full rebake-and-compare chain was running
+when this was written; its results are the first thing to check. **If the
+walls are still dark, the single-cell read is under-reading and the next thing
+to try is dilation — fill buried cells from live neighbours but leave alpha at
+zero, so the hardware filter gets a plausible value while the careful path
+still refuses them.**
+
+**2 · Independent irradiance volumes — data model only.** Started, deliberately
+paused so it would not tangle with the unverified leak fix (they touch the same
+three files). Done: `IrradianceVolume::Region` + `CreateAtlas`,
+`kMaxIrradianceVolumes = 8`, and the `IrradianceBox[]` table in the scene
+block. Not done: region-list composition in `Scene::UpdateIrradianceVolumes`,
+the solve loop, atlas addressing in the fill and the reader, and the bake
+stamp.
+
+**The design decision worth not re-deriving:** N volumes cannot be N bound
+textures — OpenGL gives a fragment shader 32 samplers and the layered terrain
+variant already spends 31. They pack into one 3D texture, volume *v*'s tile
+*t* at slices `t · AtlasDepth + v.ZOffset`. **And the sweep must be the outer
+loop, the region the inner one**: the solver is Jacobi and its swap flips the
+whole atlas, so solving one region to completion before the next would leave
+the others' slices stale. Solve state becomes `(sweep, region, row)`.
+
+### The demo scene
+
+`bridge_race` is now **the Golden Gate at night** — a car running a closed
+bridge under sodium lamps. Full brief, with real bridge dimensions, the five
+materials, and the engine gaps it forces:
+<https://claude.ai/code/artifact/dcba8e5c-a034-439e-9e96-1d0e9cdfe0ac>
+
+The gaps it exposes are items 1, 2, 5 and 6 of `NEXT.md` — height fog,
+reverse-Z, mesh LODs and volumetrics — and it is the reason those outrank
+everything left in phase 8.
+
+---
+
+## Baked GI: rebuilt, eye-approved, and a pair of flavours
 
 **2026-08-26, later the same day. The rebuild the section below asked for
 is DONE and the owner passed both results by eye.** Full account:

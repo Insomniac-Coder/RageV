@@ -164,16 +164,29 @@ namespace RageV
 			// program and two spellings of one uniform block is undefined
 			// ground. See the note there.
 			// xyz the field's centre, w unused; and its half-extents, with w
-			// carrying whether there is a field at all -- zero means every
-			// reader falls back to the flat ambient.
+			// carrying **how many volumes the atlas holds** -- zero means every
+			// reader falls back to the flat ambient. It was a nought-or-one
+			// flag while a scene had one composed field; a count reads the same
+			// way at zero and says more above it.
 			Vec4 IrradianceCentre{ 0.0f };
 			Vec4 IrradianceExtents{ 1.0f, 1.0f, 1.0f, 0.0f };
 			// The rows of the field's inverse rotation. Mirrored by hand in
 			// scene_block.glsl and pbr_fragment.glsl, as everything in this
 			// block is.
-			Vec4 IrradianceRotation[3] = { Vec4(1.0f, 0.0f, 0.0f, 0.0f),
-										   Vec4(0.0f, 1.0f, 0.0f, 0.0f),
-										   Vec4(0.0f, 0.0f, 1.0f, 0.0f) };
+			// **Every volume in the atlas, one box each.** Five rows apiece,
+			// laid out so a reader can reject a box on the first two and only
+			// pay for the rest once it has found the one it is standing in:
+			//
+			//   0  centre.xyz          | z offset into each tile
+			//   1  half-extents.xyz    | metres between cells
+			//   2  axis X.xyz          | cells across
+			//   3  axis Y.xyz          | cells up
+			//   4  axis Z.xyz          | cells deep
+			//
+			// The same shape ProbePlacement takes above and for the same
+			// reason: the selection is per fragment, so the table has to be
+			// somewhere a fragment can read cheaply.
+			Vec4 IrradianceBox[Renderer3D::kMaxIrradianceVolumes * 5]{};
 			Vec4 ProbeCount{ 0.0f };
 			Vec4 ProbePlacement[15]{};
 			Vec4 ProbeSlot[15]{};
@@ -432,11 +445,10 @@ namespace RageV
 			// than passed through because BeginScene clears the block these
 			// bounds live in, so the copy has to happen on its far side.
 			Ref<IrradianceVolume> Irradiance;
-			Vec3 IrradianceCentre{ 0.0f };
-			Vec3 IrradianceExtents{ 1.0f };
-			// The box's axes, unit length, as columns. Identity for a volume
-			// nobody rotated, which is most of them.
-			Mat3 IrradianceRotation{ 1.0f };
+			// Every volume's box, guarded against degeneracy, in the order
+			// they sit in the atlas. Uploaded into the scene block's
+			// IrradianceBox table at BeginScene.
+			std::vector<IrradianceVolume::Region> IrradianceRegions;
 
 			// **A field waiting to be solved.** The two halves of the job are
 			// pinned to opposite ends of the frame: sizing has to happen before
@@ -450,8 +462,12 @@ namespace RageV
 			// first frame with no traced set defer rather than solve against
 			// nothing and call the field done.
 			Ref<IrradianceVolume> PendingIrradiance;
-			Vec3 PendingIrradianceCentre{ 0.0f };
-			Vec3 PendingIrradianceExtents{ 1.0f };
+			// Which region of the atlas this frame is solving. The sweep is the
+			// outer loop and this the inner one, deliberately: the swap that
+			// ends a sweep flips the *whole* texture, so a region solved to
+			// completion before its neighbours started would leave theirs
+			// stale in whichever buffer ended up in front.
+			uint32_t PendingIrradianceRegion = 0;
 			// **How far through the field this solve has got.** A band of rows
 			// a frame rather than the whole grid at once: solving a large field
 			// in one pass is a hitch exactly when a scene loads, which is the
@@ -1500,27 +1516,35 @@ namespace RageV
 		s_Data->PipelineDirty = true;
 	}
 
-	void Renderer3D::SetIrradianceVolume(const Ref<IrradianceVolume>& volume,
-										 const Vec3& centre, const Vec3& extents,
-										 const Mat3& rotation)
+	void Renderer3D::SetIrradianceVolumes(const Ref<IrradianceVolume>& volume)
 	{
 		if (!s_Data)
 			return;
 
 		s_Data->Irradiance = volume;
-		s_Data->IrradianceCentre = centre;
-		s_Data->IrradianceRotation = rotation;
-		// Guarded against a degenerate box: the shader divides by these to find
-		// a cell, and a zero extent would put every fragment at infinity.
-		s_Data->IrradianceExtents = Vec3(Math::Max(extents.x, 1.0e-3f),
-										 Math::Max(extents.y, 1.0e-3f),
-										 Math::Max(extents.z, 1.0e-3f));
+		s_Data->IrradianceRegions.clear();
+		if (!volume)
+			return;
+
+		for (const IrradianceVolume::Region& region : volume->Regions())
+		{
+			if (s_Data->IrradianceRegions.size() >= kMaxIrradianceVolumes)
+				break;
+
+			IrradianceVolume::Region guarded = region;
+			// Guarded against a degenerate box: the shader divides by these to
+			// find a cell, and a zero extent would put every fragment at
+			// infinity.
+			guarded.Extents = Vec3(Math::Max(region.Extents.x, 1.0e-3f),
+								   Math::Max(region.Extents.y, 1.0e-3f),
+								   Math::Max(region.Extents.z, 1.0e-3f));
+			s_Data->IrradianceRegions.push_back(guarded);
+		}
 	}
 
 	bool Renderer3D::SolveIrradianceVolume(RHICommandList& cmd,
 										   const Ref<IrradianceVolume>& volume,
-										   const Vec3& centre, const Vec3& extents,
-										   const Mat3& rotation,
+										   const IrradianceVolume::Region& region,
 										   int rays, float reach,
 										   uint32_t rowBegin, uint32_t rowCount,
 										   float blend, bool feedback)
@@ -1549,8 +1573,11 @@ namespace RageV
 		// and z stacked. Nothing is written to it and nothing reads it -- the
 		// cells leave through imageStore -- so its format is the cheapest one
 		// that can be an attachment.
-		const uint32_t width = volume->Width();
-		const uint32_t height = volume->Height() * volume->Depth();
+		// The region's own grid, not the atlas's: a fragment is generated per
+		// cell of the volume being solved, and its neighbours in the texture
+		// are somebody else's business.
+		const uint32_t width = region.Width;
+		const uint32_t height = region.Height * region.Depth;
 
 		if (!s_Data->IrradianceFillTarget
 			|| s_Data->IrradianceFillWidth < width
@@ -1619,10 +1646,13 @@ namespace RageV
 			Vec4 Rotation[3];
 		} params{};
 
-		params.Centre = Vec4(centre, 0.0f);
-		params.Extents = Vec4(extents, 0.0f);
-		params.Grid = Vec4((float)volume->Width(), (float)volume->Height(),
-						   (float)volume->Depth(), (float)Math::Clamp(rays, 1, 4096));
+		// **The two atlas numbers ride in the unused lanes**: where this
+		// region's slices begin inside a tile, and how far apart one tile is
+		// from the next. Everything else about the box is the region's own.
+		params.Centre = Vec4(region.Centre, (float)region.ZOffset);
+		params.Extents = Vec4(region.Extents, (float)volume->Depth());
+		params.Grid = Vec4((float)region.Width, (float)region.Height,
+						   (float)region.Depth, (float)Math::Clamp(rays, 1, 4096));
 		// The counter the ray directions are hashed against. It moves per solve
 		// rather than per frame, so re-solving a field that did not change is
 		// not a way to make it flicker. `w` is the feedback switch the fill
@@ -1630,7 +1660,7 @@ namespace RageV
 		params.Trace = Vec4(reach, (float)s_Data->IrradianceFrame++, blend,
 							feedback ? 1.0f : 0.0f);
 		for (int axis = 0; axis < 3; axis++)
-			params.Rotation[axis] = Vec4(rotation[axis], 0.0f);
+			params.Rotation[axis] = Vec4(region.Rotation[axis], 0.0f);
 
 		// **The writes, fenced in both directions**, and both directions matter.
 		// The back texture was last left readable -- by the closing barrier of
@@ -1703,8 +1733,6 @@ namespace RageV
 	}
 
 	void Renderer3D::RequestIrradianceSolve(const Ref<IrradianceVolume>& volume,
-											const Vec3& centre, const Vec3& extents,
-											const Mat3& rotation,
 											uint32_t passes, uint32_t raysPerCell,
 											bool feedback)
 	{
@@ -1717,14 +1745,12 @@ namespace RageV
 		s_Data->PendingIrradianceFeedback = feedback;
 		s_Data->PendingIrradianceRays = Math::Clamp(raysPerCell, 64u, 4096u);
 		s_Data->PendingIrradiance = volume;
-		s_Data->PendingIrradianceCentre = centre;
-		s_Data->PendingIrradianceExtents = extents;
-		s_Data->PendingIrradianceRotation = rotation;
 		// A new request starts its sweeps over. Asking again mid-solve is what
 		// a scene whose lighting moved does, and it wants the answer for the
 		// lighting it has now rather than a blend of two of them.
 		s_Data->PendingIrradianceRow = 0;
 		s_Data->PendingIrradianceSweep = 0;
+		s_Data->PendingIrradianceRegion = 0;
 	}
 
 	bool Renderer3D::HasPendingIrradianceSolve()
@@ -1798,21 +1824,29 @@ namespace RageV
 		const uint32_t kSweeps = s_Data->PendingIrradiancePasses;
 		const float blend = s_Data->PendingIrradianceSweep == 0 ? 1.0f : 0.5f;
 
+		const std::vector<IrradianceVolume::Region>& regions = field.Regions();
+		if (regions.empty())
+		{
+			s_Data->PendingIrradiance = nullptr;
+			return true;
+		}
+
+		const uint32_t index = Math::Min(s_Data->PendingIrradianceRegion,
+										 (uint32_t)regions.size() - 1);
+		const IrradianceVolume::Region& region = regions[index];
+
 		// Far enough that a cell in the middle of a room can see its far wall,
 		// derived from the box rather than guessed: a volume over a corridor
 		// and one over a stadium want different answers and neither wants a
-		// constant.
-		const float reach =
-			Math::Max(Math::Length(s_Data->PendingIrradianceExtents) * 4.0f, 10.0f);
+		// constant. Per region, since that is now what a box is.
+		const float reach = Math::Max(Math::Length(region.Extents) * 4.0f, 10.0f);
 
 		// **Cleared only on success.** A frame that could not solve -- no
 		// traced set yet, no rays on this device -- leaves the request
 		// standing, so the field is either solved or still asking, and never
 		// quietly holding the placeholder while believing itself done.
-		if (!SolveIrradianceVolume(cmd, s_Data->PendingIrradiance,
-								   s_Data->PendingIrradianceCentre,
-								   s_Data->PendingIrradianceExtents,
-								   s_Data->PendingIrradianceRotation, kRaysPerCell, reach,
+		if (!SolveIrradianceVolume(cmd, s_Data->PendingIrradiance, region,
+								   kRaysPerCell, reach,
 								   s_Data->PendingIrradianceRow, rowsPerFrame, blend,
 								   s_Data->PendingIrradianceFeedback))
 		{
@@ -1820,17 +1854,26 @@ namespace RageV
 		}
 
 		s_Data->PendingIrradianceRow += rowsPerFrame;
-		if (s_Data->PendingIrradianceRow < rows)
-			return true;        // more of this sweep to go
+		if (s_Data->PendingIrradianceRow < region.Height * region.Depth)
+			return true;        // more of this region's sweep to go
 
-		// The sweep is complete: what it wrote becomes the front everything
-		// samples -- the frame's preview, and the next sweep's feedback and
-		// history -- and the old front becomes the next sweep's target. The
-		// bound descriptors catch up on the next frame's set write, which is
-		// also the first read of the new front.
+		// **The next region, at the same sweep.** The sweep is the outer loop
+		// and the region the inner one, which is not a matter of taste: the
+		// flip below exchanges the *whole* texture, so a region carried to its
+		// last sweep while its neighbours sat at their first would leave theirs
+		// stale in whichever buffer came to the front.
+		s_Data->PendingIrradianceRow = 0;
+		if (++s_Data->PendingIrradianceRegion < (uint32_t)regions.size())
+			return true;
+
+		// Every region has had this sweep: what they wrote becomes the front
+		// everything samples -- the frame's preview, and the next sweep's
+		// feedback and history -- and the old front becomes the next target.
+		// The bound descriptors catch up on the next frame's set write, which
+		// is also the first read of the new front.
 		s_Data->PendingIrradiance->FlipSolve();
 
-		s_Data->PendingIrradianceRow = 0;
+		s_Data->PendingIrradianceRegion = 0;
 		if (++s_Data->PendingIrradianceSweep < kSweeps)
 			return true;        // another sweep, one bounce deeper
 
@@ -1839,9 +1882,10 @@ namespace RageV
 		// rather than a running commentary.
 		if (s_Data->AnnouncedIrradiance != s_Data->PendingIrradiance.get())
 		{
-			RV_CORE_INFO("Renderer3D: irradiance field solved, {0}x{1}x{2} cells "
-						 "over {3} sweeps ({4})",
-						 field.Width(), field.Height(), field.Depth(), kSweeps,
+			RV_CORE_INFO("Renderer3D: irradiance solved, {0} volume(s) in a "
+						 "{1}x{2}x{3} atlas over {4} sweeps ({5})",
+						 regions.size(), field.Width(), field.Height(), field.Depth(),
+						 kSweeps,
 						 s_Data->PendingIrradianceFeedback
 							 ? "traced flavour, sweeps are bounces"
 							 : "screen flavour, single bounce");
@@ -1850,6 +1894,7 @@ namespace RageV
 
 		s_Data->PendingIrradiance = nullptr;
 		s_Data->PendingIrradianceSweep = 0;
+		s_Data->PendingIrradianceRegion = 0;
 		return true;
 	}
 
@@ -2479,19 +2524,34 @@ namespace RageV
 			s_Data->Scene.ProbeSlot[i] = s_Data->Probes[i].Slot;
 		}
 
-		// **The rows that take a world vector into the box's axes**, which for
-		// an orthonormal rotation are its columns read across. Sent rather than
-		// inverted in the shader: an inverse per fragment for a matrix that
+		// **Every volume's box, five rows apiece.** See IrradianceBox for the
+		// layout. The rows that take a world vector into a box's own axes are
+		// its rotation's columns read across -- sent rather than inverted in
+		// the shader, because an inverse per fragment for a matrix that
 		// changes once a frame is work in the wrong place.
-		for (int axis = 0; axis < 3; axis++)
 		{
-			s_Data->Scene.IrradianceRotation[axis] =
-				Vec4(s_Data->IrradianceRotation[axis], 0.0f);
-		}
+			const uint32_t volumes = (uint32_t)s_Data->IrradianceRegions.size();
+			for (uint32_t i = 0; i < volumes; i++)
+			{
+				const IrradianceVolume::Region& region = s_Data->IrradianceRegions[i];
+				Vec4* row = &s_Data->Scene.IrradianceBox[i * 5];
+				row[0] = Vec4(region.Centre, (float)region.ZOffset);
+				row[1] = Vec4(region.Extents, region.Spacing);
+				row[2] = Vec4(region.Rotation[0], (float)region.Width);
+				row[3] = Vec4(region.Rotation[1], (float)region.Height);
+				row[4] = Vec4(region.Rotation[2], (float)region.Depth);
+			}
 
-		s_Data->Scene.IrradianceCentre = Vec4(s_Data->IrradianceCentre, 0.0f);
-		s_Data->Scene.IrradianceExtents =
-			Vec4(s_Data->IrradianceExtents, s_Data->Irradiance ? 1.0f : 0.0f);
+			// The count, where a lone field's "is there one at all" flag used
+			// to sit -- zero still means every reader falls back to the flat
+			// ambient, which is what kept this compatible.
+			s_Data->Scene.IrradianceExtents = Vec4(1.0f, 1.0f, 1.0f, (float)volumes);
+			// The atlas's own depth: the stride from one tile to the next, and
+			// the number every reader divides by to address a slice.
+			s_Data->Scene.IrradianceCentre =
+				Vec4(0.0f, 0.0f, 0.0f,
+					 s_Data->Irradiance ? (float)s_Data->Irradiance->Depth() : 0.0f);
+		}
 
 		// Written after the grid, because the grid decides the two vectors
 		// above and the block is uploaded once.

@@ -41,7 +41,16 @@ layout(set = 3, binding = 0, rgba16f) uniform image3D u_FillField;
 
 layout(push_constant) uniform FillParams
 {
-	// The box being solved, in world space: centre and half-extents.
+	// The box being solved, in world space: centre and half-extents -- and in
+	// their spare lanes, the two numbers that place it inside the atlas.
+	//
+	// **Centre.w is where this volume's slices begin inside a tile**, and
+	// **Extents.w is the atlas's depth**, which is the stride from one tile to
+	// the next. Several volumes share one texture because a fragment shader
+	// has thirty-two samplers on OpenGL and terrain already spends thirty-one
+	// of them, so a field's tile no longer starts at its own depth times the
+	// tile index -- it starts at the *atlas* depth times the tile index, plus
+	// this volume's offset. Every imageStore below says so.
 	vec4 Centre;
 	vec4 Extents;
 
@@ -96,6 +105,11 @@ void main()
 	// traced flavour); without, every pass re-estimates the same single
 	// bounce (the screen flavour). See ShadeTraced's guarded block.
 	g_FillFeedback = u_Fill.Trace.w > 0.5;
+
+	// Where this volume sits in the shared texture: the first slice it owns,
+	// and the distance between one tile and the next.
+	const int atlasBase = int(u_Fill.Centre.w + 0.5);
+	const int tileStride = int(u_Fill.Extents.w + 0.5);
 
 	const ivec3 grid = ivec3(u_Fill.Grid.xyz + 0.5);
 	const int rays = max(int(u_Fill.Grid.w + 0.5), 1);
@@ -201,7 +215,16 @@ void main()
 
 		// Facing away from the ray that found it: the ray started inside the
 		// solid this surface bounds.
-		if (dot(hit.Normal, direction) > 0.0)
+		//
+		// **Asked of the hit, not of its normal**, and that distinction was
+		// the whole defect: TraceSurface turns the normal to face the ray
+		// before returning it, so `dot(hit.Normal, direction) > 0` -- what
+		// this line used to say -- can never be true. `backfaces` was always
+		// nought, no cell was ever found to be inside geometry, and every
+		// cell in every bake was stored as a usable one. A cell in the middle
+		// of a wall then stored what it could see *through* that wall, which
+		// is a sealed room's glow and a thin divider's bright edge, both.
+		if (hit.Backface)
 		{
 			backfaces++;
 			continue;
@@ -251,9 +274,11 @@ void main()
 	if (backfaces * 4 > rays)
 	{
 		for (int f = 0; f < 6; f++)
-			imageStore(u_FillField, cell + ivec3(0, 0, grid.z * f), vec4(0.0));
+			imageStore(u_FillField, cell + ivec3(0, 0, tileStride * f + atlasBase),
+					   vec4(0.0));
 		// And nothing visible from it, so no reader takes light from it either.
-		imageStore(u_FillField, cell + ivec3(0, 0, grid.z * 6), vec4(0.0));
+		imageStore(u_FillField, cell + ivec3(0, 0, tileStride * 6 + atlasBase),
+				   vec4(0.0));
 		return;
 	}
 
@@ -279,7 +304,7 @@ void main()
 	// exact.
 	for (int f = 0; f < 6; f++)
 	{
-		const ivec3 slot = cell + ivec3(0, 0, grid.z * f);
+		const ivec3 slot = cell + ivec3(0, 0, tileStride * f + atlasBase);
 		// **The alpha says the cell is worth reading**, and it rides along free
 		// in a lane the faces do not use. A cell zeroed for being inside
 		// geometry reads zero there, and a reader that blends it in anyway
@@ -336,6 +361,6 @@ void main()
 
 	// Written flat rather than blended: it is a fact about geometry, not an
 	// estimate that improves with rays, and a blended bitmask is not a bitmask.
-	imageStore(u_FillField, cell + ivec3(0, 0, grid.z * 6),
+	imageStore(u_FillField, cell + ivec3(0, 0, tileStride * 6 + atlasBase),
 			   vec4(neighbours, 0.0, 0.0, 0.0));
 }

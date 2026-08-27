@@ -23,7 +23,12 @@ namespace RageV
 		// refuses a version it does not know rather than reading old bytes
 		// under new rules. That refusal costs a re-bake; the alternative costs
 		// a lighting bug nobody can find.
-		constexpr uint32_t kVersion = 1;
+		// **Two.** Bumped 2026-08-27, when volumes became independent: the
+		// stamp gained a Layout hash, and a version-1 field describes one
+		// composed box rather than an atlas of them. Refusing costs a re-bake
+		// and is the whole reason the field is here -- reading old bytes under
+		// new rules is the lighting bug nobody can find.
+		constexpr uint32_t kVersion = 2;
 
 		struct Header
 		{
@@ -323,7 +328,10 @@ namespace RageV
 			&& Math::Distance(AxisY, other.AxisY) <= kEpsilon
 			&& Width == other.Width && Height == other.Height
 			&& Depth == other.Depth && Tiles == other.Tiles
-			&& Lighting == other.Lighting;
+			&& Lighting == other.Lighting
+			// The arrangement inside the atlas, which the dimensions above
+			// cannot speak for: same texture, different boxes.
+			&& Layout == other.Layout;
 	}
 
 	std::filesystem::path BakedLighting::DirectoryFor(const std::string& sceneName)

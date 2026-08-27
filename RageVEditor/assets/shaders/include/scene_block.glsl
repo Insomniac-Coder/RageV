@@ -97,16 +97,16 @@ layout(set = 0, binding = 0) uniform SceneData
 	// what stops a mesh flipping its entire ambient and reflection in one
 	// frame as it crosses an influence boundary.
 
-	// **The irradiance field's box**, in world space. xyz the centre; the
-	// extents' w says whether there is a field at all -- zero and every reader
-	// falls back to the flat ambient above, which is what this replaced.
+	// **The irradiance atlas.** Centre.w is the atlas's depth -- the stride
+	// from one tile of the texture to the next -- and Extents.w is how many
+	// volumes it holds; zero means every reader falls back to the flat ambient
+	// above. (Both carried a single composed box until 2026-08-27.)
 	vec4 IrradianceCentre;
 	vec4 IrradianceExtents;
-	// The field's rotation, as the three rows that take a world direction into
-	// the box's own axes. A box that is not axis aligned needs its inverse to
-	// find a cell, and an axis-aligned one gets the identity -- which costs
-	// three dot products and keeps one path rather than two.
-	vec4 IrradianceRotation[3];
+	// Five rows a volume, up to eight: centre|zOffset, extents|spacing, and
+	// the three rows that take a world direction into that box's own axes,
+	// each carrying one of its cell counts in w.
+	vec4 IrradianceBox[40];
 	vec4 ProbeCount;              // x = how many rows are real
 	vec4 ProbePlacement[15];
 	vec4 ProbeSlot[15];

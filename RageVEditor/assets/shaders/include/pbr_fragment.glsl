@@ -93,16 +93,16 @@ layout(set = 0, binding = 0) uniform SceneData
 	// what stops a mesh flipping its entire ambient and reflection in one
 	// frame as it crosses an influence boundary.
 
-	// **The irradiance field's box**, in world space. xyz the centre; the
-	// extents' w says whether there is a field at all -- zero and every reader
-	// falls back to the flat ambient above, which is what this replaced.
+	// **The irradiance atlas.** Centre.w is the atlas's depth -- the stride
+	// from one tile of the texture to the next -- and Extents.w is how many
+	// volumes it holds; zero means every reader falls back to the flat ambient
+	// above. (Both carried a single composed box until 2026-08-27.)
 	vec4 IrradianceCentre;
 	vec4 IrradianceExtents;
-	// The field's rotation, as the three rows that take a world direction into
-	// the box's own axes. A box that is not axis aligned needs its inverse to
-	// find a cell, and an axis-aligned one gets the identity -- which costs
-	// three dot products and keeps one path rather than two.
-	vec4 IrradianceRotation[3];
+	// Five rows a volume, up to eight: centre|zOffset, extents|spacing, and
+	// the three rows that take a world direction into that box's own axes,
+	// each carrying one of its cell counts in w.
+	vec4 IrradianceBox[40];
 	vec4 ProbeCount;              // x = how many rows are real
 	vec4 ProbePlacement[15];
 	vec4 ProbeSlot[15];
@@ -799,10 +799,63 @@ layout(set = 0, binding = 18) uniform sampler3D u_IrradianceField;
 bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradiance)
 {
 	irradiance = vec3(0.0);
-	if (u_Scene.IrradianceExtents.w < 0.5)
+
+	// **Which volume is this fragment standing in?**
+	//
+	// A scene's volumes used to be merged into one box before anything got
+	// here, so this function had exactly one to read and needed no choosing.
+	// They are independent now -- own grid, own spacing, own rotation, packed
+	// side by side into one texture -- so the first job is picking one.
+	//
+	// **The deepest containment wins**, measured as the distance to the
+	// nearest face in cells rather than in metres: a fragment inside two
+	// overlapping volumes should read the one it is furthest *inside*, and
+	// comparing in metres would hand a coarse volume the argument simply for
+	// being large. It is also exactly the quantity the edge fade below wants,
+	// so it is computed once and used twice.
+	const int volumeCount = int(u_Scene.IrradianceExtents.w + 0.5);
+	if (volumeCount <= 0)
 		return false;               // no field in the scene
 
-	const vec3 extents = max(u_Scene.IrradianceExtents.xyz, vec3(1.0e-3));
+	int chosen = -1;
+	float chosenDepth = 0.0;
+	vec3 chosenLocal = vec3(0.0);
+	for (int v = 0; v < volumeCount; v++)
+	{
+		const vec4 boxCentre = u_Scene.IrradianceBox[v * 5 + 0];
+		const vec4 boxExtents = u_Scene.IrradianceBox[v * 5 + 1];
+		const vec3 axisX = u_Scene.IrradianceBox[v * 5 + 2].xyz;
+		const vec3 axisY = u_Scene.IrradianceBox[v * 5 + 3].xyz;
+		const vec3 axisZ = u_Scene.IrradianceBox[v * 5 + 4].xyz;
+
+		const vec3 boxHalf = max(boxExtents.xyz, vec3(1.0e-3));
+		const vec3 d = position - boxCentre.xyz;
+		// Into this box's own frame; the bias along the normal is applied
+		// after a volume is chosen, because it needs that volume's cell size.
+		const vec3 p = vec3(dot(axisX, d), dot(axisY, d), dot(axisZ, d));
+		const vec3 l = p / boxHalf;
+		if (any(greaterThan(abs(l), vec3(1.0))))
+			continue;               // outside this one
+
+		const vec3 boxGrid = max(vec3(u_Scene.IrradianceBox[v * 5 + 2].w,
+									  u_Scene.IrradianceBox[v * 5 + 3].w,
+									  u_Scene.IrradianceBox[v * 5 + 4].w) - 1.0,
+								 vec3(1.0));
+		const vec3 inCells = (1.0 - abs(l)) * boxGrid * 0.5;
+		const float depth = min(inCells.x, min(inCells.y, inCells.z));
+		if (chosen < 0 || depth > chosenDepth)
+		{
+			chosen = v;
+			chosenDepth = depth;
+			chosenLocal = l;
+		}
+	}
+
+	if (chosen < 0)
+		return false;               // in none of them
+
+	const int box = chosen * 5;
+	const vec3 extents = max(u_Scene.IrradianceBox[box + 1].xyz, vec3(1.0e-3));
 
 	// **Half a cell along the normal, before anything else** -- the cheap half
 	// of not leaking through walls.
@@ -823,9 +876,17 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	// The field's own shape, from the texture: its z is five tiles deep -- three
 	// of light and two of distance -- so a tile is a fifth of it, and nothing
 	// has to be told the grid separately.
+	// **The atlas, and this volume's window onto it.** `tile` is the stride
+	// from one tile of the texture to the next -- the atlas's whole depth,
+	// not this volume's -- and `zbase` is where this volume's slices start
+	// inside each tile. A reader that uses its own depth as the stride lands
+	// in a neighbour's cells, which is the one way this layout goes wrong.
 	const ivec3 texels = textureSize(u_IrradianceField, 0);
-	const int tile = max(texels.z / RV_IRRADIANCE_TILES, 1);
-	const vec3 cells = vec3(texels.x, texels.y, tile);
+	const int tile = max(int(u_Scene.IrradianceCentre.w + 0.5), 1);
+	const int zbase = int(u_Scene.IrradianceBox[box + 0].w + 0.5);
+	const vec3 cells = vec3(u_Scene.IrradianceBox[box + 2].w,
+							u_Scene.IrradianceBox[box + 3].w,
+							u_Scene.IrradianceBox[box + 4].w);
 	const vec3 grid = max(cells - 1.0, vec3(1.0));
 
 	// **Into the box's own frame first**, because a volume may be turned. The
@@ -833,18 +894,29 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	// below -- which cell, how far, which way -- is asked there. The rotation
 	// is orthonormal, so a dot product means the same thing on either side of
 	// it and the facing test does not care which frame it is in.
-	const vec3 delta = position - u_Scene.IrradianceCentre.xyz;
-	const vec3 placed = vec3(dot(u_Scene.IrradianceRotation[0].xyz, delta),
-							 dot(u_Scene.IrradianceRotation[1].xyz, delta),
-							 dot(u_Scene.IrradianceRotation[2].xyz, delta));
-	const vec3 facing = vec3(dot(u_Scene.IrradianceRotation[0].xyz, normal),
-							 dot(u_Scene.IrradianceRotation[1].xyz, normal),
-							 dot(u_Scene.IrradianceRotation[2].xyz, normal));
+	const vec3 axisX = u_Scene.IrradianceBox[box + 2].xyz;
+	const vec3 axisY = u_Scene.IrradianceBox[box + 3].xyz;
+	const vec3 axisZ = u_Scene.IrradianceBox[box + 4].xyz;
+
+	const vec3 delta = position - u_Scene.IrradianceBox[box + 0].xyz;
+	const vec3 placed = vec3(dot(axisX, delta), dot(axisY, delta), dot(axisZ, delta));
+	const vec3 facing = vec3(dot(axisX, normal), dot(axisY, normal), dot(axisZ, normal));
 
 	// Half a cell along the normal, in the frame the cells are spaced in.
-	const vec3 biased = placed + facing * (extents / grid);
-
-	const vec3 local = biased / extents;
+	//
+	// **And a whole cell further when that lands on a buried cell**, which is
+	// the difference between asking a question and asking someone who can
+	// answer it. The mask a fragment judges its eight corners by belongs to
+	// its nearest cell; a cell inside the floor was never asked what it can
+	// see, publishes an empty mask, and an empty mask cannot refuse the
+	// bright corner across a divider -- measured on the two-metre sealed room,
+	// where the whole room holds one live layer and the lit room's cell sits
+	// one corner away. Stepping the lookup off the surface until it reaches a
+	// cell that is genuinely in the room gets a mask with something in it,
+	// and the refusal works again. It costs one fetch, in the case that was
+	// already the expensive one, and it blurs the read by a cell exactly
+	// where the nearest cell was rubble -- which had no detail to lose.
+	vec3 local = (placed + facing * (extents / grid)) / extents;
 	if (any(greaterThan(abs(local), vec3(1.0))))
 		return false;               // outside it
 
@@ -870,6 +942,52 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	// the box a cell past the authored extents -- see
 	// Scene::UpdateIrradianceVolumes -- so a surface *on* the authored
 	// boundary sits a full cell from the real edge and reads full strength.
+	// Set where the lookup lands on a cell nothing surveyed; see below.
+	bool singleCell = false;
+
+	// The anchor, and the step off a buried one described above. Done before
+	// the edge fade so the fade measures the sample actually taken.
+	{
+		const vec3 firstBase = (local * 0.5 + 0.5) * grid;
+		const ivec3 firstAnchor = clamp(ivec3(floor(firstBase + 0.5)),
+										ivec3(0), ivec3(grid));
+		const int firstMask = int(texelFetch(u_IrradianceField,
+											 firstAnchor + ivec3(0, 0, tile * 6 + zbase), 0).x + 0.5);
+		if (firstMask == 0)
+		{
+			const vec3 stepped = (placed + facing * (extents / grid) * 3.0) / extents;
+			// Only if the step stays in the box: past the edge the fade below
+			// is the honest answer, not a sample from outside it.
+			if (all(lessThanEqual(abs(stepped), vec3(1.0))))
+				local = stepped;
+#ifdef RV_IRRADIANCE_FILL
+			// **The solve reads one cell here, and does not blend.**
+			//
+			// A buried anchor means "nobody at this end of the lookup was
+			// asked what they can see". The frame answers that by stepping
+			// off and interpolating anyway -- a slightly optimistic wall
+			// beats a black one, and a frame's guess dies with the frame.
+			// The solve cannot be so relaxed: what it reads is *stored*, and
+			// the next sweep reads the store as light, so an interpolation
+			// that reaches across a wall is a loop with a gain. Measured on
+			// the sealed room at two-metre cells, where every floor and
+			// ceiling cell is buried: blending after the step took it from
+			// black at one pass to fifteen levels at eight.
+			//
+			// Refusing outright also works and is what this did first, but
+			// it throws away real light with the false: the GI fixture's
+			// walls, whose inner cell layer is legitimately buried in
+			// 200 mm of wall, lost three levels of honest bounce that way.
+			//
+			// So: step to a cell that was asked, and take its answer alone.
+			// One cell cannot interpolate across anything, which is the
+			// whole risk; and if the stepped cell is buried too, there is
+			// genuinely nothing to report.
+			singleCell = true;
+#endif
+		}
+	}
+
 	const vec3 fromEdge = (1.0 - abs(local)) * grid * 0.5;
 	const float edgeFade = clamp(min(fromEdge.x, min(fromEdge.y, fromEdge.z)), 0.0, 1.0);
 	if (edgeFade <= 0.0)
@@ -906,25 +1024,36 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	// belongs to where the fragment *is*, and every corner is judged by it.
 	const ivec3 anchorCell = clamp(ivec3(floor(base + 0.5)), ivec3(0), last);
 	const int reachable = int(texelFetch(u_IrradianceField,
-										 anchorCell + ivec3(0, 0, tile * 6), 0).x + 0.5);
+										 anchorCell + ivec3(0, 0, tile * 6 + zbase), 0).x + 0.5);
 
 	// **Nothing in the way of any of the six, so nothing to weigh.** This is
 	// the ordinary case -- a point in an open room -- and it is why the careful
 	// path costs what it costs only where it has to. All six bits set means no
 	// corner of the blend is behind a wall, and the hardware's filter is then
 	// exactly the answer the loop below would spend 24 fetches arriving at.
-	// **A cell inside a wall knows nothing about who can see whom.** Its mask is
-	// zero because the bake zeroed the whole cell, not because six walls stand
-	// around it -- and a fragment on a floor or against a wall very often has
-	// exactly such a cell as its nearest. Taking that zero as "nothing is
-	// reachable" collapses the lookup to a single dead cell and the surface
-	// goes black, which is precisely where a field is supposed to be at its
-	// best. So an empty mask means no information, and the blend falls back to
-	// the facing weight alone.
+	// **A cell inside a wall knows nothing about who can see whom**, and an
+	// empty mask is that ignorance rather than a report of six walls. A
+	// fragment on a floor or against a wall very often has exactly such a
+	// cell as its nearest, and reading the zero as "nothing is reachable"
+	// collapses the lookup onto a dead cell and the surface goes black --
+	// measured at 4.6 levels darker than the realtime bounce on the GI
+	// corner, which is where a field is supposed to be at its best.
 	//
-	// Measured on the GI corner: the surfaces nearest walls were reading 4.6
-	// levels darker than the realtime bounce, and this was most of it.
-	if (!shadowed || reachable == 0x3F || reachable == 0)
+	// **But "no information" is not a licence to blend through walls**, and
+	// for a while it was: an empty mask took the hardware path below, which
+	// weighs by distance alone -- no visibility, no facing, no aliveness --
+	// and is the most permissive read in this function. That was invisible
+	// while the fill's buried-cell test was broken (see
+	// TracedSurface::Backface: no cell was ever dead, so no mask was ever
+	// empty). With the test working, the sealed room at two-metre cells went
+	// straight through it: 7.8 levels where the answer is black.
+	//
+	// So an empty mask now falls through to the careful loop, which keeps the
+	// facing weight and the aliveness test and simply has no bits to consult.
+	// Facing alone is most of what was wanted anyway -- a cell on the far
+	// side of the wall a fragment faces lies *behind* that fragment, and a
+	// negative dot refuses it without needing to know a wall is there.
+	if (!shadowed || reachable == 0x3F)
 	{
 		// **The three faces this normal actually faces.** An ambient cube's
 		// weights are the squared components of the normal in the box's frame,
@@ -932,7 +1061,11 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		// that needs normalising, and it costs the same three fetches the
 		// spherical harmonics did.
 		const vec3 uvw = (local * 0.5 + 0.5) * grid + 0.5;
-		const vec2 uv = uvw.xy / cells.xy;
+		// **Against the atlas's own size, not this volume's.** The hardware
+		// filter samples in texture space, so the coordinate has to be scaled
+		// by the texture -- a volume narrower than the widest one would
+		// otherwise stretch its cells across the whole width.
+		const vec2 uv = uvw.xy / vec2(texels.xy);
 		const float depth = float(texels.z);
 		const vec3 square = facing * facing;
 
@@ -941,15 +1074,39 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		{
 			const int slot = axis * 2 + (facing[axis] >= 0.0 ? 0 : 1);
 			irradiance += square[axis] * textureLod(u_IrradianceField,
-					vec3(uv, (uvw.z + float(tile * slot)) / depth), 0.0).rgb;
+					vec3(uv, (uvw.z + float(tile * slot + zbase)) / depth), 0.0).rgb;
 		}
 		irradiance = max(irradiance, vec3(0.0)) * edgeFade;
 		return true;
 	}
 
+	const vec3 square = facing * facing;
+
+	// **One cell, unblended** -- the solve's answer where the lookup landed on
+	// a buried anchor. See the note at the step above: interpolation is the
+	// part that can reach across a wall, so the case with no visibility
+	// information to steer it takes the nearest surveyed cell whole.
+	if (singleCell)
+	{
+		const ivec3 one = clamp(ivec3(floor(base + 0.5)), ivec3(0), last);
+		vec3 here = vec3(0.0);
+		bool alive = false;
+		for (int axis = 0; axis < 3; axis++)
+		{
+			const int slot = axis * 2 + (facing[axis] >= 0.0 ? 0 : 1);
+			const vec4 stored = texelFetch(u_IrradianceField,
+										   one + ivec3(0, 0, tile * slot + zbase), 0);
+			here += square[axis] * stored.rgb;
+			alive = alive || stored.a > 0.5;
+		}
+		if (!alive)
+			return false;   // buried there as well: nothing honest to report
+		irradiance = max(here, vec3(0.0)) * edgeFade;
+		return true;
+	}
+
 	vec3 accumulated = vec3(0.0);
 	float total = 0.0;
-	const vec3 square = facing * facing;
 
 	for (int c = 0; c < 8; c++)
 	{
@@ -977,18 +1134,28 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		// one axis needs that axis's bit; a diagonal one needs every axis it
 		// steps along, which is the right way round -- it can refuse a corner
 		// light could have reached, and it cannot admit one behind a wall.
-		const ivec3 stepping = index - anchorCell;
-		bool allowed = true;
-		for (int axis = 0; axis < 3; axis++)
+		//
+		// **An empty mask is skipped rather than obeyed**: it means the
+		// anchor is a cell inside geometry, which was never asked the
+		// question, and refusing every corner on the strength of an answer
+		// nobody gave is how a surface against a wall goes black. Facing and
+		// aliveness below still apply, and between them they are most of the
+		// test -- what is left is the diagonal case a mask would have caught.
+		if (reachable != 0)
 		{
-			if (stepping[axis] == 0)
+			const ivec3 stepping = index - anchorCell;
+			bool allowed = true;
+			for (int axis = 0; axis < 3; axis++)
+			{
+				if (stepping[axis] == 0)
+					continue;
+				const int bit = axis * 2 + (stepping[axis] > 0 ? 0 : 1);
+				if ((reachable & (1 << bit)) == 0)
+					allowed = false;
+			}
+			if (!allowed)
 				continue;
-			const int bit = axis * 2 + (stepping[axis] > 0 ? 0 : 1);
-			if ((reachable & (1 << bit)) == 0)
-				allowed = false;
 		}
-		if (!allowed)
-			continue;
 
 		// The three faces this normal faces, from this cell.
 		vec3 here = vec3(0.0);
@@ -997,7 +1164,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		{
 			const int slot = axis * 2 + (facing[axis] >= 0.0 ? 0 : 1);
 			const vec4 stored = texelFetch(u_IrradianceField,
-										   index + ivec3(0, 0, tile * slot), 0);
+										   index + ivec3(0, 0, tile * slot + zbase), 0);
 			here += square[axis] * stored.rgb;
 			alive = alive || stored.a > 0.5;
 		}
@@ -1214,6 +1381,19 @@ struct TracedSurface
 	// bounce subtracts Emissive only where this is true; see
 	// RAY_INSTANCE_EMITTER.
 	bool IsEmitter;
+	// **Whether the ray struck the back of the surface** -- that is, whether
+	// it started inside the solid this surface bounds.
+	//
+	// Recorded because `Normal` cannot answer it: the normal below is turned
+	// to face the ray, which every shading path depends on, and the turn
+	// destroys the only evidence. A caller that asks
+	// `dot(surface.Normal, direction) > 0` is asking a question whose answer
+	// is always no, and the irradiance fill asked exactly that for its
+	// buried-cell test -- so the test never once fired, no cell was ever
+	// classified as inside geometry, and cells sitting in walls stored the
+	// light they saw through them. Both the sealed-room glow and the
+	// divider's bright edge were that.
+	bool Backface;
 };
 
 // `reach` is how far the ray may travel, in world metres. A reflection wants
@@ -1232,6 +1412,7 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	surface.Direct = vec3(0.0);
 	surface.Emissive = vec3(0.0);
 	surface.IsEmitter = false;
+	surface.Backface = false;
 
 	// Off the surface along its geometric normal, the shadow ray's offset,
 	// for the shadow ray's reason.
@@ -1320,8 +1501,11 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	vec3 hitNormal = normalize(vec3(dot(worldToObject[0].xyz, objectNormal),
 									dot(worldToObject[1].xyz, objectNormal),
 									dot(worldToObject[2].xyz, objectNormal)));
-	// Toward the ray, whichever face was hit.
-	if (dot(hitNormal, direction) > 0.0)
+	// Toward the ray, whichever face was hit -- and the fact of the turn
+	// carried out, because it is the only place that knows. See
+	// TracedSurface::Backface.
+	const bool hitBackface = dot(hitNormal, direction) > 0.0;
+	if (hitBackface)
 		hitNormal = -hitNormal;
 
 	// The material: the record, then the maps through the heap.
@@ -1459,6 +1643,7 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	surface.Direct = lit;
 	surface.Emissive = emissive;
 	surface.IsEmitter = (hit.Flags & RAY_INSTANCE_EMITTER) != 0u;
+	surface.Backface = hitBackface;
 	return surface;
 }
 

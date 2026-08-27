@@ -59,6 +59,15 @@ namespace RageV
 			// Scene::UpdateIrradianceVolumes computes it.
 			uint64_t Lighting = 0;
 
+			// **The arrangement of volumes inside the atlas**, hashed. The
+			// dimensions above describe the texture, and one texture of a
+			// given size can hold any number of layouts -- so moving a volume
+			// a centimetre, or reordering two of them, has to invalidate the
+			// file even though nothing about its shape changed. Zero for a
+			// bake written before volumes were independent, which the version
+			// bump refuses anyway.
+			uint64_t Layout = 0;
+
 			bool Matches(const Stamp& other) const;
 		};
 
