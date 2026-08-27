@@ -43,6 +43,14 @@ demanded by a picture somebody wants to make.
 
 Ranked by value per hour, not by size. Numbers are engineering judgement.
 
+### 0 · Alpha-cutout materials — ~2–4 days *(owner-set, next)*
+No alpha-tested mode exists; glTF `MASK` is read as `BLEND` with a soft edge.
+Every railing, grate and cable must therefore be geometry, which is the
+Golden Gate scene's largest avoidable cost and compounds the missing LODs.
+**The raster half is easy and gives OpenGL the whole feature; the ray-traced
+half must go inside the ray-query traversal loop, because this engine has no
+any-hit stage to write.** Full brief in HANDOFF.
+
 ### 1 · Exponential height fog — ~1 day
 One fullscreen pass over the depth buffer. The single largest visual return
 available: it is most of what separates a render of a night bridge from a
@@ -102,10 +110,11 @@ appetite — fog delivers most of the mood for a tenth of the work.
 
 ### Not scheduled, and why
 
-- **Alpha-cutout materials.** A real gap — every cable and railing must be
-  geometry without it — but doing it properly under ray tracing needs
-  non-opaque geometry flags and any-hit shading, and modelled cables are more
-  accurate anyway.
+*(Alpha-cutout materials moved OUT of this section and to the top of the
+queue on 2026-08-27, the owner's call — see HANDOFF's "next session's job".
+The note below stands as the reason it was ranked low, and the correction:
+there is no any-hit stage to write, because every ray here is a ray **query**,
+so the decision goes inside the traversal loop instead.)*
 - **Sparse brick volumes (APV-style).** The general answer to level-scale GI.
   Item 4 is the cheaper answer that fits a linear scene; revisit bricks when
   an open world needs one.

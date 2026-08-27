@@ -15,6 +15,62 @@ baking sub-roadmap, and the demo scene's demands) and says which one still
 owns which detail. Read it before picking anything up; read the rest of this
 file for the state of the work in flight.
 
+### NEXT SESSION'S JOB, owner-set 2026-08-27: alpha-cutout materials
+
+**The ask.** Materials are `Opaque` or `Blend` (weighted OIT) and there is no
+alpha-tested mode. The glTF importer reads `alphaMode: MASK` as `BLEND` and
+warns that the edge will be soft (`GltfImporter.cpp`, ~line 231). Every
+railing, grate, chain-link, cable and leaf that any other pipeline would
+author as a cutout texture therefore has to be modelled as geometry here --
+which is what makes the Golden Gate scene expensive, and it compounds the
+missing mesh LODs.
+
+**It splits cleanly into an easy half and a hard half. Do not start the hard
+half first.**
+
+**The easy half -- rasterisation.** An `AlphaCutoff` scalar on the material
+(glTF's own default is 0.5), a third `BlendMode`, and `discard` in the lit
+fragment shader when `alpha < cutoff`. The same discard has to reach the
+**shadow map** path or a cutout casts a solid shadow, and the sort key needs a
+third bucket: masked draws belong with the opaque pass (they write depth) but
+cannot share a depth-prepass shortcut with true opaques. This half also gives
+OpenGL the whole feature, since that backend has no ray queries at all.
+
+**The hard half -- ray tracing, and the mechanism is not the obvious one.**
+Every ray in this engine is a **ray query**, not a ray-tracing pipeline --
+there is no shader binding table and no any-hit stage, so the usual "write an
+any-hit shader" answer does not apply. With ray queries the work happens
+inside the traversal loop: the BLAS geometry must lose
+`VK_GEOMETRY_OPAQUE_BIT`, and then
+
+```
+while (rayQueryProceedEXT(q)) { ...decide, then rayQueryConfirmIntersectionEXT(q)... }
+```
+
+has to fetch the *candidate's* material and interpolated UV, sample the base
+colour's alpha, and either confirm the hit or let traversal continue. Today
+that loop is empty (`while (rayQueryProceedEXT(q)) {}`) and every ray is
+declared `gl_RayFlagsOpaqueEXT`. **The good news is that TraceSurface already
+does exactly this data fetch -- instance -> material -> UV -> texture -- just
+*after* the loop rather than inside it, so the work is largely hoisting code
+that exists.** `TraceShadowFrom` needs the same treatment and additionally
+drops `TerminateOnFirstHit` for masked geometry.
+
+**Budget the cost honestly.** A texture fetch inside traversal is the known
+performance cliff of alpha-tested ray tracing; that is precisely why the whole
+scene is declared opaque today. Measure it on the showroom before deciding
+whether masked geometry joins the acceleration structure at all -- an
+acceptable v1 is *raster cutouts everywhere, and masked geometry simply absent
+from rays* (it would cast no traced shadow), which is a real limitation but a
+cheap and honest one.
+
+**Two things to check on the way in.** `TextureCook` currently picks BC1/BC3;
+**BC1 carries one bit of alpha**, which is exactly what a cutout wants and
+would be free -- confirm what the cook chooses for a base colour with alpha.
+And `ImportedModel` already carries the glTF alpha mode as far as
+`BlendMode`, so the importer change is a third enum value rather than new
+plumbing.
+
 ### In flight, unfinished
 
 **1 · The on-plane-cell defects — fixed, verification incomplete.** This was
@@ -55,21 +111,23 @@ to try is dilation — fill buried cells from live neighbours but leave alpha at
 zero, so the hardware filter gets a plausible value while the careful path
 still refuses them.**
 
-**2 · Independent irradiance volumes — data model only.** Started, deliberately
-paused so it would not tangle with the unverified leak fix (they touch the same
-three files). Done: `IrradianceVolume::Region` + `CreateAtlas`,
-`kMaxIrradianceVolumes = 8`, and the `IrradianceBox[]` table in the scene
-block. Not done: region-list composition in `Scene::UpdateIrradianceVolumes`,
-the solve loop, atlas addressing in the fill and the reader, and the bake
-stamp.
+**2 · Independent irradiance volumes — ✅ DONE, shipped in `3fa5d36`.**
+Volumes no longer merge into a union box; each keeps its own grid, spacing and
+rotation, packed into one texture, and a fragment reads whichever it is
+deepest inside. `field_two` solves as "2 volume(s) in a 14x9x34 atlas"; the
+showroom's single volume comes through at 0.000 mean against its pre-change
+baseline. **Not built: overlap blending** — a fragment inside two volumes
+takes the deeper one outright, so abut volumes rather than nesting them.
 
-**The design decision worth not re-deriving:** N volumes cannot be N bound
-textures — OpenGL gives a fragment shader 32 samplers and the layered terrain
-variant already spends 31. They pack into one 3D texture, volume *v*'s tile
-*t* at slices `t · AtlasDepth + v.ZOffset`. **And the sweep must be the outer
-loop, the region the inner one**: the solver is Jacobi and its swap flips the
-whole atlas, so solving one region to completion before the next would leave
-the others' slices stale. Solve state becomes `(sweep, region, row)`.
+**3 · The v2 rebake — was in flight when this was written; CHECK IT.** The
+stamp gained a `Layout` hash and `BakedLighting::kVersion` went to **2**, so
+every version-1 bake is refused with *"is version 1 and this build reads 2"*.
+Five of the eight scenes that ship bakes were still committed at v1 when
+`3fa5d36` landed. A rebake of all eight (old files cleared first) was running;
+`scratchpad/rebake_v2.log` ends with `ALL V2 BAKES DONE`. **If those files are
+not committed, do that first** — otherwise a clone silently renders eight
+scenes on realtime GI. Probe cubes are affected too: the version check lives
+in `BakedLighting::Read`, which both fields and probes go through.
 
 ### The demo scene
 
