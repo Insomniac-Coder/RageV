@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RageV/Core/CrashHandler.h"
 #include "RageV/Core/EngineConfig.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 
@@ -48,6 +49,12 @@ namespace RageV::Detail
 
 int main(int argc, char** argv)
 {
+	// **First, before the log even.** A crash during startup is the one this
+	// is least able to explain from the log alone, because the log has barely
+	// anything in it yet -- so the handler has to be older than the thing it
+	// reports on.
+	RageV::InstallCrashHandler();
+
 	RageV::Detail::ConfigureCrashBehaviour();
 
 	RageV::Log::Init();

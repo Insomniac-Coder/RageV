@@ -88,7 +88,10 @@ target_link_libraries(RageV
         glslang-default-resource-limits
         spirv-cross-core
         spirv-cross-glsl
-        opengl32)
+        opengl32
+        # The crash handler's stack walk and symbol lookup. System library, so
+        # it sits beside opengl32 rather than in third-party.
+        dbghelp)
 
 target_precompile_headers(RageV PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/rvpch.h")
 set_target_properties(RageV PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)

@@ -16,6 +16,7 @@
 //
 //     scenetest [--rhi=vulkan|opengl]
 #include <rvpch.h>
+#include "RageV/Core/CrashHandler.h"
 #include "RageV/Core/Log.h"
 // For the counting sink in CheckAntiAliasingSwitch. Test-side only: the
 // engine did not have to grow a hook for a check to watch its warnings.
@@ -15373,6 +15374,13 @@ int RunTests(int argc, char** argv);
 
 int main(int argc, char** argv)
 {
+	// **A crash is not an exception**, and the catch below cannot see one: an
+	// access violation unwinds nothing and never reaches a handler. This
+	// prints the stack that the catch would have printed if it could, which
+	// matters most here -- a check that dies mid-suite otherwise reports only
+	// the exit code, and the passing lines above it look like the whole run.
+	InstallCrashHandler();
+
 	// A test tool that dies to an uncaught exception tells you nothing but
 	// "abort() has been called". Report what actually went wrong.
 	try
