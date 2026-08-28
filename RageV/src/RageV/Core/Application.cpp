@@ -22,6 +22,52 @@
 #include <filesystem>
 #include <thread>
 
+namespace
+{
+	// **The phases, printed beside the passes.** A graph pass is only part of a
+	// frame: probe capture, shadow rendering, the swapchain wait and the present
+	// all happen outside it. A capture on 2026-08-28 had slow frames whose named
+	// passes summed to 20 ms out of 56, and one 313 ms frame with no pass time at
+	// all -- so the thing being hunted was in a phase the log did not print.
+	void LogFrameBreakdown(bool warn)
+	{
+		struct Row { const char* Name; RageV::FramePhase Phase; };
+		static const Row kPhases[] = {
+			{ "wait (gpu/vsync)", RageV::FramePhase::Wait },
+			{ "environment",      RageV::FramePhase::EnvironmentPrefilter },
+			{ "shadows",          RageV::FramePhase::Shadows },
+			{ "probes",           RageV::FramePhase::Probes },
+			{ "graph",            RageV::FramePhase::Graph },
+			{ "imgui",            RageV::FramePhase::ImGui },
+			{ "present",          RageV::FramePhase::Present },
+		};
+
+		for (const Row& row : kPhases)
+		{
+			const float cpu = RageV::FrameProfiler::LivePhaseMs(row.Phase);
+			const float gpu = RageV::FrameProfiler::LiveGpuPhaseMs(row.Phase);
+			// Silent when a phase did nothing, so the interesting rows are not
+			// buried under five zeroes every time.
+			if (cpu < 0.05f && gpu < 0.05f)
+				continue;
+			if (warn) RV_CORE_WARN("    [phase] {0}  cpu {1} ms  gpu {2} ms", row.Name, cpu, gpu);
+			else      RV_CORE_INFO("    [phase] {0}  cpu {1} ms  gpu {2} ms", row.Name, cpu, gpu);
+		}
+
+		auto passes = RageV::FrameProfiler::PassTimings();
+		std::sort(passes.begin(), passes.end(),
+				  [](const auto& a, const auto& b) { return a.GpuMs > b.GpuMs; });
+		const size_t show = passes.size() < 6 ? passes.size() : 6;
+		for (size_t i = 0; i < show; i++)
+		{
+			if (warn) RV_CORE_WARN("    {0}  cpu {1} ms  gpu {2} ms",
+								   passes[i].Name, passes[i].CpuMs, passes[i].GpuMs);
+			else      RV_CORE_INFO("    {0}  cpu {1} ms  gpu {2} ms",
+								   passes[i].Name, passes[i].CpuMs, passes[i].GpuMs);
+		}
+	}
+}
+
 namespace RageV {
 
 
@@ -505,7 +551,9 @@ namespace RageV {
 		// An explicit flag wins; otherwise a benchmark implies it. The OR this
 		// replaces meant --pass-timings=off was silently ignored under
 		// --benchmark, so an un-instrumented frame could not be measured.
-		FrameProfiler::EnablePassTimings(config.HasPassTimingsOverride
+		// --slow-frames needs the per-pass numbers it is going to print.
+		FrameProfiler::EnablePassTimings(config.SlowFrameMs > 0.0f ? true
+									   : config.HasPassTimingsOverride
 											 ? config.PassTimings
 											 : benchmarkFrames > 0);
 		// Before the first frame and after Renderer3D::Init, which is what the
@@ -698,6 +746,54 @@ namespace RageV {
 			// panel showed 0.000 for every phase in normal use -- a profiler
 			// that only works when nobody is looking at it.
 			FrameProfiler::EndFrame(m_MeasuredFrameMs);
+
+			// **--slow-frames: say what a hitch was made of, while it is still
+			// this frame.**
+			//
+			// A mean over a run cannot answer "why did it drop when I turned
+			// toward the car" -- the frames being complained about are a handful
+			// among hundreds, and the average is dominated by the ones that were
+			// fine. This prints the frame's own passes, longest first, for every
+			// frame over the threshold. Ten of those lines from an interactive
+			// session name the subsystem outright.
+			//
+			// Rate-limited rather than unconditional: a threshold set too low
+			// turns every frame into eight lines of log, which is slow enough to
+			// cause the very hitches it is reporting.
+			// **A baseline every two seconds, so the slow frames have something
+			// to be different from.** A log of only the bad frames says what the
+			// renderer was doing when it hurt and nothing about whether that is
+			// unusual -- and "the scene pass was 9 ms" means opposite things
+			// depending on whether it is 3 ms or 9 ms the rest of the time.
+			if (config.SlowFrameMs > 0.0f)
+			{
+				static int since = 0;
+				if (++since >= 120)
+				{
+					since = 0;
+					RV_CORE_INFO("Baseline frame: {0} ms", m_MeasuredFrameMs);
+					LogFrameBreakdown(false);
+				}
+			}
+
+			if (config.SlowFrameMs > 0.0f && m_MeasuredFrameMs > config.SlowFrameMs)
+			{
+				static int reported = 0;
+				static int skipped = 0;
+				if (reported < 400)
+				{
+					reported++;
+					RV_CORE_WARN("Slow frame: {0} ms (over {1})",
+						m_MeasuredFrameMs, config.SlowFrameMs);
+					LogFrameBreakdown(true);
+				}
+				else
+				{
+					// Counted so the log says how much it stopped saying.
+					if (++skipped % 200 == 0)
+						RV_CORE_WARN("Slow frame: {0} more not listed", skipped);
+				}
+			}
 
 			if (benchmarkFrames > 0 && m_BenchmarkFrame >= benchmarkWarmup + benchmarkFrames)
 			{

@@ -1667,9 +1667,13 @@ namespace RageV
 		//
 		// Said once per scene rather than per frame: it is a fact about how the
 		// scene is set up, and a line a frame is a line nobody reads.
-		const bool wantsBaked = giDetail != RayDetail::Off
-			? Project::Render().RayTracedGiSource == GiSource::Baked
-			: GetPostSettings().GiSource == GiSource::Baked;
+		// The command line wins, so a measurement can name the path it means
+		// rather than inferring it from what happens to be on disk.
+		const bool wantsBaked = EngineConfig::Get().HasGiSourceOverride
+			? EngineConfig::Get().GiSourceBaked
+			: (giDetail != RayDetail::Off
+				? Project::Render().RayTracedGiSource == GiSource::Baked
+				: GetPostSettings().GiSource == GiSource::Baked);
 		const bool canBake = HasBakedIrradiance();
 
 		// **Not before the field has had a chance to exist.**

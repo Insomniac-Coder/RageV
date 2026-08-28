@@ -211,6 +211,23 @@ namespace RageV
 		// a flat frame instead of a visible dip.
 		float RayBudgetMs = 0.0f;
 
+		// **--gi-source=baked|realtime.** Which form of indirect light to use,
+		// stated rather than inferred. Without it the only lever is whether a
+		// matching bake happens to be on disk, so the only way to see the
+		// realtime path is to move somebody's data out of the way -- and a test
+		// that edits the project it is measuring is a test that can lose it.
+		// **--slow-frames=<ms>: name the pass that caused a hitch, as it
+		// happens.** A benchmark reports means over a run, which is exactly the
+		// wrong statistic for a drop somebody sees while moving: the frames
+		// that hurt are a handful out of six hundred, and averaging buries
+		// them. This prints the pass breakdown of any frame over the threshold,
+		// so an interactive session produces evidence instead of an impression.
+		float SlowFrameMs = 0.0f;
+
+
+		bool  HasGiSourceOverride = false;
+		bool  GiSourceBaked = true;
+
 		bool  HasCameraPose = false;
 		Vec3  CameraFocus{ 0.0f, 0.0f, 0.0f };
 		float CameraDistance = 10.0f;

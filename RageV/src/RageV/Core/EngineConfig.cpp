@@ -182,6 +182,34 @@ namespace RageV
 			return ParseBool(value, config.RayGiOverride);
 		}
 
+		if (key == "slow-frames" || key == "slowframes")
+		{
+			try
+			{
+				config.SlowFrameMs = Math::Max(std::stof(value), 0.0f);
+				return true;
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("slow-frames expects milliseconds, got '{0}'", value);
+				return false;
+			}
+		}
+
+		if (key == "gi-source" || key == "gisource")
+		{
+			const std::string wanted = ToLower(value);
+			if (wanted != "baked" && wanted != "realtime")
+			{
+				RV_CORE_WARN("gi-source expects 'baked' or 'realtime', got '{0}'",
+					value);
+				return false;
+			}
+			config.GiSourceBaked = wanted == "baked";
+			config.HasGiSourceOverride = true;
+			return true;
+		}
+
 		if (key == "voxel-gi" || key == "voxelgi")
 		{
 			config.HasVoxelGiOverride = true;
