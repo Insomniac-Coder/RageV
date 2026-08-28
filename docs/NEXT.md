@@ -43,36 +43,65 @@ demanded by a picture somebody wants to make.
 
 Ranked by value per hour, not by size. Numbers are engineering judgement.
 
-### 0 · Alpha-cutout materials — **raster half done 2026-08-28**, rays open
+### ~~0 · Alpha-cutout materials~~ — ✅ **done 2026-08-28**
 `BlendMode::Masked` with an `AlphaCutoff` per material, glTF `MASK` importing
-as itself, its own bucket, run and pipeline — because a `discard` present in a
-shader costs early-z whether or not it is reached, so it must not be compiled
-into the shared opaque shader. **Cutout shadows too**: a second depth pipeline
-that carries a UV and binds the ordinary bound material set, so the alpha the
-shadow tests is the alpha the lit pass tests. Both backends, verified by
-`tools/scripts/check_cutout.py`.
+as itself, its own draw bucket, run and pipeline. Both backends. Verified end
+to end by `tools/scripts/check_cutout.py`, which asserts *where* the hole is
+rather than whether one exists — a cutout that removed the whole object would
+pass a presence test just as well.
 
-**Two things it still does not do**, each a cost rather than a defect:
+All four paths test the same alpha:
 
-- **No GPU culling for cutouts.** A cull slot is keyed by *mesh*, not
-  material, so one mesh drawn opaque here and cut out there would share a slot
-  and one would draw through the wrong pipeline. Blended solved that with a
-  second table; masked wants a third. Until then masked geometry takes the CPU
-  path, which sorts and draws it correctly but does not cull it on the GPU.
-  This is the one that matters for a bridge made of railings.
-- **Absent from the ray structures**, so a traced reflection does not see a
-  cutout. This is the brief's hard half: no any-hit stage exists, so the test
-  goes *inside* the `rayQueryProceedEXT` loop, fetching the candidate's
-  material and UV before confirming the hit. Budget the texture fetch inside
-  traversal honestly — it is the known cliff, and it is why everything is
-  declared opaque today.
+| path | mechanism | measured |
+|---|---|---|
+| lit | `discard` in a shader variant | half the surface, exact vs an Opaque control |
+| depth prepass | excluded | no depth left behind the hole |
+| shadow map | second depth pipeline with a UV and set 1 | 97 px vs 196 |
+| ray query | test inside the traversal loop | 98 px vs 196 |
 
-Two traps worth keeping. **The shadow pass culls nothing**, so a closed box
-casts from its back face as well, whose UVs run the other way in x — the union
-covers the full width and a cutout looks broken when it is not. A cutout asset
-is a plane. And **`discard` at SPIR-V 1.6** lowers to an instruction OpenGL has
-no form for; the whole fragment stage failed to cross-compile and every cutout
-drew solid black there while Vulkan was perfect. The compiler targets 1.5.
+**Its own pipeline, and that is the point.** A `discard` present in a shader
+costs early-z whether or not it is reached, so compiling the test into the
+shared opaque shader would have charged every surface in the frame and undone
+the depth prepass. Masked geometry is its own bucket; the opaque shader is
+untouched.
+
+**The ray half has no any-hit stage to write.** Ray queries, not a
+ray-tracing pipeline: the decision happens inside `rayQueryProceedEXT`, which
+was an empty loop. Only masked *instances* set
+`VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE`, so everything else is still committed
+by the hardware without reporting a candidate — that is what makes the known
+cliff of a texture fetch inside traversal affordable. Per instance and not per
+geometry, because a bottom-level structure is per mesh while being cut out is
+per material.
+
+**Still solid to ambient occlusion**, deliberately: that pass holds the
+acceleration structure and nothing else, and plumbing the instance table, the
+material table and the heap through it to refine a short-range darkening term
+is not the trade. Occlusion under a railing is a little too dark; the shadows
+and reflections, where a fence reading as a wall would actually show, do test.
+
+**Four traps, each of which cost a wrong picture:**
+
+- **`discard` at SPIR-V 1.6** lowers to an instruction with no OpenGL form.
+  The whole fragment stage failed to cross-compile and every cutout drew solid
+  black there while Vulkan was perfect. The compiler targets 1.5.
+- **The shadow pass culls nothing**, so a closed *box* casts from its back
+  face too, whose UVs run the other way in x — the two holes miss and the
+  shadow comes out solid. Model cutouts as planes. A box's rim faces are not
+  cut out either and cast a hairline across the gap.
+- **A set is allocated against a pipeline.** The masked pipeline's layout is
+  identical to the opaque one, but identical is not interchangeable: OpenGL
+  resolves bindings against the program, and reusing the opaque set drew every
+  cutout black there while Vulkan showed nothing wrong.
+- **`gl_RayFlagsOpaqueEXT` overrides the per-instance flag**, so it had to go
+  from any ray that can hit a cutout. The shadows-only shader variant, which
+  has no instance table to read a cutoff from, keeps it — and pays nothing for
+  a test it could not run.
+
+Left undone, and cheap to add if a scene wants it: the alpha a shadow tests
+comes from the *material*, not the instance, so an entity that overrode its
+base-colour alpha would cast a shadow cut to the material's. Nothing here does
+that, and it is written down in `shadow_depth_masked.rvshader`.
 
 ### ~~1 · Exponential height fog~~ — ✅ **done 2026-08-27**
 One fullscreen pass over the depth buffer, 0.014 ms GPU, off by default.
