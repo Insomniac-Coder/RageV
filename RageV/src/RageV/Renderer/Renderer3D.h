@@ -196,7 +196,13 @@ namespace RageV
 		// so a caster costs one push constant and nothing else -- no descriptor
 		// set is bound in this pass at all.
 		static void BeginShadow(const Mat4& viewProjection);
-		static void DrawMeshShadow(const RHI::Ref<Mesh>& mesh, const Mat4& transform);
+		// `masked` is the caster's material, and only an alpha-tested one is
+		// used: it routes the draw to the pipeline that tests the alpha, so a
+		// cutout casts a cutout's shadow rather than its sheet's. Anything
+		// else -- opaque, blended, absent -- casts through the position-only
+		// pipeline as before, which is almost every caster in a frame.
+		static void DrawMeshShadow(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
+								   const RHI::Ref<Material>& masked = nullptr);
 
 		// Whether static casters draw as meshlets this run (--meshlets, a
 		// device with mesh shading, and the pipeline built). The scene asks

@@ -48,6 +48,7 @@ except ImportError:
     sys.exit(1)
 
 SCENE = "scenes/cutout_test.rage"
+SHADOW_SCENE = "scenes/cutout_shadow_test.rage"
 MATERIAL = pathlib.Path("SampleProject/assets/materials/cutout_test.rmat")
 
 # The material as authored: a half-transparent base colour against a cutoff of
@@ -63,9 +64,9 @@ def write(path, text):
         f.write(text)
 
 
-def shoot(exe, project, backend, out, extra=()):
+def shoot(exe, project, backend, out, extra=(), scene=SCENE):
     args = [str(exe), "--render-defaults=on", f"--rhi={backend}",
-            f"--project={project}", f"--scene={SCENE}", "--frame-time=0.0166",
+            f"--project={project}", f"--scene={scene}", "--frame-time=0.0166",
             "--screenshot-frame=20", f"--screenshot={out}", "--aa=none", *extra]
     result = subprocess.run(args, cwd=exe.parent, capture_output=True, text=True)
     if result.returncode != 0:
@@ -149,13 +150,61 @@ def main():
     if delta != 0:
         failures.append("a surviving cutout does not shade like the opaque material it copies")
 
+    # --- the shadow, which is the other half of "the alpha decides" ---------
+    #
+    # A separate scene, because it needs what the first one must not have: a
+    # light, a floor that is not emissive, and a caster floating clear of it.
+    # It is also a single-face quad rather than a cube, and that is not
+    # incidental -- the shadow pass culls nothing, so a *closed box* casts
+    # from its back face too, whose UVs run the other way in x. The union of
+    # the two covers the whole width and the cutout looks broken when it is
+    # not. A real cutout asset is a plane; so is this.
+    try:
+        shadow_masked = shoot(exe, project, args.rhi,
+                              shots / f"{args.rhi}-shadow-masked.png", scene=SHADOW_SCENE)
+        write(material, original.replace("Blend: Masked", "Blend: Opaque"))
+        shadow_opaque = shoot(exe, project, args.rhi,
+                              shots / f"{args.rhi}-shadow-opaque.png", scene=SHADOW_SCENE)
+    finally:
+        write(material, original)
+
+    def shadow_span(image):
+        """Where the shadow reaches across a floor band below the caster."""
+        sh, sw, _ = image.shape
+        row = image[int(sh * 0.31):int(sh * 0.38)].mean(axis=(0, 2))
+        dark = np.where(row < 100)[0]
+        return (int(dark.min()), int(dark.max())) if len(dark) else None
+
+    span_m, span_o = shadow_span(shadow_masked), shadow_span(shadow_opaque)
+    if span_m is None or span_o is None:
+        failures.append("no shadow at all in one of the two runs; the scene or the light moved")
+    else:
+        wide_m = span_m[1] - span_m[0] + 1
+        wide_o = span_o[1] - span_o[0] + 1
+        print(f"{args.rhi}: shadow masked x {span_m[0]}..{span_m[1]} ({wide_m} px), "
+              f"opaque x {span_o[0]}..{span_o[1]} ({wide_o} px)")
+
+        # Half the caster is transparent, so half the shadow should be gone --
+        # and gone from the correct end, which is what the shared left edge
+        # says. A cutout that cast nothing would also halve nothing; a cutout
+        # ignored by the shadow pass would match the control exactly.
+        ratio = wide_m / max(wide_o, 1)
+        if not 0.35 < ratio < 0.65:
+            failures.append(f"the cutout casts {ratio:.2f} of the solid shadow, expected about "
+                            f"half -- 1.0 means the shadow pass ignored the alpha, "
+                            f"near 0 means it discarded everything")
+        if abs(span_m[0] - span_o[0]) > 6:
+            failures.append("the masked shadow does not start where the solid one does; "
+                            "the surviving half is the wrong half")
+
     if failures:
         for line in failures:
             print("FAIL:", line)
         return 1
 
     print("\nOK: half the surface is culled and half is not, the surviving half shades "
-          "exactly as opaque, and the prepass left no depth behind the hole")
+          "exactly as opaque, the prepass left no depth behind the hole, and the "
+          "half that survives is the half that casts a shadow")
     return 0
 
 

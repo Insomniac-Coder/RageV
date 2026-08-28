@@ -355,6 +355,15 @@ namespace RageV
 			bool Skinned = false;
 			// Where this caster's bones start. -1 when it has none.
 			int32_t BoneBase = -1;
+
+			// **Null unless this caster is alpha-tested.** A depth pass has no
+			// surface properties and wants none -- except that a cutout's
+			// shape is its geometry minus its alpha, so the one masked caster
+			// in a scene has to carry the material whose alpha says which
+			// parts of it are there. Non-null is also what routes the draw to
+			// the masked pipeline, so the two cannot disagree.
+			const Material* MaterialKey = nullptr;
+			Ref<Material> MaterialRef;
 		};
 
 		struct Renderer3DData
@@ -685,6 +694,11 @@ namespace RageV
 				Ref<RHIBuffer>      Bones;
 				uint32_t            BoneCapacity = 0;
 				Ref<RHIResourceSet> SkinnedSet;
+				// And one for the masked pipeline. Its set 0 is the same
+				// instance buffer the opaque pass reads -- only set 1 and the
+				// fragment stage differ -- but a set is allocated against a
+				// pipeline, so it cannot be the same object.
+				Ref<RHIResourceSet> MaskedSet;
 				// One per distinct static mesh drawn as meshlets this pass --
 				// the meshlet buffers change per mesh, and a set rewritten
 				// under a recorded bind invalidates the command buffer
@@ -815,6 +829,12 @@ namespace RageV
 			// The depth-only pipeline. Its own shader and its own pipeline
 			// object: no colour attachment, so it cannot share the lit one.
 			Ref<RHIShader>   ShadowShader;
+			// The alpha-tested caster's depth shader and pipeline. Its vertex
+			// layout carries a texture coordinate the opaque one does not, and
+			// its fragment stage is the only one in a depth pass that is not
+			// empty.
+			Ref<RHIShader>   ShadowMaskedShader;
+			Ref<RHIPipeline> ShadowMaskedPipeline;
 			Ref<RHIPipeline> ShadowPipeline;
 			Ref<RHIShader>   ShadowMeshletShader;
 			Ref<RHIPipeline> ShadowMeshletPipeline;
@@ -1010,6 +1030,20 @@ namespace RageV
 		s_Data->IrradianceFillSets.resize(device.GetFramesInFlight());
 
 		s_Data->DefaultMaterial = Material::CreateDefault(device);
+
+		// The cutout caster's depth shader. Not fatal if it is missing: masked
+		// geometry then casts nothing rather than casting a solid sheet, which
+		// is the behaviour this replaced and the quieter of the two wrongs.
+		if (auto compiled =
+				ShaderCompiler::CompileFromFile("assets/shaders/shadow_depth_masked.rvshader"))
+		{
+			s_Data->ShadowMaskedShader = device.CreateShader(*compiled);
+		}
+		else
+		{
+			RV_CORE_WARN("Renderer3D: assets/shaders/shadow_depth_masked.rvshader did not "
+						 "compile; alpha-tested geometry will cast no shadow");
+		}
 
 		if (auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/shadow_depth.rvshader"))
 			s_Data->ShadowShader = device.CreateShader(*compiled);
@@ -4138,6 +4172,28 @@ namespace RageV
 
 			s_Data->ShadowPipeline = s_Data->Device->CreatePipeline(desc);
 
+			// **The cutout twin: the same depth state, one more attribute.**
+			//
+			// Every rasterizer setting is shared, the biases included -- a
+			// cutout wants exactly the acne treatment its opaque neighbour
+			// gets. What differs is the vertex layout, which now carries the
+			// texture coordinate, and a fragment stage that is not empty.
+			if (s_Data->ShadowMaskedShader)
+			{
+				GraphicsPipelineDesc masked = desc;
+				masked.Name = "Renderer3D.shadowMasked";
+				masked.Shader = s_Data->ShadowMaskedShader;
+				masked.VertexInput.Attributes = {
+					{ 0, 0, Format::R32G32B32_SFLOAT, offsetof(MeshVertex, Position) },
+					{ 1, 0, Format::R32G32_SFLOAT,    offsetof(MeshVertex, TexCoord) },
+				};
+				s_Data->ShadowMaskedPipeline = s_Data->Device->CreatePipeline(masked);
+			}
+			else
+			{
+				s_Data->ShadowMaskedPipeline = nullptr;
+			}
+
 			// The meshlet twin: the same rasterizer, the same biases, the same
 			// depth format -- a different front end and nothing else, which is
 			// what "the two paths draw the same image" rests on. No vertex
@@ -4180,7 +4236,8 @@ namespace RageV
 		s_Data->ShadowActive = true;
 	}
 
-	void Renderer3D::DrawMeshShadow(const Ref<Mesh>& mesh, const Mat4& transform)
+	void Renderer3D::DrawMeshShadow(const Ref<Mesh>& mesh, const Mat4& transform,
+									const Ref<Material>& masked)
 	{
 		if (!s_Data || !s_Data->ShadowActive || !mesh)
 			return;
@@ -4189,6 +4246,17 @@ namespace RageV
 		draw.MeshKey = mesh.get();
 		draw.MeshRef = mesh;
 		draw.LightMVP = s_Data->ShadowViewProjection * transform;
+
+		// **Only an alpha-tested material is carried.** Everything else casts
+		// through the position-only pipeline, which is the whole scene in
+		// almost every frame -- so the caller passes the material and this
+		// decides, rather than every caller having to know the rule.
+		if (masked && masked->GetBlendMode() == BlendMode::Masked &&
+			s_Data->ShadowMaskedPipeline)
+		{
+			draw.MaterialKey = masked.get();
+			draw.MaterialRef = masked;
+		}
 
 		s_Data->ShadowPending.push_back(std::move(draw));
 	}
@@ -4390,8 +4458,18 @@ namespace RageV
 					  // pass does it: two pipelines, two vertex layouts.
 					  if (a.Skinned != b.Skinned)
 						  return !a.Skinned;
+					  // Masked casters after opaque ones: a third pipeline, so
+					  // a third block, exactly as the skinned bit above.
+					  if ((a.MaterialKey != nullptr) != (b.MaterialKey != nullptr))
+						  return a.MaterialKey == nullptr;
 					  if (a.MeshKey != b.MeshKey)
 						  return a.MeshKey < b.MeshKey;
+					  // And by material within that: a masked run binds one
+					  // set 1, so two cutouts with different alpha maps cannot
+					  // share a draw. Opaque casters all have null here and the
+					  // comparison is a no-op for them.
+					  if (a.MaterialKey != b.MaterialKey)
+						  return a.MaterialKey < b.MaterialKey;
 					  // A skinned run is one caster at a time: each has its own
 					  // pose, and the bone base is pushed rather than carried
 					  // per instance in this pass.
@@ -4457,6 +4535,7 @@ namespace RageV
 		}
 
 		bool boundSkinned = false;
+		bool boundMasked = false;
 		bool anyBound = false;
 
 		uint32_t start = 0;
@@ -4465,6 +4544,9 @@ namespace RageV
 			uint32_t end = start + 1;
 			while (end < count &&
 				   s_Data->ShadowPending[end].Skinned == s_Data->ShadowPending[start].Skinned &&
+				   // One set 1 per run, so a run is one material.
+				   s_Data->ShadowPending[end].MaterialKey ==
+					   s_Data->ShadowPending[start].MaterialKey &&
 				   s_Data->ShadowPending[end].MeshKey == s_Data->ShadowPending[start].MeshKey &&
 				   // A skinned run is one caster: the bone base is a push
 				   // constant here, so two characters cannot share a draw.
@@ -4479,7 +4561,10 @@ namespace RageV
 			// Static casters go as meshlets when the pipeline exists and the
 			// mesh cut cleanly; everything else -- skinned casters, a mesh
 			// the cut refused -- takes the classic path in the same pass.
-			if (!first.Skinned && s_Data->ShadowMeshletPipeline && mesh)
+			// **Never for a masked caster.** There is no cutout meshlet
+			// variant, and drawing one through this would put back exactly the
+			// solid-sheet shadow the masked pipeline exists to remove.
+			if (!first.Skinned && !first.MaterialKey && s_Data->ShadowMeshletPipeline && mesh)
 			{
 				const Mesh::MeshletBuffers& meshlets =
 					mesh->GetMeshletBuffers(*s_Data->Device);
@@ -4528,26 +4613,59 @@ namespace RageV
 				}
 			}
 
-			const Ref<RHIPipeline>& pipeline = first.Skinned ? s_Data->ShadowSkinnedPipeline
-															 : s_Data->ShadowPipeline;
-			const Ref<RHIResourceSet>& set = first.Skinned ? slot.SkinnedSet : slot.Set;
+			// A masked caster reads its alpha through set 1, so it wants the
+			// pipeline whose fragment stage tests it. Its set 0 is the same
+			// instance data as everything else in the pass -- only allocated
+			// against this pipeline, because a set always is.
+			const bool masked = first.MaterialKey != nullptr;
+			if (masked && s_Data->ShadowMaskedPipeline && !slot.MaskedSet)
+			{
+				slot.MaskedSet =
+					s_Data->Device->CreateResourceSet(s_Data->ShadowMaskedPipeline, 0);
+				if (slot.MaskedSet)
+				{
+					slot.MaskedSet->SetStorageBuffer(0, slot.Instances, 0,
+													 (uint64_t)count * sizeof(Mat4));
+					slot.MaskedSet->Commit();
+				}
+			}
+
+			const Ref<RHIPipeline>& pipeline =
+				first.Skinned ? s_Data->ShadowSkinnedPipeline
+				: masked      ? s_Data->ShadowMaskedPipeline
+							  : s_Data->ShadowPipeline;
+			const Ref<RHIResourceSet>& set =
+				first.Skinned ? slot.SkinnedSet
+				: masked      ? slot.MaskedSet
+							  : slot.Set;
 
 			// A skinned caster with no skinned pipeline is skipped rather than
 			// drawn by the static one: it would cast the shadow of a mesh
 			// scattered across the world, which is worse than casting none.
+			//
+			// A masked caster whose pipeline is missing is skipped for the
+			// matching reason: through the opaque pipeline it would cast the
+			// solid shadow of its whole sheet.
 			if (!pipeline || !set)
 			{
 				start = end;
 				continue;
 			}
 
-			if (!anyBound || boundSkinned != first.Skinned)
+			if (!anyBound || boundSkinned != first.Skinned || boundMasked != masked)
 			{
 				cmd->BindPipeline(pipeline);
 				cmd->BindResourceSet(0, set);
 				boundSkinned = first.Skinned;
+				boundMasked = masked;
 				anyBound = true;
 			}
+
+			// Set 1, per run, exactly as the lit bound path binds it -- so the
+			// alpha this pass tests is read from the same block and the same
+			// texture the lit pass will test.
+			if (masked && first.MaterialRef)
+				first.MaterialRef->Bind(*cmd, pipeline, 1);
 
 			if (first.Skinned)
 			{

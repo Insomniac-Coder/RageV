@@ -2394,24 +2394,6 @@ namespace RageV
 				if (entry.Blended)
 					return;
 
-				// **And a cutout casts nothing either, for now.**
-				//
-				// Not because that is right -- a railing should throw a
-				// railing's shadow -- but because the alternative available
-				// today is worse. The shadow pass is position-only by design:
-				// no texture coordinate in its vertex layout, no material
-				// descriptor set, one matrix per caster and nothing else. A
-				// masked caster drawn through it casts the solid shadow of its
-				// whole sheet, so a chain-link fence shadows like a wall.
-				//
-				// Missing shadow versus wrong shadow, and missing is the
-				// quieter of the two. Giving the shadow pass the UV, the
-				// material index and a cutout variant is the follow-up; it is
-				// a change to the instance format, which is why it is not in
-				// the same commit as the material mode.
-				if (entry.Masked)
-					return;
-
 				const Mat4& world = entry.Transform->World;
 
 				// The same pose the lit pass will be given. Without this a
@@ -2437,7 +2419,17 @@ namespace RageV
 					return;
 				}
 
-				Renderer3D::DrawMeshShadow(entry.Resolved, world);
+				// **A cutout casts the shadow its alpha describes.** The
+				// material goes with the caster only when it is masked --
+				// Renderer3D decides that, so this does not have to -- and it
+				// is what lets the depth pass test the same alpha the lit pass
+				// will. Without it a railing threw the shadow of a solid
+				// sheet, which is a louder wrong than throwing none.
+				Renderer3D::DrawMeshShadow(entry.Resolved, world,
+										   entry.Masked
+											   ? Assets::Manager::GetMaterial(
+													 entry.Source->Material)
+											   : nullptr);
 			};
 
 			if (culled.IsValid())

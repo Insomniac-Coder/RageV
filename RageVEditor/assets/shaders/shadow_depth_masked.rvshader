@@ -1,0 +1,88 @@
+// Depth only, from a light's point of view, for an alpha-tested caster.
+//
+// `shadow_depth.rvshader` is position and nothing else, on the grounds that a
+// depth pass has no surface properties. A cutout is the exception that proves
+// it: the *shape* of a masked caster is not its geometry, it is its geometry
+// minus whatever the base colour's alpha removes, and a shadow pass that
+// cannot see the alpha writes the shadow of the sheet instead of the shadow
+// of the fence. That was visible enough to be worth a second pipeline --
+// a chain-link fence shadowing like a wall is not a subtle wrong.
+//
+// So this is that shader plus the two things the test needs: the texture
+// coordinate, and set 1.
+//
+// **Set 1 is the ordinary bound material set**, written by the same
+// `Material::Bind` the lit pass uses, so the alpha tested here is read from
+// the same block and the same texture the lit pass will test. Two spellings
+// of the cutoff is a fence whose shadow has holes in different places from
+// the fence.
+//
+// It costs a texture fetch per shadow texel of masked geometry, which is why
+// only masked casters are drawn with it. Opaque geometry keeps the empty
+// fragment stage.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) in vec3 a_Position;
+layout(location = 1) in vec2 a_TexCoord;
+
+layout(location = 0) out vec2 v_TexCoord;
+
+// Light view-projection times model, multiplied out before it got here, and
+// laid out exactly as the opaque shadow pass lays it out: the two share one
+// instance buffer and one upload.
+layout(std430, set = 0, binding = 0) readonly buffer InstanceBlock
+{
+	mat4 LightMVP[];
+} u_Instances;
+
+// Where this batch starts. Not the draw's firstInstance, for the reason
+// shadow_depth.rvshader gives: Vulkan's gl_InstanceIndex includes the base
+// and OpenGL's gl_InstanceID does not.
+layout(push_constant) uniform ObjectData
+{
+	int BaseInstance;
+} u_Object;
+
+void main()
+{
+	v_TexCoord = a_TexCoord;
+	gl_Position = u_Instances.LightMVP[u_Object.BaseInstance + gl_InstanceIndex] *
+				  vec4(a_Position, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+// The nine maps and the block, declared exactly as Material::Bind writes
+// them. Declaring fewer is a validation error rather than an unused binding
+// -- the comment at the top of that file says so, and voxelize.rvshader
+// includes it for the same reason: a pass that binds a material has to
+// describe all of it, whether or not it reads all of it.
+#include "include/material_bound.glsl"
+
+layout(location = 0) in vec2 v_TexCoord;
+
+void main()
+{
+	// The same UV the lit pass will build: the material's tiling and offset,
+	// applied the same way round. A shadow sampled at a different texel from
+	// the surface is a shadow whose holes do not line up with the holes.
+	const vec2 uv = v_TexCoord * u_Material.UvTransform.xy + u_Material.UvTransform.zw;
+
+	// **The material's own alpha, not the instance's.** The lit pass starts
+	// from the per-entity base colour, which an entity may override; this pass
+	// has no instance data beyond a matrix, so an entity that overrode its
+	// alpha would cast a shadow cut to the material's alpha instead. Nothing
+	// in this project does that, and carrying a second per-instance stream
+	// through every cascade to cover it is not worth the bandwidth -- but it
+	// is the one way the two can disagree.
+	//
+	// An absent base colour map binds white, so the multiply is right whether
+	// or not there is a texture: alpha is then the material's scalar alone.
+	const float alpha = u_Material.BaseColor.a * texture(u_BaseColorMap, uv).a;
+
+	if (alpha < u_Material.AlphaCutoff)
+		discard;
+}
