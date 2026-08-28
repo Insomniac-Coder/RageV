@@ -1929,16 +1929,30 @@ namespace RageV
 			return kNoCullSlot;
 		};
 
-		auto slotFor = [&](const Mesh* key) -> uint32_t
+		// **Keyed by mesh and, for a cutout, by material too.**
+		//
+		// An opaque slot needs only the mesh: the bindless path names each
+		// instance's material in the instance row, so one draw covers many.
+		// A masked slot cannot, because the *depth* pass binds the material to
+		// read its alpha -- one material per draw. Two cutouts sharing a mesh
+		// and differing in texture would otherwise cast each other's shadow.
+		//
+		// `material` is null for opaque geometry, which makes the extra
+		// comparison a no-op for the overwhelming majority of slots.
+		const Material* lastMaterial = nullptr;
+
+		auto slotFor = [&](const Mesh* key, const Material* material) -> uint32_t
 		{
-			if (key == lastMesh)
+			if (key == lastMesh && material == lastMaterial)
 				return lastSlot;
 
 			for (uint32_t i = 0; i < (uint32_t)m_CullMeshes.size(); i++)
 			{
-				if (m_CullMeshes[i].MeshRef.get() == key)
+				if (m_CullMeshes[i].MeshRef.get() == key &&
+					m_CullMeshes[i].MaskedMaterial.get() == material)
 				{
 					lastMesh = key;
+					lastMaterial = material;
 					lastSlot = i;
 					return i;
 				}
@@ -2158,15 +2172,22 @@ namespace RageV
 			// A skinned caster is posed from bones the CPU composed this
 			// frame, and an indexless mesh has nothing for an indexed draw to
 			// draw.
-			if (gpuCull && !entry.Skinned && !blended && !masked && resolved->GetIndexCount() >= 3)
+			// Masked geometry belongs here too: it draws in this pass, against
+			// these targets, and only its pipeline differs. What it must not
+			// do is share a slot with the same mesh drawn opaque, which is
+			// what the material half of the key prevents.
+			if (gpuCull && !entry.Skinned && !blended && resolved->GetIndexCount() >= 3)
 			{
-				uint32_t slot = slotFor(resolved.get());
+				const Material* maskedKey = masked ? resolvedMaterial.get() : nullptr;
+				uint32_t slot = slotFor(resolved.get(), maskedKey);
 				if (slot == kNoCullSlot)
 				{
 					slot = (uint32_t)m_CullMeshes.size();
 
 					GpuCull::Slot record;
 					record.MeshRef = resolved;
+					if (masked)
+						record.MaskedMaterial = resolvedMaterial;
 					m_CullMeshes.push_back(std::move(record));
 					m_CullCounts.push_back(0);
 
@@ -2175,6 +2196,7 @@ namespace RageV
 					m_CullSlots.push_back(command);
 
 					lastMesh = resolved.get();
+					lastMaterial = maskedKey;
 					lastSlot = slot;
 				}
 

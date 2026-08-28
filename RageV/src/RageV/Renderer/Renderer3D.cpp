@@ -645,6 +645,10 @@ namespace RageV
 				// backend while Vulkan, where compatible layouts really are
 				// interchangeable, showed nothing wrong at all.
 				Ref<RHIResourceSet> MaskedSet;
+				// The GPU-culled path's twin of it: those draws read their
+				// instances through a different binding, and a masked one reads
+				// them through a different pipeline.
+				Ref<RHIResourceSet> MaskedGpuSet;
 				// **And one for the transparent pipeline**, which is a fourth
 				// layout and therefore a fourth set. Sharing the opaque one
 				// looked like it worked -- the geometry drew, the lighting was
@@ -2337,6 +2341,7 @@ namespace RageV
 				slot.LayeredSet.reset();
 				slot.MaskedSet.reset();
 				slot.GpuSet.reset();
+				slot.MaskedGpuSet.reset();
 				// Every set in the slot. Forgetting one is a crash on resize
 				// rather than a wrong picture -- which is the note above, and
 				// is exactly how GpuSet was found.
@@ -2759,6 +2764,8 @@ namespace RageV
 		// differs only where EndScene says.
 		if (s_Data->Pipeline && !slot.GpuSet)
 			slot.GpuSet = s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0);
+		if (s_Data->MaskedPipeline && !slot.MaskedGpuSet)
+			slot.MaskedGpuSet = s_Data->Device->CreateResourceSet(s_Data->MaskedPipeline, 0);
 
 		// The prepass's, on the same terms. It is filled where the GPU path's
 		// visible indices are written rather than in the loop below, because
@@ -2769,7 +2776,7 @@ namespace RageV
 			slot.PrepassSet = s_Data->Device->CreateResourceSet(s_Data->PrepassPipeline, 0);
 
 		Ref<RHIResourceSet> targets[] = { slot.Set, slot.SkinnedSet, slot.LayeredSet,
-										  slot.MaskedSet, slot.GpuSet,
+										  slot.MaskedSet, slot.GpuSet, slot.MaskedGpuSet,
 										  slot.TransparentSet, slot.TransparentGpuSet };
 
 		for (const Ref<RHIResourceSet>& sceneSet : targets)
@@ -3502,6 +3509,24 @@ namespace RageV
 					slot.GpuSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
 			}
 			slot.GpuSet->Commit();
+
+			// The masked indirect set carries identical contents; only the
+			// pipeline it was allocated against differs.
+			if (slot.MaskedGpuSet)
+			{
+				slot.MaskedGpuSet->SetStorageBuffer(7, slot.Instances, 0,
+													(uint64_t)instanceRows * sizeof(InstanceData));
+				slot.MaskedGpuSet->SetStorageBuffer(kVisibleBinding,
+													s_Data->IndirectView.Instances);
+				if (s_Data->Bindless)
+				{
+					slot.MaskedGpuSet->SetStorageBuffer(13, slot.Materials, 0,
+														(uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+					if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
+						slot.MaskedGpuSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+				}
+				slot.MaskedGpuSet->Commit();
+			}
 		}
 		// Only where the layout declares it: on the bound path the shader has
 		// no binding 13, and writing an undeclared binding is the validation
@@ -3692,6 +3717,15 @@ namespace RageV
 				if (!entry.MeshRef)
 					continue;
 
+				// **Never a cutout.** The prepass writes depth with no fragment
+				// stage, so it would lay down depth for texels the lit pass is
+				// about to discard -- and a hole whose depth was already
+				// written occludes whatever is behind it. Masked slots are
+				// simply absent from this pass; they write their own depth in
+				// the lit pass, which is what the depth test then reads.
+				if (entry.MaskedMaterial)
+					continue;
+
 				ObjectPushConstants object;
 				object.BaseInstance = (int32_t)entry.InstanceBase;
 				cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
@@ -3712,20 +3746,42 @@ namespace RageV
 
 		if (haveIndirect && slot.GpuSet)
 		{
-			cmd->BindPipeline(s_Data->Pipeline);
-			cmd->BindResourceSet(0, slot.GpuSet);
-			if (s_Data->Bindless)
-				cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
-
 			const std::vector<GpuCull::Slot>& indirect = s_Data->IndirectSlots;
 			const uint32_t slotCount =
 				Math::Min((uint32_t)indirect.size(), s_Data->IndirectView.SlotCount);
+
+			// **Two sweeps, opaque then masked**, rather than one that rebinds
+			// whenever the kind changes. The table is in creation order, so
+			// cutouts are scattered through it; sweeping twice costs one extra
+			// pipeline bind and sorting the table would cost a sort.
+			//
+			// Opaque first, so every cutout is tested against a depth buffer
+			// the solid geometry has already filled -- the same order the CPU
+			// path's buckets produce, and for the same reason.
+			for (int sweep = 0; sweep < 2; sweep++)
+			{
+			const bool maskedSweep = sweep == 1;
+			if (maskedSweep && (!s_Data->MaskedPipeline || !slot.MaskedGpuSet))
+				continue;
+
+			bool sweepBound = false;
 
 			for (uint32_t i = 0; i < slotCount; i++)
 			{
 				const GpuCull::Slot& entry = indirect[i];
 				if (!entry.MeshRef)
 					continue;
+				if ((entry.MaskedMaterial != nullptr) != maskedSweep)
+					continue;
+
+				if (!sweepBound)
+				{
+					cmd->BindPipeline(maskedSweep ? s_Data->MaskedPipeline : s_Data->Pipeline);
+					cmd->BindResourceSet(0, maskedSweep ? slot.MaskedGpuSet : slot.GpuSet);
+					if (s_Data->Bindless)
+						cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+					sweepBound = true;
+				}
 
 				// Where this slot's survivors begin in the index buffer. Not
 				// the draw's firstInstance, for the reason scene_vertex.glsl
@@ -3749,6 +3805,7 @@ namespace RageV
 				s_Data->IndirectDraws++;
 				s_Data->Triangles +=
 					(entry.MeshRef->GetIndexCount() / 3) * entry.InstanceCount;
+			}
 			}
 
 			// The loop below has to bind its own pipeline and set again.
@@ -4344,14 +4401,46 @@ namespace RageV
 
 		const uint32_t frame = s_Data->Device->GetFrameIndex();
 		auto& sets = s_Data->CulledShadowSets[frame];
-		while (s_Data->CulledShadowCursor >= sets.size())
+
+		// **Both rows claimed and the vector grown before either is touched.**
+		//
+		// This pass needs two sets now -- one per pipeline -- and the ring they
+		// come from grows on demand. Taking a reference to the first row and
+		// then pushing the second is a dangling reference the moment the push
+		// reallocates, which is an access violation inside the draw loop a long
+		// way from the cause. So: claim the indices, grow once, and hold the
+		// sets by value.
+		const uint32_t opaqueRow = s_Data->CulledShadowCursor++;
+		const bool wantMasked = s_Data->ShadowMaskedPipeline != nullptr;
+		const uint32_t maskedRow = wantMasked ? s_Data->CulledShadowCursor++ : opaqueRow;
+
+		while (sets.size() <= (size_t)Math::Max(opaqueRow, maskedRow))
 			sets.push_back(nullptr);
 
-		Ref<RHIResourceSet>& set = sets[s_Data->CulledShadowCursor++];
-		if (!set)
-			set = s_Data->Device->CreateResourceSet(s_Data->ShadowPipeline, 0);
+		if (!sets[opaqueRow])
+			sets[opaqueRow] = s_Data->Device->CreateResourceSet(s_Data->ShadowPipeline, 0);
+
+		const Ref<RHIResourceSet> set = sets[opaqueRow];
 		if (!set)
 			return;
+
+		// The cutout casters' own set against their own pipeline, reading the
+		// same instance buffer.
+		Ref<RHIResourceSet> maskedSet;
+		if (wantMasked)
+		{
+			if (!sets[maskedRow])
+			{
+				sets[maskedRow] =
+					s_Data->Device->CreateResourceSet(s_Data->ShadowMaskedPipeline, 0);
+			}
+			maskedSet = sets[maskedRow];
+			if (maskedSet)
+			{
+				maskedSet->SetStorageBuffer(0, view.Instances);
+				maskedSet->Commit();
+			}
+		}
 
 		// The buffer the cull pass wrote, in place of the one the CPU used to
 		// fill. shadow_depth.rvshader does not know the difference: it was
@@ -4360,17 +4449,37 @@ namespace RageV
 		set->SetStorageBuffer(0, view.Instances);
 		set->Commit();
 
-		cmd->BindPipeline(s_Data->ShadowPipeline);
-		cmd->BindResourceSet(0, set);
-
 		// The cull filled as many commands as the table had slots; a shorter
 		// `slots` than that would mean the two came from different walks.
 		const uint32_t count = Math::Min((uint32_t)slots.size(), view.SlotCount);
+
+		// **A cutout casts the shadow its alpha describes**, which needs the
+		// pipeline that tests the alpha and the material to test it against.
+		// Bound per slot rather than per sweep, because a masked slot is keyed
+		// by material precisely so that this bind is unambiguous.
+		bool boundMasked = false;
+		bool anyBound = false;
+
 		for (uint32_t i = 0; i < count; i++)
 		{
 			const GpuCull::Slot& entry = slots[i];
 			if (!entry.MeshRef)
 				continue;
+
+			const bool masked = entry.MaskedMaterial != nullptr;
+			if (masked && !maskedSet)
+				continue;   // no cutout pipeline: cast nothing rather than a solid sheet
+
+			if (!anyBound || boundMasked != masked)
+			{
+				cmd->BindPipeline(masked ? s_Data->ShadowMaskedPipeline : s_Data->ShadowPipeline);
+				cmd->BindResourceSet(0, masked ? maskedSet : set);
+				boundMasked = masked;
+				anyBound = true;
+			}
+
+			if (masked)
+				entry.MaskedMaterial->Bind(*cmd, s_Data->ShadowMaskedPipeline, 1);
 
 			// Where this slot's instances begin, from the CPU's copy of the
 			// same table the GPU has. Not the draw's firstInstance, for the

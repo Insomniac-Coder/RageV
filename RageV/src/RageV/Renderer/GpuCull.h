@@ -40,6 +40,7 @@
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "RageV/Renderer/RHI/RHICommandList.h"
 #include "RageV/Renderer/Mesh.h"
+#include "RageV/Renderer/Material.h"
 #include "RageV/Math/Math.h"
 
 #include <vector>
@@ -120,6 +121,23 @@ namespace RageV
 			RHI::Ref<Mesh> MeshRef;
 			uint32_t InstanceBase = 0;
 			uint32_t InstanceCount = 0;
+
+			// **Non-null exactly when this slot is alpha-tested**, and it is
+			// the material the slot draws with.
+			//
+			// Masked geometry shares this table with opaque geometry rather
+			// than taking one of its own, because it draws in the same pass
+			// against the same targets -- only the pipeline differs. (Blended
+			// geometry has its own table because it draws in a *different*
+			// pass, which is a different thing entirely.)
+			//
+			// It is carried per slot and not per instance because the depth
+			// pass binds it: a shadow reads the alpha through the ordinary
+			// bound material set, one material per draw. That is also why a
+			// masked slot is keyed by mesh *and* material where an opaque one
+			// is keyed by mesh alone -- two cutouts sharing a mesh and
+			// differing in texture would otherwise cast each other's shadow.
+			RHI::Ref<Material> MaskedMaterial;
 		};
 
 		// One view's culled result: the arguments its draws read, and the
