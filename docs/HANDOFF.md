@@ -22,8 +22,10 @@ complete record; the short version every future attempt must start from:
   unchanged, and it flickers with budgeting disabled); a
   reflections-in-a-pass rebuild with unjittered rays, temporal accumulation
   and a median despeckle (count 0.60% -> 0.53%, reverted the same night —
-  see below); the strict spatial GI filter (realtime-only, flicker exists
-  on baked).
+  see below); the strict spatial GI filter — which the owner then had
+  removed outright (`74790c6`): two attempts, adaptive and strict, both
+  blotched beside bright sources. No third under-tuned variant; SVGF-class
+  or nothing.
 - **Untested, and the owner's own timeline:** the flicker began when ray
   budgeting was merged and enabled (`5dd603f`, 2026-08-27, which set
   `RayBudget: Fractional` in the project). The A/B that settles it — that
