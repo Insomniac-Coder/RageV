@@ -84,7 +84,6 @@ namespace RageV
 				case 29: return "assets/shaders/importance_tiles.rvshader";
 				case 30: return "assets/shaders/tile_reduce.rvshader";
 				case 31: return "assets/shaders/tile_budget.rvshader";
-				case 32: return "assets/shaders/gi_spatial.rvshader";
 				default: return "assets/shaders/fog.rvshader";
 			}
 		}
@@ -105,7 +104,7 @@ namespace RageV
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not -- so the number is
 			// asserted against it in Init instead, where the enum is in scope.
-			std::array<Ref<RHIShader>, 34> Shaders;
+			std::array<Ref<RHIShader>, 33> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -165,7 +164,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 34,
+		static_assert((int)Shader::Count <= 33,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -1008,40 +1007,6 @@ namespace RageV
 				 history ? history : s_Data->Black, Sampling::Point);
 	}
 
-	void PostProcess::GiSpatial(RHICommandList& cmd, const Ref<RHITexture>& indirect,
-								const Ref<RHITexture>& depth, const Ref<RHITexture>& surface,
-								uint32_t width, uint32_t height, float stride,
-								float nearClip, float farClip, Format outputFormat)
-	{
-		if (!s_Data || !indirect || !depth || !surface)
-			return;
-
-		struct GiSpatialParams
-		{
-			PostParams Base;
-			float NearClip = 0.05f;
-			float FarClip = 1000.0f;
-			float InvP0 = 0.0f;
-			float InvP1 = 0.0f;
-		};
-
-		GiSpatialParams params;
-		params.Base.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
-								  1.0f / (float)Math::Max(height, 1u) };
-		params.Base.A = stride;
-		// Metres that still count as the same surface, scaled with the ring's
-		// reach: what is right for neighbouring texels is too tight four
-		// texels out on a floor seen at a glancing angle.
-		params.Base.B = 0.05f * stride;
-		// Sharp enough to keep a corner's two faces apart; never relaxed.
-		params.Base.C = 8.0f;
-		params.NearClip = nearClip;
-		params.FarClip = farClip;
-
-		Dispatch(cmd, Shader::GiSpatial, outputFormat, indirect, depth,
-				 &params, sizeof(params), Sampling::Linear, Sampling::Point,
-				 surface, Sampling::Point);
-	}
 
 
 	void PostProcess::SsaoBlur(RHICommandList& cmd, const Ref<RHITexture>& source,

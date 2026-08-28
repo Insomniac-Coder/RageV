@@ -332,16 +332,6 @@ namespace RageV
 				   float hysteresis, float aoCeiling, float giCeiling,
 				   RHI::Format outputFormat);
 
-		// The indirect buffer's spatial stage: strict a-trous, run at stride 1,
-		// 2, 4 before the temporal stage. Rebuilt after the adaptive version
-		// blotched; every tolerance is now a constant.
-		static void GiSpatial(RHI::RHICommandList& cmd,
-							  const RHI::Ref<RHI::RHITexture>& indirect,
-							  const RHI::Ref<RHI::RHITexture>& depth,
-							  const RHI::Ref<RHI::RHITexture>& surface,
-							  uint32_t width, uint32_t height, float stride,
-							  float nearClip, float farClip,
-							  RHI::Format outputFormat);
 
 
 		// 4: the multiply onto the linear HDR image.
@@ -469,9 +459,6 @@ namespace RageV
 			// The ray budget's three stages: measure each tile, reduce the map
 			// to its mean, then turn importance into ray counts.
 			ImportanceTiles, TileReduce, TileBudget,
-			// The denoisers: the indirect buffer's strict a-trous, and the
-			// reflection buffer's outlier median.
-			GiSpatial,
 			Count
 		};
 

@@ -1394,48 +1394,6 @@ namespace RageV
 														traceView, rays);
 				});
 
-			// **The spatial stage, before the temporal one.** Three strict
-			// a-trous iterations -- see gi_spatial.rvshader's header for why this
-			// version adapts nothing where its deleted predecessor adapted two
-			// things and blotched. Before the accumulation so the history
-			// ping-pong is untouched: filtering the accumulated result would
-			// leave the lit pass and next frame's history reading two buffers.
-			RGResource giFiltered = giTraced;
-			for (int iteration = 0; iteration < 3; iteration++)
-			{
-				RGTargetDesc filterDesc;
-				filterDesc.Name = "GI spatial";
-				filterDesc.Color = Format::R16G16B16A16_SFLOAT;
-				filterDesc.Depth = Format::Undefined;
-				filterDesc.Scale = traceDesc.Scale;
-				const RGResource next = graph.CreateTarget(filterDesc);
-				const RGResource source = giFiltered;
-
-				graph.AddPass("GI spatial",
-					[&](RGPassBuilder& builder)
-					{
-						builder.Write(next);
-						builder.Sample(source);
-						builder.Sample(sceneHDR);
-						builder.DisableDepth();
-					},
-					[source, sceneHDR, normalIndex,
-					 width = giTraceWidth, height = giTraceHeight,
-					 stride = (float)(1 << iteration),
-					 nearZ = desc.NearClip, farZ = desc.FarClip](RGPassContext& context)
-					{
-						PostProcess::GiSpatial(context.Cmd,
-											   context.Color(source),
-											   context.Depth(sceneHDR),
-											   context.Color(sceneHDR, normalIndex),
-											   width, height, stride,
-											   nearZ, farZ,
-											   Format::R16G16B16A16_SFLOAT);
-					});
-
-				giFiltered = next;
-			}
-
 			// Accumulated through the same pass the screen-space chain ends
 			// on, because at this point the two carry the same quantity and,
 			// since 7ay closed the gather's loop, neither carries its own
@@ -1444,18 +1402,18 @@ namespace RageV
 				[&](RGPassBuilder& builder)
 				{
 					builder.Write(currentIndirect);
-					builder.Sample(giFiltered);
+					builder.Sample(giTraced);
 					builder.Sample(sceneHDR);
 					if (previousIndirect != kRGInvalid)
 						builder.Sample(previousIndirect);
 					builder.DisableDepth();
 				},
-				[giFiltered, sceneHDR, previousIndirect, velocityIndex,
+				[giTraced, sceneHDR, previousIndirect, velocityIndex,
 				 width = giTraceWidth, height = giTraceHeight,
 				 feedback = giFeedback, has = indirectHasHistory](RGPassContext& context)
 				{
 					PostProcess::GiDenoise(context.Cmd,
-										   context.Color(giFiltered),
+										   context.Color(giTraced),
 										   previousIndirect != kRGInvalid
 											   ? context.Color(previousIndirect) : nullptr,
 										   context.Color(sceneHDR, velocityIndex),
