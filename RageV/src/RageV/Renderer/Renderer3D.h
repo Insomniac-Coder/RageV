@@ -431,6 +431,8 @@ namespace RageV
 		static void TraceGlobalIllumination(RHI::RHICommandList& cmd,
 											const RHI::Ref<RHI::RHITexture>& depth,
 											const RHI::Ref<RHI::RHITexture>& surface,
+											// The ray budget's map, or null for a fixed count.
+											const RHI::Ref<RHI::RHITexture>& budget,
 											RHI::Format targetColor,
 											const GiTraceView& view, int rays);
 		static bool CanTraceGlobalIllumination();

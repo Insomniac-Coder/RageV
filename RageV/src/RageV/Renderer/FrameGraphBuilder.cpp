@@ -507,11 +507,19 @@ namespace RageV
 		// showroom's lit pass 7.28 ms to 6.78 and no further. What this
 		// reclaims is the mid-gloss majority of a scene, not the hero object.
 		{
-			Vec2 gloss = RayDetailGloss(reflectionDetail);
-			const float scale = Renderer::GetRayScale();
-			if (scale < 1.0f)
-				gloss.y = gloss.x + (gloss.y - gloss.x) * scale;
-			Renderer::SetReflectionGloss(gloss);
+			// **The budget does not touch this window.**
+			//
+			// It used to: the upper bound was pulled toward the lower one in
+			// proportion to the ray scale, so at the floor a High window of
+			// 0.25-0.60 collapsed to 0.25-0.34. That does not make reflections
+			// cheaper-looking, it makes them *absent* -- every surface rougher
+			// than 0.34 simply stopped having one. Observed on the showroom
+			// (2026-08-28): a metallic bar at the back of the room lost its
+			// reflection a few seconds in and never got it back.
+			//
+			// A budget may spend fewer rays on a thing. It may not decide the
+			// thing is no longer in the picture.
+			Renderer::SetReflectionGloss(RayDetailGloss(reflectionDetail));
 		}
 		const AoDetail rayAo = ResolveRayTracedAmbientOcclusion(desc.Render);
 		const bool rayOcclusion = rayAo != AoDetail::Off;
@@ -583,6 +591,7 @@ namespace RageV
 								  && !rayReflections
 								  && desc.Reflections != nullptr
 								  && PostProcess::IsReady();
+
 
 		// **What actually runs, published for anything that reports it.**
 		//
@@ -1016,6 +1025,156 @@ namespace RageV
 		// also has that bounce darkened by its own occlusion rather than the
 		// other way about. Not added at all when the traced form runs, and not
 		// added at all when the profile's toggle is off. ENGINE-NOTES 7at.
+		// ------------------------------------------------------------------
+		// **The ray budget.** Three passes and a reduction, here because this is
+		// after the scene pass -- depth, the surface buffer and the lit colour
+		// all exist -- and before the tracing passes that spend what it
+		// allocates.
+		//
+		// A screen-space importance map dividing a *fixed* budget, per ray type.
+		// What it replaces is a single global scalar stepping between four
+		// levels on frame time: that could not tell a crease from a flat wall,
+		// and it stepped for the whole screen at once, visibly. Nothing here
+		// reads frame time; only the distribution moves.
+		// ------------------------------------------------------------------
+		RGResource rayBudgetMap = kRGInvalid;
+		bool hasRayBudget = false;
+		uint32_t budgetTilesX = 0;
+		uint32_t budgetTilesY = 0;
+
+		if (desc.RayBudget && PostProcess::IsReady())
+		{
+			// Sixteen: one number per 256 pixels. Small enough that a wave never
+			// straddles two allocations, large enough that the map is a few
+			// thousand texels rather than a few million.
+			constexpr uint32_t kTileSize = 16;
+			budgetTilesX = Math::Max((desc.Width + kTileSize - 1) / kTileSize, 1u);
+			budgetTilesY = Math::Max((desc.Height + kTileSize - 1) / kTileSize, 1u);
+
+			TemporalHistory& budget = *desc.RayBudget;
+			budget.Prepare(Renderer::GetDevice(), budgetTilesX, budgetTilesY,
+				   Format::R16G16B16A16_SFLOAT, "RayBudget");
+
+			if (budget.Current() && budget.Previous())
+			{
+				const bool hasHistory = budget.HasHistory();
+				const RGResource previous =
+					graph.Import(budget.Previous(), "RayBudgetPrevious");
+				const RGResource current =
+					graph.Import(budget.Current(), "RayBudgetCurrent");
+
+				RGTargetDesc tileDesc;
+				tileDesc.Name = "ImportanceTiles";
+				tileDesc.Color = Format::R16G16B16A16_SFLOAT;
+				tileDesc.Depth = Format::Undefined;
+				tileDesc.Width = budgetTilesX;
+				tileDesc.Height = budgetTilesY;
+				const RGResource tiles = graph.CreateTarget(tileDesc);
+
+				graph.AddPass("Budget importance",
+					[&](RGPassBuilder& builder)
+					{
+						builder.Write(tiles);
+						builder.Sample(sceneHDR);
+						builder.DisableDepth();
+					},
+					[sceneHDR, normalIndex, velocityIndex,
+					 tilesX = budgetTilesX, tilesY = budgetTilesY,
+					 width = desc.Width, height = desc.Height,
+					 nearZ = desc.NearClip, farZ = desc.FarClip](RGPassContext& context)
+					{
+						PostProcess::ImportanceTiles(
+							context.Cmd,
+							context.Color(sceneHDR, normalIndex),
+							context.Depth(sceneHDR),
+							context.Color(sceneHDR, velocityIndex),
+					tilesX, tilesY, kTileSize, width, height,
+							nearZ, farZ, Format::R16G16B16A16_SFLOAT);
+					});
+
+				// **Halve until nothing is left, and what remains is the mean.** The
+				// allocator divides by it, so this is the only place the whole screen
+				// becomes one number -- and it enters as a divisor of a per-tile
+				// weight rather than as a level every tile is set to, which is the
+				// structural difference between this and the dial it replaces.
+				RGResource reduced = tiles;
+				uint32_t reduceX = budgetTilesX;
+				uint32_t reduceY = budgetTilesY;
+				while (reduceX > 1 || reduceY > 1)
+				{
+					reduceX = Math::Max(reduceX / 2, 1u);
+					reduceY = Math::Max(reduceY / 2, 1u);
+
+					RGTargetDesc stepDesc;
+					stepDesc.Name = "BudgetReduce";
+					stepDesc.Color = Format::R16G16B16A16_SFLOAT;
+					stepDesc.Depth = Format::Undefined;
+					stepDesc.Width = reduceX;
+					stepDesc.Height = reduceY;
+					const RGResource next = graph.CreateTarget(stepDesc);
+					const RGResource from = reduced;
+
+					graph.AddPass("Budget reduce",
+						[&](RGPassBuilder& builder)
+						{
+							builder.Write(next);
+							builder.Sample(from);
+							builder.DisableDepth();
+						},
+						[from, reduceX, reduceY](RGPassContext& context)
+						{
+							PostProcess::TileReduce(context.Cmd, context.Color(from),
+								reduceX, reduceY,
+								Format::R16G16B16A16_SFLOAT);
+						});
+
+					reduced = next;
+				}
+
+				const RGResource mean = reduced;
+
+				graph.AddPass("Budget allocate",
+					[&](RGPassBuilder& builder)
+					{
+						builder.Write(current);
+						builder.Sample(tiles);
+						builder.Sample(mean);
+						if (hasHistory)
+							builder.Sample(previous);
+						builder.DisableDepth();
+					},
+					[tiles, mean, previous, hasHistory,
+					 tilesX = budgetTilesX, tilesY = budgetTilesY,
+					 aoAverage = desc.Render.RayBudgetAoAverage,
+					 giAverage = desc.Render.RayBudgetGiAverage,
+					 spread = desc.Render.RayBudgetSpread](RGPassContext& context)
+					{
+						// One dial, and it is the honest one: the ratio between the
+						// cheapest tile and the dearest. Floor and ceiling move together.
+						const float maxFactor = Math::Max(spread, 1.0f);
+						const float minFactor = 1.0f / maxFactor;
+
+						PostProcess::TileBudget(
+							context.Cmd, context.Color(tiles), context.Color(mean),
+							hasHistory ? context.Color(previous) : nullptr,
+							tilesX, tilesY, aoAverage, giAverage,
+							minFactor, maxFactor,
+							// One ray a frame. Any target is reached inside a fifth
+							// of a second -- faster than the filters downstream
+							// converge -- so nothing waits on this and nothing pops.
+							1.0f,
+							16.0f, 16.0f,
+							Format::R16G16B16A16_SFLOAT);
+					});
+
+				rayBudgetMap = current;
+				hasRayBudget = true;
+			}
+		}
+		else if (desc.RayBudget)
+		{
+			desc.RayBudget->Invalidate();
+		}
 		if (wantIndirect && !rayGi && currentIndirect != kRGInvalid)
 		{
 			// ENGINE-NOTES 7az. High gathers at full resolution; the two below
@@ -1210,45 +1369,39 @@ namespace RageV
 					// Depth and the surface description, which is where the
 					// position and the normal come back from.
 					builder.Sample(sceneHDR);
+					// Declared, not merely read -- the graph checks.
+					if (rayBudgetMap != kRGInvalid)
+						builder.Sample(rayBudgetMap);
 					builder.DisableDepth();
 				},
 				// Scaled by the same budget, floored at one: a bounce pass
 				// that casts no rays writes black and the field it feeds
 				// darkens the whole scene, which is a worse failure than a
 				// noisy bounce.
-				[sceneHDR, normalIndex, traceView,
-				 rays = Math::Max((int)(RayDetailRays(giDetail)
-										* Renderer::GetRayScale() + 0.5f), 1)]
+				[sceneHDR, normalIndex, traceView, budgetMap = rayBudgetMap,
+				 rays = hasRayBudget ? RayDetailRays(giDetail)
+										  : Math::Max((int)(RayDetailRays(giDetail)
+											   * Renderer::GetRayScale() + 0.5f), 1)]
 				(RGPassContext& context)
 				{
 					RayGpuScope rayTime(context.Cmd);
 					Renderer3D::TraceGlobalIllumination(context.Cmd,
 														context.Depth(sceneHDR),
 														context.Color(sceneHDR, normalIndex),
+														budgetMap != kRGInvalid
+															? context.Color(budgetMap) : nullptr,
 														Format::R16G16B16A16_SFLOAT,
 														traceView, rays);
 				});
 
-			// **The spatial stage, before the temporal one.**
-			//
-			// Four hemisphere rays a pixel is an estimate the temporal pass
-			// can only average against its own past -- worth 2.1x measured,
-			// and then floored, because one pixel can never borrow from the
-			// pixel beside it. A neighbour is exactly the sample it is
-			// missing: indirect light is the lowest-frequency thing in the
-			// frame, so two points on one surface a few pixels apart receive
-			// very nearly the same bounce.
-			//
-			// Three a-trous iterations at stride 1, 2 and 4 reach a 15-tap
-			// radius for the cost of three 5x5 passes, each re-testing depth
-			// and normal so the reach grows without ever crossing an edge.
-			//
-			// Before the accumulation rather than after: this way the history
-			// ping-pong is untouched. Filtering the accumulated buffer would
-			// leave the lit pass and next frame's history reading two
-			// different images.
+			// **The spatial stage, before the temporal one.** Three strict
+			// a-trous iterations -- see gi_spatial.rvshader's header for why this
+			// version adapts nothing where its deleted predecessor adapted two
+			// things and blotched. Before the accumulation so the history
+			// ping-pong is untouched: filtering the accumulated result would
+			// leave the lit pass and next frame's history reading two buffers.
 			RGResource giFiltered = giTraced;
-			for (int iteration = 0; iteration < 4; iteration++)
+			for (int iteration = 0; iteration < 3; iteration++)
 			{
 				RGTargetDesc filterDesc;
 				filterDesc.Name = "GI spatial";
@@ -1266,16 +1419,17 @@ namespace RageV
 						builder.Sample(sceneHDR);
 						builder.DisableDepth();
 					},
-					[source, sceneHDR, normalIndex, view = traceView,
+					[source, sceneHDR, normalIndex,
 					 width = giTraceWidth, height = giTraceHeight,
-					 stride = (float)(1 << iteration)](RGPassContext& context)
+					 stride = (float)(1 << iteration),
+					 nearZ = desc.NearClip, farZ = desc.FarClip](RGPassContext& context)
 					{
 						PostProcess::GiSpatial(context.Cmd,
 											   context.Color(source),
 											   context.Depth(sceneHDR),
 											   context.Color(sceneHDR, normalIndex),
 											   width, height, stride,
-											   view.NearClip, view.FarClip,
+											   nearZ, farZ,
 											   Format::R16G16B16A16_SFLOAT);
 					});
 
@@ -1373,7 +1527,13 @@ namespace RageV
 			// Only the traced form. The screen-space one spends resolution
 			// rather than rays (see AoDetail), so scaling its tap count would
 			// be changing a different quantity than the one under budget.
-			if (rayOcclusion)
+			// **Not when the allocator is running.** The budget is fixed by
+			// design: a controller reacting to frame time is what stepped the
+			// whole screen's quality at once, and running it underneath a
+			// per-tile allocation is the same rays taken twice -- the second
+			// time uniformly. Here the count is the ceiling the allocator works
+			// below, and the average it works toward is a setting.
+			if (rayOcclusion && !hasRayBudget)
 			{
 				const float scale = Renderer::GetRayScale();
 				if (scale < 1.0f)
@@ -1419,10 +1579,14 @@ namespace RageV
 				{
 					builder.Write(raw);
 					builder.Sample(sceneHDR);
+					// Declared, not merely read -- the graph checks.
+					if (rayBudgetMap != kRGInvalid)
+						builder.Sample(rayBudgetMap);
 					builder.DisableDepth();
 				},
 				[sceneHDR, normalIndex, halfWidth, halfHeight, reconstruction,
-				 radius, rayOcclusion, aoTaps](RGPassContext& context)
+				 radius, rayOcclusion, aoTaps,
+				 budgetMap = rayBudgetMap](RGPassContext& context)
 				{
 					// Depth and the surface attachment: the real normal where
 					// the scene wrote one, reconstruction where it did not.
@@ -1434,6 +1598,8 @@ namespace RageV
 						PostProcess::RtaoCompute(context.Cmd, context.Depth(sceneHDR),
 												 context.Color(sceneHDR, normalIndex),
 												 RayShadows::GetStructure(),
+												 budgetMap != kRGInvalid
+												 	 ? context.Color(budgetMap) : nullptr,
 												 halfWidth, halfHeight, reconstruction,
 												 radius, aoTaps, Format::R16G16B16A16_SFLOAT);
 					}
@@ -1672,6 +1838,7 @@ namespace RageV
 			// one that spends a session reading the target it is writing.
 			desc.Reflections->Advance();
 		}
+
 
 		// --- depth of field ----------------------------------------------------
 		//

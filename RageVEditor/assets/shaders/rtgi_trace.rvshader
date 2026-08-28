@@ -96,6 +96,10 @@ struct GiEmitter
 	vec4 UvToSurface1;
 };
 
+// The ray budget's allocation: `.g` is this tile's bounce-ray count.
+// Point-sampled -- a count between two counts is not a count.
+layout(set = 3, binding = 5) uniform sampler2D u_GiBudget;
+
 layout(std430, set = 3, binding = 2) readonly buffer GiEmitterBlock
 {
 	GiEmitter u_Emitters[];
@@ -242,7 +246,17 @@ void main()
 	uint seed = GiHash(pixel.x * 0x9E3779B9u ^ pixel.y
 					   ^ (uint(u_Scene.GlobalIllumination.y) * 0x85EBCA6Bu));
 
-	const int rays = clamp(int(u_Gi.Rays + 0.5), 1, 32);
+	// **Per tile, not per frame.** `Rays` is the ceiling and the fallback:
+	// with no budget bound every pixel takes it, which is the fixed count
+	// this replaces. Its sign carries whether a budget is bound, so the
+	// push-constant block -- already at its guaranteed size -- needs no new
+	// field, and a ray count is never legitimately negative.
+	int rays = clamp(int(abs(u_Gi.Rays) + 0.5), 1, 32);
+	if (u_Gi.Rays < 0.0)
+	{
+		const float allocated = texture(u_GiBudget, uv).g;
+		rays = clamp(int(allocated + 0.5), 1, rays);
+	}
 	const int bounces = int(u_Scene.GlobalIllumination.z + 0.5);
 	const float reach = u_Scene.GlobalIllumination.w > 0.0
 					  ? u_Scene.GlobalIllumination.w : 1.0e4;

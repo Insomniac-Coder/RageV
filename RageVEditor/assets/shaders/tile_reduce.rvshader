@@ -1,0 +1,64 @@
+// **Stage two of the ray budget: the average importance across the screen.**
+//
+// The allocator needs a total, not a list. Its rule is "this tile's share is
+// its weight over the sum of all weights", and with a fixed tile count that sum
+// is the mean times the count -- so a mean is the whole of what has to be
+// known, and a mean is something a GPU produces by halving a texture until
+// nothing is left of it.
+//
+// Run repeatedly: 160x100 -> 80x50 -> ... -> 1x1. Eight passes over a texture
+// that starts at sixteen thousand texels; the cost is not measurable beside one
+// ray.
+//
+// **An exact box, not a bilinear tap.** One linear fetch at the corner of four
+// texels averages them and would halve the pass count -- but only where the
+// source is evenly sized. On an odd width the hardware's four are not the four
+// this texel owns, and the error compounds every level until the "mean" is
+// weighted toward one edge of the screen. This number scales every tile's
+// allocation at once, so an error in it is an error everywhere.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Reduced;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Source;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;      // the *output's* texel, per PostParams
+	float TexelY;
+	float A;
+	float B;
+	float C;
+	float FlipY;
+} u_Reduce;
+
+void main()
+{
+	const bool flip = u_Reduce.FlipY > 0.5;
+	const vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	const ivec2 size = textureSize(u_Source, 0);
+	const ivec2 last = size - ivec2(1);
+	const ivec2 base = ivec2(floor(uv * vec2(size)));
+
+	vec4 sum = vec4(0.0);
+	for (int y = 0; y < 2; y++)
+		for (int x = 0; x < 2; x++)
+			sum += texelFetch(u_Source, clamp(base + ivec2(x, y), ivec2(0), last), 0);
+
+	o_Reduced = sum * 0.25;
+}

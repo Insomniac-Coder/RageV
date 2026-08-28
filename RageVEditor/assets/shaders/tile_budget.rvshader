@@ -1,0 +1,148 @@
+// **Stage three of the ray budget: importance becomes ray counts.**
+//
+// Everything before this measured; this decides. It reads a tile's importance,
+// the average across the screen, and what the tile was given last frame, and
+// writes the counts the tracing passes will use.
+//
+// **The rule is the design's, verbatim: a tile's share is its weight over the
+// sum of all weights.** With a fixed tile count that sum is the mean times the
+// count, so a tile's share of an average-rays-per-pixel budget is its weight
+// divided by the mean. A tile of average interest gets exactly the average;
+// twice as interesting gets twice as many, until the clamps say otherwise.
+//
+// **The budget is fixed, not reactive, and that is the whole of the stability
+// story.** What came before was a frame-time controller stepping one global
+// scale between four levels: every step changed the whole screen's quality at
+// once, and on a scene near its budget it stepped continuously -- eight changes
+// in one short session, measured. Nothing here reads frame time. The total is a
+// setting; only its *distribution* moves, per tile, a ray at a time. A budget
+// that cannot hunt cannot flicker.
+//
+// **Separate budgets per ray type, because they are not interchangeable.** One
+// pooled number lets whichever effect is expensive today eat the others' rays,
+// so turning on a feature quietly degrades two more. It is also what lets one
+// allocator serve baked and realtime alike: with the bounce baked there is no
+// runtime GI demand, and its budget is simply unspent rather than the whole
+// dial idling at a level chosen for a load that is not there.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Budget;
+
+// This frame's raw tile map: importance in r, luminance in g.
+layout(set = 0, binding = 0) uniform sampler2D u_Tiles;
+// Its 1x1 reduction. Only `.r` matters -- the mean importance.
+layout(set = 0, binding = 1) uniform sampler2D u_Mean;
+// Last frame's output of this pass: what the counts ease toward from.
+layout(set = 0, binding = 2) uniform sampler2D u_History;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;
+	float TexelY;
+	float AoAverage;       // A: rays per pixel the AO budget can afford
+	float GiAverage;       // B: and the same for the bounce
+	float HasHistory;      // C
+	float FlipY;
+
+	float MinFactor;       // the least of its share a tile may be cut to
+	float MaxFactor;       // and the most it may be given
+	float Hysteresis;      // how far a count may move toward target in a frame
+	float AoCeiling;
+	float GiCeiling;
+} u_Budget;
+
+void main()
+{
+	const bool flip = u_Budget.FlipY > 0.5;
+	const vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+	const vec2 texel = vec2(u_Budget.TexelX, u_Budget.TexelY);
+
+	// **Smoothed across neighbours before anything is decided.** Importance is
+	// measured per tile and tiles are independent, so a lone tile can read high
+	// while its neighbours read low -- and a ray count that jumps at a tile
+	// boundary draws that boundary into the picture, a 16-pixel grid of
+	// differently-noisy squares. Blurring the *weights* costs nine fetches of a
+	// tiny texture and makes the allocation continuous across the screen.
+	float importance = 0.0;
+	float weight = 0.0;
+	for (int y = -1; y <= 1; y++)
+	{
+		for (int x = -1; x <= 1; x++)
+		{
+			const vec2 at = uv + vec2(x, y) * texel;
+			if (any(lessThan(at, vec2(0.0))) || any(greaterThan(at, vec2(1.0))))
+				continue;
+			// The centre counts double: this is the tile being allocated for,
+			// and its neighbours are context rather than equals.
+			const float w = (x == 0 && y == 0) ? 2.0 : 1.0;
+			importance += texture(u_Tiles, at).r * w;
+			weight += w;
+		}
+	}
+	importance /= max(weight, 1.0);
+
+	const float mean = max(texelFetch(u_Mean, ivec2(0), 0).r, 1.0e-5);
+
+	// A tile with no surface asked for nothing. Zero rather than the minimum,
+	// because the tracing passes skip empty texels anyway and a minimum here
+	// would show in the debug view as sky that costs rays.
+	const float raw = texture(u_Tiles, uv).r;
+	if (raw <= 0.0)
+	{
+		o_Budget = vec4(0.0, 0.0, importance, 0.0);
+		return;
+	}
+
+	// Clamped at both ends. The floor matters as much as the ceiling: a tile
+	// cut to nothing produces no new information, so it cannot become
+	// interesting again and stays cut. The ceiling stops one glinting tile
+	// spending a budget the rest of the screen paid for.
+	const float share = clamp(importance / mean,
+							  u_Budget.MinFactor, u_Budget.MaxFactor);
+
+	// Quantised to whole rays -- a loop cannot run 2.7 times. Rounded rather
+	// than truncated: truncation biases every tile down and the budget quietly
+	// under-spends by half a ray a tile.
+	const float aoTarget = clamp(floor(u_Budget.AoAverage * share + 0.5),
+								 1.0, u_Budget.AoCeiling);
+	const float giTarget = clamp(floor(u_Budget.GiAverage * share + 0.5),
+								 1.0, u_Budget.GiCeiling);
+
+	float ao = aoTarget;
+	float gi = giTarget;
+
+	if (u_Budget.HasHistory > 0.5)
+	{
+		const vec4 was = texture(u_History, uv);
+		// **Toward the target, never straight to it.** A tile may gain or lose
+		// at most `Hysteresis` rays a frame, so a camera cut cannot restripe
+		// the screen in one step. At sixty frames a second any target is
+		// reached inside a fifth of a second, which is faster than the temporal
+		// filters downstream converge -- so nothing waits on this, and nothing
+		// pops because of it.
+		ao = clamp(aoTarget, was.r - u_Budget.Hysteresis, was.r + u_Budget.Hysteresis);
+		gi = clamp(giTarget, was.g - u_Budget.Hysteresis, was.g + u_Budget.Hysteresis);
+		ao = clamp(floor(ao + 0.5), 1.0, u_Budget.AoCeiling);
+		gi = clamp(floor(gi + 0.5), 1.0, u_Budget.GiCeiling);
+	}
+
+	// `.b` carries the smoothed importance so a debug view can show what the
+	// allocator was looking at rather than only what it decided -- the two
+	// disagree exactly where the clamps bind, which is what is worth seeing
+	// when a budget looks wrong.
+	o_Budget = vec4(ao, gi, importance, share);
+}

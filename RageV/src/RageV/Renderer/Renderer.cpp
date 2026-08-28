@@ -211,7 +211,10 @@ namespace RageV
 		// So the levels are named, they are far enough apart to be worth
 		// moving between, and nothing lands between them. Eight taps, six,
 		// four, two.
-		const float kRayLevels[] = { 1.0f, 0.75f, 0.5f, 0.25f };
+		// Floored at half -- see kMinRayScale. The steps are also gentler
+		// than they were: a level change is visible, so the fewer levels a
+		// scene crosses and the less each one costs, the better.
+		const float kRayLevels[] = { 1.0f, 0.85f, 0.7f, 0.5f };
 		constexpr int kRayLevelCount = 4;
 		int s_RayLevel = 0;
 
@@ -223,7 +226,10 @@ namespace RageV
 		// overshoots -- which is the second half of the flicker. Waiting for
 		// the measurement to catch up costs nothing: the level is already
 		// close, and holding it is exactly what stability looks like.
-		constexpr int kRayCooldown = 20;
+		// Frames a level must hold before another change is allowed. Raised
+		// with the dead band above and for the same reason: settling slowly is
+		// invisible, settling repeatedly is not.
+		constexpr int kRayCooldown = 90;
 		int s_RayCooldown = 0;
 	}
 
@@ -344,7 +350,17 @@ namespace RageV
 		// more than the one below it, so anything less than that margin buys a
 		// climb followed immediately by a drop, which is the flicker again
 		// wearing a different hat.
-		constexpr float kDropAbove = 1.10f;
+		// **A wider dead band, because a level change is a visible event.**
+		//
+		// Ten per cent over budget was tight enough that ordinary frame-to-frame
+		// variation crossed it, and the controller spent a session stepping: on
+		// the showroom, eight changes in one short run, including a 3-2-3 that
+		// is a drop and an immediate undo. Every one of those is the whole
+		// screen changing quality at once, which is exactly what somebody
+		// watching reports as flicker -- and the cost of tolerating a little
+		// overshoot is a fraction of a millisecond, where the cost of moving is
+		// something they can see.
+		constexpr float kDropAbove = 1.35f;
 
 		int wanted = s_RayLevel;
 		if (ratio > kDropAbove)
@@ -394,7 +410,11 @@ namespace RageV
 			//
 			// This is correct for any spacing, which is what makes it the fix
 			// rather than a tuning of the numbers.
-			constexpr float kClimbMargin = 0.05f;
+			// Small, so a level lost to a brief spike is climbed back out of.
+			// The dead band above is what stops the oscillation now; a large
+			// margin here would instead make every drop close to permanent,
+			// which is how a scene ends up sitting at the floor all session.
+			constexpr float kClimbMargin = 0.03f;
 			const float step = kRayLevels[s_RayLevel - 1] / kRayLevels[s_RayLevel];
 			if (ratio * step < kDropAbove - kClimbMargin)
 				wanted = s_RayLevel - 1;

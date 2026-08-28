@@ -241,6 +241,9 @@ namespace RageV
 								const RHI::Ref<RHI::RHITexture>& depth,
 								const RHI::Ref<RHI::RHITexture>& surface,
 								const RHI::Ref<RHI::RHIAccelerationStructure>& structure,
+								// The ray budget's allocation, one texel per tile; `.r` is this
+								// tile's ray count. Null falls back to `taps` for every pixel.
+								const RHI::Ref<RHI::RHITexture>& budget,
 								uint32_t width, uint32_t height,
 								const ViewReconstruction& view, float radius,
 								// Rays a pixel: AoDetail::Full casts eight, the rungs
@@ -291,6 +294,55 @@ namespace RageV
 							 uint32_t width, uint32_t height,
 							 float directionX, float directionY,
 							 RHI::Format outputFormat);
+
+		// **The ray budget, in three passes.** A screen-space importance map
+		// dividing a *fixed* per-frame budget, with a separate budget per ray
+		// type -- not a frame-time controller moving one global quality dial,
+		// which cannot tell a crease from a flat wall and cuts both alike.
+
+		// 1: reduce the frame to one importance value per 16x16 tile. Motion
+		// comes from the scene's velocity attachment -- an input the allocator
+		// cannot influence, which is what makes the importance loop-free.
+		static void ImportanceTiles(RHI::RHICommandList& cmd,
+							const RHI::Ref<RHI::RHITexture>& surface,
+							const RHI::Ref<RHI::RHITexture>& depth,
+							const RHI::Ref<RHI::RHITexture>& velocity,
+							uint32_t tileWidth, uint32_t tileHeight,
+							uint32_t tileSize,
+							uint32_t screenWidth, uint32_t screenHeight,
+							float nearClip, float farClip,
+							RHI::Format outputFormat);
+
+		// 2: halve a tile map. Run until 1x1 and the result is the mean, which
+		// is all the allocator needs of the total.
+		static void TileReduce(RHI::RHICommandList& cmd,
+				   const RHI::Ref<RHI::RHITexture>& source,
+				   uint32_t outWidth, uint32_t outHeight,
+				   RHI::Format outputFormat);
+
+		// 3: importance and the mean become ray counts, one per type, eased
+		// toward rather than stepped to.
+		static void TileBudget(RHI::RHICommandList& cmd,
+				   const RHI::Ref<RHI::RHITexture>& tiles,
+				   const RHI::Ref<RHI::RHITexture>& mean,
+				   const RHI::Ref<RHI::RHITexture>& history,
+				   uint32_t tileWidth, uint32_t tileHeight,
+				   float aoAverage, float giAverage,
+				   float minFactor, float maxFactor,
+				   float hysteresis, float aoCeiling, float giCeiling,
+				   RHI::Format outputFormat);
+
+		// The indirect buffer's spatial stage: strict a-trous, run at stride 1,
+		// 2, 4 before the temporal stage. Rebuilt after the adaptive version
+		// blotched; every tolerance is now a constant.
+		static void GiSpatial(RHI::RHICommandList& cmd,
+							  const RHI::Ref<RHI::RHITexture>& indirect,
+							  const RHI::Ref<RHI::RHITexture>& depth,
+							  const RHI::Ref<RHI::RHITexture>& surface,
+							  uint32_t width, uint32_t height, float stride,
+							  float nearClip, float farClip,
+							  RHI::Format outputFormat);
+
 
 		// 4: the multiply onto the linear HDR image.
 		// Exponential height fog over the depth buffer, on the linear image
@@ -384,23 +436,6 @@ namespace RageV
 		// is what makes "the denoiser converges" a falsifiable claim rather
 		// than an impression. `hasHistory` false takes the current frame
 		// whole, the same contract TemporalResolve has.
-		// **One a-trous iteration over the indirect buffer**, guided by the
-		// scene's depth and surface normal so it only averages points that
-		// share a surface. `stride` is the iteration's reach -- 1, 2, 4 --
-		// which is what lets three cheap passes cover a 15-tap radius.
-		//
-		// Run before GiDenoise: filtering the raw trace and then accumulating
-		// leaves the history ping-pong alone, where filtering the accumulated
-		// result would have the lit pass and the next frame's history reading
-		// two different buffers.
-		static void GiSpatial(RHI::RHICommandList& cmd,
-							  const RHI::Ref<RHI::RHITexture>& indirect,
-							  const RHI::Ref<RHI::RHITexture>& depth,
-							  const RHI::Ref<RHI::RHITexture>& surface,
-							  uint32_t width, uint32_t height, float stride,
-							  float nearClip, float farClip,
-							  RHI::Format outputFormat);
-
 		static void GiDenoise(RHI::RHICommandList& cmd,
 							  const RHI::Ref<RHI::RHITexture>& current,
 							  const RHI::Ref<RHI::RHITexture>& history,
@@ -431,6 +466,11 @@ namespace RageV
 			// enum's order.
 			SsgiCompute, SsgiBlur, GiDenoise,
 			Fog,
+			// The ray budget's three stages: measure each tile, reduce the map
+			// to its mean, then turn importance into ray counts.
+			ImportanceTiles, TileReduce, TileBudget,
+			// The denoisers: the indirect buffer's strict a-trous, and the
+			// reflection buffer's outlier median.
 			GiSpatial,
 			Count
 		};

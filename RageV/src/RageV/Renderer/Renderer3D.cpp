@@ -1365,9 +1365,11 @@ namespace RageV
 		return s_Data && s_Data->GiShader != nullptr;
 	}
 
+
 	void Renderer3D::TraceGlobalIllumination(RHICommandList& cmd,
 											 const Ref<RHITexture>& depth,
 											 const Ref<RHITexture>& surface,
+											 const Ref<RHITexture>& budget,
 											 Format targetColor,
 											 const GiTraceView& view, int rays)
 	{
@@ -1416,6 +1418,11 @@ namespace RageV
 
 		slot.GiInputs->SetTexture(0, depth, s_Data->PointSampler);
 		slot.GiInputs->SetTexture(1, surface, s_Data->PointSampler);
+		// Bound whether or not there is one: a set that leaves a declared
+		// binding unwritten is a validation error, and the sign of Rays is
+		// what says whether to believe it.
+		slot.GiInputs->SetTexture(5, budget ? budget : depth,
+								  s_Data->PointSampler);
 
 		// The emitters. **At least one row even when the scene has none**: a
 		// binding the layout declares and the set leaves unwritten is a
@@ -1509,7 +1516,8 @@ namespace RageV
 		// is the bottom, so a fullscreen pass reads its source the other way
 		// up on one of them. The same rule every post pass carries.
 		params.FlipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
-		params.Rays = (float)Math::Clamp(rays, 1, 32);
+		// Negative means "a budget is bound; this is the ceiling".
+		params.Rays = (float)Math::Clamp(rays, 1, 32) * (budget ? -1.0f : 1.0f);
 		params.Emitters = (float)s_Data->Emitters.size();
 		params.Probes = (float)s_Data->Probes.size();
 
@@ -1804,6 +1812,7 @@ namespace RageV
 							feedback ? 1.0f : 0.0f);
 		for (int axis = 0; axis < 3; axis++)
 			params.Rotation[axis] = Vec4(region.Rotation[axis], 0.0f);
+
 
 		// **The writes, fenced in both directions**, and both directions matter.
 		// The back texture was last left readable -- by the closing barrier of

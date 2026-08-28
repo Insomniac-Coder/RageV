@@ -1,0 +1,171 @@
+// **Stage one of the ray budget: how much does each tile of the screen stand
+// to gain from another ray?**
+//
+// Runs once a frame at tile resolution -- one output texel per 16x16 block --
+// and reduces that block to a single number the allocator can rank tiles by.
+// It answers only "how much would help here"; what to do about it is the
+// allocation pass.
+//
+// **Why a tile and not a pixel.** A per-pixel budget is the ideal and it is
+// unaffordable twice over: the allocator would have to normalise two million
+// weights a frame, and the tracing passes would diverge inside every wave
+// because neighbouring lanes would run different loop counts. A tile is one
+// number for 256 pixels, its whole map is 160x100 at 2560x1600 -- small enough
+// to reduce in eight passes -- and every lane in a wave reads the same count,
+// so the loop stays uniform.
+//
+// **The factors multiply rather than add.** A sum lets one large term carry a
+// tile that is worthless on every other count: empty sky has no coverage but a
+// stray texel can give it complexity, and an added score would still fund it.
+// A product is zero if any factor is zero, which is the right reading of
+// "nothing here to improve".
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+#include "include/view_reconstruction.glsl"
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Tile;
+
+// Octahedral normal in rg, roughness in b, metallic in a. `b <= 0` is the
+// clear, which is how "no surface" is spelled everywhere that reads this.
+layout(set = 0, binding = 0) uniform sampler2D u_Surface;
+layout(set = 0, binding = 1) uniform sampler2D u_Depth;
+// Where everything on screen is moving, in UV per frame -- the same
+// attachment TAA reprojects with. This is the temporal signal now, and the
+// choice is the fix for an oscillation: the old signal was "how much did the
+// lit image change", which is an OUTPUT of the rays this map allocates -- more
+// rays, quieter image, fewer rays, noisier image, and the loop breathed at
+// about a hertz. Motion is an INPUT: nothing the allocator does can move the
+// camera, so there is no path back.
+layout(set = 0, binding = 2) uniform sampler2D u_Velocity;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;          // PostParams' shared header: the *tile* map's texel
+	float TexelY;
+	float TileSize;        // A: pixels down one side of a tile
+	float B;               // unused
+	float C;
+	float FlipY;
+
+	float NearClip;
+	float FarClip;
+	float ScreenX;         // one screen pixel, so the block can be walked
+	float ScreenY;
+} u_Tiles;
+
+void main()
+{
+	const bool flip = u_Tiles.FlipY > 0.5;
+	const vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	const int side = int(u_Tiles.TileSize + 0.5);
+	const vec2 screenTexel = vec2(u_Tiles.ScreenX, u_Tiles.ScreenY);
+	const vec2 origin = uv - vec2(u_Tiles.TexelX, u_Tiles.TexelY) * 0.5;
+
+	// **A fixed lattice, not every pixel.** 16x16 is 256 fetches a tile per
+	// input, which at sixteen thousand tiles is more work than the rays this
+	// is trying to save. Sixteen samples across the block is enough: what is
+	// being reduced -- how much of the tile is geometry, how rough, how much
+	// its light moved -- varies slowly across sixteen pixels. A lattice can
+	// miss a feature thinner than its stride, and a feature that thin is also
+	// thinner than the tile this whole stage works at.
+	const int kLattice = 4;
+	const float step = float(side) / float(kLattice);
+
+	float covered = 0.0;
+	float complexity = 0.0;
+	float motion = 0.0;
+	float depthMin = 1.0e9;
+	float depthMax = -1.0e9;
+	float samples = 0.0;
+
+	for (int y = 0; y < kLattice; y++)
+	{
+		for (int x = 0; x < kLattice; x++)
+		{
+			const vec2 at = origin + (vec2(x, y) + 0.5) * step * screenTexel;
+			if (any(lessThan(at, vec2(0.0))) || any(greaterThan(at, vec2(1.0))))
+				continue;
+
+			samples += 1.0;
+
+			const vec4 surface = texture(u_Surface, at);
+			if (SurfaceIsEmpty(surface))
+				continue;          // sky: no coverage, no complexity, no depth
+
+			covered += 1.0;
+
+			// **What this surface costs to get right**, from the two material
+			// numbers the buffer already carries. A mirror is the expensive
+			// case and a chalk wall the cheap one: a sharp reflection resolves
+			// one direction and shows every ray it did not get, while a rough
+			// diffuse surface integrates a hemisphere and hides them. Metal
+			// weighs more than dielectric because it has no diffuse term to
+			// hide behind.
+			const float gloss = 1.0 - surface.b;
+			complexity += 0.25 + 0.75 * gloss * gloss * (0.5 + 0.5 * surface.a);
+
+			const float z = LinearDepth(texture(u_Depth, at).r,
+										u_Tiles.NearClip, u_Tiles.FarClip);
+			depthMin = min(depthMin, z);
+			depthMax = max(depthMax, z);
+
+			// The worst motion in the tile, in pixels. Max rather than mean:
+			// one fast edge crossing a mostly-still tile is exactly the case
+			// that needs rays, and averaging it against fifteen still samples
+			// hides it.
+			motion = max(motion, length(texture(u_Velocity, at).xy
+										* vec2(1.0 / u_Tiles.ScreenX, 1.0 / u_Tiles.ScreenY)));
+		}
+	}
+
+	if (samples < 0.5 || covered < 0.5)
+	{
+		o_Tile = vec4(0.0);
+		return;
+	}
+
+	const float coverage = covered / samples;
+	complexity /= covered;
+
+	// **How fast this tile is moving across the screen.**
+	//
+	// Four pixels a frame of motion saturates the term: at that speed the
+	// temporal filters downstream are rejecting most of their history, which
+	// is when extra rays buy the most. A still tile contributes nothing here
+	// and competes on geometry and material alone.
+	const float temporal = clamp(motion / 4.0, 0.0, 1.0);
+
+	// **Geometric variance: how much depth the tile spans.** A tile flat on a
+	// wall has almost none; one straddling a crease, a silhouette or a contact
+	// point has a lot -- and those are where a hemisphere of rays disagrees
+	// with itself, where occlusion is partial and the estimate is least
+	// certain. Normalised by distance, because a metre of depth range is a
+	// crease up close and a grazing floor far away.
+	const float span = (depthMax - depthMin) / max(depthMax, 1.0e-3);
+	const float geometric = clamp(span * 4.0, 0.0, 1.0);
+
+	// Each factor floored above zero, so a merely *quiet* tile still receives
+	// its minimum share. A tile cut to nothing produces no new information, so
+	// it can never look interesting again and stays cut forever. That feedback
+	// trap is why the floors are here rather than in the allocator.
+	const float importance = coverage
+						   * (0.25 + 0.75 * complexity)
+						   * (0.15 + 0.85 * max(temporal, geometric));
+
+	o_Tile = vec4(importance, motion, coverage, complexity);
+}

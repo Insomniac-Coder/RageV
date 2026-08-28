@@ -2,6 +2,7 @@
 #include "RuntimeLayer.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Project/Project.h"
+#include "RageV/Core/EngineConfig.h"
 #include "RageV/Core/FrameProfiler.h"
 #include "RageV/Particles/ParticleSystem.h"
 #include "RageV/Renderer/ParticleRenderer.h"
@@ -93,6 +94,31 @@ void RuntimeLayer::OnLoad(Boot::Progress& progress)
 	}
 
 	m_Scene = std::move(scene);
+
+	// **--camera, so a measurement can be repeated.** Applied to the scene's
+	// own primary camera rather than a second one -- shadows, culling and
+	// reflections all read the camera entity's transform, and a runtime with
+	// two notions of where the eye is lets them disagree with the picture.
+	// Nothing is written back to disk: this is the loaded copy. The orbit is
+	// unpacked exactly as EditorCamera::SetOrbit unpacks it -- Euler
+	// (-pitch, -yaw, 0) in radians, eye at focus minus forward times distance
+	// -- so the same six numbers frame the same shot in editor and runtime.
+	if (EngineConfig::Get().HasCameraPose)
+	{
+		if (Entity camera = m_Scene->GetPrimaryCameraEntity())
+		{
+			const EngineConfig& config = EngineConfig::Get();
+			const Vec3 rotation(-Math::Radians(config.CameraPitch),
+								-Math::Radians(config.CameraYaw), 0.0f);
+			const Vec3 forward = Math::Rotate(Math::FromEuler(rotation),
+											  Vec3(0.0f, 0.0f, -1.0f));
+			TransformComponent& transform =
+				camera.GetComponent<TransformComponent>();
+			transform.Rotation = rotation;
+			transform.Position = config.CameraFocus
+							   - forward * Math::Max(config.CameraDistance, 0.01f);
+		}
+	}
 
 	if (progress.Cancelled())
 		return;
@@ -283,6 +309,7 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.Exposure = &m_Exposure;
 	frame.Reflections = &m_Reflections;
 	frame.Indirect = &m_Indirect;
+	frame.RayBudget = &m_RayBudget;
 
 	// The loop's frame time, straight through. Not a clock read here: this is
 	// the number --frame-time pins, and driving the adaptation from it is the

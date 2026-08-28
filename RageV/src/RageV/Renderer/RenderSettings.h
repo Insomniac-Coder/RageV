@@ -302,6 +302,28 @@ namespace RageV
 		// part of a traced frame and starving them helps nothing.
 		float RayBudgetFraction = 0.4f;
 
+		// **What the adaptive allocator spends, per ray type.** Rays per pixel
+		// *averaged across the screen*, not a per-pixel count: a tile of
+		// average interest gets exactly this, and the importance map moves rays
+		// between tiles without changing the total. The defaults match what the
+		// tracing passes already ask for, so switching the allocator on
+		// redistributes rays rather than removing any.
+		//
+		// Separate numbers because the two are not interchangeable. Pooled, a
+		// scene that turns on one effect quietly degrades the other and the
+		// person who turned it on has no way to see why. It is also what lets
+		// one allocator serve baked and realtime alike: with the bounce baked
+		// there is no runtime GI demand, so its budget is unspent rather than
+		// the whole dial idling at a level chosen for a load that is not there.
+		float RayBudgetAoAverage = 8.0f;
+		float RayBudgetGiAverage = 4.0f;
+
+		// How far from its share a tile may be moved: the dearest may have this
+		// many times the average and the cheapest this fraction of it. One is a
+		// uniform count -- exactly the old behaviour -- and larger concentrates
+		// harder on whatever the importance map is pointing at.
+		float RayBudgetSpread = 3.0f;
+
 		// GiBounces and the whole of the voxel form moved to the post profile
 		// on 2026-08-20 (10.6, ENGINE-NOTES 7bg), where the rest of the GI
 		// settings already were. What stays here is the *hardware* budget --

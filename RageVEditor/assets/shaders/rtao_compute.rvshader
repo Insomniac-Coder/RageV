@@ -39,6 +39,15 @@ layout(set = 0, binding = 0) uniform sampler2D u_Depth;
 // Octahedral world normal in RG, roughness B, metallic A. Point sampled.
 layout(set = 0, binding = 1) uniform sampler2D u_Surface;
 // The frame's structure, built before the graph (7am).
+// **What the ray budget gave this tile.** One texel per 16x16 block, `.r`
+// the ray count -- so a crease, where occlusion is partial and the estimate
+// least certain, can be given several times what a flat lit wall gets while
+// the two together cost what a uniform count would have.
+//
+// Sampled at the pixel's own UV: the map is the screen scaled down, so the
+// same coordinate lands in the tile containing the pixel.
+layout(set = 0, binding = 2) uniform sampler2D u_Budget;
+
 layout(set = 0, binding = 4) uniform accelerationStructureEXT u_SceneAS;
 
 layout(push_constant) uniform Params
@@ -249,7 +258,16 @@ void main()
 	const float rotation = float(Hash(pixel.x * 0x9E3779B9u ^ pixel.y)) / 4294967296.0 * 6.2831853;
 
 	float occlusion = 0.0;
-	const int kTaps = int(u_Params.Taps + 0.5);
+	// **Per tile, not per frame.** `Taps` is the ceiling and the fallback:
+	// with no budget bound every pixel takes it, which is the fixed count
+	// this replaces. Clamped to at least one -- a pixel that casts no ray
+	// writes full occlusion, and a black patch is worse than a noisy one.
+	int kTaps = int(u_Params.Taps + 0.5);
+	if (u_Params.C > 0.5)
+	{
+		const float allocated = texture(u_Budget, uv).r;
+		kTaps = int(clamp(allocated, 1.0, u_Params.Taps) + 0.5);
+	}
 	for (int i = 0; i < kTaps; i++)
 	{
 		// The same spiral SSAO bends into its hemisphere; here the disc is

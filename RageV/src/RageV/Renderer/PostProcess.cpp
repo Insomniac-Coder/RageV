@@ -81,7 +81,10 @@ namespace RageV
 				case 25: return "assets/shaders/ssgi_compute.rvshader";
 				case 26: return "assets/shaders/ssgi_blur.rvshader";
 				case 27: return "assets/shaders/gi_denoise.rvshader";
-				case 29: return "assets/shaders/gi_spatial.rvshader";
+				case 29: return "assets/shaders/importance_tiles.rvshader";
+				case 30: return "assets/shaders/tile_reduce.rvshader";
+				case 31: return "assets/shaders/tile_budget.rvshader";
+				case 32: return "assets/shaders/gi_spatial.rvshader";
 				default: return "assets/shaders/fog.rvshader";
 			}
 		}
@@ -102,7 +105,7 @@ namespace RageV
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not -- so the number is
 			// asserted against it in Init instead, where the enum is in scope.
-			std::array<Ref<RHIShader>, 30> Shaders;
+			std::array<Ref<RHIShader>, 34> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -162,7 +165,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 30,
+		static_assert((int)Shader::Count <= 34,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -795,6 +798,7 @@ namespace RageV
 	void PostProcess::RtaoCompute(RHICommandList& cmd, const Ref<RHITexture>& depth,
 								  const Ref<RHITexture>& surface,
 								  const Ref<RHIAccelerationStructure>& structure,
+								  const Ref<RHITexture>& budget,
 								  uint32_t width, uint32_t height,
 								  const ViewReconstruction& view, float radius,
 								  uint32_t taps,
@@ -814,6 +818,9 @@ namespace RageV
 		// Clamped to at least one: a zero would divide by zero in the
 		// shader's average.
 		params.Taps = (float)Math::Max(taps, 1u);
+		// The budget's presence as a number rather than a null texture, so
+		// the shader's binding count stays fixed.
+		params.Base.C = budget ? 1.0f : 0.0f;
 
 		// The camera transform is the view's inverse; the rotation part of
 		// an inverse is the transpose, so the camera's rows are the view's
@@ -827,7 +834,8 @@ namespace RageV
 
 		Dispatch(cmd, Shader::RtaoCompute, outputFormat, depth, surface,
 				 &params, sizeof(params), Sampling::Point, Sampling::Point,
-				 nullptr, Sampling::Point, nullptr, Sampling::Point,
+				 budget ? budget : s_Data->Black, Sampling::Point,
+				 nullptr, Sampling::Point,
 				 nullptr, structure);
 	}
 
@@ -909,6 +917,132 @@ namespace RageV
 		Dispatch(cmd, Shader::SsgiBlur, outputFormat, source, nullptr,
 				 &params, sizeof(params), Sampling::Point);
 	}
+
+	void PostProcess::ImportanceTiles(RHICommandList& cmd,
+									  const Ref<RHITexture>& surface,
+									  const Ref<RHITexture>& depth,
+									  const Ref<RHITexture>& velocity,
+									  uint32_t tileWidth, uint32_t tileHeight,
+									  uint32_t tileSize,
+									  uint32_t screenWidth, uint32_t screenHeight,
+									  float nearClip, float farClip,
+									  Format outputFormat)
+	{
+		if (!s_Data || !surface || !depth || !velocity)
+			return;
+
+		struct ImportanceParams
+		{
+			PostParams Base;
+			float NearClip = 0.05f;
+			float FarClip = 1000.0f;
+			float ScreenX = 0.0f;
+			float ScreenY = 0.0f;
+		};
+
+		ImportanceParams params;
+		params.Base.TexelSize = { 1.0f / (float)Math::Max(tileWidth, 1u),
+								  1.0f / (float)Math::Max(tileHeight, 1u) };
+		params.Base.A = (float)Math::Max(tileSize, 1u);
+				params.NearClip = nearClip;
+		params.FarClip = farClip;
+		params.ScreenX = 1.0f / (float)Math::Max(screenWidth, 1u);
+		params.ScreenY = 1.0f / (float)Math::Max(screenHeight, 1u);
+
+		Dispatch(cmd, Shader::ImportanceTiles, outputFormat, surface, depth,
+			 &params, sizeof(params), Sampling::Point, Sampling::Point,
+			 velocity, Sampling::Point);
+	}
+
+	void PostProcess::TileReduce(RHICommandList& cmd, const Ref<RHITexture>& source,
+								 uint32_t outWidth, uint32_t outHeight,
+								 Format outputFormat)
+	{
+		if (!s_Data || !source)
+			return;
+
+		PostParams params;
+		params.TexelSize = { 1.0f / (float)Math::Max(outWidth, 1u),
+							 1.0f / (float)Math::Max(outHeight, 1u) };
+
+		Dispatch(cmd, Shader::TileReduce, outputFormat, source, nullptr,
+				 &params, sizeof(params), Sampling::Point);
+	}
+
+	void PostProcess::TileBudget(RHICommandList& cmd, const Ref<RHITexture>& tiles,
+								 const Ref<RHITexture>& mean,
+								 const Ref<RHITexture>& history,
+								 uint32_t tileWidth, uint32_t tileHeight,
+								 float aoAverage, float giAverage,
+								 float minFactor, float maxFactor,
+								 float hysteresis, float aoCeiling, float giCeiling,
+								 Format outputFormat)
+	{
+		if (!s_Data || !tiles || !mean)
+			return;
+
+		struct BudgetParams
+		{
+			PostParams Base;
+			float MinFactor = 0.25f;
+			float MaxFactor = 4.0f;
+			float Hysteresis = 1.0f;
+			float AoCeiling = 16.0f;
+			float GiCeiling = 16.0f;
+		};
+
+		BudgetParams params;
+		params.Base.TexelSize = { 1.0f / (float)Math::Max(tileWidth, 1u),
+								  1.0f / (float)Math::Max(tileHeight, 1u) };
+		params.Base.A = aoAverage;
+		params.Base.B = giAverage;
+		params.Base.C = history ? 1.0f : 0.0f;
+		params.MinFactor = minFactor;
+		params.MaxFactor = maxFactor;
+		params.Hysteresis = hysteresis;
+		params.AoCeiling = aoCeiling;
+		params.GiCeiling = giCeiling;
+
+		Dispatch(cmd, Shader::TileBudget, outputFormat, tiles, mean,
+				 &params, sizeof(params), Sampling::Linear, Sampling::Point,
+				 history ? history : s_Data->Black, Sampling::Point);
+	}
+
+	void PostProcess::GiSpatial(RHICommandList& cmd, const Ref<RHITexture>& indirect,
+								const Ref<RHITexture>& depth, const Ref<RHITexture>& surface,
+								uint32_t width, uint32_t height, float stride,
+								float nearClip, float farClip, Format outputFormat)
+	{
+		if (!s_Data || !indirect || !depth || !surface)
+			return;
+
+		struct GiSpatialParams
+		{
+			PostParams Base;
+			float NearClip = 0.05f;
+			float FarClip = 1000.0f;
+			float InvP0 = 0.0f;
+			float InvP1 = 0.0f;
+		};
+
+		GiSpatialParams params;
+		params.Base.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
+								  1.0f / (float)Math::Max(height, 1u) };
+		params.Base.A = stride;
+		// Metres that still count as the same surface, scaled with the ring's
+		// reach: what is right for neighbouring texels is too tight four
+		// texels out on a floor seen at a glancing angle.
+		params.Base.B = 0.05f * stride;
+		// Sharp enough to keep a corner's two faces apart; never relaxed.
+		params.Base.C = 8.0f;
+		params.NearClip = nearClip;
+		params.FarClip = farClip;
+
+		Dispatch(cmd, Shader::GiSpatial, outputFormat, indirect, depth,
+				 &params, sizeof(params), Sampling::Linear, Sampling::Point,
+				 surface, Sampling::Point);
+	}
+
 
 	void PostProcess::SsaoBlur(RHICommandList& cmd, const Ref<RHITexture>& source,
 							   uint32_t width, uint32_t height,
@@ -1277,45 +1411,6 @@ namespace RageV
 		Dispatch(cmd, Shader::TaaResolve, outputFormat, current, history,
 				 &params, sizeof(params), Sampling::Point, Sampling::Linear,
 				 velocity, Sampling::Point);
-	}
-
-	void PostProcess::GiSpatial(RHICommandList& cmd, const Ref<RHITexture>& indirect,
-								const Ref<RHITexture>& depth, const Ref<RHITexture>& surface,
-								uint32_t width, uint32_t height, float stride,
-								float nearClip, float farClip, Format outputFormat)
-	{
-		if (!s_Data || !indirect || !depth || !surface)
-			return;
-
-		// The shared block plus the clip planes, laid out as every other pass
-		// that needs them does: PostParams first, so Dispatch still finds
-		// FlipY where it has always been.
-		struct GiSpatialParams
-		{
-			PostParams Base;
-			float NearClip = 0.05f;
-			float FarClip = 1000.0f;
-		};
-
-		GiSpatialParams params;
-		params.Base.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
-								  1.0f / (float)Math::Max(height, 1u) };
-		params.Base.A = stride;
-		// **Metres, and scaled by the iteration's reach.** A fixed tolerance
-		// that is right for neighbouring texels is far too tight four texels
-		// out on a floor seen at a glancing angle, where a whole cell of depth
-		// separates two points that are plainly the same surface -- the filter
-		// then rejects everything and the widest iteration does nothing.
-		params.Base.B = 0.05f * stride;
-		// Sharp enough to keep the two faces of a corner apart; anything
-		// higher starts rejecting the curvature of ordinary geometry.
-		params.Base.C = 8.0f;
-		params.NearClip = nearClip;
-		params.FarClip = farClip;
-
-		Dispatch(cmd, Shader::GiSpatial, outputFormat, indirect, depth,
-				 &params, sizeof(params), Sampling::Linear, Sampling::Point,
-				 surface, Sampling::Point);
 	}
 
 	void PostProcess::GiDenoise(RHICommandList& cmd, const Ref<RHITexture>& current,

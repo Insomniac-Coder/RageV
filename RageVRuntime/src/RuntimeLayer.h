@@ -60,6 +60,9 @@ private:
 	RageV::TemporalHistory m_Reflections;
 	// Indirect diffuse, one frame late (ENGINE-NOTES 7av).
 	RageV::TemporalHistory m_Indirect;
+	// One texel per 16x16 tile: what the ray budget gave each tile last
+	// frame, and what that tile looked like, which is how it measures motion.
+	RageV::TemporalHistory m_RayBudget;
 
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_Target;
 

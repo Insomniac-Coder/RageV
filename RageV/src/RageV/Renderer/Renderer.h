@@ -152,7 +152,13 @@ namespace RageV
 		// The floor. A quarter, so ambient occlusion's eight rays bottom out
 		// at two -- which is the Quarter rung the dial already offers, not a
 		// new and worse thing invented under load.
-		static constexpr float kMinRayScale = 0.25f;
+		// **Half, not a quarter, and this is a preference the owner stated
+		// rather than a number anything measured** (2026-08-28): a stable 60-65
+		// with no visible loss beats 70-80 that flickers. A pot cut to a quarter
+		// cannot buy that -- ambient occlusion at one or two rays a pixel
+		// speckles at every crease, and the frames it wins are frames nobody
+		// asked for.
+		static constexpr float kMinRayScale = 0.5f;
 
 		// What the last frame graph actually built, as opposed to what was
 		// asked for.

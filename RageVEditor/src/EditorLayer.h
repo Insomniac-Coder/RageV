@@ -407,6 +407,11 @@ private:
 	// different sizes showing different cameras.
 	RageV::TemporalHistory m_SceneIndirect;
 	RageV::TemporalHistory m_GameIndirect;
+	// Per viewport, for the same reason the indirect buffer is: the editor
+	// draws two views at different sizes, and one shared map would have each
+	// frame reading a tile grid built for the other.
+	RageV::TemporalHistory m_SceneRayBudget;
+	RageV::TemporalHistory m_GameRayBudget;
 
 	// What both viewport textures are, and what the post chain's last pass
 	// writes. ImGui samples them, so they are LDR.

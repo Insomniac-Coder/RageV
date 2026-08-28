@@ -120,6 +120,19 @@ namespace RageV
 		// scenetest want.
 		TemporalHistory* Indirect = nullptr;
 
+		// **Where the ray budget keeps its allocation between frames.** One
+		// texel per 16x16 tile: the counts each ray type was given, and the
+		// luminance the tile had, which is how the next frame measures what
+		// moved. The history is not an optimisation -- the temporal term is the
+		// design's most useful importance signal, and eased allocation is what
+		// stops a count stepping visibly, so without this pair the allocator can
+		// neither see motion nor avoid popping.
+		//
+		// Null means no adaptive budget for this caller: every pixel takes the
+		// average, which is the fixed behaviour that came before. Probe captures
+		// and scenetest want exactly that.
+		TemporalHistory* RayBudget = nullptr;
+
 		// **The frame time the loop handed down**, and the reason it is passed
 		// rather than measured: an adaptation driven by this is a function of
 		// the frame *number* under --frame-time, which is what keeps every
