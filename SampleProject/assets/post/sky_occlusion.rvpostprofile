@@ -1,0 +1,6 @@
+PostProfile: 1
+BloomEnabled: false
+GlobalIllumination: true
+GiSource: Baked
+VoxelGlobalIllumination: false
+Exposure: 0.22

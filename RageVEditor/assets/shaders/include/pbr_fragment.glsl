@@ -929,9 +929,32 @@ layout(set = 0, binding = 18) uniform sampler3D u_IrradianceField;
 // against 3, +0.55 ms on a 1.5 ms frame, to take a sealed room from 0.15 levels
 // of leak to nothing. The bounce takes the cheap road and the picture takes the
 // careful one.
-bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradiance)
+// **Sky visibility out of a light tile's alpha lane.**
+//
+// That lane used to be a constant 1.0 for a live cell and 0.0 for a buried
+// one -- sixteen bits carrying one bit. It now carries the cosine-weighted
+// fraction of sky a surface facing this axis can see, packed as
+// plain V -- the lane carries sky alone. Aliveness lives in tile 6's .y
+// now, so a dead cell can store 1.0 here: "no data, do not darken",
+//
+// **A bake from before the change decodes to 1.0** -- fully open, darken
+// nothing -- so a stale field is a no-op rather than a scene that quietly
+// lost its ambient. That is what lets this ship without a version bump.
+float SkyFromAlpha(float stored)
+{
+	return clamp(stored, 0.0, 1.0);
+}
+
+bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradiance,
+					  out float skyVisibility)
 {
 	irradiance = vec3(0.0);
+
+	// **One, meaning unoccluded, until a cell says otherwise.** Every early
+	// return below is a fragment with no field over it, and the honest answer
+	// there is "do not darken anything" -- a scene with no volume authored
+	// must not lose its sky.
+	skyVisibility = 1.0;
 
 	// **Which volume is this fragment standing in?**
 	//
@@ -1159,6 +1182,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	const int reachable = int(texelFetch(u_IrradianceField,
 										 anchorCell + ivec3(0, 0, tile * 6 + zbase), 0).x + 0.5);
 
+
 	// **Nothing in the way of any of the six, so nothing to weigh.** This is
 	// the ordinary case -- a point in an open room -- and it is why the careful
 	// path costs what it costs only where it has to. All six bits set means no
@@ -1203,13 +1227,23 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		const vec3 square = facing * facing;
 
 		irradiance = vec3(0.0);
+		float cubeSky = 0.0;
 		for (int axis = 0; axis < 3; axis++)
 		{
 			const int slot = axis * 2 + (facing[axis] >= 0.0 ? 0 : 1);
-			irradiance += square[axis] * textureLod(u_IrradianceField,
-					vec3(uv, (uvw.z + float(tile * slot + zbase)) / depth), 0.0).rgb;
+			const vec4 stored = textureLod(u_IrradianceField,
+					vec3(uv, (uvw.z + float(tile * slot + zbase)) / depth), 0.0);
+			irradiance += square[axis] * stored.rgb;
+			// **The ambient cube of sky rides in the same fetch.** A face's alpha
+			// is the visibility for a surface pointing that way, and the three
+			// square weights sum to one for a unit normal -- so this is a convex
+			// combination: it cannot leave [0,1], cannot ring, and reconstructs a
+			// constant field to that constant from any blend of any cells. No
+			// extra texture read and nothing blended that is not linear.
+			cubeSky += square[axis] * SkyFromAlpha(stored.a);
 		}
 		irradiance = max(irradiance, vec3(0.0)) * edgeFade;
+		skyVisibility = cubeSky;
 		return true;
 	}
 
@@ -1222,24 +1256,51 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	if (singleCell)
 	{
 		const ivec3 one = clamp(ivec3(floor(base + 0.5)), ivec3(0), last);
+		float cubeSky = 0.0;
 		vec3 here = vec3(0.0);
-		bool alive = false;
 		for (int axis = 0; axis < 3; axis++)
 		{
 			const int slot = axis * 2 + (facing[axis] >= 0.0 ? 0 : 1);
 			const vec4 stored = texelFetch(u_IrradianceField,
 										   one + ivec3(0, 0, tile * slot + zbase), 0);
 			here += square[axis] * stored.rgb;
-			alive = alive || stored.a > 0.5;
+			cubeSky += square[axis] * SkyFromAlpha(stored.a);
 		}
+		// Aliveness from tile 6's .y -- the alpha lane carries sky now, and a
+		// dead cell's alpha is deliberately 1.0 there, so testing it would call
+		// every buried cell alive and let its black light back into the blend.
+		const bool alive = texelFetch(u_IrradianceField,
+								   one + ivec3(0, 0, tile * 6 + zbase), 0).y > 0.5;
 		if (!alive)
 			return false;   // buried there as well: nothing honest to report
 		irradiance = max(here, vec3(0.0)) * edgeFade;
+		// Already an average: the three square weights sum to one.
+		skyVisibility = clamp(cubeSky, 0.0, 1.0);
 		return true;
 	}
 
 	vec3 accumulated = vec3(0.0);
 	float total = 0.0;
+	// **Accumulated out here, not per corner, and divided by the same total.**
+	// The light beside it is a weighted mean -- summed against `total` and
+	// divided at the end -- and sky visibility has to be the same or it is not
+	// a visibility at all, just a sum of weights. Declared inside the corner
+	// loop it reset every iteration and never left the last corner; multiplied
+	// by the weight and never divided, it came out scaled by whatever the
+	// weights happened to sum to. That is why the floor read black while the
+	// wall beside it, which takes the fast path, read correctly.
+	float cubeAccum = 0.0;
+	// **Sky keeps its own total, because it counts corners light discards.**
+	// A buried corner is skipped for light -- blending its zero is how a
+	// surface against a wall loses three quarters of its illumination. For
+	// sky visibility the same corner means something different: not
+	// "darkness", but "no data", and the honest contribution of a cell that
+	// knows nothing is "do not darken anything". Skipping it instead is what
+	// made the floor black: a point on the floor has most of its corners
+	// inside the floor, so the loop threw away seven of eight and averaged
+	// whatever the last one held. Measured at 0.26 live corners of 8 against
+	// the wall's 4.86, which is exactly where the black stopped.
+	float skyTotal = 0.0;
 
 	for (int c = 0; c < 8; c++)
 	{
@@ -1291,21 +1352,32 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		}
 
 		// The three faces this normal faces, from this cell.
+		float cubeSky = 0.0;
 		vec3 here = vec3(0.0);
-		bool alive = false;
+		// One extra fetch per corner, and it buys the fix: tile 6's .y is
+		// the aliveness flag now, so the light's dead-cell skip keeps
+		// working while the alpha lane means sky for the hardware filter.
+		const bool alive = texelFetch(u_IrradianceField,
+						  index + ivec3(0, 0, tile * 6 + zbase), 0).y > 0.5;
 		for (int axis = 0; axis < 3; axis++)
 		{
 			const int slot = axis * 2 + (facing[axis] >= 0.0 ? 0 : 1);
 			const vec4 stored = texelFetch(u_IrradianceField,
 										   index + ivec3(0, 0, tile * slot + zbase), 0);
 			here += square[axis] * stored.rgb;
-			alive = alive || stored.a > 0.5;
+			cubeSky += square[axis] * SkyFromAlpha(stored.a);
 		}
 
 		// **A dead cell is skipped, not averaged in.** It holds zero because it
 		// is buried in geometry, and blending that zero is the difference
 		// between a surface against a wall reading the room's light and reading
 		// three quarters of it.
+		// Sky first, and unconditionally: a dead corner contributes "fully
+		// open" rather than nothing, which is the same reading tile 7 gives
+		// a buried cell and the same direction the mask's zero means.
+		cubeAccum += (alive ? cubeSky : 1.0) * weight;
+		skyTotal += weight;
+
 		if (!alive)
 			continue;
 
@@ -1318,6 +1390,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		return false;
 
 	irradiance = max(accumulated / total, vec3(0.0)) * edgeFade;
+	skyVisibility = skyTotal > 0.0 ? clamp(cubeAccum / skyTotal, 0.0, 1.0) : 1.0;
 	return true;
 }
 
@@ -1870,7 +1943,13 @@ vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
 	if (g_FillFeedback)
 	{
 		vec3 stored;
-		if (VolumeIrradiance(surface.Position, surface.Normal, true, stored))
+		// **Deliberately not sky-occluded**, and the discard is the point: this
+		// is the solve reading its own previous sweep, and the visibility it
+		// would apply is the number this very pass is producing. Feeding it back
+		// would occlude the sky twice over by the time the sweeps converge. The
+		// lit pass applies it once, at the end, which is where it belongs.
+		float solveSky;
+		if (VolumeIrradiance(surface.Position, surface.Normal, true, stored, solveSky))
 			ambientLight += stored;
 	}
 #endif
@@ -2466,10 +2545,19 @@ void main()
 	const float probeSky = max(1.0 - probeWa - probeWb, 0.0);
 
 	const vec3 skyDirection = RotateIntoSky(N);
-	vec3 irradiance = (textureLod(u_Irradiance, vec4(skyDirection, probeA), 0.0).rgb * probeWa
-					 + textureLod(u_Irradiance, vec4(skyDirection, probeB), 0.0).rgb * probeWb
-					 + textureLod(u_Irradiance, vec4(skyDirection, 0.0), 0.0).rgb * probeSky) *
-					  u_Scene.Environment.x;
+	// **The sky half, kept in its own name.** What follows adds *bounced*
+	// light, and the two have to stay separable to the end: sky occlusion
+	// scales this and must not touch that. The field's bounce already carries
+	// its own occlusion -- it is what the cell measured -- so darkening it
+	// here would count the same shadowing twice.
+	const vec3 skyDiffuse =
+		  (textureLod(u_Irradiance, vec4(skyDirection, probeA), 0.0).rgb * probeWa
+			 + textureLod(u_Irradiance, vec4(skyDirection, probeB), 0.0).rgb * probeWb
+			 + textureLod(u_Irradiance, vec4(skyDirection, 0.0), 0.0).rgb * probeSky) *
+			   u_Scene.Environment.x;
+
+	// Bounced light only, from here down.
+	vec3 irradiance = vec3(0.0);
 
 #ifdef RV_RAY_GI
 	// **The bounce is traced in a pass of its own now** (ENGINE-NOTES 7bs).
@@ -2541,17 +2629,35 @@ void main()
 	//
 	// It costs nothing to say so: with the gather confident this multiplies by
 	// zero, and with no field the fetch returns false.
+	// **Asked for even where the bounce is not.** The field answers two
+	// questions and only one of them depends on how confident the gather is:
+	// the stored bounce is taken only where the gather fell short, but the
+	// sky fraction applies to every fragment over a volume however its bounce
+	// was found.
+	float skyVisible = 1.0;
 	if (bounceAnswered < 1.0)
 	{
 		vec3 storedBounce;
-		if (VolumeIrradiance(v_WorldPos, N, true, storedBounce))
+		if (VolumeIrradiance(v_WorldPos, N, true, storedBounce, skyVisible))
 			irradiance += storedBounce * (1.0 - bounceAnswered);
 	}
 
 	float NdotV = max(dot(N, V), 0.0);
 	vec3 F = FresnelSchlickRoughness(NdotV, F0, roughness);
 	vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
-	vec3 ambient = kD * albedo * (ambientLight + irradiance) * occlusion;
+	// **Sky occlusion, on the sky half only.**
+	//
+	// `ambientLight` is the flat floor a scene with no sky is lit by and
+	// `skyDiffuse` is the probe's answer for this normal: both are sky, and
+	// both are what a recess under an eave should lose. `irradiance` is
+	// bounced light, which already arrived having been occluded on the way,
+	// and darkening it again is the double-count this is written to avoid.
+	//
+	// A multiply, not a subtraction, so a fully enclosed cell keeps exactly
+	// its bounced light and nothing else, and an open one is bit-identical to
+	// what it was before any of this existed.
+	vec3 ambient = kD * albedo *
+		   ((ambientLight + skyDiffuse) * skyVisible + irradiance) * occlusion;
 
 #ifndef RV_RAY_GI
 	// **What this pixel's colour owes to last frame's indirect light**

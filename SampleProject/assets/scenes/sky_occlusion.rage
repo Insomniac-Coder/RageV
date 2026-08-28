@@ -1,0 +1,89 @@
+Scene: Sky occlusion under an eave
+Version: 6
+Environment:
+  AmbientColor: [0.05, 0.06, 0.08]
+  AmbientIntensity: 1
+  Sky: 1
+  SkyHorizon: [0.55, 0.62, 0.78]
+  SkyZenith: [0.32, 0.45, 0.75]
+  SkyGround: [0.14, 0.13, 0.12]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 2.1, 8.2]
+      Rotation: [-0.2, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 400
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 15521873090419335277
+  - EntityID: 4354685564936845354
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Position: [0, -0.1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [18, 0.2, 18]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.85, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 15755400384260043839
+    TagComponent:
+      Tag: Back Wall
+    TransformComponent:
+      Position: [0, 2.5, -3.2]
+      Rotation: [0, 0, 0]
+      Scale: [14, 5, 0.3]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.85, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 8709371129873690708
+    TagComponent:
+      Tag: Eave
+    TransformComponent:
+      Position: [0, 4.2, -1.0]
+      Rotation: [0, 0, 0]
+      Scale: [14, 0.35, 4.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.85, 0.85, 0.85, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 7710000000000000401
+    TagComponent:
+      Tag: Irradiance Field
+    TransformComponent:
+      Position: [0, 2.6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    IrradianceVolumeComponent:
+      Extents: [9, 3.2, 9]
+      Spacing: 0.2
+      MaxResolution: 128
+      Passes: 32
+      RaysPerCell: 4096
+      Recapture: false

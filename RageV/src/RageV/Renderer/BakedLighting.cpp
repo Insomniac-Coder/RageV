@@ -28,7 +28,15 @@ namespace RageV
 		// composed box rather than an atlas of them. Refusing costs a re-bake
 		// and is the whole reason the field is here -- reading old bytes under
 		// new rules is the lighting bug nobody can find.
-		constexpr uint32_t kVersion = 2;
+		// **Three.** Bumped 2026-08-28 for sky occlusion. The field's shape did
+		// not change -- seven tiles before and after -- but two meanings moved:
+		// the light tiles' alpha carries sky visibility now instead of the
+		// aliveness flag, and aliveness lives in tile 6's .y, which was spare
+		// and therefore zero in every older file. A version-2 bake would load
+		// without complaint and read every cell as buried, so the careful read
+		// paths would quietly drop their field light. Same size, same stamp,
+		// wrong bytes: exactly the case this refusal exists for.
+		constexpr uint32_t kVersion = 3;
 
 		struct Header
 		{

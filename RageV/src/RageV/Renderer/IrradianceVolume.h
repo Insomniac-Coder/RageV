@@ -127,6 +127,12 @@ namespace RageV
 		// Tiles of the texture: three of light, thirty-two of distance. The readers
 		// divide the texture's depth by this to find a field's own depth, so
 		// changing it changes both ends at once.
+		// **Seven: six of light, one of visibility.** Tile 6 carries the
+		// neighbour bitmask in .x and the cell's aliveness in .y -- aliveness
+		// moved here from the light tiles' alpha so that lane could carry sky
+		// visibility instead, where the hardware filter is free to blend it.
+		// The readers divide the texture's depth by this to find a field's own
+		// depth, so changing it changes both ends at once.
 		static constexpr uint32_t kTiles = 7;
 
 		uint32_t Width() const { return m_Width; }
