@@ -1229,6 +1229,59 @@ namespace RageV
 														traceView, rays);
 				});
 
+			// **The spatial stage, before the temporal one.**
+			//
+			// Four hemisphere rays a pixel is an estimate the temporal pass
+			// can only average against its own past -- worth 2.1x measured,
+			// and then floored, because one pixel can never borrow from the
+			// pixel beside it. A neighbour is exactly the sample it is
+			// missing: indirect light is the lowest-frequency thing in the
+			// frame, so two points on one surface a few pixels apart receive
+			// very nearly the same bounce.
+			//
+			// Three a-trous iterations at stride 1, 2 and 4 reach a 15-tap
+			// radius for the cost of three 5x5 passes, each re-testing depth
+			// and normal so the reach grows without ever crossing an edge.
+			//
+			// Before the accumulation rather than after: this way the history
+			// ping-pong is untouched. Filtering the accumulated buffer would
+			// leave the lit pass and next frame's history reading two
+			// different images.
+			RGResource giFiltered = giTraced;
+			for (int iteration = 0; iteration < 4; iteration++)
+			{
+				RGTargetDesc filterDesc;
+				filterDesc.Name = "GI spatial";
+				filterDesc.Color = Format::R16G16B16A16_SFLOAT;
+				filterDesc.Depth = Format::Undefined;
+				filterDesc.Scale = traceDesc.Scale;
+				const RGResource next = graph.CreateTarget(filterDesc);
+				const RGResource source = giFiltered;
+
+				graph.AddPass("GI spatial",
+					[&](RGPassBuilder& builder)
+					{
+						builder.Write(next);
+						builder.Sample(source);
+						builder.Sample(sceneHDR);
+						builder.DisableDepth();
+					},
+					[source, sceneHDR, normalIndex, view = traceView,
+					 width = giTraceWidth, height = giTraceHeight,
+					 stride = (float)(1 << iteration)](RGPassContext& context)
+					{
+						PostProcess::GiSpatial(context.Cmd,
+											   context.Color(source),
+											   context.Depth(sceneHDR),
+											   context.Color(sceneHDR, normalIndex),
+											   width, height, stride,
+											   view.NearClip, view.FarClip,
+											   Format::R16G16B16A16_SFLOAT);
+					});
+
+				giFiltered = next;
+			}
+
 			// Accumulated through the same pass the screen-space chain ends
 			// on, because at this point the two carry the same quantity and,
 			// since 7ay closed the gather's loop, neither carries its own
@@ -1237,18 +1290,18 @@ namespace RageV
 				[&](RGPassBuilder& builder)
 				{
 					builder.Write(currentIndirect);
-					builder.Sample(giTraced);
+					builder.Sample(giFiltered);
 					builder.Sample(sceneHDR);
 					if (previousIndirect != kRGInvalid)
 						builder.Sample(previousIndirect);
 					builder.DisableDepth();
 				},
-				[giTraced, sceneHDR, previousIndirect, velocityIndex,
+				[giFiltered, sceneHDR, previousIndirect, velocityIndex,
 				 width = giTraceWidth, height = giTraceHeight,
 				 feedback = giFeedback, has = indirectHasHistory](RGPassContext& context)
 				{
 					PostProcess::GiDenoise(context.Cmd,
-										   context.Color(giTraced),
+										   context.Color(giFiltered),
 										   previousIndirect != kRGInvalid
 											   ? context.Color(previousIndirect) : nullptr,
 										   context.Color(sceneHDR, velocityIndex),

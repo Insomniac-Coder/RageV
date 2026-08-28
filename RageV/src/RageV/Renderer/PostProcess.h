@@ -384,6 +384,23 @@ namespace RageV
 		// is what makes "the denoiser converges" a falsifiable claim rather
 		// than an impression. `hasHistory` false takes the current frame
 		// whole, the same contract TemporalResolve has.
+		// **One a-trous iteration over the indirect buffer**, guided by the
+		// scene's depth and surface normal so it only averages points that
+		// share a surface. `stride` is the iteration's reach -- 1, 2, 4 --
+		// which is what lets three cheap passes cover a 15-tap radius.
+		//
+		// Run before GiDenoise: filtering the raw trace and then accumulating
+		// leaves the history ping-pong alone, where filtering the accumulated
+		// result would have the lit pass and the next frame's history reading
+		// two different buffers.
+		static void GiSpatial(RHI::RHICommandList& cmd,
+							  const RHI::Ref<RHI::RHITexture>& indirect,
+							  const RHI::Ref<RHI::RHITexture>& depth,
+							  const RHI::Ref<RHI::RHITexture>& surface,
+							  uint32_t width, uint32_t height, float stride,
+							  float nearClip, float farClip,
+							  RHI::Format outputFormat);
+
 		static void GiDenoise(RHI::RHICommandList& cmd,
 							  const RHI::Ref<RHI::RHITexture>& current,
 							  const RHI::Ref<RHI::RHITexture>& history,
@@ -414,6 +431,7 @@ namespace RageV
 			// enum's order.
 			SsgiCompute, SsgiBlur, GiDenoise,
 			Fog,
+			GiSpatial,
 			Count
 		};
 

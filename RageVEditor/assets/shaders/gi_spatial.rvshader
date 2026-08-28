@@ -1,0 +1,186 @@
+// The indirect buffer's *spatial* stage -- the half `gi_denoise.rvshader`
+// never had.
+//
+// **Why temporal alone has a floor.** That pass averages a pixel with its own
+// past, which is the right thing and worth 2.1x measured. What it cannot do
+// is borrow from the pixel next door, so the estimate it accumulates is still
+// four hemisphere rays wide and its noise bottoms out: measured on a scene lit
+// only by sky -- where the tracer carries every photon in the frame and has
+// nothing to hide behind -- 0.881 raw, 0.427 at the default feedback, 0.380
+// with the feedback pushed to its clamp. The remaining 0.38 is what one pixel
+// can never average away alone.
+//
+// A neighbour is exactly the sample a hemisphere estimate is missing, because
+// **indirect light is the lowest-frequency thing in the frame**. Two points a
+// few pixels apart on the same surface receive very nearly the same bounced
+// light; that is the assumption the whole irradiance-field feature is built on
+// at metre scale, and it is far safer at pixel scale. So the neighbours are
+// worth averaging -- provided the filter only averages points that really are
+// on the same surface, which is what the two guides below are for.
+//
+// **A-trous rather than one wide blur.** Three passes at stride 1, 2 and 4
+// reach as far as a 15-tap radius for the cost of 3x5 taps, and each pass
+// re-tests its guides -- so the reach grows without the kernel ever crossing
+// an edge it already rejected. The stride comes in through the push constant,
+// so the three passes are this one shader run three times.
+//
+// **Guided by depth and normal, not by colour.** A colour-guided filter on a
+// noisy buffer preserves the noise, because noise looks like detail to it.
+// Depth and the surface normal come from the scene pass and are not noisy, so
+// they can say "same surface" reliably even where the irradiance on it is a
+// four-sample guess. This is the same pair SSAO's blur uses and for the same
+// reason.
+//
+// Placed *before* the temporal stage rather than after: filtering the raw
+// trace and then accumulating needs no change to the history ping-pong, where
+// filtering the accumulated result would mean the lit pass and the next
+// frame's history reading two different buffers.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+#include "include/view_reconstruction.glsl"
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Indirect;
+layout(set = 0, binding = 1) uniform sampler2D u_Depth;
+layout(set = 0, binding = 2) uniform sampler2D u_Surface;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;          // PostParams' shared header
+	float TexelY;
+	float Stride;          // A: 1, 2, 4 across the three passes
+	float DepthSigma;      // B: how far in metres counts as the same surface
+	float NormalPower;     // C: how sharply the normal test falls off
+	float FlipY;
+
+	float NearClip;
+	float FarClip;
+	float InvP0;
+	float InvP1;
+} u_Gi;
+
+void main()
+{
+	const bool flip = u_Gi.FlipY > 0.5;
+	const vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+	const vec2 texel = vec2(u_Gi.TexelX, u_Gi.TexelY);
+
+	const vec4 centre = texture(u_Indirect, uv);
+
+	// The surface under this pixel. An empty texel is sky or something the PBR
+	// pass never drew, and there is no indirect light on it to filter -- pass
+	// it through rather than smear the surfaces around it into it.
+	const vec4 centreSurface = texture(u_Surface, uv);
+	if (SurfaceIsEmpty(centreSurface))
+	{
+		o_Color = centre;
+		return;
+	}
+
+	const float centreDepth = LinearDepth(texture(u_Depth, uv).r,
+										  u_Gi.NearClip, u_Gi.FarClip);
+	const vec3 centreNormal = OctDecode(centreSurface.rg);
+
+	// 5x5 at the pass's stride. Weights are the separable 1-4-6-4-1 tent every
+	// a-trous implementation uses, which is a good enough low-pass that the
+	// guides do the interesting work.
+	const float kernel[5] = float[5](0.0625, 0.25, 0.375, 0.25, 0.0625);
+
+	// **How unreliable is this pixel?**
+	//
+	// A corner is where the guides throw the most neighbours away -- the wall
+	// and the ceiling face different ways, so almost nothing on the far side
+	// of the join is allowed in. That is right, and it leaves the filter with
+	// barely any samples exactly where the estimate is worst, which is why the
+	// corners stayed speckled while the flat surfaces went clean.
+	//
+	// So the pixel is asked how much its immediate neighbours disagree. High
+	// disagreement means the four rays under it landed on very different
+	// answers, and a filter that trusts its guides strictly there is refusing
+	// help it badly needs. The guides are loosened in proportion -- never
+	// switched off, so a corner still cannot smear into the surface across it.
+	float mean = 0.0;
+	float meanSq = 0.0;
+	for (int y = -1; y <= 1; y++)
+	{
+		for (int x = -1; x <= 1; x++)
+		{
+			const vec3 c = texture(u_Indirect, uv + vec2(x, y) * texel).rgb;
+			const float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+			mean += l;
+			meanSq += l * l;
+		}
+	}
+	mean /= 9.0;
+	meanSq /= 9.0;
+
+	// Relative, not absolute: indirect light at a dark corner is a small
+	// number, and a fixed threshold there would call every corner clean while
+	// calling every bright surface noisy.
+	const float variance = max(meanSq - mean * mean, 0.0);
+	const float relative = sqrt(variance) / max(mean, 1.0e-4);
+
+	// 1 where the estimate is steady, up to 4 where the neighbours disagree
+	// wildly. Multiplies the tolerances, so a noisy pixel accepts neighbours a
+	// clean one would refuse.
+	const float slack = clamp(1.0 + relative * 6.0, 1.0, 4.0);
+
+	vec4 sum = vec4(0.0);
+	float weightSum = 0.0;
+
+	for (int y = -2; y <= 2; y++)
+	{
+		for (int x = -2; x <= 2; x++)
+		{
+			const vec2 offset = vec2(x, y) * u_Gi.Stride * texel;
+			const vec2 tapUv = uv + vec2(offset.x, flip ? -offset.y : offset.y);
+
+			// Off the edge of the buffer: no sample, rather than the clamped
+			// edge texel counted several times over.
+			if (any(lessThan(tapUv, vec2(0.0))) || any(greaterThan(tapUv, vec2(1.0))))
+				continue;
+
+			const vec4 tapSurface = texture(u_Surface, tapUv);
+			if (SurfaceIsEmpty(tapSurface))
+				continue;
+
+			// **Same plane?** Depth alone rejects a wall behind a floor; the
+			// normal rejects the two faces of a corner, which sit at almost
+			// the same depth and must not share their bounce -- that is
+			// exactly where a naive blur turns a crease into a smear.
+			const float tapDepth = LinearDepth(texture(u_Depth, tapUv).r,
+											   u_Gi.NearClip, u_Gi.FarClip);
+			const float depthWeight =
+				exp(-abs(tapDepth - centreDepth) / max(u_Gi.DepthSigma * slack, 1.0e-4));
+
+			const vec3 tapNormal = OctDecode(tapSurface.rg);
+			const float normalWeight =
+				pow(max(dot(centreNormal, tapNormal), 0.0),
+					max(u_Gi.NormalPower / slack, 1.0));
+
+			const float w = kernel[x + 2] * kernel[y + 2] * depthWeight * normalWeight;
+			sum += texture(u_Indirect, tapUv) * w;
+			weightSum += w;
+		}
+	}
+
+	// Every neighbour rejected -- a lone pixel on a thin surface, or a corner
+	// so tight nothing shares its plane. Its own value is the honest answer,
+	// and dividing by a weight of zero is not.
+	o_Color = weightSum > 1.0e-5 ? sum / weightSum : centre;
+}
