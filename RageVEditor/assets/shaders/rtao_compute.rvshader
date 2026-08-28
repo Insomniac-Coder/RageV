@@ -273,6 +273,18 @@ void main()
 			continue;
 
 		rayQueryEXT q;
+		// **Cutouts occlude as solid here, deliberately.**
+		//
+		// The alpha test during traversal needs the instance table, the
+		// material table and the texture heap; this pass has the acceleration
+		// structure and nothing else, and plumbing three bindings through a
+		// compute pass to refine a short-range darkening term is not a trade
+		// worth making. `gl_RayFlagsOpaqueEXT` forces every instance opaque,
+		// so no candidate is ever reported and the cost stays where it was.
+		//
+		// The error is that occlusion under a railing is slightly too dark.
+		// The lit pass's shadow rays and the reflection rays do test the
+		// alpha, which is where a fence reading as a wall would actually show.
 		rayQueryInitializeEXT(q, u_SceneAS,
 							  gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
 							  0xFFu, origin, 0.0, direction, u_Params.Radius);

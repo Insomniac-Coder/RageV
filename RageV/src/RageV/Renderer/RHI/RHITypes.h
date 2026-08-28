@@ -219,6 +219,23 @@ namespace RageV::RHI
 		uint32_t CustomIndex = 0;
 		// Which ray masks see this instance. 0xFF is every ray.
 		uint8_t  Mask = 0xFF;
+
+		// **Report this instance's hits as candidates instead of committing
+		// them**, so traversal can ask the shader whether the triangle is
+		// really there. Alpha-tested geometry needs it: its shape is its
+		// mesh minus whatever its base colour's alpha removes, and only a
+		// texture fetch knows which.
+		//
+		// Per instance and not per geometry, because a bottom-level structure
+		// is built per *mesh* and being cut out is a property of the
+		// *material* -- the same mesh may be solid in one place and a cutout
+		// in another, and duplicating the structure to say so would cost far
+		// more than this bit.
+		//
+		// Left false, an instance is traversed exactly as before: the
+		// hardware commits its hits without ever entering the loop, which is
+		// what keeps a scene with no cutouts paying nothing for this.
+		bool     ForceNoOpaque = false;
 	};
 
 	// Declared ahead of SamplerDesc, which needs it for comparison sampling.

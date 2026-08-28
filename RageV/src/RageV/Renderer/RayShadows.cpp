@@ -264,6 +264,11 @@ namespace RageV
 		memcpy(instance.Transform, &world[0][0], sizeof(instance.Transform));
 		instance.CustomIndex = (uint32_t)s_Data->Instances.size();
 
+		// **Only a cutout asks traversal to stop and think.** Everything else
+		// keeps the hardware's own commit, so a scene without cutouts pays
+		// nothing for the loop that tests them.
+		instance.ForceNoOpaque = material && material->GetBlendMode() == BlendMode::Masked;
+
 		RayCaster record;
 		record.MeshRef = mesh;
 		record.MaterialRef = material;

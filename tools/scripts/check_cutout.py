@@ -197,6 +197,42 @@ def main():
             failures.append("the masked shadow does not start where the solid one does; "
                             "the surviving half is the wrong half")
 
+    # --- and the same again with rays, which is a different mechanism -------
+    #
+    # The shadow above is a shadow *map*: a depth pass with a fragment stage.
+    # With ray tracing on there is no map -- the light is a ray query, and the
+    # alpha test moves inside the traversal loop, where the engine has no
+    # any-hit stage and has to confirm each candidate by hand. Same picture,
+    # entirely different code, so it gets its own measurement.
+    #
+    # Reflections are switched on because that is the variant carrying the
+    # ray-instance table the test reads its cutoff and its UVs from.
+    if args.rhi == "vulkan":
+        rt = ("--raytracing=on", "--rt-reflections=on")
+        try:
+            traced_masked = shoot(exe, project, args.rhi,
+                                  shots / f"{args.rhi}-traced-masked.png",
+                                  extra=rt, scene=SHADOW_SCENE)
+            write(material, original.replace("Blend: Masked", "Blend: Opaque"))
+            traced_opaque = shoot(exe, project, args.rhi,
+                                  shots / f"{args.rhi}-traced-opaque.png",
+                                  extra=rt, scene=SHADOW_SCENE)
+        finally:
+            write(material, original)
+
+        span_tm, span_to = shadow_span(traced_masked), shadow_span(traced_opaque)
+        if span_tm is None or span_to is None:
+            failures.append("no traced shadow in one of the two runs")
+        else:
+            wide_tm = span_tm[1] - span_tm[0] + 1
+            wide_to = span_to[1] - span_to[0] + 1
+            print(f"{args.rhi}: traced shadow masked ({wide_tm} px), opaque ({wide_to} px)")
+            ratio = wide_tm / max(wide_to, 1)
+            if not 0.35 < ratio < 0.65:
+                failures.append(f"the traced shadow is {ratio:.2f} of the solid one, expected "
+                                f"about half -- 1.0 means the traversal loop confirmed every "
+                                f"candidate, near 0 means it rejected them all")
+
     if failures:
         for line in failures:
             print("FAIL:", line)

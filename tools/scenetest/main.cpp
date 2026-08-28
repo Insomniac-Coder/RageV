@@ -9348,8 +9348,9 @@ void main()
 			Check(IsBlended(BlendMode::Blend), "glass is");
 			Check(!IsBlended(BlendMode::Opaque), "and stone is not");
 			Check(TracedAsGeometry(BlendMode::Opaque), "rays carry opaque geometry");
-			Check(!TracedAsGeometry(BlendMode::Blend), "not glass");
-			Check(!TracedAsGeometry(BlendMode::Masked), "and not cutouts, yet");
+			Check(TracedAsGeometry(BlendMode::Masked), "and cutouts, which traversal tests");
+			Check(!TracedAsGeometry(BlendMode::Blend), "but not glass, which would hide "
+													  "a car's own interior");
 
 			// Round-tripping the other two must not invent a cutoff key.
 			Assets::MaterialDesc plain;

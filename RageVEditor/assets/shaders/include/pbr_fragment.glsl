@@ -231,8 +231,10 @@ struct RayInstance
 	uint  PositionStrideWords;
 	uint  AttributeStrideWords;
 	uint  MaterialIndex;      // row of u_Materials
-	uint  Flags;              // bit 0: positions are posed; bit 1: an area emitter answers for this surface
-	uint  _pad0;
+	uint  Flags;              // bit 0: posed; bit 1: an area emitter answers for this surface; bit 2: alpha-tested
+	// Below this a candidate triangle is not there. Read only when the masked
+	// bit is set.
+	float AlphaCutoff;
 	uint  _pad1;
 	vec4  BaseColor;
 	vec4  EmissiveColor;
@@ -245,6 +247,13 @@ const uint RAY_INSTANCE_POSED = 1u;
 // list left out -- below the strength threshold, degenerate, or past the cap
 // -- whose emissive the hemisphere term is the only estimator of.
 const uint RAY_INSTANCE_EMITTER = 2u;
+
+// **This instance is alpha-tested**, so traversal reports its hits as
+// candidates and the loop below decides. Set together with the acceleration
+// instance's FORCE_NO_OPAQUE: that flag makes the hardware ask, this one tells
+// the shader what to answer. Anything without it is committed by the hardware
+// and never reaches the test.
+const uint RAY_INSTANCE_MASKED = 4u;
 
 layout(std430, set = 0, binding = 15) readonly buffer RayInstanceBlock
 {
@@ -578,6 +587,114 @@ float CascadeFactor(int cascade, vec3 worldPos, vec3 N, vec3 L)
 // frame, zero when not (a probe capture, a frame before the first
 // RenderShadows), and zero means lit -- the same reading the maps give a
 // count of zero cascades.
+// **The alpha test, inside traversal.**
+//
+// This engine traces with ray *queries*, not a ray-tracing pipeline: there is
+// no shader binding table and no any-hit stage to write. So the place a cutout
+// gets to say "not here" is the traversal loop itself, which was empty --
+// `while (rayQueryProceedEXT(q)) {}` -- because every instance was opaque and
+// the hardware committed every hit without asking.
+//
+// The work is the fetch chain TraceSurface already does *after* the loop,
+// hoisted in and asked of the *candidate* rather than the committed hit: the
+// instance's record, its index and attribute buffers, the triangle's three
+// texture coordinates, the barycentric blend, one texture fetch.
+//
+// **It runs only for instances that asked for it.** Everything else keeps
+// VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE off, so the hardware commits its hits
+// and never reports a candidate at all -- which is what keeps a scene with no
+// cutouts paying nothing. That is the whole reason the flag is per instance:
+// a texture fetch inside traversal is the known cliff of alpha-tested ray
+// tracing, and the way to afford it is to spend it only on the geometry that
+// needs it.
+//
+// **Only the variants that carry the ray-instance table can do this**, which
+// is the same condition the table itself is declared under. A shadows-only
+// build has no instance record to read a cutoff from and no heap to sample,
+// so it forces every instance opaque instead: no candidate is reported, the
+// loop stays empty, and a cutout shadows as its sheet exactly as it did
+// before any of this. Saying so with the ray flag rather than with a `return
+// true` keeps that variant paying nothing for a test it cannot run.
+#if defined(RV_RAY_REFLECTIONS) || defined(RV_RAY_GI)
+#define RV_RAY_BASE_FLAGS 0u
+
+bool RayCandidateIsThere(rayQueryEXT query)
+{
+	const uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
+	RayInstance hit = u_RayInstances.Instances[instance];
+
+	// Solid geometry that merely happens to be in a non-opaque instance --
+	// and the fast exit for everything if the flags ever disagree.
+	if ((hit.Flags & RAY_INSTANCE_MASKED) == 0u)
+		return true;
+
+#ifdef RV_BINDLESS
+	GpuMaterial material = u_Materials.Materials[hit.MaterialIndex];
+
+	// No map, no fetch: the alpha is the material's scalar and the whole
+	// triangle stands or falls together.
+	if ((material.MapFlags & MAP_BASE_COLOR) == 0)
+		return hit.BaseColor.a >= hit.AlphaCutoff;
+
+	const uint primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false));
+	const vec2 bary = rayQueryGetIntersectionBarycentricsEXT(query, false);
+	const float w0 = 1.0 - bary.x - bary.y;
+
+	RayWords indices = RayWords(hit.IndexAddress);
+	RayFloats attributes = RayFloats(hit.AttributeAddress);
+	const uint as_ = hit.AttributeStrideWords;
+
+	const uint i0 = indices.Words[primitive * 3u + 0u];
+	const uint i1 = indices.Words[primitive * 3u + 1u];
+	const uint i2 = indices.Words[primitive * 3u + 2u];
+
+	// Texture coordinate at the sixth and seventh floats of a vertex, as
+	// TraceSurface reads them: MeshVertex and SkinnedVertex agree that far.
+	const vec2 uv0 = vec2(attributes.Floats[i0 * as_ + 6u], attributes.Floats[i0 * as_ + 7u]);
+	const vec2 uv1 = vec2(attributes.Floats[i1 * as_ + 6u], attributes.Floats[i1 * as_ + 7u]);
+	const vec2 uv2 = vec2(attributes.Floats[i2 * as_ + 6u], attributes.Floats[i2 * as_ + 7u]);
+
+	const vec2 uv = (uv0 * w0 + uv1 * bary.x + uv2 * bary.y) * material.UvTransform.xy
+				  + material.UvTransform.zw;
+
+	// Level zero: a candidate has no derivatives, and a cutout's edge is the
+	// one thing a lower mip would move.
+	const float alpha = hit.BaseColor.a *
+						textureLod(u_Textures[nonuniformEXT(material.Maps0.x)], uv, 0.0).a;
+	return alpha >= hit.AlphaCutoff;
+#else
+	// Without the heap there is no map to read, so the scalar decides.
+	return hit.BaseColor.a >= hit.AlphaCutoff;
+#endif
+}
+
+// Traversal, for every ray in this engine. Written once because the three
+// call sites must agree: a shadow ray that believed a hole and a reflection
+// ray that did not would put a fence's shadow where its reflection is not.
+void RayTraverse(rayQueryEXT query)
+{
+	while (rayQueryProceedEXT(query))
+	{
+		if (rayQueryGetIntersectionTypeEXT(query, false) ==
+				gl_RayQueryCandidateIntersectionTriangleEXT &&
+			RayCandidateIsThere(query))
+		{
+			rayQueryConfirmIntersectionEXT(query);
+		}
+	}
+}
+
+#else   // no instance table in this variant
+
+#define RV_RAY_BASE_FLAGS gl_RayFlagsOpaqueEXT
+
+void RayTraverse(rayQueryEXT query)
+{
+	while (rayQueryProceedEXT(query)) {}
+}
+
+#endif
+
 float TraceShadowFrom(vec3 worldPos, vec3 Ng, vec3 L, float tMax)
 {
 	if (u_Scene.ShadowParams.x <= 0.0)
@@ -588,10 +705,17 @@ float TraceShadowFrom(vec3 worldPos, vec3 Ng, vec3 L, float tMax)
 	float offset = 0.002 * (1.0 + min(slope, 4.0));
 
 	rayQueryEXT q;
+	// **No gl_RayFlagsOpaqueEXT.** That flag forces every instance opaque and
+	// overrides the per-instance one, so a cutout would shadow like a sheet.
+	// Dropping it costs nothing for solid geometry, which is still marked
+	// opaque in the structure and still committed without a candidate.
+	//
+	// TerminateOnFirstHit stays: it ends traversal at the first *committed*
+	// hit, and nothing is committed now without passing the test.
 	rayQueryInitializeEXT(q, u_SceneAS,
-						  gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
+						  RV_RAY_BASE_FLAGS | gl_RayFlagsTerminateOnFirstHitEXT,
 						  0xFFu, worldPos + Ng * offset, 0.0, L, tMax);
-	while (rayQueryProceedEXT(q)) {}
+	RayTraverse(q);
 	return rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT
 		 ? 1.0 : 0.0;
 }
@@ -1430,9 +1554,9 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	float offset = 0.002 * (1.0 + min(slope, 4.0));
 
 	rayQueryEXT q;
-	rayQueryInitializeEXT(q, u_SceneAS, gl_RayFlagsOpaqueEXT, 0xFFu,
+	rayQueryInitializeEXT(q, u_SceneAS, RV_RAY_BASE_FLAGS, 0xFFu,
 						  origin + Ng * offset, 0.0, direction, reach);
-	while (rayQueryProceedEXT(q)) {}
+	RayTraverse(q);
 
 	if (rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT)
 	{

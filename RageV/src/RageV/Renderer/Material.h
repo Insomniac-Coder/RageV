@@ -68,13 +68,19 @@ namespace RageV
 	constexpr bool IsBlended(BlendMode mode) { return mode == BlendMode::Blend; }
 
 	// Whether this material's geometry is carried in the ray acceleration
-	// structure. Blended geometry is excluded so a car keeps its interior
-	// (Scene.cpp says why at length), and masked geometry is excluded for
-	// now as well -- the structure has no per-triangle alpha test, so a
-	// cutout in it would cast the solid shadow of its bounding sheet, which
-	// is a louder wrong than casting none. Lifting that is the ray-query
-	// traversal work, tracked separately.
-	constexpr bool TracedAsGeometry(BlendMode mode) { return mode == BlendMode::Opaque; }
+	// structure. Blended geometry is excluded so a car keeps its interior --
+	// Scene.cpp says why at length.
+	//
+	// **Masked geometry is carried, and tested during traversal.** It used to
+	// be excluded, because a structure with no per-triangle alpha test turns a
+	// cutout into the solid sheet of its bounds -- a fence that reflects and
+	// shadows like a wall. Its instances are marked so the hardware reports
+	// their hits as candidates rather than committing them, and the ray query
+	// loop samples the base colour's alpha before confirming.
+	constexpr bool TracedAsGeometry(BlendMode mode)
+	{
+		return mode == BlendMode::Opaque || mode == BlendMode::Masked;
+	}
 
 	// Mirrors the std140 MaterialData block in pbr.rvshader.
 	struct MaterialParams

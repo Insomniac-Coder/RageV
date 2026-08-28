@@ -47,8 +47,11 @@ namespace RageV
 			uint32_t PositionStrideWords;
 			uint32_t AttributeStrideWords;
 			uint32_t MaterialIndex;      // row of the GpuMaterial table at binding 13
-			uint32_t Flags;              // bit 0: positions are posed (take the flat normal)
-			uint32_t _pad0;
+			uint32_t Flags;              // bit 0: posed, bit 1: emitter, bit 2: alpha-tested
+			// Below this the traversal loop rejects a candidate triangle.
+			// Read only when the masked bit is set, so it costs nothing for
+			// the geometry that is simply there.
+			float    AlphaCutoff;
 			uint32_t _pad1;
 			Vec4 BaseColor;
 			Vec4 EmissiveColor;
@@ -71,6 +74,13 @@ namespace RageV
 		// subtracted the emissive of surfaces no shadow ray ever aimed at,
 		// and their light simply vanished.
 		constexpr uint32_t kRayInstanceEmitter = 2u;
+
+		// **This instance is alpha-tested**, so a ray that hits it has to
+		// sample the base colour before believing the hit. Set from the
+		// material, and paired with the acceleration instance's
+		// `ForceNoOpaque` -- the flag tells traversal to *ask*, and this tells
+		// the shader what to answer.
+		constexpr uint32_t kRayInstanceMasked = 4u;
 
 		// Mirrors the std140 SceneData block in pbr.rvshader.
 		struct SceneUniforms
@@ -3384,6 +3394,13 @@ namespace RageV
 								break;
 							}
 						}
+					}
+
+					if (caster.MaterialRef &&
+						caster.MaterialRef->GetBlendMode() == BlendMode::Masked)
+					{
+						row.Flags |= kRayInstanceMasked;
+						row.AlphaCutoff = caster.Params.AlphaCutoff;
 					}
 
 					row.MaterialIndex = it->second;

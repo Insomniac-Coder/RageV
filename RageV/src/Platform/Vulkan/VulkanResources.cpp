@@ -1257,7 +1257,12 @@ namespace RageV::Vk
 			out.instanceCustomIndex = instances[i].CustomIndex & 0x00FFFFFFu;
 			out.mask = instances[i].Mask;
 			out.instanceShaderBindingTableRecordOffset = 0;
-			out.flags = 0;
+			// FORCE_NO_OPAQUE turns this instance's hits into candidates the
+			// traversal loop must confirm. Only alpha-tested instances ask for
+			// it; everything else keeps the hardware's own commit.
+			out.flags = instances[i].ForceNoOpaque
+						  ? VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR
+						  : 0u;
 			out.accelerationStructureReference = blas->GetDeviceAddress();
 			packed[written++] = out;
 
