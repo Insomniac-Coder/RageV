@@ -1,20 +1,125 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-27 (evening).
+**Read this first.** Updated 2026-08-28.
 
-Work is on branch **`perf/ray-budget-and-prepass`**, pushed. It is not merged
-to `main`; `main` is still at `38fed70`. Six commits, all measured:
+Everything is on **`main`**, pushed, at **`65e9d90`**. The
+`perf/ray-budget-and-prepass` branch is merged; nothing is waiting on a
+branch. The working tree is clean apart from the parked sky-occlusion work
+described below, which is deliberate.
+
+## NEXT JOB, owner-set: finish sky occlusion
+
+**It is parked, not abandoned.** The half-built work is in
+`git stash` as `stash@{0}` ("sky occlusion wip"), three files:
+`BakedLighting.cpp` (the version bump), `irradiance_fill.rvshader` (the
+writer) and `include/pbr_fragment.glsl` (the reader). The test scene it was
+built against is untracked in the working tree —
+`SampleProject/assets/scenes/sky_occlusion.rage`, its post profile, and a
+bake under `assets/baked/sky_occlusion/`. **Do not commit any of it without
+asking**; the owner ruled on 2026-08-28 that only the denoiser was to land.
+
+**What it does.** Stores per cell how much sky that cell can see, so the lit
+pass multiplies it into the *live* sky colour instead of baking that colour
+in — a recess stays a recess when the sky changes. It is nearly free at bake
+time: the solve already traces a sphere of rays per cell and throws the
+misses away, and the miss fraction *is* the sky visibility.
+
+**Three things it got right, keep them.**
+
+- The **version bump** (`BakedLighting::kVersion` 2 → 3) is mandatory and must
+  land with it. The new value rides in a lane that already existed and was
+  already zero, so a version-2 bake loads without complaint and reads "sees no
+  sky" — every scene not re-baked would quietly lose its ambient. Nothing
+  fails; it just gets darker.
+- **A scalar is the wrong quantity, measured.** A cell half a metre above open
+  ground fires half its rays into that ground, so it reports 0.5 — and the
+  reader applies it to a cosine-weighted hemisphere around a surface normal,
+  where an open floor should read 1. An open floor lost **85% of its ambient**
+  before this was understood. The stored value has to be asked about a
+  *direction*.
+- So it stores a number **and** a bent normal, evaluated as
+  `clamp(2 * dc * (0.5 + 0.5 * dot(N, bent)), 0, 1)`. Open floor 1, open wall
+  ~0.5 (a wall does see half a sky), sealed cell 0.
+
+**The one open decision, and it is the owner's.** That wants four numbers a
+cell — a scalar plus a direction — and the visibility tile has **three** spare
+lanes. Both ways of fitting four into three are visibly wrong:
+
+- direction packed octahedrally into two lanes → **an octahedral pair cannot
+  be linearly interpolated**; blending two across a cell boundary gives a
+  direction that is neither, and it drew mottled bands along every wall;
+- point-sample the direction instead → correct, but blocky per cell.
+
+The clean answer is a **fourth lane: `IrradianceVolume::kTiles` 7 → 8**, which
+holds a proper L1 (all four values linearly interpolatable, no fold, no point
+sampling). It costs ~14% more field memory and breaks every bake stamp —
+though the version bump already forces a rebake, so that half is paid.
+**Ask before spending the tile.** The alternative is to drop the feature.
+
+## What shipped 2026-08-28
 
 | | |
 |---|---|
-| `7a15f24` | exponential height fog (off by default) |
-| `88af9ea` | bay downlights cast shadows + showroom rebaked |
-| `4d9a60c` | ray budget — settings dropdown, Off by default |
-| `f3f1f5f` | depth prepass — unconditional, bit-identical |
-| `3c8c5e0` | ray rejection — bit-identical |
+| `65e9d90` | **spatial denoise stage** for the indirect buffer |
+| `0943d3e` `acf364f` `f61a5e4` `4d2e7fe` `46a04b4` | **alpha-cutout materials**, all four paths |
+| `86856df` | **crash handler** — a symbolised stack on stderr |
+| `ef488b5` | RT ambient-occlusion crash: a null ray-instance buffer |
+| `e6064b8` | **reverse-Z** depth |
+| `fdfee38` | the bay downlights' shadow flags, which `88af9ea` had lost |
 
-The only uncommitted files are the owner's own pre-session edits to
-`showroom.rvpostprofile` and two `.meta` files. Leave them.
+Each has its reasoning in its own commit message; `docs/NEXT.md` has the
+one-line status of every roadmap row.
+
+### The denoiser, because it is the newest and least documented elsewhere
+
+`gi_denoise.rvshader` was the indirect buffer's **temporal** stage and the
+only one. A temporal filter averages a pixel against its own past and can
+never borrow from the pixel beside it, so four hemisphere rays a pixel has a
+floor: measured 0.881 raw, 0.427 at the default feedback, 0.380 with the
+feedback at its clamp.
+
+`gi_spatial.rvshader` is the other half — four à-trous iterations at stride
+1, 2, 4, 8, guided by depth and surface normal, run **before** the temporal
+stage so the history ping-pong is untouched. Two things the corners taught:
+
+- **A crease starves the filter.** The guides throw away neighbours across the
+  join, which is right, and it leaves the corner with almost no samples
+  exactly where the estimate is worst. Two answers, both needed: the normal
+  test relaxed from `pow(dot, 32)` (rejects past ~20°) to `pow(dot, 8)`, and
+  the filter measures how much a pixel disagrees with its neighbours and
+  loosens its tolerances in proportion — SVGF's variance term, and the reason
+  it has one.
+- **Four iterations, not five.** Five reached stride 16, which samples a
+  sparse regular lattice and drew a periodic scallop along every crease.
+  Periodic structure cannot come from a ray tracer; that was the tell.
+
+It lands in one frame — noise 0.109 / 0.087 / 0.077 at frames 1, 3, 10, then
+flat to 240 — because the spatial pass needs no history. **Zero effect on the
+showroom, measured: 0 of 1,440,000 pixels.** A scene on baked GI skips the
+whole realtime tracing chain, so it never runs there.
+
+### One thing still unexplained
+
+A faint **horizontal streak along a concave crease** survives everything, in
+realtime traced GI. Ruled out by test, not by argument: 16 rays per pixel
+instead of 4 (identical), the irradiance field's contribution switched off
+entirely (identical), sky occlusion neutralised (identical), and the ray seed
+does advance per frame so it is not frozen sampling. It is deterministic and
+it is only at the crease. **Do not guess at it** — three guesses were made on
+2026-08-28 (the screen-space gather, then the ray budget, then the
+on-plane-cell defect) and all three were wrong and all three were said before
+measuring.
+
+### Working with the owner
+
+Read [[feedback-ask-which-result-to-apply]] before running any visual test.
+The short version, learned the hard way twice: **produce candidates, then
+stop and ask** — a candidate the owner never got to judge is not a candidate.
+And for anything temporal, **launch the scene and leave it running** rather
+than shooting a screenshot and exiting; convergence and settling cannot be
+seen in a still.
+
+---
 
 ---
 
