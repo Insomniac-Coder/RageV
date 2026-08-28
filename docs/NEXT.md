@@ -43,13 +43,36 @@ demanded by a picture somebody wants to make.
 
 Ranked by value per hour, not by size. Numbers are engineering judgement.
 
-### 0 · Alpha-cutout materials — ~2–4 days *(owner-set, next)*
-No alpha-tested mode exists; glTF `MASK` is read as `BLEND` with a soft edge.
-Every railing, grate and cable must therefore be geometry, which is the
-Golden Gate scene's largest avoidable cost and compounds the missing LODs.
-**The raster half is easy and gives OpenGL the whole feature; the ray-traced
-half must go inside the ray-query traversal loop, because this engine has no
-any-hit stage to write.** Full brief in HANDOFF.
+### 0 · Alpha-cutout materials — **raster half done 2026-08-28**, rays open
+`BlendMode::Masked` with an `AlphaCutoff` per material, glTF `MASK` importing
+as itself, its own bucket, run and pipeline — because a `discard` present in a
+shader costs early-z whether or not it is reached, so it must not be compiled
+into the shared opaque shader. **Cutout shadows too**: a second depth pipeline
+that carries a UV and binds the ordinary bound material set, so the alpha the
+shadow tests is the alpha the lit pass tests. Both backends, verified by
+`tools/scripts/check_cutout.py`.
+
+**Two things it still does not do**, each a cost rather than a defect:
+
+- **No GPU culling for cutouts.** A cull slot is keyed by *mesh*, not
+  material, so one mesh drawn opaque here and cut out there would share a slot
+  and one would draw through the wrong pipeline. Blended solved that with a
+  second table; masked wants a third. Until then masked geometry takes the CPU
+  path, which sorts and draws it correctly but does not cull it on the GPU.
+  This is the one that matters for a bridge made of railings.
+- **Absent from the ray structures**, so a traced reflection does not see a
+  cutout. This is the brief's hard half: no any-hit stage exists, so the test
+  goes *inside* the `rayQueryProceedEXT` loop, fetching the candidate's
+  material and UV before confirming the hit. Budget the texture fetch inside
+  traversal honestly — it is the known cliff, and it is why everything is
+  declared opaque today.
+
+Two traps worth keeping. **The shadow pass culls nothing**, so a closed box
+casts from its back face as well, whose UVs run the other way in x — the union
+covers the full width and a cutout looks broken when it is not. A cutout asset
+is a plane. And **`discard` at SPIR-V 1.6** lowers to an instruction OpenGL has
+no form for; the whole fragment stage failed to cross-compile and every cutout
+drew solid black there while Vulkan was perfect. The compiler targets 1.5.
 
 ### ~~1 · Exponential height fog~~ — ✅ **done 2026-08-27**
 One fullscreen pass over the depth buffer, 0.014 ms GPU, off by default.
