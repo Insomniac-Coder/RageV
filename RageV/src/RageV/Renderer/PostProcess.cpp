@@ -1111,6 +1111,9 @@ namespace RageV
 
 	void PostProcess::SsaoApply(RHICommandList& cmd, const Ref<RHITexture>& scene,
 								const Ref<RHITexture>& occlusion,
+								const Ref<RHITexture>& depth,
+								uint32_t occlusionWidth, uint32_t occlusionHeight,
+								float nearClip, float farClip,
 								float intensity, Format outputFormat)
 	{
 		if (!s_Data || !scene || !occlusion)
@@ -1118,11 +1121,19 @@ namespace RageV
 
 		PostParams params;
 		params.A = Math::Max(intensity, 0.0f);
+		params.B = nearClip;
+		params.C = farClip;
+		// **The occlusion buffer's texel size, not the frame's.** The upsample
+		// walks the four half-resolution texels around each pixel, so it needs
+		// the grid it is walking.
+		params.TexelSize = { 1.0f / (float)Math::Max(occlusionWidth, 1u),
+							 1.0f / (float)Math::Max(occlusionHeight, 1u) };
 
-		// The occlusion is half resolution; the linear filter is its
-		// upsample. See the shader for why that is enough.
+		// The occlusion is read at exact texel centres, so a linear filter
+		// returns each texel whole; the weighting is the shader's own.
 		Dispatch(cmd, Shader::SsaoApply, outputFormat, scene, occlusion,
-				 &params, sizeof(params), Sampling::Linear, Sampling::Linear);
+				 &params, sizeof(params), Sampling::Linear, Sampling::Linear,
+				 depth, Sampling::Point);
 	}
 
 	// --- SSR (9.7) -- ENGINE-NOTES 7ad ---------------------------------------

@@ -367,6 +367,13 @@ namespace RageV
 		static void SsaoApply(RHI::RHICommandList& cmd,
 							  const RHI::Ref<RHI::RHITexture>& scene,
 							  const RHI::Ref<RHI::RHITexture>& occlusion,
+							  // The frame's depth, and the occlusion buffer's own
+							  // dimensions and clip planes: the upsample weighs each
+							  // half-resolution tap by whether it is describing this
+							  // pixel's surface, and needs all three to do it.
+							  const RHI::Ref<RHI::RHITexture>& depth,
+							  uint32_t occlusionWidth, uint32_t occlusionHeight,
+							  float nearClip, float farClip,
 							  float intensity, RHI::Format outputFormat);
 
 		// SSR (9.7, 9.10), three passes. ENGINE-NOTES 7ad, 7ag.

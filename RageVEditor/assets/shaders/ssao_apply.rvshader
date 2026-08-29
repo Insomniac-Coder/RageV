@@ -28,20 +28,73 @@ layout(location = 0) in vec2 v_UV;
 layout(location = 0) out vec4 o_Color;
 
 layout(set = 0, binding = 0) uniform sampler2D u_Scene;
-// Half resolution, blurred. Sampled with the linear filter as its upsample:
-// occlusion is low frequency by construction, and a bilateral upsample here
-// would be sharpening something the kernel cannot resolve anyway.
+// Half resolution, blurred. **R occlusion, G linear depth in metres** -- the
+// compute pass writes its own depth alongside the value, which is what makes
+// the upsample below possible without a second lookup per tap.
 layout(set = 0, binding = 1) uniform sampler2D u_Occlusion;
+// This pass's own resolution's depth, to weigh those taps against.
+layout(set = 0, binding = 2) uniform sampler2D u_Depth;
 
 layout(push_constant) uniform Params
 {
 	float TexelX;        // PostParams' shared header
 	float TexelY;
 	float Intensity;     // the header's A
-	float B;
-	float C;
+	float NearClip;      // the header's B
+	float FarClip;       // the header's C
 	float FlipY;
 } u_Params;
+
+#include "include/view_reconstruction.glsl"
+
+// **A joint bilateral upsample, not a bilinear one.**
+//
+// The occlusion is half resolution, and the linear filter used to be its whole
+// upsample -- on the argument that occlusion is low frequency, which is true of
+// the *signal* and not of the surfaces carrying it. A bilinear tap blends the
+// four half-res texels around a pixel whatever they are looking at, so where a
+// silhouette cuts between them the occlusion of the surface behind bleeds onto
+// the surface in front. On the showroom car that is the splitter's recess
+// washing onto the bodywork ahead of it, which is exactly where a half-res
+// image was measured to lose against a full-res one.
+//
+// The fix is to keep the bilinear weights and multiply each by how well that
+// tap's depth agrees with this pixel's. A tap looking at another surface gets
+// almost no vote, so an edge stays an edge and the flat interior is unchanged
+// -- bilinear there, because all four agree.
+//
+// The taps are read at exact texel centres, so the linear sampler returns each
+// texel whole rather than a blend of its neighbours.
+float UpsampleOcclusion(vec2 uv, vec2 texel, float z)
+{
+	const vec2 f = uv / texel - 0.5;
+	const vec2 b = floor(f);
+	const vec2 fr = f - b;
+
+	float sum = 0.0;
+	float weight = 0.0;
+	for (int i = 0; i < 4; i++)
+	{
+		const vec2 o = vec2(float(i & 1), float(i >> 1));
+		const vec4 tap = texture(u_Occlusion, (b + o + 0.5) * texel);
+
+		// The bilinear weight this tap would have had.
+		const float bw = mix(1.0 - fr.x, fr.x, o.x) * mix(1.0 - fr.y, fr.y, o.y);
+		// And how much it is talking about this surface. Relative to the depth
+		// itself, so the tolerance grows with distance the way the error in a
+		// depth buffer does; the epsilon keeps a tap that agrees exactly from
+		// taking the whole vote.
+		const float dw = 1.0 / (1.0e-3 + abs(tap.g - z) / max(z, 1.0e-3));
+
+		sum += tap.r * bw * dw;
+		weight += bw * dw;
+	}
+
+	// No tap agreed -- a pixel whose surface the half-res buffer never sampled.
+	// Bilinear is the least-wrong answer there, and it is what this pass did
+	// everywhere before.
+	return weight > 1.0e-6 ? sum / weight : texture(u_Occlusion, uv).r;
+}
 
 void main()
 {
@@ -49,7 +102,11 @@ void main()
 	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
 
 	const vec4 scene = texture(u_Scene, uv);
-	const float ao = texture(u_Occlusion, uv).r;
+
+	const vec2 aoTexel = vec2(u_Params.TexelX, u_Params.TexelY);
+	const float z = LinearDepth(texture(u_Depth, uv).r,
+								u_Params.NearClip, u_Params.FarClip);
+	const float ao = UpsampleOcclusion(uv, aoTexel, z);
 
 	// pow rather than a lerp: intensity reshapes how dark the dark end goes
 	// while an occlusion of 1 stays exactly 1, so open surfaces are

@@ -37,7 +37,16 @@ layout(push_constant) uniform Params
 	float FlipY;
 } u_Params;
 
-const int kRadius = 4;
+// **Two, not four.** This is a radius in *occlusion texels*, and the buffer is
+// half resolution -- so four covered eight screen pixels either side, twice
+// what the number was chosen for when the pass ran at full res. Two restores
+// the screen-space width it was tuned to.
+//
+// It can also afford to be narrower than it was: the accumulate pass ahead of
+// it averages occlusion over frames now, so the blur no longer has to carry
+// the whole noise reduction on its own. A blur trades detail for quietness at
+// a fixed rate; every tap removed here is contact detail kept.
+const int kRadius = 2;
 
 // How far apart two depths may be and still count as one surface. Relative
 // rather than absolute, so a metre of separation matters up close and a

@@ -208,6 +208,24 @@ void main()
 	vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
 
 	const vec2 texel = vec2(u_Params.TexelX, u_Params.TexelY);
+
+	// **Not interleaved, deliberately.** Cycling which quarter of this texel's
+	// four depth texels is sampled each frame would give the accumulator
+	// full-resolution coverage at half-resolution cost -- the checkerboard
+	// trick -- and it was built and measured: it recovered the worst-case
+	// error (mode 2's peak difference against a full-res reference went 129
+	// back to 105) but widened the area of small differences, which on a still
+	// capture is the signature of residual temporal variation.
+	//
+	// It was removed on the owner's call, and the reasoning is worth keeping:
+	// the ray directions already advance per frame, and interleaving the
+	// sampled depth texel as well means both the rays and the geometry under
+	// them move every frame. This project has spent a long time removing
+	// shimmer, and a marginal gain in a still is not worth risking it in
+	// motion. If it is ever revisited, the test that decides it is temporal --
+	// park the camera, capture sixty frames, and compare per-pixel variation
+	// with and without -- not another still diff.
+
 	const vec3 centre = ViewPositionAt(uv);
 
 	// Nothing to occlude on the far plane: the sky, or nothing at all.
