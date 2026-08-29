@@ -1196,18 +1196,39 @@ namespace RageV
 				rayBudgetMap = current;
 				hasRayBudget = true;
 
-				// **`budget.Advance()` belongs here and is deliberately absent.**
-				// Adding it is a one-line correctness fix -- without it m_Valid
-				// never becomes true, HasHistory() is permanently false, and
-				// tile_budget's whole +/-1 ray a frame hysteresis block is
-				// skipped, so per-tile counts are re-derived undamped every
-				// frame. But enabling it made the bay floor flicker visibly
-				// worse (owner, 2026-08-29): that surface never traces a mirror
-				// ray, so what the budget moves there is the RTAO tap count, and
-				// waking the hysteresis turns a quantiser plus a rate limit into
-				// the configuration that already made this engine breathe at
-				// about a hertz once (importance_tiles.rvshader:46-52).
-				// Re-enable it only together with a dead band on the tile count.
+				// **`budget.Advance()` belongs here and is deliberately absent.
+				// Do not add it as the one-line fix it looks like.**
+				//
+				// What it would do is real: without it m_Valid never becomes
+				// true, HasHistory() above is permanently false, the previous
+				// map is imported and never sampled, TileBudget is handed a
+				// null history, and tile_budget's whole +/-1 ray a frame block
+				// is skipped. So per-tile counts are re-derived from scratch
+				// every frame, undamped. On paper that is a bug and this is
+				// its fix.
+				//
+				// **It has been enabled and reverted three times, on three
+				// different versions of the surrounding code, and every time it
+				// made the picture worse.** The last was 2026-08-29, after the
+				// allocator's inputs, the GI resolution, the runtime cache and
+				// the denoiser had all changed -- which was the argument for
+				// trying again, and it still came back: flicker and jitter
+				// lower than they once were, but returning. Frame time is
+				// untouched either way (4.38 vs 4.44 ms, inside this machine's
+				// drift), so there is nothing on the other side of the trade.
+				//
+				// The reason is structural rather than a tuning miss. A damped
+				// integrator feeding a quantiser -- `floor(x + 0.5)` in
+				// tile_budget -- is the classic shape for a slow limit cycle,
+				// and this engine has already met it once, breathing at about a
+				// hertz (importance_tiles.rvshader:46-52). Damping the input to
+				// a stair does not stop the stair being climbed; it just makes
+				// the climbing rhythmic.
+				//
+				// **What it needs before it can come back: a dead band on the
+				// tile count**, so a tile near a rounding boundary holds its
+				// current value instead of stepping whenever the estimate
+				// crosses. Fix the shape, then restore the line.
 			}
 		}
 		else if (desc.RayBudget)
