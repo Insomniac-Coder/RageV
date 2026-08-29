@@ -565,6 +565,12 @@ namespace RageV
 			// converges quickly in wall-clock while never stepping visibly.
 			// This is the one number that trades response time for stillness.
 			float PendingIrradianceHysteresis = 0.05f;
+			// The following cache's box as of this frame. The volume's own
+			// region list is fixed at creation, and rebuilding the volume to
+			// move it would throw away every cell solved so far -- seven frames
+			// of darkness every time the view crossed a threshold. So the box
+			// travels here instead and the texture stays put.
+			IrradianceVolume::Region PendingIrradianceRegion2{};
 			// Which field the line below was last written about, so a scene
 			// whose lighting changes every frame -- a moving light -- says it
 			// once rather than filling the log. Compared and never dereferenced.
@@ -1693,7 +1699,9 @@ namespace RageV
 		s_Data->PipelineDirty = true;
 	}
 
-	void Renderer3D::SetIrradianceVolumes(const Ref<IrradianceVolume>& volume)
+	void Renderer3D::SetIrradianceVolumes(const Ref<IrradianceVolume>& volume,
+										  const std::vector<IrradianceVolume::Region>*
+											  regionsOverride)
 	{
 		if (!s_Data)
 			return;
@@ -1703,7 +1711,13 @@ namespace RageV
 		if (!volume)
 			return;
 
-		for (const IrradianceVolume::Region& region : volume->Regions())
+		// The readers must be told where the box is *now*, for the same reason
+		// the solve is: a following grid's texture outlives the place it was
+		// built for.
+		const std::vector<IrradianceVolume::Region>& source =
+			regionsOverride ? *regionsOverride : volume->Regions();
+
+		for (const IrradianceVolume::Region& region : source)
 		{
 			if (s_Data->IrradianceRegions.size() >= kMaxIrradianceVolumes)
 				break;
@@ -1935,6 +1949,7 @@ namespace RageV
 	}
 
 	void Renderer3D::RequestRuntimeIrradiance(const Ref<IrradianceVolume>& volume,
+											  const IrradianceVolume::Region& region,
 											  uint32_t raysPerCell, uint32_t rayBudget,
 											  float hysteresis, bool feedback)
 	{
@@ -1954,6 +1969,8 @@ namespace RageV
 		s_Data->PendingIrradianceRayBudget = Math::Clamp(rayBudget, 4096u, 1u << 22);
 		s_Data->PendingIrradianceHysteresis = Math::Clamp(hysteresis, 0.01f, 1.0f);
 		s_Data->PendingIrradianceContinuous = true;
+		// Taken every frame: this is what moves when the view does.
+		s_Data->PendingIrradianceRegion2 = region;
 		// Passes stops meaning anything in this mode -- there is no last sweep
 		// -- but it is read below before the mode is known, so give it a value
 		// that cannot end the solve early.
@@ -2095,7 +2112,12 @@ namespace RageV
 
 		const uint32_t index = Math::Min(s_Data->PendingIrradianceRegion,
 										 (uint32_t)regions.size() - 1);
-		const IrradianceVolume::Region& region = regions[index];
+		// **The cache solves the box it is standing in now, not the one the
+		// texture was built with.** They differ whenever the view has moved,
+		// and following the stored one would solve the wrong places.
+		const IrradianceVolume::Region& region =
+			s_Data->PendingIrradianceContinuous ? s_Data->PendingIrradianceRegion2
+											    : regions[index];
 
 		// Far enough that a cell in the middle of a room can see its far wall,
 		// derived from the box rather than guessed: a volume over a corridor

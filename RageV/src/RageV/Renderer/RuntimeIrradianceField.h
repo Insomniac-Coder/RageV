@@ -3,6 +3,8 @@
 #include "RageV/Renderer/IrradianceVolume.h"
 #include "RageV/Renderer/RHI/RHIDevice.h"
 
+#include <vector>
+
 namespace RageV
 {
 	// **The realtime cache's own field: one box that follows the view.**
@@ -43,15 +45,19 @@ namespace RageV
 		static constexpr uint32_t kCellsZ = 24;
 		static constexpr float    kSpacing = 1.0f;
 
-		// **How far the view may move before the box is replaced.**
+		// **The box slides; it is not rebuilt.**
 		//
-		// A quarter of the box rather than a cell, and that is forced rather
-		// than chosen: placing the box means building it, and building it
-		// discards every cell solved so far. At one cell the grid would be
-		// rebuilt on every step and never hold anything. At six metres a walk
-		// across a room keeps its cache, and crossing the threshold costs about
-		// seven frames of refill.
-		static constexpr float kRecentreDistance = 6.0f;
+		// It was rebuilt once, on a six-metre threshold, because moving it
+		// seemed to need a setter on IrradianceVolume. It does not: the box
+		// travels with the *request* and with the readers' copy, and the
+		// texture never moves. Rebuilding meant discarding every solved cell
+		// and going dark for about seven frames each time the view crossed the
+		// threshold, which is not a trade-off, it is a defect.
+		//
+		// Snapped to whole cells and moved as soon as it is a cell out, so the
+		// grid always straddles the view and the cells it holds describe places
+		// a whole number of cells away rather than a fraction.
+		static constexpr float kRecentreDistance = kSpacing;
 
 		// Rays a cell casts each time the sweep reaches it. Not the number the
 		// answer converges from -- a cell is revisited every sweep and blends by
@@ -80,6 +86,11 @@ namespace RageV
 		void Release();
 
 		const RHI::Ref<IrradianceVolume>& Volume() const { return m_Volume; }
+
+		// The box as it stands now, which after any movement is not the one the
+		// volume was built with. Both the solve and the readers take this.
+		const IrradianceVolume::Region& Region() const { return m_Region; }
+		const std::vector<IrradianceVolume::Region>& Regions() const { return m_Regions; }
 		bool IsPlaced() const { return m_Volume != nullptr; }
 
 		// **Whether the cache has been round once.**
@@ -96,6 +107,9 @@ namespace RageV
 
 	private:
 		RHI::Ref<IrradianceVolume> m_Volume;
+		IrradianceVolume::Region m_Region{};
+		// The same region as a list, because that is the shape the readers take.
+		std::vector<IrradianceVolume::Region> m_Regions;
 		Vec3 m_Centre{ 0.0f };
 		bool m_Warm = false;
 	};

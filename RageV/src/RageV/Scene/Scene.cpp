@@ -3293,6 +3293,7 @@ namespace RageV
 			// time the sweep comes round and blends by the hysteresis, so what
 			// settles there averages far more rays than any one visit casts.
 			Renderer3D::RequestRuntimeIrradiance(m_RuntimeField.Volume(),
+												 m_RuntimeField.Region(),
 												 RuntimeIrradianceField::kRaysPerCell,
 												 RuntimeIrradianceField::kRayBudget,
 												 RuntimeIrradianceField::kHysteresis,
@@ -3318,7 +3319,10 @@ namespace RageV
 					m_FieldEvaluated = true;
 				}
 
-				Renderer3D::SetIrradianceVolumes(m_RuntimeField.Volume());
+				// With the travelling box, not the one the texture was built
+				// with -- they differ as soon as the view has moved.
+				Renderer3D::SetIrradianceVolumes(m_RuntimeField.Volume(),
+												 &m_RuntimeField.Regions());
 				return;
 			}
 		}
@@ -3834,8 +3838,13 @@ namespace RageV
 		// meanwhile. With no bake to borrow, the half-filled cache is still
 		// better than the flat ambient that binding nothing gives.
 		if (m_RuntimeField.IsPlaced() && !m_RuntimeField.IsWarm())
-			Renderer3D::SetIrradianceVolumes(m_Field ? m_Field
-													 : m_RuntimeField.Volume());
+		{
+			if (m_Field)
+				Renderer3D::SetIrradianceVolumes(m_Field);
+			else
+				Renderer3D::SetIrradianceVolumes(m_RuntimeField.Volume(),
+												 &m_RuntimeField.Regions());
+		}
 		else
 			Renderer3D::SetIrradianceVolumes(fieldWanted ? m_Field : nullptr);
 		m_FieldUsable = m_FieldBaked;

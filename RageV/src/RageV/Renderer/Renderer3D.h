@@ -83,7 +83,14 @@ namespace RageV
 		// this replaced. Each region keeps its own rotation, so a volume that
 		// was turned is still a box rather than the axis-aligned one its
 		// bounds would suggest.
-		static void SetIrradianceVolumes(const RHI::Ref<IrradianceVolume>& volume);
+		// `regionsOverride`, when given, replaces the boxes the volume itself
+		// carries. The runtime cache needs it: its box slides with the view
+		// every few frames, and the volume's own region list is fixed at
+		// creation -- so the field that moves keeps its texture, and only the
+		// box travelling with it changes. Null means use the volume's own.
+		static void SetIrradianceVolumes(const RHI::Ref<IrradianceVolume>& volume,
+										 const std::vector<IrradianceVolume::Region>*
+											 regionsOverride = nullptr);
 
 		// **Solves a field**: one traced gather per cell, written straight into
 		// the volume's textures. Runs when a field is dirty and not otherwise,
@@ -155,7 +162,12 @@ namespace RageV
 		// high is responsive. Asking again with the same volume keeps the sweep
 		// where it is rather than restarting it, so this may be called every
 		// frame.
+		// `region` is the box as it stands this frame, which for a following
+		// cache is not the one the volume was built with. The solve reads it
+		// instead of the volume's own list, so the grid can travel without
+		// being rebuilt -- and without the volume needing to know it moved.
 		static void RequestRuntimeIrradiance(const RHI::Ref<IrradianceVolume>& volume,
+											 const IrradianceVolume::Region& region,
 											 uint32_t raysPerCell, uint32_t rayBudget,
 											 float hysteresis, bool feedback);
 
