@@ -299,8 +299,27 @@ namespace RageV
 	// cannot be given different answers -- the trap 7az records for the
 	// rasterised dial, where a pass ran at one resolution and read a texel
 	// size for another.
-	bool RayDetailIsFullRes(RayDetail detail) { return detail == RayDetail::High; }
-	int  RayDetailRays(RayDetail detail)      { return detail == RayDetail::Low ? 2 : 4; }
+	// **Resolution is the dial, ray count is the trim.** Halving the trace
+	// resolution is a clean 4x on the pass and the images do not separate --
+	// measured 9.71 -> 2.84 ms on the showroom with a max per-pixel difference
+	// of 11/255 and 0.07% of pixels differing by more than two levels. Halving
+	// the ray count changes the *character* of the noise instead, which the eye
+	// finds far more readily than softness. So no level traces at full
+	// resolution any more; High is four rays at half, and the two below it
+	// spend their saving on resolution first.
+	//
+	//   Low     2 rays, quarter    Medium  2 rays, half    High  4 rays, half
+	//
+	// The divisor and the ray count are stated together here because giving the
+	// target one answer and the shader another is the trap 7az records.
+	uint32_t RayDetailDivisor(RayDetail detail)
+	{
+		return detail == RayDetail::Low ? 4u : 2u;
+	}
+	int RayDetailRays(RayDetail detail)
+	{
+		return detail == RayDetail::High ? 4 : 2;
+	}
 
 	void BuildFrame(RenderGraph& graph, const FrameDesc& desc)
 	{
@@ -717,8 +736,15 @@ namespace RageV
 		if (wantIndirect)
 		{
 			TemporalHistory& indirect = *desc.Indirect;
+			// **A second attachment, for what the denoiser remembers.** Frames
+			// accumulated in .x and the first two luminance moments in .yz --
+			// per-pixel state that has to survive to the next frame and has
+			// nowhere to live in the colour target, whose alpha is a validity
+			// flag the lit shader multiplies into the bounce. Ping-ponged with
+			// the colour by the same pair, so the two cannot get out of step.
 			indirect.Prepare(Renderer::GetDevice(), desc.Width, desc.Height,
-							 Format::R16G16B16A16_SFLOAT, "Indirect");
+							 Format::R16G16B16A16_SFLOAT, "Indirect",
+							 Format::R16G16B16A16_SFLOAT);
 
 			if (indirect.Current() && indirect.Previous())
 			{
@@ -1169,6 +1195,19 @@ namespace RageV
 
 				rayBudgetMap = current;
 				hasRayBudget = true;
+
+				// **`budget.Advance()` belongs here and is deliberately absent.**
+				// Adding it is a one-line correctness fix -- without it m_Valid
+				// never becomes true, HasHistory() is permanently false, and
+				// tile_budget's whole +/-1 ray a frame hysteresis block is
+				// skipped, so per-tile counts are re-derived undamped every
+				// frame. But enabling it made the bay floor flicker visibly
+				// worse (owner, 2026-08-29): that surface never traces a mirror
+				// ray, so what the budget moves there is the RTAO tap count, and
+				// waking the hysteresis turns a quantiser plus a rate limit into
+				// the configuration that already made this engine breathe at
+				// about a hertz once (importance_tiles.rvshader:46-52).
+				// Re-enable it only together with a dead band on the tile count.
 			}
 		}
 		else if (desc.RayBudget)
@@ -1324,6 +1363,11 @@ namespace RageV
 											   ? context.Color(previousIndirect) : nullptr,
 										   context.Color(sceneHDR, velocityIndex),
 										   giWidth, giHeight, feedback, has,
+										   Format::R16G16B16A16_SFLOAT,
+										   // Attachment 1: last frame's count
+										   // and luminance moments.
+										   previousIndirect != kRGInvalid
+											   ? context.Color(previousIndirect, 1) : nullptr,
 										   Format::R16G16B16A16_SFLOAT);
 				});
 
@@ -1347,12 +1391,10 @@ namespace RageV
 			// target follows it and so do the dimensions handed to the denoise
 			// below, because setting one without the other leaves a pass
 			// running at one resolution and reading a texel size for another.
-			const bool giFullRes = RayDetailIsFullRes(giDetail);
-			traceDesc.Scale = giFullRes ? 1.0f : 0.5f;
-			const uint32_t giTraceWidth = giFullRes ? desc.Width
-													: Math::Max(desc.Width / 2u, 1u);
-			const uint32_t giTraceHeight = giFullRes ? desc.Height
-													 : Math::Max(desc.Height / 2u, 1u);
+			const uint32_t giDivisor = RayDetailDivisor(giDetail);
+			traceDesc.Scale = 1.0f / (float)giDivisor;
+			const uint32_t giTraceWidth = Math::Max(desc.Width / giDivisor, 1u);
+			const uint32_t giTraceHeight = Math::Max(desc.Height / giDivisor, 1u);
 			const RGResource giTraced = graph.CreateTarget(traceDesc);
 
 			Renderer3D::GiTraceView traceView;
@@ -1418,6 +1460,11 @@ namespace RageV
 											   ? context.Color(previousIndirect) : nullptr,
 										   context.Color(sceneHDR, velocityIndex),
 										   width, height, feedback, has,
+										   Format::R16G16B16A16_SFLOAT,
+										   // Attachment 1 of the same history:
+										   // last frame's count and moments.
+										   previousIndirect != kRGInvalid
+											   ? context.Color(previousIndirect, 1) : nullptr,
 										   Format::R16G16B16A16_SFLOAT);
 				});
 

@@ -108,7 +108,9 @@ namespace RageV
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
-			std::map<std::pair<int, Format>, Ref<RHIPipeline>> Pipelines;
+			// The second format is Undefined for every pass but the one that
+			// writes two attachments, so those keys are unchanged.
+			std::map<std::tuple<int, Format, Format>, Ref<RHIPipeline>> Pipelines;
 
 			Ref<RHISampler> Sampler;
 			Ref<RHISampler> PointSampler;
@@ -300,7 +302,8 @@ namespace RageV
 							   const Ref<RHITexture>& third, Sampling thirdSampling,
 							   const Ref<RHITexture>& fourth, Sampling fourthSampling,
 							   const Ref<RHIBuffer>& storage,
-							   const Ref<RHIAccelerationStructure>& structure)
+							   const Ref<RHIAccelerationStructure>& structure,
+							   Format secondOutputFormat)
 	{
 		if (!s_Data || !s_Data->Ready || !first)
 			return;
@@ -308,7 +311,7 @@ namespace RageV
 			return;
 
 		const int index = (int)shader;
-		const auto key = std::make_pair(index, outputFormat);
+		const auto key = std::make_tuple(index, outputFormat, secondOutputFormat);
 
 		auto it = s_Data->Pipelines.find(key);
 		if (it == s_Data->Pipelines.end())
@@ -331,6 +334,12 @@ namespace RageV
 			desc.DepthStencil.DepthWriteEnable = false;
 
 			desc.ColorFormats = { outputFormat };
+			// **A second attachment, for a pass that has to remember more than
+			// a colour.** The GI denoiser writes its sample counter and
+			// luminance moments here; every other pass leaves this Undefined
+			// and gets exactly the single-attachment pipeline it had.
+			if (secondOutputFormat != Format::Undefined)
+				desc.ColorFormats.push_back(secondOutputFormat);
 			desc.DepthFormat = Format::Undefined;
 
 			it = s_Data->Pipelines.emplace(key, s_Data->Device->CreatePipeline(desc)).first;
@@ -1381,7 +1390,8 @@ namespace RageV
 	void PostProcess::GiDenoise(RHICommandList& cmd, const Ref<RHITexture>& current,
 								const Ref<RHITexture>& history, const Ref<RHITexture>& velocity,
 								uint32_t width, uint32_t height,
-								float feedback, bool hasHistory, Format outputFormat)
+								float feedback, bool hasHistory, Format outputFormat,
+								const Ref<RHITexture>& moments, Format momentsFormat)
 	{
 		if (!s_Data || !current)
 			return;
@@ -1395,9 +1405,27 @@ namespace RageV
 		params.A = Math::Clamp(feedback, 0.0f, 0.98f);
 		params.B = (hasHistory && history && velocity) ? 1.0f : 0.0f;
 
+		// Whether last frame's moments are there to be read. Separate from B:
+		// the colour history and the moments are allocated together, but the
+		// first frame after a resize has neither and the shader must fall back
+		// to its spatial estimate rather than divide by a count of zero.
+		params.C = (moments && momentsFormat != Format::Undefined
+					&& params.B > 0.5f) ? 1.0f : 0.0f;
+
 		Dispatch(cmd, Shader::GiDenoise, outputFormat, current, history,
 				 &params, sizeof(params), Sampling::Point, Sampling::Linear,
-				 velocity, Sampling::Point);
+				 velocity, Sampling::Point,
+				 // **Binding 3 is filled whether or not there are moments to
+				 // read.** The shader declares it unconditionally, and a
+				 // declared binding with nothing bound is undefined behaviour
+				 // rather than a zero -- the same reason the identity LUT fills
+				 // binding 2 and the unit buffer fills the exposure slot. Left
+				 // null it faulted the device outright, and on a frame with no
+				 // history, which is every frame in a mode that never
+				 // accumulates. `params.C` is what tells the shader the black is
+				 // not data.
+				 moments ? moments : s_Data->Black, Sampling::Point,
+				 nullptr, nullptr, momentsFormat);
 	}
 
 	void PostProcess::Blit(RHICommandList& cmd, const Ref<RHITexture>& source, Format outputFormat)

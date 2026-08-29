@@ -59,8 +59,21 @@ namespace RageV
 		// a whole frame every time somebody drags a panel edge. `name` is the
 		// debug name the pair is created under, so a capture can tell one
 		// history from another.
+		// **`secondFormat` gives the pair a second attachment**, for a filter
+		// that has to remember something about a pixel besides its colour.
+		//
+		// The GI denoiser is the case that asked for it: a sample counter and
+		// the first two luminance moments are per-pixel state that must survive
+		// to the next frame, and the colour target has no room -- its alpha is
+		// a validity flag the lit shader multiplies into the bounce, so it
+		// cannot carry anything else. A second attachment ping-pongs with the
+		// first and shares its lifetime, which is what makes the two impossible
+		// to get out of step.
+		//
+		// Undefined means one attachment, exactly as before.
 		void Prepare(RHI::RHIDevice& device, uint32_t width, uint32_t height,
-					 RHI::Format format, const char* name = "TemporalHistory");
+					 RHI::Format format, const char* name = "TemporalHistory",
+					 RHI::Format secondFormat = RHI::Format::Undefined);
 
 		// This frame's output, and last frame's. Null before Prepare.
 		const RHI::Ref<RHI::RHIRenderTarget>& Current() const  { return m_Targets[m_Cursor]; }
@@ -98,6 +111,11 @@ namespace RageV
 		uint32_t m_Width = 0;
 		uint32_t m_Height = 0;
 		RHI::Format m_Format = RHI::Format::Undefined;
+		// Part of what a reallocation tests, like the first: asking for a
+		// second attachment where there was none has to rebuild the pair, and
+		// silently keeping the old one would leave a pass writing an
+		// attachment that does not exist.
+		RHI::Format m_SecondFormat = RHI::Format::Undefined;
 		bool m_Valid = false;
 	};
 }

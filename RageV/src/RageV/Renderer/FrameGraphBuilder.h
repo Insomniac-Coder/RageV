@@ -221,8 +221,14 @@ namespace RageV
 	RayDetail ResolveRayTracedGlobalIllumination(const RenderSettings& render);
 	// What a level costs per pixel. Stated once so the target's scale and the
 	// shader's ray count cannot be given different answers.
-	bool RayDetailIsFullRes(RayDetail detail);
-	int  RayDetailRays(RayDetail detail);
+	//
+	//   Low  2 rays, quarter res    Medium  2 rays, half    High  4 rays, half
+	//
+	// Nothing traces at full resolution: resolution is the cheaper axis and the
+	// harder one to see. What the trace target is divided by, and how many rays
+	// each of its pixels casts.
+	uint32_t RayDetailDivisor(RayDetail detail);
+	int      RayDetailRays(RayDetail detail);
 	// How deep the traced bounce goes (ENGINE-NOTES 7ax): the project's
 	// setting under --gi-bounces=, clamped to 1 or 2 here as well as at the
 	// flag, because a serialized int can hold anything and the shader reads

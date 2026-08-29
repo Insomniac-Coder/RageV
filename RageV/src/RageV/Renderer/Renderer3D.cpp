@@ -539,6 +539,32 @@ namespace RageV
 			// screen flavour's converged single bounce.
 			bool PendingIrradianceFeedback = false;
 			uint32_t PendingIrradianceRays = 512;
+			// **The runtime cache: the same solve, never finishing.**
+			//
+			// A bake solves a field to convergence and stops. A cache keeps
+			// sweeping forever at a small fixed cost, so the stored light
+			// follows a scene whose lights move -- and, the reason it is worth
+			// having here, so the *frame* stops paying for indirect light per
+			// pixel. Rays update cells; pixels interpolate cells. The ray count
+			// is then a property of the grid and the budget, not of the screen
+			// resolution, which is the decoupling every shipping engine makes
+			// and the one this renderer did not.
+			//
+			// Continuous mode changes exactly three things about the solve
+			// below: how many rays a frame may spend, what it blends with, and
+			// whether finishing a sweep ends it.
+			bool PendingIrradianceContinuous = false;
+			// Rays a frame, runtime. Four orders below the bake's megaray: a
+			// bake stretches a frame nobody is watching, this one is inside the
+			// frame being looked at. Fixed, so it is budgetable -- the whole
+			// point.
+			uint32_t PendingIrradianceRayBudget = 1u << 16;
+			// How much of a fresh estimate a cell takes each time it is
+			// revisited. Small, because stability is the product: a cell is
+			// revisited every time the sweep comes round, so a low weight still
+			// converges quickly in wall-clock while never stepping visibly.
+			// This is the one number that trades response time for stillness.
+			float PendingIrradianceHysteresis = 0.05f;
 			// Which field the line below was last written about, so a scene
 			// whose lighting changes every frame -- a moving light -- says it
 			// once rather than filling the log. Compared and never dereferenced.
@@ -1903,6 +1929,73 @@ namespace RageV
 		s_Data->PendingIrradianceRow = 0;
 		s_Data->PendingIrradianceSweep = 0;
 		s_Data->PendingIrradianceRegion = 0;
+		// A bake request is the finishing kind. Said explicitly rather than
+		// left at whatever a previous runtime request set.
+		s_Data->PendingIrradianceContinuous = false;
+	}
+
+	void Renderer3D::RequestRuntimeIrradiance(const Ref<IrradianceVolume>& volume,
+											  uint32_t raysPerCell, uint32_t rayBudget,
+											  float hysteresis, bool feedback)
+	{
+		if (!s_Data)
+			return;
+
+		// **Asking again for the volume already being cached is a no-op.**
+		// This is called every frame by the frame graph, and restarting the
+		// sweep every frame would mean the sweep never advances past its first
+		// band -- a cache that is always solving row zero and never anything
+		// else. Only a *different* volume starts over.
+		const bool sameVolume = s_Data->PendingIrradiance == volume
+							 && s_Data->PendingIrradianceContinuous;
+
+		s_Data->PendingIrradianceFeedback = feedback;
+		s_Data->PendingIrradianceRays = Math::Clamp(raysPerCell, 64u, 4096u);
+		s_Data->PendingIrradianceRayBudget = Math::Clamp(rayBudget, 4096u, 1u << 22);
+		s_Data->PendingIrradianceHysteresis = Math::Clamp(hysteresis, 0.01f, 1.0f);
+		s_Data->PendingIrradianceContinuous = true;
+		// Passes stops meaning anything in this mode -- there is no last sweep
+		// -- but it is read below before the mode is known, so give it a value
+		// that cannot end the solve early.
+		s_Data->PendingIrradiancePasses = 64u;
+		s_Data->PendingIrradiance = volume;
+
+		if (!sameVolume)
+		{
+			s_Data->PendingIrradianceRow = 0;
+			s_Data->PendingIrradianceSweep = 0;
+			s_Data->PendingIrradianceRegion = 0;
+		}
+	}
+
+	void Renderer3D::CancelRuntimeIrradiance()
+	{
+		// Only the continuous kind. A bake's request has an end of its own and
+		// withdrawing it here would abandon a solve somebody is waiting on.
+		if (!s_Data || !s_Data->PendingIrradianceContinuous)
+			return;
+
+		s_Data->PendingIrradiance = nullptr;
+		s_Data->PendingIrradianceContinuous = false;
+		s_Data->PendingIrradianceRow = 0;
+		s_Data->PendingIrradianceSweep = 0;
+		s_Data->PendingIrradianceRegion = 0;
+	}
+
+	bool Renderer3D::RuntimeIrradianceWarm()
+	{
+		// The sweep counter passes 1 the moment every region has been written
+		// once, and the continuous path parks it there. So "has finished a
+		// sweep" and "is at or past sweep 1" are the same question.
+		return s_Data && s_Data->PendingIrradianceContinuous
+			&& s_Data->PendingIrradianceSweep >= 1;
+	}
+
+	bool Renderer3D::HasRuntimeIrradiance()
+	{
+		return s_Data && s_Data->PendingIrradianceContinuous
+			&& s_Data->PendingIrradiance != nullptr
+			&& s_Data->IrradianceFillShader != nullptr;
 	}
 
 	bool Renderer3D::HasPendingIrradianceSolve()
@@ -1951,7 +2044,14 @@ namespace RageV
 		// so the frame it stretches belongs to nobody, and bake time buys
 		// accuracy at eight times the old rate.
 		constexpr uint32_t kRayBudget = 1u << 20;
-		const uint32_t cellsPerFrame = Math::Max(kRayBudget / (uint32_t)kRaysPerCell, 1u);
+		// The runtime cache spends its own, much smaller, budget: this solve is
+		// inside the frame being watched rather than one belonging to nobody.
+		// Fixed per frame and independent of resolution, which is the property
+		// the whole cache exists to get.
+		const uint32_t rayBudget = s_Data->PendingIrradianceContinuous
+								 ? s_Data->PendingIrradianceRayBudget
+								 : kRayBudget;
+		const uint32_t cellsPerFrame = Math::Max(rayBudget / (uint32_t)kRaysPerCell, 1u);
 		const uint32_t rowsPerFrame = Math::Max(cellsPerFrame / Math::Max(field.Width(), 1u), 1u);
 
 		// **Each pass is a bounce now, and this time the sentence is true.**
@@ -1974,7 +2074,17 @@ namespace RageV
 		// defines), and the sealed-room fixtures are part of the acceptance
 		// test rather than a surprise.
 		const uint32_t kSweeps = s_Data->PendingIrradiancePasses;
-		const float blend = s_Data->PendingIrradianceSweep == 0 ? 1.0f : 0.5f;
+		// **The cache blends by a fixed hysteresis instead.** A bake's schedule
+		// -- replace on the first sweep, halve after -- converges fast and then
+		// stops, which is right for a solve with an end. A cache has no end and
+		// wants the opposite: a small, unchanging weight, so a cell revisited
+		// forever is still rather than stepping each time the sweep comes
+		// round. Sweep 0 still replaces, because a cell blending against an
+		// unsolved field would take many revisits to climb out of black.
+		const float blend = s_Data->PendingIrradianceContinuous
+						  ? (s_Data->PendingIrradianceSweep == 0
+								 ? 1.0f : s_Data->PendingIrradianceHysteresis)
+						  : (s_Data->PendingIrradianceSweep == 0 ? 1.0f : 0.5f);
 
 		const std::vector<IrradianceVolume::Region>& regions = field.Regions();
 		if (regions.empty())
@@ -2026,7 +2136,21 @@ namespace RageV
 		s_Data->PendingIrradiance->FlipSolve();
 
 		s_Data->PendingIrradianceRegion = 0;
-		if (++s_Data->PendingIrradianceSweep < kSweeps)
+		++s_Data->PendingIrradianceSweep;
+
+		// **The cache never finishes.** It rolls straight into the next sweep,
+		// and the counter parks at 1 rather than climbing: nothing below reads
+		// it except the sweep-0 replace test, and letting it run away would
+		// overflow eventually for no gain. Every sweep from here traces fresh
+		// rays whose hits read the last completed field, so the stored light
+		// keeps gaining bounces and keeps following the lights.
+		if (s_Data->PendingIrradianceContinuous)
+		{
+			s_Data->PendingIrradianceSweep = 1;
+			return true;
+		}
+
+		if (s_Data->PendingIrradianceSweep < kSweeps)
 			return true;        // another sweep, one bounce deeper
 
 		// Once per field, not once per solve: a scene whose lights move asks

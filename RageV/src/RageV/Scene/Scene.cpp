@@ -3242,7 +3242,31 @@ namespace RageV
 		PackProbes(*cmd);
 	}
 
-	void Scene::UpdateIrradianceVolumes(const LightList& lights)
+	void Scene::UpdateRuntimeIrradianceField(const Vec3& cameraPosition)
+	{
+		// **One box, following the view, and only while the source is
+		// Realtime.** Not the authored volumes: those are boxes somebody placed
+		// around rooms, holding an answer solved offline.
+		const bool wantRuntime = ActiveGiIsTraced() && !WantsBakedGi()
+							  && !BakingLighting() && !m_CapturingProbes;
+
+		if (!wantRuntime)
+		{
+			// Withdraw the request before dropping the field. The request holds
+			// its own reference, so releasing alone would leave the solve
+			// sweeping a volume nothing can read -- measured as a 0.75 ms fill
+			// pass in every frame of Baked mode.
+			if (m_RuntimeField.IsPlaced())
+				Renderer3D::CancelRuntimeIrradiance();
+			m_RuntimeField.Release();
+			return;
+		}
+
+		m_RuntimeField.Update(Renderer::GetDevice(), cameraPosition);
+	}
+
+	void Scene::UpdateIrradianceVolumes(const LightList& lights,
+										const Vec3& cameraPosition)
 	{
 		// **`--bake=force`, which is the Bake button by another route.**
 		//
@@ -3255,6 +3279,48 @@ namespace RageV
 		{
 			m_ForcedBakeAsked = true;
 			RequestLightingBake();
+		}
+
+		// **The camera-following cache, placed before anything else here.**
+		// Placed first because the early-out below depends on whether it
+		// exists, and because the request has to stand before the frame graph's
+		// fill pass looks for one.
+		UpdateRuntimeIrradianceField(cameraPosition);
+
+		if (m_RuntimeField.IsPlaced())
+		{
+			// Rays per revisit, not per final answer: a cell is revisited every
+			// time the sweep comes round and blends by the hysteresis, so what
+			// settles there averages far more rays than any one visit casts.
+			Renderer3D::RequestRuntimeIrradiance(m_RuntimeField.Volume(),
+												 RuntimeIrradianceField::kRaysPerCell,
+												 RuntimeIrradianceField::kRayBudget,
+												 RuntimeIrradianceField::kHysteresis,
+												 true);
+
+			if (!m_RuntimeField.IsWarm() && Renderer3D::RuntimeIrradianceWarm())
+				m_RuntimeField.MarkWarm();
+
+			if (m_RuntimeField.IsWarm())
+			{
+				// **The handover is done: let the bake go.** Until here the
+				// baked field stayed bound so the room was lit while the cache
+				// filled; from here the cache answers, and holding the bake
+				// would be megabytes for a mode that does not read it. Released
+				// rather than merely unbound, because `shapeChanged` tests
+				// `!m_Field` -- so the next Baked frame rebuilds it and reloads
+				// it from disk, which is exactly the reload wanted.
+				if (m_Field)
+				{
+					m_Field.reset();
+					m_FieldVolumes = 0;
+					m_FieldUsable = false;
+					m_FieldEvaluated = true;
+				}
+
+				Renderer3D::SetIrradianceVolumes(m_RuntimeField.Volume());
+				return;
+			}
 		}
 
 		// **What the field was solved under.** A stored answer to a lighting
@@ -3393,6 +3459,7 @@ namespace RageV
 		int passes = 1;
 		int rays = 64;
 		bool recapture = false;
+
 
 		// Stale the moment no volume is fitting itself; set again below when
 		// one is. The editor's overlay reads it to draw the derived box.
@@ -3749,6 +3816,7 @@ namespace RageV
 			m_FieldSolveWanted = false;
 		}
 
+
 		// **Bound only for a source that asked for it, or while a bake is
 		// producing it.** The traced bounce reads whatever field is bound at
 		// every hit, so binding one unconditionally made "Realtime" quietly
@@ -3758,7 +3826,18 @@ namespace RageV
 		// everything fresh. A Baked source opts into the stored answer;
 		// Realtime never touches it.
 		const bool fieldWanted = WantsBakedGi() || BakingLighting();
-		Renderer3D::SetIrradianceVolumes(fieldWanted ? m_Field : nullptr);
+
+		// **Reached only during the handover.** Once the cache is warm the
+		// block near the top of this function binds it and returns, so getting
+		// here with a runtime field means it is still filling -- and the baked
+		// answer, if the scene has one, is the better thing to be looking at
+		// meanwhile. With no bake to borrow, the half-filled cache is still
+		// better than the flat ambient that binding nothing gives.
+		if (m_RuntimeField.IsPlaced() && !m_RuntimeField.IsWarm())
+			Renderer3D::SetIrradianceVolumes(m_Field ? m_Field
+													 : m_RuntimeField.Volume());
+		else
+			Renderer3D::SetIrradianceVolumes(fieldWanted ? m_Field : nullptr);
 		m_FieldUsable = m_FieldBaked;
 		m_FieldEvaluated = true;
 
@@ -3929,6 +4008,17 @@ namespace RageV
 		// disagreeing is a field read by a chain that was told there is none.
 		const RayDetail giDetail =
 			ResolveRayTracedGlobalIllumination(Project::Render());
+
+		// **The command line wins**, the same way it does where the chain is
+		// chosen (see the wantsBaked note there). This answered from the
+		// project alone, so `--gi-source=baked` switched the chain and left
+		// this saying Realtime -- and since this is what decides whether the
+		// field is *bound*, the run computed a baked chain with no field under
+		// it. The symptom is a scene that looks like its bake did not apply,
+		// which is exactly what it is.
+		if (EngineConfig::Get().HasGiSourceOverride)
+			return EngineConfig::Get().GiSourceBaked;
+
 		return giDetail != RayDetail::Off
 			? Project::Render().RayTracedGiSource == GiSource::Baked
 			: GetPostSettings().GiSource == GiSource::Baked;
@@ -4514,7 +4604,7 @@ namespace RageV
 			// body, so a render pass is open at every point in it, and the
 			// solve opens one of its own and records barriers, neither of which
 			// is legal inside another. See Renderer3D::RequestIrradianceSolve.
-			UpdateIrradianceVolumes(lights);
+			UpdateIrradianceVolumes(lights, Vec3(cameraTransform[3]));
 
 			// **Once a frame, not once a cube face.** A probe capture re-enters
 			// OnRender six times over, and a bake that counted those would time
