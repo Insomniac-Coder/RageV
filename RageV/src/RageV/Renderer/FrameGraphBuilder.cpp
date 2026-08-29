@@ -1596,6 +1596,16 @@ namespace RageV
 			shadedDesc.Depth = Format::Undefined;
 			const RGResource occluded = graph.CreateTarget(shadedDesc);
 
+			// **Decided before the compute pass, because it changes the rays.**
+			// Varying the spiral per frame is only right when something is
+			// averaging the result; with no history it is noise that crawls.
+			const bool aoAccumulating = desc.Occlusion && PostProcess::IsReady();
+			// Wrapped so the float keeps its precision over a long session; the
+			// spiral only needs successive frames to differ, not to be unique
+			// forever.
+			const float aoFrame = aoAccumulating
+								? (float)(Renderer::GetFrameCount() % 64u) : 0.0f;
+
 			const RGResource lit = shaded;
 			const float radius = desc.Post.AoRadius;
 			const float intensity = desc.Post.AoIntensity;
@@ -1611,7 +1621,7 @@ namespace RageV
 					builder.DisableDepth();
 				},
 				[sceneHDR, normalIndex, halfWidth, halfHeight, reconstruction,
-				 radius, rayOcclusion, aoTaps,
+				 radius, rayOcclusion, aoTaps, aoFrame,
 				 budgetMap = rayBudgetMap](RGPassContext& context)
 				{
 					// Depth and the surface attachment: the real normal where
@@ -1627,7 +1637,8 @@ namespace RageV
 												 budgetMap != kRGInvalid
 												 	 ? context.Color(budgetMap) : nullptr,
 												 halfWidth, halfHeight, reconstruction,
-												 radius, aoTaps, Format::R16G16B16A16_SFLOAT);
+												 radius, aoTaps, Format::R16G16B16A16_SFLOAT,
+												 aoFrame);
 					}
 					else
 					{
@@ -1638,16 +1649,84 @@ namespace RageV
 					}
 				});
 
+			// **Accumulate the occlusion across frames, before it is blurred.**
+			//
+			// RTAO was the one noisy term in the renderer with no temporal
+			// filter of any kind: it is applied after the TAA resolve, so
+			// nothing downstream averages it, and the separable blur below was
+			// its whole defence. A blur trades detail for quietness at a fixed
+			// rate; accumulation buys quietness with *time* and costs no detail
+			// at all, which is why it goes first and the blur cleans up what is
+			// left rather than doing the whole job.
+			//
+			// Its own history rather than TAA's, on the owner's argument: this
+			// engine ships MSAA and FXAA as well, and a filter that lives
+			// inside TAA only helps the people running TAA.
+			//
+			// Reuses the temporal resolve TAA uses -- reproject through the
+			// velocity buffer, clamp to the neighbourhood, blend -- because
+			// that is exactly the shape wanted and occlusion is a greyscale
+			// signal it handles without special-casing.
+			RGResource aoAccumulated = raw;
+			bool aoHasHistory = false;
+			if (desc.Occlusion && PostProcess::IsReady())
+			{
+				TemporalHistory& occlusion = *desc.Occlusion;
+				occlusion.Prepare(Renderer::GetDevice(), halfWidth, halfHeight,
+								  Format::R16G16B16A16_SFLOAT, "Occlusion");
+
+				if (occlusion.Current() && occlusion.Previous())
+				{
+					aoHasHistory = occlusion.HasHistory();
+					const RGResource previousAo =
+						graph.Import(occlusion.Previous(), "OcclusionPrevious");
+					const RGResource currentAo =
+						graph.Import(occlusion.Current(), "OcclusionCurrent");
+
+					graph.AddPass("SSAO accumulate",
+						[&](RGPassBuilder& builder)
+						{
+							builder.Write(currentAo);
+							builder.Sample(raw);
+							builder.Sample(sceneHDR);
+							if (aoHasHistory)
+								builder.Sample(previousAo);
+							builder.DisableDepth();
+						},
+						[raw, sceneHDR, previousAo, velocityIndex,
+						 halfWidth, halfHeight, has = aoHasHistory](RGPassContext& context)
+						{
+							// The same feedback the indirect buffer uses.
+							// Occlusion is low frequency and has no highlights,
+							// so it can afford a long tail -- and it needs one,
+							// because underneath is a handful of rays.
+							PostProcess::TemporalResolve(
+								context.Cmd, context.Color(raw),
+								has ? context.Color(previousAo) : nullptr,
+								context.Color(sceneHDR, velocityIndex),
+								halfWidth, halfHeight,
+								Format::R16G16B16A16_SFLOAT, 0.9f, has);
+						});
+
+					aoAccumulated = currentAo;
+					desc.Occlusion->Advance();
+				}
+			}
+			else if (desc.Occlusion)
+			{
+				desc.Occlusion->Invalidate();
+			}
+
 			graph.AddPass("SSAO blur x",
 				[&](RGPassBuilder& builder)
 				{
 					builder.Write(blurredX);
-					builder.Sample(raw);
+					builder.Sample(aoAccumulated);
 					builder.DisableDepth();
 				},
-				[raw, halfWidth, halfHeight](RGPassContext& context)
+				[aoAccumulated, halfWidth, halfHeight](RGPassContext& context)
 				{
-					PostProcess::SsaoBlur(context.Cmd, context.Color(raw),
+					PostProcess::SsaoBlur(context.Cmd, context.Color(aoAccumulated),
 										  halfWidth, halfHeight, 1.0f, 0.0f,
 										  Format::R16G16B16A16_SFLOAT);
 				});

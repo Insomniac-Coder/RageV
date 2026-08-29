@@ -413,6 +413,12 @@ private:
 	RageV::TemporalHistory m_SceneRayBudget;
 	RageV::TemporalHistory m_GameRayBudget;
 
+	// Ray-traced occlusion's accumulation, one per chain like every other:
+	// the viewport and the game view are different sizes showing different
+	// cameras, and a shared pair would have each dragging the other's image.
+	RageV::TemporalHistory m_SceneOcclusion;
+	RageV::TemporalHistory m_GameOcclusion;
+
 	// What both viewport textures are, and what the post chain's last pass
 	// writes. ImGui samples them, so they are LDR.
 	static constexpr RageV::RHI::Format kViewportFormat = RageV::RHI::Format::R8G8B8A8_UNORM;
@@ -592,7 +598,9 @@ private:
 	float m_SnapScale = 0.25f;
 
 	// Render settings.
-	bool m_VSync = true;
+	// Off, matching EngineConfig's default: the editor is a developer build
+	// and a pinned frame rate hides what the profiler is for.
+	bool m_VSync = false;
 	bool m_Wireframe = false;
 	RageV::Vec3 m_ClearColor = { 0.1f, 0.1f, 0.1f };
 

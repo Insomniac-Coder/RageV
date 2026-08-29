@@ -63,6 +63,8 @@ private:
 	// One texel per 16x16 tile: what the ray budget gave each tile last
 	// frame, and what that tile looked like, which is how it measures motion.
 	RageV::TemporalHistory m_RayBudget;
+	// Ray-traced occlusion's accumulation. See FrameDesc::Occlusion.
+	RageV::TemporalHistory m_Occlusion;
 
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_Target;
 

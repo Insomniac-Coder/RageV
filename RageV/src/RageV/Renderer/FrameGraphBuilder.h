@@ -133,6 +133,22 @@ namespace RageV
 		// and scenetest want exactly that.
 		TemporalHistory* RayBudget = nullptr;
 
+		// **Ray-traced occlusion's own accumulation.**
+		//
+		// RTAO is the one noisy term with no temporal filter at all: it is
+		// applied *after* the TAA resolve, so nothing downstream ever averages
+		// it, and a 9x9 separable blur is its whole defence -- which is why
+		// contact shadows come out softer than the rays could resolve.
+		//
+		// Its own history rather than TAA's, deliberately. Moving the pass
+		// inside TAA would only help people running TAA, and this engine ships
+		// MSAA and FXAA too; a filter that belongs to the effect works whatever
+		// the anti-aliasing is. It also drags the ray budget's block with it,
+		// since AO reads the allocation.
+		//
+		// Null disables it, and then AO behaves exactly as it did.
+		TemporalHistory* Occlusion = nullptr;
+
 		// **The frame time the loop handed down**, and the reason it is passed
 		// rather than measured: an adaptation driven by this is a function of
 		// the frame *number* under --frame-time, which is what keeps every

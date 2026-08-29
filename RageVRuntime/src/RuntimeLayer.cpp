@@ -310,6 +310,7 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.Reflections = &m_Reflections;
 	frame.Indirect = &m_Indirect;
 	frame.RayBudget = &m_RayBudget;
+	frame.Occlusion = &m_Occlusion;
 
 	// The loop's frame time, straight through. Not a clock read here: this is
 	// the number --frame-time pins, and driving the adaptation from it is the

@@ -249,7 +249,16 @@ namespace RageV
 								// Rays a pixel: AoDetail::Full casts eight, the rungs
 								// below it four.
 								uint32_t taps,
-								RHI::Format outputFormat);
+								RHI::Format outputFormat,
+								// **Advances the sample spiral once per frame**, so
+								// successive frames cast different directions and an
+								// accumulator has something to average. Zero keeps the
+								// fixed per-pixel pattern exactly as it was, which is
+								// what a caller with no occlusion history must pass:
+								// varying the rays with nowhere to accumulate them is
+								// noise that moves, which is worse than noise that
+								// sits still.
+								float frame = 0.0f);
 
 		// Global illumination, screen-space (9.12). ENGINE-NOTES 7at.
 		//

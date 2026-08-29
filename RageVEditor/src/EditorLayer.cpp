@@ -660,6 +660,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.Reflections = &m_SceneReflections;
 	scene.Indirect = &m_SceneIndirect;
 	scene.RayBudget = &m_SceneRayBudget;
+	scene.Occlusion = &m_SceneOcclusion;
 	// The loop's frame time, not a clock read here. ENGINE-NOTES 7y.
 	scene.DeltaSeconds = ts.GetSeconds();
 	scene.DrawScene = [this](RGPassContext&)
@@ -772,6 +773,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 		game.Reflections = &m_GameReflections;
 		game.Indirect = &m_GameIndirect;
 		game.RayBudget = &m_GameRayBudget;
+		game.Occlusion = &m_GameOcclusion;
 		game.DeltaSeconds = ts.GetSeconds();
 		game.DrawScene = [this](RGPassContext&)
 		{

@@ -81,7 +81,13 @@ namespace RageV
 {
 	struct EngineConfig
 	{
-		RHI::Backend Backend        = RHI::Backend::OpenGL;
+		// **Vulkan, not OpenGL.** Every feature worth measuring on this engine
+		// -- ray tracing, the traced bounce, occlusion, the runtime cache --
+		// exists only on the Vulkan path, so an unqualified run defaulting to
+		// OpenGL is a run with the subject of the work switched off. It also
+		// silently wasted a lot of time: a build launched without `--rhi` came
+		// up on the backend that cannot do any of it.
+		RHI::Backend Backend        = RHI::Backend::Vulkan;
 
 		// Every backend this build may use, in the order to try them.
 		//
@@ -97,7 +103,12 @@ namespace RageV
 		// Vulkan failed, not to be quietly moved to OpenGL and left measuring
 		// the wrong renderer.
 		std::vector<RHI::Backend> Backends;
-		bool         VSync          = true;
+		// **Off.** A developer build exists to be measured, and vsync pins
+		// every frame to the display's refresh -- which hides a regression
+		// until it costs a whole frame interval, and makes a win invisible.
+		// A packaged game still ships with it on (ProjectPackager), because a
+		// player wants a whole picture rather than a number.
+		bool         VSync          = false;
 		uint32_t     FramesInFlight = 2;
 
 		// Simulation rate. 60 matches what most physics engines are tuned for;

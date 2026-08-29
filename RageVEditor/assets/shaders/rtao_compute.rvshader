@@ -255,7 +255,22 @@ void main()
 	const vec3 bitangent = cross(normal, tangent);
 
 	const uvec2 pixel = uvec2(uv / texel);
-	const float rotation = float(Hash(pixel.x * 0x9E3779B9u ^ pixel.y)) / 4294967296.0 * 6.2831853;
+	// **Per pixel, and now per frame.**
+	//
+	// The per-pixel hash alone gives every pixel its own spiral but gives every
+	// *frame* the same one, so the estimate is fixed: identical noise, forever,
+	// which no temporal filter can average because there is nothing to average.
+	// It was the right choice while occlusion had no history -- varying it would
+	// only have made the noise crawl -- and the wrong one the moment it got one.
+	//
+	// Advanced by the golden angle per frame, which walks the spiral round in
+	// steps that never repeat a direction closely. `u_Params.A` is the frame
+	// index and is **zero when nothing is accumulating**, restoring the fixed
+	// pattern exactly: under MSAA or FXAA with no occlusion history there is
+	// nowhere for the variation to go, and it would read as noise that moves.
+	const float kGoldenAngleTurn = 2.39996323;
+	const float rotation = float(Hash(pixel.x * 0x9E3779B9u ^ pixel.y)) / 4294967296.0 * 6.2831853
+						 + u_Params.A * kGoldenAngleTurn;
 
 	float occlusion = 0.0;
 	// **Per tile, not per frame.** `Taps` is the ceiling and the fallback:

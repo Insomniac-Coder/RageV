@@ -810,7 +810,7 @@ namespace RageV
 								  uint32_t width, uint32_t height,
 								  const ViewReconstruction& view, float radius,
 								  uint32_t taps,
-								  Format outputFormat)
+								  Format outputFormat, float frame)
 	{
 		if (!s_Data || !depth || !surface || !structure)
 			return;
@@ -823,6 +823,8 @@ namespace RageV
 		params.InvP0 = view.InvProjection0;
 		params.InvP1 = view.InvProjection1;
 		params.Radius = Math::Max(radius, 0.01f);
+		// Free slot on this shader; the spiral's per-frame advance.
+		params.Base.A = frame;
 		// Clamped to at least one: a zero would divide by zero in the
 		// shader's average.
 		params.Taps = (float)Math::Max(taps, 1u);
