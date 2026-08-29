@@ -426,13 +426,20 @@ namespace RageV
 		// is what makes "the denoiser converges" a falsifiable claim rather
 		// than an impression. `hasHistory` false takes the current frame
 		// whole, the same contract TemporalResolve has.
+		// `moments` is last frame's second attachment -- sample count in .x and
+		// the first two luminance moments in .yz -- and `momentsFormat` is what
+		// this frame writes it back as. Both may be null/Undefined, in which
+		// case the pass runs exactly as it did before them: a spatial variance
+		// estimate and no warm-up.
 		static void GiDenoise(RHI::RHICommandList& cmd,
 							  const RHI::Ref<RHI::RHITexture>& current,
 							  const RHI::Ref<RHI::RHITexture>& history,
 							  const RHI::Ref<RHI::RHITexture>& velocity,
 							  uint32_t width, uint32_t height,
 							  float feedback, bool hasHistory,
-							  RHI::Format outputFormat);
+							  RHI::Format outputFormat,
+							  const RHI::Ref<RHI::RHITexture>& moments = nullptr,
+							  RHI::Format momentsFormat = RHI::Format::Undefined);
 
 		static bool IsReady();
 
@@ -493,6 +500,15 @@ namespace RageV
 							 const RHI::Ref<RHI::RHIBuffer>& storage = nullptr,
 							 // Bound at binding 4 when the shader declares it.
 							 // Only the ray-traced occlusion pass does (7ao).
-							 const RHI::Ref<RHI::RHIAccelerationStructure>& structure = nullptr);
+							 const RHI::Ref<RHI::RHIAccelerationStructure>& structure = nullptr,
+							 // **A second colour attachment.** Undefined for
+							 // every pass but the GI denoiser, which has to
+							 // carry a sample count and luminance moments from
+							 // one frame to the next and cannot put them in the
+							 // colour target -- its alpha is a validity flag the
+							 // lit shader multiplies into the bounce. Part of
+							 // the pipeline cache key, so the single-attachment
+							 // pipelines every other pass uses are untouched.
+							 RHI::Format secondOutputFormat = RHI::Format::Undefined);
 	};
 }

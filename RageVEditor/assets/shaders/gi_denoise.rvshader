@@ -57,6 +57,15 @@ void main()
 
 layout(location = 0) in vec2 v_UV;
 layout(location = 0) out vec4 o_Color;
+// **What this pixel has learned about itself, for the next frame.**
+//   .x  frames accumulated here, capped
+//   .y  running mean of luminance
+//   .z  running mean of luminance squared
+// The colour target cannot carry these: its alpha is a validity flag the lit
+// shader multiplies into the bounce, so it has to stay one. Written on every
+// path, including the early outs -- an attachment a path forgets holds
+// whatever was in the target, and the next frame would read it as a count.
+layout(location = 1) out vec4 o_Moments;
 
 // This frame's raw estimate: the screen-space gather's blurred output, or the
 // lit shader's traced attachment. Point sampled -- the neighbourhood is read
@@ -69,13 +78,16 @@ layout(set = 0, binding = 1) uniform sampler2D u_History;
 // Screen-space motion, point sampled: a measurement per pixel, and the average
 // of two pixels' motion is the motion of nothing.
 layout(set = 0, binding = 2) uniform sampler2D u_Velocity;
+// Last frame's counter and moments, reprojected with the colour. Point
+// sampled: a count is not a thing to interpolate.
+layout(set = 0, binding = 3) uniform sampler2D u_Moments;
 
 layout(push_constant) uniform Params
 {
 	vec2  TexelSize;
 	float Feedback;      // how much of the history survives, 0 disables
 	float HasHistory;
-	float Unused0;
+	float HasMoments;    // whether u_Moments holds a real frame yet
 	float FlipY;
 } u_Params;
 
@@ -84,6 +96,45 @@ layout(push_constant) uniform Params
 // on a near-uniform signal rejects almost nothing while costing the
 // accumulation its tail.
 const float kClampScale = 4.0;
+
+// The same weighting the tone curve gives: what the eye reads as brightness.
+float Luma(vec3 c)
+{
+	return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// **How many frames this pixel is allowed to remember.** The counter's only
+// job is the warm-up -- once 1/n falls below the configured feedback the
+// feedback takes over -- so it stops there rather than climbing forever and
+// losing precision in a half float.
+const float kMaxFrames = 16.0;
+
+// **Accumulate in a range-compressed space, not in linear irradiance.**
+//
+// A mean is dragged by its largest term, and in linear light the largest term
+// next to a bright fixture is enormous: one ray that finds the headlight's
+// surround returns a value tens of times the frames around it, and every filter
+// downstream is then averaging a number that is mostly that one sample. Bounds
+// built from such a neighbourhood are useless -- beside a genuinely bright
+// object the neighbours are bright too, so a spike only has to clear them by a
+// little to read as a flash.
+//
+// Compressing by 1/(1+luma) makes a value's *weight* bounded while leaving its
+// order intact, which is the same trick a weighted TAA resolve uses and for the
+// same symptom. The whole estimate -- the firefly bound, the moments, the clamp
+// and the blend -- happens in that space, and only the result comes back out.
+// Doing it for some of them and not others would compare numbers in two
+// different units.
+vec3 Compress(vec3 c)
+{
+	return c / (1.0 + Luma(c));
+}
+
+vec3 Expand(vec3 c)
+{
+	// The exact inverse: luma(compressed) = L/(1+L), so 1 - that is 1/(1+L).
+	return c / max(1.0 - Luma(c), 1e-4);
+}
 
 vec3 ClipToBox(vec3 history, vec3 centre, vec3 extent)
 {
@@ -125,7 +176,11 @@ void main()
 		// The same firefly bound the accumulating path applies, for the same
 		// reason -- this is the frame with nothing to average against.
 		const vec3 first = min(current.rgb, nbTop * 1.25 + vec3(0.05));
-		o_Color = vec4(max(mix(first, (nbSum + first) / 9.0, 0.65), vec3(0.0)), 1.0);
+		const vec3 firstOut = max(mix(first, (nbSum + first) / 9.0, 0.65), vec3(0.0));
+		o_Color = vec4(firstOut, 1.0);
+		// One frame seen, and its luminance is the whole of what is known.
+		const float firstLum = Luma(firstOut);
+		o_Moments = vec4(1.0, firstLum, firstLum * firstLum, 0.0);
 		return;
 	}
 
@@ -139,8 +194,19 @@ void main()
 	if (any(lessThan(historyUV, vec2(0.0))) || any(greaterThan(historyUV, vec2(1.0))))
 	{
 		o_Color = current;
+		// Disoccluded: the count starts again here. Carrying the old one would
+		// tell the next frame to trust an average of a surface that is not the
+		// one now under this pixel.
+		const float freshLum = Luma(current.rgb);
+		o_Moments = vec4(1.0, freshLum, freshLum * freshLum, 0.0);
 		return;
 	}
+
+	// Last frame's count and moments for this surface, fetched with the same
+	// reprojection the colour uses.
+	const vec4 prevMoments = u_Params.HasMoments > 0.5
+						   ? texture(u_Moments, historyUV) : vec4(0.0);
+	const float frames = min(prevMoments.x + 1.0, kMaxFrames);
 
 	// The eight neighbours, kept apart from the centre: the box below needs
 	// to know what the surroundings think *without* this pixel's own vote,
@@ -148,17 +214,23 @@ void main()
 	vec3 nbLowest = vec3(1e30);
 	vec3 nbHighest = vec3(0.0);
 	vec3 sum = vec3(0.0);
+	// **The second moment, for the clamp below.** Free: it is the same nine
+	// taps, squared. What it buys is a clamp width that knows the difference
+	// between a neighbourhood that disagrees because the light genuinely
+	// changes across it and one that disagrees because four rays are not many.
+	vec3 sumSq = vec3(0.0);
 	for (int y = -1; y <= 1; y++)
 	{
 		for (int x = -1; x <= 1; x++)
 		{
 			if (x == 0 && y == 0)
 				continue;
-			const vec3 tap = texture(u_Current,
-									 uv + vec2(x, y) * u_Params.TexelSize).rgb;
+			const vec3 tap = Compress(texture(u_Current,
+									 uv + vec2(x, y) * u_Params.TexelSize).rgb);
 			nbLowest = min(nbLowest, tap);
 			nbHighest = max(nbHighest, tap);
 			sum += tap;
+			sumSq += tap * tap;
 		}
 	}
 
@@ -184,7 +256,8 @@ void main()
 	// neighbourhood together, so the bound rises with it and propagation is
 	// untouched.
 	const float kFireflyScale = 1.25;
-	const vec3 bounded = min(current.rgb, nbHighest * kFireflyScale + vec3(0.05));
+	const vec3 bounded = min(Compress(current.rgb),
+							 nbHighest * kFireflyScale + vec3(0.05));
 
 	// The box, built from the *bounded* centre: a spike allowed to vote here
 	// would widen the extent by exactly the amount it needed to survive the
@@ -193,8 +266,58 @@ void main()
 	const vec3 highest = max(nbHighest, bounded);
 	const vec3 mean = (sum + bounded) / 9.0;
 
-	const vec3 centre = (lowest + highest) * 0.5;
-	const vec3 extent = max(highest - centre, vec3(1e-4)) * kClampScale;
+	// **The clamp is built from the neighbourhood's spread, not its extremes.**
+	//
+	// A min/max box is decided by its two most extreme taps, which on a
+	// four-ray estimate are the two least trustworthy numbers in it: one stray
+	// sample opens the box by however much it strays, and a box opened by noise
+	// stops clipping the history it exists to clip. The mean and the standard
+	// deviation are decided by all nine, so a neighbourhood that is genuinely
+	// uniform produces a tight box however unlucky one tap was, and one that
+	// straddles a real lighting edge produces a wide one -- which is the same
+	// self-adaptation SVGF gets from its variance estimate, without the spatial
+	// filter that estimate normally drives.
+	//
+	// **Never looser than the box it replaces.** The old width is kept as a
+	// ceiling, so this can only tighten and never widen: where the estimate is
+	// noisy enough that sigma is large, behaviour is what it was, and the gain
+	// is confined to where the neighbourhood agrees.
+	//
+	// kSigma is the one dial. Higher trusts the history further and ghosts;
+	// lower clips more and lets noise through. Two standard deviations covers
+	// ~95% of a normal neighbourhood.
+	const float kSigma = 2.0;
+	const vec3 meanSq = (sumSq + bounded * bounded) / 9.0;
+	const vec3 sigma = sqrt(max(meanSq - mean * mean, vec3(0.0)));
+
+	const vec3 boxCentre = (lowest + highest) * 0.5;
+	const vec3 boxExtent = max(highest - boxCentre, vec3(1e-4)) * kClampScale;
+
+	// **The pixel's own history of itself, which the neighbours cannot supply.**
+	// Spatial spread says how much this *area* disagrees; temporal spread says
+	// how much this *pixel* has been fluctuating. They answer different
+	// questions, and the second is the one a temporal filter needs.
+	const float lum = Luma(bounded);
+	// The warm-up. With few frames behind it the estimate should move freely;
+	// once 1/n falls below the configured feedback, the feedback governs and
+	// this stops mattering. Without it a fresh pixel crawls toward the answer
+	// at the feedback rate, which at 0.9 is thirty frames of visibly wrong.
+	const float alpha = max(1.0 / frames, 1.0 - u_Params.Feedback);
+	const float momMean = mix(prevMoments.y, lum, alpha);
+	const float momMeanSq = mix(prevMoments.z, lum * lum, alpha);
+	const float temporalSigma = sqrt(max(momMeanSq - momMean * momMean, 0.0));
+
+	o_Moments = vec4(frames, momMean, momMeanSq, 0.0);
+
+	const vec3 centre = mean;
+	// **Never clamp tighter than this pixel is known to fluctuate.** A box
+	// narrower than the pixel's own temporal noise rejects history every frame
+	// on a pixel that was never wrong, and a history rejected every frame is
+	// four rays with no accumulation at all -- the noise the pass exists to
+	// remove. The spatial estimate still provides the ceiling.
+	const vec3 floored = max(min(sigma * kSigma, boxExtent),
+							 vec3(temporalSigma * kSigma));
+	const vec3 extent = max(floored, vec3(1e-4));
 
 	// **The spatial half, which this pass did not have.**
 	//
@@ -219,9 +342,12 @@ void main()
 	const vec3 filtered = mix(bounded, mean, kSpatial);
 
 	vec4 history = texture(u_History, historyUV);
-	history.rgb = ClipToBox(history.rgb, centre, extent);
+	history.rgb = ClipToBox(Compress(history.rgb), centre, extent);
 
-	vec3 result = mix(filtered, history.rgb, u_Params.Feedback);
+	// `alpha` is how much of this frame to take, so 1 - alpha is how much of
+	// the history survives -- the configured feedback once the pixel is warm,
+	// and less than it while it is not.
+	vec3 result = mix(filtered, history.rgb, 1.0 - alpha);
 
 	// Negative irradiance is not a thing; a filtered read across a disocclusion
 	// can produce one, and it would darken the surface below unlit.
@@ -233,5 +359,6 @@ void main()
 	// edge test. Passing that through multiplied the bounce by a distance in
 	// metres: measured +6.93 against a correct +1.27, and it looked exactly
 	// like a feedback loop rather than like a unit error.
-	o_Color = vec4(max(result, vec3(0.0)), 1.0);
+	// Back to linear irradiance, which is what the lit shader multiplies in.
+	o_Color = vec4(max(Expand(result), vec3(0.0)), 1.0);
 }

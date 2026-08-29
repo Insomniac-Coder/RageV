@@ -6,7 +6,7 @@ namespace RageV
 	using namespace RageV::RHI;
 
 	void TemporalHistory::Prepare(RHIDevice& device, uint32_t width, uint32_t height,
-								  Format format, const char* name)
+								  Format format, const char* name, Format secondFormat)
 	{
 		if (width == 0 || height == 0)
 		{
@@ -17,13 +17,16 @@ namespace RageV
 			return;
 		}
 
-		if (m_Targets[0] && m_Width == width && m_Height == height && m_Format == format)
+		if (m_Targets[0] && m_Width == width && m_Height == height
+			&& m_Format == format && m_SecondFormat == secondFormat)
 			return;
 
 		RenderTargetDesc desc;
 		desc.Width = width;
 		desc.Height = height;
 		desc.ColorAttachments = { { format } };
+		if (secondFormat != Format::Undefined)
+			desc.ColorAttachments.push_back({ secondFormat });
 		// No depth. Nothing in a temporal resolve tests or writes it, and an
 		// attachment nobody uses would still force every pipeline drawn here
 		// to declare a matching depth format.
@@ -37,6 +40,7 @@ namespace RageV
 		m_Width = width;
 		m_Height = height;
 		m_Format = format;
+		m_SecondFormat = secondFormat;
 
 		// Freshly allocated images hold whatever the driver left in them.
 		// Blending against that would put one frame of somebody else's memory
@@ -64,6 +68,7 @@ namespace RageV
 		m_Width = 0;
 		m_Height = 0;
 		m_Format = Format::Undefined;
+		m_SecondFormat = Format::Undefined;
 		m_Valid = false;
 	}
 }

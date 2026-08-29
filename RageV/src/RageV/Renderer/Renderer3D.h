@@ -134,6 +134,53 @@ namespace RageV
 										   uint32_t passes, uint32_t raysPerCell,
 										   bool feedback);
 
+		// **The same solve, asked to run forever: a runtime radiance cache.**
+		//
+		// Where RequestIrradianceSolve converges a field and stops, this keeps
+		// sweeping at a fixed ray cost a frame and blends each revisit into
+		// what is stored, so the stored light tracks a scene whose lights move.
+		//
+		// **What this does not do yet, and the reason it was built.** The point
+		// of a cache is that the frame's indirect diffuse becomes a *lookup*
+		// rather than a per-pixel trace, so its ray count stops scaling with
+		// screen resolution. That step is NOT taken: the RT GI pass still
+		// traces per pixel exactly as before, and this runs alongside it. So
+		// today the cache buys multi-bounce -- a traced hit reads stored light
+		// instead of falling back to a probe -- at a small net *cost*, not a
+		// saving. Making the GI pass sample the field instead of tracing, in
+		// whole or in part, is what turns that round.
+		//
+		// `rayBudget` is rays a frame across the whole atlas. `hysteresis` is
+		// how much of each fresh estimate a revisited cell takes: low is still,
+		// high is responsive. Asking again with the same volume keeps the sweep
+		// where it is rather than restarting it, so this may be called every
+		// frame.
+		static void RequestRuntimeIrradiance(const RHI::Ref<IrradianceVolume>& volume,
+											 uint32_t raysPerCell, uint32_t rayBudget,
+											 float hysteresis, bool feedback);
+
+		// Whether the standing request is the continuous kind. The frame graph
+		// asks so it can declare the fill pass every frame rather than once.
+		static bool HasRuntimeIrradiance();
+
+		// **Withdraws a standing continuous request.**
+		//
+		// Releasing the field is not enough on its own: the request holds a
+		// reference of its own, so the volume stays alive and the solve keeps
+		// sweeping it forever -- a fill pass in every frame of a mode that
+		// cannot read what it writes. Called when the mode stops wanting a
+		// cache. Leaves a *bake* request alone; only the continuous kind is
+		// withdrawn.
+		static void CancelRuntimeIrradiance();
+
+		// **Whether the cache has visited every cell at least once.**
+		//
+		// A freshly created runtime field is black, and a room that fades up
+		// from black is worse than anything this buys. The scene asks so it can
+		// keep the baked field bound over the handover and release it only once
+		// this says yes. False when no continuous request is standing.
+		static bool RuntimeIrradianceWarm();
+
 		// Whether a request is standing, asked by the frame graph before it
 		// declares a fill pass -- so a frame with no field to solve, which is
 		// almost every frame, has no pass at all.

@@ -7,6 +7,7 @@
 #include "RageV/Renderer/Environment.h"
 #include "RageV/Renderer/GpuCull.h"
 #include "RageV/Renderer/IrradianceVolume.h"
+#include "RageV/Renderer/RuntimeIrradianceField.h"
 #include "RageV/Renderer/Light.h"
 #include "RageV/Renderer/PostSettings.h"
 #include "RageV/Renderer/ViewportGrid.h"
@@ -506,7 +507,12 @@ namespace RageV
 		// and records which slice each probe went to.
 		// Sizes, fills and hands over the scene's irradiance field. See
 		// IrradianceVolumeComponent.
-		void UpdateIrradianceVolumes(const LightList& lights);
+		void UpdateIrradianceVolumes(const LightList& lights,
+									 const Vec3& cameraPosition);
+		// Places and sizes the camera-following field, creating it when the mode
+		// calls for one and releasing it when it does not. Placement only -- the
+		// solve is asked for by the caller and run by the frame graph.
+		void UpdateRuntimeIrradianceField(const Vec3& cameraPosition);
 
 		std::string m_SourcePath;
 
@@ -590,6 +596,23 @@ namespace RageV
 		// skip the realtime chain, because a Baked setting with nothing baked
 		// must fall back rather than render a scene with no indirect light.
 		bool m_FieldUsable = false;
+		// **Whether the runtime cache has written over what the field holds.**
+		//
+		// The cache and a bake share one texture, and the disk load that fills
+		// it only runs when the volume's *shape* changes -- the box, the grid,
+		// the quality, the flavour. Switching the GI source from Realtime back
+		// to Baked changes none of those, so without this the texture would
+		// still hold whatever the cache last solved while the mode says Baked:
+		// a stored answer that is not the stored answer. Set when the cache
+		// runs, and forces one reload when a Baked source next asks.
+
+		// **The camera-following field, and it is deliberately not m_Field.**
+		// The baked one is a set of boxes somebody placed holding an answer
+		// solved offline; this is one box that slides with the view holding an
+		// answer being solved now. Separate objects, separate lifetimes -- only
+		// one is bound at a time, and switching mode releases the other. The
+		// placement policy lives in the class rather than here.
+		RuntimeIrradianceField m_RuntimeField;
 		// Said once, not once a frame. Cleared when a scene loads.
 		bool m_WarnedMissingBake = false;
 		// Whether the field walk has run at all this scene. Until it has, there

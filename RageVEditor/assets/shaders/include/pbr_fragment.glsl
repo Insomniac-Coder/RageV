@@ -2760,6 +2760,28 @@ void main()
 		if (mirror > 0.0)
 		{
 			vec3 traced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N), v_Probe);
+
+			// **Bound the ray by the probe it is replacing.**
+			//
+			// A mirror ray reads ONE unfiltered texel at mip 0 -- there are no
+			// ray cones and no derivatives inside a ray query, so there is no
+			// footprint to filter over. The probe answers the same lobe already
+			// band-limited, by the LOD chosen from dFdx/dFdy of this very
+			// reflection vector a few lines above. So the two are estimates of
+			// the same quantity, and when the point sample stands many times
+			// above the filtered one it is not a highlight the probe missed --
+			// it is the one texel the ray happened to land on this frame. On a
+			// smooth surface the direction drifts with the sub-pixel jitter, so
+			// which texel that is changes every frame, and the pixel blinks.
+			//
+			// Generous, because a real highlight must survive: a chrome ball
+			// reflecting a lamp reads far brighter than its blurred probe, and
+			// eight times leaves that alone while removing the hundredfold
+			// spikes. The additive term keeps the bound from collapsing to zero
+			// where the probe is black.
+			const float kTracedBound = 8.0;
+			traced = min(traced, prefiltered * kTracedBound + vec3(0.05));
+
 			prefiltered = mix(prefiltered, traced, mirror);
 		}
 	}
