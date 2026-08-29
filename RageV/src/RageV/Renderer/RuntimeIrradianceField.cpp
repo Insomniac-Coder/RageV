@@ -14,10 +14,42 @@ namespace RageV
 		// slightly other than where it is read and the solve spends its life
 		// chasing an offset it can never close. Snapped, the error is always a
 		// whole number of cells, which one sweep clears.
+		// **Carry the box ahead of the view.**
+		//
+		// The step is measured against the last update rather than timed: only
+		// its *direction* is used, and the lead is a fixed distance, so how fast
+		// the camera moves -- and how fast frames arrive -- changes nothing
+		// about where the box sits. Smoothed, so that a turn swings the lead
+		// over a few dozen frames rather than throwing the grid across the room
+		// on one frame's motion. That smoothing is also what keeps the cells
+		// solved for the old direction present and useful while it happens.
+		if (m_HasLastPosition)
+		{
+			const Vec3 step = cameraPosition - m_LastPosition;
+			if (Math::Length(step) > kMovingThreshold)
+			{
+				const Vec3 heading = step / Math::Length(step);
+				m_Direction = m_Direction + (heading - m_Direction) * kDirectionSmoothing;
+			}
+			else
+			{
+				// Standing still: let the lead decay to nothing, so a parked
+				// camera ends up centred and keeps the deepest tail behind it.
+				m_Direction = m_Direction * (1.0f - kDirectionSmoothing);
+			}
+		}
+		m_LastPosition = cameraPosition;
+		m_HasLastPosition = true;
+
+		// `m_Direction` is at most unit length and shrinks toward zero when
+		// still, so this is a lead that fades in and out rather than switching.
+		const Vec3 lead = m_Direction * kLeadDistance;
+		const Vec3 wanted = cameraPosition + lead;
+
 		const Vec3 snapped(
-			std::floor(cameraPosition.x / kSpacing + 0.5f) * kSpacing,
-			std::floor(cameraPosition.y / kSpacing + 0.5f) * kSpacing,
-			std::floor(cameraPosition.z / kSpacing + 0.5f) * kSpacing);
+			std::floor(wanted.x / kSpacing + 0.5f) * kSpacing,
+			std::floor(wanted.y / kSpacing + 0.5f) * kSpacing,
+			std::floor(wanted.z / kSpacing + 0.5f) * kSpacing);
 
 		if (!m_Volume)
 		{
@@ -80,6 +112,9 @@ namespace RageV
 		m_Regions.clear();
 		m_Region = IrradianceVolume::Region{};
 		m_Centre = Vec3(0.0f);
+		m_LastPosition = Vec3(0.0f);
+		m_Direction = Vec3(0.0f);
+		m_HasLastPosition = false;
 		m_Warm = false;
 	}
 }

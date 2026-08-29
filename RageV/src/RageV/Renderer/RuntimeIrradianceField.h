@@ -59,6 +59,31 @@ namespace RageV
 		// a whole number of cells away rather than a fraction.
 		static constexpr float kRecentreDistance = kSpacing;
 
+		// **How far ahead of the view the box is carried, in metres.**
+		//
+		// The grid reaches equally far in every direction, but attention does
+		// not: what is in front matters and what is behind is about to be left.
+		// Leading the centre spends more of a fixed number of cells on the side
+		// being travelled into, so the slab that enters the grid on a step
+		// enters further from where the eye is.
+		//
+		// The trade is real and worth stating: leading forward means less grid
+		// *behind*, so turning round quickly finds a shorter tail of solved
+		// cells there. Four metres is a third of the box's half-extent, which
+		// buys the lead without hollowing out the space behind.
+		static constexpr float kLeadDistance = 4.0f;
+
+		// Movement below this per update reads as standing still, and the lead
+		// collapses to nothing. Without it the box would jitter forward and
+		// back on the noise in a parked camera's position.
+		static constexpr float kMovingThreshold = 0.01f;
+
+		// How quickly the lead follows a change of direction. Low, so that
+		// turning does not snap the box across the room: the old direction's
+		// cells stay in the grid and stay solved while the lead swings over,
+		// which is the "let the old chunk live a moment" half of this.
+		static constexpr float kDirectionSmoothing = 0.08f;
+
 		// Rays a cell casts each time the sweep reaches it. Not the number the
 		// answer converges from -- a cell is revisited every sweep and blends by
 		// the hysteresis, so what settles there averages far more than this.
@@ -111,6 +136,13 @@ namespace RageV
 		// The same region as a list, because that is the shape the readers take.
 		std::vector<IrradianceVolume::Region> m_Regions;
 		Vec3 m_Centre{ 0.0f };
+		// Where the view was last update, and the smoothed direction it has
+		// been travelling. Direction only -- the lead is a fixed distance, so
+		// how fast the camera moves does not change how far ahead the box sits,
+		// and the result cannot depend on frame rate.
+		Vec3 m_LastPosition{ 0.0f };
+		Vec3 m_Direction{ 0.0f };
+		bool m_HasLastPosition = false;
 		bool m_Warm = false;
 	};
 }
