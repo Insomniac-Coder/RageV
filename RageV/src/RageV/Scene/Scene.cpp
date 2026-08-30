@@ -4812,6 +4812,27 @@ namespace RageV
 						Renderer3D::DrawSkinnedMesh(entry.Resolved, world, material, params,
 													bind, probe, &entry.Transform->PreviousWorld);
 					}
+					else
+					{
+						// **Never silently.** This branch is unreachable in a
+						// well-formed scene and was, for a long time, exactly
+						// reachable: the skeleton lookup could not resolve a
+						// model part's derived handle, so a rigged model lost
+						// its skinned parts and nothing anywhere said so. The
+						// mesh simply was not there, which reads as a broken
+						// export or a bad import rather than as a lookup that
+						// answered wrongly.
+						//
+						// Once per mesh, because this is inside the draw walk.
+						static std::unordered_set<uint64_t> reported;
+						if (reported.insert((uint64_t)entry.Source->Mesh).second)
+						{
+							RV_CORE_ERROR("A skinned mesh ({0}) has no skeleton the asset "
+										  "manager can find, so it cannot be posed and is "
+										  "not drawn. Its rig did not survive import.",
+										  (uint64_t)entry.Source->Mesh);
+						}
+					}
 				}
 				else
 				{

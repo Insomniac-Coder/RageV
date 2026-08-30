@@ -1,0 +1,1917 @@
+Scene: The showroom, with the Mark 85 in it
+Version: 6
+Environment:
+  AmbientColor: [0.5, 0.54, 0.62]
+  AmbientIntensity: 0.04
+  Sky: Color
+  SkyHorizon: [0.08, 0.085, 0.095]
+  SkyZenith: [0.08, 0.085, 0.095]
+  SkyGround: [0.06, 0.06, 0.065]
+  SkyIntensity: 1
+  SkyRotation: 0
+  SkyTexture: 0
+Entities:
+  - EntityID: 6756093626407939214
+    TagComponent:
+      Tag: Showroom Camera
+    TransformComponent:
+      Position: [0, 1.52064, 5.37945]
+      Rotation: [-0.0872665, -0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 40
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 200
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 60773495850465785
+    ManagedScriptComponent:
+      Script: ShowroomCamera
+      Fields:
+        TargetX: 0.0
+        TargetY: 1.05
+        TargetZ: 0.0
+        Yaw: 0.0
+        Pitch: 5.0
+        MinPitch: 0.5
+        MaxPitch: 32.0
+        Distance: 5.4
+        MinDistance: 3.2
+        MaxDistance: 9.0
+  - EntityID: 13150330638402972445
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Position: [0, 0, 0.75]
+      Rotation: [0, 0, 0]
+      Scale: [11, 1, 17.5]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 8482166953819033836
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [5.5, 0.05, 8.75]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, -0.05, 0]
+      IsTrigger: false
+  - EntityID: 16653388169543425440
+    TagComponent:
+      Tag: Ceiling
+    TransformComponent:
+      Position: [0, 3.7, 0.75]
+      Rotation: [3.14159, 0, 0]
+      Scale: [11, 1, 17.5]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 17399930551187391255
+  - EntityID: 8365848312235483428
+    TagComponent:
+      Tag: Left Wall
+    TransformComponent:
+      Position: [-5.6, 1.85, 0.75]
+      Rotation: [0, 1.5708, 0]
+      Scale: [17.5, 3.7, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 14993727988669094928
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+  - EntityID: 6728750051535315419
+    TagComponent:
+      Tag: Right Wall
+    TransformComponent:
+      Position: [5.6, 1.85, 0.75]
+      Rotation: [0, 1.5708, 0]
+      Scale: [17.5, 3.7, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 14993727988669094928
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+  - EntityID: 17784244611274946556
+    TagComponent:
+      Tag: Front Wall
+    TransformComponent:
+      Position: [0, 1.85, 9.6]
+      Rotation: [0, 0, 0]
+      Scale: [11.4, 3.7, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 7459957172070530292
+  - EntityID: 13880153909177802914
+    TagComponent:
+      Tag: Portal Pier Left
+    TransformComponent:
+      Position: [-4.35, 1.85, -8.1]
+      Rotation: [0, 0, 0]
+      Scale: [2.3, 3.7, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 7459957172070530292
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+  - EntityID: 419870721110346543
+    TagComponent:
+      Tag: Portal Pier Right
+    TransformComponent:
+      Position: [4.35, 1.85, -8.1]
+      Rotation: [0, 0, 0]
+      Scale: [2.3, 3.7, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 7459957172070530292
+    RigidBodyComponent:
+      Type: Static
+      Mass: 1
+      Friction: 0.6
+      Restitution: 0.05
+      LinearDamping: 0.05
+      AngularDamping: 0.05
+      GravityFactor: 1
+      FreezeRotation: false
+    ColliderComponent:
+      Shape: Box
+      HalfExtents: [0.5, 0.5, 0.5]
+      Radius: 0.5
+      Height: 1.0
+      Offset: [0, 0, 0]
+      IsTrigger: false
+  - EntityID: 3530977772936277684
+    TagComponent:
+      Tag: Portal Header
+    TransformComponent:
+      Position: [0, 3.35, -8.1]
+      Rotation: [0, 0, 0]
+      Scale: [6.4, 0.7, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 7459957172070530292
+  - EntityID: 14917099760211387589
+    TagComponent:
+      Tag: Portal Reveal Left
+    TransformComponent:
+      Position: [-3.2, 1.5, -8]
+      Rotation: [0, 0, 0]
+      Scale: [0.09, 3, 0.26]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 6962528961022338942
+  - EntityID: 8499879688168449374
+    TagComponent:
+      Tag: Portal Reveal Right
+    TransformComponent:
+      Position: [3.2, 1.5, -8]
+      Rotation: [0, 0, 0]
+      Scale: [0.09, 3, 0.26]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 6962528961022338942
+  - EntityID: 3629775221041006742
+    TagComponent:
+      Tag: Portal Reveal Head
+    TransformComponent:
+      Position: [0, 3, -8]
+      Rotation: [0, 0, 0]
+      Scale: [6.58, 0.09, 0.26]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 6962528961022338942
+  - EntityID: 11346133071165662001
+    TagComponent:
+      Tag: Skirting Left
+    TransformComponent:
+      Position: [-5.47, 0.055, 0.75]
+      Rotation: [0, 0, 0]
+      Scale: [0.06, 0.11, 17.5]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 6962528961022338942
+  - EntityID: 16812835361042424978
+    TagComponent:
+      Tag: Skirting Right
+    TransformComponent:
+      Position: [5.47, 0.055, 0.75]
+      Rotation: [0, 0, 0]
+      Scale: [0.06, 0.11, 17.5]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 6962528961022338942
+  - EntityID: 9571391593238533596
+    TagComponent:
+      Tag: Skirting Back Left
+    TransformComponent:
+      Position: [-4.35, 0.055, -7.97]
+      Rotation: [0, 0, 0]
+      Scale: [2.3, 0.11, 0.06]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 6962528961022338942
+  - EntityID: 9436375407764582281
+    TagComponent:
+      Tag: Skirting Back Right
+    TransformComponent:
+      Position: [4.35, 0.055, -7.97]
+      Rotation: [0, 0, 0]
+      Scale: [2.3, 0.11, 0.06]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 6962528961022338942
+  - EntityID: 2551388772060103773
+    TagComponent:
+      Tag: Luminaire
+    TransformComponent:
+      Position: [0, 3.66, 0.6]
+      Rotation: [3.14159, 0, 0]
+      Scale: [7.8, 1, 11]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 14753199846806222610
+  - EntityID: 12072224473920658357
+    TagComponent:
+      Tag: Luminaire Lit Block
+    TransformComponent:
+      Position: [4.44089e-16, 3.655, -2.15]
+      Rotation: [3.14159, 0, 0]
+      Scale: [1.3, 1, 1.83333]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 13919672906967680270
+  - EntityID: 12823832184055958747
+    TagComponent:
+      Tag: Luminaire Reveal Left
+    TransformComponent:
+      Position: [-3.9, 3.68, 0.6]
+      Rotation: [0, 0, 0]
+      Scale: [0.1, 0.09, 11]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 6962528961022338942
+  - EntityID: 2261862595593086116
+    TagComponent:
+      Tag: Luminaire Reveal Right
+    TransformComponent:
+      Position: [3.9, 3.68, 0.6]
+      Rotation: [0, 0, 0]
+      Scale: [0.1, 0.09, 11]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 6962528961022338942
+  - EntityID: 963398676814636249
+    TagComponent:
+      Tag: Luminaire Reveal Front
+    TransformComponent:
+      Position: [0, 3.68, 6.1]
+      Rotation: [0, 0, 0]
+      Scale: [8, 0.09, 0.1]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 6962528961022338942
+  - EntityID: 1278306241341710797
+    TagComponent:
+      Tag: Luminaire Reveal Back
+    TransformComponent:
+      Position: [0, 3.68, -4.9]
+      Rotation: [0, 0, 0]
+      Scale: [8, 0.09, 0.1]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 6962528961022338942
+  - EntityID: 15746707042766534803
+    TagComponent:
+      Tag: Panel Light 00
+    TransformComponent:
+      Position: [-2.6, 3.41, -2.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [0.93, 0.96, 1]
+      Intensity: 0.0
+      Range: 11
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: false
+  - EntityID: 15746705943254906592
+    TagComponent:
+      Tag: Panel Light 01
+    TransformComponent:
+      Position: [0, 3.41, -2.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [0.93, 0.96, 1]
+      Intensity: 11.0
+      Range: 11
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: false
+  - EntityID: 15746709241789791225
+    TagComponent:
+      Tag: Panel Light 02
+    TransformComponent:
+      Position: [2.6, 3.41, -2.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [0.93, 0.96, 1]
+      Intensity: 0.0
+      Range: 11
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: false
+  - EntityID: 15745750467650180458
+    TagComponent:
+      Tag: Panel Light 10
+    TransformComponent:
+      Position: [-2.6, 3.41, 0.6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [0.93, 0.96, 1]
+      Intensity: 0.0
+      Range: 11
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: false
+  - EntityID: 15745751567161808669
+    TagComponent:
+      Tag: Panel Light 11
+    TransformComponent:
+      Position: [0, 3.41, 0.6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [0.93, 0.96, 1]
+      Intensity: 0.0
+      Range: 11
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: false
+  - EntityID: 15745748268626924036
+    TagComponent:
+      Tag: Panel Light 12
+    TransformComponent:
+      Position: [2.6, 3.41, 0.6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [0.93, 0.96, 1]
+      Intensity: 0.0
+      Range: 11
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: false
+  - EntityID: 15744758708161723361
+    TagComponent:
+      Tag: Panel Light 20
+    TransformComponent:
+      Position: [-2.6, 3.41, 3.3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [0.93, 0.96, 1]
+      Intensity: 0.0
+      Range: 11
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: false
+  - EntityID: 15744757608650095150
+    TagComponent:
+      Tag: Panel Light 21
+    TransformComponent:
+      Position: [0, 3.41, 3.3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [0.93, 0.96, 1]
+      Intensity: 0.0
+      Range: 11
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: false
+  - EntityID: 15744756509138466939
+    TagComponent:
+      Tag: Panel Light 22
+    TransformComponent:
+      Position: [2.6, 3.41, 3.3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [0.93, 0.96, 1]
+      Intensity: 0.0
+      Range: 11
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: false
+  - EntityID: 3319844188578762216
+    TagComponent:
+      Tag: Key Light
+    TransformComponent:
+      Position: [0, 3.46, 0.15]
+      Rotation: [-1.5708, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [0.95, 0.97, 1]
+      Intensity: 30
+      Range: 9
+      InnerCone: 20
+      OuterCone: 44
+      CastShadows: true
+  - EntityID: 4745455159797807469
+    TagComponent:
+      Tag: Kicker Left
+    TransformComponent:
+      Position: [-4.2, 2.55, -5.4]
+      Rotation: [-0.213162, -2.51485, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [0.88, 0.92, 1]
+      Intensity: 0.0
+      Range: 13
+      InnerCone: 16
+      OuterCone: 40
+      CastShadows: false
+  - EntityID: 17927326771384978918
+    TagComponent:
+      Tag: Kicker Right
+    TransformComponent:
+      Position: [4.2, 2.55, -5.4]
+      Rotation: [-0.213162, 2.51485, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [0.88, 0.92, 1]
+      Intensity: 0.0
+      Range: 13
+      InnerCone: 16
+      OuterCone: 40
+      CastShadows: false
+  - EntityID: 8298562830488503698
+    TagComponent:
+      Tag: Arc Reactor Glow
+    TransformComponent:
+      Position: [-0.0679837, 1.4, 0.209232]
+      Rotation: [0, 2.82743, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [0.35, 0.72, 1]
+      Intensity: 0
+      Range: 4.0
+      InnerCone: 30
+      OuterCone: 60
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 14761169026656201780
+    TagComponent:
+      Tag: Repulsor Left
+    TransformComponent:
+      Position: [-0.3419, 0.92, -0.0480024]
+      Rotation: [-1.5708, -3.14159, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [0.35, 0.72, 1]
+      Intensity: 0
+      Range: 2.6
+      InnerCone: 18
+      OuterCone: 52
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 700943263429700161
+    TagComponent:
+      Tag: Repulsor Right
+    TransformComponent:
+      Position: [0.304818, 0.92, 0.162129]
+      Rotation: [-1.5708, -3.14159, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [0.35, 0.72, 1]
+      Intensity: 0
+      Range: 2.6
+      InnerCone: 18
+      OuterCone: 52
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 14459092172172403445
+    TagComponent:
+      Tag: Bay Floor
+    TransformComponent:
+      Position: [0, 0, -11.25]
+      Rotation: [0, 0, 0]
+      Scale: [8, 1, 6.5]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 4882474964191989384
+  - EntityID: 1137856788341258568
+    TagComponent:
+      Tag: Bay Ceiling
+    TransformComponent:
+      Position: [0, 3.1, -11.25]
+      Rotation: [3.14159, 0, 0]
+      Scale: [8, 1, 6.5]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 11204315624634959843
+  - EntityID: 10139054169638537678
+    TagComponent:
+      Tag: Bay Back Wall
+    TransformComponent:
+      Position: [0, 1.55, -14.5]
+      Rotation: [0, 0, 0]
+      Scale: [8, 3.1, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 11204315624634959843
+  - EntityID: 937006251990382526
+    TagComponent:
+      Tag: Bay Wall Left
+    TransformComponent:
+      Position: [-4, 1.55, -11.25]
+      Rotation: [0, 1.5708, 0]
+      Scale: [6.5, 3.1, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 11204315624634959843
+  - EntityID: 13185872743714415027
+    TagComponent:
+      Tag: Bay Wall Right
+    TransformComponent:
+      Position: [4, 1.55, -11.25]
+      Rotation: [0, 1.5708, 0]
+      Scale: [6.5, 3.1, 0.2]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 11204315624634959843
+  - EntityID: 14588254252491382815
+    TagComponent:
+      Tag: Bay Downlight 0
+    TransformComponent:
+      Position: [-1.7, 3.08, -9.6]
+      Rotation: [3.14159, 0, 0]
+      Scale: [0.34, 1, 0.34]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 11858479055716032690
+      OverrideEmissive: true
+      EmissiveColor: [0, 0, 0, 1]
+  - EntityID: 14840716659770922983
+    TagComponent:
+      Tag: Bay Downlight Light 0
+    TransformComponent:
+      Position: [-1.7, 2.95, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.94, 0.84]
+      Intensity: 0.0
+      Range: 6
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 14588253152979754604
+    TagComponent:
+      Tag: Bay Downlight 1
+    TransformComponent:
+      Position: [1.7, 3.08, -9.6]
+      Rotation: [3.14159, 0, 0]
+      Scale: [0.34, 1, 0.34]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 11858479055716032690
+      OverrideEmissive: true
+      EmissiveColor: [0, 0, 0, 1]
+  - EntityID: 14840715560259294772
+    TagComponent:
+      Tag: Bay Downlight Light 1
+    TransformComponent:
+      Position: [1.7, 2.95, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.94, 0.84]
+      Intensity: 0.0
+      Range: 6
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 14588256451514639237
+    TagComponent:
+      Tag: Bay Downlight 2
+    TransformComponent:
+      Position: [-1.7, 3.08, -12.4]
+      Rotation: [3.14159, 0, 0]
+      Scale: [0.34, 1, 0.34]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 11858479055716032690
+      OverrideEmissive: true
+      EmissiveColor: [0, 0, 0, 1]
+  - EntityID: 14840718858794179405
+    TagComponent:
+      Tag: Bay Downlight Light 2
+    TransformComponent:
+      Position: [-1.7, 2.95, -12.4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.94, 0.84]
+      Intensity: 0.0
+      Range: 6
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 14588255352003011026
+    TagComponent:
+      Tag: Bay Downlight 3
+    TransformComponent:
+      Position: [1.7, 3.08, -12.4]
+      Rotation: [3.14159, 0, 0]
+      Scale: [0.34, 1, 0.34]
+    MeshComponent:
+      Mesh: 8241982477996916738
+      Material: 11858479055716032690
+      OverrideEmissive: true
+      EmissiveColor: [0, 0, 0, 1]
+  - EntityID: 14840717759282551194
+    TagComponent:
+      Tag: Bay Downlight Light 3
+    TransformComponent:
+      Position: [1.7, 2.95, -12.4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.94, 0.84]
+      Intensity: 0.0
+      Range: 6
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 14792399011891642881
+    TagComponent:
+      Tag: Convex Mirror
+    TransformComponent:
+      Position: [0, 3.34, -7.94]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.62, 0.28]
+    MeshComponent:
+      Mesh: 8241982477996916737
+      Material: 12467017177652518816
+  - EntityID: 1719191406628134361
+    TagComponent:
+      Tag: Convex Mirror Rim
+    TransformComponent:
+      Position: [0, 3.34, -8.01]
+      Rotation: [0, 0, 0]
+      Scale: [0.68, 0.68, 0.1]
+    MeshComponent:
+      Mesh: 8241982477996916739
+      Material: 6962528961022338942
+  - EntityID: 10294803146808558789
+    TagComponent:
+      Tag: Charge Post
+    TransformComponent:
+      Position: [-4.35, 0.62, -7.78]
+      Rotation: [0, 0, 0]
+      Scale: [0.3, 1.24, 0.17]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 6962528961022338942
+  - EntityID: 2258577363432868023
+    TagComponent:
+      Tag: Charge Post Lens
+    TransformComponent:
+      Position: [-4.35, 1.02, -7.69]
+      Rotation: [0, 0, 0]
+      Scale: [0.17, 0.035, 0.02]
+    MeshComponent:
+      Mesh: 8241982477996916736
+      Material: 11858479055716032690
+  - EntityID: 13406562209107611697
+    TagComponent:
+      Tag: Showroom Probe
+    TransformComponent:
+      Position: [0, 1.55, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ReflectionProbeComponent:
+      Update: Baked
+      Resolution: 512
+      Influence: 22
+      NearClip: 0.05
+      FarClip: 60
+      Rate: PerFrame
+      FacesPerFrame: 6
+  - EntityID: 13436533503510930151
+    TagComponent:
+      Tag: Irradiance Volume
+    TransformComponent:
+      Position: [0, 1.85, 0.75]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    IrradianceVolumeComponent:
+      Extents: [5.6, 1.9, 8.8]
+      Spacing: 0.25
+      MaxResolution: 96
+      Passes: 16
+      RaysPerCell: 2048
+      Recapture: false
+  - EntityID: 5693641162652923729
+    TagComponent:
+      Tag: Showroom Canvas
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UICanvasComponent:
+      ScaleMode: ScaleWithScreen
+      ReferenceResolution: [1920, 1080]
+      MatchWidthOrHeight: 0.5
+      SortOrder: 0
+  - EntityID: 8970289143430244441
+    TagComponent:
+      Tag: Credit Bar
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 5693641162652923729
+    UIRectComponent:
+      AnchorMin: [0, 1]
+      AnchorMax: [1, 1]
+      OffsetMin: [0, -44]
+      OffsetMax: [0, 0]
+      SortOrder: 0
+      Visible: true
+      BlocksPointer: false
+    UIImageComponent:
+      Texture: 0
+      Color: [0, 0, 0, 0.85]
+  - EntityID: 11490137062086526443
+    TagComponent:
+      Tag: Credit Text
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 8970289143430244441
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      OffsetMin: [0, 12]
+      OffsetMax: [-250, 0]
+      SortOrder: 1
+      Visible: true
+      BlocksPointer: false
+    UITextComponent:
+      Text: '"Iron Man Mark 85 (rigged)" by its Sketchfab author, used here under the terms it was published with. See assets/models/mark85/mark85.fbx.ATTRIBUTION.md.'
+      Font: 12355000851502047045
+      Size: 17
+      Color: [0.82, 0.83, 0.86, 0.86]
+      Align: Center
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 3050198340312232882
+    TagComponent:
+      Tag: Stats Panel
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 5693641162652923729
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [0, 0]
+      OffsetMin: [11, 11]
+      OffsetMax: [367, 161.640625]
+      SortOrder: 2
+      Visible: false
+      BlocksPointer: false
+    UIImageComponent:
+      Texture: 0
+      Color: [0, 0, 0, 0.85]
+    ManagedScriptComponent:
+      Script: Stats
+  - EntityID: 3594440577201042337
+    TagComponent:
+      Tag: Stats Frame
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3050198340312232882
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [11, 11]
+      OffsetMax: [-11, 35.609375]
+      SortOrder: 3
+      Visible: false
+      BlocksPointer: false
+    UITextComponent:
+      Text: ''
+      Font: 12355000851502047045
+      Size: 21
+      Color: [0.88, 0.89, 0.92, 0.95]
+      Align: Left
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 11305732895755753991
+    TagComponent:
+      Tag: Stats Mode
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3050198340312232882
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [11, 35.609375]
+      OffsetMax: [-11, 52.015625]
+      SortOrder: 3
+      Visible: false
+      BlocksPointer: false
+    UITextComponent:
+      Text: ''
+      Font: 12355000851502047045
+      Size: 14
+      Color: [0.52, 0.53, 0.58, 0.95]
+      Align: Left
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 9392721664371784442
+    TagComponent:
+      Tag: Stats Rule
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3050198340312232882
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [11, 62.015625]
+      OffsetMax: [-11, 64.015625]
+      SortOrder: 3
+      Visible: false
+      BlocksPointer: false
+    UIImageComponent:
+      Texture: 0
+      Color: [0.878, 0.188, 0.188, 0.9]
+  - EntityID: 9595623585694902222
+    TagComponent:
+      Tag: Stats Render Caption
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3050198340312232882
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [11, 74.015625]
+      OffsetMax: [-11, 90.421875]
+      SortOrder: 3
+      Visible: false
+      BlocksPointer: false
+    UITextComponent:
+      Text: 'RENDER'
+      Font: 12355000851502047045
+      Size: 14
+      Color: [0.52, 0.53, 0.58, 0.95]
+      Align: Left
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 3470161063590603844
+    TagComponent:
+      Tag: Stats Render
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3050198340312232882
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [85, 74.015625]
+      OffsetMax: [-11, 106.828125]
+      SortOrder: 3
+      Visible: false
+      BlocksPointer: false
+    UITextComponent:
+      Text: ''
+      Font: 12355000851502047045
+      Size: 14
+      Color: [0.88, 0.89, 0.92, 0.95]
+      Align: Left
+      Wrap: true
+      LineSpacing: 1
+  - EntityID: 7718832658216925044
+    TagComponent:
+      Tag: Stats Post Caption
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3050198340312232882
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [11, 106.828125]
+      OffsetMax: [-11, 123.234375]
+      SortOrder: 3
+      Visible: false
+      BlocksPointer: false
+    UITextComponent:
+      Text: 'POST'
+      Font: 12355000851502047045
+      Size: 14
+      Color: [0.52, 0.53, 0.58, 0.95]
+      Align: Left
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 4640708201371326126
+    TagComponent:
+      Tag: Stats Post
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3050198340312232882
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [85, 106.828125]
+      OffsetMax: [-11, 139.640625]
+      SortOrder: 3
+      Visible: false
+      BlocksPointer: false
+    UITextComponent:
+      Text: ''
+      Font: 12355000851502047045
+      Size: 14
+      Color: [0.88, 0.89, 0.92, 0.95]
+      Align: Left
+      Wrap: true
+      LineSpacing: 1
+  - EntityID: 3625221143699009174
+    TagComponent:
+      Tag: Mode Button
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 8970289143430244441
+    UIRectComponent:
+      AnchorMin: [1, 0]
+      AnchorMax: [1, 1]
+      OffsetMin: [-238, 7]
+      OffsetMax: [-142, -7]
+      SortOrder: 2
+      Visible: true
+      BlocksPointer: true
+    UIImageComponent:
+      Texture: 17907367730149364606
+      Color: [1, 1, 1, 1]
+    UIButtonComponent:
+      Interactable: true
+      NormalColor: [0.55, 0.56, 0.58, 1]
+      HoverColor: [1, 1, 1, 1]
+      PressedColor: [0.86, 0.87, 0.89, 1]
+      OnClickTarget: 0
+      OnClickMethod: Toggle
+    ManagedScriptComponent:
+      Script: ShowroomMode
+      Fields:
+        StudioFills: 'Panel Light 01'
+        ShowroomFills: 'Panel Light 00,Panel Light 02,Panel Light 10,Panel Light 11,Panel Light 12,Panel Light 20,Panel Light 21,Panel Light 22'
+        FillIntensity: 14.7
+        StudioFillIntensity: 11.0
+        KeyLight: 'Key Light'
+        KeyIntensity: 46
+        StudioKeyIntensity: 30
+        KeyInner: 34
+        KeyOuter: 62
+        StudioKeyInner: 20
+        StudioKeyOuter: 44
+        Kickers: 'Kicker Left,Kicker Right'
+        KickerIntensity: 26
+        StudioKickerIntensity: 0.0
+        BayLights: 'Bay Downlight Light 0,Bay Downlight Light 1,Bay Downlight Light 2,Bay Downlight Light 3'
+        BayIntensity: 4.5
+        StudioBayIntensity: 0.0
+        BayLenses: 'Bay Downlight 0,Bay Downlight 1,Bay Downlight 2,Bay Downlight 3'
+        Luminaire: 'Luminaire'
+        LuminaireMaterial: 'materials/showroom_panel.rmat'
+        StudioLuminaireMaterial: 'materials/showroom_panel_off.rmat'
+        ProbeName: 'Showroom Probe'
+        LabelName: 'Mode Label'
+        StartMode: 1
+  - EntityID: 9906918275020402428
+    TagComponent:
+      Tag: Mode Label
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 3625221143699009174
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      OffsetMin: [0, 7]
+      OffsetMax: [0, 0]
+      SortOrder: 3
+      Visible: true
+      BlocksPointer: false
+    UITextComponent:
+      Text: MODE 2
+      Font: 12355000851502047045
+      Size: 14
+      Color: [0.97, 0.97, 0.98, 1]
+      Align: Center
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 12923420513844985912
+    TagComponent:
+      Tag: Lights Button
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 8970289143430244441
+    UIRectComponent:
+      AnchorMin: [1, 0]
+      AnchorMax: [1, 1]
+      OffsetMin: [-134, 7]
+      OffsetMax: [-14, -7]
+      SortOrder: 2
+      Visible: true
+      BlocksPointer: true
+    UIImageComponent:
+      Texture: 17907367730149364606
+      Color: [1, 1, 1, 1]
+    UIButtonComponent:
+      Interactable: true
+      NormalColor: [0.55, 0.56, 0.58, 1]
+      HoverColor: [1, 1, 1, 1]
+      PressedColor: [0.86, 0.87, 0.89, 1]
+      OnClickTarget: 0
+      OnClickMethod: Toggle
+    ManagedScriptComponent:
+      Script: SuitLights
+      Fields:
+        SuitRoot: 'mark85'
+        GlowParts: 'Lights,Arc Reactor'
+        CoreLamps: 'Arc Reactor Glow'
+        HandLamps: 'Repulsor Left,Repulsor Right'
+        LabelName: 'Lights Label'
+        CoreIntensity: 22
+        HandIntensity: 14
+        PoweredEmissive: '18 24 30'
+        StartOn: false
+  - EntityID: 10360658189589823178
+    TagComponent:
+      Tag: Lights Label
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      Parent: 12923420513844985912
+    UIRectComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      OffsetMin: [0, 7]
+      OffsetMax: [0, 0]
+      SortOrder: 3
+      Visible: true
+      BlocksPointer: false
+    UITextComponent:
+      Text: LIGHTS ON
+      Font: 12355000851502047045
+      Size: 14
+      Color: [0.97, 0.97, 0.98, 1]
+      Align: Center
+      Wrap: false
+      LineSpacing: 1
+  - EntityID: 5496687812454820344
+    TagComponent:
+      Tag: mark85
+    TransformComponent:
+      Position: [0, 0.003003, 0]
+      Rotation: [0, -0.314159, 0]
+      Scale: [30.03, 30.03, 30.03]
+  - EntityID: 9532475495196480359
+    RelationshipComponent:
+      Parent: 5496687812454820344
+    TagComponent:
+      Tag: Silver
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [4.371139e-08, 0, 0]
+      Scale: [10, 10, 10]
+    MeshComponent:
+      Mesh: 14911235130087186464
+      Material: 9487709038103772780
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 6372122173370512192
+    RelationshipComponent:
+      Parent: 5496687812454820344
+    TagComponent:
+      Tag: Arc Reactor
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [4.371139e-08, 0, 0]
+      Scale: [10, 10, 10]
+    MeshComponent:
+      Mesh: 14911235130087186465
+      Material: 13718859780843803350
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 17292501052958828066
+    RelationshipComponent:
+      Parent: 5496687812454820344
+    TagComponent:
+      Tag: Gold
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [4.371139e-08, 0, 0]
+      Scale: [10, 10, 10]
+    MeshComponent:
+      Mesh: 14911235130087186466
+      Material: 3710706334204212311
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 10860282683226518789
+    RelationshipComponent:
+      Parent: 5496687812454820344
+    TagComponent:
+      Tag: Red
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [4.371139e-08, 0, 0]
+      Scale: [10, 10, 10]
+    MeshComponent:
+      Mesh: 14911235130087186467
+      Material: 12465719513607641964
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 5238977017594667681
+    RelationshipComponent:
+      Parent: 5496687812454820344
+    TagComponent:
+      Tag: Lights
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [4.371139e-08, 0, 0]
+      Scale: [10, 10, 10]
+    MeshComponent:
+      Mesh: 14911235130087186468
+      Material: 15727627845773690932
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 12418322525728755600
+    RelationshipComponent:
+      Parent: 5496687812454820344
+    TagComponent:
+      Tag: Glass
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [1.6292068e-07, 0, 0]
+      Scale: [10, 10, 10]
+    MeshComponent:
+      Mesh: 14911235130087186469
+      Material: 6089120293009932985
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 1184209424847551116
+    RelationshipComponent:
+      Parent: 5496687812454820344
+    TagComponent:
+      Tag: mixamorig:Hips
+    TransformComponent:
+      Position: [-0.00011172724, 0.037695132, 0.0027025673]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 741950155343284419
+    RelationshipComponent:
+      Parent: 1184209424847551116
+    TagComponent:
+      Tag: mixamorig:Spine
+    TransformComponent:
+      Position: [0, 0.0036566276, -0.00046724774]
+      Rotation: [-0.12709215, 0, -0]
+      Scale: [1, 1, 1]
+  - EntityID: 11065263795824509573
+    RelationshipComponent:
+      Parent: 741950155343284419
+    TagComponent:
+      Tag: mixamorig:Spine1
+    TransformComponent:
+      Position: [0, 0.0043007545, -1.7990743e-11]
+      Rotation: [4.4342933e-08, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12125715951983947940
+    RelationshipComponent:
+      Parent: 11065263795824509573
+    TagComponent:
+      Tag: mixamorig:Spine2
+    TransformComponent:
+      Position: [0, 0.0049151536, -3.8776742e-12]
+      Rotation: [-2.7755576e-17, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4166869490531256474
+    RelationshipComponent:
+      Parent: 12125715951983947940
+    TagComponent:
+      Tag: mixamorig:Neck
+    TransformComponent:
+      Position: [0, 0.0055295373, -1.0531868e-09]
+      Rotation: [0.12709211, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 8018419911629411036
+    RelationshipComponent:
+      Parent: 4166869490531256474
+    TagComponent:
+      Tag: mixamorig:Head
+    TransformComponent:
+      Position: [0, 0.0020450822, 0.0007692517]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 3487168720308233904
+    RelationshipComponent:
+      Parent: 8018419911629411036
+    TagComponent:
+      Tag: mixamorig:HeadTop_End
+    TransformComponent:
+      Position: [0, 0.008219535, 0.0030917542]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 16212167114077855981
+    RelationshipComponent:
+      Parent: 12125715951983947940
+    TagComponent:
+      Tag: mixamorig:LeftShoulder
+    TransformComponent:
+      Position: [0.002501234, 0.0045553786, -0.00011478267]
+      Rotation: [-1.1989452, 1.5252724, -3.1375499]
+      Scale: [1, 1, 1]
+  - EntityID: 11580558244048690832
+    RelationshipComponent:
+      Parent: 16212167114077855981
+    TagComponent:
+      Tag: mixamorig:LeftArm
+    TransformComponent:
+      Position: [-8.102698e-12, 0.005465027, -5.6226655e-11]
+      Rotation: [0.6597207, 0.15968697, -4.1769543e-09]
+      Scale: [1, 1, 1]
+  - EntityID: 18371421288105463077
+    RelationshipComponent:
+      Parent: 11580558244048690832
+    TagComponent:
+      Tag: mixamorig:LeftForeArm
+    TransformComponent:
+      Position: [2.2156054e-14, 0.009193708, -9.897959e-11]
+      Rotation: [0.03230835, -7.974844e-09, 0.28677067]
+      Scale: [1, 1, 1]
+  - EntityID: 304135540956599461
+    RelationshipComponent:
+      Parent: 18371421288105463077
+    TagComponent:
+      Tag: mixamorig:LeftHand
+    TransformComponent:
+      Position: [-5.5410013e-11, 0.008885768, -5.71719e-12]
+      Rotation: [0.104235284, -0.05047033, 0.0017754876]
+      Scale: [1, 1, 1]
+  - EntityID: 1165714474201644217
+    RelationshipComponent:
+      Parent: 304135540956599461
+    TagComponent:
+      Tag: mixamorig:LeftHandThumb1
+    TransformComponent:
+      Position: [-0.0008917988, 0.0015323109, 0.0011163235]
+      Rotation: [0.5672456, -8.1498247e-10, 0.3740915]
+      Scale: [1, 1, 1]
+  - EntityID: 7261794083062747585
+    RelationshipComponent:
+      Parent: 1165714474201644217
+    TagComponent:
+      Tag: mixamorig:LeftHandThumb2
+    TransformComponent:
+      Position: [-0.00021613852, 0.0016620898, -7.768987e-12]
+      Rotation: [0.16684195, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 2495743759487104200
+    RelationshipComponent:
+      Parent: 7261794083062747585
+    TagComponent:
+      Tag: mixamorig:LeftHandThumb3
+    TransformComponent:
+      Position: [7.849974e-05, 0.0016289526, -5.835794e-13]
+      Rotation: [-0.09018318, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 17129176347531258814
+    RelationshipComponent:
+      Parent: 2495743759487104200
+    TagComponent:
+      Tag: mixamorig:LeftHandThumb4
+    TransformComponent:
+      Position: [0.00013763881, 0.0014024163, -3.2621312e-11]
+      Rotation: [-2.9459815e-09, 5.551115e-17, 5.551115e-17]
+      Scale: [1, 1, 1]
+  - EntityID: 4732028979074180929
+    RelationshipComponent:
+      Parent: 304135540956599461
+    TagComponent:
+      Tag: mixamorig:LeftHandIndex1
+    TransformComponent:
+      Position: [-0.0014680678, 0.005359295, 0.00016772439]
+      Rotation: [-0.08159642, 1.2664356e-08, 0.12953505]
+      Scale: [1, 1, 1]
+  - EntityID: 4579766688416366171
+    RelationshipComponent:
+      Parent: 4732028979074180929
+    TagComponent:
+      Tag: mixamorig:LeftHandIndex2
+    TransformComponent:
+      Position: [6.8433715e-06, 0.0013729181, 7.0031307e-12]
+      Rotation: [0.2135486, 3.122502e-17, -3.85186e-34]
+      Scale: [1, 1, 1]
+  - EntityID: 3592285167737828583
+    RelationshipComponent:
+      Parent: 4579766688416366171
+    TagComponent:
+      Tag: mixamorig:LeftHandIndex3
+    TransformComponent:
+      Position: [-4.9520972e-06, 0.0013285207, 3.2007546e-11]
+      Rotation: [-0.04515948, 6.938894e-18, -5.551115e-17]
+      Scale: [1, 1, 1]
+  - EntityID: 8479908607274297336
+    RelationshipComponent:
+      Parent: 3592285167737828583
+    TagComponent:
+      Tag: mixamorig:LeftHandIndex4
+    TransformComponent:
+      Position: [-1.8913198e-06, 0.0010602825, 5.3346598e-11]
+      Rotation: [5.4047916e-08, -2.0816682e-17, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 6505660906906523855
+    RelationshipComponent:
+      Parent: 304135540956599461
+    TagComponent:
+      Tag: mixamorig:LeftHandMiddle1
+    TransformComponent:
+      Position: [-0.00042064016, 0.006429845, -0.00014755379]
+      Rotation: [0.07870634, 7.127894e-10, 0.018771049]
+      Scale: [1, 1, 1]
+  - EntityID: 8407760225573325170
+    RelationshipComponent:
+      Parent: 6505660906906523855
+    TagComponent:
+      Tag: mixamorig:LeftHandMiddle2
+    TransformComponent:
+      Position: [-1.18135596e-07, 0.0011339952, -2.4503819e-11]
+      Rotation: [0.09539814, 6.938894e-18, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4899117298171531870
+    RelationshipComponent:
+      Parent: 8407760225573325170
+    TagComponent:
+      Tag: mixamorig:LeftHandMiddle3
+    TransformComponent:
+      Position: [-3.2021364e-06, 0.0010765332, 9.445088e-12]
+      Rotation: [-0.24912545, -6.938894e-18, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4425198139467282677
+    RelationshipComponent:
+      Parent: 4899117298171531870
+    TagComponent:
+      Tag: mixamorig:LeftHandMiddle4
+    TransformComponent:
+      Position: [3.320217e-06, 0.00072983647, -2.6073844e-11]
+      Rotation: [-3.985684e-08, -2.2551404e-17, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 4728902480295569154
+    RelationshipComponent:
+      Parent: 304135540956599461
+    TagComponent:
+      Tag: mixamorig:LeftHandRing1
+    TransformComponent:
+      Position: [0.00046702466, 0.006342215, -2.895053e-05]
+      Rotation: [0.08518708, 7.9512725e-09, -0.100308724]
+      Scale: [1, 1, 1]
+  - EntityID: 17614120340167927990
+    RelationshipComponent:
+      Parent: 4728902480295569154
+    TagComponent:
+      Tag: mixamorig:LeftHandRing2
+    TransformComponent:
+      Position: [2.988427e-06, 0.0010182504, 6.0261435e-11]
+      Rotation: [0.14263922, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12437505294030595876
+    RelationshipComponent:
+      Parent: 17614120340167927990
+    TagComponent:
+      Tag: mixamorig:LeftHandRing3
+    TransformComponent:
+      Position: [-1.4129683e-06, 0.0009484091, -1.608607e-11]
+      Rotation: [-0.004014515, -6.938894e-18, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 12644871873300913138
+    RelationshipComponent:
+      Parent: 12437505294030595876
+    TagComponent:
+      Tag: mixamorig:LeftHandRing4
+    TransformComponent:
+      Position: [-1.5754466e-06, 0.00075453846, 1.2878953e-11]
+      Rotation: [-3.6803935e-09, 0, -8.326672e-17]
+      Scale: [1, 1, 1]
+  - EntityID: 5374151719358586524
+    RelationshipComponent:
+      Parent: 304135540956599461
+    TagComponent:
+      Tag: mixamorig:LeftHandPinky1
+    TransformComponent:
+      Position: [0.0014216836, 0.0055926144, 5.3271986e-05]
+      Rotation: [0.0945359, -3.738047e-10, -0.17048799]
+      Scale: [1, 1, 1]
+  - EntityID: 3193743559349002960
+    RelationshipComponent:
+      Parent: 5374151719358586524
+    TagComponent:
+      Tag: mixamorig:LeftHandPinky2
+    TransformComponent:
+      Position: [1.188662e-06, 0.0009658127, 3.2699364e-11]
+      Rotation: [0.047363054, -3.469447e-18, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 14111558057519805932
+    RelationshipComponent:
+      Parent: 3193743559349002960
+    TagComponent:
+      Tag: mixamorig:LeftHandPinky3
+    TransformComponent:
+      Position: [1.8983958e-07, 0.00092601444, -1.2930766e-11]
+      Rotation: [0.1121699, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 8200813365025833477
+    RelationshipComponent:
+      Parent: 14111558057519805932
+    TagComponent:
+      Tag: mixamorig:LeftHandPinky4
+    TransformComponent:
+      Position: [-1.3784876e-06, 0.00071699446, 1.3728517e-11]
+      Rotation: [6.9553123e-09, -1.3877788e-17, -2.7755576e-17]
+      Scale: [1, 1, 1]
+  - EntityID: 10402032515275350933
+    RelationshipComponent:
+      Parent: 12125715951983947940
+    TagComponent:
+      Tag: mixamorig:RightShoulder
+    TransformComponent:
+      Position: [-0.002501234, 0.0045578172, -0.00013386541]
+      Rotation: [-1.199303, -1.5177748, 3.1369493]
+      Scale: [1, 1, 1]
+  - EntityID: 3912575479533338918
+    RelationshipComponent:
+      Parent: 10402032515275350933
+    TagComponent:
+      Tag: mixamorig:RightArm
+    TransformComponent:
+      Position: [8.081795e-12, 0.005465027, -5.62285e-11]
+      Rotation: [0.6601548, -0.19095412, 6.7112076e-09]
+      Scale: [1, 1, 1]
+  - EntityID: 11395898545471859288
+    RelationshipComponent:
+      Parent: 3912575479533338918
+    TagComponent:
+      Tag: mixamorig:RightForeArm
+    TransformComponent:
+      Position: [-7.743385e-12, 0.009198759, 7.946763e-11]
+      Rotation: [0.02711759, -8.519104e-09, -0.2929357]
+      Scale: [1, 1, 1]
+  - EntityID: 12726194351321462461
+    RelationshipComponent:
+      Parent: 11395898545471859288
+    TagComponent:
+      Tag: mixamorig:RightHand
+    TransformComponent:
+      Position: [-1.13880974e-10, 0.008843944, 3.8721915e-11]
+      Rotation: [0.17574881, 0.050664414, 0.013868801]
+      Scale: [1, 1, 1]
+  - EntityID: 7169471551085584943
+    RelationshipComponent:
+      Parent: 12726194351321462461
+    TagComponent:
+      Tag: mixamorig:RightHandThumb1
+    TransformComponent:
+      Position: [0.0008431966, 0.0015143179, 0.0011726313]
+      Rotation: [0.59818447, 1.4571353e-08, -0.38779768]
+      Scale: [1, 1, 1]
+  - EntityID: 8865830390124698150
+    RelationshipComponent:
+      Parent: 7169471551085584943
+    TagComponent:
+      Tag: mixamorig:RightHandThumb2
+    TransformComponent:
+      Position: [0.00016635747, 0.001665835, 9.4199384e-11]
+      Rotation: [0.1466464, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 3006502373135248426
+    RelationshipComponent:
+      Parent: 8865830390124698150
+    TagComponent:
+      Tag: mixamorig:RightHandThumb3
+    TransformComponent:
+      Position: [-5.2021118e-05, 0.0016680014, 2.2134464e-11]
+      Rotation: [-0.19071837, 0, -5.551115e-17]
+      Scale: [1, 1, 1]
+  - EntityID: 101050444513503983
+    RelationshipComponent:
+      Parent: 3006502373135248426
+    TagComponent:
+      Tag: mixamorig:RightHandThumb4
+    TransformComponent:
+      Position: [-0.000114336435, 0.0014221777, 1.1735544e-11]
+      Rotation: [-3.3854192e-10, 0, -5.551115e-17]
+      Scale: [1, 1, 1]
+  - EntityID: 1997277979593460177
+    RelationshipComponent:
+      Parent: 12726194351321462461
+    TagComponent:
+      Tag: mixamorig:RightHandIndex1
+    TransformComponent:
+      Position: [0.0015170166, 0.0050650584, 0.00022075098]
+      Rotation: [-0.13763213, 7.511893e-09, -0.13214034]
+      Scale: [1, 1, 1]
+  - EntityID: 3641421575310248839
+    RelationshipComponent:
+      Parent: 1997277979593460177
+    TagComponent:
+      Tag: mixamorig:RightHandIndex2
+    TransformComponent:
+      Position: [-1.0039657e-05, 0.0014097659, -1.5964997e-11]
+      Rotation: [0.16802248, 1.0408341e-17, -5.551115e-17]
+      Scale: [1, 1, 1]
+  - EntityID: 12978318161693548356
+    RelationshipComponent:
+      Parent: 3641421575310248839
+    TagComponent:
+      Tag: mixamorig:RightHandIndex3
+    TransformComponent:
+      Position: [-2.989512e-08, 0.0013599354, 6.5743643e-12]
+      Rotation: [0.2065498, -6.938894e-18, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 15314462331013838109
+    RelationshipComponent:
+      Parent: 12978318161693548356
+    TagComponent:
+      Tag: mixamorig:RightHandIndex4
+    TransformComponent:
+      Position: [1.0069455e-05, 0.0011605767, 9.038629e-12]
+      Rotation: [1.4386601e-08, 1.3877788e-17, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 13530718945166713697
+    RelationshipComponent:
+      Parent: 12726194351321462461
+    TagComponent:
+      Tag: mixamorig:RightHandMiddle1
+    TransformComponent:
+      Position: [0.0005134088, 0.0064876806, -0.0001375771]
+      Rotation: [0.015435859, 1.0364376e-08, -0.009578591]
+      Scale: [1, 1, 1]
+  - EntityID: 2989052073328917017
+    RelationshipComponent:
+      Parent: 13530718945166713697
+    TagComponent:
+      Tag: mixamorig:RightHandMiddle2
+    TransformComponent:
+      Position: [-2.2566887e-06, 0.0010721694, 2.1390143e-11]
+      Rotation: [0.10222432, 6.938894e-18, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 2944636209693572715
+    RelationshipComponent:
+      Parent: 2989052073328917017
+    TagComponent:
+      Tag: mixamorig:RightHandMiddle3
+    TransformComponent:
+      Position: [1.8849096e-06, 0.0010174928, 3.760018e-12]
+      Rotation: [-0.02791324, 0, 2.7755576e-17]
+      Scale: [1, 1, 1]
+  - EntityID: 2677233757349429481
+    RelationshipComponent:
+      Parent: 2944636209693572715
+    TagComponent:
+      Tag: mixamorig:RightHandMiddle4
+    TransformComponent:
+      Position: [3.7180672e-07, 0.0008067886, -1.1736823e-11]
+      Rotation: [-1.3629777e-08, 1.3877788e-17, 8.326673e-17]
+      Scale: [1, 1, 1]
+  - EntityID: 17850747353328166207
+    RelationshipComponent:
+      Parent: 12726194351321462461
+    TagComponent:
+      Tag: mixamorig:RightHandRing1
+    TransformComponent:
+      Position: [-0.0004894198, 0.0065274783, 7.1735776e-05]
+      Rotation: [-0.048763562, 1.5165565e-08, 0.057039086]
+      Scale: [1, 1, 1]
+  - EntityID: 8327543196665630396
+    RelationshipComponent:
+      Parent: 17850747353328166207
+    TagComponent:
+      Tag: mixamorig:RightHandRing2
+    TransformComponent:
+      Position: [-8.734798e-06, 0.0009693874, -2.862972e-12]
+      Rotation: [0.2571362, 0, 2.7755576e-17]
+      Scale: [1, 1, 1]
+  - EntityID: 4240630926462780062
+    RelationshipComponent:
+      Parent: 8327543196665630396
+    TagComponent:
+      Tag: mixamorig:RightHandRing3
+    TransformComponent:
+      Position: [3.0543913e-06, 0.0007984661, -9.50763e-13]
+      Rotation: [0.12833546, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 14226435180888988254
+    RelationshipComponent:
+      Parent: 4240630926462780062
+    TagComponent:
+      Tag: mixamorig:RightHandRing4
+    TransformComponent:
+      Position: [5.6803974e-06, 0.0006476415, 1.4256152e-12]
+      Rotation: [-1.6638063e-08, -2.775558e-17, -5.551116e-17]
+      Scale: [1, 1, 1]
+  - EntityID: 11190805933811552493
+    RelationshipComponent:
+      Parent: 12726194351321462461
+    TagComponent:
+      Tag: mixamorig:RightHandPinky1
+    TransformComponent:
+      Position: [-0.0015410057, 0.0051811114, 8.5779815e-05]
+      Rotation: [0.002179622, -2.0086057e-09, 0.08867412]
+      Scale: [1, 1, 1]
+  - EntityID: 4231168382981272108
+    RelationshipComponent:
+      Parent: 11190805933811552493
+    TagComponent:
+      Tag: mixamorig:RightHandPinky2
+    TransformComponent:
+      Position: [-5.032231e-06, 0.001220694, 1.5500455e-12]
+      Rotation: [0.13920525, 6.938894e-18, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 9000393595044537451
+    RelationshipComponent:
+      Parent: 4231168382981272108
+    TagComponent:
+      Tag: mixamorig:RightHandPinky3
+    TransformComponent:
+      Position: [1.4089775e-06, 0.00096121716, -1.3194345e-11]
+      Rotation: [0.07600478, 6.938894e-18, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 11670785956437332084
+    RelationshipComponent:
+      Parent: 9000393595044537451
+    TagComponent:
+      Tag: mixamorig:RightHandPinky4
+    TransformComponent:
+      Position: [3.6232404e-06, 0.00081603514, 7.60404e-12]
+      Rotation: [4.1592198e-08, 0, -5.5511148e-17]
+      Scale: [1, 1, 1]
+  - EntityID: 13674922350759921585
+    RelationshipComponent:
+      Parent: 1184209424847551116
+    TagComponent:
+      Tag: mixamorig:LeftUpLeg
+    TransformComponent:
+      Position: [0.0035235214, -0.0020741692, -2.3739338e-05]
+      Rotation: [-0.058759447, 0.003244264, -3.0864995]
+      Scale: [1, 1, 1]
+  - EntityID: 15849252049189151629
+    RelationshipComponent:
+      Parent: 13674922350759921585
+    TagComponent:
+      Tag: mixamorig:LeftLeg
+    TransformComponent:
+      Position: [-2.4791278e-11, 0.016420534, -9.899871e-12]
+      Rotation: [-0.04473814, 2.5303057e-11, -0.03208318]
+      Scale: [1, 1, 1]
+  - EntityID: 4497394372878919255
+    RelationshipComponent:
+      Parent: 15849252049189151629
+    TagComponent:
+      Tag: mixamorig:LeftFoot
+    TransformComponent:
+      Position: [1.7926117e-11, 0.014940984, 5.1730665e-11]
+      Rotation: [1.021657, -0.0261483, 3.2833297e-10]
+      Scale: [1, 1, 1]
+  - EntityID: 16654944458111021293
+    RelationshipComponent:
+      Parent: 4497394372878919255
+    TagComponent:
+      Tag: mixamorig:LeftToeBase
+    TransformComponent:
+      Position: [8.792268e-12, 0.0068634464, 1.02732316e-10]
+      Rotation: [0.6302448, -0.07265152, 2.5269105e-09]
+      Scale: [1, 1, 1]
+  - EntityID: 14479694158586852003
+    RelationshipComponent:
+      Parent: 16654944458111021293
+    TagComponent:
+      Tag: mixamorig:LeftToe_End
+    TransformComponent:
+      Position: [-6.079695e-12, 0.0029288682, 3.065157e-13]
+      Rotation: [-1.7430651e-09, -1.1861172e-16, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 16941460463792328875
+    RelationshipComponent:
+      Parent: 1184209424847551116
+    TagComponent:
+      Tag: mixamorig:RightUpLeg
+    TransformComponent:
+      Position: [-0.0035235214, -0.0020741692, -3.5892725e-05]
+      Rotation: [-0.065293826, -0.003603087, 3.0865443]
+      Scale: [1, 1, 1]
+  - EntityID: 4166608715950492799
+    RelationshipComponent:
+      Parent: 16941460463792328875
+    TagComponent:
+      Tag: mixamorig:RightLeg
+    TransformComponent:
+      Position: [-7.1776764e-12, 0.0164272, 5.6029018e-11]
+      Rotation: [-0.025278203, -8.1882806e-11, 0.03204759]
+      Scale: [1, 1, 1]
+  - EntityID: 3109961688628500524
+    RelationshipComponent:
+      Parent: 4166608715950492799
+    TagComponent:
+      Tag: mixamorig:RightFoot
+    TransformComponent:
+      Position: [1.0202565e-11, 0.014922246, -1.5304381e-11]
+      Rotation: [1.0058672, 0.026638726, 7.737171e-11]
+      Scale: [1, 1, 1]
+  - EntityID: 5327234560190348651
+    RelationshipComponent:
+      Parent: 3109961688628500524
+    TagComponent:
+      Tag: mixamorig:RightToeBase
+    TransformComponent:
+      Position: [6.2177464e-12, 0.006837485, -1.418755e-10]
+      Rotation: [0.63299, 0.072600916, 3.7653956e-09]
+      Scale: [1, 1, 1]
+  - EntityID: 1527948953847652017
+    RelationshipComponent:
+      Parent: 5327234560190348651
+    TagComponent:
+      Tag: mixamorig:RightToe_End
+    TransformComponent:
+      Position: [-4.6716008e-12, 0.0029076159, -2.300523e-12]
+      Rotation: [9.620043e-10, -5.702903e-16, -1.3877788e-17]
+      Scale: [1, 1, 1]

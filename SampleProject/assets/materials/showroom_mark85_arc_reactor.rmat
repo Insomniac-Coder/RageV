@@ -1,0 +1,16 @@
+Material: showroom_mark85_arc_reactor
+BaseColor: [1, 1, 1, 1]
+Emissive: [3.25, 4, 5, 1]
+Metallic: 0
+Roughness: 0.3
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 6168240641687203011
+  Metallic: 14773442998818533938
+  Roughness: 7324801919337412637
+  Normal: 4755890395385368062

@@ -1,0 +1,16 @@
+Material: showroom_mark85_gold_part
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0.55
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 15497865146832692378
+  Metallic: 10508187734977984966
+  Roughness: 6388839924913579692
+  Normal: 2542960750832463752

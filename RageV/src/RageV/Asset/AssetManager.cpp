@@ -828,23 +828,54 @@ namespace RageV::Assets
 	}
 
 
+	// --- a rig belongs to a model, and a model is several meshes ------------
+	//
+	// **The skeleton is stored once, under the model's own handle; every part
+	// of that model has a *derived* handle.** `InstantiateModel` mints
+	// `modelHandle + 1 + index` for each primitive, so not one of them equals
+	// the handle the skeleton is filed under -- and these two lookups asked for
+	// the part's handle directly and were answered "no rig" every single time.
+	//
+	// What that cost is worth spelling out, because it is not "animation did
+	// not play". Scene's skinned draw takes a bind pose from this when there is
+	// no animator, and when it comes back null there is no branch left: the
+	// mesh is not drawn at all. A rigged model imported into a scene therefore
+	// *disappeared*, silently, part by part -- and only its skinned parts, so a
+	// model whose parts were mostly static looked like it had holes in it
+	// rather than like something broken.
+	//
+	// GetMesh has resolved derived handles through OwningModel since scenes
+	// started saving them; these two never learned.
+	template <typename Map>
+	static const typename Map::mapped_type* FindForModel(Map& map, AssetHandle handle)
+	{
+		// GetMesh first: the skeleton and the clips are cached by the same
+		// parse, and asking before anything has loaded the model would report
+		// that a perfectly good rig has none.
+		Manager::GetMesh(handle);
+
+		if (const auto found = map.find(handle); found != map.end())
+			return &found->second;
+
+		uint32_t primitive = 0;
+		const AssetHandle owner = OwningModel(handle, primitive);
+		if (!owner.IsValid())
+			return nullptr;
+
+		Manager::GetMesh(owner);
+
+		const auto found = map.find(owner);
+		return found != map.end() ? &found->second : nullptr;
+	}
+
 	const Skeleton* Manager::GetSkeleton(AssetHandle handle)
 	{
-		// GetMesh first: the skeleton is cached by the same parse, and asking
-		// for it before anything has loaded the model would report that a
-		// perfectly good rig has none.
-		GetMesh(handle);
-
-		const auto found = s_Skeletons.find(handle);
-		return found != s_Skeletons.end() ? &found->second : nullptr;
+		return FindForModel(s_Skeletons, handle);
 	}
 
 	const std::vector<Anim::Clip>* Manager::GetClips(AssetHandle handle)
 	{
-		GetMesh(handle);
-
-		const auto found = s_Clips.find(handle);
-		return found != s_Clips.end() ? &found->second : nullptr;
+		return FindForModel(s_Clips, handle);
 	}
 
 	RHI::Ref<RHI::RHITexture> Manager::GetTexture(AssetHandle handle, ColorSpace space)
@@ -1793,6 +1824,68 @@ namespace RageV::Assets
 		{
 			s_Skeletons[handle] = model.Skeleton;
 			s_Clips[handle] = model.Clips;
+		}
+
+		// **What the thing actually measures, in the space it lands in.**
+		//
+		// Every scene that places an imported model needs two numbers -- how
+		// tall it is, and where its origin sits inside it -- and neither was
+		// reported anywhere. Both were being recovered by putting the model in
+		// a room, rendering it and counting pixels, which is how the Mark 85's
+		// pivot turned out to be level with the top of its helmet with the
+		// whole body hanging below it. Nothing in a file listing says that.
+		//
+		// Composed through the node hierarchy, so it is the space the entities
+		// are built in -- which is what a generator's scale and lift are
+		// expressed in.
+		{
+			std::vector<Mat4> world(model.Nodes.size(), Mat4(1.0f));
+			Vec3 low(FLT_MAX), high(-FLT_MAX);
+			bool any = false;
+
+			for (size_t i = 0; i < model.Nodes.size(); i++)
+			{
+				const ImportedNode& node = model.Nodes[i];
+
+				const Mat4 local = Math::Translate(Mat4(1.0f), node.Position)
+								 * Math::ToMat4(Math::FromEuler(node.Rotation))
+								 * Math::Scale(Mat4(1.0f), node.Scale);
+
+				// Parents always precede their children, so one forward pass
+				// composes the tree -- the invariant ImportedModel promises.
+				world[i] = node.Parent >= 0 ? world[node.Parent] * local : local;
+
+				for (int index : node.Primitives)
+				{
+					if (index < 0 || index >= (int)model.Primitives.size())
+						continue;
+
+					for (const MeshVertex& vertex : model.Primitives[index].Vertices)
+					{
+						const Vec3 at = Vec3(world[i] * Vec4(vertex.Position, 1.0f));
+						low = Math::Min(low, at);
+						high = Math::Max(high, at);
+						any = true;
+					}
+				}
+			}
+
+			if (any)
+			{
+				RV_CORE_INFO("  '{0}' measures {1:.4f} x {2:.4f} x {3:.4f}, "
+							 "its origin {4:.4f} above its own floor",
+							 model.Name, high.x - low.x, high.y - low.y, high.z - low.z,
+							 -low.y);
+
+				for (size_t i = 0; i < model.Primitives.size(); i++)
+				{
+					const ImportedPrimitive& piece = model.Primitives[i];
+					RV_CORE_INFO("    part {0} '{1}': {2} vertices, {3} indices, "
+								 "{4} joints, {5} weights",
+								 i, piece.Name, piece.Vertices.size(), piece.Indices.size(),
+								 piece.Joints.size(), piece.Weights.size());
+				}
+			}
 		}
 
 		// One root, so the import is a single thing to move, delete or undo.

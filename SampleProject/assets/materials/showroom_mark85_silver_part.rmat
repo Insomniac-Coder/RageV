@@ -1,0 +1,16 @@
+Material: showroom_mark85_silver_part
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0.55
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 1098377628952559998
+  Metallic: 2808516334680262404
+  Roughness: 12556993605701535426
+  Normal: 11265763131730554849
