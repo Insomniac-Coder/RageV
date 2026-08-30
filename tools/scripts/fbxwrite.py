@@ -35,9 +35,38 @@ class Mesh:
         # fraction.
         self.pieces = []
 
+        # --- the three parallel-to-`faces` lists (7.7) ------------------------
+        #
+        # **Parallel arrays rather than a Face object, and that is a choice.**
+        # A face is a tuple of point indices everywhere in this file and in
+        # every generator that reads `mesh.faces`; wrapping it would rewrite
+        # all of them to gain nothing. These three say what the face wears.
+        #
+        # `uv`: per-corner (u, v) for that face, or None to fall back to the
+        # planar projection `write` has always used. None is the default and
+        # is what keeps every model authored before this byte-identical.
+        self.uv = []
+
+        # `smooth`: whether this face's corners average their normal with the
+        # neighbours they share a point with. Off by default -- see the module
+        # docstring on why flat is the right default for a low-poly prop and
+        # the wrong one for a cable.
+        self.smooth = []
+
+        # `material`: which entry of `write`'s material list shades it. Zero
+        # everywhere is the single-material file this wrote before.
+        self.material = []
+
     def add(self, points, faces, offset=(0.0, 0.0, 0.0), scale=(1.0, 1.0, 1.0),
-            yaw=0.0):
-        """Append a piece, placed. Returns the index the piece started at."""
+            yaw=0.0, uv=None, smooth=False, material=0):
+        """Append a piece, placed. Returns the index the piece started at.
+
+        `uv` is a list parallel to `faces`, each entry a tuple of (u, v) per
+        corner of that face -- **per corner and not per point**, because a
+        cylinder's seam needs u=0 and u=1 at the same position in space, and a
+        cube's corner needs a different (u, v) on each of the three faces
+        meeting there. Storing them per point cannot express either.
+        """
         base = len(self.points)
         cos, sin = math.cos(yaw), math.sin(yaw)
 
@@ -48,14 +77,17 @@ class Mesh:
                                 -x * sin + z * cos + offset[2]))
 
         first = len(self.faces)
-        for face in faces:
+        for index, face in enumerate(faces):
             self.faces.append(tuple(base + i for i in face))
+            self.uv.append(tuple(uv[index]) if uv is not None else None)
+            self.smooth.append(smooth)
+            self.material.append(material)
         self.pieces.append((first, len(self.faces)))
         return base
 
     # --- primitives -----------------------------------------------------------
 
-    def box(self, low, high, **place):
+    def box(self, low, high, uv=None, **place):
         x0, y0, z0 = low
         x1, y1, z1 = high
         points = [
@@ -64,9 +96,9 @@ class Mesh:
         ]
         faces = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4),
                  (3, 7, 6, 2), (0, 4, 7, 3), (1, 2, 6, 5)]
-        return self.add(points, faces, **place)
+        return self.add(points, faces, uv=box_uv(points, faces, uv), **place)
 
-    def prism(self, low, high, near, far, **place):
+    def prism(self, low, high, near, far, uv=None, **place):
         """A box whose far end is a different rectangle: a taper, a wedge, a
         tent. `near` and `far` are (half width, half depth) at each end."""
         (nx, nz), (fx, fz) = near, far
@@ -77,7 +109,7 @@ class Mesh:
         ]
         faces = [(0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
                  (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)]
-        return self.add(points, faces, **place)
+        return self.add(points, faces, uv=box_uv(points, faces, uv), **place)
 
     def cone(self, radius, height, sides=8, base_y=0.0, flip=False, **place):
         """`flip` points it downward *and reverses the winding with it*.
@@ -133,7 +165,7 @@ class Mesh:
         return self.add(points, faces, **place)
 
 
-    def strut(self, a, b, radius, sides=4, taper=1.0, **place):
+    def strut(self, a, b, radius, sides=4, taper=1.0, uv=None, **place):
         """A round bar from point `a` to point `b`.
 
         `cylinder` can only stand up. A camp chair is four bars that each run
@@ -186,7 +218,35 @@ class Mesh:
             faces.append((0, i, i + 1))                       # the `a` cap
             faces.append((sides, sides + i + 1, sides + i))    # the `b` cap
 
-        return self.add(points, faces, **place)
+        # **u runs around, v runs along, both in metres.** This is the mapping
+        # the main cable's wrapping needs -- fine bands across the bar and no
+        # stretch along it -- and it is the one the world-space fallback cannot
+        # express at any scale.
+        #
+        # The seam takes `i + 1`, never `j`. `j` wraps to zero on the last
+        # face, which sends u from nearly-one back to zero across a single
+        # quad and mirrors the whole texture into it. That backwards ribbon is
+        # the classic cylinder-unwrap bug and it is one modulo away at all
+        # times.
+        texture = None
+        if uv is not None:
+            circumference = 2.0 * math.pi * radius
+            span = length / uv
+            texture = []
+            for i in range(sides):
+                u0 = circumference * i / sides / uv
+                u1 = circumference * (i + 1) / sides / uv
+                texture.append(((u0, 0.0), (u0, span), (u1, span), (u1, 0.0)))
+            for i in range(1, sides - 1):
+                # The caps, radially: they are small, rarely seen on a bar, and
+                # a disc has no natural u.
+                ring = [(math.cos(2.0 * math.pi * k / sides) * radius / uv,
+                         math.sin(2.0 * math.pi * k / sides) * radius / uv)
+                        for k in range(sides)]
+                texture.append((ring[0], ring[i], ring[i + 1]))
+                texture.append((ring[0], ring[i + 1], ring[i]))
+
+        return self.add(points, faces, uv=texture, **place)
 
     def panel(self, corners, thickness, **place):
         """A flat polygon given by its corners, thickened along its own normal.
@@ -223,6 +283,33 @@ class Mesh:
         return self.add(points, faces, **place)
 
 
+def box_uv(points, faces, scale):
+    """Planar (u, v) per corner, taken in the plane each face actually lies in.
+
+    **Metres per UV unit, not a multiplier.** `uv=2.0` means the texture
+    repeats every two metres, on every face of every prop, whatever size the
+    piece is -- which is what texel density means and what a multiplier cannot
+    give you. Passing None returns None, and the caller falls back to the old
+    world-space projection.
+
+    The two axes are chosen by dropping the one the face's normal is most
+    aligned with, so a wall is mapped in x/y and a floor in x/z rather than
+    both being squashed into the same pair. This is the same choice a
+    triplanar shader makes per fragment, made once here per face.
+    """
+    if scale is None:
+        return None
+
+    out = []
+    for face in faces:
+        normal = face_normal(points, face)
+        axis = max(range(3), key=lambda i: abs(normal[i]))
+        u_axis, v_axis = (1, 2) if axis == 0 else (0, 2) if axis == 1 else (0, 1)
+        out.append(tuple((points[c][u_axis] / scale, points[c][v_axis] / scale)
+                         for c in face))
+    return out
+
+
 def face_normal(points, face):
     a, b, c = points[face[0]], points[face[1]], points[face[2]]
     u = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
@@ -246,8 +333,67 @@ def _numbers(values, per_line=6):
     return (',\n' + ' ' * 12).join(out)
 
 
-def write(path, mesh, name, colour=(0.7, 0.7, 0.7), uv_scale=1.0):
-    """One mesh, one Phong material, one node."""
+def smooth_normals(mesh, crease=60.0):
+    """A normal per face corner, averaged across the faces that agree.
+
+    **The crease angle is what makes one rule serve a cylinder and its caps.**
+    A face marked smooth averages its normal with every face that shares that
+    corner's point, is also smooth, and points within `crease` of it. The side
+    faces of a cylinder are a few degrees apart and average into a round
+    surface; the cap is ninety degrees away and is excluded, so the rim stays a
+    hard edge. Marking the piece and setting one angle replaces per-face
+    smoothing groups, which is what a modelling tool would make you author by
+    hand.
+
+    Adjacency is per *point index*, and `Mesh.add` gives every piece its own
+    points, so a smooth cylinder standing on a smooth box never bleeds into it.
+    Two pieces that should share a surface must be one piece.
+    """
+    points, faces = mesh.points, mesh.faces
+    normals = [face_normal(points, face) for face in faces]
+    limit = math.cos(math.radians(crease))
+
+    # Point index -> the faces using it. Built once; a prop has thousands of
+    # corners and the naive search is quadratic in the piece.
+    sharing = {}
+    for index, face in enumerate(faces):
+        for corner in face:
+            sharing.setdefault(corner, []).append(index)
+
+    out = []
+    for index, face in enumerate(faces):
+        own = normals[index]
+        for corner in face:
+            if not mesh.smooth[index]:
+                out.append(own)
+                continue
+
+            x = y = z = 0.0
+            for other in sharing[corner]:
+                if not mesh.smooth[other]:
+                    continue
+                n = normals[other]
+                if own[0] * n[0] + own[1] * n[1] + own[2] * n[2] < limit:
+                    continue
+                x, y, z = x + n[0], y + n[1], z + n[2]
+
+            length = math.sqrt(x * x + y * y + z * z)
+            # Every contributor cancelling is possible in principle and would
+            # leave a zero vector, which shades as black. The face's own normal
+            # is the honest fallback.
+            out.append((x / length, y / length, z / length)
+                       if length > 1e-9 else own)
+    return out
+
+
+def write(path, mesh, name, colour=(0.7, 0.7, 0.7), uv_scale=1.0,
+          crease=60.0, materials=None):
+    """One mesh, one node, and one Phong material unless `materials` says more.
+
+    `materials` is a list of (name, (r, g, b)); a face's `material` index picks
+    from it. Omitted, the file is exactly the single-material one this wrote
+    before -- `colour` names it and every face wears it.
+    """
     points, faces = mesh.points, mesh.faces
 
     vertices = []
@@ -260,19 +406,68 @@ def write(path, mesh, name, colour=(0.7, 0.7, 0.7), uv_scale=1.0):
         indices.append(~face[-1])
 
     normals = []
-    for face in faces:
-        normal = face_normal(points, face)
-        for _ in range(len(face)):
-            normals.extend(normal)
+    for normal in smooth_normals(mesh, crease):
+        normals.extend(normal)
 
-    # Planar UVs off the world position. These props wear flat colours and a
-    # tiling detail map at most, so a real unwrap would be work nothing reads.
+    # A piece's own (u, v) where it gave one, and the old planar projection off
+    # the world position where it did not. The fallback is what keeps every
+    # prop authored before parametric UVs existed byte-identical: those wear
+    # flat colours and a tiling detail map at most, so a real unwrap would be
+    # work nothing reads.
     uvs, uv_indices = [], []
-    for face in faces:
-        for corner in face:
-            x, y, z = points[corner]
+    for index, face in enumerate(faces):
+        supplied = mesh.uv[index]
+        for corner_index, corner in enumerate(face):
             uv_indices.append(len(uvs) // 2)
-            uvs.extend([(x + z) * uv_scale, y * uv_scale])
+            if supplied is not None:
+                uvs.extend(supplied[corner_index])
+            else:
+                x, y, z = points[corner]
+                uvs.extend([(x + z) * uv_scale, y * uv_scale])
+
+    # --- the materials, and the layer that says which face wears which -------
+    #
+    # **AllSame stays AllSame for a one-material file.** ufbx reads ByPolygon
+    # with a single entry perfectly well, but the mapping type is part of the
+    # bytes, and every model authored before this must come out unchanged.
+    table = list(materials) if materials else [(name + 'Surface', colour)]
+
+    if len(table) > 1:
+        material_layer = (
+            'MappingInformationType: "ByPolygon"\n'
+            '            ReferenceInformationType: "IndexToDirect"\n'
+            '            Materials: *{0} {{\n'
+            '                a: {1}\n'
+            '            }}').format(
+                len(faces), _numbers(mesh.material, 16))
+    else:
+        material_layer = (
+            'MappingInformationType: "AllSame"\n'
+            '            ReferenceInformationType: "IndexToDirect"\n'
+            '            Materials: *1 {\n'
+            '                a: 0\n'
+            '            }')
+
+    material_objects = '\n'.join(
+        '''    Material: {id}, "Material::{label}", "" {{
+        Version: 102
+        ShadingModel: "phong"
+        MultiLayer: 0
+        Properties70:  {{
+            P: "DiffuseColor", "Color", "", "A",{r:g},{g:g},{b:g}
+            P: "SpecularColor", "Color", "", "A",0.05,0.05,0.05
+            P: "ShininessExponent", "Number", "", "A",8
+        }}
+    }}'''.format(id=3100 + index, label=label,
+                 r=tint[0], g=tint[1], b=tint[2])
+        for index, (label, tint) in enumerate(table))
+
+    # **Order is the material index.** FBX has no per-material id in the layer
+    # -- the integers above index the materials *in the order they are
+    # connected to the model*, so these connections are the table.
+    material_connections = '\n'.join(
+        '    C: "OO",{0},2100'.format(3100 + index)
+        for index in range(len(table)))
 
     text = '''; FBX 7.4.0 project file
 ; Generated by tools/scripts/{generator} -- do not edit by hand.
@@ -306,7 +501,7 @@ Definitions:  {{
         Count: 1
     }}
     ObjectType: "Material" {{
-        Count: 1
+        Count: {material_count}
     }}
 }}
 
@@ -343,11 +538,7 @@ Objects:  {{
         LayerElementMaterial: 0 {{
             Version: 101
             Name: ""
-            MappingInformationType: "AllSame"
-            ReferenceInformationType: "IndexToDirect"
-            Materials: *1 {{
-                a: 0
-            }}
+            {material_layer}
         }}
         Layer: 0 {{
             Version: 100
@@ -375,22 +566,13 @@ Objects:  {{
         Shading: T
         Culling: "CullingOff"
     }}
-    Material: 3100, "Material::{name}Surface", "" {{
-        Version: 102
-        ShadingModel: "phong"
-        MultiLayer: 0
-        Properties70:  {{
-            P: "DiffuseColor", "Color", "", "A",{r:g},{g:g},{b:g}
-            P: "SpecularColor", "Color", "", "A",0.05,0.05,0.05
-            P: "ShininessExponent", "Number", "", "A",8
-        }}
-    }}
+{material_objects}
 }}
 
 Connections:  {{
     C: "OO",2100,0
     C: "OO",1100,2100
-    C: "OO",3100,2100
+{material_connections}
 }}
 '''.format(
         generator=pathlib.Path(path).stem and 'make_camp_models.py',
@@ -400,9 +582,19 @@ Connections:  {{
         normal_count=len(normals), normals=_numbers(normals),
         uv_count=len(uvs), uvs=_numbers(uvs, 8),
         uv_index_count=len(uv_indices), uv_indices=_numbers(uv_indices, 8),
-        r=colour[0], g=colour[1], b=colour[2])
+        material_count=len(table), material_layer=material_layer,
+        material_objects=material_objects,
+        material_connections=material_connections)
 
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding='utf-8')
+
+    # **Newline='\\n', and this is a bug fix, not a preference.** Python's text
+    # mode translates to the platform's line ending, so the same generator run
+    # on Windows produced files 285 bytes larger than the committed ones -- the
+    # same model, every line a byte longer. Git treats `.fbx` as binary and
+    # cannot normalise that away, so merely *re-running* a generator showed
+    # forty modified files and no diff to explain them.
+    with path.open('w', encoding='utf-8', newline='\n') as handle:
+        handle.write(text)
     return len(points), len(faces), len(text)
