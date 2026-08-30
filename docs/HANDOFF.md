@@ -6,6 +6,290 @@ Everything is on **`main`**, pushed. Three commits landed today:
 sky occlusion (`2f87153`), the ray-budget allocator (`0daf01b`), and the
 measurement flags (`b171234`). Each message carries its full reasoning.
 
+## Start here — 2026-08-30 (late): THE GOAL, and the research behind it
+
+### What is being built
+
+**`GoldenGateDemo` — a night-time cinematic of a car running a closed Golden
+Gate Bridge under sodium lamps, both ends barricaded.** The owner's framing:
+*create something complex, find the challenges, address them.* The scene exists
+to break the engine on purpose, and the gaps it opens are the roadmap. The full
+brief is the artifact linked from `project_ragev_bridge_scene` in memory.
+
+Where it has got to: the bridge is modelled to its own dimensions and the scene
+opens on it, the sea is a real component with waves, and the lighting is still
+the provisional daylight used to judge shape. **The night lighting has not been
+started** — and that matters more than it sounds, because a flat sky is a large
+part of why the water reads as flat: water shows its shape by reflecting a
+structured environment, and there is currently nothing up there to reflect.
+
+Build order from the brief, with where it stands:
+
+1. ~~Silhouette to scale~~ — done, owner approved.
+2. ~~One tower properly~~ — done; Art Deco stepping and the four portals.
+3. **The repeating 15.2 m bay** — truss, railing, suspender station, lamp
+   standard. NOT STARTED. This is the next modelling job.
+4. **Light it before texturing it** — lamps as emissive meshes plus
+   non-shadowing points, four shadow casters following the car, deep blue-grey
+   sky, emissive city glow. NOT STARTED.
+5. Surfaces, asphalt last and tuned live against the lamps.
+6. Motion: the car, the chase camera, motion blur, the barricades.
+
+---
+
+## The research, so nobody pays for it twice
+
+Three research passes ran. Their reports are not in the repo; what follows is
+everything that changed a decision.
+
+### The bridge, in numbers
+
+| | |
+|---|---|
+| Main span, tower to tower | 1 280.2 m (4 200 ft) |
+| Total length | 2 737 m |
+| Tower height above water | 227.4 m (746 ft) to the cable centreline |
+| **Roadway above water** | **75.0 m (246 ft)** — see the correction below |
+| Truss soffit (navigational clearance) | 67.1 m (220 ft) |
+| Stiffening truss depth | 7.62 m (25 ft) |
+| Truss centres / cable plane / tower legs | 27.43 m (90 ft) — one number, three uses |
+| Main cable diameter | 0.924 m; wrap wire 4.11 mm, so 243 bands a metre |
+| **Cable sag at mid-span** | **143.26 m (470 ft)**, ratio 1:8.94 |
+| Side span, tower to pylon | 342.9 m (1 125 ft) |
+| Suspenders | every 15.2 m, 4 rope legs (2 doubled), 70 mm |
+| Roadway | 6 lanes, 18.90 m curb to curb; 3.05 m sidewalk each side |
+| Railings | outer 1.22 m, inner 1.37 m, posts at 3.81 m |
+| **Lamp posts** | **45.72 m (150 ft) apart, OPPOSITE not staggered**, 128 of them |
+| Lamp mounting height | 7.09 m; arm 1.52 m |
+
+**The correction that mattered most: the quoted "220 ft above the water" is the
+clearance to the *underside of the truss*, not the roadway.** The roadway is one
+truss-depth higher. Three figures only agree at 75.0 m: 746 minus 500 is 246 ft
+of roadway; 246 minus 25 is 221 ft of clearance. Building to 67 m sinks the deck
+7.6 m and every proportion above it.
+
+**One curvature constant governs all three suspended spans.** The second
+derivative is load over horizontal tension, and both are the same either side of
+a tower — so the side spans use the main span's constant with only the vertex
+moved. Fitting them a separate, flatter curve is the usual mistake. Parabola and
+catenary differ by at most 0.38 m across the half-span, so use the parabola. The
+cable **kinks at the saddle**; do not smooth it.
+
+**The tower's opening schedule** (above the roadway, in feet): openings 111, 90,
+75, 69 — shorter going up — with strut bands of 34, 34, 26, 26 between them.
+That accelerating rhythm is what makes it soar. Seven struts in all, four
+portals, and the openings are **rectangular**; the apparent arch is corner
+gussets. Leg plan 33 by 54 ft at the base tapering to 11 by 25 ft at the top, in
+steps, on a 42-inch cell grid (103 cells down to 21). The vertical fluting is on
+the **strut housings**, not the shafts — the shafts are flat riveted plate.
+
+**The 12.5 ft (3.81 m) master module.** Rail posts 12.5, truss verticals 25,
+suspenders 50, lamp posts 150 — 1, 2, 4 and 12 times one number. Drive the
+layout off it and everything lands on the same grid.
+
+Also: 24 belvederes (sidewalk widenings, 12.5 ft, centred between suspenders);
+the sidewalk detours outboard around each tower leg; four pylons, not two; and
+the deck is three articulated structures with visible joints at each tower.
+
+### Night materials and lighting
+
+- **International Orange `#C0362C`**, linear (0.527, 0.037, 0.025). Roughness
+  0.25–0.35 recently repainted, 0.40–0.50 maintained, 0.65–0.80 chalked. Drive
+  the variation off *orientation* (normal against up) and repaint patches, not
+  noise.
+- **High-pressure sodium behind the amber lens: CCT 1887 K, CRI 22.** Practical
+  linear RGB **(1.000, 0.239, 0.000)**; lift blue to about 0.03, because both
+  chromaticities sit outside sRGB and a hard zero makes ACES hue-skew. The
+  chromaticity is essentially *on* the Planckian locus, so a 1900 K blackbody is
+  fine for the light colour — the spectral spike only matters for how surfaces
+  render under it. International Orange survives because its reflectance peaks at
+  600 nm, right where the lamp emits. **That match is why the bridge looks right
+  at night and most things do not.**
+- 250 W HPS is about 27 500 lm; times 0.70 for the optics and 0.93 for the lens
+  gives about 19 250 lm, or **4 000–6 000 cd** peak for a Type III roadway
+  distribution. Road luminance is about 1.0 cd/m²; the lens itself about
+  45 000 cd/m², roughly 15 stops above the road — **clamp secondary-ray radiance
+  or it will firefly**.
+- **Wet asphalt is the highest-value surface in the scene.** Author it dry and wet
+  it in the shader: base times lerp(1, 0.35, wetness), roughness lerp(dry, 0.08,
+  wetness). Dry roughness 0.82–0.92 on the crown and 0.62–0.72 in the
+  traffic-polished wheel tracks. What sells damp is the *contrast between
+  adjacent bands*, not uniform wetness. Puddles over only 3–8% of the area.
+- **Night sky**: zenith `#0C1620`, horizon `#1B2836`, city glow `#4A3520` in the
+  lower few degrees at 10–25 times the zenith. Zenith blue must be 3–4 times red
+  — a grey-black sky is exactly what reads wrong. Budget the sky IBL at 0.5–1% of
+  the road's illuminance; it contributes nothing to the road and is the only
+  thing lighting the tower tops.
+
+### Ocean waves — why the first attempt read as corrugated iron
+
+Not the wave count. **Three faults stacked**, and this is the part most likely to
+be re-learned the hard way:
+
+1. **A 1.7-octave wavelength band.** Waves of nearly the same size at comparable
+   amplitudes beat into a lattice. A real sea shows 3–4 octaves in the range
+   geometry can carry.
+2. **A 246-degree directional fan.** Real wind seas are forward-peaked, about
+   ±35° at the spectral peak. Spread four waves over 246° and some pair lands
+   near 90° apart — and **two near-orthogonal waves of similar wavelength ARE an
+   egg carton**, analytically. That is the artefact, not bad luck.
+3. **Every phase at zero**, so every crest passed through the world origin.
+
+Also: a 0.68 decay is near two-thirds, and **near-rational is worse than either
+extreme** — it beats slowly and the eye locks onto a drifting lattice.
+Stratified sampling inside log-spaced octaves gives even coverage *and*
+incommensurate ratios for free.
+
+Other findings worth keeping:
+
+- **Amplitude proportional to wavelength** is what a k⁻⁴ equilibrium spectrum on
+  a log band comes to: constant steepness across scales. Normalise so the sum of
+  squared amplitudes over two equals the square of a quarter of the significant
+  wave height.
+- **A wave shorter than about four grid quads cannot be drawn, only aliased.**
+  The grid sets the short end of the band, not the dial.
+- **Domain warping is nearly free and worth a lot**: evaluate the short waves at
+  the position the swell has already displaced, so the chop rides the swell
+  instead of marching through it.
+- Production wave counts: GPU Gems uses 4 geometric plus about 15 in texture
+  space; Unreal 16; Crest 14 octaves stratified; an FFT ocean about 65k per
+  cascade. The eye stops resolving individual constituents around 30–60 when they
+  are spectrally distributed.
+- **FFT is not the next move.** A 32–64 wave spectrum-driven sum with accumulated
+  foam and slope-variance specular is about 85% of the look for about 15% of the
+  work. What FFT genuinely adds that a sum cannot fake is Gaussian *statistics* —
+  wave groups — and that needs hundreds of components.
+- Open sea at 10 m/s wind: significant height 2.47 m, peak period 7.9 s, dominant
+  wavelength 96 m. **Both height and wavelength scale with the square of wind
+  speed**, so steepness stays about 0.026 — which is the physical justification
+  for amplitude proportional to wavelength.
+
+### Foam and the sun track
+
+- **The Jacobian is the right source**, but it only folds when choppiness is above
+  about 1 — a sea held under 1 can never have a whitecap. Use a soft bias, not a
+  hard test against zero.
+- **Accumulate linearly, decay exponentially, and ADVECT.** Fresh foam decay
+  about 0.25–1.0 per second, residual about 0.1; drift about 0.03 times wind
+  speed. Without advection the foam sits still while the water moves under it,
+  which reads as wrong immediately even when nobody can say why. Two channels:
+  fresh decays *into* residual, which is what makes a trail rather than a blink.
+- **The sun track is a slope problem, not a highlight problem.** Its width is set
+  by the surface's mean-square slope, and Cox and Munk measured it from aerial
+  photographs: variance is 0.003 plus 5.12e-3 times wind speed. At 10 m/s that is
+  0.054 — **geometry at any playable grid holds under a tenth of it**, so the
+  rest has to come out of roughness that grows with the pixel footprint. That
+  footprint divides by the grazing term, which is exactly where the horizon
+  smears.
+- **Use Beckmann, not GGX, for water.** Beckmann's slope density is exactly the
+  Gaussian that Cox and Munk measured; GGX's heavy tails spread glitter into a
+  haze over the whole sea instead of a defined track. Make it anisotropic —
+  along-wind and across-wind variances differ — which is what turns a disc into a
+  streak.
+- **F0 = 0.02, not the generic 0.04.** Already set, via Specular 0.25.
+- The brightest thing on a night sea is the **wet crest just before it breaks**:
+  drive three states off the Jacobian — foam below about 0.4, wet-and-smooth
+  between 0.4 and 1.0, ordinary water above.
+
+---
+
+## Start here — 2026-08-30 (late): water is a component, and what is still owed
+
+Three commits on `showroom2-and-the-card-look`, pushed: `7ffc2f9` (the model
+generator learns smooth normals, real UVs and multi-material), `7f0b72a` (the
+water component and its shader), `30291ae` (the Golden Gate asset and the
+`GoldenGateDemo` scene). Each message carries its full reasoning. Tests green on
+both backends at that commit.
+
+### What water is now
+
+A `WaterComponent` carrying Width, Length, Spacing and a block of dials — two
+colours and a gradient depth, wave height, length, choppiness, speed, direction,
+foam. `Renderer/Water` builds the grid; there is **no material field**, at the
+owner's direction: an author tunes the dials and the engine builds the surface,
+so nothing in a scene file can point a body of water at an arbitrary `.rmat`.
+Water is a fourth `DrawKind` with its own transparent-only pipeline, because its
+vertices move.
+
+Waves are 32 Gerstner components picked by a spectrum: stratified inside a
+log-spaced band, amplitude proportional to wavelength, a +/-35 degree fan that
+widens for shorter waves, random phase each, and the short end clamped to four
+times the grid spacing. Foam comes from the Jacobian, evaluated at two earlier
+times and drifted positions so it trails a crest instead of sticking to it.
+
+### THE OPEN PROBLEM: flicker during playback, and the first place to look
+
+The owner reports **flicker while the scene runs**. Untested at the time of
+writing; the strongest hypothesis, and it is specific:
+
+**Blended geometry does not write velocity.** The water draws through the
+weighted-blended OIT path, which is depth-tested and depth-write disabled, and
+the motion-vector attachment is written by the opaque pass. So TAA reprojects
+every water pixel using whatever velocity the geometry *behind* it wrote — the
+sky, or nothing — while the surface under it is visibly moving. A jittered
+sample landing on a wave that has moved between frames is exactly the shape of a
+per-pixel sparkle locked to the jitter cycle.
+
+Test it the way the showroom flicker was tested: `--screenshot-count=N` from one
+run, diff consecutive frames, and look for the 8-frame autocorrelation
+(`TemporalJitterPhase: 8`). If it is the jitter, the honest fixes are to give the
+water a depth-prepass write so TAA has something to reproject, or to exclude it
+from the temporal filter. **Do not tune the wave constants to chase it** — that
+was the mistake the showroom flicker cost a day to.
+
+Related and probably the same root: the showroom flicker recorded at the top of
+this file. Both are transparent/glossy surfaces under TAA.
+
+### REVERTED, deliberately: the foam accumulation buffer
+
+A compute pass that accumulates foam into a world-anchored ping-pong texture —
+inject where the surface stretches, decay exponentially, advect downwind, fresh
+ageing into residual — was written, built, dispatched and then **reverted with
+`git checkout`** rather than left half-wired. It is not in any commit.
+
+It is the right design and the research backs it: per-frame Jacobian foam is
+*attached* to the crest, and being left behind is most of what separates foam
+from painted foam. What stopped it was the binding, not the simulation:
+
+- The buffer reached the shader through `Material::SetOcclusionMap`, chosen
+  because it takes a raw `RHITexture` and needs no change to a set layout every
+  other material shares. That forced a **per-body material** (one material holds
+  one texture), which is fine and was implemented.
+- `SampleSurface` then multiplies occlusion by that same map, so the foam buffer
+  darkened the sea everywhere foam was *absent*. Guarded under `RV_WATER`.
+- After that the buffer still read as zero in the fragment. A compute pass
+  writing a **constant** did not show either, which rules out the simulation
+  maths and points at the descriptor or the bindless material record. The engine
+  runs bindless; `Material::WriteRecord` does take a heap slot for the occlusion
+  map, so the remaining suspects are the per-frame texture swap against the
+  cached material record, or the storage-image/sampled-image aliasing of a
+  ping-pong pair inside one frame.
+
+**A `TextureBarrier(ComputeWrite -> ShaderRead)` after the dispatch is required
+and was missing at first** — worth keeping whoever picks this up from losing the
+same hour. It did not fix it on its own.
+
+Next attempt should bind the foam through the water pipeline's own set rather
+than smuggling it through a material slot. It is a set-layout change confined to
+one pipeline, and it removes the per-body material, the occlusion collision and
+the bindless record question in one go.
+
+### Also owed
+
+- **Depth-based colour.** The scene target already sets `SampleDepth = true`, so
+  the depth image *is* sampleable — the blocker is layout, not capability: the
+  transparent pass binds depth as an attachment and reading it at the same time
+  needs a read-only depth layout the frame graph does not currently express.
+- **"Glassy see-through" up close** (owner, on the close-up). Distinct from the
+  transparency that already works; this is refraction and absorption with depth.
+- **Detail normal maps below the geometry floor.** At 3 m spacing the shortest
+  wave that can be drawn is 12 m, and there is currently *nothing* under that.
+  This is the remaining source of the evenness the owner still sees.
+- The tower gaps the owner marked are fixed (`30291ae`); the free shafts above
+  the top strut are correct and not a gap.
+
+---
+
 ## Start here — 2026-08-30: the showroom's depth of field never worked, and why
 
 The owner reported that walking the mark85 showroom's camera in towards the
