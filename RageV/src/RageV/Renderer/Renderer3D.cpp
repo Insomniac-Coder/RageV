@@ -211,6 +211,29 @@ namespace RageV
 		};
 		static_assert(sizeof(ObjectPushConstants) == 4, "Push constant block must stay within 128 bytes");
 
+		// The water pipeline's, which is the one above plus the body's dials.
+		//
+		// **The three pad words are not optional.** A vec4 aligns to sixteen
+		// bytes in the shader's block; without them the C++ struct would put
+		// the first colour at offset 4 and the shader would read it from 16, so
+		// every dial would land one lane out -- foam would be read as the wave
+		// direction and the sea would look broken in a way that points at the
+		// shader rather than at this struct.
+		struct WaterPushConstants
+		{
+			int32_t BaseInstance;
+			int32_t Pad0 = 0;
+			int32_t Pad1 = 0;
+			int32_t Pad2 = 0;
+			Vec4 Shallow;
+			Vec4 Deep;
+			Vec4 Wave;
+			Vec4 Extra;
+		};
+		static_assert(sizeof(WaterPushConstants) == 80,
+					  "Must match ObjectData under RV_WATER in scene_block.glsl, "
+					  "and stay within the 128 bytes every device guarantees");
+
 		// The skinned depth pass needs one more: where this caster's bones sit.
 		//
 		// Two structs rather than one with an unused member, because an unused
@@ -272,7 +295,12 @@ namespace RageV
 		// Which of the lit pipelines a draw needs. Static and skinned differ in
 		// vertex layout; layered (ENGINE-NOTES 7aq) in what set 1 holds. A run
 		// is entirely one kind, and the sort puts the kinds in this order.
-		enum class DrawKind : uint8_t { Static, Skinned, Layered };
+		// **Water is a fourth kind and not a fourth material.** The kind is the
+		// pipeline -- that is what this enum has always meant -- and water needs
+		// its own because its vertices move: the grid is displaced into waves in
+		// the vertex stage. Nothing below the rasteriser differs, which is why
+		// it is a kind rather than a second renderer.
+		enum class DrawKind : uint8_t { Static, Skinned, Layered, Water };
 
 		// Which pass a draw belongs to. Ordered: the sort packs this in the
 		// key's top bits, so the values *are* the drawing order.
@@ -312,6 +340,11 @@ namespace RageV
 			Ref<Material> MaterialRef;
 			// The layered kind's set 1, which binds itself; null otherwise.
 			Ref<LayeredMaterial> LayeredRef;
+			// The water kind's dials, pushed with the draw. Carried on every
+			// record so one kind can use them, which is the price of keeping
+			// the record a single type; the alternative is a side table keyed
+			// by draw index and a second thing to keep in step with the sort.
+			Renderer3D::WaterDraw Water;
 			// How many of the mesh's indices this draw covers, from the first:
 			// the mesh's count for everything but a terrain chunk drawn without
 			// its skirts (7ap). Part of what a run must agree on.
@@ -397,6 +430,13 @@ namespace RageV
 			// not Opaque. Drawn in a pass of its own, after everything opaque.
 			Ref<RHIShader>   TransparentShader;
 			Ref<RHIPipeline> TransparentPipeline;
+
+			// Water's own transparent pipeline: the same lighting again, over a
+			// vertex stage that displaces the grid into waves. There is no
+			// opaque twin on purpose -- water that is not see-through is a dark
+			// floor, which is the thing this exists to stop being.
+			Ref<RHIShader>   WaterShader;
+			Ref<RHIPipeline> WaterPipeline;
 
 			// **The same lit shader with the cutout test compiled in**, for
 			// alpha-tested materials. A separate variant and not a uniform
@@ -1374,6 +1414,22 @@ namespace RageV
 				RV_CORE_ERROR("Renderer3D: the transparent variant of pbr.rvshader did not "
 							  "compile; blended materials will not be drawn at all");
 				s_Data->TransparentShader = nullptr;
+			}
+
+			// Water. Its own file rather than another define on pbr.rvshader,
+			// because what differs is the *vertex* stage -- the waves -- and
+			// pbr.rvshader's vertex stage is shared with the opaque and layered
+			// pipelines, which must not grow a branch for it.
+			if (auto water = ShaderCompiler::CompileFromFile("assets/shaders/water.rvshader",
+															 blended))
+			{
+				s_Data->WaterShader = s_Data->Device->CreateShader(*water);
+			}
+			else
+			{
+				RV_CORE_ERROR("Renderer3D: water.rvshader did not compile; bodies of "
+							  "water will not be drawn");
+				s_Data->WaterShader = nullptr;
 			}
 		}
 
@@ -2450,10 +2506,27 @@ namespace RageV
 										   BlendPreset::WeightedRevealage };
 			blended.DepthFormat = s_Data->TargetDepth;
 			s_Data->TransparentPipeline = s_Data->Device->CreatePipeline(blended);
+
+			// Water's, identical but for the shader. **Cull::None matters here
+			// rather than being inherited carelessly**: a wave tall enough to
+			// be seen from below is a wave whose back faces are the surface,
+			// and culling them punches holes in the sea exactly where it is
+			// most obviously moving.
+			if (s_Data->WaterShader)
+			{
+				blended.Name = "Renderer3D.water";
+				blended.Shader = s_Data->WaterShader;
+				s_Data->WaterPipeline = s_Data->Device->CreatePipeline(blended);
+			}
+			else
+			{
+				s_Data->WaterPipeline = nullptr;
+			}
 		}
 		else
 		{
 			s_Data->TransparentPipeline = nullptr;
+			s_Data->WaterPipeline = nullptr;
 		}
 
 		// The traced bounce: a fullscreen triangle with no depth of its own and
@@ -4263,7 +4336,7 @@ namespace RageV
 		}
 
 		const uint32_t count = (uint32_t)s_Data->Pending.size();
-		bool bound = false;
+		Ref<RHIPipeline> boundPipeline;
 
 		uint32_t start = s_Data->TransparentBegin;
 		while (start < count)
@@ -4280,7 +4353,9 @@ namespace RageV
 
 			const PendingDraw& first = s_Data->Pending[start];
 
-			if (first.Kind != DrawKind::Static)
+			const bool isWater = first.Kind == DrawKind::Water;
+
+			if (first.Kind != DrawKind::Static && !isWater)
 			{
 				// The skip the contract above promises, now actually said:
 				// this run was classified blended but only the static
@@ -4298,21 +4373,53 @@ namespace RageV
 				continue;
 			}
 
-			if (!bound)
+			const Ref<RHIPipeline>& pipeline =
+				isWater ? s_Data->WaterPipeline : s_Data->TransparentPipeline;
+			if (!pipeline)
 			{
-				cmd->BindPipeline(s_Data->TransparentPipeline);
+				start = end;
+				continue;
+			}
+
+			// **Which pipeline was bound, not whether one was.** `bound` used to
+			// be a bool, which was exact while the transparent pass had one
+			// pipeline and silently wrong the moment it had two: the first
+			// water run would bind, and a static run after it would inherit the
+			// water pipeline and draw a crate as a wave.
+			//
+			// The sort keys on Kind, so in practice this switches once -- but
+			// the correctness must not rest on that.
+			if (boundPipeline != pipeline)
+			{
+				cmd->BindPipeline(pipeline);
 				cmd->BindResourceSet(0, slot.TransparentSet);
 				if (s_Data->Bindless)
 					cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
-				bound = true;
+				boundPipeline = pipeline;
 			}
 
 			if (first.MaterialRef && !s_Data->Bindless)
-				first.MaterialRef->Bind(*cmd, s_Data->TransparentPipeline, 1);
+				first.MaterialRef->Bind(*cmd, pipeline, 1);
 
-			ObjectPushConstants object;
-			object.BaseInstance = (int32_t)start;
-			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+			if (isWater)
+			{
+				WaterPushConstants object;
+				object.BaseInstance = (int32_t)start;
+				object.Shallow = first.Water.Shallow;
+				object.Deep = first.Water.Deep;
+				object.Wave = first.Water.Wave;
+				object.Extra = first.Water.Extra;
+
+				// Both stages: the vertex reads the dials, and the fragment
+				// declares the same block so the ranges agree.
+				cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+			}
+			else
+			{
+				ObjectPushConstants object;
+				object.BaseInstance = (int32_t)start;
+				cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+			}
 
 			cmd->BindVertexBuffer(0, first.MeshRef->GetVertexBuffer());
 			cmd->BindIndexBuffer(first.MeshRef->GetIndexBuffer(), IndexType::UInt32);
@@ -5020,6 +5127,53 @@ namespace RageV
 		// Recorded, not drawn. EndScene sorts these and issues one draw per run
 		// of identical state; drawing here is what made the count equal the
 		// object count.
+		s_Data->Pending.push_back(std::move(draw));
+	}
+
+	void Renderer3D::DrawWaterMesh(const Ref<Mesh>& mesh, const Mat4& transform,
+								   const Ref<Material>& material,
+								   const MaterialParams& params, uint32_t probe,
+								   const WaterDraw& water,
+								   const Mat4* previousTransform)
+	{
+		if (!s_Data || !s_Data->SceneActive || !mesh)
+			return;
+
+		const Ref<Material>& effective = material ? material : s_Data->DefaultMaterial;
+		if (!effective)
+			return;
+
+		PendingDraw draw;
+		draw.MeshKey = mesh.get();
+		draw.MaterialKey = effective->GetBatchKey(s_Data->Bindless);
+		draw.MeshRef = mesh;
+		draw.MaterialRef = effective;
+		draw.IndexCount = mesh->GetIndexCount();
+		draw.Kind = DrawKind::Water;
+		draw.Water = water;
+
+		// **Blended whatever the material says.** The water pipeline writes the
+		// accumulate/revealage pair and nothing else; a body routed to the
+		// opaque pass would be drawn by a pipeline whose outputs do not match
+		// the attachments, which is a validation error rather than a dark sea.
+		draw.Bucket = DrawBucket::Blended;
+
+		InstanceData& instance = AllocateInstance(draw);
+		instance.Model = transform;
+		instance.PreviousModel = previousTransform ? *previousTransform : transform;
+		instance.NormalMatrix = Mat4(Math::Transpose(Math::Inverse(Mat3(transform))));
+		instance.BaseColor = params.BaseColor;
+		instance.EmissiveColor = params.EmissiveColor;
+		instance.Surface = { params.Metallic, params.Roughness,
+							 params.Occlusion, params.NormalScale };
+		instance.Indices = { 0.0f, (float)probe, 0.0f, 0.0f };
+
+		{
+			const Vec3 eye = Vec3(s_Data->Scene.CameraPosition);
+			const Vec3 centre = Vec3(transform[3]);
+			draw.ViewDepth = Math::Length(centre - eye);
+		}
+
 		s_Data->Pending.push_back(std::move(draw));
 	}
 

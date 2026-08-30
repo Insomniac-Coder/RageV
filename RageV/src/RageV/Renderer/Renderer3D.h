@@ -344,6 +344,35 @@ namespace RageV
 							 const RHI::Ref<Material>& material,
 							 const MaterialParams& params, uint32_t probe,
 							 const Mat4* previousTransform = nullptr);
+
+		// A body of water: the same draw, through the pipeline whose vertex
+		// stage displaces the grid into waves.
+		//
+		// **Packed four-wide, in the order the shader reads them**, rather than
+		// named one dial per field. This struct is copied straight into the
+		// push constant and has to agree with ObjectData in scene_block.glsl
+		// lane for lane; the closer the two look, the harder it is for them to
+		// drift apart unnoticed -- and a drift here shows up as one dial moving
+		// the wrong thing, which reads as a shader bug rather than a layout one.
+		struct WaterDraw
+		{
+			// rgb = the colour where the bottom is close, a = metres of depth
+			// it takes to reach the deep colour.
+			Vec4 Shallow{ 0.06f, 0.19f, 0.22f, 12.0f };
+			// rgb = the open-water colour, a = seconds since the scene started.
+			Vec4 Deep{ 0.012f, 0.031f, 0.055f, 0.0f };
+			// crest-to-trough metres, metres between crests, choppiness,
+			// metres a second.
+			Vec4 Wave{ 0.6f, 24.0f, 0.55f, 1.6f };
+			// direction in radians, foam, the previous frame's time, spare.
+			Vec4 Extra{ 0.785f, 0.45f, 0.0f, 0.0f };
+		};
+
+		static void DrawWaterMesh(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
+								  const RHI::Ref<Material>& material,
+								  const MaterialParams& params, uint32_t probe,
+								  const WaterDraw& water,
+								  const Mat4* previousTransform = nullptr);
 		// Where this instance was last frame, or null for "it did not move".
 		//
 		// A pointer with a null default rather than a required argument: every

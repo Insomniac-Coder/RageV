@@ -457,6 +457,113 @@ namespace RageV
 		TerrainComponent(const TerrainComponent&) = default;
 	};
 
+	// A rectangular body of water, sized on the component rather than modelled.
+	//
+	// **The dimensions are the asset.** A terrain points at a file because its
+	// heights are authored; a water body has nothing to author -- it is a
+	// rectangle, and length, width and how finely to divide it are the whole
+	// description. Putting them here is what lets somebody drag a bay to size
+	// in the inspector instead of regenerating a mesh beside the scene and
+	// reimporting it. Renderer/Water builds the grid from these.
+	//
+	// Centred on the entity, lying in its XZ plane: it reaches half of Width
+	// each way in X and half of Length each way in Z, at the entity's own
+	// height. The transform places, rotates and tilts it like anything else.
+	struct WaterComponent
+	{
+		// Metres across the entity's X, and along its Z.
+		float Width = 200.0f;
+		float Length = 200.0f;
+
+		// Metres between grid vertices.
+		//
+		// **It exists before the waves do, deliberately.** Flat water needs
+		// four vertices and a normal map. Waves that break the *silhouette* --
+		// a horizon that is not a straight line, swell rising against a pier --
+		// need vertices to displace, and adding them later would change the
+		// geometry under every scene that had placed one. So the subdivision is
+		// authored from the start, and a scene that wants the cheap version
+		// asks for a coarse spacing rather than a different component.
+		float Spacing = 4.0f;
+
+		// **There is no material field, and that is deliberate (owner's call).**
+		// Water is an effect, not a surface somebody dresses: nothing in a
+		// scene file can point a body of water at an arbitrary `.rmat`. What
+		// an author gets instead is the block of dials below, which the engine
+		// builds the material *from* -- so the look is tunable per body and
+		// still cannot be swapped for something that is not water.
+		//
+		// Metres per repeat of the surface detail. This scales the UVs the grid
+		// is built with, which is geometry, and it is here because the right
+		// texture scale for a harbour is not the right one for an ocean.
+		float TextureScale = 8.0f;
+
+		// --- colour ------------------------------------------------------
+		//
+		// **Two colours and a depth, because water is a gradient and not a
+		// colour.** What makes a sea read as deep is that the shallows over a
+		// bar are green and the channel beside them is nearly black, and a
+		// single base colour cannot say that. Shallow is what is seen where
+		// the bottom is close; Deep is the open-water colour; GradientDepth is
+		// how many metres it takes to go from one to the other.
+		Vec3 ShallowColor{ 0.06f, 0.19f, 0.22f };
+		Vec3 DeepColor{ 0.012f, 0.031f, 0.055f };
+		float GradientDepth = 12.0f;
+
+		// --- waves -------------------------------------------------------
+		//
+		// Crest to trough, in metres. **Bounded by the spacing above**: a wave
+		// shorter than two grid quads cannot be drawn, it can only alias, so a
+		// tall wave on a coarse grid is a request the geometry cannot honour.
+		float WaveHeight = 0.6f;
+
+		// Metres from one crest to the next, for the largest wave in the sum.
+		float WaveLength = 24.0f;
+
+		// How much the crests lean into peaks rather than staying sinusoidal.
+		// 0 is a swell, 1 is the chopped surface of the reference. Above 1 a
+		// Gerstner wave folds over itself and the surface self-intersects,
+		// which is why this clamps rather than trusting the author.
+		float Choppiness = 0.55f;
+
+		// Metres a second the pattern travels, and the compass direction it
+		// travels in, in degrees. A sea running across the shot reads very
+		// differently from one running away from the camera.
+		float WaveSpeed = 1.6f;
+		float WaveDirection = 45.0f;
+
+		// How white the crests go where the surface stretches. Zero is a calm
+		// day; the reference image is around 0.6.
+		float Foam = 0.45f;
+
+		// --- runtime, not serialized ------------------------------------
+		// The grid built at these dimensions. Replaced -- never mutated -- when
+		// one of them changes, on the same terms as TerrainComponent::Runtime:
+		// Play's snapshot and a duplicated entity share the pointer, so
+		// reshaping in place would resize the original too.
+		// The body's own clock, in seconds, and where it was last frame. Both
+		// are needed: the waves are a function of time, and the *motion vector*
+		// is the difference between two of them -- without the previous value
+		// the temporal filter is told that a visibly moving surface is standing
+		// still, and it smears every crest.
+		//
+		// Per body rather than one engine clock, so two seas can run at
+		// different speeds; not serialized, for the reason AnimatorComponent
+		// does not serialize its own -- a time means nothing outside the run
+		// that produced it.
+		float Time = 0.0f;
+		float PreviousTime = 0.0f;
+
+		RHI::Ref<Mesh> Runtime;
+		float BuiltWidth = 0.0f;
+		float BuiltLength = 0.0f;
+		float BuiltSpacing = 0.0f;
+		float BuiltTextureScale = 0.0f;
+
+		WaterComponent() = default;
+		WaterComponent(const WaterComponent&) = default;
+	};
+
 	// Plays a clip from the model a MeshComponent points at.
 	//
 	// Separate from MeshComponent so a character's body, head and clothing can

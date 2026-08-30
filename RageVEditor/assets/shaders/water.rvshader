@@ -1,0 +1,35 @@
+// The lit shader over a body of water.
+//
+// The vertex stage displaces a flat grid into Gerstner waves and derives the
+// normal analytically from the same sum -- see include/water_vertex.glsl for
+// why both of those matter. The fragment stage is the same lighting every
+// other surface gets, compiled with RV_WATER, which forks exactly two things:
+// the colour is a gradient between the two the component names rather than one
+// flat base, and the crests carry foam. Nothing below the surface changes.
+//
+// **Transparent only.** There is no opaque variant and there should not be:
+// water that is not see-through is a dark floor, and the pier that carries on
+// below the waterline is the whole reason this exists.
+#type vertex
+#version 450 core
+
+// **Before the scene block, not after.** RV_WATER is what adds the water dials
+// to the ObjectData push constant, and a define that arrives after the block
+// has been declared adds nothing to it -- the shader then compiles cleanly and
+// reads every dial as zero, which looks like a dead feature rather than a
+// mis-ordered include.
+#define RV_WATER
+
+#include "include/scene_vertex.glsl"
+#include "include/water_params.glsl"
+#include "include/water_vertex.glsl"
+
+#type fragment
+// 460 for the same reason pbr.rvshader takes it: the ray-query keywords the
+// shading traces with are admitted only from 460.
+#version 460 core
+
+#define RV_WATER
+#define RV_TRANSPARENT
+
+#include "include/pbr_fragment.glsl"

@@ -421,6 +421,20 @@ layout(location = 8) in vec4 v_PrevClipPos;
 // bindless variant; declared in both so the two stages agree.
 layout(location = 9) flat in float v_MaterialIndex;
 
+#ifdef RV_WATER
+// x = foam, y = where this fragment sits between trough and crest. Written by
+// include/water_vertex.glsl, which explains what each is for.
+layout(location = 10) in vec2 v_Water;
+
+// The body's two colours, forwarded by the vertex stage rather than read here.
+// **The fragment declares no push-constant block on purpose**: the vertex
+// stage's would have to be repeated byte for byte, and two declarations that
+// must agree are two that eventually do not -- what that looks like is one
+// dial moving the wrong thing.
+layout(location = 11) flat in vec4 v_WaterShallow;   // rgb + foam
+layout(location = 12) flat in vec3 v_WaterDeep;
+#endif
+
 #ifdef RV_TRANSPARENT
 
 // **The transparent variant writes two targets and nothing else.** The pass it
@@ -2358,6 +2372,86 @@ void main()
 	vec3 albedo = baseColor.rgb;
 
 	float roughness = clamp(surface.Roughness, 0.045, 1.0);   // fully smooth aliases badly
+
+#ifdef RV_WATER
+	// **Three states off one number, not two.** The Jacobian of the horizontal
+	// displacement says how much the surface is being pulled apart. Below about
+	// 0.4 it has folded through itself, which physically *is* a wave breaking --
+	// that is foam. Between 0.4 and 1.0 it is stretched but still intact: a wet
+	// crest on the point of breaking, and on a real sea under a low sun that
+	// band is the brightest thing in frame. Reading only the folded case, which
+	// is what a plain foam value does, throws the glint away and leaves the sea
+	// looking uniformly matte.
+	const float jacobian = v_Water.x;
+
+	// Soft thresholds, not `J < 0`. A hard cut gives foam that pops on and off
+	// with the crest; the bias and gain are what turn it into an edge.
+	// **The bias sits just above 1, not at 0.** A textbook whitecap is J < 0 --
+	// the surface actually folded -- and on a summed Gerstner field that needs
+	// every wave to line up in phase, which almost never happens. Threshold
+	// there and the sea has no whitecaps at all, which is what the first attempt
+	// produced. Real foam also does not wait for a full fold: it appears as the
+	// crest steepens. So the trigger is "stretching at all", and the gain sets
+	// how quickly that becomes white.
+	const float foam = clamp((0.88 - jacobian) * 2.6, 0.0, 1.0) * v_WaterShallow.w;
+	const float wetness = smoothstep(1.0, 0.45, jacobian) * (1.0 - foam);
+
+	// **Two colours, then foam, in that order.** The gradient is the body of the
+	// water and the foam sits on top of it; the other way round tints the
+	// whitewater with the sea under it, and foam is not tinted -- it is air, and
+	// air is white whatever it floats on.
+	//
+	// The material's own base colour is deliberately ignored: a body of water
+	// has no material to point at, so the colours a scene authors are the
+	// component's and they arrive in the push constants.
+	albedo = mix(v_WaterDeep, v_WaterShallow.rgb, v_Water.y);
+
+	// The wet crest: smoother than the water around it, and *not* lighter. What
+	// makes it read is the sharpened reflection, not a change of colour -- a
+	// crest painted brighter looks like a crest painted brighter.
+	roughness = clamp(roughness * mix(1.0, 0.45, wetness), 0.045, 1.0);
+
+	// Foam is rough, and that is most of what makes it read as foam rather than
+	// as white paint: whitewater is a mass of bubbles scattering in every
+	// direction, so the one thing it must not do is reflect the sky.
+	albedo = mix(albedo, vec3(0.92, 0.95, 0.97), foam);
+	roughness = clamp(mix(roughness, 0.72, foam), 0.045, 1.0);
+
+	// **The sun track is a slope problem, not a highlight problem.** The width
+	// of the glittering path a light lays across water is set by the *mean
+	// square slope* of the surface, and almost all of that slope lives in waves
+	// far too small for any grid to carry -- centimetres to decimetres. Measured
+	// against Cox and Munk's aerial-photograph fit, geometry at this scale holds
+	// under a tenth of a real sea's slope energy; the rest has to come out of
+	// the roughness.
+	//
+	// So roughness grows with how much sea one pixel covers. Close up it stays
+	// low and individual crests sparkle; toward the horizon it approaches the
+	// full slope variance and the highlight becomes a broad track, which is what
+	// a real one is. A single constant roughness cannot be right anywhere except
+	// at one distance -- too rough near, too smooth far, and fireflies at the
+	// horizon where the waves fall under a pixel.
+	{
+		const float distance = length(u_Scene.CameraPosition.xyz - v_WorldPos);
+		const float grazing = max(abs(dot(surface.N, normalize(
+							  u_Scene.CameraPosition.xyz - v_WorldPos))), 0.08);
+
+		// The footprint stretches at grazing angles, which is exactly where the
+		// horizon smears -- so it divides rather than being ignored.
+		const float footprint = distance * 0.0016 / grazing;
+
+		// Approaches the Cox-Munk variance for a fresh breeze rather than
+		// running away: past the horizon there is no more slope energy to add.
+		const float residual = 0.24 * (1.0 - exp(-footprint * 0.045));
+		roughness = clamp(max(roughness, residual), 0.045, 1.0);
+	}
+
+	// **Crests are more opaque than troughs.** Thin water at a crest transmits
+	// more, but the froth and aeration in it hide what is behind, and foam hides
+	// it completely. Without this the whitewater is see-through, which is the
+	// one thing it never is.
+	baseColor.a = clamp(baseColor.a + foam * (1.0 - baseColor.a), 0.0, 1.0);
+#endif
 	float metallic  = clamp(surface.Metallic, 0.0, 1.0);
 	float occlusion = surface.Occlusion;
 	vec3 N = surface.N;

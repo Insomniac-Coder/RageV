@@ -23,6 +23,7 @@
 #include "RageV/Renderer/EnvironmentIBL.h"
 #include "RageV/Renderer/ProbeArray.h"
 #include "RageV/Renderer/UIRenderer.h"
+#include "RageV/Renderer/Water.h"
 #include "RageV/Renderer/Frustum.h"
 #include "RageV/Renderer/FrameGraphBuilder.h"
 #include "RageV/Renderer/EditorCamera.h"
@@ -2357,6 +2358,30 @@ namespace RageV
 				m_BlendObjectCount = 0;
 			}
 		}
+
+		// **Water counts too, and it is not a MeshComponent.**
+		//
+		// This flag is not a statistic: the runtime and the editor ask it to
+		// decide whether to put the transparent pass into the frame graph at
+		// all. It was computed from the mesh gather alone, so a scene whose only
+		// transparent thing was a body of water got *no transparent pass* --
+		// and the water's draw was sorted into a bucket nothing ever issued and
+		// disappeared without a word. Not dimmed, not mis-sorted: absent.
+		//
+		// The general shape of the trap, worth the paragraph: a question the
+		// graph asks before anything draws has to be asked of the whole scene,
+		// and "the whole scene" stopped meaning "the meshes" the moment
+		// something else could be transparent.
+		if (!m_HasBlended)
+		{
+			auto water = m_Registry.GetView<TransformComponent, WaterComponent>();
+			for (auto& item : water)
+			{
+				(void)item;
+				m_HasBlended = true;
+				break;
+			}
+		}
 		else if (gpuCull)
 		{
 			m_BlendObjectCount = 0;
@@ -4399,6 +4424,23 @@ namespace RageV
 
 	void Scene::UpdateAnimators(Timestep ts, bool editing)
 	{
+		// **The water runs in the editor too, unlike the animators.** An
+		// animator that advances while a scene is being edited leaves nothing
+		// standing still to place things against, which is why RunInEditor
+		// exists and is off. A sea has the opposite property: it is scenery,
+		// nothing is placed against a particular wave, and a frozen one reads
+		// as a bug the moment anybody looks at it. So it ticks unconditionally
+		// and takes no opt-in.
+		{
+			auto water = m_Registry.GetView<WaterComponent>();
+			for (auto& item : water)
+			{
+				WaterComponent& body = water.Get<WaterComponent>(item);
+				body.PreviousTime = body.Time;
+				body.Time += ts.GetSeconds();
+			}
+		}
+
 		auto view = m_Registry.GetView<MeshComponent, AnimatorComponent>();
 
 		for (auto& item : view)
@@ -4906,6 +4948,63 @@ namespace RageV
 													&transform.PreviousWorld);
 					}
 				});
+			}
+
+			// The water: one grid per body, built from the component's own
+			// dimensions and drawn as an ordinary mesh.
+			//
+			// **Not a shadow caster, and that is a decision rather than an
+			// omission.** A flat sheet at the bottom of a scene casts onto
+			// whatever is under it -- the sea bed, the piers it surrounds --
+			// and what that reads as is a hole where the water is. It receives
+			// shadows like anything else; it just does not throw one.
+			{
+				auto view = m_Registry.GetView<TransformComponent, WaterComponent>();
+				for (auto& item : view)
+				{
+					auto [transform, water] =
+						view.Get<TransformComponent, WaterComponent>(item);
+
+					if (!Water::Resolve(water) || !water.Runtime)
+						continue;
+
+					Vec3 centre, extents;
+					Frustum::TransformBounds(water.Runtime->GetBounds(),
+											 transform.World, centre, extents);
+					if (!frustum.Intersects(centre, extents))
+					{
+						Renderer3D::CountCulled();
+						continue;
+					}
+
+					// The engine's, not the component's: a body of water has no
+					// material field to point anywhere else.
+					RHI::Ref<Material> material = Water::GetMaterial();
+					if (!material)
+						continue;
+
+					// The dials, in the order the shader reads them. Degrees to
+					// radians here rather than in the shader: the inspector
+					// shows a compass bearing because that is what somebody
+					// authoring a sea thinks in, and the shader wants the angle
+					// a cosine takes.
+					Renderer3D::WaterDraw dials;
+					dials.Shallow = { water.ShallowColor.x, water.ShallowColor.y,
+									  water.ShallowColor.z, water.GradientDepth };
+					dials.Deep = { water.DeepColor.x, water.DeepColor.y,
+								   water.DeepColor.z, water.Time };
+					dials.Wave = { water.WaveHeight, water.WaveLength,
+								   water.Choppiness, water.WaveSpeed };
+					// The spacing goes with them: the shader clamps its shortest
+					// wave to what the grid can actually carry, and only the
+					// component knows how fine the grid is.
+					dials.Extra = { Math::Radians(water.WaveDirection), water.Foam,
+									water.PreviousTime, water.Spacing };
+
+					Renderer3D::DrawWaterMesh(water.Runtime, transform.World, material,
+											  material->GetParams(), ProbeSlotFor(centre),
+											  dials, &transform.PreviousWorld);
+				}
 			}
 
 			Renderer3D::EndScene();

@@ -641,6 +641,100 @@ namespace
 			s_Components.push_back(std::move(desc));
 		}
 
+		// --- Water -----------------------------------------------------------
+		{
+			ComponentDesc desc;
+			desc.Name = "WaterComponent";
+			desc.DisplayName = "Water";
+			desc.Fields = {
+				Field<&WaterComponent::Width>("Width",
+					Drag(0.5f, 0.0f, 20000.0f,
+						 "Metres across this entity's X. The body is centred on "
+						 "the entity: it reaches half of this each way.")),
+				Field<&WaterComponent::Length>("Length",
+					Drag(0.5f, 0.0f, 20000.0f,
+						 "Metres along this entity's Z, centred the same way.")),
+				Field<&WaterComponent::Spacing>("Spacing",
+					Drag(0.05f, 0.05f, 500.0f,
+						 "Metres between grid vertices. Waves that move the "
+						 "surface can only move what is there, so this is the "
+						 "finest shape the water will ever be able to take. "
+						 "Divisions are capped at 1024 per axis: a coarser "
+						 "spacing is used rather than a mesh nobody can draw.")),
+				Field<&WaterComponent::TextureScale>("TextureScale",
+					Named("Texture scale", Drag(0.05f, 0.05f, 1000.0f,
+						 "Metres per repeat of the surface detail, taken off the "
+						 "position rather than across the body -- so resizing adds "
+						 "surface instead of magnifying what is on it."))),
+
+				Field<&WaterComponent::ShallowColor>("ShallowColor",
+					Named("Shallow colour", Color(
+						 "What the water reads as where the bottom is close. "
+						 "Water is a gradient, not a colour: a single base tint "
+						 "cannot say that the bar is green and the channel beside "
+						 "it is nearly black."))),
+				Field<&WaterComponent::DeepColor>("DeepColor",
+					Named("Deep colour", Color(
+						 "The open-water colour. Very dark is correct -- almost "
+						 "everything seen in deep water is the sky reflected in "
+						 "it, and a tint bright enough to notice washes that out."))),
+				Field<&WaterComponent::GradientDepth>("GradientDepth",
+					Named("Gradient depth", Drag(0.1f, 0.01f, 500.0f,
+						 "Metres of depth it takes to go from the shallow colour "
+						 "to the deep one."))),
+
+				Field<&WaterComponent::WaveHeight>("WaveHeight",
+					Named("Wave height", Drag(0.01f, 0.0f, 30.0f,
+						 "Crest to trough, in metres. Bounded by Spacing: a wave "
+						 "shorter than two grid quads cannot be drawn, only "
+						 "aliased, so a tall wave on a coarse grid is a request "
+						 "the geometry cannot honour."))),
+				Field<&WaterComponent::WaveLength>("WaveLength",
+					Named("Wave length", Drag(0.1f, 0.1f, 2000.0f,
+						 "Metres from one crest to the next, for the largest wave "
+						 "in the sum."))),
+				Field<&WaterComponent::Choppiness>("Choppiness",
+					Drag(0.01f, 0.0f, 2.0f,
+						 "How far the crests lean into peaks rather than staying "
+						 "sinusoidal. 0 is a swell, 1 is a chopped sea, and past "
+						 "1 the crests fold through themselves -- which is what a "
+						 "breaking wave is, and the only thing foam is computed "
+						 "from. A sea held under 1 can never have a whitecap.")),
+				Field<&WaterComponent::WaveSpeed>("WaveSpeed",
+					Named("Wave speed", Drag(0.01f, 0.0f, 50.0f,
+						 "Metres a second the pattern travels."))),
+				Field<&WaterComponent::WaveDirection>("WaveDirection",
+					Named("Wave direction", Drag(1.0f, 0.0f, 360.0f,
+						 "Degrees the waves run towards. A sea running across the "
+						 "shot reads very differently from one running away."))),
+				Field<&WaterComponent::Foam>("Foam",
+					Drag(0.01f, 0.0f, 1.0f,
+						 "How white the crests go where the surface stretches.")),
+			};
+
+			desc.OnChanged = [](void* component)
+			{
+				auto* water = static_cast<WaterComponent*>(component);
+				water->Width = Math::Max(water->Width, 0.0f);
+				water->Length = Math::Max(water->Length, 0.0f);
+				water->Spacing = Math::Max(water->Spacing, 0.05f);
+				water->TextureScale = Math::Max(water->TextureScale, 0.05f);
+				water->GradientDepth = Math::Max(water->GradientDepth, 0.01f);
+				water->WaveHeight = Math::Max(water->WaveHeight, 0.0f);
+				water->WaveLength = Math::Max(water->WaveLength, 0.1f);
+				water->WaveSpeed = Math::Max(water->WaveSpeed, 0.0f);
+
+				// **Clamped, not trusted.** Past 1 a Gerstner wave folds through
+				// itself and the surface self-intersects -- which does not read
+				// as a rough sea, it reads as torn geometry.
+				water->Choppiness = Math::Clamp(water->Choppiness, 0.0f, 2.0f);
+				water->Foam = Math::Clamp(water->Foam, 0.0f, 1.0f);
+			};
+
+			Bind<WaterComponent>(desc);
+			s_Components.push_back(std::move(desc));
+		}
+
 		// --- Light -----------------------------------------------------------
 		{
 			ComponentDesc desc;

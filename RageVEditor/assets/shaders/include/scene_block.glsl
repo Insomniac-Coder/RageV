@@ -191,5 +191,30 @@ layout(std430, set = 0, binding = 17) readonly buffer VisibleBlock
 layout(push_constant) uniform ObjectData
 {
 	int BaseInstance;
+
+#ifdef RV_WATER
+	// **The water body's dials, in the block that already exists.** A stage may
+	// declare exactly one push-constant block, and the vertex stage already has
+	// this one -- so water extends it rather than adding a second, which is not
+	// legal however tidy it would read.
+	//
+	// Padded to a vec4 boundary first: a vec4 aligns to sixteen bytes and the
+	// int above occupies four, so without the three that follow, the C++ struct
+	// and this block would disagree about where the first colour starts and
+	// every dial would be read one lane out.
+	int _WaterPad0;
+	int _WaterPad1;
+	int _WaterPad2;
+
+	// rgb = the colour where the bottom is close, a = metres to reach deep.
+	vec4 WaterShallow;
+	// rgb = the open-water colour, a = seconds since the scene started.
+	vec4 WaterDeep;
+	// x = crest-to-trough metres, y = metres between crests, z = choppiness,
+	// w = metres a second.
+	vec4 WaterWave;
+	// x = direction in radians, y = foam, z = the previous frame's time.
+	vec4 WaterExtra;
+#endif
 } u_Object;
 
