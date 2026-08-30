@@ -1535,6 +1535,29 @@ produce bounds that are too small in exactly the poses that needed them.
 Sampled rather than solved, because a clip's extreme is not analytic once
 rotations interpolate; the result is padded 2% against stepping over one.
 
+**And it was wrong for two years in a way nothing could see, fixed 2026-08-30.**
+The per-bone boxes are in *bone* space -- the inverse bind built them -- so what
+carries a corner back out to model space is the bone's global transform. The
+accumulate step used the **skinning** matrix, `global * InverseBind`, applying
+the inverse bind a second time and landing the box in a space nothing is drawn
+in: for the mark85 rig, seven and a half times the figure and displaced a metre
+forward and 1.4 m up.
+
+Nothing saw it because the error is in the safe direction for the only consumer
+it had. Bounds too *large* cull nothing that should have drawn; they only waste
+GPU cull work, and there is no frame in which that looks like anything. It took
+a second consumer with an opinion about the *size* rather than the containment
+-- `Scene::ResolveFocus`, which solves an aperture from the subject's own depth
+-- to turn it into something visible, and what it turned into was a showroom
+that could not be brought into focus. **A conservative bound is not a correct
+one, and the difference only shows when something asks it a question other than
+"is this on screen".**
+
+The two tests were blind for a reason worth carrying: the fixture's one bone
+has an identity inverse bind, where applying it twice is applying it once, and
+the fox check compared this function's answer with its own. Neither compared
+the result against the vertices it was built from. The fox now does.
+
 ### Where animation runs, and how a clip is chosen
 
 Two changes at the owner's direction, made after the pair above and worth

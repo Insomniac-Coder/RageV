@@ -428,6 +428,13 @@ namespace RageV
 	// photograph on two machines.
 	static constexpr float kCircleOfConfusion = 0.00003f;
 
+	// The range of f-numbers a solve may land on, which is the range the
+	// aperture slider offers in ComponentRegistry -- named here rather than
+	// written twice, because a solve that could return a number the inspector
+	// refuses to show would be a value nobody could then edit by hand.
+	static constexpr float kWidestAperture = 0.7f;
+	static constexpr float kNarrowestAperture = 32.0f;
+
 	void Scene::ResolveFocus(PostSettings& settings, Entity camera)
 	{
 		if (!settings.DepthOfField || settings.Focus != FocusMode::Target)
@@ -515,6 +522,24 @@ namespace RageV
 		if (half <= 1.0e-4f)
 			return;   // the plane is on it; the aperture stays where it was
 
+		// **The camera is inside the subject's own near half.** The solve below
+		// divides by `depth - half`, so this is the case where that goes
+		// negative -- and a negative f-number handed to the clamp underneath
+		// comes back as `kWidestAperture`, because a clamp cannot know the sign
+		// flipped. That is the exact inverse of what the clamp's own comment
+		// promises: the subject too deep to contain is thrown *entirely* out of
+		// focus rather than being held as sharp as the lens allows.
+		//
+		// It is the same uncontainable subject either side of the crossing, so
+		// it takes the same answer: the smallest opening there is. Handled here
+		// rather than by clamping the denominator, because the reason is a
+		// statement about the shot and not about arithmetic.
+		if (depth <= half)
+		{
+			settings.Aperture = kNarrowestAperture;
+			return;
+		}
+
 		// The near edge is what decides the aperture, and this is not
 		// symmetry-blind laziness: the circle of confusion grows faster in
 		// front of the plane than behind it -- the `1/z` in the prepass -- so
@@ -532,8 +557,10 @@ namespace RageV
 		// Clamped to the range the slider offers, which is the range a lens
 		// has. A subject too deep to contain gets the smallest opening there
 		// is and stays slightly soft at the ends, which is what a photographer
-		// standing where this camera is would also get.
-		settings.Aperture = Math::Clamp(aperture, 0.7f, 32.0f);
+		// standing where this camera is would also get. The guard above is what
+		// makes that true on both sides of the crossing rather than only above
+		// it: everything reaching here is positive.
+		settings.Aperture = Math::Clamp(aperture, kWidestAperture, kNarrowestAperture);
 	}
 
 	bool Scene::GetSubtreeBounds(Entity root, Vec3& centre, Vec3& extents)

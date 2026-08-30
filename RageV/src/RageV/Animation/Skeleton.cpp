@@ -322,12 +322,30 @@ namespace RageV::Anim
 		}
 
 		// --- every pose, one transformed box per bone -----------------------
-		std::vector<Mat4> skinning;
+		//
+		// **Global, not skinning, and the difference is a bug this had.** The
+		// boxes above are already in bone space -- `InverseBind` was applied to
+		// build them -- so what carries one back out to model space is the
+		// bone's global transform alone. A skinning matrix is
+		// `global * InverseBind`, so using one here applies the inverse bind a
+		// second time and the box comes out in a space nothing is ever drawn
+		// in: scaled and displaced by whatever that matrix happens to hold.
+		//
+		// It survived because the two tests either side of it are both blind to
+		// it. The synthetic fixture gives its one bone an identity
+		// `InverseBind`, where the second application is a no-op; the fox
+		// compares this function's bind-pose answer against its own animated
+		// one, and a distortion applied to both cancels. Neither ever checks
+		// the rest answer against the vertices it came from, which is the
+		// property the fixture's own comment claims -- so the fox now does,
+		// bounding how far this may sit off its own input rather than only how
+		// it compares with itself.
+		std::vector<Mat4> global;
 
 		auto accumulate = [&](const Pose& pose)
 		{
-			ComposeSkinning(skeleton, pose, skinning);
-			if (skinning.size() < boneCount)
+			ComposeGlobal(skeleton, pose, global);
+			if (global.size() < boneCount)
 				return;
 
 			for (size_t bone = 0; bone < boneCount; bone++)
@@ -346,7 +364,7 @@ namespace RageV::Anim
 						(corner & 2) ? boneMax[bone].y : boneMin[bone].y,
 						(corner & 4) ? boneMax[bone].z : boneMin[bone].z);
 
-					const Vec3 moved = Vec3(skinning[bone] * Vec4(point, 1.0f));
+					const Vec3 moved = Vec3(global[bone] * Vec4(point, 1.0f));
 					outMin = Math::Min(outMin, moved);
 					outMax = Math::Max(outMax, moved);
 				}

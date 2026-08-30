@@ -12620,6 +12620,49 @@ void main()
 					  animatedSize.z > bindSize.z * 1.02f,
 					  "and are larger on at least one -- the fox leaves its bind "
 					  "box when it runs, which is exactly what culled it early");
+
+				// **Against the vertices, not against itself.** Everything
+				// above compares one SkinnedBounds answer with another, so a
+				// distortion applied to both cancels and reads as a pass --
+				// which is how a doubled inverse bind lived here, handing the
+				// mark85 showroom a box seven times the suit and a focus solve
+				// that could not find it. The fixture beside this cannot catch
+				// that: its one bone's inverse bind is the identity, where
+				// applying it twice is applying it once.
+				//
+				// A rig with real inverse binds and no clips must land on the
+				// box its own vertices give -- containing it, and close to it.
+				// That is what "with no clips the bounds are the bind pose's"
+				// above has always claimed and never checked on a rig whose
+				// inverse binds could tell the difference.
+				Vec3 rawMin(std::numeric_limits<float>::max());
+				Vec3 rawMax(std::numeric_limits<float>::lowest());
+				for (const Vec3& position : positions)
+				{
+					rawMin = Math::Min(rawMin, position);
+					rawMax = Math::Max(rawMax, position);
+				}
+
+				const Vec3 rawSize = rawMax - rawMin;
+
+				Check(bindMin.x <= rawMin.x && bindMin.y <= rawMin.y && bindMin.z <= rawMin.z &&
+					  bindMax.x >= rawMax.x && bindMax.y >= rawMax.y && bindMax.z >= rawMax.z,
+					  "a real rig's clipless bounds contain the vertices they were "
+					  "built from");
+
+				// A third, not a hair. The per-bone boxes are axis-aligned in each
+				// bone's own space, so carrying one back through a rotation and
+				// re-fitting an axis-aligned box around it grows the answer -- 11%
+				// on the fox's worst axis, and legitimately. What this rules out is
+				// the order-of-magnitude kind: a doubled inverse bind put the
+				// mark85's box seven times over the suit and displaced it, and that
+				// is what left the showroom's focus solve unable to find its
+				// subject.
+				Check(bindSize.x < rawSize.x * 1.35f &&
+					  bindSize.y < rawSize.y * 1.35f &&
+					  bindSize.z < rawSize.z * 1.35f,
+					  "and are the same box give or take the fit, not a scaled copy "
+					  "of it -- the inverse bind goes on once, not twice");
 			}
 		}
 	}
