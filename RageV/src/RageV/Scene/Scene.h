@@ -113,6 +113,18 @@ namespace RageV
 		// every material anyway to decide what may go in the GPU cull table.
 		bool HasBlendedMeshes() const { return m_HasBlended; }
 
+		// Whether a body of water exists at all, asked the way the blended
+		// question is and for the same reason: the frame graph decides
+		// whether to pay for the water's backdrop pass and foam step before
+		// anything draws.
+		bool HasWater();
+
+		// One step of every body's foam accumulation buffer, dispatched by
+		// the frame graph's compute pass -- outside any render pass, which
+		// Water::UpdateFoam requires for its barriers. Each body's dt is its
+		// own clock's last tick, so a paused editor decays nothing.
+		void UpdateWaterFoam(RHI::RHICommandList& cmd);
+
 		void UpdateWorldTransforms();
 
 		// --- the draw list ----------------------------------------------------

@@ -36,6 +36,25 @@ namespace RageV
 {
 	struct WaterComponent;
 
+	// One body's foam accumulation state: the ping-pong pair, which half is
+	// readable, and when it last stepped. Owned by the component (so a body's
+	// foam dies with it) and driven by Water::UpdateFoam. Opaque outside
+	// Water.cpp on purpose -- nothing else has an opinion about which half is
+	// which, and the one bug that design rules out is somebody sampling the
+	// half a dispatch is writing.
+	class WaterFoam
+	{
+	public:
+		RHI::Ref<RHI::RHITexture> Textures[2];
+		// Two fixed directions -- Sets[i] reads Textures[i] and writes the
+		// other -- built once with the textures, so no set is ever rewritten
+		// under a recorded bind.
+		RHI::Ref<RHI::RHIResourceSet> Sets[2];
+		uint32_t Current = 0;      // the readable half after the last step
+		uint64_t Frame = 0;        // Renderer::GetFrameCount() at that step
+		uint32_t Resolution = 0;
+	};
+
 	class Water
 	{
 	public:
@@ -74,8 +93,41 @@ namespace RageV
 		// per-body material would have made that a migration.
 		static RHI::Ref<Material> GetMaterial();
 
-		// Drops the material, so a device teardown does not leave one holding
-		// GPU resources it outlived.
+		// One step of the foam accumulation buffer: advect what was there
+		// downwind, decay it, age fresh into residual, and inject where the
+		// Jacobian says the surface is folding *now*. Creates the ping-pong
+		// pair on first use, sized from the body; dispatches at most once per
+		// frame however many views draw the scene (the editor draws two, and
+		// a double step would double the decay). Records its own barriers, so
+		// it must be called outside a render pass -- the frame graph's
+		// compute pass is where it lives.
+		//
+		// `time` and `deltaSeconds` come from the component's own clock, the
+		// same one the vertex stage displaces by, so the injection lands on
+		// the crests the geometry draws.
+		static void UpdateFoam(RHI::RHICommandList& cmd, WaterComponent& component,
+							   float deltaSeconds);
+
+		// The readable half of a body's pair after UpdateFoam ran, or null
+		// before the first step -- the caller binds the shared black
+		// stand-in, which is a calm sea.
+		static RHI::Ref<RHI::RHITexture> CurrentFoam(const WaterComponent& component);
+
+		// The two generated tiles, built once on first use from fixed seeds.
+		//
+		// **Generated at startup, not authored**, and that is the component's
+		// own philosophy applied to its textures: a body of water has no
+		// material field, so it cannot have texture fields either -- the
+		// engine builds the look. The detail map is a periodic Gerstner sum
+		// baked to slopes (the waves below what any grid can carry); the
+		// pattern is ridged periodic noise, the lace a drained sheet of
+		// whitewater leaves.
+		static RHI::Ref<RHI::RHITexture> GetDetailNormal();
+		static RHI::Ref<RHI::RHITexture> GetFoamPattern();
+
+		// Drops the material, the generated tiles and the foam pipeline, so a
+		// device teardown does not leave any of them holding GPU resources
+		// they outlived.
 		static void Shutdown();
 	};
 }

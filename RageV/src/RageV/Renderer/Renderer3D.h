@@ -366,6 +366,17 @@ namespace RageV
 			Vec4 Wave{ 0.6f, 24.0f, 0.55f, 1.6f };
 			// direction in radians, foam, the previous frame's time, spare.
 			Vec4 Extra{ 0.785f, 0.45f, 0.0f, 0.0f };
+			// xy = the body's rectangle in metres -- what turns a local
+			// position into the foam buffer's coordinate. z and w are the
+			// renderer's to fill, not the scene's: z carries the backdrop
+			// flag and the backend's NDC sign (see water_params.glsl).
+			Vec4 Size{ 200.0f, 200.0f, 0.0f, 0.0f };
+
+			// This body's foam accumulation buffer -- the readable half of
+			// the ping-pong pair after Water::UpdateFoam ran. Null draws with
+			// the shared black stand-in, which is a calm sea rather than a
+			// broken one.
+			RHI::Ref<RHI::RHITexture> Foam;
 		};
 
 		static void DrawWaterMesh(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
@@ -478,6 +489,26 @@ namespace RageV
 		// structure and bindless for the heap, exactly as reflections do, and
 		// silently stays off without either. Recompiles the lit shaders.
 		static void SetRayTracedGlobalIllumination(bool enabled);
+
+		// Ray-traced water refraction: the water shader compiled with
+		// RV_RAY_REFRACTION bends the view ray at the surface and traces it
+		// into the scene instead of sampling the backdrop copy. The same two
+		// prerequisites reflections have -- the shadows' structure and the
+		// bindless heap -- and silently stays off without either. Recompiles
+		// the transparent pair (the plain transparent shader takes the define
+		// too, dead code there, so the two set-0 layouts cannot diverge and
+		// the one resource set keeps serving both).
+		static void SetRayTracedWaterRefraction(bool enabled);
+		static bool IsRayTracedWaterRefraction();
+
+		// What the water samples for the glassy see-through this frame: the
+		// opaque scene's colour and its view depth in metres, produced by the
+		// backdrop pass between the opaque passes and the transparent one.
+		// Set by the frame graph around the transparent pass and cleared
+		// after it; null means the pass did not run and the water falls back
+		// to plain blending.
+		static void SetWaterBackdrop(const RHI::Ref<RHI::RHITexture>& color,
+									 const RHI::Ref<RHI::RHITexture>& depth);
 
 		// **Whether indirect light is read rather than computed.**
 		//

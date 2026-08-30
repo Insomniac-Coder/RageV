@@ -364,6 +364,18 @@ namespace RageV
 						const FogSettings& fog, const FogView& view,
 						RHI::Format outputFormat);
 
+		// The water's backdrop: the opaque frame copied beside its depth
+		// linearised to view metres, taken between the opaque passes and the
+		// transparent one so the water can refract and absorb through it
+		// without sampling anything the transparent pass has bound. Writes
+		// two attachments -- colour and an R32 depth.
+		static void WaterBackdrop(RHI::RHICommandList& cmd,
+								  const RHI::Ref<RHI::RHITexture>& scene,
+								  const RHI::Ref<RHI::RHITexture>& depth,
+								  float nearClip, float farClip,
+								  RHI::Format outputFormat,
+								  RHI::Format depthOutputFormat);
+
 		static void SsaoApply(RHI::RHICommandList& cmd,
 							  const RHI::Ref<RHI::RHITexture>& scene,
 							  const RHI::Ref<RHI::RHITexture>& occlusion,
@@ -482,6 +494,7 @@ namespace RageV
 			// The ray budget's three stages: measure each tile, reduce the map
 			// to its mean, then turn importance into ray counts.
 			ImportanceTiles, TileReduce, TileBudget,
+			WaterBackdropCopy,
 			Count
 		};
 

@@ -1,7 +1,10 @@
 // The vertex stage of a body of water: a flat grid displaced into waves.
 //
 // No #version here: an include is spliced into a file that already has one.
-// Expects include/scene_vertex.glsl and include/water_params.glsl first.
+// Expects include/scene_vertex.glsl, include/water_params.glsl and
+// include/water_waves.glsl first -- the sum itself lives in water_waves.glsl,
+// shared with the foam accumulation pass, and this file is what feeds it the
+// dials off the push-constant block.
 //
 // **Gerstner, not a sine.** A sine wave is symmetric -- its crests are as round
 // as its troughs -- and a sea is not: real waves have sharp crests and long flat
@@ -52,7 +55,13 @@ layout(location = 2) in vec2 a_TexCoord;
 // y = where this vertex sits between trough and crest, 0 to 1. A crest is
 // thinner water than a trough, so more light comes back through it -- which is
 // why the tops of swells go green over a dark sea.
-layout(location = 10) out vec2 v_Water;
+//
+// zw = where this vertex sits in the body's own rectangle, 0..1 across width
+// and length -- the coordinate the foam accumulation buffer is addressed by.
+// Computed here because only the vertex has the undisplaced position: taken
+// off the world position in the fragment, the foam would slosh sideways with
+// every crest that displaced it.
+layout(location = 10) out vec4 v_Water;
 
 // The two colours, forwarded rather than looked up again -- flat, because they
 // are constant across the body. **The foam dial rides in .w** rather than
@@ -60,163 +69,25 @@ layout(location = 10) out vec2 v_Water;
 // push-constant block (see water_params.glsl), so anything it needs has to
 // arrive this way, and a vec3 costs a full four-lane slot regardless.
 layout(location = 11) flat out vec4 v_WaterShallow;
-layout(location = 12) flat out vec3 v_WaterDeep;
+// rgb = the deep colour; w = the wave direction in radians, which the
+// anisotropic highlight needs -- the glitter track on wind-driven water is a
+// streak along the wind, not a disc, and the fragment cannot stretch the lobe
+// without knowing which way the wind blows.
+layout(location = 12) flat out vec4 v_WaterDeep;
+// The dials the fragment reads that no earlier varying had room for:
+// x = the body's clock (the detail normals scroll by it), y = the grid
+// spacing, z = the gradient depth in metres, w = flags and the NDC sign --
+// see water_params.glsl for the packing.
+layout(location = 13) flat out vec4 v_WaterMisc;
 
-// How many waves the sum carries.
-//
-// **Thirty-two, and the number is not arbitrary.** Below about sixteen the eye
-// can still pick out the individual constituents; somewhere near thirty to
-// sixty it stops being able to, provided they are spectrally distributed. Under
-// that threshold, more waves only makes a more complicated lattice.
-#define RV_WATER_WAVE_COUNT 32
-
-// How far below the longest wave the shortest sits. **Bounded by the grid, not
-// chosen for looks**: a wave shorter than about four grid quads cannot be
-// drawn, only aliased, and aliased short waves are exactly the ridged noise
-// this rewrite exists to remove. Twelve is a little under 3.6 octaves, which is
-// what a 6 m grid can carry under a 26 m dominant wave.
-#define RV_WATER_BAND 12.0
-
-// A cheap hash for the per-wave phase and the direction jitter. Any hash will
-// do; what matters is that consecutive waves get unrelated values, so the
-// stratification does not turn back into a regular fan.
-float WaterHash(float n)
-{
-	return fract(sin(n * 127.1 + 311.7) * 43758.5453123);
-}
-
-// One wave's contribution. `k` is the wavenumber, `dir` the horizontal
-// direction it travels, `amplitude` its half-height, `steep` its share of the
-// choppiness budget.
-void GerstnerWave(vec2 dir, float amplitude, float k, float steep, float speed,
-				  float phase, vec2 position, float time,
-				  inout vec3 offset, inout vec3 tangent, inout vec3 binormal)
-{
-	// **The phase offset is what stops every crest meeting at the origin.**
-	const float angle = k * dot(dir, position) - speed * k * time + phase;
-	const float c = cos(angle);
-	const float s = sin(angle);
-
-	// Horizontal towards the crest, vertical up it. `steep / k` is the standard
-	// Gerstner amplitude for the horizontal term: it is what keeps the surface
-	// from self-intersecting while the steepness terms sum to under one.
-	const float qa = steep / max(k, 1e-5);
-
-	offset.xz += dir * qa * c;
-	offset.y  += amplitude * s;
-
-	// The two surface derivatives of the above -- where the normal comes from
-	// without ever touching a neighbouring vertex. Deriving it from the
-	// triangle would give one normal per face and break the specular into flat
-	// plates, which is precisely the highlight this is for.
-	tangent.x  += -dir.x * dir.x * steep * s;
-	tangent.z  += -dir.x * dir.y * steep * s;
-	tangent.y  +=  dir.x * amplitude * k * c;
-
-	binormal.x += -dir.x * dir.y * steep * s;
-	binormal.z += -dir.y * dir.y * steep * s;
-	binormal.y +=  dir.y * amplitude * k * c;
-}
-
-// The whole sum, at a position and a time.
-//
-// **Domain warping, and it is nearly free.** The short waves are evaluated at
-// the position the long ones have already displaced, so the chop *rides* the
-// swell instead of sitting in a world-fixed grid underneath it. This is what
-// cascaded FFT oceans get implicitly and why they look organic; without it the
-// small waves march through the big ones as though the two were unrelated.
+// The dials off the push-constant block, into the shared sum.
 void WaterSurface(vec2 position, float time,
 				  out vec3 offset, out vec3 tangent, out vec3 binormal)
 {
-	offset   = vec3(0.0);
-	tangent  = vec3(1.0, 0.0, 0.0);
-	binormal = vec3(0.0, 0.0, 1.0);
-
-	if (RV_WATER_HEIGHT <= 0.0)
-		return;
-
-	const float longest = max(RV_WATER_LENGTH, 0.1);
-
-	// **The short end is the grid's to decide, not the dial's.** A wave shorter
-	// than about four quads cannot be drawn -- it aliases, and aliased short
-	// waves are the ridged noise this rewrite exists to remove. So the band
-	// stops at four times the spacing however wide RV_WATER_BAND asks for, and
-	// somebody who wants finer chop gets it by making the grid finer rather
-	// than by being quietly given noise.
-	const float shortest = max(longest / RV_WATER_BAND,
-							   max(RV_WATER_SPACING, 0.01) * 4.0);
-
-	// Log spacing, so each wave is the same fraction shorter than the last and
-	// the band is covered evenly in octaves rather than in metres.
-	const float ratio = pow(shortest / longest, 1.0 / float(RV_WATER_WAVE_COUNT - 1));
-
-	// **Amplitude proportional to wavelength**, which is what a k^-4 equilibrium
-	// spectrum sampled on a log-spaced band comes out to: constant steepness
-	// across scales. The alternative -- picking a decay by eye -- is how the
-	// first version ended up with a band too narrow to matter.
-	//
-	// Normalised so the surface's variance matches the authored height: the sum
-	// of the squared amplitudes is twice the square of the RMS elevation, and
-	// the RMS is a quarter of the crest-to-trough figure somebody typed. That
-	// is why the divisor is 2*sqrt(2) rather than something tuned.
-	const float ratioSq = ratio * ratio;
-	const float sumSq = (1.0 - pow(ratioSq, float(RV_WATER_WAVE_COUNT)))
-					  / max(1.0 - ratioSq, 1e-6);
-	const float scale = (RV_WATER_HEIGHT / 2.828427)
-					  / max(sqrt(sumSq) * longest, 1e-6);
-
-	// The choppiness budget, shared out so the total cannot fold the surface
-	// however the dial is set.
-	const float steepShare = RV_WATER_CHOPPINESS / float(RV_WATER_WAVE_COUNT);
-
-	// **A narrow fan, and narrower for the long waves than the short ones.**
-	// That is the physical behaviour: long swell is strongly directional, short
-	// chop is nearly isotropic. A single fan applied to every wave is wrong at
-	// both ends, and the old one was wrong by a factor of three.
-	const float baseSpread = 0.62;   // about +/-35 degrees at the peak
-
-	const int swellCount = RV_WATER_WAVE_COUNT / 3;
-
-	vec2 warped = position;
-	float wavelength = longest;
-
-	for (int i = 0; i < RV_WATER_WAVE_COUNT; i++)
-	{
-		const float fi = float(i);
-		const float t = fi / float(RV_WATER_WAVE_COUNT - 1);
-
-		// Stratified: each wave sits in its own slice of the band and is
-		// jittered inside it. Even coverage, and no two wavelengths in a small
-		// whole-number ratio.
-		const float jitter = (WaterHash(fi * 1.7) - 0.5) * 0.8 * (1.0 - ratio);
-		const float k = 6.2831853 / max(wavelength * (1.0 + jitter), 1e-3);
-
-		// The fan widens with wave number, and the sign comes from the hash so
-		// it fills from the middle out rather than sweeping one way.
-		const float spread = baseSpread * (0.35 + 1.15 * t)
-						   * (WaterHash(fi * 3.3) * 2.0 - 1.0);
-		const float heading = RV_WATER_DIRECTION + spread;
-		const vec2 dir = vec2(cos(heading), sin(heading));
-
-		const float amplitude = scale * wavelength;
-
-		// Deep-water dispersion: the long swell outruns the chop, which is most
-		// of what keeps the sum from ever repeating in time.
-		const float speed = RV_WATER_SPEED * sqrt(max(9.81 / max(k, 1e-5), 1e-5)) * 0.32;
-		const float phase = WaterHash(fi * 7.9) * 6.2831853;
-
-		// The longest third is the swell; everything shorter rides on the
-		// displacement the swell has already produced.
-		const vec2 samplePoint = (i < swellCount) ? position : warped;
-
-		GerstnerWave(dir, amplitude, k, steepShare, speed, phase,
-					 samplePoint, time, offset, tangent, binormal);
-
-		if (i == swellCount - 1)
-			warped = position + offset.xz;
-
-		wavelength *= ratio;
-	}
+	WaterSurfaceEval(position, time,
+					 RV_WATER_HEIGHT, RV_WATER_LENGTH, RV_WATER_CHOPPINESS,
+					 RV_WATER_SPEED, RV_WATER_DIRECTION, RV_WATER_SPACING,
+					 offset, tangent, binormal);
 }
 
 void main()
@@ -252,42 +123,15 @@ void main()
 	// exactly like a calm day.
 	v_Water.x = tangent.x * binormal.z - tangent.z * binormal.x;
 
-	// **Foam is left behind, not carried.** Taken only at the current instant,
-	// the stretching term is *attached* to the crest -- it appears and vanishes
-	// with the wave, and that is the single thing that makes shader foam read as
-	// shader foam. Real whitewater is dropped by a breaking crest and drifts
-	// afterwards, outliving the wave that made it.
-	//
-	// So the surface is asked twice more, at earlier times and at the positions
-	// the water has drifted from since, and the strongest stretching of the
-	// three wins. What that leaves is a trail behind each crest instead of a
-	// band on it.
-	//
-	// **This approximates an accumulation buffer, and it is worth saying so.**
-	// The full answer keeps foam in a persistent world-anchored texture,
-	// injects into it, decays it exponentially and advects it by the surface
-	// flow -- which also lets old foam fade to a different colour than fresh.
-	// That needs a compute pass and a ping-pong target. This buys the
-	// "left behind" cue, which is most of the look, for two more taps.
-	{
-		// Roughly the surface drift: a fraction of the wave speed, along the
-		// wind. Foam rides the water, not the wave form.
-		const vec2 drift = vec2(cos(RV_WATER_DIRECTION), sin(RV_WATER_DIRECTION))
-						 * RV_WATER_SPEED * 0.35;
-
-		vec3 o2, t2, b2;
-		WaterSurface(a_Position.xz - drift * 0.6, RV_WATER_TIME - 0.6, o2, t2, b2);
-
-		vec3 o3, t3, b3;
-		WaterSurface(a_Position.xz - drift * 1.4, RV_WATER_TIME - 1.4, o3, t3, b3);
-
-		// A lower Jacobian is more stretched, so the trail takes the minimum --
-		// and the older taps are biased upward so the trail fades out rather
-		// than ending on a hard edge.
-		const float older = min((t2.x * b2.z - t2.z * b2.x) + 0.05,
-								(t3.x * b3.z - t3.z * b3.x) + 0.12);
-		v_Water.x = min(v_Water.x, older);
-	}
+	// **The two history taps that used to sit here moved into the foam
+	// accumulation buffer.** Asking the surface twice more at earlier times
+	// bought the "left behind" cue for two more full evaluations of the sum on
+	// every vertex, every frame -- and it still could only fake a 1.4-second
+	// memory. The buffer keeps a real one: injected where the surface folds,
+	// decayed exponentially, advected downwind, fresh ageing into residual.
+	// The fragment reads it at the coordinate below; this stage's only foam
+	// job now is the *instantaneous* Jacobian above, which drives the wet
+	// crest -- a property of the wave itself, not of the foam it left.
 
 	// Against the authored height rather than any one wave's amplitude:
 	// measured against the largest wave the ratio saturates at every crest and
@@ -295,8 +139,15 @@ void main()
 	v_Water.y = clamp(offset.y / max(RV_WATER_HEIGHT * 0.5, 1e-4) * 0.5 + 0.5,
 					  0.0, 1.0);
 
+	// The undisplaced grid position, as a 0..1 coordinate over the body's
+	// rectangle. BuildGeometry centres the grid on the origin, so half the
+	// size is the offset back to the corner.
+	v_Water.zw = a_Position.xz / max(RV_WATER_SIZE, vec2(1e-3)) + 0.5;
+
 	v_WaterShallow = vec4(RV_WATER_SHALLOW, RV_WATER_FOAM);
-	v_WaterDeep    = RV_WATER_DEEP;
+	v_WaterDeep    = vec4(RV_WATER_DEEP, RV_WATER_DIRECTION);
+	v_WaterMisc    = vec4(RV_WATER_TIME, RV_WATER_SPACING,
+						  RV_WATER_GRADIENT, RV_WATER_FLAGS);
 
 	v_BaseColor     = instance.BaseColor;
 	v_EmissiveColor = instance.EmissiveColor;

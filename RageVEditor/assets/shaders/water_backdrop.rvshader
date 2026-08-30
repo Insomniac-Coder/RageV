@@ -1,0 +1,64 @@
+// The backdrop the water refracts: the opaque frame, and its depth in metres.
+//
+// **A copy pass, and the copy is the design.** What the glassy water needs is
+// the scene *behind* it -- colour to bend, depth to absorb through -- while
+// the transparent pass is drawing over that very image with its depth buffer
+// bound for testing. Sampling an attachment the pass has bound is exactly the
+// layout conflict HANDOFF recorded as the blocker; sampling a copy taken
+// between the opaque passes and the transparent one conflicts with nothing,
+// at any MSAA count, on either backend. It is what Unity's opaque texture and
+// Unreal's scene colour are: every engine that refracts in raster pays this
+// copy, because the alternative is not cheaper, it is undefined.
+//
+// The depth goes out *linearised*, in view metres, because that is the only
+// form the water ever reads -- converting here turns a per-water-pixel
+// LinearDepth into one per screen pixel, and hands the shader a number it can
+// subtract its own clip w from directly.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+#include "include/view_reconstruction.glsl"
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+layout(location = 1) out float o_Depth;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Scene;
+layout(set = 0, binding = 1) uniform sampler2D u_Depth;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;      // PostParams' shared header
+	float TexelY;
+	float NearClip;    // the header's A
+	float FarClip;     // B
+	float C;
+	float FlipY;
+} u_Backdrop;
+
+void main()
+{
+	const bool flip = u_Backdrop.FlipY > 0.5;
+	const vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+
+	o_Color = texture(u_Scene, uv);
+
+	// The sky wrote no depth: reverse-Z leaves it at the clear, which is the
+	// far plane, and the honest thickness under a horizon pixel is "all of
+	// it" -- the same reading the fog pass gives the background.
+	const float raw = texture(u_Depth, uv).r;
+	o_Depth = raw <= 0.000001 ? u_Backdrop.FarClip
+							  : LinearDepth(raw, u_Backdrop.NearClip, u_Backdrop.FarClip);
+}

@@ -1,0 +1,114 @@
+// The foam accumulation buffer: the sea's memory of its own whitecaps.
+//
+// **This is the reverted design from HANDOFF, rebuilt on its own set.** The
+// per-frame Jacobian can only paint foam *on* the crest that is folding right
+// now -- it appears and vanishes with the wave, which is the single thing
+// that makes shader foam read as shader foam. Real whitewater is dropped by a
+// breaking crest and left behind: it drifts downwind, thins, and outlives the
+// wave that made it by many seconds. That is a memory, and a memory needs a
+// buffer.
+//
+// One texture per body, ping-ponged, anchored to the body's own rectangle
+// (the same 0..1 coordinate the vertex stage hands the fragment), holding two
+// channels:
+//
+//   r  fresh foam -- the dense sheet a breaking crest drops. Injected where
+//      the Jacobian says the surface is folding, decays in a second or two.
+//   g  residual foam -- what fresh ages into. The lacy streaks that persist
+//      and drift; decays over tens of seconds.
+//
+// Fresh ageing *into* residual is what makes a trail rather than a blink, and
+// the advection is what makes it a trail at all: without it the foam sits
+// still in world space while the water visibly moves under it, which reads as
+// wrong immediately even when nobody can say why.
+//
+// The wave sum is include/water_waves.glsl -- the same file the vertex stage
+// compiles -- so the injection lands exactly on the crests the geometry
+// draws, not on a second author's opinion of them.
+
+#type compute
+#version 450 core
+
+#include "include/water_waves.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Previous;
+layout(set = 0, binding = 1, rg16f) uniform writeonly image2D u_Next;
+
+layout(push_constant) uniform Params
+{
+	// x = crest-to-trough metres, y = metres between crests, z = choppiness,
+	// w = metres a second -- the body's dials, exactly as the vertex reads them.
+	vec4 Wave;
+	// x = direction in radians, y = the body's clock in seconds, z = the grid
+	// spacing (the sum clamps its shortest wave to it, and the injection must
+	// agree with the geometry about which waves exist), w = dt in seconds.
+	vec4 Extra;
+	// xy = the body's rectangle in metres.
+	vec4 Size;
+} u_Foam;
+
+void main()
+{
+	const ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+	const ivec2 size = imageSize(u_Next);
+	if (any(greaterThanEqual(texel, size)))
+		return;
+
+	const vec2 uv = (vec2(texel) + 0.5) / vec2(size);
+	const vec2 position = (uv - 0.5) * u_Foam.Size.xy;
+
+	// Clamped, because a hitch must not teleport the foam field: a tenth of a
+	// second of drift and decay is the most one step is allowed to mean.
+	const float dt = clamp(u_Foam.Extra.w, 0.0, 0.1);
+	const float time = u_Foam.Extra.y;
+
+	// **Advection: foam rides the water, not the wave form.** The surface
+	// drift is a fraction of the phase speed, along the wind -- the same
+	// constant the old three-tap approximation used, so the look carries
+	// over. Reading the *previous* buffer at the upwind position is the whole
+	// of the transport.
+	const vec2 wind = vec2(cos(u_Foam.Extra.x), sin(u_Foam.Extra.x));
+	const vec2 drift = wind * (u_Foam.Wave.w * 0.35);
+	const vec2 sourceUv = uv - (drift * dt) / max(u_Foam.Size.xy, vec2(1e-3));
+
+	// Upwind of the body there is no foam to inherit. Clamped sampling would
+	// smear the edge texel downwind forever instead.
+	vec2 foam = (any(lessThan(sourceUv, vec2(0.0)))
+			  || any(greaterThan(sourceUv, vec2(1.0))))
+			  ? vec2(0.0)
+			  : texture(u_Previous, sourceUv).rg;
+
+	// **Inject where the surface is folding -- against a harder bar than the
+	// fragment's instantaneous term.** The two are different questions: the
+	// live term paints this instant's stretch and vanishes with it, so it
+	// can afford a soft trigger; whatever crosses *this* bar is remembered
+	// for tens of seconds, and a soft trigger here turns a working sea into
+	// sheet white -- which is what the first render of the buffer showed.
+	// Only the genuinely folding crests earn a memory.
+	vec3 offset, tangent, binormal;
+	WaterSurfaceEval(position, time,
+					 u_Foam.Wave.x, u_Foam.Wave.y, u_Foam.Wave.z, u_Foam.Wave.w,
+					 u_Foam.Extra.x, u_Foam.Extra.z,
+					 offset, tangent, binormal);
+	const float jacobian = tangent.x * binormal.z - tangent.z * binormal.x;
+	const float inject = clamp((0.72 - jacobian) * 2.2, 0.0, 1.0);
+
+	// The exponential forms, not `rate * dt`: ten steps of 10 ms must land
+	// where one step of 100 ms does, or the sim's look depends on the frame
+	// rate. Fresh decays in about a second and a half; what it loses ages
+	// into residual, which lingers for the better part of a minute. The
+	// research's ranges (0.25-1.0/s fresh, ~0.1/s residual) are where these
+	// sit.
+	float fresh = foam.r;
+	float residual = foam.g;
+
+	residual = min(residual + fresh * (1.0 - exp(-dt * 0.55)), 1.0);
+	fresh *= exp(-dt * 0.65);
+	residual *= exp(-dt * 0.22);
+
+	fresh = min(fresh + inject * (1.0 - exp(-dt * 2.2)), 1.0);
+
+	imageStore(u_Next, texel, vec4(fresh, residual, 0.0, 0.0));
+}

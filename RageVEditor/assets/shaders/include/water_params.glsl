@@ -21,3 +21,16 @@
 #define RV_WATER_FOAM         u_Object.WaterExtra.y
 #define RV_WATER_PREV_TIME    u_Object.WaterExtra.z
 #define RV_WATER_SPACING      u_Object.WaterExtra.w
+
+// The body's rectangle, metres across X and along Z -- what turns a local
+// position into the 0..1 coordinate the foam buffer is addressed by.
+#define RV_WATER_SIZE         u_Object.WaterSize.xy
+
+// One float carrying two answers, filled by the renderer and not the scene:
+// zero means the see-through backdrop is not bound this pass and the fragment
+// falls back to plain blending; non-zero means it is, and the *sign* is the
+// backend's -- what turns an NDC y-offset into a texture-row offset, which
+// Vulkan and OpenGL disagree about. Packed this way because the two facts
+// travel together: a refraction offset is only ever applied to a backdrop
+// that exists.
+#define RV_WATER_FLAGS        u_Object.WaterSize.z

@@ -84,6 +84,7 @@ namespace RageV
 				case 29: return "assets/shaders/importance_tiles.rvshader";
 				case 30: return "assets/shaders/tile_reduce.rvshader";
 				case 31: return "assets/shaders/tile_budget.rvshader";
+				case 32: return "assets/shaders/water_backdrop.rvshader";
 				default: return "assets/shaders/fog.rvshader";
 			}
 		}
@@ -104,7 +105,7 @@ namespace RageV
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not -- so the number is
 			// asserted against it in Init instead, where the enum is in scope.
-			std::array<Ref<RHIShader>, 33> Shaders;
+			std::array<Ref<RHIShader>, 34> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -166,7 +167,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 33,
+		static_assert((int)Shader::Count <= 34,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -1107,6 +1108,27 @@ namespace RageV
 		// point floating between the near object and the far one.
 		Dispatch(cmd, Shader::Fog, outputFormat, scene, depth,
 				 &params, sizeof(params), Sampling::Linear, Sampling::Point);
+	}
+
+	void PostProcess::WaterBackdrop(RHICommandList& cmd, const Ref<RHITexture>& scene,
+									const Ref<RHITexture>& depth,
+									float nearClip, float farClip,
+									Format outputFormat, Format depthOutputFormat)
+	{
+		if (!s_Data || !scene || !depth)
+			return;
+
+		PostParams params;
+		params.A = nearClip;
+		params.B = farClip;
+
+		// Point-sampled depth for the fog pass's reason: a filtered read
+		// across a silhouette is a depth between two surfaces, and the water
+		// would measure its thickness to a point that is not there.
+		Dispatch(cmd, Shader::WaterBackdropCopy, outputFormat, scene, depth,
+				 &params, sizeof(params), Sampling::Linear, Sampling::Point,
+				 nullptr, Sampling::Linear, nullptr, Sampling::Linear,
+				 nullptr, nullptr, depthOutputFormat);
 	}
 
 	void PostProcess::SsaoApply(RHICommandList& cmd, const Ref<RHITexture>& scene,

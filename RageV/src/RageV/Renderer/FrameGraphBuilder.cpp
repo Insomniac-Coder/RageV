@@ -771,6 +771,19 @@ namespace RageV
 			desc.Indirect->Invalidate();
 		}
 
+		// --- water foam --------------------------------------------------------
+		//
+		// Before the scene pass, because a compute dispatch may not sit inside
+		// a render pass and the transparent pass reads what this steps. The
+		// callback guards its own once-per-frame, so the editor's second view
+		// re-runs nothing.
+		if (desc.UpdateWater)
+		{
+			graph.AddComputePass("WaterFoam",
+				[](RGPassBuilder&) {},
+				[update = desc.UpdateWater](RGPassContext& context) { update(context); });
+		}
+
 		graph.AddPass("Scene",
 			[&](RGPassBuilder& builder)
 			{
@@ -864,6 +877,50 @@ namespace RageV
 		// still drawn over the smoke it describes rather than under it.
 		if (wantTransparent)
 		{
+			// --- the water's backdrop -------------------------------------------
+			//
+			// Between the opaque passes and the transparent one, which is the
+			// only place it can be: after this the scene target is being drawn
+			// over, and during the transparent pass its depth is bound for
+			// testing -- the layout conflict HANDOFF recorded. The copy
+			// conflicts with nothing: the scene pass has ended, so its colour
+			// and depth (or their single-sampled twins, under MSAA) are
+			// sampleable, and what comes out is a pair the water can read
+			// while the transparent pass owns the real attachments.
+			//
+			// At the output size, not the supersampled one: refraction is
+			// smooth content, and the water addresses it through NDC either
+			// way.
+			RGResource waterBackdrop = kRGInvalid;
+			if (desc.WaterSeeThrough && PostProcess::IsReady())
+			{
+				RGTargetDesc backdropDesc;
+				backdropDesc.Name = "WaterBackdrop";
+				backdropDesc.Color = Format::R16G16B16A16_SFLOAT;
+				// The depth beside it, linearised to view metres by the copy.
+				backdropDesc.ExtraColors = { Format::R32_SFLOAT };
+				backdropDesc.Depth = Format::Undefined;
+				waterBackdrop = graph.CreateTarget(backdropDesc);
+
+				graph.AddPass("WaterBackdrop",
+					[&](RGPassBuilder& builder)
+					{
+						builder.Write(waterBackdrop);
+						builder.Sample(sceneHDR);
+						builder.DisableDepth();
+					},
+					[sceneHDR, waterBackdrop, nearClip = desc.NearClip,
+					 farClip = desc.FarClip](RGPassContext& context)
+					{
+						PostProcess::WaterBackdrop(context.Cmd,
+												   context.Color(sceneHDR, 0),
+												   context.Depth(sceneHDR),
+												   nearClip, farClip,
+												   Format::R16G16B16A16_SFLOAT,
+												   Format::R32_SFLOAT);
+					});
+			}
+
 			graph.AddPass("Transparent",
 				[&](RGPassBuilder& builder)
 				{
@@ -877,8 +934,21 @@ namespace RageV
 					// Clear these two, keep the depth the scene wrote --
 					// which is the whole reason they share a target.
 					builder.PreserveDepth();
+
+					if (waterBackdrop != kRGInvalid)
+						builder.Sample(waterBackdrop);
 				},
-				[draw = desc.DrawTransparent](RGPassContext& context) { draw(context); });
+				[draw = desc.DrawTransparent, waterBackdrop](RGPassContext& context)
+				{
+					// Handed over around the draw and taken back after it, the
+					// ScreenReflections shape: the renderer must not carry a
+					// texture the pool may hand to somebody else next frame.
+					if (waterBackdrop != kRGInvalid)
+						Renderer3D::SetWaterBackdrop(context.Color(waterBackdrop, 0),
+													 context.Color(waterBackdrop, 1));
+					draw(context);
+					Renderer3D::SetWaterBackdrop(nullptr, nullptr);
+				});
 
 			graph.AddPass("ResolveTransparent",
 				[&](RGPassBuilder& builder)

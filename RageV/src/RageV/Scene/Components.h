@@ -560,6 +560,13 @@ namespace RageV
 		float BuiltSpacing = 0.0f;
 		float BuiltTextureScale = 0.0f;
 
+		// The foam accumulation state -- the ping-pong pair and its
+		// bookkeeping, owned by Renderer/Water and opaque here. Shared with
+		// Play's snapshot on the same terms Runtime is: the foam is a picture
+		// of this sea's recent past, and a snapshot's sea is the same sea.
+		// (`Foam` above is the authored dial; this is runtime state.)
+		std::shared_ptr<class WaterFoam> FoamState;
+
 		WaterComponent() = default;
 		WaterComponent(const WaterComponent&) = default;
 	};

@@ -215,7 +215,7 @@ layout(set = 0, binding = 14) uniform accelerationStructureEXT u_SceneAS;
 // heap, by the record index the instance table names. One row per structure
 // instance in build order; the hit's custom index is the row. Mirrored by
 // hand in Renderer3D.cpp (GpuRayInstance), std430.
-#if defined(RV_RAY_REFLECTIONS) || defined(RV_RAY_GI)
+#if defined(RV_RAY_REFLECTIONS) || defined(RV_RAY_GI) || defined(RV_RAY_REFRACTION)
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_EXT_buffer_reference_uvec2 : require
@@ -422,9 +422,11 @@ layout(location = 8) in vec4 v_PrevClipPos;
 layout(location = 9) flat in float v_MaterialIndex;
 
 #ifdef RV_WATER
-// x = foam, y = where this fragment sits between trough and crest. Written by
+// x = the instantaneous Jacobian (the wet-crest signal), y = where this
+// fragment sits between trough and crest, zw = the 0..1 coordinate over the
+// body's rectangle that addresses the foam buffer. Written by
 // include/water_vertex.glsl, which explains what each is for.
-layout(location = 10) in vec2 v_Water;
+layout(location = 10) in vec4 v_Water;
 
 // The body's two colours, forwarded by the vertex stage rather than read here.
 // **The fragment declares no push-constant block on purpose**: the vertex
@@ -432,7 +434,29 @@ layout(location = 10) in vec2 v_Water;
 // must agree are two that eventually do not -- what that looks like is one
 // dial moving the wrong thing.
 layout(location = 11) flat in vec4 v_WaterShallow;   // rgb + foam
-layout(location = 12) flat in vec3 v_WaterDeep;
+layout(location = 12) flat in vec4 v_WaterDeep;      // rgb + wind direction
+// x = the body's clock, y = grid spacing, z = gradient depth in metres,
+// w = the backdrop flag and NDC sign (see water_params.glsl).
+layout(location = 13) flat in vec4 v_WaterMisc;
+
+// **The water pipeline's own set, and that is the lesson of the reverted
+// first attempt.** The foam buffer went through Material::SetOcclusionMap
+// once, because that needed no layout change -- and it collided with the
+// occlusion term, forced a material per body, and still read as zero through
+// the bindless records. Set 3 is free in every pipeline family (0 the scene,
+// 1 the material, 2 the heap), so the water surface binds what only water
+// needs at a number nothing else claims.
+//
+//   0  what the opaque passes rendered, for refraction to bend
+//   1  that image's view depth in metres, for absorption to measure through
+//   2  the foam accumulation buffer: r fresh, g residual
+//   3  a tileable detail normal map, the waves below the geometry floor
+//   4  a tileable foam pattern, so the buffer's smooth mask breaks into lace
+layout(set = 3, binding = 0) uniform sampler2D u_WaterBackdrop;
+layout(set = 3, binding = 1) uniform sampler2D u_WaterBackdropDepth;
+layout(set = 3, binding = 2) uniform sampler2D u_WaterFoamBuffer;
+layout(set = 3, binding = 3) uniform sampler2D u_WaterDetailNormal;
+layout(set = 3, binding = 4) uniform sampler2D u_WaterFoamPattern;
 #endif
 
 #ifdef RV_TRANSPARENT
@@ -629,7 +653,7 @@ float CascadeFactor(int cascade, vec3 worldPos, vec3 N, vec3 L)
 // loop stays empty, and a cutout shadows as its sheet exactly as it did
 // before any of this. Saying so with the ray flag rather than with a `return
 // true` keeps that variant paying nothing for a test it cannot run.
-#if defined(RV_RAY_REFLECTIONS) || defined(RV_RAY_GI)
+#if defined(RV_RAY_REFLECTIONS) || defined(RV_RAY_GI) || defined(RV_RAY_REFRACTION)
 #define RV_RAY_BASE_FLAGS 0u
 
 bool RayCandidateIsThere(rayQueryEXT query)
@@ -1520,7 +1544,7 @@ vec3 ProbeParallax(vec3 position, vec3 direction, float slot)
 }
 
 
-#if defined(RV_RAY_REFLECTIONS) || defined(RV_RAY_GI)
+#if defined(RV_RAY_REFLECTIONS) || defined(RV_RAY_GI) || defined(RV_RAY_REFRACTION)
 // The radiance the mirror ray from `origin` along `direction` finds
 // (ENGINE-NOTES 7ao): the sky where it misses, and a *simplified* shade of
 // the surface where it hits -- base colour and emissive through the hit's
@@ -2024,6 +2048,69 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 		   GeometrySchlickGGX(max(dot(N, L), 0.0), roughness);
 }
 
+#ifdef RV_WATER
+// **Beckmann, not GGX, for the water's analytic lights -- and anisotropic.**
+// Cox and Munk photographed the sun's glitter from the air and fitted the sea
+// surface's slope distribution: it is a Gaussian, which is exactly Beckmann's
+// microfacet density, where GGX's heavy tails smear the glitter into a haze
+// over the whole sea instead of a defined track. And they fitted it *twice*,
+// because the variances differ along and across the wind -- which is what
+// turns the highlight from a disc into the streak a low light actually lays
+// on wind-driven water.
+//
+// **The roughness here is the RMS slope itself, not squared.** The footprint
+// block chose its 0.24 ceiling as Cox-Munk's slope at a fresh breeze, so
+// feeding it through the perceptual alpha = r*r convention would collapse the
+// horizon variance to a hundredth of the measured sea. The two conventions
+// meet at the numbers this shader actually runs -- water stays under 0.3 --
+// and the environment split-sum keeps the perceptual mapping it was built
+// with, so only these two functions read it this way.
+//
+// The ratio 1.16 : 0.86 is the square root of Cox-Munk's asymptotic variance
+// ratio (3.16 : 1.92 per unit wind), applied about the shared mean so the
+// total slope energy the footprint block budgeted is preserved.
+float WaterBeckmannD(vec3 H, vec3 N, vec3 T, vec3 B, float roughness)
+{
+	const float ax = max(roughness * 1.16, 0.02);
+	const float ay = max(roughness * 0.86, 0.02);
+
+	const float NdotH = dot(N, H);
+	if (NdotH <= 0.0)
+		return 0.0;
+
+	const float th = dot(T, H);
+	const float bh = dot(B, H);
+	const float n2 = NdotH * NdotH;
+
+	const float slope = ((th * th) / (ax * ax) + (bh * bh) / (ay * ay)) / n2;
+	return exp(-slope) / (PI * ax * ay * n2 * n2);
+}
+
+// Walter's rational fit of the Beckmann Smith shadowing term, one direction,
+// with the roughness projected into that direction's azimuth so the term
+// matches the anisotropic lobe above rather than an isotropic stand-in.
+float WaterBeckmannG1(vec3 v, vec3 N, vec3 T, vec3 B, float roughness)
+{
+	const float NdotV = dot(N, v);
+	if (NdotV <= 0.0)
+		return 0.0;
+
+	const float ax = max(roughness * 1.16, 0.02);
+	const float ay = max(roughness * 0.86, 0.02);
+
+	const float tv = dot(T, v);
+	const float bv = dot(B, v);
+	const float azimuth2 = max(tv * tv + bv * bv, 1.0e-8);
+	const float alpha = sqrt((tv * tv * ax * ax + bv * bv * ay * ay) / azimuth2);
+
+	const float tanTheta = sqrt(max(1.0 - NdotV * NdotV, 0.0)) / max(NdotV, 1.0e-4);
+	const float a = 1.0 / max(alpha * tanTheta, 1.0e-4);
+	if (a >= 1.6)
+		return 1.0;
+	return (3.535 * a + 2.181 * a * a) / (1.0 + 2.276 * a + 2.577 * a * a);
+}
+#endif
+
 vec3 FresnelSchlick(float cosTheta, vec3 F0)
 {
 	return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
@@ -2384,6 +2471,67 @@ void main()
 	// looking uniformly matte.
 	const float jacobian = v_Water.x;
 
+	// The wind, reconstructed once: the detail normals scroll along it, the
+	// foam pattern drifts with it, and the specular lobe stretches along it.
+	const float waterTime = v_WaterMisc.x;
+	const vec2 waterWind = vec2(cos(v_WaterDeep.w), sin(v_WaterDeep.w));
+
+	// **Detail normals below the geometry floor.** At a 3 m grid the shortest
+	// wave the vertices can carry is 12 m, and a real sea's slope lives almost
+	// entirely under that -- centimetre chop the footprint-roughness block
+	// further down can only average into a wider highlight. Two reads of one
+	// tileable map at unrelated scales, scrolled at different speeds along the
+	// wind so the pattern never repeats in time, perturb the wave normal in
+	// world XZ -- legitimate because a body of water is horizontal, which is
+	// also why no TBN is built for it.
+	//
+	// Faded with distance for the same reason the footprint grows: once the
+	// ripple is smaller than a pixel it cannot be drawn, only aliased, and its
+	// slope energy is already accounted for in the roughness. Without the fade
+	// the horizon shimmers.
+	{
+		const vec2 detailUv1 = v_WorldPos.xz / 6.1 + waterWind * (waterTime * 0.110);
+		const vec2 detailUv2 = v_WorldPos.xz / 2.3 - waterWind * (waterTime * 0.067);
+		const vec2 slope1 = texture(u_WaterDetailNormal, detailUv1).xy * 2.0 - 1.0;
+		const vec2 slope2 = texture(u_WaterDetailNormal, detailUv2).xy * 2.0 - 1.0;
+
+		const float viewDistance = length(u_Scene.CameraPosition.xyz - v_WorldPos);
+		const float detailFade = exp(-viewDistance * 0.010);
+
+		surface.N = normalize(surface.N + vec3(slope1.x + slope2.x * 0.6, 0.0,
+											   slope1.y + slope2.y * 0.6)
+										  * (0.32 * detailFade));
+	}
+
+	// **Foam comes off the accumulation buffer now, not off this instant's
+	// wave.** The buffer is injected where the surface folds, decays
+	// exponentially, drifts downwind, and its fresh channel ages into a
+	// residual one -- so a whitecap leaves a trail that outlives the crest
+	// that dropped it, which is most of what separates foam from painted foam.
+	// The instantaneous Jacobian still contributes underneath it: the sim grid
+	// is metres wide and the fold is sharper than that, so the live term is
+	// what keeps the onset crisp while the buffer supplies the memory.
+	//
+	// The pattern texture is what stops the mask being airbrush: fresh foam is
+	// dense sheet whitewater and barely cut by it; residual foam is the lace
+	// that is left when the sheet drains through.
+	const vec2 foamAccum = texture(u_WaterFoamBuffer, v_Water.zw).rg;
+
+	// The lace at two unrelated scales, multiplied, so the tile's repeat
+	// never shows as a repeat -- and a third read stretched hard along the
+	// wind for the residual: old foam on a real sea collects into windrows,
+	// streaks running downwind, and that anisotropy is most of what
+	// separates weathered foam from splatter.
+	const vec2 windPerp = vec2(-waterWind.y, waterWind.x);
+	const float lace1 = texture(u_WaterFoamPattern,
+								v_WorldPos.xz * 0.19
+								+ waterWind * (waterTime * 0.02)).r;
+	const float lace2 = texture(u_WaterFoamPattern, v_WorldPos.xz * 0.041).r;
+	const float foamLace = clamp(lace1 * (0.35 + lace2 * 0.9), 0.0, 1.0);
+	const float foamStreak = texture(u_WaterFoamPattern,
+									 vec2(dot(v_WorldPos.xz, waterWind) * 0.013,
+										  dot(v_WorldPos.xz, windPerp) * 0.09)).r;
+
 	// Soft thresholds, not `J < 0`. A hard cut gives foam that pops on and off
 	// with the crest; the bias and gain are what turn it into an edge.
 	// **The bias sits just above 1, not at 0.** A textbook whitecap is J < 0 --
@@ -2393,18 +2541,63 @@ void main()
 	// produced. Real foam also does not wait for a full fold: it appears as the
 	// crest steepens. So the trigger is "stretching at all", and the gain sets
 	// how quickly that becomes white.
-	const float foam = clamp((0.88 - jacobian) * 2.6, 0.0, 1.0) * v_WaterShallow.w;
+	const float foamNow = clamp((0.88 - jacobian) * 2.6, 0.0, 1.0);
+	const float foam = clamp(max(foamAccum.r * mix(foamLace, 1.0, 0.5) * 0.85
+							   + foamAccum.g * foamLace * foamStreak * 0.55,
+								 foamNow * 0.45 * mix(foamLace, 1.0, 0.4)),
+							 0.0, 1.0) * v_WaterShallow.w;
 	const float wetness = smoothstep(1.0, 0.45, jacobian) * (1.0 - foam);
+
+	// **How much water the view ray passes through, off the real scene.** The
+	// backdrop pass leaves the opaque frame's view depth in metres beside its
+	// colour; this surface's own view depth is the clip w. The difference is
+	// the thickness of water behind this pixel -- zero at the waterline where
+	// a pier breaks the surface, hundreds of metres out in the bay -- and it
+	// is what both the colour gradient here and the absorption in the
+	// transparent block below measure through. Flags of zero means no
+	// backdrop is bound this pass, and everything below falls back to the
+	// crest-based gradient that predates it.
+	// The screen coordinate through this frame's own projection, mapped the
+	// way the lit shader already maps last frame's reflection trace: NDC with
+	// the y-sign that takes it into the texture's row direction -- the sign
+	// rides in the flags, because which way rows run is the backend's fact
+	// and the renderer's to state.
+	const float waterFlags = v_WaterMisc.w;
+	const float waterGradient = max(v_WaterMisc.z, 0.05);
+	vec2 waterScreenUV = vec2(0.0);
+	float waterThickness = 0.0;
+	if (waterFlags != 0.0)
+	{
+		const vec2 ndcHere = v_ClipPos.xy / max(v_ClipPos.w, 1.0e-4);
+		waterScreenUV = vec2(ndcHere.x, ndcHere.y * sign(waterFlags)) * 0.5 + 0.5;
+		const float eyeBehind = texture(u_WaterBackdropDepth, waterScreenUV).r;
+		waterThickness = max(eyeBehind - v_ClipPos.w, 0.0);
+	}
 
 	// **Two colours, then foam, in that order.** The gradient is the body of the
 	// water and the foam sits on top of it; the other way round tints the
 	// whitewater with the sea under it, and foam is not tinted -- it is air, and
 	// air is white whatever it floats on.
 	//
+	// With the backdrop bound the gradient is driven by the *measured* depth --
+	// shallow over the pier footing, deep in the channel beside it, which is
+	// the owed depth-based colour -- and the crest term becomes a modifier: a
+	// crest is thinner water whatever the bottom is doing. Without it, the
+	// crest term is all there is, which is what this looked like before.
+	//
 	// The material's own base colour is deliberately ignored: a body of water
 	// has no material to point at, so the colours a scene authors are the
 	// component's and they arrive in the push constants.
-	albedo = mix(v_WaterDeep, v_WaterShallow.rgb, v_Water.y);
+	if (waterFlags != 0.0)
+	{
+		const float depthMix = 1.0 - exp(-waterThickness / waterGradient);
+		albedo = mix(v_WaterShallow.rgb, v_WaterDeep.rgb, depthMix);
+		albedo = mix(albedo, v_WaterShallow.rgb, v_Water.y * 0.2);
+	}
+	else
+	{
+		albedo = mix(v_WaterDeep.rgb, v_WaterShallow.rgb, v_Water.y);
+	}
 
 	// The wet crest: smoother than the water around it, and *not* lighter. What
 	// makes it read is the sharpened reflection, not a change of colour -- a
@@ -2472,6 +2665,16 @@ void main()
 	vec3 F0 = mix(vec3(0.08 * clamp(surface.Specular, 0.0, 1.0)), albedo, metallic);
 
 	vec3 Lo = vec3(0.0);
+
+#ifdef RV_WATER
+	// The analytic specular on its own, beside the total. The transparent
+	// block replaces the water's *scattered* light with the refracted scene
+	// as the transmittance rises -- but the glitter is surface reflection,
+	// bounced before the ray ever enters the water, and absorbing it with
+	// the body would switch the sun track off exactly where the water goes
+	// clear. Summed separately so it can be held out of that mix.
+	vec3 waterSpecular = vec3(0.0);
+#endif
 
 	// Directional lights first, unconditionally: they have no position, so they
 	// reach every cell and binning them would put a copy in all 3456 of them.
@@ -2566,8 +2769,22 @@ void main()
 		vec3 H = normalize(V + L);
 		vec3 radiance = lightColor * attenuation;
 
+#ifdef RV_WATER
+		// The anisotropic Beckmann lobe, in a frame aligned to the wind: the
+		// tangent is the wind flattened onto the surface, which is what makes
+		// the glitter a streak along it. See the functions for why Beckmann
+		// and why the roughness is read as slope.
+		vec3 waterT = normalize(vec3(waterWind.x, 0.0, waterWind.y)
+								- N * dot(vec3(waterWind.x, 0.0, waterWind.y), N));
+		vec3 waterB = cross(N, waterT);
+
+		float NDF = WaterBeckmannD(H, N, waterT, waterB, roughness);
+		float G   = WaterBeckmannG1(V, N, waterT, waterB, roughness)
+				  * WaterBeckmannG1(L, N, waterT, waterB, roughness);
+#else
 		float NDF = DistributionGGX(N, H, roughness);
 		float G   = GeometrySmith(N, V, L, roughness);
+#endif
 		vec3  F   = FresnelSchlick(max(dot(H, V), 0.0), F0);
 
 		vec3 numerator = NDF * G * F;
@@ -2603,6 +2820,9 @@ void main()
 #endif
 
 		Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow;
+#ifdef RV_WATER
+		waterSpecular += specular * radiance * NdotL * shadow;
+#endif
 	}
 
 	// A constant environment standing in for IBL: irradiance is the same from
@@ -2958,6 +3178,117 @@ void main()
 	float reflectance = clamp(max(reflected.r, max(reflected.g, reflected.b)), 0.0, 1.0);
 
 	float alpha = clamp(baseColor.a, 0.0, 1.0);
+
+#ifdef RV_WATER
+	// **The glassy see-through: what is behind the surface, bent and
+	// absorbed.** Alpha blending can only fade the water towards what is
+	// behind it; glass-clear water does something different -- it *shows* the
+	// scene below, displaced by the surface slope and losing red first as the
+	// path through it lengthens. So the transmitted term stops being the
+	// water's own lit colour and becomes the scene behind, run through
+	// Beer-Lambert, with the lit colour taking over exactly as the
+	// transmittance dies -- which is what depth does to a real sea.
+	//
+	// The extinction is quoted against the gradient dial: at a thickness of
+	// one GradientDepth the red channel is gone and blue is down to a
+	// quarter, so the dial keeps meaning what its name says -- metres to
+	// reach deep water -- for the absorption as well as the colour ramp. The
+	// spectral shape (red dies ~5x faster than blue) is clear-ocean water's.
+	//
+	// Foam scales the transmittance down before the mix: whitewater floats
+	// *on* the surface and a pixel the sheet covers shows foam, not the
+	// refracted pier below it.
+	{
+		const vec3 waterSigma = vec3(4.6, 1.9, 1.3) / max(waterGradient, 0.05);
+		const vec3 waterView = normalize(u_Scene.CameraPosition.xyz - v_WorldPos);
+
+#ifdef RV_RAY_REFRACTION
+		// **The traced form: the actual refracted ray, into the actual
+		// scene.** Snell at the surface, then the same traversal and the same
+		// simplified shade the mirror rays use -- so a pier leg seen through
+		// the swell is the pier leg, displaced exactly as physics displaces
+		// it, wherever it is and whether or not it is on screen. The hit
+		// distance is the true path length through the water, which the
+		// screen-space form can only approximate along the view axis.
+		//
+		// A miss is open sea with no bottom in reach: transmittance zero, the
+		// lit colour answers, which is what a bottomless bay looks like.
+		const vec3 refractedDir = refract(-waterView, N, 0.7519);
+		if (dot(refractedDir, refractedDir) > 1.0e-6)
+		{
+			TracedSurface behindHit = TraceSurface(v_WorldPos, -N, refractedDir, 300.0);
+			vec3 waterT = vec3(0.0);
+			vec3 behind = vec3(0.0);
+			if (!behindHit.Missed)
+			{
+				const float through = length(behindHit.Position - v_WorldPos);
+				waterT = exp(-waterSigma * through) * (1.0 - foam);
+				behind = ShadeTraced(behindHit,
+									 ProbeIrradiance(behindHit.Normal, v_Probe));
+			}
+			// Only the *scattered* light gives way to the refracted scene:
+			// the glitter is surface reflection and never entered the water,
+			// so it rides over clear and murky alike.
+			const vec3 scatter = max(transmitted - waterSpecular, vec3(0.0));
+			transmitted = behind * waterT + scatter * (1.0 - waterT) + waterSpecular;
+			alpha = 1.0;
+		}
+#else
+		// **The raster form: the opaque frame, sampled where the refracted
+		// ray lands.** A point is pushed a little way down the refracted
+		// direction and reprojected; the screen-space offset to it is the
+		// distortion, so the bend scales correctly with distance and view
+		// angle rather than being a fixed screen-space wobble. The push is
+		// clamped to the measured thickness -- shallow water bends what is
+		// visibly just below the surface, not something metres away.
+		//
+		// Two guards on the fetched sample, both standard and both earned:
+		// an offset that lands outside the frame falls back to the straight
+		// sample, and one that lands on something *nearer than the surface*
+		// -- a pier standing out of the water smeared across it -- is
+		// rejected the same way, because the backdrop holds no second layer
+		// behind that pier to fetch.
+		if (waterFlags != 0.0)
+		{
+			const vec3 refractedDir = refract(-waterView, N, 0.7519);
+			const float push = clamp(waterThickness, 0.25, 4.0);
+			const vec4 refractedClip = u_Scene.ViewProjection
+									 * vec4(v_WorldPos + refractedDir * push, 1.0);
+
+			// Through the same NDC-to-row mapping the straight sample took, so
+			// the two agree about which way is down the image.
+			const vec2 ndcRefracted = refractedClip.xy / max(refractedClip.w, 1.0e-4);
+			vec2 refractedUV = vec2(ndcRefracted.x,
+									ndcRefracted.y * sign(waterFlags)) * 0.5 + 0.5;
+			float eyeBehind = texture(u_WaterBackdropDepth, refractedUV).r;
+			const bool offFrame = any(lessThan(refractedUV, vec2(0.0)))
+							   || any(greaterThan(refractedUV, vec2(1.0)));
+			if (offFrame || eyeBehind < v_ClipPos.w - 0.05)
+			{
+				refractedUV = waterScreenUV;
+				eyeBehind = texture(u_WaterBackdropDepth, refractedUV).r;
+			}
+
+			const float through = max(eyeBehind - v_ClipPos.w, 0.0);
+			const vec3 waterT = exp(-waterSigma * through) * (1.0 - foam);
+			const vec3 behind = texture(u_WaterBackdrop, refractedUV).rgb;
+
+			// Only the *scattered* light gives way to the refracted scene:
+			// the glitter is surface reflection and never entered the water,
+			// so it rides over clear and murky alike.
+			const vec3 scatter = max(transmitted - waterSpecular, vec3(0.0));
+			transmitted = behind * waterT + scatter * (1.0 - waterT) + waterSpecular;
+
+			// The pixel is owned outright: the background is already inside
+			// the transmitted term, refracted, so letting the resolve show it
+			// again through the revealage would draw it twice -- once bent
+			// and once straight, a double exposure at every waterline.
+			alpha = 1.0;
+		}
+#endif
+	}
+#endif
+
 	float coverage = clamp(alpha + reflectance * (1.0 - alpha), 0.0, 1.0);
 	float viewDepth = length(v_WorldPos - u_Scene.CameraPosition.xyz);
 	float weight = coverage * clamp(kUnitWeightDistance / max(viewDepth, 1e-3), 1e-2, 3e3);

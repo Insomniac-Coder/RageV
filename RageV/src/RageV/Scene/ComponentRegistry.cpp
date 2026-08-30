@@ -1859,6 +1859,18 @@ namespace
 						"can be mixed into the specular term the same frame, which "
 						"is the whole of what it has over the screen-space walk."))))),
 
+				Field<&RenderSettings::RayTracedWaterRefraction>("RayTracedWaterRefraction",
+					Named("RT water refraction", OnlyWhen(OffersRayReflections, Tip(
+						"Bend the view ray at the water's surface and trace it "
+						"into the scene, so what shows through the swell is the "
+						"actual geometry below at its actual refracted position "
+						"-- on screen or not -- with absorption measured along "
+						"the true underwater path. Off, the water refracts "
+						"through a copy of the opaque frame instead, which is "
+						"the raster form and most of the look. Offered only "
+						"where materials are bindless as well, because a "
+						"refracted hit is shaded through the material heap.")))),
+
 				Field<&RenderSettings::RayTracedAmbientOcclusion>("RayTracedAmbientOcclusion",
 					Named("RT ambient occlusion", OnlyWhen(RayTracingOn,
 						WasBool((int)AoDetail::Half, Enum(kAoDetailNames,

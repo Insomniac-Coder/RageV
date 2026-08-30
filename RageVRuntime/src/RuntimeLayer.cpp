@@ -348,6 +348,17 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 		};
 	}
 
+	// The water's two extras, on the transparent block's own terms: only
+	// when a body exists to pay for them.
+	if (m_Scene->HasWater())
+	{
+		frame.WaterSeeThrough = true;
+		frame.UpdateWater = [this](RGPassContext& context)
+		{
+			m_Scene->UpdateWaterFoam(context.Cmd);
+		};
+	}
+
 	BuildFrame(*m_Graph, frame);
 
 	if (!m_Graph->Compile())

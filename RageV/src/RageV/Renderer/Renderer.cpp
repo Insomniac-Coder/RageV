@@ -16,6 +16,7 @@
 #include "RageV/Project/Project.h"
 #include "PostProcess.h"
 #include "AutoExposure.h"
+#include "Water.h"
 
 namespace RageV
 {
@@ -74,6 +75,11 @@ namespace RageV
 
 	void Renderer::Shutdown()
 	{
+		// Before the renderers: the water's material, foam buffers and compute
+		// pipeline hold device resources, and this was not called from
+		// anywhere at all until the foam work made the leak big enough to
+		// matter.
+		Water::Shutdown();
 		AutoExposure::Shutdown();
 		PostProcess::Shutdown();
 		ProbeArray::Shutdown();

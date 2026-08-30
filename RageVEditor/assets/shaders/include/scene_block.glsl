@@ -215,6 +215,9 @@ layout(push_constant) uniform ObjectData
 	vec4 WaterWave;
 	// x = direction in radians, y = foam, z = the previous frame's time.
 	vec4 WaterExtra;
+	// xy = the body's rectangle in metres, z = the backdrop flag and NDC sign
+	// (see water_params.glsl), w unused.
+	vec4 WaterSize;
 #endif
 } u_Object;
 

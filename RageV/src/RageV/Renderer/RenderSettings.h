@@ -257,6 +257,18 @@ namespace RageV
 		// than the 0.30 ms the rays cost. So the level says how glossy a
 		// surface has to be before it earns a ray.
 		RayDetail RayTracedReflections = RayDetail::Off;
+
+		// The water's traced refraction: the view ray is bent at the surface
+		// by Snell's law and traced into the scene, so what shows through the
+		// swell is the actual pier leg at its actual displaced position --
+		// wherever it is, on screen or not -- with the absorption measured
+		// along the true underwater path. Off, the water refracts through the
+		// backdrop copy instead (the raster form every engine ships), which
+		// covers most of the look for none of the rays. Needs bindless as
+		// well as ray queries, like reflections, because a refracted hit is
+		// shaded through the material heap.
+		bool RayTracedWaterRefraction = false;
+
 		// Off, Half or Full, the same three the profile's own AO offers and
 		// for the same reason -- the level is the resolution the occlusion is
 		// computed at. Where this is anything but Off it answers instead of

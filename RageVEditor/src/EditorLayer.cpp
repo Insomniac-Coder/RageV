@@ -721,6 +721,18 @@ void EditorLayer::OnUpdate(Timestep ts)
 		};
 	}
 
+	// The water's two extras, on the transparent block's own terms: only
+	// when a body exists to pay for them. The foam step guards its own
+	// once-per-frame, so the game view below re-running it costs nothing.
+	if (m_Scene->HasWater())
+	{
+		scene.WaterSeeThrough = true;
+		scene.UpdateWater = [this](RGPassContext& context)
+		{
+			m_Scene->UpdateWaterFoam(context.Cmd);
+		};
+	}
+
 	BuildFrame(*m_Graph, scene);
 
 	if (m_Graph->Compile())
@@ -813,6 +825,17 @@ void EditorLayer::OnUpdate(Timestep ts)
 										 const RHI::Ref<RHI::RHITexture>& revealage)
 			{
 				ParticleRenderer::ResolveWeighted(accumulate, revealage);
+			};
+		}
+
+		// The scene view's foam step already ran this frame; the guard inside
+		// makes this one a no-op, and the backdrop is this view's own.
+		if (m_Scene->HasWater())
+		{
+			game.WaterSeeThrough = true;
+			game.UpdateWater = [this](RGPassContext& context)
+			{
+				m_Scene->UpdateWaterFoam(context.Cmd);
 			};
 		}
 

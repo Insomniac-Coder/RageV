@@ -47,6 +47,22 @@ namespace RageV
 		std::function<void(RGPassContext&, const RHI::Ref<RHI::RHITexture>&,
 						   const RHI::Ref<RHI::RHITexture>&)> ResolveTransparent;
 
+		// Whether a body of water is in the scene, asked the way the
+		// transparent pass itself is. True adds the backdrop pass between
+		// the opaque passes and the transparent one -- the opaque frame and
+		// its depth in metres, copied once so the water can refract and
+		// absorb through them -- and hands the pair to the renderer around
+		// the transparent draw. Costs one full-screen copy, only on frames
+		// that have water to spend it on.
+		bool WaterSeeThrough = false;
+
+		// Steps the water's foam accumulation buffers, before the scene pass
+		// and outside any render pass -- it dispatches compute and records
+		// its own barriers. Optional, like the transparent callbacks, and
+		// only wired when the scene has water. Guards its own once-per-frame,
+		// so the editor's two views do not run the decay twice.
+		std::function<void(RGPassContext&)> UpdateWater;
+
 		// The screen-space UI layer, drawn last of all -- after tone mapping and
 		// after anti-aliasing, straight into the output in LDR.
 		//

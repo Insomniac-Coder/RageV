@@ -4,6 +4,7 @@
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include "TextureLoader.h"
 #include "TextureHeap.h"
+#include "Water.h"
 #include "RayShadows.h"
 #include "VoxelGI.h"
 #include "ShadowMap.h"
@@ -229,8 +230,9 @@ namespace RageV
 			Vec4 Deep;
 			Vec4 Wave;
 			Vec4 Extra;
+			Vec4 Size;
 		};
-		static_assert(sizeof(WaterPushConstants) == 80,
+		static_assert(sizeof(WaterPushConstants) == 96,
 					  "Must match ObjectData under RV_WATER in scene_block.glsl, "
 					  "and stay within the 128 bytes every device guarantees");
 
@@ -746,6 +748,13 @@ namespace RageV
 				// for the identical reason.
 				std::vector<Ref<RHIResourceSet>> MeshletSets;
 				uint32_t MeshletCursor = 0;
+				// The water pipeline's set 3 -- backdrop, foam and the two
+				// generated tiles. One per water *run*, pooled with a cursor
+				// exactly like the meshlet sets and for the same reason: the
+				// foam buffer differs per body, and a set rewritten under a
+				// recorded bind invalidates the command buffer.
+				std::vector<Ref<RHIResourceSet>> WaterSets;
+				uint32_t WaterSetCursor = 0;
 				// And the transparent pipeline's *GPU-driven* set: the same
 				// instance table read through the indices the blended cull
 				// wrote instead of the ones the sort produced. One binding
@@ -898,6 +907,21 @@ namespace RageV
 			// define, so it recompiles the lit shaders the way the other two
 			// do.
 			bool RayGlobalIlluminationOn = false;
+			// Water's traced refraction: recompiles only the transparent pair
+			// (RV_RAY_REFRACTION goes on both so their set-0 layouts stay one
+			// layout), and needs the same structure and heap reflections do.
+			bool RayWaterRefractionOn = false;
+
+			// The glassy water's inputs for the current transparent pass,
+			// set by the frame graph around it and cleared after -- null
+			// means the backdrop pass did not run and the water shader is
+			// told so through its flags lane.
+			Ref<RHITexture> WaterBackdropColor;
+			Ref<RHITexture> WaterBackdropDepth;
+			// Clamped-linear for the backdrop and the foam buffer (both are
+			// bounded rectangles), wrapping for the two generated tiles.
+			Ref<RHISampler> WaterClampSampler;
+			Ref<RHISampler> WaterWrapSampler;
 			// **Whether a traced hit honours the field's stored visibility.**
 			//
 			// It always honours it where the picture is shaded directly -- that
@@ -989,6 +1013,7 @@ namespace RageV
 
 			// The sets are kept, the claim on them is not.
 			slot.MeshletCursor = 0;
+			slot.WaterSetCursor = 0;
 
 			return slot;
 		}
@@ -1403,6 +1428,13 @@ namespace RageV
 		{
 			std::vector<std::string> blended = defines;
 			blended.push_back("RV_TRANSPARENT");
+			// On the *pair*, not on water alone. Only water reads it -- the
+			// define is dead code in pbr.rvshader -- but it moves set 0's
+			// layout (the ray-instance table comes with it), and the two
+			// pipelines are served by one TransparentSet. Diverging layouts
+			// here is the masked pipeline's black-cutout lesson again.
+			if (s_Data->RayWaterRefractionOn)
+				blended.push_back("RV_RAY_REFRACTION");
 
 			if (auto transparent = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader",
 																   blended))
@@ -1637,12 +1669,13 @@ namespace RageV
 			return;
 
 		s_Data->RayShadowsOn = enabled;
-		// Reflections and the traced bounce ride on the shadows' structure;
-		// off with them.
+		// Reflections, the traced bounce and the water's refraction all ride
+		// on the shadows' structure; off with them.
 		if (!enabled)
 		{
 			s_Data->RayReflectionsOn = false;
 			s_Data->RayGlobalIlluminationOn = false;
+			s_Data->RayWaterRefractionOn = false;
 		}
 		RV_CORE_INFO("Renderer3D: shadows {0}", enabled ? "traced" : "from maps");
 
@@ -1696,6 +1729,38 @@ namespace RageV
 					 enabled ? "traced" : "screen-space or none");
 		if (CompileLitShaders())
 			s_Data->PipelineDirty = true;
+	}
+
+	void Renderer3D::SetRayTracedWaterRefraction(bool enabled)
+	{
+		if (!s_Data)
+			return;
+		// A refraction ray is a ray into the shadows' structure, shaded
+		// through the heap: the same two prerequisites reflections have.
+		if (enabled && (!s_Data->RayShadowsOn || !s_Data->Bindless))
+			enabled = false;
+		if (s_Data->RayWaterRefractionOn == enabled)
+			return;
+
+		s_Data->RayWaterRefractionOn = enabled;
+		RV_CORE_INFO("Renderer3D: water refraction {0}",
+					 enabled ? "traced" : "from the backdrop copy");
+		if (CompileLitShaders())
+			s_Data->PipelineDirty = true;
+	}
+
+	bool Renderer3D::IsRayTracedWaterRefraction()
+	{
+		return s_Data && s_Data->RayWaterRefractionOn;
+	}
+
+	void Renderer3D::SetWaterBackdrop(const Ref<RHITexture>& color,
+									  const Ref<RHITexture>& depth)
+	{
+		if (!s_Data)
+			return;
+		s_Data->WaterBackdropColor = color;
+		s_Data->WaterBackdropDepth = depth;
 	}
 
 	void Renderer3D::SetBakedIrradianceOnly(bool enabled)
@@ -2585,6 +2650,8 @@ namespace RageV
 				// is exactly how GpuSet was found.
 				slot.TransparentSet.reset();
 				slot.TransparentGpuSet.reset();
+				slot.WaterSets.clear();
+				slot.WaterSetCursor = 0;
 			}
 		}
 	}
@@ -3563,7 +3630,8 @@ namespace RageV
 			// So: build the table when something reads it, and keep one empty
 			// row when nothing does. The same "smallest honest filler" the
 			// bone buffer below uses, and for the same reason.
-			const bool tracesHits = s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn;
+			const bool tracesHits = s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn
+								 || s_Data->RayWaterRefractionOn;
 			if (tracesHits)
 			{
 				const std::vector<RayCaster>& casters = RayShadows::GetCasters();
@@ -3844,7 +3912,11 @@ namespace RageV
 			{
 				slot.TransparentSet->SetStorageBuffer(13, slot.Materials, 0,
 													  (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
-				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
+				// Refraction shades its hits through the same table, and the
+				// transparent pair's layout declares the binding whenever it
+				// was compiled with any of the three.
+				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn
+					|| s_Data->RayWaterRefractionOn)
 					slot.TransparentSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
 			}
 			slot.TransparentSet->Commit();
@@ -3861,7 +3933,8 @@ namespace RageV
 			{
 				slot.TransparentGpuSet->SetStorageBuffer(13, slot.Materials, 0,
 														 (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
-				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
+				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn
+					|| s_Data->RayWaterRefractionOn)
 					slot.TransparentGpuSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
 			}
 			slot.TransparentGpuSet->Commit();
@@ -4403,12 +4476,65 @@ namespace RageV
 
 			if (isWater)
 			{
+				// The water pipeline's own set (set 3): the backdrop pair the
+				// frame graph handed over, this body's foam buffer, and the
+				// two generated tiles. Every binding filled every time -- a
+				// declared binding left empty is a validation error -- with
+				// the shared stand-ins where a texture is not there: black
+				// foam is a calm sea, a flat normal is no ripple, and a black
+				// backdrop never shows because the flags lane says not to
+				// read it.
+				if (!s_Data->WaterClampSampler)
+				{
+					SamplerDesc clamp;
+					clamp.WrapU = WrapMode::ClampToEdge;
+					clamp.WrapV = WrapMode::ClampToEdge;
+					clamp.WrapW = WrapMode::ClampToEdge;
+					clamp.MaxLod = 0.0f;
+					s_Data->WaterClampSampler = s_Data->Device->CreateSampler(clamp);
+
+					SamplerDesc wrap;
+					wrap.MaxLod = 0.0f;
+					s_Data->WaterWrapSampler = s_Data->Device->CreateSampler(wrap);
+				}
+
+				if (slot.WaterSetCursor >= (uint32_t)slot.WaterSets.size())
+					slot.WaterSets.push_back(
+						s_Data->Device->CreateResourceSet(s_Data->WaterPipeline, 3));
+				const Ref<RHIResourceSet>& waterSet =
+					slot.WaterSets[slot.WaterSetCursor++];
+
+				const bool backdrop = s_Data->WaterBackdropColor
+								   && s_Data->WaterBackdropDepth;
+				const Ref<RHITexture> black = TextureLoader::TransparentBlack(*s_Data->Device);
+				waterSet->SetTexture(0, backdrop ? s_Data->WaterBackdropColor : black,
+									 s_Data->WaterClampSampler);
+				waterSet->SetTexture(1, backdrop ? s_Data->WaterBackdropDepth : black,
+									 s_Data->WaterClampSampler);
+				waterSet->SetTexture(2, first.Water.Foam ? first.Water.Foam : black,
+									 s_Data->WaterClampSampler);
+				waterSet->SetTexture(3, Water::GetDetailNormal(),
+									 s_Data->WaterWrapSampler);
+				waterSet->SetTexture(4, Water::GetFoamPattern(),
+									 s_Data->WaterWrapSampler);
+				waterSet->Commit();
+				cmd->BindResourceSet(3, waterSet);
+
 				WaterPushConstants object;
 				object.BaseInstance = (int32_t)start;
 				object.Shallow = first.Water.Shallow;
 				object.Deep = first.Water.Deep;
 				object.Wave = first.Water.Wave;
 				object.Extra = first.Water.Extra;
+				object.Size = first.Water.Size;
+
+				// The flags lane is the renderer's to fill: whether the
+				// backdrop is there to read, and -- in the sign -- which way
+				// texture rows run on this backend, the same fact
+				// ScreenReflections.y states for the SSR trace.
+				const float rowSign =
+					s_Data->Device->GetBackend() == Backend::Vulkan ? -1.0f : 1.0f;
+				object.Size.z = backdrop ? rowSign : 0.0f;
 
 				// Both stages: the vertex reads the dials, and the fragment
 				// declares the same block so the ranges agree.

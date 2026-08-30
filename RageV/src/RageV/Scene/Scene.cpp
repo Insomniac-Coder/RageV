@@ -1652,6 +1652,35 @@ namespace RageV
 		return false;
 	}
 
+	bool Scene::HasWater()
+	{
+		auto view = m_Registry.GetView<WaterComponent>();
+		for (auto& item : view)
+		{
+			(void)item;
+			return true;
+		}
+		return false;
+	}
+
+	void Scene::UpdateWaterFoam(RHI::RHICommandList& cmd)
+	{
+		if (!Renderer::HasDevice())
+			return;
+
+		auto view = m_Registry.GetView<WaterComponent>();
+		for (auto& item : view)
+		{
+			WaterComponent& water = view.Get<WaterComponent>(item);
+
+			// The body's own clock's last tick, which is zero while the
+			// editor holds time still -- foam that neither grows nor decays
+			// on a paused sea is the correct answer, not a stall.
+			const float dt = Math::Max(water.Time - water.PreviousTime, 0.0f);
+			Water::UpdateFoam(cmd, water, dt);
+		}
+	}
+
 	void Scene::RenderShadows(const Camera& camera, const Mat4& cameraTransform)
 	{
 		// A probe capture draws the scene, and the scene samples shadows. Doing
@@ -1680,6 +1709,12 @@ namespace RageV
 		// after the shadows because it rides on them.
 		Renderer3D::SetRayTracedReflections(
 			ResolveRayTracedReflections(Project::Render()) != RayDetail::Off);
+		// And the water's traced refraction, on the same beat: it rides on
+		// the structure the same way, and the renderer itself refuses it
+		// without the heap. `traced` is already in hand, so the gate is
+		// written where the others are rather than re-derived inside.
+		Renderer3D::SetRayTracedWaterRefraction(
+			traced && Project::Render().RayTracedWaterRefraction);
 		// And the traced bounce (7at), on the same beat and by the same
 		// resolve. Its dial is the post profile's, handed to the renderer
 		// here so the lit shader has it: zero while the traced form is not
@@ -5000,6 +5035,13 @@ namespace RageV
 					// component knows how fine the grid is.
 					dials.Extra = { Math::Radians(water.WaveDirection), water.Foam,
 									water.PreviousTime, water.Spacing };
+					// The rectangle, for the foam buffer's coordinate; z and w
+					// are the renderer's lanes and stay zero here.
+					dials.Size = { water.Width, water.Length, 0.0f, 0.0f };
+					// The readable half of this body's foam pair, or null
+					// before the first step -- the renderer binds its black
+					// stand-in then, which is a calm sea.
+					dials.Foam = Water::CurrentFoam(water);
 
 					Renderer3D::DrawWaterMesh(water.Runtime, transform.World, material,
 											  material->GetParams(), ProbeSlotFor(centre),

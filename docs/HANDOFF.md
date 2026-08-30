@@ -1,10 +1,95 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-28, end of a very long day.
+**Read this first.** Updated 2026-08-30 (water session).
 
-Everything is on **`main`**, pushed. Three commits landed today:
+Everything is on **`main`**, pushed. Three commits landed on 2026-08-28:
 sky occlusion (`2f87153`), the ray-budget allocator (`0daf01b`), and the
 measurement flags (`b171234`). Each message carries its full reasoning.
+
+## Start here — 2026-08-30 (later still): the water owed-list is paid
+
+Everything the section two headings down said was owed, is in — one commit,
+owner-directed, at the end of the session. Tests green on both backends
+(scenetest OK on Vulkan and OpenGL), both render paths verified against real
+frames of `GoldenGateDemo` on Vulkan. After the first framed renders the
+owner asked for sharper waves and less, realer foam; the steepness budget now
+tilts toward the short waves (same fold total), the injection bar rose to
+J < 0.72, and residual foam is streaked along the wind through an elongated
+lace read.
+
+### What landed, in one pass over the frame
+
+- **The foam accumulation buffer, rebuilt on the water's own set.** Per body:
+  an RG16F ping-pong pair (r fresh, g residual), stepped by a compute pass at
+  the top of the frame -- inject where the Jacobian folds, decay
+  exponentially, fresh ages into residual, advect downwind. The wave sum
+  moved to `include/water_waves.glsl`, parameterised, so the sim and the
+  vertex stage compile the same crests. The vertex stage dropped its two
+  history taps -- half its wave-sum cost -- because the buffer now carries
+  the memory those taps faked.
+- **Set 3 is the water's** (0 scene, 1 material, 2 heap): backdrop colour,
+  backdrop depth-in-metres, foam buffer, and two tiles generated at first
+  use from fixed seeds -- a periodic Gerstner detail-normal map (the ripple
+  below the geometry floor, the owed item) and a ridged-noise foam lace.
+  Sets are pooled per water run in the scene slot, like the meshlet sets.
+- **The glassy see-through, raster form.** A `WaterBackdrop` pass between
+  the opaque passes and the transparent one copies scene colour and
+  linearised depth (the Unity/Unreal opaque-texture design, chosen over a
+  read-only depth layout because it works at every MSAA count on both
+  backends with no RHI change). The water refracts through it -- Snell
+  direction reprojected through this frame's own projection, depth-rejected
+  and frame-clamped -- and absorbs by Beer-Lambert with per-channel
+  extinction quoted against GradientDepth. Depth-based colour came free:
+  the shallow/deep ramp now reads the measured thickness. OIT alpha goes to
+  1 under refraction because the background is already inside the water's
+  own term -- revealage showing it again would double-expose the waterline.
+- **The traced form, behind a Render Settings toggle** (`RT water
+  refraction`, shown beside RT reflections, same prerequisites: ray
+  queries + bindless). `RV_RAY_REFRACTION` compiles onto the *transparent
+  pair* -- water reads it, pbr ignores it -- so the two set-0 layouts
+  cannot diverge; the guard sites in pbr_fragment.glsl now admit it beside
+  REFLECTIONS/GI. The refracted ray goes through `TraceSurface`/`ShadeTraced`
+  and the hit distance is the true underwater path length.
+- **The shine: anisotropic Beckmann for the water's analytic lights.**
+  Cox-Munk's Gaussian, stretched 1.16:0.86 along:across the wind, with
+  Walter's Smith fit projected per direction. **The roughness is read as RMS
+  slope there, not squared** -- the footprint block's 0.24 ceiling *is*
+  Cox-Munk's fresh-breeze slope, and squaring it would collapse the horizon
+  variance a hundredfold. The analytic specular is also summed separately
+  (`waterSpecular`) and held out of the absorption mix: glitter is surface
+  reflection and must not fade where the water goes clear.
+
+### The bug that was the reverted attempt's last mystery
+
+**A `RHIResourceSet` keeps one descriptor set per frame in flight, and
+`Commit()` writes the *current frame's*.** A set written and committed once
+at creation leaves every other frame's slot unwritten -- which validation
+reports as "never updated" and the shader reads as zero. That is almost
+certainly what "the buffer still read as zero in the fragment" was in the
+first foam attempt. The fix is one line: Commit the bound set every step;
+with nothing newly set it replays the last full write into this frame's
+slot and is then a no-op.
+
+### Owed still / known state
+
+- **The owner judged the first framed render "super ugly", and the reasons
+  are scene, not shader:** the bay has **no seabed geometry** -- refraction
+  has nothing to show but the pier legs -- and the provisional flat-grey sky
+  gives the surface nothing to reflect. A pond-style close-up (the reference
+  image the owner sent: visible bottom, caustics, near-calm surface) needs a
+  bottom under the water and calm dials; the shader side of that look is in.
+  **Caustics are the one missing shader ingredient** -- a cheap projected
+  pattern on the refracted backdrop, masked by thickness, would carry far
+  more than its cost. Not built.
+- Foam injection was tempered once already (0.80/2.0 against the fragment's
+  0.88/2.6 live term) after the first render came out sheet-white; the
+  Foam dial still scales everything, and the sim constants (decay 0.65/0.15,
+  transfer 0.55, drift 0.35x speed) are code constants an author may
+  eventually want as dials.
+- The TAA flicker question above (blended geometry writes no velocity) is
+  untouched and untested -- refraction may make it more or less visible.
+- One pre-existing validation line under RT GI on first frames: `u_History`
+  in a draw before the denoiser's history exists. Not water's.
 
 ## Start here — 2026-08-30 (late): THE GOAL, and the research behind it
 
