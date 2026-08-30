@@ -1,0 +1,130 @@
+Scene: Golden Gate at night -- stage 1, the silhouette
+Version: 6
+Environment:
+  AmbientColor: [0.55, 0.62, 0.75]
+  AmbientIntensity: 0.14
+  Sky: Color
+  SkyHorizon: [0.62, 0.68, 0.76]
+  SkyZenith: [0.28, 0.42, 0.66]
+  SkyGround: [0.16, 0.18, 0.2]
+  SkyIntensity: 1
+  SkyRotation: 0
+  SkyTexture: 0
+Entities:
+  - EntityID: 11531348261339546839
+    TagComponent:
+      Tag: Deck Camera
+    TransformComponent:
+      Position: [0, 76.4, 950]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 8000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 0
+  - EntityID: 8897152523460400281
+    TagComponent:
+      Tag: Profile Camera
+    TransformComponent:
+      Position: [2400, 150, 0]
+      Rotation: [0, 1.5708, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 1
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 42
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 8000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 0
+  - EntityID: 13788733576522132323
+    TagComponent:
+      Tag: Towers
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 10466108464633408765
+      Material:
+        BaseColor: [0.55, 0.55, 0.55, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.55
+        Occlusion: 1
+  - EntityID: 15006865266665574376
+    TagComponent:
+      Tag: Deck
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 11301224437192472965
+      Material:
+        BaseColor: [0.55, 0.55, 0.55, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.55
+        Occlusion: 1
+  - EntityID: 13265240402949795087
+    TagComponent:
+      Tag: Cables
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 11563686497362606197
+      Material:
+        BaseColor: [0.55, 0.55, 0.55, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.55
+        Occlusion: 1
+  - EntityID: 10972064028550693996
+    TagComponent:
+      Tag: Sea
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    WaterComponent:
+      Width: 2200
+      Length: 2800
+      Spacing: 3
+      TextureScale: 12
+      WaveHeight: 0.85
+      WaveLength: 48
+      Choppiness: 1.25
+      WaveSpeed: 1.4
+      WaveDirection: 38
+      Foam: 0.75
+      ShallowColor: [0.05, 0.16, 0.19]
+      DeepColor: [0.008, 0.026, 0.048]
+      GradientDepth: 12
+  - EntityID: 10987306558249555489
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.61, 0.9, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 0.97, 0.92]
+      Intensity: 2.1
+      Range: 10
+      InnerCone: 20
+      OuterCone: 44
+      CastShadows: true
