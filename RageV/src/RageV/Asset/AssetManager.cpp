@@ -1838,10 +1838,27 @@ namespace RageV::Assets
 
 		// Parented after every entity exists, since a node's parent index
 		// always precedes it but SetParent needs both to be real.
+		//
+		// **Without keeping the world transform, and that is the whole of a
+		// bug that flattened every imported hierarchy.** The transforms
+		// written above are the model's own, already expressed relative to
+		// each node's parent -- which is exactly what a local transform is.
+		// SetParent's default is to preserve the child's *world* placement,
+		// because that is what dragging a row in the hierarchy panel should
+		// do; applied here it re-derived every local transform as the inverse
+		// of its parent's, so the composed result was the identity for every
+		// node in the file.
+		//
+		// It went unnoticed for as long as it did because a flattened
+		// hierarchy is only visible on a model whose node transforms do
+		// something: the sample car's chain happens to compose to nothing, so
+		// cancelling it changed no pixel. The first model that carried a real
+		// axis conversion on its root arrived lying on its back.
 		for (size_t i = 0; i < model.Nodes.size(); i++)
 		{
 			const int parent = model.Nodes[i].Parent;
-			scene.SetParent(entities[i], parent >= 0 ? entities[parent] : root);
+			scene.SetParent(entities[i], parent >= 0 ? entities[parent] : root,
+							/*keepWorldTransform*/ false);
 		}
 
 		scene.UpdateWorldTransforms();

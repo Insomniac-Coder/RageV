@@ -130,7 +130,7 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	if (!Project::OpenConfigured())
+	if (!Project::OpenConfiguredOrDefault())
 	{
 		RV_CORE_ERROR("no project to open; pass --project=<path>");
 		return 1;

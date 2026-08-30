@@ -22,6 +22,16 @@ namespace RageV
 		// folder beside the runtime, which is where its own build staged them.
 		std::filesystem::path EngineAssets;
 
+		// **The scene the packaged game opens with**, asset-relative, or empty
+		// for the project's own.
+		//
+		// Separate from the project's `StartScene` because a build is allowed
+		// to ship a subset of the project, and the scene it boots into has to
+		// be one of the scenes it actually contains. The editor's Build dialog
+		// offers exactly the ticked ones and puts the answer here; the CLI can
+		// name one the same way.
+		std::string StartScene;
+
 		// Refuse to write into a directory that already has something in it.
 		// A packager that empties a folder it was pointed at by mistake is a
 		// packager that eventually deletes someone's work.

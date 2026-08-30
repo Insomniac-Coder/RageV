@@ -9,6 +9,9 @@
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "FixedStep.h"
 
+#include <filesystem>
+#include <string>
+
 
 namespace RageV {
 	class RV_API Application
@@ -25,7 +28,11 @@ namespace RageV {
 		// platform layer.
 		static float GetElapsedTime();
 
-		Application(const std::string& appname);
+		// `choosesProject` says this application can *ask* which project to
+		// open when nothing named one -- which the editor can and a packaged
+		// game cannot. Without it, an application with no project simply runs
+		// without one, which is what every command-line tool wants.
+		Application(const std::string& appname, bool choosesProject = false);
 		virtual ~Application();
 		void Run();
 		void OnEvent(Event& e);
@@ -54,7 +61,13 @@ namespace RageV {
 
 		// What the loading screen puts above its bar. The runtime overrides
 		// it with the game's name; the editor keeps the default.
-		virtual std::string GetLoadingTitle() const { return m_Name; }
+		// **The project's name, because that is what is loading.** It read
+		// "RageV Editor" for as long as the editor only ever opened one
+		// project; now that it opens whichever you chose, the name is the one
+		// thing on the screen that tells you the right one is coming up.
+		// Falls back to the application's own name while there is no project
+		// -- which is the startup screen and the moments either side of it.
+		virtual std::string GetLoadingTitle() const;
 
 	private:
 		// Drives the layers' OnLoad on a worker while this thread pumps the
@@ -62,6 +75,22 @@ namespace RageV {
 		// Returns false when the window was closed during it, in which case
 		// no frame should be rendered at all.
 		bool RunBootPhase();
+
+		// The startup screen, before any project exists: pump and draw until
+		// the user opens one, creates one, or closes the window. Returns
+		// whether there is a project to go on with.
+		bool RunStartupPhase();
+
+		// Project creation, on a worker, behind the same bar the loading
+		// screen draws. Returns whether the project was created and opened.
+		bool RunCreateProjectPhase(const std::filesystem::path& directory,
+								   const std::string& name);
+
+		// The half of startup that needs a project: rooting the asset registry
+		// at it, and the graph generator that reads from it. Called from the
+		// constructor when a project was configured, and from the startup
+		// screen when one is chosen there.
+		void AdoptProject();
 
 		// One frame of loading screen: pump, render, present. Deliberately a
 		// whole frame through the same path an ordinary one takes, rather
@@ -76,6 +105,12 @@ namespace RageV {
 		ImGuiLayer* m_ImGuiLayer;
 		bool m_Running = true;
 		bool m_Minimised = false;
+		// Set in the constructor when no project was configured and this
+		// application is one that can ask for one.
+		bool m_NeedsProject = false;
+		// What the loading card says while there is no project to name itself
+		// after -- which is exactly the moment one is being created.
+		std::string m_LoadingTitle;
 		LayerStack m_LayerStack;
 		static Application* m_Instance;
 		float m_LastTime = 0.0f;

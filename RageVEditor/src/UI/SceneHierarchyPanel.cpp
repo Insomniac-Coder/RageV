@@ -936,7 +936,13 @@ namespace
 void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 {
 	// --- add component -------------------------------------------------------
-	if (ImGui::Button("Add Component", ImVec2(-1.0f, 0.0f)))
+	// **Accented, because it is what this panel is for.** The theme's rule is
+	// that red means "you can act on this", and a panel whose every other
+	// control edits something that already exists has exactly one action that
+	// creates: this one. It was a full-width grey bar indistinguishable from a
+	// field, at the top of the panel, which is the one place a primary action
+	// should not have to be hunted for.
+	if (UI::AccentButton("Add Component", ImVec2(-1.0f, 0.0f)))
 		ImGui::OpenPopup("AddComponent");
 
 	if (ImGui::BeginPopup("AddComponent"))
@@ -992,13 +998,55 @@ void RageV::SceneHierarchyPanel::ShowProperties(Entity entity)
 		const ImVec2 available = ImGui::GetContentRegionAvail();
 		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
 		const float lineHeight = ImGui::GetFontSize() + GImGui->Style.FramePadding.y * 2.0f;
-		ImGui::Separator();
 
-		const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed |
+		// **A component header is a section, not a slab.**
+		//
+		// It was a framed tree node, which ImGui fills with ImGuiCol_Header --
+		// a full-width bar of BgControl, the same weight as an input field, six
+		// or seven of them stacked down the inspector. Next to the loading
+		// card's language (a quiet label and a rule) it read as the heaviest
+		// thing on the panel while carrying the least information.
+		//
+		// So it borrows UI::SectionHeader's treatment, which the rest of the
+		// editor's groups already use: the name small and secondary, and a
+		// hairline running out from it to the edge. The arrow and the
+		// full-width click target stay -- SpanAvailWidth gives that without a
+		// frame, which is the only thing Framed was buying.
+		ImGui::Spacing();
+
+		const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen |
 										 ImGuiTreeNodeFlags_SpanAvailWidth |
-										 ImGuiTreeNodeFlags_FramePadding |
 										 ImGuiTreeNodeFlags_AllowOverlap;
+
+		UI::PushTextScale(EditorTheme::Type::Caption);
+		ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().TextSecondary);
 		const bool open = ImGui::TreeNodeEx("##header", flags, "%s", desc.DisplayName);
+		ImGui::PopStyleColor();
+		UI::PopTextScale();
+
+		// The rule, from the end of the label to where the options button
+		// starts. Drawn rather than a Separator on its own row: a rule that
+		// shares the label's line is what says "this names what follows",
+		// where one underneath it says "something ended here".
+		{
+			const ImVec2 itemMin = ImGui::GetItemRectMin();
+			const ImVec2 itemMax = ImGui::GetItemRectMax();
+			const float labelEnd = itemMin.x + ImGui::GetTreeNodeToLabelSpacing()
+								 + ImGui::CalcTextSize(desc.DisplayName).x
+								   * EditorTheme::Type::Caption;
+			const float ruleEnd = itemMax.x - (desc.Removable ? lineHeight : 0.0f)
+								- EditorTheme::Space::Snug;
+			const float y = (itemMin.y + itemMax.y) * 0.5f;
+
+			if (ruleEnd > labelEnd + EditorTheme::Space::Base)
+			{
+				ImGui::GetWindowDrawList()->AddRectFilled(
+					ImVec2(labelEnd + EditorTheme::Space::Base, y),
+					ImVec2(ruleEnd, y + 1.0f),
+					ImGui::GetColorU32(EditorTheme::Colors().Line));
+			}
+		}
+
 		ImGui::PopStyleVar();
 
 		if (desc.Removable)

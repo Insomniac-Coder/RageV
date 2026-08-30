@@ -529,25 +529,28 @@ namespace RageV::UI
 			const ImVec2 min = Add(origin, ToScreen(node.Position));
 			const ImVec2 max = Add(min, size);
 
-			// A node is the one thing in the editor shaped like the mark, so
-			// it gets the mark's shape. No zoom term: the rectangle is
-			// already zoomed and the cut is a fraction of it, so a node keeps
-			// the same *shape* at every magnification rather than losing its
-			// corners as it shrinks.
+			// **A node is a card, like everything else now.** It used to be
+			// the one thing in the editor shaped like the mark -- a chamfered
+			// tile -- back when every other surface was square and the cut was
+			// what made a node a node. With panels, popups and the loading
+			// card all carrying the same radius, a chamfer is no longer the
+			// odd one out on purpose; it is just the odd one out.
+			//
+			// Scaled by the zoom, unlike the cut it replaces: a chamfer was a
+			// fraction of the rectangle and kept its shape for free, where a
+			// radius is a length and has to be told. Clamped to half the
+			// shorter side so a node collapsed to a stub does not invert.
+			const float radius = Math::Min(EditorTheme::Corner::Panel * m_Zoom,
+										   Math::Min(max.x - min.x, max.y - min.y) * 0.5f);
+			draw->AddRectFilled(min, max, ImGui::GetColorU32(colors.BgSurface), radius);
 
-			const float cut = ChamferCut(min, max, EditorTheme::Corner::Chamfer);
-			ChamferedRect(draw, min, max, ImGui::GetColorU32(colors.BgSurface), cut);
-
-			// The header, in the category's colour. It takes the tile's
-			// top-left cut and nothing else: the other cut is on the far
-			// corner and belongs to the body. Clipped to its own height, and
-			// extended by the cut below that line so the shape being clipped
-			// is full width where it matters.
+			// The header, in the category's colour, rounded on its top two
+			// corners only -- the bottom two belong to the body, and a header
+			// rounded on all four floats off the card it is the top of.
 			const ImVec2 headerMax(max.x, min.y + kHeaderHeight * m_Zoom);
-			draw->PushClipRect(min, headerMax, true);
-			ChamferedRect(draw, min, ImVec2(max.x, headerMax.y + cut),
-						  ImGui::GetColorU32(CategoryColor(desc.Category)), cut);
-			draw->PopClipRect();
+			draw->AddRectFilled(min, headerMax,
+								ImGui::GetColorU32(CategoryColor(desc.Category)),
+								radius, ImDrawFlags_RoundCornersTop);
 
 			// The outline carries the verdict: selection is the accent, an
 			// error is danger, a warning is warning. Errors win over selection
@@ -567,7 +570,7 @@ namespace RageV::UI
 				outline = colors.Warning;
 				thickness = Math::Max(thickness, 2.0f);
 			}
-			ChamferedRectOutline(draw, min, max, ImGui::GetColorU32(outline), cut, thickness);
+			draw->AddRect(min, max, ImGui::GetColorU32(outline), radius, 0, thickness);
 
 			if (showTitle)
 			{

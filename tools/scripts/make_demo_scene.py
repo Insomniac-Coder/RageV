@@ -700,7 +700,7 @@ def build(profile_handle, mat):
 def write_material(path, maps, tiling, height_scale=0.03, metallic=0.0,
                    roughness=1.0, base_color=(1, 1, 1, 1),
                    emissive=(0, 0, 0, 1), uv_offset=(0, 0), blend=False,
-                   specular=0.5):
+                   specular=0.5, normal_scale=1.0):
     """A `.rmat` over shared maps, tiled for a surface of a known size.
 
     **Tiling is a property of the surface, not of the texture.** A brick map at
@@ -725,7 +725,7 @@ def write_material(path, maps, tiling, height_scale=0.03, metallic=0.0,
         f"Metallic: {metallic:g}",
         f"Roughness: {roughness:g}",
         "Occlusion: 1",
-        "NormalScale: 1",
+        f"NormalScale: {normal_scale:g}",
         f"Specular: {specular:g}",
         f"HeightScale: {height_scale:g}",
         f"Tiling: [{tiling[0]:g}, {tiling[1]:g}]",

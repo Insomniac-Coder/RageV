@@ -139,14 +139,24 @@ namespace RageV
 		// Opens whatever the configuration points at, in one place, so the
 		// editor, the tests and the runtime all resolve a project identically.
 		//
-		// In order: --project= or ragev.ini; a .rvproject beside the
-		// executable, which is what a packaged game has; then
-		// RV_DEFAULT_PROJECT, which CMake bakes in so a build run out of the
-		// build tree finds the sample project without being told.
+		// In order: --project= or ragev.ini; then a .rvproject beside the
+		// executable, which is what a packaged game has.
 		//
-		// Returns false when there is no project to open, which is a state the
-		// editor is expected to handle rather than an error.
+		// Returns false when there is no project to open. **That is an
+		// ordinary state, not an error** -- it is what the editor's startup
+		// screen exists to answer, and the engine has no opinion about which
+		// project it ought to have been.
 		static bool OpenConfigured();
+
+		// The same, and then `RV_DEFAULT_PROJECT` -- the path CMake bakes in
+		// so a build run out of the build tree finds this repository's sample
+		// project without being told.
+		//
+		// **For command-line tools only.** `scenetest` and `rvimport` have
+		// nobody to ask and want a real project to work against. Anything with
+		// a window uses OpenConfigured and asks; an engine that opens one
+		// particular project by default is an engine married to it.
+		static bool OpenConfiguredOrDefault();
 
 		// A .rvproject path given a file or a folder containing one. Empty when
 		// the folder holds none.

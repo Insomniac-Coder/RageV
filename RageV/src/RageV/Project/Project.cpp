@@ -753,14 +753,39 @@ namespace RageV
 			return Load(found);
 		}
 
-		// Beside the executable. This is the shape a packaged game has, so it
-		// is checked before the development fallback.
+		// Beside the executable. This is the shape a packaged game has, and it
+		// is the last place this looks: a project is either named or found
+		// where a shipped game keeps its own.
+		//
+		// **There is deliberately no fallback below this.** The engine used to
+		// finish here by opening whatever `RV_DEFAULT_PROJECT` was baked into
+		// it at configure time, which on a development build is this
+		// repository's `SampleProject` -- so the editor, launched with no
+		// arguments, always opened one particular project and had no way to
+		// start without one. That made a sample into the engine's default
+		// state. `OpenConfiguredOrDefault` still does it for the tools that
+		// genuinely want a project to be found for them; an application that
+		// can ask a person instead should ask.
 		std::error_code error;
 		const std::filesystem::path beside =
 			FindIn(std::filesystem::current_path(error));
 		if (!beside.empty())
 			return Load(beside);
 
+		return false;
+	}
+
+	bool Project::OpenConfiguredOrDefault()
+	{
+		if (OpenConfigured())
+			return true;
+
+		// The development fallback, and only for a command-line tool.
+		// `scenetest` and `rvimport` run out of the build tree with no project
+		// named and no `.rvproject` beside them, and want to exercise a real
+		// one rather than a folder that happens to be there.
+		//
+		// Absent from an installed build, where the macro is not defined.
 #ifdef RV_DEFAULT_PROJECT
 		const std::filesystem::path fallback = FindIn(RV_DEFAULT_PROJECT);
 		if (!fallback.empty())

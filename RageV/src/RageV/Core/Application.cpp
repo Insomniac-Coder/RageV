@@ -16,6 +16,9 @@
 #include "RageV/Renderer/GpuCull.h"
 #include "Timestep.h"
 #include "RageV/ImGui/LoadingScreen.h"
+#include "RageV/ImGui/StartupScreen.h"
+#include "RageV/Project/ProjectTemplate.h"
+#include "RageV/Utils/PlatformUtils.h"
 #include "Platform/Windows/WindowsPlatform.h"
 
 #include <stb_write_image.h>
@@ -80,7 +83,7 @@ namespace RageV {
 	Application& Application::Get() { return *m_Instance; }
 	bool Application::Exists() { return m_Instance != nullptr; }
 
-	Application::Application(const std::string& appname) {
+	Application::Application(const std::string& appname, bool choosesProject) {
 		RV_CORE_ASSERT(!m_Instance, "Application instance already present present");
 		m_Instance = this;
 		m_Name = appname;
@@ -169,8 +172,7 @@ namespace RageV {
 		InputMap::Init();
 
 		// The project decides where assets live, so it is opened first. Without
-		// one the registry has no root and every handle resolves to nothing,
-		// which the editor reports rather than papering over.
+		// one the registry has no root and every handle resolves to nothing.
 		//
 		// Only if none is open: an application may need the project before its
 		// base constructor runs -- the runtime titles its window after it --
@@ -179,19 +181,17 @@ namespace RageV {
 			Project::OpenConfigured();
 
 		if (Project::GetActive())
-			Assets::Registry::Init(Project::AssetRoot());
-
-		// --generate-graphs, for both executables (8.10, ENGINE-NOTES 7bh).
-		// Here rather than in the editor's layer because a build server and
-		// every check in tools/scripts run the *runtime*, and a generator only
-		// the editor can drive is one a check cannot.
-		if (config.GenerateGraphs && Project::GetActive())
 		{
-			const bool generated = Assets::ScriptGraphGenerator::GenerateAll(
-				Project::AssetRoot(), Project::Root() / "Scripts");
-			RV_CORE_INFO("--generate-graphs: {0}",
-						 generated ? "every graph generated"
-								   : "at least one graph did not generate");
+			AdoptProject();
+		}
+		else if (choosesProject)
+		{
+			// **Nothing found, and that is not an error here.** The engine
+			// used to finish this line by opening the project CMake baked into
+			// it, which made one particular sample the state the editor was
+			// always in. An application that can ask instead defers to
+			// RunStartupPhase, which happens once there is a window to ask in.
+			m_NeedsProject = true;
 		}
 
 		Assets::Manager::Init(*m_Device);
@@ -397,11 +397,155 @@ namespace RageV {
 		Renderer::BeginFrame(cmd);
 
 		m_ImGuiLayer->Begin();
-		LoadingScreen::Draw(GetLoadingTitle(), status);
+		LoadingScreen::Draw(m_LoadingTitle.empty() ? GetLoadingTitle() : m_LoadingTitle,
+							status);
 		m_ImGuiLayer->End();
 
 		Renderer::EndFrame();
 		m_Device->EndFrame();
+	}
+
+	// The half of startup that needs a project. Two callers: the constructor,
+	// when --project or a .rvproject beside the executable answered; and the
+	// startup screen, when a person did.
+	void Application::AdoptProject()
+	{
+		if (!Project::GetActive())
+			return;
+
+		Assets::Registry::Init(Project::AssetRoot());
+
+		// --generate-graphs, for both executables (8.10, ENGINE-NOTES 7bh).
+		// Here rather than in the editor's layer because a build server and
+		// every check in tools/scripts run the *runtime*, and a generator only
+		// the editor can drive is one a check cannot.
+		if (EngineConfig::Get().GenerateGraphs)
+		{
+			const bool generated = Assets::ScriptGraphGenerator::GenerateAll(
+				Project::AssetRoot(), Project::Root() / "Scripts");
+			RV_CORE_INFO("--generate-graphs: {0}",
+						 generated ? "every graph generated"
+								   : "at least one graph did not generate");
+		}
+	}
+
+	// --- the startup screen ---------------------------------------------------
+	//
+	// **Before the loading screen, and it is the reason the engine no longer
+	// has a project baked into it.** The sequence is now: window, ask, load,
+	// edit. It used to be window, open the sample, edit -- which worked
+	// perfectly for the one person whose engine was built from this repository
+	// and not at all for anybody else.
+	//
+	// This runs its own pump-and-present loop for the same reason the boot
+	// phase does: there are no layers to drive yet, the window must keep
+	// repainting, and a frame here goes through BeginFrame/EndFrame like any
+	// other rather than down a private present path.
+	bool Application::RunStartupPhase()
+	{
+		m_Window->Show();
+
+		while (m_Running && !Project::GetActive())
+		{
+			m_Window->OnUpdate();
+
+			if (m_Minimised)
+				continue;
+
+			StartupScreen::Choice choice = StartupScreen::Choice::None;
+
+			if (RHI::RHICommandList* cmd = m_Device->BeginFrame())
+			{
+				Renderer::BeginFrame(cmd);
+				m_ImGuiLayer->Begin();
+				choice = StartupScreen::Draw();
+				m_ImGuiLayer->End();
+				Renderer::EndFrame();
+				m_Device->EndFrame();
+			}
+
+			// **Acted on after the frame is presented, not during it.** Both
+			// branches open a modal file dialog, which blocks this thread for
+			// as long as it is up -- inside the frame that would leave a
+			// half-recorded command list open across it.
+			if (choice == StartupScreen::Choice::OpenProject)
+			{
+				const std::string picked =
+					FileDialogs::OpenFile("RageV Project (*.rvproject)\0*.rvproject\0");
+
+				if (!picked.empty() && !Project::Load(picked))
+					RV_CORE_ERROR("Could not open {0}", picked);
+			}
+			else if (choice == StartupScreen::Choice::CreateProject)
+			{
+				// A file dialog because the platform layer has no folder one;
+				// what gets made is a folder named after the file, which is
+				// the same compromise File > New Project already makes.
+				const std::string picked =
+					FileDialogs::SaveFile("RageV Project (*.rvproject)\0*.rvproject\0");
+
+				if (!picked.empty())
+				{
+					const std::filesystem::path chosen(picked);
+					const std::string name = chosen.stem().string();
+					RunCreateProjectPhase(chosen.parent_path() / name, name);
+				}
+			}
+		}
+
+		if (Project::GetActive())
+			AdoptProject();
+
+		return Project::GetActive();
+	}
+
+	bool Application::RunCreateProjectPhase(const std::filesystem::path& directory,
+											const std::string& name)
+	{
+		Boot::Progress progress;
+		std::filesystem::path scene;
+		bool created = false;
+
+		// The card names what is being made. Without this it would say "RageV
+		// Editor" -- the fallback for having no project -- through the one
+		// screen whose whole subject is a project that does not exist yet.
+		m_LoadingTitle = name;
+
+		// The same shape as RunBootPhase, and deliberately so: the two screens
+		// appear back to back and a person watching cannot tell where one ends
+		// -- which is the point. Creating a project and loading one are two
+		// halves of the same wait.
+		std::thread worker([&]()
+		{
+			created = ProjectTemplate::Create(directory, name, progress, scene);
+			progress.Finish();
+		});
+
+		while (!progress.IsDone() && m_Running)
+		{
+			m_Window->OnUpdate();
+
+			Boot::Status status = progress.Get();
+			// The title above the bar names what is being made, where the
+			// loading screen names what is being loaded.
+			DrawLoadingFrame(status);
+		}
+
+		worker.join();
+		m_LoadingTitle.clear();
+
+		if (!created)
+			RV_CORE_ERROR("Could not create a project at {0}", directory.string());
+
+		return created;
+	}
+
+	std::string Application::GetLoadingTitle() const
+	{
+		if (Project::GetActive() && !Project::Config().Name.empty())
+			return Project::Config().Name;
+
+		return m_Name;
 	}
 
 	bool Application::RunBootPhase()
@@ -519,6 +663,17 @@ namespace RageV {
 
 	void Application::Run() {
 
+		m_FixedStep.Timestep = 1.0f / (float)GetFixedHz();
+
+		// **Nothing was named and this application can ask.** Everything below
+		// assumes a project; the startup screen is what produces one. Closing
+		// the window there is a legitimate way to leave, so it ends the run
+		// rather than falling through into a boot with no assets.
+		if (m_NeedsProject && !RunStartupPhase())
+			return;
+
+		// The fixed step is re-read here because the project decides it, and
+		// until the line above there may not have been one.
 		m_FixedStep.Timestep = 1.0f / (float)GetFixedHz();
 
 		// Before the first frame and before the clock starts: loading is not

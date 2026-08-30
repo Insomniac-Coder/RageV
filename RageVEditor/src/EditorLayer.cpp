@@ -13,6 +13,9 @@
 #include "RageV/Physics/PhysicsDebugDraw.h"
 #include "RageV/Scene/ScenePicking.h"
 #include "RageV/Project/Project.h"
+#include "RageV/ImGui/LoadingScreen.h"
+#include "RageV/Project/UserSettings.h"
+#include "RageV/Project/ProjectTemplate.h"
 #include "UI/FieldEditor.h"
 #include "RageV/Managed/Interop.h"
 #include "RageV/Project/ModuleBuild.h"
@@ -212,24 +215,30 @@ void EditorLayer::OnLoad(Boot::Progress& progress)
 			? Project::AssetPath(config.ScenePath)
 			: std::filesystem::path();
 
-	const std::filesystem::path start =
-		Project::GetActive() && !Project::Config().StartScene.empty()
-			? Project::AssetPath(Project::Config().StartScene)
-			: std::filesystem::path();
-
-	const std::filesystem::path scene =
-		!requested.empty() && std::filesystem::exists(requested) ? requested
-		: !start.empty() && std::filesystem::exists(start)       ? start
-																 : std::filesystem::path();
+	const std::filesystem::path scene = ResolveStartupScene(requested);
 
 	progress.BeginPhase("Opening scene", 0.0f, 0.15f);
 	if (!scene.empty())
 		progress.SetDetail(scene.filename().string());
 
 	if (!scene.empty())
+	{
 		OpenSceneFile(scene);
+	}
+	else if (Project::GetActive())
+	{
+		// **A project with nothing to open gets an empty scene, not the
+		// demo.** The demo is a tour of the engine and is the right answer for
+		// somebody who has not opened a project at all; showing it to somebody
+		// whose project has no scenes yet says the project loaded wrongly. An
+		// empty scene with a camera in it says what is true: there is nothing
+		// here yet.
+		NewScene();
+	}
 	else
+	{
 		LoadDemoScene();
+	}
 
 	if (progress.Cancelled())
 		return;
@@ -1500,6 +1509,162 @@ void EditorLayer::OnImGuiRender()
 	DrawAboutPopup();
 	DrawBackendRestartPopup();
 	DrawUnsavedChangesPopup();
+
+	// Last, so it lies over every panel; and after the popups, so a modal
+	// standing in the field is lit by it the same way the loading card is.
+	DrawFieldWash();
+	DrawPopupRules();
+	m_SceneViews.clear();
+}
+
+// --- the card's rule, on every popup ------------------------------------------
+//
+// **Done by walking ImGui's window list rather than at each call site, and that
+// is the only way it could be done at all.** A menu, a combo's drop-down, a
+// context menu and a component's options popup are opened from thirty-odd
+// places across five files; adding a line to each is thirty chances to miss
+// one, and a design mark that is present on most of a class of thing is worse
+// than one that is absent from all of it -- the exceptions read as bugs.
+//
+// So the rule is applied to the *class*: every window ImGui has flagged as a
+// popup this frame, tooltips excepted. A tooltip is not a surface you act on,
+// it is an annotation, and marking it would spend the accent on something that
+// cannot be pressed.
+//
+// Drawn into the foreground list because a popup's own list has already been
+// submitted by the time this runs. That is correct as well as convenient: a
+// popup is the topmost thing in its own rectangle, so the foreground is where
+// its top edge actually is.
+void EditorLayer::DrawPopupRules()
+{
+	const ImGuiContext& g = *ImGui::GetCurrentContext();
+	ImDrawList* draw = ImGui::GetForegroundDrawList();
+	const ImU32 accent = ImGui::GetColorU32(EditorTheme::Colors().Accent);
+
+	for (ImGuiWindow* window : g.Windows)
+	{
+		if (!window->Active || window->Hidden)
+			continue;
+		if ((window->Flags & ImGuiWindowFlags_Popup) == 0)
+			continue;
+		if (window->Flags & ImGuiWindowFlags_Tooltip)
+			continue;
+		// A modal draws its own through UI::CardRule, inside its own list, so
+		// it sits under anything the modal puts over it. Two would be one too
+		// many.
+		if (window->Flags & ImGuiWindowFlags_Modal)
+			continue;
+
+		const float inset = ImGui::GetStyle().PopupRounding + 2.0f;
+		if (window->Size.x <= inset * 2.0f)
+			continue;
+
+		draw->AddRectFilled(
+			ImVec2(window->Pos.x + inset, window->Pos.y),
+			ImVec2(window->Pos.x + window->Size.x - inset, window->Pos.y + 2.0f),
+			accent, 1.0f);
+	}
+}
+
+void EditorLayer::NoteSceneView()
+{
+	const ImVec2 min = ImGui::GetWindowPos();
+	const ImVec2 size = ImGui::GetWindowSize();
+	m_SceneViews.push_back({ min.x, min.y, min.x + size.x, min.y + size.y });
+}
+
+// --- the accent field ---------------------------------------------------------
+//
+// **The same wash the loading and startup screens stand in, over the editor.**
+// The engine now opens on a card in a red field and then hands over to this;
+// without it the handover is the moment the design stops.
+//
+// Two things make it work rather than merely exist:
+//
+//  - **It is weaker here than there.** Those screens have nothing on them but
+//    a card, so the field can be the picture. This one has text and controls
+//    over every part of it, so it runs at a third of the strength: enough to
+//    be the reason the bottom of the window is warmer than the top, and not
+//    enough to be noticed as a colour.
+//
+//  - **It never crosses a 3D view.** A grade laid over the thing being
+//    authored is a lie about what it looks like -- the viewport is a
+//    *measurement*, and tinting it would make the editor disagree with the
+//    game it builds. So the panels that draw one record where it is and the
+//    wash is drawn in the four bands around it.
+void EditorLayer::DrawFieldWash()
+{
+	const LoadingScreen::Palette& palette = LoadingScreen::CurrentPalette();
+
+	const ImGuiViewport* viewport = ImGui::GetMainViewport();
+	const ImVec2 origin = viewport->Pos;
+	const ImVec2 size = viewport->Size;
+	if (size.x <= 0.0f || size.y <= 0.0f)
+		return;
+
+	// The theme's own chrome alpha, not a fraction of its screen one -- see
+	// LoadingScreen::Palette for why those cannot be the same number scaled.
+	const float peak = (float)(palette.WashAlphaChrome & 0xFF);
+	const uint32_t rgb = palette.Wash;
+
+	// Transparent at the top of the field, `peak` at the bottom edge of the
+	// window, and the field starts level with the middle -- the same
+	// proportion the card stands at.
+	// A longer ramp than the card's, starting above the halfway line: the
+	// editor is a tall window full of horizontal rules, and a short ramp reads
+	// as a band across it rather than as ground it stands on.
+	const float fieldTop = origin.y + size.y * 0.38f;
+	const float span = (origin.y + size.y) - fieldTop;
+
+	const auto colourAt = [&](float y)
+	{
+		const float t = span > 0.0f ? ImClamp((y - fieldTop) / span, 0.0f, 1.0f) : 0.0f;
+		return IM_COL32((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, (int)(peak * t));
+	};
+
+	ImDrawList* draw = ImGui::GetForegroundDrawList();
+
+	const auto band = [&](float x0, float y0, float x1, float y1)
+	{
+		if (x1 <= x0 || y1 <= y0)
+			return;
+		const ImU32 top = colourAt(y0);
+		const ImU32 bottom = colourAt(y1);
+		draw->AddRectFilledMultiColor(ImVec2(x0, y0), ImVec2(x1, y1),
+									  top, top, bottom, bottom);
+	};
+
+	const float left = origin.x;
+	const float right = origin.x + size.x;
+	const float bottom = origin.y + size.y;
+
+	if (m_SceneViews.empty())
+	{
+		band(left, fieldTop, right, bottom);
+		return;
+	}
+
+	// The union, rather than each rect: the two 3D panels share a dock node so
+	// only one is ever visible, and a union of one is itself. If that ever
+	// changes, a union masks slightly more than it must -- which costs a
+	// little of the field and cannot tint a viewport, and those are the right
+	// way round.
+	ScreenRect hole = m_SceneViews.front();
+	for (const ScreenRect& rect : m_SceneViews)
+	{
+		hole.MinX = ImMin(hole.MinX, rect.MinX);
+		hole.MinY = ImMin(hole.MinY, rect.MinY);
+		hole.MaxX = ImMax(hole.MaxX, rect.MaxX);
+		hole.MaxY = ImMax(hole.MaxY, rect.MaxY);
+	}
+
+	const float holeTop = ImClamp(hole.MinY, fieldTop, bottom);
+	const float holeBottom = ImClamp(hole.MaxY, fieldTop, bottom);
+
+	band(left, fieldTop, right, holeTop);            // above it
+	band(left, holeBottom, right, bottom);           // below it
+	band(left, holeTop, hole.MinX, holeBottom);      // to its left
+	band(hole.MaxX, holeTop, right, holeBottom);     // to its right
 }
 
 // Splits are declared as fractions of what is left, so the arrangement is
@@ -1815,7 +1980,16 @@ void EditorLayer::DrawMenuBar()
 		ImGui::Separator();
 		if (ImGui::MenuItem("Load Demo Scene")) LoadDemoScene();
 		ImGui::Separator();
-		if (ImGui::MenuItem("Exit", "Alt+F4")) Application::Get().Close();
+		// **Through the same door the window's X uses.** `Close()` sets a
+		// flag and raises no event, so calling it here walked straight past
+		// the unsaved-changes prompt -- which is how a scene created, edited
+		// and never saved could be lost by choosing Exit from the menu while
+		// the identical gesture on the title bar asked about it.
+		if (ImGui::MenuItem("Exit", "Alt+F4"))
+		{
+			if (ConfirmDiscardScene(PendingAction::Quit))
+				Application::Get().Close();
+		}
 		ImGui::EndMenu();
 	}
 
@@ -2248,11 +2422,16 @@ void EditorLayer::DrawToolbar()
 		// the left win and the transport simply sits after them.
 		ImGui::SameLine(ImMax(centre, ImGui::GetCursorPosX() + 10.0f));
 
-		// Accent-filled while it is the active one, and through the helper so
-		// the label's colour comes with the fill. See UI::AccentButton.
-		const bool pressed = running
-			? UI::AccentButton(running ? "Stop" : "Play", ImVec2(kPlayWidth, 0.0f))
-			: ImGui::Button(running ? "Stop" : "Play", ImVec2(kPlayWidth, 0.0f));
+		// **Accented in both states, which it was not.** Only Stop used to
+		// carry the fill, on the argument that the accent means "acting now".
+		// That reads the rule too narrowly: this is the one control the whole
+		// toolbar exists around, and at rest -- which is most of the time --
+		// it was a grey button indistinguishable from the World/Local toggle
+		// beside it. Play is the primary action of the editor when stopped and
+		// Stop is the primary action when running; the same button is the
+		// primary action either way, so it looks like it either way.
+		const bool pressed = UI::AccentButton(running ? "Stop" : "Play",
+											  ImVec2(kPlayWidth, 0.0f));
 		if (pressed)
 		{
 			if (running) OnSceneStop();
@@ -2941,6 +3120,7 @@ void EditorLayer::DrawViewportPanel()
 	}
 
 	m_ViewportVisible = true;
+	NoteSceneView();
 	m_IsViewportFocused = ImGui::IsWindowFocused();
 	m_IsViewportHovered = ImGui::IsWindowHovered();
 	Application::Get().GetImGuiLayer()->SetEventBlocker(!m_IsViewportFocused && !m_IsViewportHovered);
@@ -3186,6 +3366,8 @@ void EditorLayer::DrawGameViewportPanel()
 	}
 	else if (auto color = m_GameTarget->GetColorTexture(0))
 	{
+		NoteSceneView();
+
 		// Captured before the image is drawn, which is where the cursor still
 		// reports this panel's own top-left corner.
 		const ImVec2 imageOrigin = ImGui::GetCursorScreenPos();
@@ -3328,6 +3510,8 @@ void EditorLayer::DrawAboutPopup()
 	if (!ImGui::BeginPopupModal("About RageV", nullptr, ImGuiWindowFlags_NoResize))
 		return;
 
+	UI::CardRule();
+
 	// The name at title weight rather than in the accent. Red means "you can
 	// act on this", and a product name is not a control -- it was the one
 	// remaining place the accent was being used as decoration.
@@ -3391,6 +3575,8 @@ void EditorLayer::DrawBackendRestartPopup()
 	if (!ImGui::BeginPopupModal("Restart required", nullptr, ImGuiWindowFlags_NoResize))
 		return;
 
+	UI::CardRule();
+
 	const char* name = EngineConfig::BackendName(m_PendingBackend);
 
 	ImGui::TextWrapped("The graphics backend is chosen when the window is created, "
@@ -3400,7 +3586,7 @@ void EditorLayer::DrawBackendRestartPopup()
 	ImGui::TextDisabled("Saved to ragev.ini, so a manual start uses it too.");
 	ImGui::Spacing();
 	// Closing goes through the same door everything else does: the unsaved
-	// prompt is raised by the WindowCloseEvent, so this no longer has to warn
+	// prompt is raised before the relaunch, so this no longer has to warn
 	// about work it cannot protect.
 	ImGui::TextDisabled("Restarting closes the editor. Unsaved scene changes\n"
 						"are asked about first.");
@@ -3435,6 +3621,16 @@ void EditorLayer::DrawBackendRestartPopup()
 	// loudest thing on screen.
 	if (UI::AccentButton("Restart Now", ImVec2(width, 0.0f)))
 	{
+		// Asked before anything is launched. The relaunch happens in
+		// RunPendingAction, once the scene is either saved or knowingly
+		// discarded.
+		if (!ConfirmDiscardScene(PendingAction::Restart))
+		{
+			ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			return;
+		}
+
 		const std::string arguments =
 			std::string("--rhi=") + (m_PendingBackend == RHI::Backend::Vulkan ? "vulkan" : "opengl");
 
@@ -4041,6 +4237,18 @@ void EditorLayer::RunPendingAction()
 	{
 		case PendingAction::None: break;
 		case PendingAction::Quit:            Application::Get().Close(); break;
+
+		case PendingAction::Restart:
+		{
+			const std::string arguments = std::string("--rhi=")
+				+ (m_PendingBackend == RHI::Backend::Vulkan ? "vulkan" : "opengl");
+
+			if (Process::RelaunchSelf(arguments))
+				Application::Get().Close();
+			else
+				RV_ERROR("Could not relaunch; start the editor again by hand");
+			break;
+		}
 		case PendingAction::NewScene:        NewScene();                 break;
 		case PendingAction::OpenSceneDialog: OpenScene();                break;
 		case PendingAction::OpenScenePath:   OpenSceneFile(scene);       break;
@@ -4063,6 +4271,8 @@ void EditorLayer::DrawUnsavedChangesPopup()
 	ImGui::SetNextWindowSize(ImVec2(430.0f, 0.0f), ImGuiCond_Appearing);
 	if (!ImGui::BeginPopupModal("Unsaved changes", nullptr, ImGuiWindowFlags_NoResize))
 		return;
+
+	UI::CardRule();
 
 	const std::string name = m_ScenePath.empty() ? std::string("This scene")
 												 : m_ScenePath.filename().string();
@@ -4134,9 +4344,14 @@ void EditorLayer::OpenSceneFile(const std::filesystem::path& filepath)
 
 	SceneSerializer serializer(m_Scene);
 	if (serializer.Deserialize(filepath.string()))
+	{
 		m_ScenePath = filepath;
+		RememberScene();
+	}
 	else
+	{
 		m_ScenePath.clear();
+	}
 }
 
 // What the Game panel is showing, as a PNG in the project's captures folder.
@@ -4242,6 +4457,7 @@ void EditorLayer::SaveScene()
 		// write that clears them.
 		Assets::Manager::SaveDirtyTerrains();
 		m_Commands.MarkSaved();
+		RememberScene();
 		RV_INFO("Saved {0}", m_ScenePath.filename().string());
 	}
 	else
@@ -4285,6 +4501,7 @@ void EditorLayer::SaveSceneAs()
 
 	m_ScenePath = filepath;
 	m_Commands.MarkSaved();
+	RememberScene();
 	RV_INFO("Saved {0}", m_ScenePath.filename().string());
 
 	RunPendingAction();
@@ -4319,89 +4536,24 @@ void EditorLayer::CreateProjectAt(const std::filesystem::path& picked)
 		return;
 	}
 
-	const std::filesystem::path directory = picked.parent_path() / name;
-
-	if (!Project::Create(directory, name))
+	// **The same function the startup screen calls**, so there is one answer
+	// to what a new project contains. This used to be forty lines here and
+	// nothing anywhere else, which was fine until a project could be created
+	// before the editor's layer existed -- see ProjectTemplate.
+	//
+	// A progress object nothing draws: this path is a menu item on a running
+	// editor, which already has a window painting itself, where the startup
+	// screen's is the only thing on screen. The phases are written either way;
+	// here they simply go unread.
+	Boot::Progress progress;
+	std::filesystem::path scene;
+	if (!ProjectTemplate::Create(picked.parent_path() / name, name, progress, scene))
 		return;
 
-	// The new project's assets are empty, but the registry still has to be
-	// pointed at them before anything can be saved into it -- a scene written
-	// while the registry points at the *old* project mints handles that mean
-	// nothing here.
-	Assets::Manager::ClearCache();
-	Assets::Registry::Init(Project::AssetRoot());
 	WatchProjectAssets();
-
-	NewScene();
-	PopulateStarterScene();
-
-	const std::filesystem::path scene = Project::AssetPath("scenes/Main.rage");
-	SceneSerializer serializer(m_Scene);
-	if (!serializer.Serialize(scene.string()))
-	{
-		RV_ERROR("Created the project but could not write its first scene");
-		return;
-	}
-
-	m_ScenePath = scene;
-	Project::Config().StartScene = "scenes/Main.rage";
-	Project::Save();
-
-	RV_INFO("Created project '{0}' at {1}", name, directory.string());
+	OpenSceneFile(scene);
 }
 
-// What a new project opens on.
-//
-// Deliberately not an empty scene. An engine that opens on nothing makes the
-// first five minutes an exercise in finding out which of the six things you
-// need is missing -- there is no light, so everything is black, and that reads
-// as a broken install rather than an empty scene. A ground plane, a light and
-// two objects means Play does something immediately and every part of the
-// pipeline has proved itself before the user has touched anything.
-void EditorLayer::PopulateStarterScene()
-{
-	if (Entity camera = m_Scene->GetPrimaryCameraEntity())
-	{
-		auto& transform = camera.GetComponent<TransformComponent>();
-		transform.Position = { 0.0f, 2.0f, 6.0f };
-		transform.Rotation = Math::Radians(Vec3(-12.0f, 0.0f, 0.0f));
-	}
-
-	const auto place = [&](PrimitiveType primitive, const char* name, const Vec3& position,
-						   const Vec3& scale, const Vec4& colour, float metallic, float roughness)
-	{
-		Entity entity = m_Scene->CreateEntity(name);
-		auto& mesh = entity.AddComponent<MeshComponent>(primitive);
-
-		mesh.OverrideBaseColor = true;
-		mesh.BaseColor = colour;
-		mesh.OverrideMetallic = true;
-		mesh.Metallic = metallic;
-		mesh.OverrideRoughness = true;
-		mesh.Roughness = roughness;
-
-		auto& transform = entity.GetComponent<TransformComponent>();
-		transform.Position = position;
-		transform.Scale = scale;
-		return entity;
-	};
-
-	place(PrimitiveType::Plane, "Ground", { 0.0f, 0.0f, 0.0f }, { 12.0f, 1.0f, 12.0f },
-		  { 0.16f, 0.16f, 0.18f, 1.0f }, 0.0f, 0.9f);
-	place(PrimitiveType::Cube, "Cube", { -1.2f, 0.5f, 0.0f }, { 1.0f, 1.0f, 1.0f },
-		  { 0.78f, 0.22f, 0.22f, 1.0f }, 0.0f, 0.45f);
-	place(PrimitiveType::Sphere, "Sphere", { 1.2f, 0.6f, 0.0f }, { 1.2f, 1.2f, 1.2f },
-		  { 0.85f, 0.85f, 0.88f, 1.0f }, 1.0f, 0.2f);
-
-	// A directional light, angled rather than straight down: a light pointing
-	// along an axis produces flat shading and a shadow directly underneath,
-	// which makes it hard to tell whether shadows work at all.
-	Entity sun = m_Scene->CreateEntity("Sun");
-	auto& light = sun.AddComponent<LightComponent>();
-	light.Light.Type = Light::LightType::Directional;
-	light.Light.Intensity = 3.0f;
-	sun.GetComponent<TransformComponent>().Rotation = Math::Radians(Vec3(-55.0f, -35.0f, 0.0f));
-}
 
 void EditorLayer::OpenProject()
 {
@@ -4476,6 +4628,22 @@ void EditorLayer::OpenBuildGameDialog(std::filesystem::path output)
 
 	std::sort(m_BuildScenes.begin(), m_BuildScenes.end());
 
+	// The project's own startup scene, when it is one of them. A project whose
+	// startup scene has been deleted -- which is allowed -- falls through to
+	// the first scene there is, so the dialog always opens on a valid answer.
+	m_BuildStartScene.clear();
+	for (const auto& [path, on] : m_BuildScenes)
+	{
+		if (path == Project::Config().StartScene)
+		{
+			m_BuildStartScene = path;
+			break;
+		}
+	}
+
+	if (m_BuildStartScene.empty() && !m_BuildScenes.empty())
+		m_BuildStartScene = m_BuildScenes.front().first;
+
 	// The backend the editor is running starts ticked, because that is the one
 	// the project has actually been looked at on.
 	const bool vulkan = EngineConfig::Get().Backend == RHI::Backend::Vulkan;
@@ -4518,10 +4686,23 @@ void EditorLayer::BuildGameAs()
 // handed a snapshot. See ProjectPackager.h.
 void EditorLayer::BuildInto(const std::filesystem::path& output,
 							const std::vector<std::string>& backends,
-							const std::vector<std::string>& scenes)
+							const std::vector<std::string>& scenes,
+							const std::string& startScene)
 {
 	if (!Project::GetActive())
 		return;
+
+	// **Written back to the project, because that is where it belongs.** The
+	// startup scene is the portable answer -- it is what a clone of this
+	// project on another machine opens, and what the packaged game boots into
+	// -- so a build that chose one and kept it to itself would leave the two
+	// disagreeing the next time anybody looked.
+	if (!startScene.empty() && Project::Config().StartScene != startScene)
+	{
+		Project::Config().StartScene = startScene;
+		Project::Save();
+		RV_INFO("Startup scene is now {0}", startScene);
+	}
 
 	// One build at a time, shared with Build Scripts. A package copies what a
 	// script build produces, so the two overlapping would ship whichever half
@@ -4543,6 +4724,7 @@ void EditorLayer::BuildInto(const std::filesystem::path& output,
 	desc.Overwrite = true;
 	desc.Backends = backends;
 	desc.Scenes = scenes;
+	desc.StartScene = startScene;
 
 
 	// **Planned here, written there.** This half reads the project and the
@@ -5048,6 +5230,8 @@ void EditorLayer::DrawBuildGamePanel()
 		return;
 	}
 
+	UI::CardRule();
+
 	ImGui::TextDisabled("%s", m_BuildOutput.string().c_str());
 	ImGui::Spacing();
 
@@ -5122,10 +5306,11 @@ void EditorLayer::DrawBuildGamePanel()
 	// Room for the footer, taken off the list rather than left to overflow:
 	// the Build button is the one control here that must always be reachable.
 	//
-	// **Two rows, not one** -- the reveal checkbox sits between the list and
-	// the button, and a footer counted in one row would have pushed the button
-	// off the bottom of a window somebody had made short.
-	const float footer = ImGui::GetFrameHeightWithSpacing() * 2.0f
+	// **Three rows, not one** -- the startup-scene combo and the reveal
+	// checkbox both sit between the list and the button, and a footer counted
+	// in one row would have pushed the button off the bottom of a window
+	// somebody had made short.
+	const float footer = ImGui::GetFrameHeightWithSpacing() * 3.0f
 					   + ImGui::GetStyle().ItemSpacing.y * 2.0f;
 
 	ImGui::BeginChild("##scenes", ImVec2(0.0f, -footer), ImGuiChildFlags_Borders);
@@ -5139,6 +5324,68 @@ void EditorLayer::DrawBuildGamePanel()
 	if (m_BuildScenes.empty())
 		ImGui::TextDisabled("This project has no scenes.");
 	ImGui::EndChild();
+
+	// --- which one it opens with ----------------------------------------------
+	//
+	// **The scene a build boots into is a choice, not a consequence.** It used
+	// to be the project's `StartScene` and only that: ticking one scene in the
+	// list above still shipped the project's own start scene alongside it --
+	// the dialog said so -- and the game still opened on that one. Selecting a
+	// single level to test produced a build of that level which booted into a
+	// different one.
+	//
+	// Offered over the *ticked* scenes rather than all of them, because a game
+	// cannot start in a scene its package does not contain. Ticking one off
+	// moves the choice rather than leaving it dangling.
+	const auto ticked = [&](const std::string& path)
+	{
+		for (const auto& [name, on] : m_BuildScenes)
+		{
+			if (name == path)
+				return on;
+		}
+		return false;
+	};
+
+	if (!ticked(m_BuildStartScene))
+	{
+		m_BuildStartScene.clear();
+		for (const auto& [path, on] : m_BuildScenes)
+		{
+			if (on)
+			{
+				m_BuildStartScene = path;
+				break;
+			}
+		}
+	}
+
+	ImGui::SetNextItemWidth(-1.0f);
+	if (ImGui::BeginCombo("##startup", m_BuildStartScene.empty()
+										   ? "(none)" : m_BuildStartScene.c_str()))
+	{
+		for (const auto& [path, on] : m_BuildScenes)
+		{
+			if (!on)
+				continue;
+
+			const bool chosen = (path == m_BuildStartScene);
+			if (ImGui::Selectable(path.c_str(), chosen))
+				m_BuildStartScene = path;
+			if (chosen)
+				ImGui::SetItemDefaultFocus();
+		}
+		ImGui::EndCombo();
+	}
+	ImGui::SameLine();
+	ImGui::TextUnformatted("Startup Scene");
+
+	if (ImGui::IsItemHovered())
+	{
+		ImGui::SetTooltip("The scene the built game opens with.\n"
+						  "Saved to the project, so it is also what the editor\n"
+						  "falls back to when there is no last-opened scene.");
+	}
 
 	// --- build ----------------------------------------------------------------
 	//
@@ -5157,7 +5404,23 @@ void EditorLayer::DrawBuildGamePanel()
 	// Centred at the bottom, and the only way out other than closing the
 	// window. Disabled rather than absent when the answer is not yet valid, so
 	// the reason above it is what somebody reads.
-	const bool ready = (m_BuildVulkan || m_BuildOpenGL) && selected > 0;
+	const bool ready = (m_BuildVulkan || m_BuildOpenGL) && selected > 0
+					&& !m_BuildStartScene.empty();
+
+	// Said plainly, because "the button is grey" is not a reason. A project
+	// with no scenes in it is a legitimate state -- the editor opens on one --
+	// and it is simply not a thing that can be packaged.
+	if (m_BuildScenes.empty())
+	{
+		ImGui::TextColored(EditorTheme::Colors().Danger,
+						   "This project has no scenes, so there is nothing to build.\n"
+						   "Create and save a scene first.");
+	}
+	else if (selected == 0)
+	{
+		ImGui::TextColored(EditorTheme::Colors().Danger,
+						   "Tick at least one scene, and choose which one the game opens with.");
+	}
 
 	const float width = 140.0f;
 	ImGui::SetCursorPosX((ImGui::GetWindowWidth() - width) * 0.5f);
@@ -5181,7 +5444,7 @@ void EditorLayer::DrawBuildGamePanel()
 
 		// After the popup is closed, so the dialog is gone by the time the
 		// Build Log takes the focus this asks for.
-		BuildInto(m_BuildOutput, backends, scenes);
+		BuildInto(m_BuildOutput, backends, scenes, m_BuildStartScene);
 	}
 	ImGui::EndDisabled();
 
@@ -5405,6 +5668,112 @@ void EditorLayer::DrawBuildResult(const Managed::BuildResult& result)
 	}
 
 	ImGui::PopID();
+}
+
+// Every `.rage` the project has, asset-relative and sorted.
+std::vector<std::string> EditorLayer::ProjectScenes()
+{
+	std::vector<std::string> scenes;
+	if (!Project::GetActive())
+		return scenes;
+
+	for (const std::string& relative : IO::VFS::Enumerate(Project::AssetRoot()))
+	{
+		if (std::filesystem::path(relative).extension() == ".rage")
+			scenes.push_back(relative);
+	}
+
+	std::sort(scenes.begin(), scenes.end());
+	return scenes;
+}
+
+// --- which scene the editor opens with ---------------------------------------
+//
+// **Four answers in order, and the order is the whole design.** The editor used
+// to open the project's start scene and nothing else, which made that one field
+// carry two jobs it cannot both do: it is what the shipped game boots into --
+// so it belongs to the project and travels with it -- *and* it was standing in
+// for "where I was". Those disagree the moment a second scene exists. Somebody
+// working on `showroom2` for a week reopened the editor onto `showroom` every
+// morning, because the project quite correctly still shipped the other one.
+//
+// So they are separated. The project keeps the portable answer; where the user
+// left off is theirs, on their machine, in `Cache/` -- see UserSettings for why
+// that is not a field in the project file.
+//
+//   1. `--scene`, which is somebody saying it out loud on the command line and
+//      outranks anything remembered.
+//   2. The scene this user last had open, if it is still there. Deleting it is
+//      allowed and is not an error; it just falls through.
+//   3. The project's own startup scene -- the one the Build dialog sets and the
+//      one a packaged game opens. This is what a project cloned onto a second
+//      machine lands on, since nobody there has a last scene yet.
+//   4. The only scene there is, when the project has exactly one and neither
+//      pointer above resolved. A new project's default scene arrives here if
+//      its start scene was cleared.
+//
+// Falling off the end is a legitimate answer: a project with no scenes in it
+// opens the editor with none, rather than refusing or inventing one.
+std::filesystem::path EditorLayer::ResolveStartupScene(const std::filesystem::path& requested) const
+{
+	std::error_code error;
+	const auto usable = [&](const std::filesystem::path& path)
+	{
+		return !path.empty() && std::filesystem::exists(path, error);
+	};
+
+	if (usable(requested))
+		return requested;
+
+	if (!Project::GetActive())
+		return {};
+
+	const UserSettings user = UserSettings::Load(Project::Root());
+	if (!user.LastScene.empty())
+	{
+		const std::filesystem::path last = Project::AssetPath(user.LastScene);
+		if (usable(last))
+			return last;
+
+		RV_INFO("The scene last open here ({0}) is gone; falling back to the "
+				"project's startup scene", user.LastScene);
+	}
+
+	if (!Project::Config().StartScene.empty())
+	{
+		const std::filesystem::path start = Project::AssetPath(Project::Config().StartScene);
+		if (usable(start))
+			return start;
+
+		RV_WARN("The project's startup scene ({0}) does not exist",
+				Project::Config().StartScene);
+	}
+
+	const std::vector<std::string> scenes = ProjectScenes();
+	if (scenes.size() == 1)
+		return Project::AssetPath(scenes.front());
+
+	return {};
+}
+
+// Written on every open and every save, rather than once on the way out: a
+// preference saved at shutdown is a preference lost to a crash, which is the
+// same argument the Build dialog's reveal checkbox makes.
+void EditorLayer::RememberScene() const
+{
+	if (!Project::GetActive() || m_ScenePath.empty())
+		return;
+
+	const std::string relative = Project::MakeRelative(m_ScenePath);
+	if (relative.empty())
+		return;   // Outside the project; nothing portable to record.
+
+	UserSettings settings = UserSettings::Load(Project::Root());
+	if (settings.LastScene == relative)
+		return;
+
+	settings.LastScene = relative;
+	settings.Save(Project::Root());
 }
 
 void EditorLayer::SetStartSceneToCurrent()

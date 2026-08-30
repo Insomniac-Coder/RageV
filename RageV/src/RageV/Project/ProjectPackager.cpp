@@ -408,6 +408,15 @@ namespace RageV
 			plan.AssetRoot = Project::AssetRoot();
 			plan.Name = SafeFileName(plan.Config.Name);
 
+			// **The build's own answer wins over the project's.** Everything
+			// below -- the checks, the fold-in, and the `.rvproject` written
+			// into the package -- reads `plan.Config.StartScene`, so
+			// overriding it here is the whole of the feature: a build that
+			// ships one scene boots into that scene rather than into whatever
+			// the project happens to name.
+			if (!desc.StartScene.empty())
+				plan.Config.StartScene = desc.StartScene;
+
 			if (plan.Config.StartScene.empty())
 			{
 				// Fatal, not a warning: a runtime with no start scene reports

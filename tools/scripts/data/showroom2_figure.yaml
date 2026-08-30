@@ -1,0 +1,100 @@
+Scene: Subtree
+Version: 6
+Entities:
+  - EntityID: 7947543313299888564
+    TagComponent:
+      Tag: iron_man
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 7936253416592887584
+    RelationshipComponent:
+      Parent: 7947543313299888564
+    TagComponent:
+      Tag: Sketchfab_model
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-1.5707964, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 10330652988727586877
+    RelationshipComponent:
+      Parent: 7936253416592887584
+    TagComponent:
+      Tag: Octane.obj.cleaner.materialmerger.gles
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - EntityID: 8052825836287073965
+    RelationshipComponent:
+      Parent: 10330652988727586877
+    TagComponent:
+      Tag: Object_2
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 16942691965159411642
+      Material: 9723741986733006734
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 11976657217960927241
+    RelationshipComponent:
+      Parent: 10330652988727586877
+    TagComponent:
+      Tag: Object_3
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 16942691965159411643
+      Material: 9723741986733006734
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+  - EntityID: 13323825277440268468
+    RelationshipComponent:
+      Parent: 10330652988727586877
+    TagComponent:
+      Tag: Object_4
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 16942691965159411644
+      Material: 9723741986733006734
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: false
+      Metallic: 0
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1

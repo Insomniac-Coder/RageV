@@ -29,8 +29,14 @@ namespace RageV::EditorTheme
 		// text 17.2:1, secondary 6.9:1, accent 4.3:1, and black on the accent
 		// 4.6:1. See tools/scripts/check_theme_contrast.py.
 		constexpr Palette kDark = {
-			.BgBase = Hex(0x08080B),
-			.BgSurface = Hex(0x0E0E12),
+			// **Six levels apart was not a raised panel, it was one black
+			// field.** The loading card reads as a card because it sits
+			// visibly above its ground; the editor's panels sat six levels
+			// above theirs, which at this end of the curve is nothing, so
+			// every panel edge depended entirely on its hairline. Widened to
+			// eighteen: still quiet, and now the panel is a surface.
+			.BgBase = Hex(0x050508),
+			.BgSurface = Hex(0x131319),
 			.BgControl = Hex(0x191920),
 			.BgHover = Hex(0x23232C),
 			.BgActive = Hex(0x2D2D38),
@@ -61,7 +67,11 @@ namespace RageV::EditorTheme
 		// is the ink. Ratios against BgSurface: primary text 17.2:1,
 		// secondary 7.0:1, accent 5.1:1, and white on the accent 5.7:1.
 		constexpr Palette kLight = {
-			.BgBase = Hex(0xDEDEE6),
+			// The same widening as the dark palette, in the other direction:
+			// the ground drops away from the panel rather than the panel
+			// rising off the ground, because on a light theme the panel is
+			// the paler of the two.
+			.BgBase = Hex(0xCFCFDA),
 			.BgSurface = Hex(0xF2F2F6),
 			.BgControl = Hex(0xE6E6EE),
 			.BgHover = Hex(0xDADAE4),
@@ -83,7 +93,13 @@ namespace RageV::EditorTheme
 			// in the dark theme: away from the accent, toward the ink.
 			.Danger = Hex(0x7E0E0E),
 			.AxisX = Hex(0xB02020),
-			.AxisY = Hex(0x1F7A3A),
+			// Four percent darker than the green it was, and the reason is the
+			// axis badge rather than the gizmo. The badge used to be a filled
+			// block with a white glyph on it; now the *letter* carries the
+			// colour, so it is read as text and owes 4.5:1 against the field
+			// it sits on. #1F7A3A managed 4.33 and check_theme_contrast.py
+			// said so.
+			.AxisY = Hex(0x1E7538),
 			.AxisZ = Hex(0x2B5BC4),
 		};
 
@@ -122,7 +138,14 @@ namespace RageV::EditorTheme
 		colors[ImGuiCol_WindowBg]             = c.BgSurface;
 		colors[ImGuiCol_ChildBg]              = { 0, 0, 0, 0 };   // inherit; see below
 		colors[ImGuiCol_PopupBg]              = c.BgSurface;
-		colors[ImGuiCol_MenuBarBg]            = c.BgBase;
+		// **The menu bar is chrome and chrome is raised.** On the ground
+		// colour it read as a hole above the panels; on the surface colour it
+		// is the same band the toolbar under it already is, and the two now
+		// form one header rather than two unrelated strips.
+		colors[ImGuiCol_MenuBarBg]            = c.BgSurface;
+		// The hairline every panel and popup is drawn with -- the card's own
+		// border, and now that the surface sits further off the ground it has
+		// something to separate rather than everything to do on its own.
 		colors[ImGuiCol_Border]               = c.Line;
 		colors[ImGuiCol_BorderShadow]         = { 0, 0, 0, 0 };
 
@@ -233,18 +256,17 @@ namespace RageV::EditorTheme
 									  : ImVec4{ 0.02f, 0.02f, 0.03f, 0.60f };
 
 		// ---- geometry ------------------------------------------------------
-		// Square, everywhere, without exception. A mix of rounded and square
-		// elements is most of what makes an editor look assembled rather than
-		// designed -- and one radius applied consistently was the old answer
-		// to that. This is the other one, and it is the mark's: no curve
-		// anywhere, so a corner is a corner.
-		style.WindowRounding    = Corner::Sharp;
-		style.ChildRounding     = Corner::Sharp;
-		style.PopupRounding     = Corner::Sharp;
-		style.FrameRounding     = Corner::Sharp;
-		style.GrabRounding      = Corner::Sharp;
-		style.TabRounding       = Corner::Sharp;
-		style.ScrollbarRounding = Corner::Sharp;
+		//
+		// **One family, applied consistently** -- which is what the old
+		// square-everywhere rule was actually protecting, and it survives the
+		// change of radius. See Corner in the header for why the radius moved.
+		style.WindowRounding    = Corner::Panel;
+		style.ChildRounding     = Corner::Panel;
+		style.PopupRounding     = Corner::Panel;
+		style.FrameRounding     = Corner::Control;
+		style.GrabRounding      = Corner::Control;
+		style.TabRounding       = Corner::Control;
+		style.ScrollbarRounding = Corner::Control;
 
 		// Borders do real work at the window edge and nowhere else. A border
 		// on every frame is noise: the fill already says where the control is,
@@ -300,6 +322,21 @@ namespace RageV::EditorTheme
 		// as a floating red sliver with no destination.
 		loading.Track      = packed(c.BgActive);
 		loading.Fill       = packed(c.Accent);
+		loading.Surface    = packed(c.BgSurface);
+		loading.Line       = packed(c.Line);
+
+		// Measured by eye against both palettes rather than shared: over the
+		// dark theme's near-black the accent itself at 0x26 is a glow at the
+		// bottom of the frame; over the light theme the same thing is a pink
+		// cast across half the window, so the light one uses the pressed
+		// accent -- a deeper red -- and less of it.
+		const bool light = s_Current == Theme::Light;
+		loading.Wash      = packed(light ? c.AccentPressed : c.Accent);
+		loading.WashAlpha = light ? 0x62u : 0x26u;
+		// Under a whole editor rather than a card: quieter than the screen
+		// wash in both themes, and quieter still in light, where the same
+		// alpha covers a far paler ground and reads as a stain.
+		loading.WashAlphaChrome = light ? 0x22u : 0x1Cu;
 		LoadingScreen::SetPalette(loading);
 
 	}

@@ -42,6 +42,10 @@ namespace
 			"  --scenes=<a,b>     only these scenes, asset-relative. Every scene\n"
 			"                     ships when this is left off; the start scene\n"
 			"                     always ships whatever this says.\n"
+			"  --start-scene=<a>  the scene the game opens with, asset-relative.\n"
+			"                     Defaults to the project's own; it must be one of\n"
+			"                     the scenes that ship, and is folded in if it is\n"
+			"                     not among --scenes.\n"
 			"  --loose            ship content/ as a folder instead of content.pak,\n"
 			"                     so single files can be swapped while debugging\n"
 			"  --raw              pack source bytes without cooking them; a raw pak\n"
@@ -115,6 +119,10 @@ int main(int argc, char** argv)
 				if (!entry.empty())
 					desc.Scenes.push_back(entry);
 			}
+		}
+		else if (argument.rfind("--start-scene=", 0) == 0)
+		{
+			desc.StartScene = argument.substr(std::string("--start-scene=").size());
 		}
 		else if (argument.rfind("--runtime=", 0) == 0)
 		{

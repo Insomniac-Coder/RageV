@@ -174,6 +174,19 @@ namespace RageV::UI
 	// correctly are separate claims.
 	bool AccentButton(const char* label, const ImVec2& size = ImVec2(0, 0));
 
+	// The two-pixel accent along the top edge of the current window.
+	//
+	// **The card's signature, and the one mark the editor shares with the
+	// screen it opened behind.** The loading and startup screens draw it
+	// themselves; a docked panel gets it from its tab's overline; a modal has
+	// neither, and without this a dialog is the one surface in the editor that
+	// looks like it came from somewhere else.
+	//
+	// Called just inside BeginPopupModal, before anything else is drawn: it
+	// paints into the window's own draw list at the window rect, so it needs
+	// no cursor and consumes no layout.
+	void CardRule();
+
 	// A square button with an icon in it and no text.
 	//
 	// `tooltip` is not optional. An icon-only control is a guess until someone
@@ -186,37 +199,6 @@ namespace RageV::UI
 	// would hide the options behind a click.
 	int SegmentedControl(const char* id, const char* const* labels, int count, int current);
 
-	// -----------------------------------------------------------------------
-	// The mark's corner
-	// -----------------------------------------------------------------------
-	//
-	// The application mark is a tile with its **top-left and bottom-right**
-	// corners cut at 45 degrees -- opposite corners, so the two cuts read as
-	// one diagonal gesture through the shape rather than as a bevel on one
-	// end. These draw the same silhouette at editor scale.
-	//
-	// It has to be drawn rather than styled. ImGui's style carries a corner
-	// *radius* and nothing else, and a radius is precisely the thing the mark
-	// does not have -- so a chamfer reaches only the surfaces the editor puts
-	// into a draw list itself. That is a real limit, and it is why the accent
-	// controls and the script-graph nodes have the cut and an ordinary button
-	// does not.
-	//
-	// `ChamferCut` turns EditorTheme::Corner::Chamfer -- a fraction of the
-	// shorter side -- into the pixels for one rectangle, and the two drawing
-	// calls take those pixels rather than the fraction. **They have to**: a
-	// graph node's header is a short wide strip whose own shorter side is a
-	// third of the node's, so a fraction applied to it would cut the header
-	// to a different depth than the body it sits in and the two would not
-	// line up. One shape, one cut, measured once from the shape that owns it.
-	//
-	// The result is clamped to half the shorter side: past that a corner has
-	// stopped being cut and started being removed.
-	float ChamferCut(const ImVec2& min, const ImVec2& max, float fraction);
-	void ChamferedRect(ImDrawList* draw, const ImVec2& min, const ImVec2& max,
-					   ImU32 fill, float cut);
-	void ChamferedRectOutline(ImDrawList* draw, const ImVec2& min, const ImVec2& max,
-							  ImU32 colour, float cut, float thickness = 1.0f);
 
 	// **What a `Baked` GI source is actually doing**, drawn under whichever
 	// dropdown asked for it.

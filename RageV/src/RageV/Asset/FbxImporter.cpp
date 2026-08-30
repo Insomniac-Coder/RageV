@@ -283,21 +283,60 @@ namespace RageV::Assets
 			// ufbx cluster index to skeleton bone index, or -1 for a cluster
 			// whose bone was dropped.
 			std::vector<int> ToBone;
-			// Every bone node, so a baked animation channel can ask whether the
-			// node it moves is a bone of this skeleton.
-			std::unordered_map<const ufbx_node*, int> BoneOf;
 		};
 
-		bool ReadSkin(const ufbx_skin_deformer& skin, Skeleton& out, SkinMapping& mapping)
+		// One bone's defining cluster, and the transform that takes a point
+		// from the skeleton's reference space into the geometry space that
+		// cluster's bind matrix is written in.
+		//
+		// The identity for every cluster of the reference skin, which is the
+		// only kind a single-skin file has.
+		// Mat4 has no equality operator, deliberately -- comparing floats for
+		// equality is usually a bug. Here it is not: the correction is either
+		// the identity this code wrote itself, or it is not.
+		bool IsIdentity(const Mat4& m)
 		{
-			const size_t count = skin.clusters.count;
+			const Mat4 identity(1.0f);
+			for (int column = 0; column < 4; column++)
+			{
+				for (int row = 0; row < 4; row++)
+				{
+					if (m[column][row] != identity[column][row])
+						return false;
+				}
+			}
+			return true;
+		}
+
+		struct BoundCluster
+		{
+			const ufbx_skin_cluster* Cluster = nullptr;
+			Mat4 ReferenceToGeometry{ 1.0f };
+		};
+
+		// What one skin contributes once the skeleton exists.
+		struct SkinBinding
+		{
+			SkinMapping Mapping;
+			// This skin's mesh geometry space into the reference space -- the
+			// inverse of BoundCluster::ReferenceToGeometry, and what the mesh's
+			// own vertices have to be multiplied by so that one set of bind
+			// matrices serves every mesh.
+			Mat4 GeometryToReference{ 1.0f };
+			bool Usable = false;
+		};
+
+		bool ReadSkeleton(const std::vector<BoundCluster>& clusters, const std::string& label,
+						  Skeleton& out, std::unordered_map<const ufbx_node*, int>& boneOf)
+		{
+			const size_t count = clusters.size();
 			if (count == 0)
 				return false;
 
 			std::unordered_map<const ufbx_node*, int> clusterOf;
 			for (size_t i = 0; i < count; i++)
 			{
-				const ufbx_node* bone = skin.clusters.data[i]->bone_node;
+				const ufbx_node* bone = clusters[i].Cluster->bone_node;
 				if (bone)
 					clusterOf.emplace(bone, (int)i);
 			}
@@ -312,7 +351,7 @@ namespace RageV::Assets
 			std::vector<int> parentOf(count, -1);
 			for (size_t i = 0; i < count; i++)
 			{
-				const ufbx_node* bone = skin.clusters.data[i]->bone_node;
+				const ufbx_node* bone = clusters[i].Cluster->bone_node;
 				for (const ufbx_node* walk = bone ? bone->parent : nullptr;
 					 walk; walk = walk->parent)
 				{
@@ -329,7 +368,7 @@ namespace RageV::Assets
 			// children -- Skeleton requires that, and composition is one
 			// forward pass. The visited set makes a malformed cycle a dropped
 			// bone rather than a hang, which is the glTF path's rule too.
-			mapping.ToBone.assign(count, -1);
+			std::vector<int> toBone(count, -1);
 			std::vector<int> order;
 			order.reserve(count);
 
@@ -343,7 +382,7 @@ namespace RageV::Assets
 			std::vector<int> stack;
 			for (size_t i = 0; i < count; i++)
 			{
-				if (parentOf[i] < 0 && skin.clusters.data[i]->bone_node)
+				if (parentOf[i] < 0 && clusters[i].Cluster->bone_node)
 					stack.push_back((int)i);
 			}
 			std::reverse(stack.begin(), stack.end());
@@ -353,10 +392,10 @@ namespace RageV::Assets
 				const int cluster = stack.back();
 				stack.pop_back();
 
-				if (mapping.ToBone[cluster] >= 0)
+				if (toBone[cluster] >= 0)
 					continue;
 
-				mapping.ToBone[cluster] = (int)order.size();
+				toBone[cluster] = (int)order.size();
 				order.push_back(cluster);
 
 				for (auto child = childrenOf[cluster].rbegin();
@@ -366,14 +405,10 @@ namespace RageV::Assets
 				}
 			}
 
-			const std::string skinName = skin.name.length
-									   ? std::string(skin.name.data, skin.name.length)
-									   : std::string("(unnamed)");
-
 			if (order.size() != count)
 			{
 				RV_CORE_WARN("Skin '{0}' has {1} cluster(s) but only {2} reach a root; "
-							 "the rest are dropped", skinName, count, order.size());
+							 "the rest are dropped", label, count, order.size());
 			}
 
 			if (order.empty())
@@ -403,15 +438,22 @@ namespace RageV::Assets
 			for (size_t bone = 0; bone < order.size(); bone++)
 			{
 				const int cluster = order[bone];
-				const ufbx_skin_cluster& source = *skin.clusters.data[cluster];
+				const BoundCluster& bound = clusters[cluster];
+				const ufbx_skin_cluster& source = *bound.Cluster;
 				const ufbx_node* node = source.bone_node;
 
 				Bone& target = out.Bones[bone];
 				target.Name = node && node->name.length
 							? std::string(node->name.data, node->name.length)
 							: ("bone" + std::to_string(bone));
-				target.Parent = parentOf[cluster] >= 0 ? mapping.ToBone[parentOf[cluster]] : -1;
-				target.InverseBind = ToMat4(source.geometry_to_bone);
+				target.Parent = parentOf[cluster] >= 0 ? toBone[parentOf[cluster]] : -1;
+				// **Into the reference skin's space on the way in.** A cluster's
+				// `geometry_to_bone` is written in the geometry space of the mesh
+				// its own skin deforms, and a model split across six meshes has six
+				// of those. `ReferenceToGeometry` is the identity for the skin the
+				// skeleton is anchored to, so this is exactly what it always was
+				// for a file with one skin in it.
+				target.InverseBind = ToMat4(source.geometry_to_bone) * bound.ReferenceToGeometry;
 
 				globalRest[bone] = Math::Inverse(target.InverseBind);
 
@@ -436,17 +478,209 @@ namespace RageV::Assets
 				}
 
 				if (node)
-					mapping.BoneOf.emplace(node, (int)bone);
+					boneOf.emplace(node, (int)bone);
 			}
 
 			if (!out.IsWellOrdered())
 			{
-				RV_CORE_ERROR("Skin '{0}' could not be ordered parents-first", skinName);
+				RV_CORE_ERROR("Skin '{0}' could not be ordered parents-first", label);
 				return false;
 			}
 
 			return true;
 		}
+
+		// Every skin in the file, resolved onto one skeleton.
+		//
+		// **A second skin is not a second character, and assuming it was cost
+		// this importer five sixths of a model.** The previous rule -- take
+		// `skin_deformers[0]` and warn about the rest -- reads well and is
+		// wrong about the commonest way a rigged character is exported: one
+		// armature, one mesh cut into a part per material, and *a skin
+		// deformer on each part*. A six-material suit arrives as six skins
+		// over fifty-two shared bones, and five of its six parts came in
+		// static while the sixth animated.
+		//
+		// The objection the old comment raised is real but narrower than it
+		// looks: a second skin's cluster indices do address a different list,
+		// so reading its weights through the first skin's mapping would point
+		// at the wrong bones. The answer is to map each skin by **bone node
+		// identity** rather than by cluster index -- the node is the thing two
+		// skins genuinely share -- and to fall back to the old behaviour for a
+		// skin that shares no bone at all, which is the two-characters-in-one-
+		// file case the rule was written for.
+		//
+		// **The one subtlety is which space the bind matrices are in.** A
+		// cluster's `geometry_to_bone` maps that skin's *own mesh geometry
+		// space* to the bone, so six meshes give six answers for one bone.
+		// They differ by a constant per skin -- writing G for a mesh's
+		// geometry-to-world at bind time, the correction is inverse(G_ref) *
+		// G_s for every bone, independent of which bone it is derived from --
+		// so one matrix per skin, folded into that mesh's vertices, makes a
+		// single skeleton serve all of them. It comes out the identity
+		// whenever the parts were cut from one object, which is why a
+		// single-skin file is byte-for-byte what it always was.
+		bool ReadSkins(const ufbx_scene& scene, const std::filesystem::path& path,
+					   Skeleton& out,
+					   std::unordered_map<const ufbx_skin_deformer*, SkinBinding>& bindings,
+					   std::unordered_map<const ufbx_node*, int>& boneOf)
+		{
+			if (scene.skin_deformers.count == 0)
+				return false;
+
+			const auto name = [](const ufbx_skin_deformer& skin)
+			{
+				return skin.name.length ? std::string(skin.name.data, skin.name.length)
+										: std::string("(unnamed)");
+			};
+
+			// The skin whose geometry space every bind matrix is expressed in.
+			const ufbx_skin_deformer& reference = *scene.skin_deformers.data[0];
+
+			std::unordered_map<const ufbx_node*, const ufbx_skin_cluster*> referenceBones;
+			for (size_t i = 0; i < reference.clusters.count; i++)
+			{
+				const ufbx_skin_cluster* cluster = reference.clusters.data[i];
+				if (cluster->bone_node)
+					referenceBones.emplace(cluster->bone_node, cluster);
+			}
+
+			if (referenceBones.empty())
+				return false;
+
+			// --- each skin's correction, from any bone it shares ---------------
+			//
+			// Derived from one shared bone and then checked against the rest.
+			// The check is not ceremony: if the file disagrees with itself the
+			// correction is not a constant, and folding an averaged one into
+			// the vertices would bend the mesh in a way no error message would
+			// ever explain.
+			std::vector<BoundCluster> clusters;
+			std::unordered_map<const ufbx_node*, size_t> boneAt;
+
+			const auto add = [&](const ufbx_skin_cluster* cluster, const Mat4& toGeometry)
+			{
+				if (!cluster || !cluster->bone_node)
+					return;
+				if (boneAt.find(cluster->bone_node) != boneAt.end())
+					return;
+
+				boneAt.emplace(cluster->bone_node, clusters.size());
+				clusters.push_back(BoundCluster{ cluster, toGeometry });
+			};
+
+			for (size_t i = 0; i < reference.clusters.count; i++)
+				add(reference.clusters.data[i], Mat4(1.0f));
+
+			for (size_t s = 1; s < scene.skin_deformers.count; s++)
+			{
+				const ufbx_skin_deformer& skin = *scene.skin_deformers.data[s];
+
+				bool found = false;
+				Mat4 geometryToReference(1.0f);
+				float worst = 0.0f;
+
+				for (size_t i = 0; i < skin.clusters.count; i++)
+				{
+					const ufbx_skin_cluster* cluster = skin.clusters.data[i];
+					const auto shared = cluster->bone_node
+									  ? referenceBones.find(cluster->bone_node)
+									  : referenceBones.end();
+					if (shared == referenceBones.end())
+						continue;
+
+					// v_reference = inverse(g2b_reference) * g2b_skin * v_skin
+					const Mat4 candidate = Math::Inverse(ToMat4(shared->second->geometry_to_bone))
+										 * ToMat4(cluster->geometry_to_bone);
+
+					if (!found)
+					{
+						geometryToReference = candidate;
+						found = true;
+						continue;
+					}
+
+					for (int column = 0; column < 4; column++)
+					{
+						for (int row = 0; row < 4; row++)
+						{
+							worst = Math::Max(worst,
+								Math::Abs(candidate[column][row] - geometryToReference[column][row]));
+						}
+					}
+				}
+
+				SkinBinding binding;
+				if (!found)
+				{
+					// Nothing in common with the first skin, which is what a
+					// genuinely separate character looks like. Left out, and
+					// its mesh imports static -- the behaviour this importer
+					// has always had, now applied only to the case it was
+					// written for.
+					RV_CORE_WARN("FBX '{0}': skin '{1}' shares no bone with '{2}', so it is "
+								 "a separate skeleton; its mesh is imported static",
+								 path.string(), name(skin), name(reference));
+					bindings.emplace(&skin, binding);
+					continue;
+				}
+
+				if (worst > 1e-3f)
+				{
+					RV_CORE_WARN("FBX '{0}': skin '{1}' does not agree with '{2}' about where "
+								 "its mesh sits (worst term {3}); its parts may not line up",
+								 path.string(), name(skin), name(reference), worst);
+				}
+
+				binding.GeometryToReference = geometryToReference;
+				binding.Usable = true;
+				bindings.emplace(&skin, binding);
+
+				// Bones only this skin knows about still belong in the
+				// skeleton, with their bind matrices brought into the
+				// reference space the same way the vertices are.
+				const Mat4 referenceToGeometry = Math::Inverse(geometryToReference);
+				for (size_t i = 0; i < skin.clusters.count; i++)
+					add(skin.clusters.data[i], referenceToGeometry);
+			}
+
+			SkinBinding referenceBinding;
+			referenceBinding.Usable = true;
+			bindings.emplace(&reference, referenceBinding);
+
+			if (!ReadSkeleton(clusters, name(reference), out, boneOf))
+				return false;
+
+			// --- each skin's cluster list, onto the shared bones ---------------
+			for (size_t s = 0; s < scene.skin_deformers.count; s++)
+			{
+				const ufbx_skin_deformer& skin = *scene.skin_deformers.data[s];
+				const auto entry = bindings.find(&skin);
+				if (entry == bindings.end() || !entry->second.Usable)
+					continue;
+
+				SkinMapping& mapping = entry->second.Mapping;
+				mapping.ToBone.assign(skin.clusters.count, -1);
+
+				int mapped = 0;
+				for (size_t i = 0; i < skin.clusters.count; i++)
+				{
+					const ufbx_node* bone = skin.clusters.data[i]->bone_node;
+					const auto found = bone ? boneOf.find(bone) : boneOf.end();
+					if (found == boneOf.end())
+						continue;
+
+					mapping.ToBone[i] = found->second;
+					mapped++;
+				}
+
+				if (mapped == 0)
+					entry->second.Usable = false;
+			}
+
+			return true;
+		}
+
 
 		// One mesh vertex's influences, as the top four.
 		//
@@ -521,7 +755,7 @@ namespace RageV::Assets
 		// that option is a claim about the sampler, and would be a lie if
 		// SamplePose lerped.
 		void ReadAnimation(const ufbx_scene& scene, const ufbx_anim_stack& stack,
-						   const SkinMapping& mapping, size_t boneCount,
+						   const std::unordered_map<const ufbx_node*, int>& boneOf, size_t boneCount,
 						   Anim::Clip& out)
 		{
 			out.Name = stack.name.length ? std::string(stack.name.data, stack.name.length)
@@ -553,8 +787,8 @@ namespace RageV::Assets
 				if (node.typed_id >= scene.nodes.count)
 					continue;
 
-				const auto found = mapping.BoneOf.find(scene.nodes.data[node.typed_id]);
-				if (found == mapping.BoneOf.end())
+				const auto found = boneOf.find(scene.nodes.data[node.typed_id]);
+				if (found == boneOf.end())
 					continue;   // moves something that is not a bone of this skin
 
 				BoneTrack& track = out.Tracks[found->second];
@@ -634,8 +868,18 @@ namespace RageV::Assets
 
 		void ReadMeshPart(const ufbx_mesh& mesh, const ufbx_mesh_part& part,
 						  const ufbx_skin_deformer* skin, const SkinMapping& mapping,
-						  ImportedPrimitive& out)
+						  const Mat4& geometryToReference, ImportedPrimitive& out)
 		{
+			// The identity for everything except a mesh whose skin is not the
+			// one the skeleton is anchored to; see ReadSkins. Hoisted so the
+			// common case costs a bool per vertex rather than a matrix
+			// multiply, and so the numbers a single-skin file produces are
+			// bit-for-bit the ones it produced before this existed.
+			const bool correct = !IsIdentity(geometryToReference);
+			const Mat3 normalCorrection = correct
+				? Math::Transpose(Math::Inverse(Mat3(geometryToReference)))
+				: Mat3(1.0f);
+
 			std::unordered_map<VertexKey, uint32_t, VertexKeyHash> seen;
 			std::vector<uint32_t> triangle(mesh.max_face_triangles * 3);
 
@@ -668,6 +912,12 @@ namespace RageV::Assets
 					vertex.Normal = mesh.vertex_normal.exists
 								  ? ToVec3(ufbx_get_vertex_vec3(&mesh.vertex_normal, index))
 								  : Vec3(0.0f, 1.0f, 0.0f);
+
+					if (correct)
+					{
+						vertex.Position = Vec3(geometryToReference * Vec4(vertex.Position, 1.0f));
+						vertex.Normal = Math::Normalize(normalCorrection * vertex.Normal);
+					}
 
 					if (mesh.vertex_uv.exists)
 					{
@@ -820,29 +1070,44 @@ namespace RageV::Assets
 		}
 
 		// **The skeleton before the geometry, because the geometry addresses
-		// it.** One skin, the first in the file: a file with two independent
-		// characters in it is a file that should have been two files, and
-		// supporting it would mean every skinned primitive carrying which
-		// skeleton it belongs to for a case nobody exports. `ImportedModel`
-		// says the same thing about glTF.
-		SkinMapping mapping;
-		const ufbx_skin_deformer* skeletonSkin = nullptr;
+		// it.** One skeleton per file -- a file with two independent characters
+		// in it is a file that should have been two files -- but as many skins
+		// as the exporter wrote, all resolved onto it. See ReadSkins for why
+		// those are not the same statement.
+		std::unordered_map<const ufbx_skin_deformer*, SkinBinding> bindings;
+		// Shared by every skin, which is the whole point of them being one
+		// skeleton -- and the only part of a skin the animation walk needs.
+		std::unordered_map<const ufbx_node*, int> boneOf;
 
 		if (scene->skin_deformers.count > 0)
 		{
-			skeletonSkin = scene->skin_deformers.data[0];
-			if (!ReadSkin(*skeletonSkin, out.Skeleton, mapping))
+			if (!ReadSkins(*scene, path, out.Skeleton, bindings, boneOf))
 			{
 				out.Skeleton.Bones.clear();
-				skeletonSkin = nullptr;
-			}
-
-			if (scene->skin_deformers.count > 1)
-			{
-				RV_CORE_WARN("FBX '{0}' has {1} skins; only the first is imported",
-							 path.string(), scene->skin_deformers.count);
+				bindings.clear();
+				boneOf.clear();
 			}
 		}
+
+		// Made on demand, so a file whose materials all resolve gains nothing.
+		int defaultMaterialIndex = -1;
+		int defaulted = 0;
+		const auto defaultMaterial = [&]()
+		{
+			if (defaultMaterialIndex < 0)
+			{
+				ImportedMaterial fallback;
+				fallback.Name = "Default";
+				// MaterialParams already defaults to white, non-metallic and
+				// half rough, which is the standard-shader default every DCC
+				// and every engine shows for an unassigned slot.
+				defaultMaterialIndex = (int)out.Materials.size();
+				out.Materials.push_back(std::move(fallback));
+			}
+
+			defaulted++;
+			return defaultMaterialIndex;
+		};
 
 		// Geometry, one primitive per (mesh, material) pair.
 		for (size_t i = 0; i < scene->nodes.count; i++)
@@ -854,19 +1119,26 @@ namespace RageV::Assets
 			const ufbx_mesh& mesh = *node->mesh;
 			const auto owner = nodeIndex.find(node);
 
-			// Only the skin the skeleton came from. A second skin's cluster
-			// indices address a different bone list, so reading its weights
-			// through this mapping would produce plausible numbers pointing at
-			// the wrong bones -- which is worse than the mesh arriving static.
+			// This mesh's own skin, whichever of the file's it is. Each one
+			// carries its own cluster-to-bone mapping onto the shared skeleton
+			// and its own correction into the reference space, so a mesh is
+			// deformed by the deformer that was actually bound to it.
 			const ufbx_skin_deformer* skin = nullptr;
-			for (size_t d = 0; skeletonSkin && d < mesh.skin_deformers.count; d++)
+			const SkinBinding* binding = nullptr;
+			for (size_t d = 0; d < mesh.skin_deformers.count; d++)
 			{
-				if (mesh.skin_deformers.data[d] == skeletonSkin)
+				const auto found = bindings.find(mesh.skin_deformers.data[d]);
+				if (found != bindings.end() && found->second.Usable)
 				{
-					skin = skeletonSkin;
+					skin = found->first;
+					binding = &found->second;
 					break;
 				}
 			}
+
+			static const SkinMapping kNoMapping;
+			const SkinMapping& mapping = binding ? binding->Mapping : kNoMapping;
+			const Mat4 geometryToReference = binding ? binding->GeometryToReference : Mat4(1.0f);
 
 			for (size_t p = 0; p < mesh.material_parts.count; p++)
 			{
@@ -882,10 +1154,28 @@ namespace RageV::Assets
 				if (p < mesh.materials.count)
 				{
 					const auto found = materialIndex.find(mesh.materials.data[p]);
-					primitive.Material = found == materialIndex.end() ? -1 : found->second;
+					if (found != materialIndex.end())
+						primitive.Material = found->second;
 				}
 
-				ReadMeshPart(mesh, part, skin, mapping, primitive);
+				// **A part with no material still gets one.** An FBX routinely
+				// has faces assigned to no material at all -- a part the artist
+				// never got to, a mesh whose material list is shorter than its
+				// part list, a slot pointing at a material the file does not
+				// contain -- and the mesh arrived carrying handle 0, which the
+				// renderer draws white anyway but which nothing can select,
+				// inspect or replace. It looked identical to a material that
+				// had failed to load.
+				//
+				// So the importer says it out loud: one white material, made
+				// once per file and only when something needs it, written
+				// beside the model like any other. That is what Unity does and
+				// for the same reason -- the fallback should be a thing you can
+				// point at.
+				if (primitive.Material < 0)
+					primitive.Material = defaultMaterial();
+
+				ReadMeshPart(mesh, part, skin, mapping, geometryToReference, primitive);
 				if (primitive.Vertices.empty())
 					continue;
 
@@ -894,6 +1184,13 @@ namespace RageV::Assets
 
 				out.Primitives.push_back(std::move(primitive));
 			}
+		}
+
+		if (defaulted > 0)
+		{
+			RV_CORE_WARN("FBX '{0}': {1} mesh part(s) name no material this file contains; "
+						 "they are given a default white one",
+						 path.string(), defaulted);
 		}
 
 		// Animations last: they address bones, which the skin above defined.
@@ -905,7 +1202,7 @@ namespace RageV::Assets
 			for (size_t i = 0; i < scene->anim_stacks.count; i++)
 			{
 				Anim::Clip clip;
-				ReadAnimation(*scene, *scene->anim_stacks.data[i], mapping,
+				ReadAnimation(*scene, *scene->anim_stacks.data[i], boneOf,
 							  out.Skeleton.Size(), clip);
 
 				const bool moves = std::any_of(clip.Tracks.begin(), clip.Tracks.end(),

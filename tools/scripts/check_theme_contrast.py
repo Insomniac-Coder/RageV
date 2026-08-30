@@ -86,7 +86,7 @@ LIGHT = {
     "Warning":       "#8A5A00",
     "Danger":        "#7E0E0E",
     "AxisX":         "#B02020",
-    "AxisY":         "#1F7A3A",
+    "AxisY":         "#1E7538",
     "AxisZ":         "#2B5BC4",
 }
 
@@ -139,18 +139,26 @@ PAIRS = [
     ("Warning",       "BgSurface", 3.0, "warning text or icon"),
     ("Danger",        "BgSurface", 3.0, "error text"),
 
-    ("AxisX",         "BgControl",  3.0, "the X axis badge"),
-    ("AxisY",         "BgControl",  3.0, "the Y axis badge"),
-    ("AxisZ",         "BgControl",  3.0, "the Z axis badge"),
+    # **The axis colour is a letter now, not a badge fill**, so it is read as
+    # text and takes the text threshold. The badge used to be a solid block of
+    # it with a black glyph on top -- the loudest thing in an otherwise
+    # greyscale inspector -- and it was calmed to a coloured letter on the
+    # field's own surface with a two-pixel edge beside it.
+    ("AxisX",         "BgControl",  4.5, "the X axis letter"),
+    ("AxisY",         "BgControl",  4.5, "the Y axis letter"),
+    ("AxisZ",         "BgControl",  4.5, "the Z axis letter"),
 
     # The four below were missing, and three of them are the same oversight
     # AccentButton was written to fix: a palette can be correct in every pair
     # somebody thought to list and still fail in one nobody did. DragVec3 puts
     # OnAccent on the axis badges, which are not the accent at all.
     ("OnAccent",      "AccentHover", 4.5, "a label on a hovered accent button"),
-    ("OnAccent",      "AxisX",      4.5, "the X badge's letter"),
-    ("OnAccent",      "AxisY",      4.5, "the Y badge's letter"),
-    ("OnAccent",      "AxisZ",      4.5, "the Z badge's letter"),
+    # Still measured, because hovering the badge fills it with the axis
+    # colour and flips the letter to OnAccent -- the moment it stops being a
+    # label and admits it is a button.
+    ("OnAccent",      "AxisX",      4.5, "the X letter, badge hovered"),
+    ("OnAccent",      "AxisY",      4.5, "the Y letter, badge hovered"),
+    ("OnAccent",      "AxisZ",      4.5, "the Z letter, badge hovered"),
 
     # Not a WCAG number -- a separation. The script graph outlines a selected
     # node in the accent and a broken one in Danger, and an error has to win

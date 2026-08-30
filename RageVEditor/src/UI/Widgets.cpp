@@ -19,91 +19,35 @@ namespace RageV::UI
 		// chamfer off gets a plain rectangle rather than a degenerate hexagon
 		// with two zero-length edges -- those show up as dark pixels at the
 		// corners once the polygon is antialiased.
-		int ChamferPoints(const ImVec2& min, const ImVec2& max, float cut, ImVec2 out[6])
-		{
-			if (cut <= 0.0f)
-			{
-				out[0] = min;
-				out[1] = { max.x, min.y };
-				out[2] = max;
-				out[3] = { min.x, max.y };
-				return 4;
-			}
-
-			out[0] = { min.x + cut, min.y };
-			out[1] = { max.x, min.y };
-			out[2] = { max.x, max.y - cut };
-			out[3] = { max.x - cut, max.y };
-			out[4] = { min.x, max.y };
-			out[5] = { min.x, min.y + cut };
-			return 6;
-		}
-
-		// A button filled with the accent and cut like the mark.
+		// A button filled with the accent.
 		//
-		// **The fill is drawn, not styled**, because ImGui emits a button's
-		// frame and its label in one call and the chamfer has to go *under*
-		// the label. Two draw channels put it there. The obvious alternative
-		// -- let ImGui draw it square, then paint the background back over the
-		// two corners -- needs to know what is behind the button, which a
-		// widget has no business assuming and which is wrong the moment one
-		// sits on anything but a flat panel.
+		// **This used to draw its own fill through a draw-list splitter**,
+		// because the shape was the mark's chamfered tile and ImGui emits a
+		// button's frame and its label in one call -- so the cut corners had to
+		// be painted on a channel underneath the label. That machinery existed
+		// entirely to produce a shape the editor no longer uses: every surface
+		// now takes the card's radius, which ImGui applies itself.
 		//
-		// Drawing the fill also means picking it, so the three states are
-		// read back off the item rather than handed to ImGui as style colours.
+		// So it is three style colours and a Button. The states come back from
+		// ImGui rather than being read off the item and repainted, which is
+		// also why the hover and pressed shades are now exactly the ones the
+		// rest of the editor uses.
 		bool AccentFilledButton(const char* label, const ImVec2& size)
 		{
 			const auto& colors = EditorTheme::Colors();
-			const ImVec4 clear{ 0.0f, 0.0f, 0.0f, 0.0f };
 
-			ImGui::PushStyleColor(ImGuiCol_Button, clear);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, clear);
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, clear);
+			ImGui::PushStyleColor(ImGuiCol_Button, colors.Accent);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.AccentHover);
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors.AccentPressed);
+			// The glyph or label is on an accent fill, so it owes 4.5:1
+			// against it -- which is what OnAccent is for.
 			ImGui::PushStyleColor(ImGuiCol_Text, colors.OnAccent);
 
-			ImDrawList* draw = ImGui::GetWindowDrawList();
-			ImDrawListSplitter splitter;
-			splitter.Split(draw, 2);
-			splitter.SetCurrentChannel(draw, 1);
-
 			const bool pressed = ImGui::Button(label, size);
-			const bool held = ImGui::IsItemActive();
-			const bool hovered = ImGui::IsItemHovered();
-
-			splitter.SetCurrentChannel(draw, 0);
-			ChamferedRect(draw, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
-						  ImGui::GetColorU32(held ? colors.AccentPressed
-												  : (hovered ? colors.AccentHover
-															 : colors.Accent)),
-						  ChamferCut(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
-									 EditorTheme::Corner::Chamfer));
-			splitter.Merge(draw);
 
 			ImGui::PopStyleColor(4);
 			return pressed;
 		}
-	}
-
-	float ChamferCut(const ImVec2& min, const ImVec2& max, float fraction)
-	{
-		const float shorter = Math::Min(max.x - min.x, max.y - min.y);
-		return Math::Clamp(shorter * fraction, 0.0f, shorter * 0.5f);
-	}
-
-	void ChamferedRect(ImDrawList* draw, const ImVec2& min, const ImVec2& max,
-					   ImU32 fill, float cut)
-	{
-		ImVec2 points[6];
-		const int count = ChamferPoints(min, max, cut, points);
-		draw->AddConvexPolyFilled(points, count, fill);
-	}
-
-	void ChamferedRectOutline(ImDrawList* draw, const ImVec2& min, const ImVec2& max,
-							  ImU32 colour, float cut, float thickness)
-	{
-		ImVec2 points[6];
-		const int count = ChamferPoints(min, max, cut, points);
-		draw->AddPolyline(points, count, colour, ImDrawFlags_Closed, thickness);
 	}
 
 	bool BeginProperties(const char* id, float labelFraction, bool resizable)
@@ -305,15 +249,32 @@ namespace RageV::UI
 		{
 			ImGui::PushID(axis);
 
-			// The badge is a button because it resets the axis, and it is
-			// coloured because "which one is Y" is the question being asked
-			// dozens of times a minute. Hover brightens rather than switching
-			// to the accent: the accent means interaction, and all three of
-			// these are interactive, so it would say nothing.
-			ImGui::PushStyleColor(ImGuiCol_Button, axisColors[axis]);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.AccentHover);
+			// **The badge is a letter and an edge, not a block of colour.**
+			//
+			// It used to be a solid slab of saturated red, green or blue with
+			// a black glyph on it, and it was the loudest thing in the
+			// inspector -- three of them on every transform, on a palette that
+			// is otherwise greyscale with one accent. The colour is doing an
+			// identity job, not an interaction one ("which one is Y" is the
+			// question, asked dozens of times a minute), and identity does not
+			// need a fill to be read: the letter carries it, and a two-pixel
+			// edge carries it again for anybody who cannot separate the hues.
+			//
+			// So at rest the badge is the same surface as the field beside it
+			// -- the two read as one control, which they are. What it gains on
+			// hover is the *fill*, because that is the moment it stops being a
+			// label and becomes a button you are about to press.
+			const bool hot = ImGui::IsMouseHoveringRect(
+				ImGui::GetCursorScreenPos(),
+				ImVec2(ImGui::GetCursorScreenPos().x + buttonSize.x,
+					   ImGui::GetCursorScreenPos().y + buttonSize.y));
+
+			ImGui::PushStyleColor(ImGuiCol_Button, colors.BgControl);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, axisColors[axis]);
 			ImGui::PushStyleColor(ImGuiCol_ButtonActive, axisColors[axis]);
-			ImGui::PushStyleColor(ImGuiCol_Text, colors.OnAccent);
+			ImGui::PushStyleColor(ImGuiCol_Text, hot ? colors.OnAccent : axisColors[axis]);
+
+			const ImVec2 badgeMin = ImGui::GetCursorScreenPos();
 
 			if (ImGui::Button(axisLabels[axis], buttonSize))
 			{
@@ -321,6 +282,17 @@ namespace RageV::UI
 				changed = true;
 			}
 			ImGui::PopStyleColor(4);
+
+			// The edge, on the outer side of the badge -- away from the field,
+			// so the badge and its field still meet with nothing between them.
+			// Drawn after the button so it survives the fill on hover.
+			if (!hot)
+			{
+				ImGui::GetWindowDrawList()->AddRectFilled(
+					badgeMin,
+					ImVec2(badgeMin.x + 2.0f, badgeMin.y + buttonSize.y),
+					ImGui::GetColorU32(axisColors[axis]));
+			}
 
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Reset %s to %.3g", axisLabels[axis], resetValue);
@@ -470,6 +442,23 @@ namespace RageV::UI
 		CloseRow();
 	}
 
+	void CardRule()
+	{
+		const ImVec2 min = ImGui::GetWindowPos();
+		const float width = ImGui::GetWindowWidth();
+
+		// Inset from the corners by the window's own radius, so the rule stops
+		// where the curve starts rather than running off the end of it -- the
+		// same inset the loading card uses, and the reason it reads as part of
+		// the card rather than as a lid on it.
+		const float inset = ImGui::GetStyle().WindowRounding + 2.0f;
+
+		ImGui::GetWindowDrawList()->AddRectFilled(
+			ImVec2(min.x + inset, min.y),
+			ImVec2(min.x + width - inset, min.y + 2.0f),
+			ImGui::GetColorU32(EditorTheme::Colors().Accent), 1.0f);
+	}
+
 	bool AccentButton(const char* label, const ImVec2& size)
 	{
 		return AccentFilledButton(label, size);
@@ -482,27 +471,48 @@ namespace RageV::UI
 
 		const ImVec2 at = ImGui::GetCursorScreenPos();
 
-		// The active one is the mark's tile; the rest are ordinary buttons.
-		// Which is the point of the cut being reserved: in a row of seven, the
-		// one that is on is the only one shaped differently.
+		// **The active tool is marked, not filled.**
+		//
+		// It used to be a solid block of accent with a black glyph punched out
+		// of it -- the loudest object in the window, sitting in the top-left
+		// corner all day, on a palette that is otherwise greyscale. Beside a
+		// loading screen whose whole vocabulary is a raised surface and a
+		// two-pixel rule, a filled square read as a different program.
+		//
+		// So it uses the rule instead, which is the idiom the rest of the
+		// editor already carries: a focused panel's tab has an accent overline,
+		// a modal has one along its top, and now the tool you are holding has
+		// one under it. The button itself lifts to BgActive -- pressed-looking,
+		// because it is -- and the glyph takes the accent.
 		bool pressed = false;
 		bool hovered = false;
+
+		const ImVec2 buttonAt = ImGui::GetCursorScreenPos();
+
+		if (active)
+			ImGui::PushStyleColor(ImGuiCol_Button, colors.BgActive);
+
+		pressed = ImGui::Button(id, { side, side });
+		hovered = ImGui::IsItemHovered();
+
 		if (active)
 		{
-			pressed = AccentFilledButton(id, { side, side });
-			hovered = ImGui::IsItemHovered();
-		}
-		else
-		{
-			pressed = ImGui::Button(id, { side, side });
-			hovered = ImGui::IsItemHovered();
+			ImGui::PopStyleColor();
+
+			// Inset by the button's own radius, the same way CardRule insets
+			// by the window's -- a rule that runs into a curve looks like it
+			// missed.
+			const float inset = ImGui::GetStyle().FrameRounding;
+			ImGui::GetWindowDrawList()->AddRectFilled(
+				ImVec2(buttonAt.x + inset, buttonAt.y + side - 2.0f),
+				ImVec2(buttonAt.x + side - inset, buttonAt.y + side),
+				ImGui::GetColorU32(colors.Accent), 1.0f);
 		}
 
-		// OnAccent while filled, for the same reason AccentButton exists: the
-		// glyph is the label here, and a label on an accent fill has to clear
-		// 4.5:1 against it.
+		// The accent while active, because the glyph is now the thing carrying
+		// the state rather than a hole in a coloured square.
 		const ImU32 tint = ImGui::GetColorU32(
-			active ? colors.OnAccent : (hovered ? colors.TextPrimary : colors.TextSecondary));
+			active ? colors.Accent : (hovered ? colors.TextPrimary : colors.TextSecondary));
 
 		// 14%, not 24%. A 30px button inset by a quarter leaves ~14px of icon,
 		// and at 14px a 1px stroke with arrowheads a pixel and a half across
@@ -510,7 +520,10 @@ namespace RageV::UI
 		// like marks rather than symbols. The icons are drawn inside 0.16-0.84
 		// of their canvas already, so they carry their own breathing room.
 		const float inset = side * 0.14f;
-		DrawIcon(ImGui::GetWindowDrawList(), { at.x + inset, at.y + inset },
+		// Lifted a pixel when the rule is under it, so the glyph sits in the
+		// space it has rather than against the mark.
+		DrawIcon(ImGui::GetWindowDrawList(),
+				 { at.x + inset, at.y + inset - (active ? 1.0f : 0.0f) },
 				 side - inset * 2.0f, kind, tint);
 
 		if (hovered && tooltip)

@@ -78,7 +78,20 @@ namespace RageV
 		// Returns false and changes nothing if the move would form a cycle.
 		// This is the only place a cycle can be created, so rejecting it here
 		// is what lets the transform pass recurse without a depth guard.
-		bool SetParent(Entity child, Entity parent);
+		// **`keepWorldTransform` is the difference between moving a thing and
+		// describing where it already is.**
+		//
+		// True -- the default, and what the hierarchy panel wants -- re-expresses
+		// the child's existing world transform relative to its new parent, so
+		// dragging a crate onto a cart does not teleport the crate.
+		//
+		// False keeps the local transform exactly as written. That is what an
+		// *import* needs: a model's node transforms are already local to their
+		// parents, and preserving world while attaching them rewrites every one
+		// of them to cancel its parent -- which flattens the model's hierarchy
+		// to the identity and is invisible on any model whose transforms happen
+		// to compose to nothing. See AssetManager::InstantiateModel.
+		bool SetParent(Entity child, Entity parent, bool keepWorldTransform = true);
 		bool IsDescendantOf(Entity entity, Entity possibleAncestor);
 
 		Entity GetParent(Entity entity);

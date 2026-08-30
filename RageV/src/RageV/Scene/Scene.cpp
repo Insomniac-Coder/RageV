@@ -221,7 +221,7 @@ namespace RageV
 		return false;
 	}
 
-	bool Scene::SetParent(Entity child, Entity parent)
+	bool Scene::SetParent(Entity child, Entity parent, bool keepWorldTransform)
 	{
 		if (!child || !child.HasComponent<RelationshipComponent>())
 			return false;
@@ -234,7 +234,7 @@ namespace RageV
 
 		// Captured before the move so the entity does not visibly jump when its
 		// new parent has a different transform.
-		const Mat4 world = GetWorldTransform(child);
+		const Mat4 world = keepWorldTransform ? GetWorldTransform(child) : Mat4(1.0f);
 
 		UnlinkFromParent(child);
 
@@ -244,17 +244,20 @@ namespace RageV
 			parent.GetComponent<RelationshipComponent>().Children.push_back(child.GetUUID());
 		}
 
-		// Re-express the same world transform relative to the new parent.
-		const Mat4 local = Math::Inverse(GetParentWorldTransform(child)) * world;
-
-		Vec3 position, scale;
-		Quat rotation;
-		if (Math::Decompose(local, position, rotation, scale))
+		if (keepWorldTransform)
 		{
-			auto& transform = child.GetComponent<TransformComponent>();
-			transform.Position = position;
-			transform.Rotation = Math::ToEuler(rotation);
-			transform.Scale = scale;
+			// Re-express the same world transform relative to the new parent.
+			const Mat4 local = Math::Inverse(GetParentWorldTransform(child)) * world;
+
+			Vec3 position, scale;
+			Quat rotation;
+			if (Math::Decompose(local, position, rotation, scale))
+			{
+				auto& transform = child.GetComponent<TransformComponent>();
+				transform.Position = position;
+				transform.Rotation = Math::ToEuler(rotation);
+				transform.Scale = scale;
+			}
 		}
 
 		UpdateWorldTransforms();

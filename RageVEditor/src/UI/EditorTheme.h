@@ -176,31 +176,38 @@ namespace RageV::EditorTheme
 
 	// Corners.
 	//
-	// There is no curve anywhere in the mark -- a chamfered tile, and a V of
-	// straight-sided quads with mitred ends and a real point. A radius is the
-	// one thing that would contradict it, so `Sharp` is what every framed
-	// thing in the editor gets, and it is zero.
+	// **The mark has no curve in it -- a chamfered tile, and a V of
+	// straight-sided quads with mitred ends and a real point -- and for a long
+	// time the editor followed it exactly: `Sharp` on everything.**
 	//
-	// `Chamfer` is the tile's cut, and it is a separate number because it is a
-	// separate idea: a radius is a corner that curves, a chamfer is a corner
-	// that is *gone*. **ImGui's style has only the first**, so this one cannot
-	// be set globally -- it applies where the editor draws the shape itself.
-	// See UI::ChamferedRect.
+	// That changed when the engine grew a startup and a loading screen, both
+	// of which are a rounded card standing in a red field, and the editor
+	// behind them kept hard corners. Two halves of one program disagreeing
+	// about their own shape is worse than either shape, and the card is the
+	// half a person meets first. The owner's call; the mark keeps its chamfer
+	// and the interface takes a radius.
 	//
-	// **A fraction of the shorter side, which is the mark's own logic** -- the
-	// tile's cut is 26% of a square. One number then gives the same shape at
-	// every size: three pixels off a toolbar button, seven off a graph node,
-	// and both of them larger by the same factor when the UI is scaled up. A
-	// pixel count cannot do that, because the UI scale reaches the font and
-	// the paddings and would never reach a constant in a header.
+	// The chamfer that used to live here is gone with the two things that drew
+	// it -- the accent button and the script graph's nodes -- both of which are
+	// cards now. It was the right answer while the interface was square and the
+	// cut was what made a shape *the mark's*; with a radius on every surface it
+	// would have been the one shape that did not belong.
 	//
-	// A tenth rather than a quarter because a logo is looked at once at 512px
-	// and a button is 30px and looked at all day: 26% of 30px is a corner
-	// removed, not a corner cut.
+	// `Sharp` stays. Not everything wants a corner rounded, and zero is worth
+	// having a name.
 	namespace Corner
 	{
 		constexpr float Sharp   = 0.0f;
-		constexpr float Chamfer = 0.10f;
+
+		// What a surface standing on the ground gets: panels, popups, menus,
+		// modals. The same eight the loading card is drawn with, so the
+		// editor's panels and the screen it opened behind are the same object.
+		constexpr float Panel   = 8.0f;
+
+		// What sits *inside* a surface: fields, buttons, tabs, grabs. Half,
+		// because a control curved as hard as the panel holding it competes
+		// with it -- and because at 26 px tall, eight is a pill.
+		constexpr float Control = 4.0f;
 	}
 
 	// The active theme's values. Call this; never name a colour at a call site.

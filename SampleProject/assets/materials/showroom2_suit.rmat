@@ -1,0 +1,17 @@
+Material: showroom2_suit
+BaseColor: [1, 1, 1, 1]
+Emissive: [36.6057, 28.1747, 20, 1]
+Metallic: 0.55
+Roughness: 0.796955
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 4954860350141346349
+  Normal: 7024671862542547800
+  Emissive: 4253947882296401012
+  Roughness: 15600106034205434140
+  Metallic: 16636118102143438966

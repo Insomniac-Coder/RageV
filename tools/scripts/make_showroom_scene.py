@@ -266,6 +266,82 @@ CREDIT = ('"2024 Porsche 992 GT3 R" (https://skfb.ly/pMLAu) by Dave Love '
           '(http://creativecommons.org/licenses/by/4.0/).')
 
 
+# --- the subject, which is the only thing the room does not decide -----------
+#
+# **The room is one function and there are two scenes in it.** `showroom.rage`
+# is a car in a delivery bay; `showroom2.rage` is the same bay with a figure in
+# it instead, and "the same bay" has to mean the same *code* or it means the
+# same bay until somebody edits one of them.
+#
+# So everything below the ceiling is unconditional -- walls, floor, luminaire,
+# nine fills, key, kickers, service bay, mirror, charge post, probe, volume,
+# overlay -- and a Subject carries the handful of things that genuinely differ:
+# which model is spliced in, where the camera stands to see it, the lights the
+# subject itself carries, and whose licence the bar prints.
+#
+# It is a plain class rather than a dataclass because this file is read as
+# prose and a field here wants a sentence beside it, which
+# `dataclasses.field(...)` does not leave room for.
+class Subject:
+    def __init__(self, key, label, title, credit, model, subtree, root_tag,
+                 materials, target, pitch, distance, min_distance, max_distance,
+                 root_scale=(1.0, 1.0, 1.0), root_position=(0.0, 0.0, 0.0),
+                 root_rotation=(0.0, 0.0, 0.0),
+                 lamps=(), lights=None, exposure=0.45):
+        # `showroom`, `showroom2`: names the scene file, the grade, the post
+        # profile and -- through the scene's own name -- the bake directory.
+        self.key = key
+        # One word for the console line, so a re-run says what it re-authored.
+        self.label = label
+        # The `Scene:` line, which is what the editor's title bar shows.
+        self.title = title
+        # The licence notice along the bottom of the frame. Attribution is a
+        # condition of both models' licences, so this is not decoration.
+        self.credit = credit
+
+        # The asset-relative model, which only the "run rvimport first" error
+        # needs -- the geometry itself reaches the scene through the subtree.
+        self.model = model
+        # rvimport's output, committed, and spliced in whole. See
+        # subject_subtree for why it is read rather than generated.
+        self.subtree = subtree
+        # The subtree's own root entity, which scripts find the subject by.
+        self.root_tag = root_tag
+        # Where the model sits and how big it is. The car is authored at
+        # metres and needs neither; a figure exported at millimetres needs
+        # both, and the root is the one entity in the subtree this generator
+        # is allowed to move.
+        self.root_scale = root_scale
+        self.root_position = root_position
+        # Degrees, and only the staging of the subject in the room -- the
+        # model's own axis conversion lives in the subtree below the root.
+        self.root_rotation = root_rotation
+        # () -> {old handle: new handle}, run before the splice.
+        self.materials = materials
+
+        # The orbit. TARGET is the point the camera looks at and turns
+        # around, and the rest is where it starts on that sphere.
+        self.target = target
+        self.pitch = pitch
+        self.distance = distance
+        self.min_distance = min_distance
+        self.max_distance = max_distance
+
+        # The subject's own lights: headlamps on a car, repulsors on a suit.
+        # Each is (name, type, position, aim target, colour, range, inner,
+        # outer),
+        # all authored at zero intensity -- the switch in the bar raises them.
+        self.lamps = lamps
+        # (script name, {field: value}) for the switch that does the raising,
+        # or None for a subject that carries no lights.
+        self.lights = lights
+
+        # The tone mapper's exposure. A subject's albedo decides this as much
+        # as the room does: a white car two metres under a ceiling-sized
+        # source receives several times what a sunlit surface would.
+        self.exposure = exposure
+
+
 def font_metrics(path):
     """A baked font's advances, kerning pairs and line height, in em units.
 
@@ -335,7 +411,7 @@ def texture(name):
     return handle_for(name)
 
 
-def orbit_transform(yaw_degrees, pitch_degrees, distance):
+def orbit_transform(yaw_degrees, pitch_degrees, distance, target=TARGET):
     """Where the camera stands, and the euler angles that aim it at the target.
 
     The same solve ShowroomCamera.cs does at runtime. Written here as well
@@ -348,11 +424,27 @@ def orbit_transform(yaw_degrees, pitch_degrees, distance):
     pitch = math.radians(pitch_degrees)
 
     ground = distance * math.cos(pitch)
-    position = (TARGET[0] + ground * math.sin(yaw),
-                TARGET[1] + distance * math.sin(pitch),
-                TARGET[2] + ground * math.cos(yaw))
+    position = (target[0] + ground * math.sin(yaw),
+                target[1] + distance * math.sin(pitch),
+                target[2] + ground * math.cos(yaw))
 
-    return position, aim(position, TARGET)
+    return position, aim(position, target)
+
+
+def rotate_y(position, yaw_degrees):
+    """A point turned about the world Y axis, the way an entity's yaw turns it.
+
+    The composition `Math::FromEuler` builds and `Math::ToMat4` unpacks, for
+    the yaw-only case: the X basis goes to (cos, 0, -sin) and the Z basis to
+    (sin, 0, cos). Written out here so that a light placed relative to a
+    subject's own geometry follows the subject when it is turned -- which is
+    the difference between a repulsor beside a palm and a repulsor beside
+    where the palm used to be.
+    """
+    yaw = math.radians(yaw_degrees)
+    cos, sin = math.cos(yaw), math.sin(yaw)
+    x, y, z = position
+    return (x * cos + z * sin, y, -x * sin + z * cos)
 
 
 def aim(position, target):
@@ -537,11 +629,13 @@ def materials():
     }
 
 
-def build(profile, mat):
+def build(profile, mat, subject=None):
+    subject = subject or CAR
     s = Scene()
 
     # --- the camera ---------------------------------------------------------
-    position, rotation = orbit_transform(START_YAW, START_PITCH, START_DISTANCE)
+    position, rotation = orbit_transform(START_YAW, subject.pitch,
+                                         subject.distance, subject.target)
 
     # **40 degrees vertical, which is wider than a car photographer would
     # use and is the right answer here.** A long lens flatters a car and shows
@@ -559,10 +653,13 @@ def build(profile, mat):
         ("PostProfile", profile),
     ])
     s.managed_script("ShowroomCamera",
-                     TargetX=TARGET[0], TargetY=TARGET[1], TargetZ=TARGET[2],
-                     Yaw=START_YAW, Pitch=START_PITCH,
+                     TargetX=subject.target[0], TargetY=subject.target[1],
+                     TargetZ=subject.target[2],
+                     Yaw=START_YAW, Pitch=subject.pitch,
                      MinPitch=0.5, MaxPitch=32.0,
-                     Distance=START_DISTANCE, MinDistance=4.6, MaxDistance=11.0)
+                     Distance=subject.distance,
+                     MinDistance=subject.min_distance,
+                     MaxDistance=subject.max_distance)
 
     # --- the shell ----------------------------------------------------------
     depth = FRONT - BACK
@@ -749,10 +846,10 @@ def build(profile, mat):
             ("CastShadows", "false"),
         ])
 
-    # --- the car's own lamps ------------------------------------------------
+    # --- the subject's own lamps --------------------------------------------
     #
-    # Four spots, all at zero intensity in the file. ShowroomLights.cs raises
-    # them when the switch in the bar is pressed and puts them back when it is
+    # Spots, all at zero intensity in the file. The switch's script raises them
+    # when the button in the bar is pressed and puts them back when it is
     # pressed again -- so the scene as saved is the still it was framed as, and
     # the lights are something the viewer turns on.
     #
@@ -763,39 +860,24 @@ def build(profile, mat):
     # job and not a script's.
     #
     # None of them casts a shadow. The engine allows four local casters and the
-    # key light overhead is the one that matters -- it is what puts the car on
-    # the floor. A headlamp caster would buy the splitter's shadow inside its
-    # own pool, which is a detail nobody looks for, at the price of the shadow
-    # that holds the whole picture together.
-    for name, x in (("Headlamp Beam Left", -LAMP_X), ("Headlamp Beam Right", LAMP_X)):
-        origin = (x, LAMP_Y, HEADLAMP_Z)
-        target = (x, HEADLAMP_TARGET[1], HEADLAMP_TARGET[2])
+    # key light overhead is the one that matters -- it is what puts the subject
+    # on the floor. A headlamp caster would buy the splitter's shadow inside
+    # its own pool, which is a detail nobody looks for, at the price of the
+    # shadow that holds the whole picture together.
+    #
+    # **`IsBaked: false` on every one of them**, which is not a detail: a baked
+    # field is keyed on the scene's lighting, so a light the viewer can switch
+    # would invalidate the bake the moment it was pressed and drop the whole
+    # room onto the realtime solve -- which is where the owner found the frame
+    # rate halving. Off the hash, they light the frame and contribute no
+    # bounce, which is the Unity-Realtime / Unreal-Movable compromise.
+    for name, kind, origin, target, colour, reach, inner, outer in subject.lamps:
         s.entity(name, position=origin, rotation=aim(origin, target))
         s.block("LightComponent", [
-            # A cool white LED, which is what this car actually has and what
-            # separates the beam from the 5000 K room around it.
-            ("Type", "Spot"), ("Color", "[0.86, 0.91, 1]"), ("Intensity", 0),
-            # Eight metres reaches the pool and dies before the front wall at
-            # 9.5, which is behind the camera and should stay dark.
-            ("Range", 8), ("InnerCone", 15), ("OuterCone", 30),
+            ("Type", kind), ("Color", colour), ("Intensity", 0),
+            ("Range", reach), ("InnerCone", inner), ("OuterCone", outer),
             ("CastShadows", "false"),
-        ])
-
-    # Backwards, into the portal. **The best thing the tail lights do is not on
-    # the car**: the bay behind is the darkest thing in the frame, and a red
-    # wash across its concrete is the only colour anywhere in a room built out
-    # of white, charcoal and black.
-    for name, x in (("Tail Glow Left", -LAMP_X), ("Tail Glow Right", LAMP_X)):
-        origin = (x, LAMP_Y + 0.04, TAILLAMP_Z)
-        target = (x, TAILLAMP_TARGET[1], TAILLAMP_TARGET[2])
-        s.entity(name, position=origin, rotation=aim(origin, target))
-        s.block("LightComponent", [
-            # Not pure red. A light with nothing at all in two channels lands
-            # on grey concrete as a flat clipped patch with no shading in it,
-            # because there is only one channel left to shade with.
-            ("Type", "Spot"), ("Color", "[1, 0.1, 0.045]"), ("Intensity", 0),
-            ("Range", 7), ("InnerCone", 22), ("OuterCone", 46),
-            ("CastShadows", "false"),
+            ("IsBaked", "false"),
         ])
 
     # --- the service bay ----------------------------------------------------
@@ -844,7 +926,14 @@ def build(profile, mat):
             ("Type", "Point"), ("Color", "[1, 0.94, 0.84]"),
             ("Intensity", STUDIO_BAY_INTENSITY),
             ("Range", 6), ("InnerCone", 20), ("OuterCone", 30),
-            ("CastShadows", "false"),
+            # **Casting, unlike everything else in the room but the key.** The
+            # rule above -- one caster, because a second contact shadow reads
+            # as a second subject -- is about the *subject*, and these are
+            # fourteen metres behind it in a separate room. What they cast is
+            # the bay's own clutter onto the bay's own floor, which is the
+            # depth cue that stops the portal reading as a painted rectangle.
+            # They are dark in mode 1 and cast nothing there.
+            ("CastShadows", "true"),
         ])
 
     # --- what a delivery bay has in it --------------------------------------
@@ -915,6 +1004,41 @@ def build(profile, mat):
         ("Update", "Baked"), ("Resolution", 512), ("Influence", 22),
         ("NearClip", 0.05), ("FarClip", 60), ("Rate", "PerFrame"),
         ("FacesPerFrame", 6),
+    ])
+
+    # --- the irradiance volume ----------------------------------------------
+    #
+    # **The bake's box, and without it there is no bake.** The project asks for
+    # `RayTracedGiSource: Baked`; a scene with no volume has nothing to solve
+    # into, so it falls back to the realtime trace and the room costs twice
+    # what it should. This was authored by hand for a while and the generator
+    # did not know about it, which is a file waiting to be regenerated and
+    # silently unbaked -- so it is written here now.
+    #
+    # **Every number is derived, because a box that stops short of a surface
+    # is the defect the owner's eye caught as a sharp vertical line.** The
+    # extents are the room plus five centimetres on each face: the walls sit at
+    # the volume's own boundary otherwise, and geometry authored exactly on a
+    # cell boundary reads at partial strength.
+    #
+    # The service bay is deliberately outside it. It is lit by its own four
+    # downlights and seen through a portal, and taking the volume back to
+    # z = -14.5 would spend two thirds of the cells on the third of the frame
+    # that is nearly black.
+    volume_pad = 0.05
+    s.entity("Irradiance Volume", position=(0, CEILING * 0.5, middle))
+    s.block("IrradianceVolumeComponent", [
+        ("Extents", vec(HALF_WIDTH + WALL_THICKNESS * 0.5,
+                        CEILING * 0.5 + volume_pad,
+                        depth * 0.5 + volume_pad)),
+        # 0.25 m cells over 11.2 x 3.8 x 17.6 m is 45 x 15 x 70, inside the
+        # 96 cap on every axis. Finer would be a bigger file and a longer
+        # solve for a room whose indirect is a slow gradient off white walls.
+        ("Spacing", 0.25), ("MaxResolution", 96),
+        # Sixteen Jacobi sweeps: each one is a bounce, and a white room stops
+        # changing visibly well before the sixteenth.
+        ("Passes", 16), ("RaysPerCell", 2048),
+        ("Recapture", "false"),
     ])
 
     return s
@@ -1048,7 +1172,7 @@ def stats_box(s):
         y += small * 2
 
 
-def overlay_ui(s):
+def overlay_ui(s, subject=None):
     """The attribution, the bar it sits on, and the lights switch at its end.
 
     **On the canvas rather than on a plaque in the room**, which is the
@@ -1058,6 +1182,8 @@ def overlay_ui(s):
     legible from every angle the orbit reaches, which nothing standing on the
     floor can promise.
     """
+    subject = subject or CAR
+
     s.entity("Showroom Canvas")
     s.block("UICanvasComponent", [
         ("ScaleMode", "ScaleWithScreen"), ("ReferenceResolution", "[1920, 1080]"),
@@ -1125,7 +1251,7 @@ def overlay_ui(s):
         # line 757, column 38: unexpected scalar`, which points at the URL and
         # not at the quote that caused it. Nothing in the notice is a single
         # quote, so this needs no escaping.
-        ("Text", "'" + CREDIT + "'"),
+        ("Text", "'" + subject.credit + "'"),
         ("Font", FONT),
         # 17 at a 1080 reference: small, and still above the size the atlas was
         # baked sharp at. **A licence notice that cannot be read is not a
@@ -1255,19 +1381,9 @@ def overlay_ui(s):
         ("OnClickTarget", 0),
         ("OnClickMethod", "Toggle"),
     ])
-    s.managed_script(
-        "ShowroomLights",
-        CarRoot="'porsche_992_gt3_r'",
-        FrontParts="'EXT_Emissive_Light_Front,ST_FRONT_'",
-        RearParts="'EXT_Emissive_Light_Rear,EXT_Glass_Emissive_Rear'",
-        FrontLamps="'Headlamp Beam Left,Headlamp Beam Right'",
-        RearLamps="'Tail Glow Left,Tail Glow Right'",
-        LabelName="'Lights Label'",
-        FrontEmissive=" ".join(f"{v:g}" for v in FRONT_EMISSIVE),
-        RearEmissive=" ".join(f"{v:g}" for v in REAR_EMISSIVE),
-        FrontIntensity=FRONT_INTENSITY,
-        RearIntensity=REAR_INTENSITY,
-        StartOn="false")
+    # Which script, and what it is told, is the subject's -- a car's lamps and
+    # a suit's repulsors are the same switch driving different things.
+    s.managed_script(subject.lights[0], **subject.lights[1])
 
     s.entity("Lights Label", parent="Lights Button")
     s.block("UIRectComponent", [
@@ -1549,22 +1665,22 @@ def car_materials():
     return remap
 
 
-def car_root_id():
-    """The subtree's own root entity, which is the car as one object.
+def subject_root_id(subject):
+    """The subtree's own root entity, which is the subject as one object.
 
     Read from the committed import rather than written down here, because it is
     rvimport's number and not this script's -- and a copy of somebody else's id
     is a copy that goes stale silently.
     """
-    for line in CAR_SUBTREE.read_text(encoding="utf-8").split("\n"):
+    for line in subject.subtree.read_text(encoding="utf-8").split("\n"):
         if line.strip().startswith("- EntityID:"):
             return int(line.split(":")[1])
 
-    raise SystemExit(f"{CAR_SUBTREE.relative_to(ROOT)} has no entities in it")
+    raise SystemExit(f"{subject.subtree.relative_to(ROOT)} has no entities in it")
 
 
-def car_subtree(remap):
-    """The imported car, as rvimport wrote it.
+def subject_subtree(subject, remap):
+    """The imported subject, as rvimport wrote it.
 
     **Read from a file rather than generated, and that is the point.** A model
     with eighty-nine materials is not one entity -- the importer splits it into
@@ -1575,15 +1691,19 @@ def car_subtree(remap):
 
     So the import runs once, its output is committed, and regenerating the room
     does not renumber three hundred entities that did not change.
-    """
-    if not CAR_SUBTREE.exists():
-        raise SystemExit(
-            f"{CAR_SUBTREE.relative_to(ROOT)} is missing. Run:\n"
-            "  build/bin/Release/rvimport/rvimport.exe "
-            "models/showroom/porsche_992_gt3_r.glb "
-            "--out=tools/scripts/data/showroom_car.yaml")
 
-    lines = CAR_SUBTREE.read_text(encoding="utf-8").split("\n")
+    **Two things are rewritten on the way through**, and only two: the material
+    handle on every draw, and the root's own transform. Everything else is
+    rvimport's, byte for byte.
+    """
+    if not subject.subtree.exists():
+        raise SystemExit(
+            f"{subject.subtree.relative_to(ROOT)} is missing. Run:\n"
+            "  build/bin/Release/rvimport/rvimport.exe "
+            f"{subject.model} "
+            f"--out={subject.subtree.relative_to(ROOT).as_posix()}")
+
+    lines = subject.subtree.read_text(encoding="utf-8").split("\n")
 
     # The document's own header, which the showroom writes for itself.
     start = lines.index("Entities:") + 1
@@ -1602,10 +1722,98 @@ def car_subtree(remap):
             kept[index] = line.replace(str(handle), str(remap[handle]))
             swapped += 1
 
-    print(f"  car       {swapped} of {total} draws re-authored, "
+    # **The root, and only the root.** rvimport writes a bare parent above the
+    # model's own hierarchy for exactly this: a scale set here reaches every
+    # child through the transform walk, where a scale set on the glTF's own
+    # `Sketchfab_model` node would be fighting the axis conversion baked into
+    # it. Everything below the root keeps the numbers the exporter wrote.
+    #
+    # The root is the first entity in the document and its transform is the
+    # first Position/Rotation/Scale triple after it -- which is rvimport's
+    # own writing order and not a guess; SceneSerializer emits TagComponent
+    # then TransformComponent for every entity it writes.
+    placed = (subject.root_scale != (1.0, 1.0, 1.0)
+              or subject.root_position != (0.0, 0.0, 0.0)
+              or subject.root_rotation != (0.0, 0.0, 0.0))
+    if placed:
+        radians = tuple(math.radians(angle) for angle in subject.root_rotation)
+        for index, line in enumerate(kept):
+            if line.strip().startswith("Position:"):
+                kept[index] = f"      Position: {vec(*subject.root_position)}"
+            elif line.strip().startswith("Rotation:"):
+                kept[index] = f"      Rotation: {vec(*radians)}"
+            elif line.strip().startswith("Scale:"):
+                kept[index] = f"      Scale: {vec(*subject.root_scale)}"
+                break
+        else:
+            raise SystemExit(f"{subject.subtree.name}: the root entity has no "
+                             "TransformComponent to place the subject with")
+
+    print(f"  {subject.label:9s} {swapped} of {total} draws re-authored, "
           f"from {len(remap)} overridden materials")
 
     return "\n".join(kept)
+
+
+CAR = Subject(
+    key="showroom",
+    label="car",
+    title="The showroom",
+    credit=CREDIT,
+    model="models/showroom/porsche_992_gt3_r.glb",
+    subtree=CAR_SUBTREE,
+    root_tag="porsche_992_gt3_r",
+    materials=car_materials,
+
+    # The orbit, and the numbers ShowroomCamera.cs is handed so the two solve
+    # the same transform.
+    target=TARGET,
+    pitch=START_PITCH,
+    distance=START_DISTANCE,
+    min_distance=4.6,
+    max_distance=11.0,
+
+    lamps=(
+        # A cool white LED, which is what this car actually has and what
+        # separates the beam from the 5000 K room around it. Eight metres
+        # reaches the pool and dies before the front wall at 9.5, which is
+        # behind the camera and should stay dark.
+        ("Headlamp Beam Left", "Spot", (-LAMP_X, LAMP_Y, HEADLAMP_Z),
+         (-LAMP_X, HEADLAMP_TARGET[1], HEADLAMP_TARGET[2]),
+         "[0.86, 0.91, 1]", 8, 15, 30),
+        ("Headlamp Beam Right", "Spot", (LAMP_X, LAMP_Y, HEADLAMP_Z),
+         (LAMP_X, HEADLAMP_TARGET[1], HEADLAMP_TARGET[2]),
+         "[0.86, 0.91, 1]", 8, 15, 30),
+
+        # Backwards, into the portal. **The best thing the tail lights do is
+        # not on the car**: the bay behind is the darkest thing in the frame,
+        # and a red wash across its concrete is the only colour anywhere in a
+        # room built out of white, charcoal and black.
+        #
+        # Not pure red. A light with nothing at all in two channels lands on
+        # grey concrete as a flat clipped patch with no shading in it, because
+        # there is only one channel left to shade with.
+        ("Tail Glow Left", "Spot", (-LAMP_X, LAMP_Y + 0.04, TAILLAMP_Z),
+         (-LAMP_X, TAILLAMP_TARGET[1], TAILLAMP_TARGET[2]),
+         "[1, 0.1, 0.045]", 7, 22, 46),
+        ("Tail Glow Right", "Spot", (LAMP_X, LAMP_Y + 0.04, TAILLAMP_Z),
+         (LAMP_X, TAILLAMP_TARGET[1], TAILLAMP_TARGET[2]),
+         "[1, 0.1, 0.045]", 7, 22, 46),
+    ),
+
+    lights=("ShowroomLights", dict(
+        CarRoot="'porsche_992_gt3_r'",
+        FrontParts="'EXT_Emissive_Light_Front,ST_FRONT_'",
+        RearParts="'EXT_Emissive_Light_Rear,EXT_Glass_Emissive_Rear'",
+        FrontLamps="'Headlamp Beam Left,Headlamp Beam Right'",
+        RearLamps="'Tail Glow Left,Tail Glow Right'",
+        LabelName="'Lights Label'",
+        FrontEmissive=" ".join(f"{v:g}" for v in FRONT_EMISSIVE),
+        RearEmissive=" ".join(f"{v:g}" for v in REAR_EMISSIVE),
+        FrontIntensity=FRONT_INTENSITY,
+        RearIntensity=REAR_INTENSITY,
+        StartOn="false")),
+)
 
 
 def write_lut(path):
@@ -1640,14 +1848,18 @@ def write_lut(path):
     return handle
 
 
-def main():
+def main(subject=None, argv=None):
+    subject = subject or CAR
+
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", default=str(ASSETS / "scenes" / "showroom.rage"))
-    args = parser.parse_args()
+    parser.add_argument("--output",
+                        default=str(ASSETS / "scenes" / f"{subject.key}.rage"))
+    args = parser.parse_args(argv)
 
-    lut = write_lut(ASSETS / "post" / "showroom.rvlut")
+    lut = write_lut(ASSETS / "post" / f"{subject.key}.rvlut")
 
-    profile = postprofile.write_named(ASSETS / "post" / "showroom.rvpostprofile", {
+    profile = postprofile.write_named(
+        ASSETS / "post" / f"{subject.key}.rvpostprofile", {
         # **0.45, and the reason is the car and not the room.** Every other
         # scene here sits at 1.0 because every other scene is lit by a sun at
         # an intensity chosen against it. This one is lit from two metres away
@@ -1659,7 +1871,7 @@ def main():
         # Exposure rather than the lights, deliberately: the *relationship*
         # between the luminaire, the paint and the floor is the picture and it
         # was already right. This is the stop, not the lighting.
-        "Exposure": 0.45,
+        "Exposure": subject.exposure,
 
         # **Bloom, and the headlamps are what it is set for now.** The
         # luminaire used to be the only thing above threshold and this was at
@@ -1723,7 +1935,7 @@ def main():
         # a number that agrees is worth keeping visible.
         "DepthOfField": True,
         "Focus": "Target",
-        "FocusTarget": car_root_id(),
+        "FocusTarget": subject_root_id(subject),
 
         # **Not 1, and this is the aesthetic choice rather than the correct
         # one.** Full coverage keeps the whole car sharp end to end, which at
@@ -1738,7 +1950,7 @@ def main():
         # 0.684, the owner's, for the reason BloomThreshold above gives.
         "SubjectCoverage": 0.684,
 
-        "FocusDistance": START_DISTANCE,
+        "FocusDistance": subject.distance,
         "FocalLength": 60.0,
         # **f/8, not f/4.5.** At the wider stop the back wall came back as a
         # smear and the near floor went with it -- which is what a portrait
@@ -1794,15 +2006,15 @@ def main():
     })
 
     mat = materials()
-    s = build(profile, mat)
-    overlay_ui(s)
+    s = build(profile, mat, subject)
+    overlay_ui(s, subject)
 
-    body = s.text() + "\n" + car_subtree(car_materials())
+    body = s.text() + "\n" + subject_subtree(subject, subject.materials())
 
     scene = pathlib.Path(args.output)
     scene.parent.mkdir(parents=True, exist_ok=True)
     scene.write_text("\n".join([
-        "Scene: The showroom",
+        f"Scene: {subject.title}",
         f"Version: {SCENE_VERSION}",
         "Environment:",
         # **Almost nothing, and deliberately.** Ambient light is the engine's
@@ -1829,10 +2041,14 @@ def main():
     ]) + "\n", encoding="utf-8")
 
     entities = body.count("  - EntityID:")
-    print(f"{scene.relative_to(ROOT)}: {entities} entities")
+    # `--output` is allowed to point outside the repo -- writing a candidate
+    # scene somewhere else is how one is diffed against the committed one --
+    # and relative_to raises rather than falling back when it cannot.
+    written = scene.relative_to(ROOT) if scene.is_relative_to(ROOT) else scene
+    print(f"{written}: {entities} entities")
     print(f"  materials {', '.join(sorted(mat))}")
-    print(f"  grade     {ASSETS / 'post' / 'showroom.rvlut'}")
-    print(f"  profile   {ASSETS / 'post' / 'showroom.rvpostprofile'}")
+    print(f"  grade     {ASSETS / 'post' / (subject.key + '.rvlut')}")
+    print(f"  profile   {ASSETS / 'post' / (subject.key + '.rvpostprofile')}")
 
 
 if __name__ == "__main__":

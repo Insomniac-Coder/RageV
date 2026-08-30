@@ -100,6 +100,7 @@
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include "RageV/Renderer/TextureHeap.h"
 #include "RageV/Project/Project.h"
+#include "RageV/Project/ProjectTemplate.h"
 #include "RageV/Project/ProjectPackager.h"
 #include "RageV/Managed/DotNetHost.h"
 #include "RageV/Managed/Interop.h"
@@ -12049,6 +12050,89 @@ void main()
 		Check(!graph.Compile(), "a zero-sized frame describes nothing and is refused");
 	}
 
+	// What a new project starts as.
+	//
+	// **Checked here rather than by clicking Create New**, because the same
+	// function now runs from two places that cannot both be driven by a test:
+	// the editor's File > New Project, and the startup screen the engine shows
+	// before any layer exists. One owner, one check.
+	//
+	// The properties that matter are the ones a person would notice on the
+	// first day: the project opens, it has a scene, the scene is the one the
+	// project says it starts on, and the scene has something in it. A creation
+	// that returned true and left an empty folder used to be indistinguishable
+	// from one that worked.
+	void CheckProjectTemplate()
+	{
+		const std::filesystem::path previous = Project::File();
+		const std::filesystem::path root = ScratchDir("template-test");
+
+		std::error_code error;
+		std::filesystem::remove_all(root, error);
+
+		Boot::Progress progress;
+		std::filesystem::path scene;
+
+		Check(ProjectTemplate::Create(root / "Fresh", "Fresh", progress, scene),
+			  "a project is created from nothing");
+		Check(Project::GetActive() != nullptr, "and is left open");
+		Check(Project::Config().Name == "Fresh", "under the name it was given");
+
+		Check(!scene.empty() && std::filesystem::exists(scene),
+			  "its first scene is on disk");
+		Check(Project::Config().StartScene == ProjectTemplate::kFirstScene,
+			  "and the project starts on it");
+		Check(Project::AssetPath(Project::Config().StartScene) == scene,
+			  "which is the same file by both routes");
+
+		// The folders a content browser opens onto. An empty project that
+		// shows one folder reads as a broken creation.
+		for (const char* folder : { "scenes", "materials", "models", "textures" })
+		{
+			Check(std::filesystem::is_directory(Project::AssetRoot() / folder, error),
+				  std::string("assets/") + folder + " exists");
+		}
+
+		// Loaded back rather than inspected in memory: what matters is that
+		// what was written can be read, which is the half a serializer gets
+		// wrong.
+		{
+			auto reopened = std::make_shared<Scene>();
+			SceneSerializer serializer(reopened);
+			Check(serializer.Deserialize(scene.string()), "the first scene loads");
+
+			// By name, which is also a check that the names survived: an
+			// empty scene and a scene whose entities lost their tags look the
+			// same to a count.
+			Check((bool)reopened->FindEntityByName("Scene Camera"), "with a camera");
+			Check((bool)reopened->FindEntityByName("Sun"), "a light");
+			Check((bool)reopened->FindEntityByName("Ground"), "and something to stand on");
+		}
+
+		// **No default project anywhere near this.** The startup screen exists
+		// because OpenConfigured stops at "nothing named one", and a fallback
+		// creeping back in would make the screen unreachable.
+		Project::Close();
+		{
+			const std::filesystem::path elsewhere = ScratchDir("template-empty");
+			std::filesystem::remove_all(elsewhere, error);
+			std::filesystem::create_directories(elsewhere, error);
+
+			const std::filesystem::path here = std::filesystem::current_path(error);
+			std::filesystem::current_path(elsewhere, error);
+
+			Check(!Project::OpenConfigured(),
+				  "with nothing named and nothing beside it, no project opens");
+			Check(Project::GetActive() == nullptr,
+				  "and none is left active for the editor to have to undo");
+
+			std::filesystem::current_path(here, error);
+		}
+
+		if (!previous.empty())
+			Project::Load(previous);
+	}
+
 	// Packaging.
 	//
 	// Checked by packaging a throwaway project and looking at what came out,
@@ -15502,7 +15586,7 @@ int RunTests(int argc, char** argv)
 	Renderer::Init(*device);
 	// The same resolution the editor and the runtime use, so the tests exercise
 	// a real project rather than a folder that happens to be beside them.
-	Project::OpenConfigured();
+	Project::OpenConfiguredOrDefault();
 	Assets::Registry::Init(Project::GetActive() ? Project::AssetRoot()
 											 : std::filesystem::path("assets"));
 	Assets::Manager::Init(*device);
@@ -15584,6 +15668,7 @@ int RunTests(int argc, char** argv)
 	CheckTerrainBrush();
 	CheckGameModule();
 	CheckProject();
+	CheckProjectTemplate();
 	CheckPackaging();
 	CheckRuntimePath();
 	CheckCompute();

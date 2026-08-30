@@ -70,6 +70,11 @@ public:
 	{
 		None,
 		Quit,
+		// Relaunch on m_PendingBackend and then quit. Separate from Quit
+		// because the relaunch must not happen until the prompt is answered:
+		// a second editor starting while the first is still asking about
+		// unsaved work is two editors over one project.
+		Restart,
 		NewScene,
 		OpenSceneDialog,
 		OpenScenePath,
@@ -85,6 +90,24 @@ public:
 	void RunPendingAction();
 
 	void DrawUnsavedChangesPopup();
+
+	// --- the accent field ----------------------------------------------------
+	//
+	// The wash the loading and startup screens stand in, carried across the
+	// editor so the three are one place. Drawn last, over the chrome, and
+	// **never over a 3D view** -- see DrawFieldWash.
+	void DrawFieldWash();
+
+	// The card's two-pixel accent along the top of every open popup and menu,
+	// applied to the class rather than at each call site. See the definition.
+	void DrawPopupRules();
+
+	// Where a 3D view is on screen this frame, recorded by the panels that
+	// draw one. Cleared every frame; at most one is visible, since the two
+	// share a dock node.
+	struct ScreenRect { float MinX = 0.0f, MinY = 0.0f, MaxX = 0.0f, MaxY = 0.0f; };
+	void NoteSceneView();
+	std::vector<ScreenRect> m_SceneViews;
 	void NewProject();
 	// The part of NewProject after its dialog: `picked` names the .rvproject,
 	// and a folder of that name is created beside it.
@@ -92,16 +115,30 @@ public:
 	void OpenProject();
 	void SetStartSceneToCurrent();
 
+	// Every `.rage` under the project's assets, asset-relative and sorted.
+	// The Build dialog's list and the startup fallback are the same question
+	// asked twice, so they ask it in one place.
+	static std::vector<std::string> ProjectScenes();
+
+	// Which scene the editor opens with, in the order laid out at its
+	// definition. `requested` is --scene, or empty. An empty return means
+	// "none of them" and is a legitimate answer.
+	std::filesystem::path ResolveStartupScene(const std::filesystem::path& requested) const;
+
+	// Records the open scene as this user's last, so the next launch comes
+	// back to it. Cheap and idempotent; called wherever m_ScenePath changes.
+	void RememberScene() const;
+
 	// Into the project's own bin/. BuildGameAs asks for somewhere else.
 	void BuildGame();
 	void BuildGameAs();
 	void BuildInto(const std::filesystem::path& output,
 				   const std::vector<std::string>& backends,
-				   const std::vector<std::string>& scenes);
+				   const std::vector<std::string>& scenes,
+				   const std::string& startScene);
 
 	// The scene a freshly created project opens on. Deliberately not empty --
 	// see the definition.
-	void PopulateStarterScene();
 
 	// Compiles the project's scripts -- the C++ game module when the project
 	// has one, then C# -- on a worker thread, so the editor stays usable while
@@ -196,6 +233,12 @@ public:
 	// Every scene in the project and whether it ships. Rebuilt each time the
 	// dialog opens, because the project may have gained scenes since.
 	std::vector<std::pair<std::string, bool>> m_BuildScenes;
+
+	// Which of the ticked scenes the packaged game opens with, asset-relative.
+	// Seeded from the project's own startup scene and written back to it when
+	// the build starts, because it is the project's answer and has to travel
+	// with the project -- see the Startup Scene combo in DrawBuildGamePanel.
+	std::string m_BuildStartScene;
 
 	// Show the finished build in the file manager.
 	//
