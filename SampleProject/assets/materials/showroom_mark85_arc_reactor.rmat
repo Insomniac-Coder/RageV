@@ -1,6 +1,6 @@
 Material: showroom_mark85_arc_reactor
 BaseColor: [1, 1, 1, 1]
-Emissive: [3.25, 4, 5, 1]
+Emissive: [0.81, 4.45, 7.69, 1]
 Metallic: 0
 Roughness: 0.3
 Occlusion: 1

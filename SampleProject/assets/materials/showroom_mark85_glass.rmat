@@ -1,6 +1,6 @@
 Material: showroom_mark85_glass
 BaseColor: [1, 1, 1, 1]
-Emissive: [13, 16, 20, 1]
+Emissive: [2.95, 16.21, 28, 1]
 Metallic: 0
 Roughness: 0.25
 Occlusion: 1

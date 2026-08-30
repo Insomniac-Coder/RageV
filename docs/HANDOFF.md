@@ -6,6 +6,183 @@ Everything is on **`main`**, pushed. Three commits landed today:
 sky occlusion (`2f87153`), the ray-budget allocator (`0daf01b`), and the
 measurement flags (`b171234`). Each message carries its full reasoning.
 
+## Start here — 2026-08-30: the showroom's depth of field never worked, and why
+
+The owner reported that walking the mark85 showroom's camera in towards the
+suit made it go soft — "it seems that it's unable to focus on it". It is not a
+depth-of-field tuning problem. **Target-mode focus has been measuring the suit
+with a box seven times its size since the scene existed**, and the effect has
+never once produced a real photograph in that scene.
+
+`Scene::ResolveFocus` solves the aperture from the subject's own depth, and it
+reads that depth from `Mesh::GetBounds()`. Instrumented on the real scene, that
+box came back **9.85 × 14.41 × 7.87 m, centred 2.40 m up** — in a room whose
+ceiling is at 3.7 m, around a figure 2 m tall. Everything downstream is that
+number's fault:
+
+| orbit distance | depth | solved half-depth | f-number |
+| --- | --- | --- | --- |
+| 5.4 m (the scene's own opening shot) | 4.29 | 3.11 | raw 75 → **f/32** |
+| 3.2 m (`MinDistance`) | 2.09 | 3.11 | raw **−179.9** → **f/0.7** |
+
+So the shot the scene opens on is stopped fully down and has no visible depth
+of field at all, and the moment the camera crosses 3.11 m the f-number goes
+*negative* and the clamp underneath reads it as the widest opening there is. A
+60 mm at f/0.7 focused at 2.09 m has about **5 cm** of field, sitting on a
+phantom point a metre in front of the chest — hence a suit that cannot be
+brought into focus by moving. It is a hard flip between two useless states, not
+a gradual softening, which is exactly what it looked like.
+
+### The cause: an inverse bind applied twice
+
+`Anim::SkinnedBounds` reduces the vertices to a box per bone **in that bone's
+own space** — `InverseBind * position`. What carries a corner of that box back
+out to model space is the bone's *global* transform alone. It used the
+**skinning** matrix, which is `global * InverseBind`, so the inverse bind went
+on a second time and the box landed in a space nothing is ever drawn in:
+scaled and displaced by whatever that rig's inverse binds happen to hold. Seven
+and a half times, for this one. The fix is one call — `ComposeSkinning` →
+`ComposeGlobal` in the accumulate lambda.
+
+**This was never a focus bug; focus is just the first thing that could see
+it.** The same box is what culls every rigged mesh in the project. Being too
+*large* is the conservative direction, so it never dropped anything that should
+have drawn — it only meant the GPU cull was doing less work than it could, and
+that is why it sat here since 7.6 (2026-08-13) without a symptom.
+
+### Why two tests sat either side of it and both passed
+
+Worth reading before writing the next bounds test, because the shape is
+general. The synthetic fixture gives its single bone an **identity**
+`InverseBind`, and applying the identity twice is applying it once. The fox
+check compares `SkinnedBounds`' bind-pose answer against `SkinnedBounds`' own
+animated answer — a distortion present in both cancels and reads as a pass.
+Neither ever compared the result with the vertices it was built from, which is
+the property the fixture's own comment claims out loud ("with no clips the
+bounds are the bind pose's").
+
+The fox now asserts exactly that: the clipless bounds must **contain** its
+vertex box and stay **within 1.35×** of it. The real per-bone fit costs 11% on
+the fox's worst axis and is legitimate — an axis-aligned box carried through a
+rotation and re-fitted grows; the doubled inverse bind cost 750%.
+
+### The second defect, which is real on its own
+
+`ResolveFocus` divided by `depth - half` and handed the result straight to
+`Math::Clamp(aperture, 0.7f, 32.0f)`. A clamp cannot know a sign flipped, so
+the uncontainable subject came back as the **widest** aperture — the exact
+inverse of what that clamp's own comment promises. There is now an explicit
+`depth <= half` guard that takes the smallest opening, and the two limits are
+named constants rather than literals repeated from the inspector's slider.
+Unreachable in this scene now that the box is right, but it fires for any
+subject the camera walks inside the half-depth of, and it would have flipped
+the same way with correct bounds and a closer dolly.
+
+### Scale is not the cause, but it is why this surfaced now
+
+The suit is scaled 30.03 on its root and 10 on each mesh — 300× — to fit the
+room. That multiplies a mesh-space discrepancy into a 14 m box, and it put
+`MinDistance: 3.2` inside the bogus half-depth where the sign flips. A model at
+unit scale would have carried the same bug invisibly.
+
+### Left open, deliberately
+
+`showroom-mark85.rvpostprofile` carries `SubjectCoverage: 0.684`, which was
+dialled in against the broken box and now means something different: the solve
+gives **f/2.1** at the opening distance and **f/6.4** at the closest, with the
+near two-thirds of the suit sharp. That is a defensible portrait look and it is
+the owner's call, not a leftover — `1.0` is the product-photograph answer if
+the whole suit should be crisp. Do not change it without showing them both.
+
+**Verified:** scenetest 2426 checks green on Vulkan, 2379 on OpenGL, exit 0 on
+both. `scenes/fox.rage` and `scenes/camp.rage` render with the rigged meshes
+drawn and shadowing normally — the tighter culling boxes pop nothing.
+ENGINE-NOTES §7.6 carries the amendment.
+
+---
+
+## 2026-08-30: the mark85's glow colours, and A REBAKE IS REQUIRED
+
+The owner asked for the chest arc reactor and the glowing body panels to carry
+the same colour as the eye slits. Done in the materials — but **read the rebake
+note below before looking at the scene, because nothing will tell you the
+lighting is stale.**
+
+### Which surface is which, because the names lie
+
+Established by rendering the three emissive materials as pure red / green /
+blue and looking. Do this before editing any of them again; the FBX's material
+names do not describe what they cover:
+
+- **`showroom_mark85_glass`** is the **arc reactor panel** — the triangle on the
+  chest. Not the material called "Arc Reactor".
+- **`showroom_mark85_arc_reactor`** is the **body and leg panels**. It carries
+  the reactor's *textures*, which is presumably how it got the name.
+- **`showroom_mark85_lights`** is the **eye slits**, plus the hand, shoulder and
+  boot lines.
+
+Emissive was matched to the eyes' hue at each surface's own Rec709 luminance,
+so only the colour moved: glass `[13, 16, 20]` → `[2.95, 16.21, 28]`, panels
+`[3.25, 4, 5]` → `[0.81, 4.45, 7.69]`. The glass number is the one place the
+match is not exact — a luminance-preserving transfer wanted blue at 30.8, and
+the post profile's `BloomClamp` is 28, so the peak sits on the clamp and the
+surface is 9% dimmer than it was. Same convention `SuitLights` already follows
+for `PoweredEmissive`.
+
+### THE REBAKE, which the engine will not ask for
+
+**Editing an emissive material does not invalidate a bake in this engine, by
+design, and it does not warn.** The bake key is a hash of lights and
+environment only — `Scene.cpp` says it outright: *"It does not catch a moved
+wall or an edited material... Recapture is the verb for them."* So the field
+and the probe cubes on disk still hold the *old* glow, the hash still matches,
+and the scene loads them without a word. The suit's own surface changes colour
+and the light it throws into the room does not.
+
+This matters here more than it usually would, because `rtgi_trace` treats
+emissive geometry as **emitters** with rectangles the bounce aims at — the
+reactor is a light source in the bake, not just a bright pixel.
+
+So after any change to these three materials:
+
+```
+RageVRuntime.exe --project=SampleProject --scene=scenes/showroom-mark85.rage --bake=force --render-defaults=off
+```
+
+**One run covers both lighting modes** — no `StartMode` flipping needed.
+`FieldBakePath` keys a file pair per lighting hash and the showroom has two,
+but a force bake re-makes every lighting the scene *visits* while it runs, so
+the mode sweep produces both pairs and both `.rvprobe` cubes in one go. Verified
+2026-08-30: a single run from `StartMode: 1` rewrote `92bc94d1…` and
+`c6f976a6…` a minute apart, then exited itself once settled held for 120
+frames. It takes about two and a half minutes and roughly 5,000 frames.
+
+### The LIGHTS ON button is disabled, in both suit scenes (owner, 2026-08-30)
+
+`showroom-mark85.rage` and `showroom2.rage`: the Lights Button's
+`UIRectComponent.Visible` and `UIButtonComponent.Interactable` are both false,
+and its Lights Label's `Visible` too — the label needs its own, because
+`Canvas::Walk` hides one element and never its children by design ("hiding a
+panel must not move the label on it"). Only the MODE pill is on the credit bar
+now, and it was moved into the slot the Lights pill vacated — offsets `-238/-142`
+to `-110/-14`, the same 14 px right margin — so the bar reads as designed rather
+than as something removed. Anchors are absolute here; nothing reflows on its own.
+
+**The `SuitLights` component is still attached and still runs**, which is
+deliberate and is what makes this a clean disable rather than a deletion. Its
+`OnCreate` applies the resting state — no emissive override, and the reactor and
+repulsor lamps at zero intensity — so the suit sits in exactly the look its
+materials describe and nothing can move it. Re-enabling is three `false`s.
+
+Two things were wrong with the powered state and are now moot, recorded only so
+nobody rediscovers them if the button is ever turned back on: `GlowParts` reads
+`'Lights,Arc Reactor'`, which is the eyes and the *body panels* — the chest
+reactor is the Glass mesh and was never in the list, so it never powered up. And
+`PoweredEmissive: '18 24 30'` is the old pale hue, so powering up pushed the
+eyes and panels off the eye colour while the reactor held it.
+
+---
+
 ## THE OPEN PROBLEM: the showroom flicker
 
 The owner sees flicker in the showroom — baked and realtime, parked and

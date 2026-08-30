@@ -1048,8 +1048,8 @@ Entities:
     UIRectComponent:
       AnchorMin: [1, 0]
       AnchorMax: [1, 1]
-      OffsetMin: [-238, 7]
-      OffsetMax: [-142, -7]
+      OffsetMin: [-110, 7]
+      OffsetMax: [-14, -7]
       SortOrder: 2
       Visible: true
       BlocksPointer: true
@@ -1130,13 +1130,13 @@ Entities:
       OffsetMin: [-134, 7]
       OffsetMax: [-14, -7]
       SortOrder: 2
-      Visible: true
+      Visible: false
       BlocksPointer: true
     UIImageComponent:
       Texture: 17907367730149364606
       Color: [1, 1, 1, 1]
     UIButtonComponent:
-      Interactable: true
+      Interactable: false
       NormalColor: [0.55, 0.56, 0.58, 1]
       HoverColor: [1, 1, 1, 1]
       PressedColor: [0.86, 0.87, 0.89, 1]
@@ -1169,7 +1169,7 @@ Entities:
       OffsetMin: [0, 7]
       OffsetMax: [0, 0]
       SortOrder: 3
-      Visible: true
+      Visible: false
       BlocksPointer: false
     UITextComponent:
       Text: LIGHTS ON
