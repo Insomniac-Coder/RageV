@@ -70,6 +70,32 @@ first foam attempt. The fix is one line: Commit the bound set every step;
 with nothing newly set it replays the last full write into this frame's
 slot and is then a no-op.
 
+### NEXT SESSION, agreed with the owner: seabed + sky, then judge again
+
+The owner's verdict on the committed state: still reads as a flat PNG, foam
+still fake. The claim on the table -- theirs to test, mine to have been
+right about -- is that this is the *scene*: nothing to reflect, nothing to
+refract. So next session, in order:
+
+1. **Fix the tile mips first.** The two generated tiles are created with
+   one mip and sampled at MaxLod 0, so at distance they alias into
+   static -- a real slice of the "fake noise" read. Mip chains +
+   trilinear samplers (Water.cpp tile creation, Renderer3D water-set
+   samplers).
+2. **A real sky.** `SkyType::Gradient` costs no asset; the dusk numbers
+   are in the research above (zenith #0C1620, horizon #1B2836, city glow
+   #4A3520 at 10-25x zenith). Sun low, azimuth opposite the hero camera,
+   so the anisotropic track runs at the lens.
+3. **A seabed.** A coarse sloped plane 5-30 m under the bay near the
+   bridge gives refraction, absorption and the depth ramp something to
+   measure; then caustics (project the lace tile onto the refracted
+   backdrop, masked by thickness).
+4. **Foam sparsity.** Real whitecap coverage at a fresh breeze is ~1-3%,
+   clustered on the largest crests; the current tune is well above that.
+5. **Pictures**: elevated, pitched down. The two approved cameras are in
+   memory (`project-ragev-water-component`); grazing shots always read
+   flat and the owner is rightly tired of them.
+
 ### Owed still / known state
 
 - **The owner judged the first framed render "super ugly", and the reasons
