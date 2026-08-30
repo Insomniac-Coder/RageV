@@ -1,0 +1,11 @@
+Material: Red Part
+BaseColor: [0.21800949, 0.025830498, 0.025830498, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 0
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]
