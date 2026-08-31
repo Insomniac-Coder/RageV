@@ -75,9 +75,11 @@ layout(location = 11) flat out vec4 v_WaterShallow;
 // without knowing which way the wind blows.
 layout(location = 12) flat out vec4 v_WaterDeep;
 // The dials the fragment reads that no earlier varying had room for:
-// x = the body's clock (the detail normals scroll by it), y = the grid
-// spacing, z = the gradient depth in metres, w = flags and the NDC sign --
-// see water_params.glsl for the packing.
+// x = the body's clock (the detail normals scroll by it), y = the dominant
+// wavelength in metres (the foam's features are sized against it -- foam
+// whose scale ignores the waves that made it is one of the things that
+// reads as a decal), z = the gradient depth in metres, w = flags and the
+// NDC sign -- see water_params.glsl for the packing.
 layout(location = 13) flat out vec4 v_WaterMisc;
 
 // The dials off the push-constant block, into the shared sum.
@@ -146,7 +148,7 @@ void main()
 
 	v_WaterShallow = vec4(RV_WATER_SHALLOW, RV_WATER_FOAM);
 	v_WaterDeep    = vec4(RV_WATER_DEEP, RV_WATER_DIRECTION);
-	v_WaterMisc    = vec4(RV_WATER_TIME, RV_WATER_SPACING,
+	v_WaterMisc    = vec4(RV_WATER_TIME, RV_WATER_LENGTH,
 						  RV_WATER_GRADIENT, RV_WATER_FLAGS);
 
 	v_BaseColor     = instance.BaseColor;

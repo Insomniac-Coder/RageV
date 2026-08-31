@@ -80,20 +80,24 @@ void main()
 			  ? vec2(0.0)
 			  : texture(u_Previous, sourceUv).rg;
 
-	// **Inject where the surface is folding -- against a harder bar than the
-	// fragment's instantaneous term.** The two are different questions: the
-	// live term paints this instant's stretch and vanishes with it, so it
-	// can afford a soft trigger; whatever crosses *this* bar is remembered
-	// for tens of seconds, and a soft trigger here turns a working sea into
-	// sheet white -- which is what the first render of the buffer showed.
-	// Only the genuinely folding crests earn a memory.
+	// **Only the largest crests earn a memory.** Measured whitecap coverage
+	// at a fresh breeze is one to three percent of the sea, and it sits on
+	// the biggest waves; an injection that fired on every stretch anywhere
+	// gave ten times that and read as scatter. Two gates: the surface must
+	// genuinely be folding (a harder bar than the fragment's soft live term
+	// -- whatever crosses this one is remembered for tens of seconds), and
+	// the point must be near the top of the swell, because whitewater is
+	// dropped by breaking crests and not by troughs.
 	vec3 offset, tangent, binormal;
 	WaterSurfaceEval(position, time,
 					 u_Foam.Wave.x, u_Foam.Wave.y, u_Foam.Wave.z, u_Foam.Wave.w,
 					 u_Foam.Extra.x, u_Foam.Extra.z,
 					 offset, tangent, binormal);
 	const float jacobian = tangent.x * binormal.z - tangent.z * binormal.x;
-	const float inject = clamp((0.72 - jacobian) * 2.2, 0.0, 1.0);
+	const float crest = clamp(offset.y / max(u_Foam.Wave.x * 0.5, 1e-4)
+							  * 0.5 + 0.5, 0.0, 1.0);
+	const float inject = clamp((0.70 - jacobian) * 2.4, 0.0, 1.0)
+					   * smoothstep(0.55, 0.85, crest);
 
 	// The exponential forms, not `rate * dt`: ten steps of 10 ms must land
 	// where one step of 100 ms does, or the sim's look depends on the frame

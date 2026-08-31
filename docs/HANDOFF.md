@@ -77,22 +77,47 @@ still fake. The claim on the table -- theirs to test, mine to have been
 right about -- is that this is the *scene*: nothing to reflect, nothing to
 refract. So next session, in order:
 
-1. **Fix the tile mips first.** The two generated tiles are created with
-   one mip and sampled at MaxLod 0, so at distance they alias into
-   static -- a real slice of the "fake noise" read. Mip chains +
-   trilinear samplers (Water.cpp tile creation, Renderer3D water-set
-   samplers).
+1. ~~Fix the tile mips~~ -- DONE (2026-08-31, second water session). Full
+   chains, CPU box-filtered; the wrap sampler is trilinear with 8x
+   anisotropy. **Trap paid for: level 0 must go up via `UploadMip`, not
+   `Upload` -- a plain Upload into a multi-level texture asks the RHI to
+   *generate* the chain by blitting, which needs a TransferSrc usage the
+   tiles do not carry.** The cooked loader feeds chains the same way.
 2. **A real sky.** `SkyType::Gradient` costs no asset; the dusk numbers
    are in the research above (zenith #0C1620, horizon #1B2836, city glow
    #4A3520 at 10-25x zenith). Sun low, azimuth opposite the hero camera,
-   so the anisotropic track runs at the lens.
+   so the anisotropic track runs at the lens. STILL OPEN.
 3. **A seabed.** A coarse sloped plane 5-30 m under the bay near the
    bridge gives refraction, absorption and the depth ramp something to
-   measure; then caustics (project the lace tile onto the refracted
-   backdrop, masked by thickness).
-4. **Foam sparsity.** Real whitecap coverage at a fresh breeze is ~1-3%,
-   clustered on the largest crests; the current tune is well above that.
-5. **Pictures**: elevated, pitched down. The two approved cameras are in
+   measure. STILL OPEN -- and it is what makes the finished contact foam
+   and caustics below actually visible.
+4. ~~Caustics~~ -- DONE. `WaterCaustics` in pbr_fragment.glsl: two reads
+   of the lace tile at the detail ripple's own metre scales drifting
+   against each other, multiplied (the product of two webs is a cellular
+   field with no visible repeat), sharpened past one, masked to the first
+   GradientDepth of thickness. Both refraction paths apply it -- the
+   traced one on the true hit point, the raster one along the refracted
+   ray at the measured thickness.
+5. ~~Foam sparsity / scale / contact~~ -- DONE, three changes together:
+   injection now needs BOTH a hard fold (J < 0.70) AND the top of the
+   swell (`smoothstep(0.55, 0.85, crest)`), so open water sits near the
+   measured 1-3% coverage; every foam read is quoted against the dominant
+   wavelength (v_WaterMisc.y, which now carries RV_WATER_LENGTH -- the
+   grid spacing it used to carry was read by nobody), because 5 m flecks
+   on a 48 m swell was one of the strongest wrong notes; and **contact
+   foam** rings whatever geometry meets the surface -- driven by the
+   measured thickness going to zero, so it needs no tagging and will
+   light up shorelines the moment the seabed exists. Verified at the
+   pier footings, then tuned twice against the owner's eye to the rule
+   they stated outright: **rare everywhere, common at contact.** The
+   contact band hugs the last 1.2 m of thickness (the first cut covered
+   the whole submerged apron and read as a glow stain), is
+   lace-dominated so it clings as strands, and surges with a trough
+   near zero; open-water weights ended at 0.5 fresh / 0.35 residual /
+   0.22 live, lace features at 0.22 wavelengths. The caustic gain came
+   down to 2.2 in the same pass -- on a white apron it read as part of
+   that stain.
+6. **Pictures**: elevated, pitched down. The two approved cameras are in
    memory (`project-ragev-water-component`); grazing shots always read
    flat and the owner is rightly tired of them.
 

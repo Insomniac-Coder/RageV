@@ -4493,8 +4493,13 @@ namespace RageV
 					clamp.MaxLod = 0.0f;
 					s_Data->WaterClampSampler = s_Data->Device->CreateSampler(clamp);
 
+					// The tiles carry full mip chains now; pinned to level 0
+					// they aliased into a static-like shimmer past a few
+					// hundred metres. Defaults are already trilinear; the
+					// anisotropy is for the view a sea always is -- the most
+					// grazing surface the engine draws.
 					SamplerDesc wrap;
-					wrap.MaxLod = 0.0f;
+					wrap.MaxAnisotropy = 8.0f;
 					s_Data->WaterWrapSampler = s_Data->Device->CreateSampler(wrap);
 				}
 

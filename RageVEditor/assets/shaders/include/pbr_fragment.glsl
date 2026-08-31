@@ -2109,6 +2109,31 @@ float WaterBeckmannG1(vec3 v, vec3 N, vec3 T, vec3 B, float roughness)
 		return 1.0;
 	return (3.535 * a + 2.181 * a * a) / (1.0 + 2.276 * a + 2.577 * a * a);
 }
+
+// The web of light a rippled surface focuses onto whatever sits beneath it.
+//
+// Real caustics are the refracted sun concentrated by the surface's small
+// curvature -- centimetre-to-metre ripple, not the swell -- so the pattern
+// reads at the detail ripple's own metre scale, fixed, rather than scaling
+// with the wavelength the way the foam does. Two reads of the lace tile
+// drifting against each other, multiplied: the product of two independent
+// webs is a cellular field that never shows either tile's repeat. Sharpened
+// above one so the bright strands overshoot, which is what focused light
+// does and flat texture never quite fakes.
+//
+// Masked to the first stretch of depth, quoted against the gradient dial:
+// deeper than a few metres the focus spreads back out and the pattern
+// washes away, and the absorption is already eating the light besides.
+float WaterCaustics(vec2 bottomXZ, float through, float gradientDepth,
+					vec2 wind, float time)
+{
+	const float web1 = texture(u_WaterFoamPattern,
+							   bottomXZ / 2.9 + wind * (time * 0.050)).r;
+	const float web2 = texture(u_WaterFoamPattern,
+							   bottomXZ / 1.9 - wind * (time * 0.037)).r;
+	const float focus = clamp(1.0 - through / max(gradientDepth, 0.5), 0.0, 1.0);
+	return web1 * web2 * 2.2 * focus * focus;
+}
 #endif
 
 vec3 FresnelSchlick(float cosTheta, vec3 F0)
@@ -2515,48 +2540,15 @@ void main()
 	// The pattern texture is what stops the mask being airbrush: fresh foam is
 	// dense sheet whitewater and barely cut by it; residual foam is the lace
 	// that is left when the sheet drains through.
-	const vec2 foamAccum = texture(u_WaterFoamBuffer, v_Water.zw).rg;
-
-	// The lace at two unrelated scales, multiplied, so the tile's repeat
-	// never shows as a repeat -- and a third read stretched hard along the
-	// wind for the residual: old foam on a real sea collects into windrows,
-	// streaks running downwind, and that anisotropy is most of what
-	// separates weathered foam from splatter.
-	const vec2 windPerp = vec2(-waterWind.y, waterWind.x);
-	const float lace1 = texture(u_WaterFoamPattern,
-								v_WorldPos.xz * 0.19
-								+ waterWind * (waterTime * 0.02)).r;
-	const float lace2 = texture(u_WaterFoamPattern, v_WorldPos.xz * 0.041).r;
-	const float foamLace = clamp(lace1 * (0.35 + lace2 * 0.9), 0.0, 1.0);
-	const float foamStreak = texture(u_WaterFoamPattern,
-									 vec2(dot(v_WorldPos.xz, waterWind) * 0.013,
-										  dot(v_WorldPos.xz, windPerp) * 0.09)).r;
-
-	// Soft thresholds, not `J < 0`. A hard cut gives foam that pops on and off
-	// with the crest; the bias and gain are what turn it into an edge.
-	// **The bias sits just above 1, not at 0.** A textbook whitecap is J < 0 --
-	// the surface actually folded -- and on a summed Gerstner field that needs
-	// every wave to line up in phase, which almost never happens. Threshold
-	// there and the sea has no whitecaps at all, which is what the first attempt
-	// produced. Real foam also does not wait for a full fold: it appears as the
-	// crest steepens. So the trigger is "stretching at all", and the gain sets
-	// how quickly that becomes white.
-	const float foamNow = clamp((0.88 - jacobian) * 2.6, 0.0, 1.0);
-	const float foam = clamp(max(foamAccum.r * mix(foamLace, 1.0, 0.5) * 0.85
-							   + foamAccum.g * foamLace * foamStreak * 0.55,
-								 foamNow * 0.45 * mix(foamLace, 1.0, 0.4)),
-							 0.0, 1.0) * v_WaterShallow.w;
-	const float wetness = smoothstep(1.0, 0.45, jacobian) * (1.0 - foam);
-
 	// **How much water the view ray passes through, off the real scene.** The
 	// backdrop pass leaves the opaque frame's view depth in metres beside its
 	// colour; this surface's own view depth is the clip w. The difference is
 	// the thickness of water behind this pixel -- zero at the waterline where
 	// a pier breaks the surface, hundreds of metres out in the bay -- and it
-	// is what both the colour gradient here and the absorption in the
-	// transparent block below measure through. Flags of zero means no
+	// is what the contact foam below, the colour gradient, and the absorption
+	// in the transparent block all measure through. Flags of zero means no
 	// backdrop is bound this pass, and everything below falls back to the
-	// crest-based gradient that predates it.
+	// crest-based forms that predate it.
 	// The screen coordinate through this frame's own projection, mapped the
 	// way the lit shader already maps last frame's reflection trace: NDC with
 	// the y-sign that takes it into the texture's row direction -- the sign
@@ -2573,6 +2565,72 @@ void main()
 		const float eyeBehind = texture(u_WaterBackdropDepth, waterScreenUV).r;
 		waterThickness = max(eyeBehind - v_ClipPos.w, 0.0);
 	}
+
+	const vec2 foamAccum = texture(u_WaterFoamBuffer, v_Water.zw).rg;
+
+	// **The foam's features are sized by the waves that make them.** Every
+	// read of the lace used to sit at a fixed metre scale, so a 48 m swell
+	// dropped 5 m flecks -- foam and sea at unrelated scales is a decal, and
+	// it was one of the strongest wrong notes. The dominant wavelength rides
+	// in v_WaterMisc.y and every foam read is quoted against it: patches at
+	// about a third of a wavelength, macro variation at about a wavelength
+	// and a half, and the residual's windrows stretched a wavelength long
+	// and a few metres wide -- old foam on a real sea collects into streaks
+	// running downwind, and that anisotropy is most of what separates
+	// weathered foam from splatter.
+	const float waterWaveLength = max(v_WaterMisc.y, 1.0);
+	const vec2 windPerp = vec2(-waterWind.y, waterWind.x);
+	const float lace1 = texture(u_WaterFoamPattern,
+								v_WorldPos.xz / (waterWaveLength * 0.22)
+								+ waterWind * (waterTime * 0.02)).r;
+	const float lace2 = texture(u_WaterFoamPattern,
+								v_WorldPos.xz / (waterWaveLength * 1.6)).r;
+	const float foamLace = clamp(lace1 * (0.35 + lace2 * 0.9), 0.0, 1.0);
+	const float foamStreak = texture(u_WaterFoamPattern,
+									 vec2(dot(v_WorldPos.xz, waterWind)
+										  / (waterWaveLength * 1.6),
+										  dot(v_WorldPos.xz, windPerp)
+										  / (waterWaveLength * 0.22))).r;
+
+	// **Open water is nearly bare.** Measured whitecap coverage at a fresh
+	// breeze is one to three percent of the sea, on the largest crests only
+	// -- so the live term is gated by where this fragment sits on the swell,
+	// and the buffer (whose injection is gated the same way at the source)
+	// carries the trails. Soft thresholds still, because a hard cut pops.
+	const float foamNow = clamp((0.88 - jacobian) * 2.6, 0.0, 1.0)
+						* smoothstep(0.55, 0.85, v_Water.y);
+	float foam = clamp(max(foamAccum.r * mix(foamLace, 1.0, 0.5) * 0.5
+						 + foamAccum.g * foamLace * foamStreak * 0.35,
+						   foamNow * 0.22 * mix(foamLace, 1.0, 0.4)),
+					   0.0, 1.0);
+
+	// **Contact foam: where the water meets anything.** The thickness goes
+	// to zero against a pier leg, a rock, a shoreline -- and that is where a
+	// real sea is white, because every wave that arrives there breaks. Driven
+	// by the measured thickness, so it needs no tagging and follows whatever
+	// geometry enters the water; the two lace reads at a finer scale keep the
+	// edge ragged, and the slow pulse is the surge a standing waterline has.
+	// Nothing without the backdrop -- there is no thickness to read.
+	if (waterFlags != 0.0)
+	{
+		// Within about a metre of the contact, not across the whole shallow
+		// apron -- the first cut covered every submerged step in sheet white
+		// and read as a glow stain (the owner circled it). Lace-dominated,
+		// so it is strands clinging to the geometry rather than a wash, and
+		// the surge trough goes near zero so it visibly comes and goes.
+		const float shallow = 1.0 - smoothstep(0.1, 1.2, waterThickness);
+		const float surge = 0.55 + 0.35 * sin(waterTime * 1.1
+											  + waterThickness * 3.0);
+		const float contactLace = texture(u_WaterFoamPattern,
+										  v_WorldPos.xz / (waterWaveLength * 0.08)
+										  - waterWind * (waterTime * 0.035)).r;
+		// The one place foam is COMMON. The owner's rule, stated 2026-08-31:
+		// rare everywhere except where the water touches something.
+		foam = clamp(foam + shallow * surge * contactLace * 0.85, 0.0, 1.0);
+	}
+
+	foam *= v_WaterShallow.w;
+	const float wetness = smoothstep(1.0, 0.45, jacobian) * (1.0 - foam);
 
 	// **Two colours, then foam, in that order.** The gradient is the body of the
 	// water and the foam sits on top of it; the other way round tints the
@@ -3225,6 +3283,10 @@ void main()
 				waterT = exp(-waterSigma * through) * (1.0 - foam);
 				behind = ShadeTraced(behindHit,
 									 ProbeIrradiance(behindHit.Normal, v_Probe));
+				// The traced form knows exactly where the bottom is, so the
+				// caustic web lands on the real hit point.
+				behind *= 1.0 + WaterCaustics(behindHit.Position.xz, through,
+											  waterGradient, waterWind, waterTime);
 			}
 			// Only the *scattered* light gives way to the refracted scene:
 			// the glitter is surface reflection and never entered the water,
@@ -3271,7 +3333,15 @@ void main()
 
 			const float through = max(eyeBehind - v_ClipPos.w, 0.0);
 			const vec3 waterT = exp(-waterSigma * through) * (1.0 - foam);
-			const vec3 behind = texture(u_WaterBackdrop, refractedUV).rgb;
+			vec3 behind = texture(u_WaterBackdrop, refractedUV).rgb;
+
+			// The raster form has no hit point, so the bottom is estimated
+			// along the refracted ray at the measured thickness -- exact for
+			// a flat bottom seen steeply, close enough for the caustic web,
+			// whose job is life rather than measurement.
+			behind *= 1.0 + WaterCaustics((v_WorldPos + refractedDir * through).xz,
+										  through, waterGradient,
+										  waterWind, waterTime);
 
 			// Only the *scattered* light gives way to the refracted scene:
 			// the glitter is surface reflection and never entered the water,

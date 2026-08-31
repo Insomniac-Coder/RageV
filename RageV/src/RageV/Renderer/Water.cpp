@@ -57,6 +57,72 @@ namespace RageV
 			return (float)(TileHash(x) & 0x00FFFFFFu) / 16777216.0f;
 		}
 
+		uint32_t MipCountFor(uint32_t size)
+		{
+			uint32_t count = 1;
+			while (size > 1)
+			{
+				size /= 2;
+				count++;
+			}
+			return count;
+		}
+
+		// The full mip chain for a square RGBA8 tile, box-filtered on the CPU
+		// and uploaded level by level.
+		//
+		// **The chain is not optional, and its absence was a shipped defect.**
+		// These tiles are read across kilometres of sea at every scale from
+		// centimetres per texel to metres per pixel; sampled at mip 0 only,
+		// everything past the first few hundred metres aliases -- under TAA
+		// that is a static-like shimmer, and it was a real part of the sea
+		// reading as noise rather than water. A box filter is the right
+		// filter here: the channels are slopes and coverage, both linear, so
+		// the average of four texels *is* the coarser texel's meaning.
+		void UploadWithMips(RHI::RHITexture& texture,
+							std::vector<uint32_t> texels, uint32_t size)
+		{
+			// UploadMip for level 0 too, not Upload: a plain Upload into a
+			// texture with a chain asks the RHI to *generate* the rest by
+			// blitting, which needs a TransferSrc usage these tiles do not
+			// carry -- the cooked-texture loader feeds its chains the same
+			// way for the same reason.
+			texture.UploadMip(texels.data(), texels.size() * sizeof(uint32_t), 0, 0);
+
+			std::vector<uint32_t> next;
+			uint32_t mip = 1;
+			for (uint32_t level = size / 2; level >= 1; level /= 2, mip++)
+			{
+				next.assign((size_t)level * level, 0u);
+				for (uint32_t y = 0; y < level; y++)
+				{
+					for (uint32_t x = 0; x < level; x++)
+					{
+						uint32_t sum[4] = { 0, 0, 0, 0 };
+						for (uint32_t dy = 0; dy < 2; dy++)
+						{
+							for (uint32_t dx = 0; dx < 2; dx++)
+							{
+								const uint32_t texel =
+									texels[(size_t)(y * 2 + dy) * (level * 2)
+										   + (x * 2 + dx)];
+								sum[0] += texel & 0xFFu;
+								sum[1] += (texel >> 8) & 0xFFu;
+								sum[2] += (texel >> 16) & 0xFFu;
+								sum[3] += (texel >> 24) & 0xFFu;
+							}
+						}
+						next[(size_t)y * level + x] =
+							  ((sum[3] / 4u) << 24) | ((sum[2] / 4u) << 16)
+							| ((sum[1] / 4u) << 8) | (sum[0] / 4u);
+					}
+				}
+				texture.UploadMip(next.data(), next.size() * sizeof(uint32_t),
+								  mip, 0);
+				texels = next;
+			}
+		}
+
 		// **The spacing is a request, not a promise.** An author who asks for
 		// a 4 km bay at 10 cm spacing is asking for 1.6 billion quads, and the
 		// honest answer is not to try. The cap is on the divisions per axis
@@ -326,11 +392,12 @@ namespace RageV
 		desc.Height = kSize;
 		desc.Format = Format::R8G8B8A8_UNORM;
 		desc.Usage = TextureUsage::Sampled | TextureUsage::TransferDst;
+		desc.MipLevels = MipCountFor(kSize);
 		desc.DebugName = "Water.detailNormal";
 
 		s_DetailNormal = Renderer::GetDevice().CreateTexture(desc);
 		if (s_DetailNormal)
-			s_DetailNormal->Upload(texels.data(), texels.size() * sizeof(uint32_t));
+			UploadWithMips(*s_DetailNormal, std::move(texels), kSize);
 		return s_DetailNormal;
 	}
 
@@ -401,11 +468,12 @@ namespace RageV
 		desc.Height = kSize;
 		desc.Format = Format::R8G8B8A8_UNORM;
 		desc.Usage = TextureUsage::Sampled | TextureUsage::TransferDst;
+		desc.MipLevels = MipCountFor(kSize);
 		desc.DebugName = "Water.foamPattern";
 
 		s_FoamPattern = Renderer::GetDevice().CreateTexture(desc);
 		if (s_FoamPattern)
-			s_FoamPattern->Upload(texels.data(), texels.size() * sizeof(uint32_t));
+			UploadWithMips(*s_FoamPattern, std::move(texels), kSize);
 		return s_FoamPattern;
 	}
 
