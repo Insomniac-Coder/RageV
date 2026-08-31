@@ -45,6 +45,8 @@ MODULE = 3.81               # 12.5 ft -- the module everything else is a multipl
 
 HALF_SPAN = 640.1           # 4200 ft between the towers
 PYLON_X = 983.0             # tower + 1125 ft side span
+HALF_LENGTH = 1368.5        # 2 737 m of bridge in all, approaches included
+APPROACH_BENT = 45.72       # 150 ft, twelve modules -- the lamp-post spacing
 ROADWAY = 75.0              # 246 ft, the driving surface
 TRUSS_DEPTH = 7.62          # 25 ft, top chord to bottom chord
 TRUSS_HALF = 13.715         # 90 ft between truss centres -- also the cable plane
@@ -52,6 +54,14 @@ TRUSS_HALF = 13.715         # 90 ft between truss centres -- also the cable plan
 
 TOWER_TOP = 227.4           # 746 ft to the cable centreline at the saddle
 PIER_TOP = 13.0             # the pier stands ~13 m out of the water
+# Where each pier's concrete stops. **-z is Marin, +z is San Francisco**, and
+# the two ends of this bridge are nothing like each other: the north pier is
+# on the mainland at Lime Point, its foundation 20 ft down; the south pier is
+# 1 100 ft out in the strait with its foundation 100 ft down, which is what
+# the divers went to. `make_bridge_seabed.py` shapes the floor to meet both.
+NORTH_PIER_BASE = -21.0     # the coast was pulled back off the bridge, so
+                            # this pier stands in the strait and has to reach
+SOUTH_PIER_BASE = -31.0     # 100 ft below the water, 335 m off Fort Point
 
 # The cable. y'' = w/H is the same either side of a tower, so ONE curvature
 # constant governs the main span and both side spans -- only the vertex moves.
@@ -132,11 +142,48 @@ def deck():
     proportion against the towers is right; the Warren members inside it are
     stage 3. A slab reads correctly from the chase camera and from the side,
     which is where this stage is judged.
+
+    **It runs the bridge's whole 2 737 m, not just the suspended 1 966.** The
+    slab used to stop at the pylons, which was invisible over a bottomless
+    bay and wrong the moment there was land: a roadway that ends in mid-air
+    340 m short of the shore at one end and inside a hillside at the other is
+    the first thing the eye finds. Beyond each pylon it is the approach, and
+    the approach is what connects the bridge to the ground -- so it carries on
+    to the ends of the real structure, where the terrain is shaped to meet it.
     """
     mesh = fbxwrite.Mesh()
-    mesh.box((-TRUSS_HALF, ROADWAY - TRUSS_DEPTH, -PYLON_X),
-             (TRUSS_HALF, ROADWAY, PYLON_X), uv=4.0)
+    mesh.box((-TRUSS_HALF, ROADWAY - TRUSS_DEPTH, -HALF_LENGTH),
+             (TRUSS_HALF, ROADWAY, HALF_LENGTH), uv=4.0)
+
+    # The approach bents, on the 12.5 ft module like everything else (12 of
+    # them, 45.72 m, the lamp-post spacing). Only where the deck is over
+    # land: over the water it is suspended, and a column under the main span
+    # would be a different bridge.
+    for sign in (-1.0, 1.0):
+        z = sign * PYLON_X
+        while abs(z) < HALF_LENGTH - 20.0:
+            z += sign * APPROACH_BENT
+            ground = ground_at(0.0, z)
+            if ground is None or ground > ROADWAY - TRUSS_DEPTH - 3.0:
+                continue          # the deck is in a cut here, or under it
+            for x in (-TRUSS_HALF * 0.55, TRUSS_HALF * 0.55):
+                mesh.box((x - 1.6, ground - 4.0, z - 1.6),
+                         (x + 1.6, ROADWAY - TRUSS_DEPTH, z + 1.6), uv=2.0)
     return mesh
+
+
+def ground_at(x, z):
+    """The seabed generator's land height, or None when it cannot be asked.
+
+    Imported here rather than at the top because that module imports this one
+    for the bridge's dimensions, and a cycle at import time would be a
+    circular-import failure rather than a missing column.
+    """
+    try:
+        import make_bridge_seabed
+    except Exception:
+        return None
+    return make_bridge_seabed.height_at(x, z)
 
 
 def leg_half(elevation):
@@ -159,18 +206,27 @@ def leg_half(elevation):
             0.5 * (LEG_BASE[1] + (LEG_TOP[1] - LEG_BASE[1]) * t))
 
 
-def tower(z):
-    """One tower: two stepped shafts and the seven struts between them."""
+def tower(z, pier_base):
+    """One tower: two stepped shafts and the seven struts between them.
+
+    `pier_base` is where the concrete stops, in metres relative to the water.
+    """
     mesh = fbxwrite.Mesh()
 
     # The piers the shafts stand on, carried below the waterline.
     #
     # **They have to continue under the water, not stop at it.** A pier that
     # ends exactly at y=0 is a tower balanced on a mirror; what says the water
-    # is water is seeing the concrete carry on into it. So each goes to -9 m,
-    # under the surface at every state of tide this scene has.
+    # is water is seeing the concrete carry on into it.
+    #
+    # **And the two do not stop at the same depth**, which is the single
+    # biggest asymmetry in the real bridge and was flat before the seabed
+    # existed to show it. The south pier stands 1 100 ft out in the strait on
+    # a foundation 100 ft below the water; the north pier is on the mainland
+    # at Lime Point with its foundation 20 ft down. A shared -9 m left the
+    # south one hanging over a 30 m hole the moment the floor arrived.
     for x in (-TRUSS_HALF, TRUSS_HALF):
-        mesh.box((x - LEG_BASE[0] * 0.62, -9.0, z - LEG_BASE[1] * 0.62),
+        mesh.box((x - LEG_BASE[0] * 0.62, pier_base, z - LEG_BASE[1] * 0.62),
                  (x + LEG_BASE[0] * 0.62, PIER_TOP, z + LEG_BASE[1] * 0.62),
                  uv=3.0)
 
@@ -207,8 +263,9 @@ def tower(z):
 
 def towers():
     mesh = fbxwrite.Mesh()
-    for z in (-HALF_SPAN, HALF_SPAN):
-        part = tower(z)
+    for z, pier_base in ((-HALF_SPAN, NORTH_PIER_BASE),
+                         (HALF_SPAN, SOUTH_PIER_BASE)):
+        part = tower(z, pier_base)
         base = len(mesh.points)
         mesh.points.extend(part.points)
         for index, face in enumerate(part.faces):

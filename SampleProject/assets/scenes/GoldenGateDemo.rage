@@ -1,16 +1,34 @@
 Scene: Golden Gate at night -- stage 1, the silhouette
 Version: 6
 Environment:
-  AmbientColor: [0.55, 0.62, 0.75]
-  AmbientIntensity: 0.14
-  Sky: Color
-  SkyHorizon: [0.62, 0.68, 0.76]
-  SkyZenith: [0.28, 0.42, 0.66]
-  SkyGround: [0.16, 0.18, 0.2]
+  AmbientColor: [0.35, 0.42, 0.58]
+  AmbientIntensity: 0.025
+  Sky: Gradient
+  SkyHorizon: [0.29, 0.14, 0.062]
+  SkyZenith: [0.02, 0.045, 0.105]
+  SkyGround: [0.012, 0.013, 0.015]
   SkyIntensity: 1
   SkyRotation: 0
   SkyTexture: 0
 Entities:
+  - EntityID: 12086993812364939721
+    TagComponent:
+      Tag: Headland Camera
+    TransformComponent:
+      Position: [380, 2.5, -900]
+      Rotation: [-0.155, 2.74159, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 55
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 8000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 0
   - EntityID: 11531348261339546839
     TagComponent:
       Tag: Deck Camera
@@ -19,7 +37,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     CameraComponent:
-      ViewRank: 0
+      ViewRank: 1
       FixedAspectRatio: false
       ProjectionType: Perspective
       PerspectiveFOV: 50
@@ -37,10 +55,64 @@ Entities:
       Rotation: [0, 1.5708, 0]
       Scale: [1, 1, 1]
     CameraComponent:
-      ViewRank: 1
+      ViewRank: 2
       FixedAspectRatio: false
       ProjectionType: Perspective
       PerspectiveFOV: 42
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 8000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 0
+  - EntityID: 14261380247532996097
+    TagComponent:
+      Tag: Bluff Camera
+    TransformComponent:
+      Position: [45, 49.94, 1150]
+      Rotation: [-0.155, 0.088, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 3
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 55
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 8000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 0
+  - EntityID: 2753833115053289296
+    TagComponent:
+      Tag: Pier Camera
+    TransformComponent:
+      Position: [70, 4.5, 705]
+      Rotation: [0.05, 0.82, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 4
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 55
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 8000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 0
+  - EntityID: 6236451820708217325
+    TagComponent:
+      Tag: Lime Point Camera
+    TransformComponent:
+      Position: [185, 5.5, -590]
+      Rotation: [-0.02, 2.5, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 5
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 55
       PerspectiveNearClip: 0.05
       PerspectiveFarClip: 8000
       OrthographicScale: 10
@@ -92,6 +164,23 @@ Entities:
         Metallic: 0
         Roughness: 0.55
         Occlusion: 1
+  - EntityID: 15269762335764735707
+    TagComponent:
+      Tag: Seabed
+    TransformComponent:
+      Position: [0, -125, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      Terrain: 2147579997736601870
+      Size: 2800
+      Height: 286.8457
+      Material: 4166830874159429347
+      Layer1: 17589339863833376696
+      Layer2: 11404185655245490957
+      Layer3: 3156173817138021736
+      TextureScale: 48
+      Collision: true
   - EntityID: 10972064028550693996
     TagComponent:
       Tag: Sea
@@ -100,7 +189,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     WaterComponent:
-      Width: 2200
+      Width: 2800
       Length: 2800
       Spacing: 3
       TextureScale: 12
@@ -118,12 +207,12 @@ Entities:
       Tag: Sun
     TransformComponent:
       Position: [0, 0, 0]
-      Rotation: [-0.61, 0.9, 0]
+      Rotation: [-0.139626, 1.25664, 0]
       Scale: [1, 1, 1]
     LightComponent:
       Type: Directional
-      Color: [1, 0.97, 0.92]
-      Intensity: 2.1
+      Color: [1, 0.55, 0.28]
+      Intensity: 2.6
       Range: 10
       InnerCone: 20
       OuterCone: 44
