@@ -304,7 +304,14 @@ def box_uv(points, faces, scale):
     for face in faces:
         normal = face_normal(points, face)
         axis = max(range(3), key=lambda i: abs(normal[i]))
-        u_axis, v_axis = (1, 2) if axis == 0 else (0, 2) if axis == 1 else (0, 1)
+        # **v is up wherever there is an up.** The x-facing case used to be
+        # (1, 2), which makes u = world y: a texture with any direction in it
+        # -- board lines, pour joints, dirt runs -- came out rotated a quarter
+        # turn on the two faces normal to x, so a pylon had horizontal form
+        # lines on one pair of sides and vertical on the other. (2, 1) puts
+        # world y in v on both wall cases, and leaves the floor case alone
+        # because a floor has no up to get wrong.
+        u_axis, v_axis = (2, 1) if axis == 0 else (0, 2) if axis == 1 else (0, 1)
         out.append(tuple((points[c][u_axis] / scale, points[c][v_axis] / scale)
                          for c in face))
     return out

@@ -317,12 +317,12 @@ def deck():
         lo, hi = min(inner, outer), max(inner, outer)
         mesh.box((lo, ROADWAY - DECK_SLAB, -HALF_LENGTH),
                  (hi, ROADWAY + CURB_HEIGHT, HALF_LENGTH),
-                 uv=3.2, material=MAT_CONCRETE)
+                 uv=2.4, material=MAT_CONCRETE)
 
     # The median. Six lanes with nothing between them is a motorway, not this.
     mesh.box((-MEDIAN_HALF, ROADWAY, -HALF_LENGTH),
              (MEDIAN_HALF, ROADWAY + 0.82, HALF_LENGTH),
-             uv=3.2, material=MAT_CONCRETE)
+             uv=2.4, material=MAT_CONCRETE)
 
     # --- the markings --------------------------------------------------------
     #
@@ -831,7 +831,7 @@ def pylons(mesh):
                           z - PYLON_HALF[1] * scale),
                          (x + PYLON_HALF[0] * scale, high,
                           z + PYLON_HALF[1] * scale),
-                         uv=3.2, material=MAT_CONCRETE)
+                         uv=2.4, material=MAT_CONCRETE)
                 # The cornice at each setback.
                 if k + 1 < len(stages):
                     mesh.box((x - PYLON_HALF[0] * scale * 1.06, high - 1.1,
@@ -882,10 +882,10 @@ def fort_point_arch(mesh, segments=30):
     base = (ground - 1.5) if ground is not None else 0.0
     mesh.box((-27.0, base, ARCH_CENTRE - 26.0),
              (27.0, base + 11.5, ARCH_CENTRE + 26.0),
-             uv=3.2, material=MAT_CONCRETE)
+             uv=2.4, material=MAT_CONCRETE)
     mesh.box((-29.0, base + 11.5, ARCH_CENTRE - 28.0),
              (29.0, base + 13.4, ARCH_CENTRE + 28.0),
-             uv=3.2, material=MAT_CONCRETE)
+             uv=2.4, material=MAT_CONCRETE)
 
     for side in (-TRUSS_HALF, TRUSS_HALF):
         # The rib: two chords a metre apart with lacing between, which is what

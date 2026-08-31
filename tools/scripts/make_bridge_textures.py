@@ -99,14 +99,24 @@ def rivet_field(size, span, pitch, radius, rows):
     return height
 
 
-def seam_field(size, count, depth, width):
-    """Horizontal plate laps: a step down, then back up, `count` times."""
+def seam_field(size, count, depth, width, rng=None):
+    """Horizontal laps: a step down and back up, `count` times.
+
+    Boards are not milled to one width and plates are not laid to one line.
+    Given an `rng` each seam gets its own offset, depth and width, which is
+    the difference between a surface and a sheet of ruled paper.
+    """
     y = np.mgrid[0:size, 0:size][0].astype(np.float32) / size
     height = np.zeros((size, size), np.float32)
     for i in range(count):
         centre = (i + 0.5) / count
-        d = np.abs(((y - centre + 0.5) % 1.0) - 0.5)
-        height -= depth * np.clip(1.0 - d / width, 0.0, 1.0)
+        scale, spread, shift = 1.0, 1.0, 0.0
+        if rng is not None:
+            scale = float(rng.uniform(0.55, 1.45))
+            spread = float(rng.uniform(0.7, 1.35))
+            shift = float(rng.uniform(-0.35, 0.35)) / count
+        d = np.abs(((y - centre - shift + 0.5) % 1.0) - 0.5)
+        height -= depth * scale * np.clip(1.0 - d / (width * spread), 0.0, 1.0)
     return height
 
 
@@ -129,29 +139,49 @@ def streaks(size, rng, density, length, sharpness=2.0):
     return np.clip((smear - 0.45) * sharpness, 0.0, 1.0)
 
 
-def stud_grid(size, span, pitch, radius, depth, offset=(0.5, 0.5)):
-    """Recessed circles on a regular grid -- form-tie holes, bolt heads.
+def stud_grid(size, span, pitch, radius, depth, rng=None, offset=(0.5, 0.5)):
+    """Recessed circles on a grid -- form-tie holes, bolt heads.
 
-    **Regular by nature, so it tiles honestly.** The features a repeat cannot
-    betray are the ones that are genuinely identical everywhere, and a
-    form-tie plug is one: they are set out on the formwork's own grid and they
-    look the same on every pour.
+    **Regular by nature, so it tiles honestly** -- the features a repeat
+    cannot betray are the ones genuinely identical everywhere, and a form-tie
+    plug is set out on the formwork's own grid.
+
+    **But identical is not the same as regular, and a perfect grid is the
+    thing that reads as graph paper.** Real plugs sit a few centimetres off
+    where the drawing put them, some were never filled, and only a few have
+    started to weep. So each one gets its own jitter, size and weight. All of
+    it is inside the tile, so none of it costs a repeat -- what it buys is a
+    field the eye reads as "many plugs" rather than "a pattern of plugs".
+
+    Returns (field, stained) -- the second being the subset that has rusted,
+    so a caller can hang the weep off those alone.
     """
     per = max(int(round(span / pitch)), 1)
     step = size / per
     r = max(radius * size / span, 1.5)
+    if rng is None:
+        rng = np.random.default_rng(1)
 
     y, x = np.mgrid[0:size, 0:size].astype(np.float32)
     field = np.zeros((size, size), np.float32)
+    stained = np.zeros((size, size), np.float32)
     for j in range(per):
         for i in range(per):
-            cx = (i + offset[0]) * step
-            cy = (j + offset[1]) * step
+            if rng.random() < 0.12:
+                continue                        # never filled, or spalled away
+            jitter = step * 0.16
+            cx = (i + offset[0]) * step + float(rng.uniform(-jitter, jitter))
+            cy = (j + offset[1]) * step + float(rng.uniform(-jitter, jitter))
+            scale = float(rng.uniform(0.72, 1.28))
+            weight = float(rng.uniform(0.55, 1.0))
             dx = np.minimum(np.abs(x - cx), size - np.abs(x - cx))
             dy = np.minimum(np.abs(y - cy), size - np.abs(y - cy))
-            d = np.sqrt(dx * dx + dy * dy) / r
-            field = np.maximum(field, np.clip(1.0 - d * d, 0.0, 1.0) ** 0.6)
-    return field * depth
+            d = np.sqrt(dx * dx + dy * dy) / (r * scale)
+            plug = np.clip(1.0 - d * d, 0.0, 1.0) ** 0.6 * weight
+            field = np.maximum(field, plug)
+            if rng.random() < 0.35:
+                stained = np.maximum(stained, plug)
+    return field * depth, stained * depth
 
 
 def painted_steel(size, rng):
@@ -163,7 +193,7 @@ def painted_steel(size, rng):
     """
     span = 3.0
 
-    seams = seam_field(size, 3, 0.008, 0.009)
+    seams = seam_field(size, 3, 0.008, 0.009, rng)
     rivets = rivet_field(size, span, 0.11, 0.013,
                          rows=(0.166, 0.5, 0.833))
     # A second row of heads down the vertical plate edges: a lapped plate is
@@ -236,14 +266,45 @@ def painted_steel(size, rng):
 
 
 def board_concrete(size, rng):
-    """Board-formed concrete, weathered, over 2 m of surface."""
-    span = 2.0
+    """Board-formed concrete, weathered, over 2.4 m of surface.
+
+    **The span matches the uv the model asks for**, so the 600 mm tie grid in
+    here is 600 mm on the pier rather than 960: a texture designed at one
+    scale and applied at another is a texture whose every real-world
+    dimension is a lie.
+    """
+    span = 2.4
 
     # **Five boards, not eight, and shallower.** At eight the seams are close
     # enough that a 60 m pier tiled across them reads as a diamond lattice
     # rather than as concrete -- the repeat announces itself, which is the one
     # thing a tiling texture must not do.
-    boards = seam_field(size, 5, 0.0022, 0.012)
+    boards = seam_field(size, 4, 0.0018, 0.009, rng)
+
+    # **Pour lines.** The horizontal joint where one lift of concrete met the
+    # next: about 1.2 m apart on a pier this size, and the third feature that
+    # is regular by nature and so tiles honestly. What shows is not the joint
+    # itself -- it is a thin dark line of laitance along it, a slight ridge
+    # where the form leaked, and the fact that the lift above was a different
+    # batch from the lift below.
+    lifts = 2
+    yy = np.mgrid[0:size, 0:size][0].astype(np.float32) / size
+    lift_index = np.floor(yy * lifts).astype(np.int32)
+    # A pour line wanders: the form was levelled by eye and the concrete
+    # found its own top. A slow waver along the joint, high enough in
+    # frequency to stay tile-safe.
+    waver = (wrapping_noise(size, rng, 2, base=9) - 0.5) * 0.016
+    joint = np.zeros((size, size), np.float32)
+    for i in range(lifts):
+        centre = i / lifts
+        d = np.abs(((yy - centre - waver + 0.5) % 1.0) - 0.5)
+        joint = np.maximum(joint, np.clip(1.0 - d / 0.009, 0.0, 1.0))
+    # The leak: a small ridge just under the joint, where grout ran.
+    ledge = np.zeros((size, size), np.float32)
+    for i in range(lifts):
+        centre = i / lifts + 0.012
+        d = np.abs(((yy - centre - waver + 0.5) % 1.0) - 0.5)
+        ledge = np.maximum(ledge, np.clip(1.0 - d / 0.014, 0.0, 1.0))
     # Aggregate showing where the skin has weathered off.
     grain = wrapping_noise(size, rng, 6, base=14)
     exposure = np.clip((wrapping_noise(size, rng, 3, base=9) - 0.5) * 2.2, 0.0, 1.0)
@@ -253,39 +314,62 @@ def board_concrete(size, rng):
     # the single feature that says "this was poured against boards" rather
     # than "this is a grey box", and because they are genuinely identical
     # everywhere they cost nothing in repeat.
-    ties = stud_grid(size, span, 0.60, 0.022, 1.0)
+    # 45 mm rather than the true 25: a plug that survives being mipped down
+    # to a pier seen from four hundred metres is worth more than one that is
+    # dimensionally exact and gone.
+    ties, tie_stain = stud_grid(size, span, 0.60, 0.028, 1.0, rng)
 
     # Spalls: where the arris has chipped and the aggregate is proud.
     spall = np.clip((wrapping_noise(size, rng, 5, base=17) - 0.62) * 5.0, 0.0, 1.0)
 
     height = (boards
-              - ties * 0.0035
-              + (grain - 0.5) * 0.0030 * (0.35 + exposure)
-              - spall * 0.0032)
+              - ties * 0.0045
+              - joint * 0.0030
+              + ledge * 0.0022
+              + (grain - 0.5) * 0.0034 * (0.35 + exposure)
+              - spall * 0.0038)
 
     # **Concrete is not white.** Weathered structural concrete sits around a
     # linear 0.28-0.32 -- it reads pale against dark water, not against the
     # sky, and at 0.455 under a 2.6-intensity sun the pylons blew out to
     # near-white and lost every step in them.
-    pale = np.array([0.300, 0.294, 0.278], np.float32)
-    dark = np.array([0.163, 0.160, 0.153], np.float32)
+    pale = np.array([0.330, 0.322, 0.302], np.float32)
+    dark = np.array([0.120, 0.117, 0.112], np.float32)
 
     # The staining. **Not a gradient down the tile**, which is what this was:
     # multiplying by `y` puts a light band at every repeat's top edge and a
     # dark one at its foot, and eight repeats up a pylon is eight stripes.
     # Fine, vertical, high-frequency streaking reads as weathering and cannot
     # betray the repeat.
-    streak = streaks(size, rng, 18, 0.22, 2.2)
+    streak = streaks(size, rng, 18, 0.22, 1.7)
     # And the rust weep below each tie, which is the detail that dates a
     # concrete structure faster than anything else on it.
+    # Only the plugs that have actually rusted weep, which is a third of
+    # them: a stain under every single tie is the same graph paper again.
     weep = np.zeros((size, size), np.float32)
-    for i in range(int(size * 0.05)):
-        weep += np.roll(ties, i, axis=0) * (1.0 - i / max(size * 0.05, 1))
-    weep = np.clip(weep * 0.5, 0.0, 1.0)
+    for i in range(int(size * 0.09)):
+        weep += np.roll(tie_stain, i, axis=0) * (1.0 - i / max(size * 0.09, 1))
+    weep = np.clip(weep * 0.9, 0.0, 1.0)
 
-    mix = np.clip(0.30 * grain + 0.46 * streak + 0.22 * exposure
-                  + 0.55 * ties, 0.0, 1.0)
+    # **The albedo had a standard deviation of five values out of 255**, which
+    # is a flat tan card however good the normal over it is. Every term here
+    # is pulled up, and the grain -- which is the one that varies everywhere
+    # -- carries most of it.
+    # **The ties are a detail, not the pattern.** At 0.70 they were the
+    # loudest thing in the map and 600 mm of them in each direction read as
+    # brickwork -- a plug is a small dark dot, not a course.
+    # **Noise over pattern.** The regular features are the vocabulary; the
+    # grain is what stops them being the whole sentence. When the ties and
+    # the joints carried the field it read as woven matting.
+    mix = np.clip(0.88 * grain + 0.60 * streak + 0.34 * exposure
+                  + 0.22 * ties + 0.45 * joint, 0.0, 1.0)
     colour = pale[None, None, :] * (1.0 - mix[:, :, None]) + dark[None, None, :] * mix[:, :, None]
+
+    # One lift is not the next: a different batch, a different day, and two
+    # or three percent between them. Two lifts *inside* the tile, so it is a
+    # feature of the tile and costs no repeat.
+    batches = np.array([1.000, 0.962], np.float32)
+    colour *= batches[lift_index][:, :, None]
 
     # The weep is not grey, it is iron.
     stain = np.array([0.205, 0.108, 0.058], np.float32)
@@ -294,7 +378,7 @@ def board_concrete(size, rng):
     # Fresh aggregate at a spall is paler and sharper than the weathered skin.
     colour += spall[:, :, None] * 0.09
 
-    rough = 0.70 + 0.18 * grain - 0.06 * streak + 0.14 * spall
+    rough = 0.66 + 0.22 * grain - 0.08 * streak + 0.16 * spall + 0.10 * joint
     return {
         "color": np.clip(colour, 0.0, 1.0),
         "normal": normal_map(height, 1.0, span),

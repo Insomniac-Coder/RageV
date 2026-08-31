@@ -6,6 +6,61 @@ Everything is on **`main`**, pushed. Three commits landed on 2026-08-28:
 sky occlusion (`2f87153`), the ray-budget allocator (`0daf01b`), and the
 measurement flags (`b171234`). Each message carries its full reasoning.
 
+## NEXT TASK — macro breakup in the shader (owner-set, 2026-08-31)
+
+**Large-scale variation across a whole pier -- the thing that stops any tiled
+surface looking uniform at range -- needs macro breakup in the shader, driven
+by world position at a scale much bigger than the tiling. That is an engine
+change (a couple of material fields plus a term in `pbr_fragment.glsl`) and
+it would benefit every material in the project, not just the bridge.**
+
+### Why this is the next thing and not more texture work
+
+The bridge's surfaces were taken as far as a tiling texture can go, and the
+ceiling was reached in public. The sequence, so nobody walks it again:
+
+1. First maps had low-frequency content -- `base=2` noise, and an outright
+   vertical gradient multiplying the concrete's staining. Seamless edges, and
+   still a visible lattice: **what the eye reads is not the seam, it is the
+   content.** Anything in a tile bigger than a fraction of it appears once per
+   repeat, in rows.
+2. So the rule became **no low frequencies and no gradients** -- every field
+   from `base=8` up. That killed the lattice and produced the opposite
+   complaint, "way too uniform", which is the same fact seen from the other
+   side: every repeat is byte-identical, so a large face is a perfectly
+   regular field.
+3. What is left inside the tile has been done: the regular features are
+   varied plug by plug and board by board (`stud_grid` and `seam_field` take
+   an rng), the pour lines waver, only a third of the ties weep. It helps at
+   arm's length and changes nothing at four hundred metres.
+
+**There is no texture-only answer.** A second, much larger-scale field that
+does not repeat within the object is the only thing that breaks it, and that
+field has to come from world position at shading time.
+
+### The shape of the change
+
+- Two material fields -- `MacroScale` (metres per macro cycle, 0 = off) and
+  `MacroStrength` -- defaulting to 0, so **no existing material moves** and
+  the showroom, camp and terrain scenes render byte-identical until one opts
+  in. That default is what makes this safe to land.
+- A term in `pbr_fragment.glsl` that samples a cheap value noise of
+  `v_WorldPos / MacroScale` and modulates albedo brightness and roughness by
+  `MacroStrength`. Three octaves is enough; it is a scalar, so it costs a
+  handful of ALU and no texture fetch.
+- The material UBO layout changes, which touches both the bound and the
+  bindless paths -- check `LayeredParams` and `MaterialParams` pack the same
+  way, and re-run both backends.
+- Suite: a check that a material with `MacroScale = 0` is bit-identical to
+  one without the field, and one that two points a macro-wavelength apart on
+  the same material shade differently.
+
+Related, and the reason this is worth doing once properly rather than per
+scene: the terrain has the same problem and currently hides it behind four
+painted layers.
+
+---
+
 ## Start here — 2026-08-31 (later): the sky, the strait's real floor, and the
 ## terrain defect the cliffs found
 
