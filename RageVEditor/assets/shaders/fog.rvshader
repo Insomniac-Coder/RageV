@@ -71,7 +71,7 @@ layout(push_constant) uniform Params
 	// before any fog accumulates -- zero is physically right and unhelpful
 	// for a bonnet a metre from the camera.
 	float StartDistance;
-	float Pad;
+	float FogFloor;        // no air, and so no fog, below this world height
 
 	vec4 CameraRow0;       // rows of the camera-to-world rotation
 	vec4 CameraRow1;
@@ -127,8 +127,66 @@ void main()
 	// starts from where the ray had got to -- not from the camera, or a
 	// windscreen at half a metre would haze the moment the start was cleared.
 	const vec3 direction = ray / distance;
-	const float travel = distance - start;
-	const vec3 origin = u_Fog.CameraPosition.xyz + direction * start;
+	float travel = distance - start;
+	vec3 origin = u_Fog.CameraPosition.xyz + direction * start;
+
+	// **Clip the segment to the air.** Fog is atmosphere, and below the
+	// waterline there is none -- but the integral below knows only about
+	// height and distance, so without this it fogs a seabed twenty metres
+	// down, and fogs it *harder* than the surface because the falloff makes
+	// the layer densest at the bottom. Haze under the sea, which is the one
+	// place haze cannot be.
+	//
+	// Solve for where the ray crosses the floor and keep the part above it.
+	// A ray running level is either wholly in the air or wholly out of it,
+	// and that branch is uniform across any run of pixels looking the same
+	// way, so it costs nothing to take.
+	{
+		const float floorY = u_Fog.FogFloor;
+		const float dy = direction.y;
+		if (abs(dy) < 1.0e-6)
+		{
+			if (origin.y < floorY)
+			{
+				o_Color = scene;
+				return;
+			}
+		}
+		else
+		{
+			const float cross = (floorY - origin.y) / dy;
+			if (dy < 0.0)
+			{
+				// Descending: in the air until it crosses.
+				if (cross <= 0.0)
+				{
+					o_Color = scene;
+					return;
+				}
+				travel = min(travel, cross);
+			}
+			else
+			{
+				// Climbing: in the air only after it crosses.
+				if (cross >= travel)
+				{
+					o_Color = scene;
+					return;
+				}
+				if (cross > 0.0)
+				{
+					origin += direction * cross;
+					travel -= cross;
+				}
+			}
+		}
+	}
+
+	if (travel <= 1e-4)
+	{
+		o_Color = scene;
+		return;
+	}
 
 	const float falloff = max(u_Fog.HeightFalloff, 0.0);
 	const float relative = origin.y - u_Fog.Color.w;

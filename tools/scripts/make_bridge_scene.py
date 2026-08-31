@@ -45,6 +45,8 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from make_demo_scene import Scene, vec  # noqa: E402
+import postprofile  # noqa: E402
+import make_lut  # noqa: E402
 import make_bridge_models as bridge  # noqa: E402
 import make_bridge_seabed as seabed  # noqa: E402
 
@@ -236,7 +238,102 @@ CAMERAS = {
 DEFAULT_HERO = "headland"
 
 
-def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None):
+# --- the look ----------------------------------------------------------------
+#
+# **Post is a profile asset a camera points at, not lines in the scene.** A
+# `.rage` that writes `BloomEnabled` is writing a key nothing reads
+# (ENGINE-NOTES 7s), so the generator writes a real profile beside the scene
+# and names it from every camera -- the same path a person uses.
+#
+# What is in it and why, because "cinematic" is not a setting:
+#
+# - **Height fog.** The single biggest one, and not only for mood: the water
+#   body ends at 2 800 m and from anything high up you can see the cut. Fog
+#   is what a real 2 km of sea air does anyway, and it puts the far shore
+#   behind something instead of against nothing.
+# - **Bloom**, threshold just over white so it takes the sun track on the
+#   water and the sky near the horizon and leaves the structure alone.
+# - **Auto exposure**, because a dusk frame's range moves with the camera and
+#   a fixed stop that suits the headland blows out the deck.
+# - **A shallow depth of field** at 85 mm: focused past the near tower, so
+#   only the water in the first fifty metres softens. Enough to say lens,
+#   not enough to say toy.
+# - **Vignette, chromatic aberration and grain**, all small. Each models the
+#   camera rather than the scene, and each is the first thing to look like a
+#   filter if it is pushed. Read the units before setting them: the
+#   dispersion is a fraction of frame width, so it wants a thousandth where
+#   an intensity would want a third.
+CINEMATIC = {
+    "Fog": True,
+    "FogColor": None,              # filled from the sky, below
+    # **Thin, and low.** At 0.0022 with a 0.92 ceiling the strait went to a
+    # flat orange wash a kilometre out and the sea stopped existing -- fog
+    # that hides the subject is not atmosphere, it is a lens cap. This reads
+    # as two kilometres of sea air: the far tower softens, the near water
+    # keeps its specular, and the water body's far edge still goes.
+    # **A haze, not weather.** Twice this drowned the strait in an orange
+    # wash and the sea stopped existing; fog that hides the subject is not
+    # atmosphere, it is a lens cap. What is wanted is the far tower sitting
+    # a little back from the near one and the water body's far edge going
+    # quietly -- everything else keeps its contrast.
+    "FogDensity": 0.00016,
+    "FogHeightFalloff": 0.11,
+    "FogHeight": 2.0,
+    "FogStartDistance": 420.0,
+    "FogMaxOpacity": 0.42,
+    # **The waterline.** Fog is atmosphere; below the sea there is none, and
+    # the height falloff would otherwise give the seabed *more* of it than
+    # the surface. Without this the strait had haze under it.
+    "FogFloor": 0.0,
+
+    "BloomEnabled": True,
+    "BloomThreshold": 1.05,
+    "BloomKnee": 0.55,
+    "BloomIntensity": 0.085,
+    "BloomClamp": 12.0,
+
+    "AutoExposure": True,
+    "AutoExposureKey": 0.17,
+    "AutoExposureSpeed": 6.0,
+    "AutoExposureMin": 0.15,
+    "AutoExposureMax": 12.0,
+    "Exposure": 1.05,              # compensation, once metering is on
+
+    "DepthOfField": True,
+    "FocalLength": 85.0,
+    "Aperture": 2.8,
+    "FocusDistance": 320.0,
+    "MaxBokehRadius": 10.0,
+
+    "VignetteIntensity": 0.34,
+    "VignetteSmoothness": 0.62,
+    # **Fractions of the frame's width, not an intensity.** 0.30 disperses
+    # the channels across a third of the picture: the first render came back
+    # as three separate colour layers of the whole bridge. A real lens is a
+    # pixel or two at the corners, which on a 2560-wide frame is this.
+    "ChromaticAberration": 0.0006,
+    "FilmGrain": 0.045,
+    "FilmGrainSize": 1.7,
+
+    "ColorLutStrength": 0.80,
+}
+
+
+def write_look(sky):
+    """The grade and the profile beside the scene. Returns the handle."""
+    lut = make_lut.write(ASSETS / "luts" / "cinematic.cube", "cinematic")
+
+    settings = dict(CINEMATIC)
+    # Fog is the sky's own horizon colour, so the far shore dissolves into
+    # the band it is standing against rather than into a grey nobody chose.
+    settings["FogColor"] = "[{0:g}, {1:g}, {2:g}]".format(*sky["horizon"])
+    settings["ColorLut"] = str(lut)
+    return postprofile.write_named(SCENE.with_name("bridge_cinematic.rvpostprofile"),
+                             settings)
+
+
+def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
+          cinematic=False):
     mesh = handles()
     sky = SKIES[sky_name]
     grounded = {} if grounded is None else grounded
@@ -247,6 +344,7 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None):
     # All four, always, so a shot is picked rather than rebuilt. Only the
     # hero's rank matters -- the runtime opens the lowest -- but the others
     # keep a stable order so the editor's list does not shuffle.
+    look = write_look(sky) if cinematic else 0
     order = [hero] + [name for name in CAMERAS if name != hero]
     for rank, name in enumerate(order):
         camera = CAMERAS[name]
@@ -278,7 +376,7 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None):
             ("OrthographicScale", 10),
             ("OrthographicNearClip", -1),
             ("OrthographicFarClip", 1),
-            ("PostProfile", 0),
+            ("PostProfile", look),
         ])
 
     # --- the bridge ---------------------------------------------------------
@@ -423,12 +521,17 @@ def main(argv=None):
                              "none: the bottomless bay stage 1 had, for the A/B")
     parser.add_argument("--hero", default=DEFAULT_HERO, choices=sorted(CAMERAS),
                         help="which camera gets ViewRank 0")
+    parser.add_argument("--cinematic", action="store_true",
+                        help="write the graded post profile and point every "
+                             "camera at it: fog, bloom, metering, a shallow "
+                             "depth of field, and the lens effects")
     args = parser.parse_args(argv)
 
     SCENE.parent.mkdir(parents=True, exist_ok=True)
     grounded = {}
     with SCENE.open("w", encoding="utf-8", newline="\n") as handle:
-        handle.write(build(args.sky, args.seabed, args.hero, grounded))
+        handle.write(build(args.sky, args.seabed, args.hero, grounded,
+                           args.cinematic))
 
     print("wrote", SCENE)
     print("  sky {0}   seabed {1}   hero {2} ({3})".format(

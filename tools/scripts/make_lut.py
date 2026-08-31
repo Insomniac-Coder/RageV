@@ -31,6 +31,50 @@ import pathlib
 import postprofile
 
 
+def cinematic(red, green, blue):
+    """A split-toned contrast grade, on display-referred values.
+
+    **This runs after the tone curve**, which is where a `.cube` from any
+    grading tool expects to be, so what it is shaping is the picture rather
+    than the scene. Three things, in the order a colourist would do them:
+
+    - **An S-curve**, gentle. Contrast is what separates a photograph from a
+      render more than any single other operation, and a straight multiply
+      round the midpoint crushes both ends -- the smoothstep keeps the toe
+      and the shoulder rolling.
+    - **Split toning**: shadows toward teal, highlights toward warm. It is a
+      cliche because it works, and it works because it is what film stock did
+      -- the dyes were never neutral at both ends.
+    - **A saturation lift**, small, applied last so it acts on the graded
+      colour rather than the raw one.
+    """
+    lum = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+    def curve(v):
+        # A smoothstep blended against the identity: full smoothstep is far
+        # too much contrast, and this keeps the ends alive.
+        s_curve = v * v * (3.0 - 2.0 * v)
+        return v + (s_curve - v) * 0.45
+
+    red, green, blue = curve(red), curve(green), curve(blue)
+
+    # Shadows cool, highlights warm, weighted by where this value sits.
+    t = lum * lum * (3.0 - 2.0 * lum)
+    shadow = (0.90, 1.00, 1.10)
+    highlight = (1.08, 1.01, 0.92)
+    tint = tuple(shadow[i] + (highlight[i] - shadow[i]) * t for i in range(3))
+    red, green, blue = red * tint[0], green * tint[1], blue * tint[2]
+
+    graded = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    saturation = 1.14
+    red = graded + (red - graded) * saturation
+    green = graded + (green - graded) * saturation
+    blue = graded + (blue - graded) * saturation
+
+    clamp = lambda v: min(max(v, 0.0), 1.0)
+    return clamp(red), clamp(green), clamp(blue)
+
+
 def build(kind, size):
     """The `.cube` text. Red changes fastest, which is the format's order."""
     lines = [
@@ -48,6 +92,8 @@ def build(kind, size):
                 red, green, blue = r * step, g * step, b * step
                 if kind == "swap":
                     red, blue = blue, red
+                elif kind == "cinematic":
+                    red, green, blue = cinematic(red, green, blue)
                 lines.append(f"{red:.6f} {green:.6f} {blue:.6f}")
 
     return "\n".join(lines) + "\n"
@@ -69,7 +115,8 @@ def write(path, kind, size=33):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--kind", choices=("identity", "swap"), default="identity")
+    parser.add_argument("--kind", choices=("identity", "swap", "cinematic"),
+                        default="identity")
     # 33 is what grading tools emit most often, and is odd -- so the midpoint
     # of the range lands exactly on a table entry rather than between two,
     # which makes a sampling mistake at the centre visible rather than

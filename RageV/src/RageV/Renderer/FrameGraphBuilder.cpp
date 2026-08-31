@@ -1874,6 +1874,7 @@ namespace RageV
 			fogSettings.HeightFalloff = desc.Post.FogHeightFalloff;
 			fogSettings.Height = desc.Post.FogHeight;
 			fogSettings.StartDistance = desc.Post.FogStartDistance;
+			fogSettings.Floor = desc.Post.FogFloor;
 			fogSettings.MaxOpacity = desc.Post.FogMaxOpacity;
 
 			PostProcess::FogView fogView;

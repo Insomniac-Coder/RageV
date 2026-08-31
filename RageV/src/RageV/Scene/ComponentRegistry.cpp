@@ -2109,6 +2109,14 @@ namespace
 							"Physically zero; in practice a bonnet or a cockpit a "
 							"metre from the camera should not haze.")))),
 
+				Field<&PostSettings::FogFloor>("FogFloor",
+					Named("Fog floor",
+						Drag(0.5f, -100000.0f, 100000.0f,
+							"The world height below which there is no air to "
+							"fog. Set it to the water plane in a scene that has "
+							"one: fog integrated through water hazes the seabed, "
+							"and hazes it hardest because the height falloff "
+							"makes the layer densest at the bottom."))),
 				Field<&PostSettings::FogMaxOpacity>("FogMaxOpacity",
 					Named("Max opacity", OnlyWhen(UsesFog,
 						Drag(0.01f, 0.0f, 1.0f,

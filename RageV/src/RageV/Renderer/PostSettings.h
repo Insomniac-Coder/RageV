@@ -143,6 +143,21 @@ namespace RageV
 		// landmark readable through air thick enough to sell the distance in
 		// front of it.
 		float MaxOpacity = 1.0f;
+
+		// **The height below which there is no air to fog.**
+		//
+		// Fog is an atmospheric term and this pass integrates it along the
+		// whole ray from the camera to the fragment, which is right until
+		// part of that ray is under water. A seabed twenty metres down, or
+		// anything seen through the water's refraction, then gets fogged --
+		// and gets *more* of it than the surface, because the height falloff
+		// makes the layer densest at the bottom. It reads as haze under the
+		// sea, which is the one place haze cannot be.
+		//
+		// Set it to the water plane and the integral stops there. The default
+		// is far below any scene, so every profile written before this reads
+		// back as the behaviour it was authored against.
+		float Floor = -1.0e9f;
 	};
 
 	enum class RayBudgetMode : uint32_t
@@ -224,6 +239,9 @@ namespace RageV
 		float FogHeight = 0.0f;
 		float FogStartDistance = 0.0f;
 		float FogMaxOpacity = 1.0f;
+		// Fog stops at this world height: the waterline, in a scene that has
+		// one. See FogSettings::Floor.
+		float FogFloor = -1.0e9f;
 
 		float Exposure = 1.0f;
 

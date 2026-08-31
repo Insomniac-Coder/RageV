@@ -1062,8 +1062,12 @@ namespace RageV
 			// RtaoComputeParams never hits this: its six scalars end at 48
 			// already. Two floats of real payload close the gap instead of
 			// padding, and the block still ends at exactly 128.
+			// **And the second of the two is real payload now.** It was
+			// padding to close the alignment gap described above; the fog
+			// floor fits it exactly, so the block still ends at 128 and no
+			// offset moves.
 			float StartDistance = 0.0f;
-			float Pad = 0.0f;
+			float Floor = -1.0e9f;
 
 			Vec4 CameraRow0{ 1.0f, 0.0f, 0.0f, 0.0f };
 			Vec4 CameraRow1{ 0.0f, 1.0f, 0.0f, 0.0f };
@@ -1093,6 +1097,7 @@ namespace RageV
 		params.InvP1 = view.InvProjection1;
 		params.Color = Vec4(fog.Color.x, fog.Color.y, fog.Color.z, fog.Height);
 		params.StartDistance = Math::Max(fog.StartDistance, 0.0f);
+		params.Floor = fog.Floor;
 
 		// The camera transform is the view's inverse; the rotation part of an
 		// inverse is the transpose, so the camera's rows are the view's
