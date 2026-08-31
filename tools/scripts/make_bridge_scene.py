@@ -69,7 +69,8 @@ def read_handle(path):
 
 def handles():
     found = {}
-    for name in ("bridge_towers", "bridge_deck", "bridge_cables"):
+    for name in ("bridge_towers", "bridge_deck", "bridge_cables",
+                 "bridge_road", "bridge_piers"):
         meta = MODELS / (name + ".fbx.meta")
         if not meta.exists():
             raise SystemExit(
@@ -204,7 +205,7 @@ CAMERAS = {
     # three-quarter, yaw turned to look back down the span. Y is not written
     # here -- `build` stands it on the ground the terrain actually has.
     "headland": {"tag": "Headland Camera",
-                 "position": (380.0, None, -900.0),
+                 "position": (300.0, None, -1010.0),
                  "rotation": (-0.155, math.pi - 0.40, 0.0), "fov": 55,
                  "eye": 2.5, "sees": (0.0, 75.0, -640.1)},
     # The San Francisco bluff, kept because it is the approved shot's exact
@@ -285,13 +286,28 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None):
     # Four entities and no more. The transform walk is this engine's real
     # ceiling, and a silhouette made of one entity per member would spend that
     # budget before a single detail existed.
-    for name, handle, tint in (
-            ("Towers", mesh["bridge_towers"], STEEL),
-            ("Deck", mesh["bridge_deck"], STEEL),
-            ("Cables", mesh["bridge_cables"], STEEL),
+    # **Five entities, one material each.** Stage 1 wore flat grey
+    # deliberately -- you cannot read a silhouette off a shape with a colour
+    # boundary in it -- and that stage is over: the bridge is International
+    # Orange, its piers and pylons are concrete, its roadway is asphalt.
+    #
+    # A MeshComponent holds one material and a model's own are never used
+    # (Scene.cpp resolves the component's handle and falls back to the
+    # renderer's default; an FBX exported with a green material rendered
+    # bit-identically to one exported orange). So the parts are split by
+    # material at export and each gets its own `.rmat`.
+    steel = seabed.terrain.handle_for("materials/bridge_orange.rmat")
+    concrete = seabed.terrain.handle_for("materials/bridge_concrete.rmat")
+    asphalt = seabed.terrain.handle_for("materials/bridge_asphalt.rmat")
+    for name, part, material in (
+            ("Towers", "bridge_towers", steel),
+            ("Deck", "bridge_deck", steel),
+            ("Cables", "bridge_cables", steel),
+            ("Roadway", "bridge_road", asphalt),
+            ("Piers", "bridge_piers", concrete),
     ):
         s.entity(name)
-        s.mesh_inline(handle, tint, 0.0, 0.55)
+        s.mesh(mesh[part], material)
 
     # --- the floor of the strait --------------------------------------------
     #

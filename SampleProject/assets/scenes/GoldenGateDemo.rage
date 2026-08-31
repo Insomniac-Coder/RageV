@@ -11,24 +11,6 @@ Environment:
   SkyRotation: 0
   SkyTexture: 0
 Entities:
-  - EntityID: 12086993812364939721
-    TagComponent:
-      Tag: Headland Camera
-    TransformComponent:
-      Position: [380, 2.5, -900]
-      Rotation: [-0.155, 2.74159, 0]
-      Scale: [1, 1, 1]
-    CameraComponent:
-      ViewRank: 0
-      FixedAspectRatio: false
-      ProjectionType: Perspective
-      PerspectiveFOV: 55
-      PerspectiveNearClip: 0.05
-      PerspectiveFarClip: 8000
-      OrthographicScale: 10
-      OrthographicNearClip: -1
-      OrthographicFarClip: 1
-      PostProfile: 0
   - EntityID: 11531348261339546839
     TagComponent:
       Tag: Deck Camera
@@ -37,7 +19,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     CameraComponent:
-      ViewRank: 1
+      ViewRank: 0
       FixedAspectRatio: false
       ProjectionType: Perspective
       PerspectiveFOV: 50
@@ -55,10 +37,28 @@ Entities:
       Rotation: [0, 1.5708, 0]
       Scale: [1, 1, 1]
     CameraComponent:
-      ViewRank: 2
+      ViewRank: 1
       FixedAspectRatio: false
       ProjectionType: Perspective
       PerspectiveFOV: 42
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 8000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 0
+  - EntityID: 12086993812364939721
+    TagComponent:
+      Tag: Headland Camera
+    TransformComponent:
+      Position: [300, 76.22, -1010]
+      Rotation: [-0.155, 2.74159, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 2
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 55
       PerspectiveNearClip: 0.05
       PerspectiveFarClip: 8000
       OrthographicScale: 10
@@ -128,12 +128,7 @@ Entities:
       Scale: [1, 1, 1]
     MeshComponent:
       Mesh: 10466108464633408765
-      Material:
-        BaseColor: [0.55, 0.55, 0.55, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 0
-        Roughness: 0.55
-        Occlusion: 1
+      Material: 12531021211631767580
   - EntityID: 15006865266665574376
     TagComponent:
       Tag: Deck
@@ -143,12 +138,7 @@ Entities:
       Scale: [1, 1, 1]
     MeshComponent:
       Mesh: 11301224437192472965
-      Material:
-        BaseColor: [0.55, 0.55, 0.55, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 0
-        Roughness: 0.55
-        Occlusion: 1
+      Material: 12531021211631767580
   - EntityID: 13265240402949795087
     TagComponent:
       Tag: Cables
@@ -158,12 +148,27 @@ Entities:
       Scale: [1, 1, 1]
     MeshComponent:
       Mesh: 11563686497362606197
-      Material:
-        BaseColor: [0.55, 0.55, 0.55, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 0
-        Roughness: 0.55
-        Occlusion: 1
+      Material: 12531021211631767580
+  - EntityID: 10962324129460646322
+    TagComponent:
+      Tag: Roadway
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 16690458668712365393
+      Material: 16450901286418878383
+  - EntityID: 12058568100717378210
+    TagComponent:
+      Tag: Piers
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 17569586576507270388
+      Material: 11637483637505477495
   - EntityID: 15269762335764735707
     TagComponent:
       Tag: Seabed
