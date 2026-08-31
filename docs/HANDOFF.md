@@ -6,6 +6,38 @@ Everything is on **`main`**, pushed. Three commits landed on 2026-08-28:
 sky occlusion (`2f87153`), the ray-budget allocator (`0daf01b`), and the
 measurement flags (`b171234`). Each message carries its full reasoning.
 
+## ⛔ START THE NEXT SESSION HERE — the traced GI bounce is not running
+
+**`rtgi_trace.rvshader` does not compile**, and the engine says so every load:
+
+    Renderer3D: assets/shaders/rtgi_trace.rvshader did not compile, so the
+    traced bounce cannot run; falling back to the screen-space form for this
+    session
+
+    ERROR: 0:4302: 'GiHash' : no matching overloaded function found
+    ERROR: 0:4301: '=' : cannot convert from 'const float' to 'temp highp uint'
+
+**It is not from the night session.** Checked against `HEAD`'s own copy of
+`pbr_fragment.glsl` before that session's changes: identical failure, identical
+cause. It has been broken for some time and the fallback line is easy to miss
+in a wall of startup logging.
+
+**Why it matters more than it looks.** `GiHash` is defined inside
+`#ifdef RV_RAY_GI` and the failure is the signature of it being absent from the
+compilation entirely — so the define is not reaching this shader. Which means
+the *ray-traced* global illumination has not been running at all: every frame
+judged this session was on the screen-space bounce. Some of the reasoning about
+GI noise and the baked volumes was therefore against the wrong form, and is
+worth re-checking once the traced one actually runs. The baked volumes are
+still right and still fixed the mottling — but "the traced bounce is noisy at
+night" was never tested.
+
+**Where to start.** Find who compiles `rtgi_trace` and with which defines
+(`Renderer3D.cpp` builds the define list — `RV_RAY_GI` is pushed there for the
+lit pipelines; check whether the trace pass gets the same set). `shaderinfo`
+reproduces it standalone, so the loop is fast.
+
+
 ## Start here — 2026-08-31 (night session): lighting, tiling, and the two
 ## defects that were wasting everyone's time
 
