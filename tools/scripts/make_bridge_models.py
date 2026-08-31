@@ -150,7 +150,7 @@ LAMP_ARM = 1.52
 
 # The four pylons at the ends of the side spans, and the arch that carries
 # the roadway over Fort Point.
-PYLON_HALF = (5.4, 6.8)             # transverse, longitudinal
+PYLON_HALF = (7.4, 9.2)             # transverse, longitudinal, at the base
 PYLON_TOP = 92.0
 ARCH_CENTRE = 1030.0                # z, over the fort
 ARCH_HALF_SPAN = 48.0
@@ -317,12 +317,12 @@ def deck():
         lo, hi = min(inner, outer), max(inner, outer)
         mesh.box((lo, ROADWAY - DECK_SLAB, -HALF_LENGTH),
                  (hi, ROADWAY + CURB_HEIGHT, HALF_LENGTH),
-                 uv=6.0, material=MAT_CONCRETE)
+                 uv=3.2, material=MAT_CONCRETE)
 
     # The median. Six lanes with nothing between them is a motorway, not this.
     mesh.box((-MEDIAN_HALF, ROADWAY, -HALF_LENGTH),
              (MEDIAN_HALF, ROADWAY + 0.82, HALF_LENGTH),
-             uv=6.0, material=MAT_CONCRETE)
+             uv=3.2, material=MAT_CONCRETE)
 
     # --- the markings --------------------------------------------------------
     #
@@ -719,7 +719,12 @@ def tower(z, pier_base):
         # The band's face, coffered, and the ledges that cap it top and
         # bottom. Only on the deep bands -- a 4 m strut has no room for it.
         if high - bottom > 5.0 and not crosses_deck:
-            inner = TRUSS_HALF - leg_half(bottom)[0] * 0.9
+            # **Inside the gap between the legs, not 0.9 of the way into
+            # one.** The fins ran to `TRUSS_HALF - 0.9 * leg_half`, which is
+            # half a metre *past* the leg's inner face, so every band pushed
+            # its coffering through the shaft either side of it.
+            widest = max(leg_half(bottom)[0], leg_half(high)[0])
+            inner = TRUSS_HALF - widest - 0.40
             coffered_band(mesh, -inner, inner, bottom, high, z, depth,
                           max(6, int((2.0 * inner) / 1.6)), MAT_STEEL)
             for y in (bottom, high):
@@ -808,46 +813,130 @@ def pylons(mesh):
     the side spans read as side spans rather than as more approach.
     """
     for z in (-PYLON_X, PYLON_X):
+        ground = ground_at(0.0, z)
+        foot = (ground - 8.0) if ground is not None else -6.0
         for x in (-(TRUSS_HALF + PYLON_HALF[0] + 1.2),
                   TRUSS_HALF + PYLON_HALF[0] + 1.2):
-            mesh.box((x - PYLON_HALF[0], -6.0, z - PYLON_HALF[1]),
-                     (x + PYLON_HALF[0], PYLON_TOP, z + PYLON_HALF[1]),
-                     uv=6.0, material=MAT_CONCRETE)
+            # **Stepped, not a slab.** These are concrete towers that batter
+            # inwards as they rise, and drawn as one extruded rectangle a
+            # pylon reads as a blank wall standing beside the bridge -- which
+            # is what it did. Four stages, each a little smaller than the one
+            # under it, with the setback showing.
+            stages = ((0.00, 1.00), (0.42, 0.86), (0.70, 0.74), (0.90, 0.66))
+            for k, (start, scale) in enumerate(stages):
+                low = foot + (PYLON_TOP - foot) * start
+                high = (foot + (PYLON_TOP - foot) * stages[k + 1][0]
+                        if k + 1 < len(stages) else PYLON_TOP)
+                mesh.box((x - PYLON_HALF[0] * scale, low,
+                          z - PYLON_HALF[1] * scale),
+                         (x + PYLON_HALF[0] * scale, high,
+                          z + PYLON_HALF[1] * scale),
+                         uv=3.2, material=MAT_CONCRETE)
+                # The cornice at each setback.
+                if k + 1 < len(stages):
+                    mesh.box((x - PYLON_HALF[0] * scale * 1.06, high - 1.1,
+                              z - PYLON_HALF[1] * scale * 1.06),
+                             (x + PYLON_HALF[0] * scale * 1.06, high,
+                              z + PYLON_HALF[1] * scale * 1.06),
+                             uv=2.0, material=MAT_CONCRETE)
+
         # The portal beam over the road, which is what you drive under.
-        mesh.box((-(TRUSS_HALF + PYLON_HALF[0] * 2.0), ROADWAY + 11.0,
-                  z - PYLON_HALF[1] * 0.7),
-                 (TRUSS_HALF + PYLON_HALF[0] * 2.0, PYLON_TOP,
-                  z + PYLON_HALF[1] * 0.7),
+        mesh.box((-(TRUSS_HALF + PYLON_HALF[0] * 2.0), ROADWAY + 12.0,
+                  z - PYLON_HALF[1] * 0.62),
+                 (TRUSS_HALF + PYLON_HALF[0] * 2.0, PYLON_TOP * 0.94,
+                  z + PYLON_HALF[1] * 0.62),
                  uv=4.0, material=MAT_CONCRETE)
 
 
-def fort_point_arch(mesh, segments=22):
-    """The steel arch that carries the roadway over Fort Point.
+def fort_point_arch(mesh, segments=30):
+    """The steel arch that carries the roadway over Fort Point, and the fort.
 
-    **The one piece of this bridge that is not a suspension bridge.** Strauss
-    would not demolish the fort, so the south approach steps over it on an
-    arch -- and it is the first thing in frame from the sea wall, which is
-    where half the photographs of the Golden Gate are taken from.
+    **The one piece of this bridge that is not a suspension bridge, and it is
+    on one side only.** Strauss would not demolish the 1861 fort, so the south
+    approach steps over it on a 320 ft arch. It is the first thing in frame
+    from the sea wall -- which is where half the photographs of the Golden
+    Gate are taken from -- and it is the asymmetry that tells you which end of
+    the bridge you are looking at.
+
+    Two ribs, each a chord of paired chains rather than one bar, laced between
+    like the real riveted box it is; spandrel columns at every panel; cross
+    bracing between the ribs; and a springing block at each foot, because an
+    arch that arrives at the ground as a thin tube reads as a wire.
     """
     crown = ROADWAY - TRUSS_DEPTH - 1.2
     rise = crown - ARCH_SPRING
-    for side in (-TRUSS_HALF, TRUSS_HALF):
-        previous = None
-        for i in range(segments + 1):
-            t = -1.0 + 2.0 * i / segments
-            z = ARCH_CENTRE + t * ARCH_HALF_SPAN
-            y = ARCH_SPRING + rise * (1.0 - t * t)
-            point = (side, y, z)
-            if previous is not None:
-                mesh.strut(previous, point, 0.85, sides=6, uv=2.0,
-                           smooth=True, material=MAT_STEEL)
-            previous = point
 
-            # The spandrel columns up to the truss.
-            if 0 < i < segments and i % 2 == 0:
-                mesh.box((side - 0.34, y, z - 0.34),
-                         (side + 0.34, ROADWAY - TRUSS_DEPTH, z + 0.34),
-                         uv=1.0, material=MAT_STEEL)
+    def arc(t):
+        return (ARCH_CENTRE + t * ARCH_HALF_SPAN,
+                ARCH_SPRING + rise * (1.0 - t * t))
+
+    # The fort. Low, square and massive: a masonry casemate with its parade
+    # wall, sitting inside the arch's span so the arch clears it -- which is
+    # the whole reason the arch is there.
+    #
+    # **Stood on the ground it is actually on.** Built from y = 0 it was
+    # buried to its roof in the Fort Point terrace, which rises to about
+    # eighteen metres there: a fort you cannot see is not a reason for an
+    # arch.
+    ground = ground_at(0.0, ARCH_CENTRE)
+    base = (ground - 1.5) if ground is not None else 0.0
+    mesh.box((-27.0, base, ARCH_CENTRE - 26.0),
+             (27.0, base + 11.5, ARCH_CENTRE + 26.0),
+             uv=3.2, material=MAT_CONCRETE)
+    mesh.box((-29.0, base + 11.5, ARCH_CENTRE - 28.0),
+             (29.0, base + 13.4, ARCH_CENTRE + 28.0),
+             uv=3.2, material=MAT_CONCRETE)
+
+    for side in (-TRUSS_HALF, TRUSS_HALF):
+        # The rib: two chords a metre apart with lacing between, which is what
+        # a built-up arch member is. One tube would be a pipe.
+        for chord in (-0.85, 0.85):
+            previous = None
+            for i in range(segments + 1):
+                t = -1.0 + 2.0 * i / segments
+                z, y = arc(t)
+                point = (side + chord, y, z)
+                if previous is not None:
+                    mesh.strut(previous, point, 0.42, sides=6, uv=2.0,
+                               smooth=True, material=MAT_STEEL)
+                previous = point
+
+        for i in range(segments):
+            t0 = -1.0 + 2.0 * i / segments
+            t1 = -1.0 + 2.0 * (i + 1) / segments
+            z0, y0 = arc(t0)
+            z1, y1 = arc(t1)
+            # The lacing, alternating, between the rib's two chords.
+            a = (side - 0.85, y0, z0) if i % 2 == 0 else (side + 0.85, y0, z0)
+            b = (side + 0.85, y1, z1) if i % 2 == 0 else (side - 0.85, y1, z1)
+            mesh.strut(a, b, 0.16, sides=4, uv=1.0, material=MAT_STEEL)
+
+            # The spandrel column up to the truss, at every panel.
+            if 0 < i < segments:
+                mesh.box((side - 0.40, y0, z0 - 0.40),
+                         (side + 0.40, ROADWAY - TRUSS_DEPTH, z0 + 0.40),
+                         uv=2.0, material=MAT_STEEL)
+
+        # The springing block: the arch does not meet the ground, it lands on
+        # a concrete skewback.
+        z0, y0 = arc(-1.0)
+        z1, y1 = arc(1.0)
+        for zf in (z0, z1):
+            mesh.box((side - 2.2, 0.0, zf - 3.0),
+                     (side + 2.2, ARCH_SPRING + 1.5, zf + 3.0),
+                     uv=3.0, material=MAT_CONCRETE)
+
+    # And the bracing between the two ribs, which is what stops them being
+    # two arches standing next to each other.
+    for i in range(2, segments - 1, 3):
+        t0 = -1.0 + 2.0 * i / segments
+        t1 = -1.0 + 2.0 * (i + 1) / segments
+        z0, y0 = arc(t0)
+        z1, y1 = arc(t1)
+        mesh.strut((-TRUSS_HALF, y0, z0), (TRUSS_HALF, y1, z1), 0.20,
+                   sides=4, uv=1.0, material=MAT_STEEL)
+        mesh.strut((TRUSS_HALF, y0, z0), (-TRUSS_HALF, y1, z1), 0.20,
+                   sides=4, uv=1.0, material=MAT_STEEL)
 
 
 def towers():
@@ -935,25 +1024,55 @@ def write_materials():
     out = ROOT / "SampleProject" / "assets" / "materials"
     out.mkdir(parents=True, exist_ok=True)
     written = {}
-    for name, colour, rough in (
-            ("bridge_orange", (0.527, 0.037, 0.025), 0.42),
-            ("bridge_concrete", (0.42, 0.41, 0.38), 0.78),
-            ("bridge_asphalt", (0.055, 0.055, 0.058), 0.86),
-            ("bridge_paint", (0.72, 0.71, 0.68), 0.70)):
+
+    # **The maps do the work; the constants under them are only what a map
+    # multiplies.** BaseColor stays white where a colour map is bound, so the
+    # texture's own values reach the shader unscaled -- tinting a mapped
+    # albedo is how a surface ends up darker than anything that was ever
+    # measured. Roughness and Occlusion are the same: 1, and the map decides.
+    #
+    # `tiling` is metres of surface per repeat, expressed as repeats per unit
+    # of the model's uv. The model is authored in metres and its uv scales
+    # are the `uv=` on each primitive, so these are the numbers that put a
+    # rivet at 110 mm and a plate seam at a metre.
+    for name, texture, colour, rough, tiling, height_scale in (
+            ("bridge_orange", "bridge_steel", (0.527, 0.037, 0.025), 0.42,
+             (1.0, 1.0), 0.006),
+            ("bridge_concrete", "bridge_concrete", (0.42, 0.41, 0.38), 0.78,
+             (1.0, 1.0), 0.004),
+            ("bridge_asphalt", "bridge_asphalt", (0.055, 0.055, 0.058), 0.86,
+             (2.4, 2.4), 0.0),
+            ("bridge_paint", "bridge_paint", (0.72, 0.71, 0.68), 0.70,
+             (1.0, 1.0), 0.0)):
+        maps = {}
+        for key, suffix in (("BaseColor", "color"), ("Normal", "normal"),
+                            ("Roughness", "roughness"), ("Occlusion", "ao")):
+            png = ROOT / "SampleProject" / "assets" / "textures" / \
+                "{0}_{1}.png".format(texture, suffix)
+            if png.exists():
+                maps[key] = handle_for(png.name)
+
         path = out / (name + ".rmat")
-        body = NEWLINE.join([
+        lines = [
             "Material: " + name,
-            "BaseColor: [{0:g}, {1:g}, {2:g}, 1]".format(*colour),
+            "BaseColor: [1, 1, 1, 1]" if "BaseColor" in maps
+            else "BaseColor: [{0:g}, {1:g}, {2:g}, 1]".format(*colour),
             "Emissive: [0, 0, 0, 1]",
             "Metallic: 0",
-            "Roughness: {0:g}".format(rough),
+            "Roughness: {0:g}".format(1.0 if "Roughness" in maps else rough),
             "Occlusion: 1",
             "NormalScale: 1",
             "Specular: 0.5",
-            "HeightScale: 0",
-            "Tiling: [1, 1]",
+            "HeightScale: {0:g}".format(height_scale),
+            "Tiling: [{0:g}, {1:g}]".format(*tiling),
             "UvOffset: [0, 0]",
-        ]) + NEWLINE
+        ]
+        if maps:
+            lines.append("Maps:")
+            for key in ("BaseColor", "Normal", "Roughness", "Occlusion"):
+                if key in maps:
+                    lines.append("  {0}: {1}".format(key, maps[key]))
+        body = NEWLINE.join(lines) + NEWLINE
         path.write_text(body, encoding="utf-8", newline=NEWLINE)
         key = "materials/" + name + ".rmat"
         meta = ["Handle: {0}".format(handle_for(key)),

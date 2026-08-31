@@ -1,11 +1,16 @@
 Material: bridge_orange
-BaseColor: [0.527, 0.037, 0.025, 1]
+BaseColor: [1, 1, 1, 1]
 Emissive: [0, 0, 0, 1]
 Metallic: 0
-Roughness: 0.42
+Roughness: 1
 Occlusion: 1
 NormalScale: 1
 Specular: 0.5
-HeightScale: 0
+HeightScale: 0.006
 Tiling: [1, 1]
 UvOffset: [0, 0]
+Maps:
+  BaseColor: 4476040307664705225
+  Normal: 7278624018001635391
+  Roughness: 15768835887296427244
+  Occlusion: 16416339183077425536

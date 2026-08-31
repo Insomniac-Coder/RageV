@@ -1,11 +1,16 @@
 Material: bridge_concrete
-BaseColor: [0.42, 0.41, 0.38, 1]
+BaseColor: [1, 1, 1, 1]
 Emissive: [0, 0, 0, 1]
 Metallic: 0
-Roughness: 0.78
+Roughness: 1
 Occlusion: 1
 NormalScale: 1
 Specular: 0.5
-HeightScale: 0
+HeightScale: 0.004
 Tiling: [1, 1]
 UvOffset: [0, 0]
+Maps:
+  BaseColor: 6449043393122253131
+  Normal: 574981775348073121
+  Roughness: 13432559670051504486
+  Occlusion: 5836726253029777890
