@@ -6,6 +6,112 @@ Everything is on **`main`**, pushed. Three commits landed on 2026-08-28:
 sky occlusion (`2f87153`), the ray-budget allocator (`0daf01b`), and the
 measurement flags (`b171234`). Each message carries its full reasoning.
 
+## Start here — 2026-08-31 (later): the sky, the strait's real floor, and the
+## terrain defect the cliffs found
+
+**The claim from the water session is tested and it was right: the flat look
+was the scene.** `Sky: Color` resolves to a literally black environment cube
+(`Skybox.cpp`), so every facet of the sea was mirroring one flat value.
+Switching to `Gradient` — no asset, and it builds an environment *and* an
+irradiance cube — changed the frame more than every shader change of the
+previous two sessions put together. Do not spend another hour on water
+before the sky is real.
+
+### The strait, to the surveyed numbers
+
+`tools/scripts/make_bridge_seabed.py` writes `terrain/bay.rvterrain` (1025
+samples over 2 800 m) plus four layer materials. The first draft was a
+symmetric shelf and it was wrong in the way that matters — **the Golden Gate
+is violently asymmetric, and that asymmetry is the place**:
+
+| measured | source |
+|---|---|
+| south pier 1 100 ft off Fort Point, foundation 100 ft down | USNI Proceedings, Apr 1935 |
+| north pier **on the mainland at Lime Point**, foundation 20 ft down | same |
+| Lime Point cliff 400 ft | Fort Baker post history |
+| channel scoured to 113 m in bedrock, nearer the Marin side | USGS multibeam 2004-05 |
+| sand waves 30 ft tall, 700 ft crest to crest, across the current | USGS / KQED |
+| Hawk Hill 280 m, 1.5 km north-**west** | Marin Headlands |
+
+Axes, because two are counter-intuitive: **-z is north (Marin), +z is south
+(San Francisco), +x is west (the Pacific)**. So the strait runs along x and
+the bridge crosses along z.
+
+Three things the seabed forced into the open, all now fixed:
+
+- **The two piers stopped at the same -9 m.** Invisible over a bottomless
+  bay; the moment there was a floor the south pier hung over a 30 m hole.
+  `tower()` takes a pier base now: -7.5 north, -31.0 south.
+- **The deck stopped at the pylons**, 340 m short of the shore at one end
+  and inside a hillside at the other. It runs the real 2 737 m now, on
+  approach bents over the Presidio, and the terrain is shaped to meet its
+  soffit where it ends. The Marin end runs in a **cut** through the saddle,
+  because a 122 m cliff is genuinely above a 67.4 m soffit.
+- **The high ground was on the alignment.** Stacking height on "distance
+  inland" put a 280 m hill on the road. Hawk Hill is north-*west*; the
+  massifs are placed in world (x, z) now and the bridge crosses a saddle.
+
+### THE TERRAIN DEFECT, and how three wrong answers were eliminated
+
+The Marin cliffs wore a row of black teeth hanging under their skyline, and
+it survived: stripping every terrain material to flat colour, forcing
+`m_SkirtsDrawn = false`, and the skirt-depth rewrite. It vanished under
+`--render-defaults=on`.
+
+**It was ray-traced shadows.** Rays trace the terrain at level 0 always
+(`ForRays`, and rightly: an acceleration structure has no camera), while the
+raster draws a level chosen by distance. Wherever they differ the fine
+geometry shadows the coarse surface — and **a sun near the horizon stretches
+that mismatch by 1/tan(elevation), about seven times at 8 degrees.** One
+metre of LOD error is seven metres of black.
+
+Three changes in `Renderer/Terrain.{h,cpp}`, both backends green (Vulkan
+2431, OpenGL 2384):
+
+1. **`SelectLod` subdivides where the ground bends, not only where the
+   camera is near.** Each chunk carries `LevelError[kLevels]` — the metres
+   its level strays from level 0's, measured bilinearly at build. A level is
+   refused when that error exceeds `kLevelErrorRatio` (0.0003) times the
+   distance. **The ratio is tight because of the ray tracer, not the
+   silhouette**: a silhouette budget alone would be five to ten times
+   looser.
+2. **Skirt depth is measured, not proxied.** It was half the chunk's height
+   range plus 2 % of the terrain's — fine on rolling ground, an 80 m curtain
+   on a cliff chunk. It is now the crack between this level and the next
+   coarser one, per level.
+3. **Neighbours differ by at most one level**, and a chunk wears its skirts
+   only when a four-neighbour drew a different level.
+
+**Still open, and the right fix for the class:** offset the shadow ray by
+the drawn chunk's `LevelError` along the normal, the way `ShadowNormalOffset`
+does for cascades. That would let the LOD budget go back to a silhouette
+budget and take the triangles back.
+
+**Also still open: the terrain has no triplanar projection.** uv is planar
+(local metres / TextureScale), so any mapped layer on a near-vertical face
+smears into vertical stripes. Worked around by giving the rock layer — the
+one that covers steep faces — no maps at all, and painting it over those
+faces outright. A mapped cliff needs triplanar in the terrain shader.
+
+### The scene generator
+
+`make_bridge_scene.py` takes `--sky=flat|dusk|night`, `--seabed=bay|none`,
+`--hero=<camera>`. Six cameras, and **the ones on land have no Y written**:
+`seabed.clear_eye` stands them on the terrain *and* lifts them until the
+sight line to their subject clears the ground. Three attempts at the hero
+shot came out as a hillside filling the frame before that existed.
+
+**The hero moved to the Marin side.** The owner's approved numbers put it
+170 m up on the *San Francisco* side, and with the real land there is no
+170 m anywhere near Fort Point — the Presidio bluff is about 74. The
+viewpoint that shot is, is Battery Spencer. The San Francisco original is
+kept as `--hero=bluff`.
+
+**Dusk, not night, until the lamps exist** (build order item 7): under a true
+night sky with nothing lit there is no picture to judge.
+
+---
+
 ## Start here — 2026-08-30 (later still): the water owed-list is paid
 
 Everything the section two headings down said was owed, is in — one commit,
