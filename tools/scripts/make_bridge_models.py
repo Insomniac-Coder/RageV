@@ -695,13 +695,30 @@ def tower(z, pier_base):
         # bar dies into the shaft instead of standing proud of it -- which is
         # what a coplanar face looks like once the two are lit differently.
         depth = leg_half(high)[1] * 1.94
-        mesh.box((-TRUSS_HALF, bottom, z - depth * 0.5),
-                 (TRUSS_HALF, high, z + depth * 0.5), uv=3.0,
-                 material=MAT_STEEL)
+
+        # **The roadway passes between the legs, so a strut at deck level
+        # cannot cross it.** Strut 5 is surveyed at 70.1-75.0 m and the deck
+        # occupies 67.4-75.0: drawn full width it comes up through the
+        # carriageway, which is what it did -- a red block lying across three
+        # lanes. Where a band overlaps the deck it is drawn only outboard of
+        # the curb, tying each leg to the truss and leaving the road clear.
+        crosses_deck = (high > ROADWAY - TRUSS_DEPTH
+                        and bottom < ROADWAY + 0.5)
+        if crosses_deck:
+            for side in (-1.0, 1.0):
+                inner = side * CARRIAGEWAY_HALF
+                outer = side * TRUSS_HALF
+                mesh.box((min(inner, outer), bottom, z - depth * 0.5),
+                         (max(inner, outer), high, z + depth * 0.5),
+                         uv=2.0, material=MAT_STEEL)
+        else:
+            mesh.box((-TRUSS_HALF, bottom, z - depth * 0.5),
+                     (TRUSS_HALF, high, z + depth * 0.5), uv=3.0,
+                     material=MAT_STEEL)
 
         # The band's face, coffered, and the ledges that cap it top and
         # bottom. Only on the deep bands -- a 4 m strut has no room for it.
-        if high - bottom > 5.0:
+        if high - bottom > 5.0 and not crosses_deck:
             inner = TRUSS_HALF - leg_half(bottom)[0] * 0.9
             coffered_band(mesh, -inner, inner, bottom, high, z, depth,
                           max(6, int((2.0 * inner) / 1.6)), MAT_STEEL)
@@ -745,6 +762,9 @@ def tower(z, pier_base):
         bottom = STRUTS[index][1]
         top = STRUTS[index + 1][0]
         if top - bottom < 6.0:
+            continue
+        # Nothing decorates the opening the road runs through.
+        if bottom < ROADWAY + 0.5 and top > ROADWAY - TRUSS_DEPTH:
             continue
         gusset = Math_min(3.4, (top - bottom) * 0.24)
         depth = leg_half(bottom)[1] * 1.7
