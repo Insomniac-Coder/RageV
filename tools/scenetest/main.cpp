@@ -75,6 +75,7 @@
 #include "RageV/Asset/TerrainSerializer.h"
 #include "RageV/Renderer/Terrain.h"
 #include "RageV/Asset/TerrainBrush.h"
+#include "RageV/Asset/TerrainOps.h"
 #include "RageV/Renderer/UIRenderer.h"
 #include "RageV/UI/TextLayout.h"
 #include "RageV/UI/Canvas.h"
@@ -13731,9 +13732,67 @@ void main()
 			}
 			Check(dropped, "every skirt vertex is its edge vertex dropped by one positive depth, "
 						   "carrying the edge's normal");
-			// Chunk (0, 0) spans half the ramp: 5 m of range, half of that plus
-			// 2 % of the terrain's height.
-			Check(Math::Abs(depth - (2.5f + 0.2f)) < 1e-3f, "and the depth is half the chunk's range plus a sliver");
+			// **A ramp is exactly what a coarser level reproduces**, so there
+			// is no crack here and the skirt is the half-cell sliver alone:
+			// 0.5 m on this 1 m grid. The rule this replaced was half the
+			// chunk's height range plus 2 % of the terrain's, which hung
+			// 2.7 m on this ramp for nothing -- and 80 m on a chunk of a
+			// 400 ft cliff, where the curtains stand outside the slope below
+			// them and read as black teeth along the ridge.
+			Check(Math::Abs(depth - 0.5f) < 1e-3f,
+				  "and a level that reproduces the surface exactly needs only the sliver");
+
+			// The depth on ground that actually bends, checked against the
+			// crack it exists to hide rather than against its own formula:
+			// build the chunk at two levels and ask whether the wall crosses
+			// the step between them.
+			TerrainData domed = TerrainData::Flat(129, 0);
+			for (uint32_t z = 0; z < 129; ++z)
+				for (uint32_t x = 0; x < 129; ++x)
+				{
+					const float u = (float)x / 128.0f;
+					const float v = (float)z / 128.0f;
+					// Three cycles across the field, so a chunk holds ground
+					// that bends enough for the coarse levels to cut corners
+					// off it -- a single dome is too gentle to leave a step
+					// bigger than a rounding error.
+					const float h = 0.25f * (1.0f - std::cos(18.849556f * u))
+										  * (1.0f - std::cos(18.849556f * v));
+					domed.Heights[(size_t)z * 129 + x] =
+						(uint16_t)Math::Round(Math::Clamp(h, 0.0f, 1.0f) * 65535.0f);
+				}
+
+			Dimensions domedDims;
+			domedDims.Size = 128.0f;
+			domedDims.Height = 10.0f;
+
+			std::vector<MeshVertex> fine, coarse;
+			std::vector<uint32_t> fineIndices, coarseIndices;
+			Terrain::BuildChunkGeometry(domed, domedDims, 0, 0, 0, fine, fineIndices);
+			const float domedDepth = fine[64 * 65].Position.y - fine[65 * 65].Position.y;
+
+			// The step at the seam this level can actually meet: SelectLod
+			// lets a neighbour be one level away and no more, so level 0's
+			// wall has to cross the step to level 1 -- not the one to level 3,
+			// which is four times taller and, on a cliff, tall enough to hang
+			// outside the slope and be seen.
+			Terrain::BuildChunkGeometry(domed, domedDims, 0, 0, 1,
+										coarse, coarseIndices);
+			float worst = 0.0f;
+			for (uint32_t i = 0; i <= 64; ++i)
+			{
+				const uint32_t j = i / 2;
+				const float t = (i % 2) ? 0.5f : 0.0f;
+				const float a = coarse[32 * 33 + j].Position.y;
+				const float b = coarse[32 * 33 + Math::Min(j + 1u, 32u)].Position.y;
+				worst = Math::Max(worst,
+					Math::Abs(fine[64 * 65 + i].Position.y - Math::Mix(a, b, t)));
+			}
+			Check(worst > 0.01f && domedDepth > worst,
+				  "on ground that bends, the skirt is deeper than the step a "
+				  "coarser level leaves at the seam");
+			Check(domedDepth < 2.0f * worst + 1.0f,
+				  "and not wastefully deeper than that");
 
 			// Chunk (1, 1) shares its near edges instead; the same two strips.
 			Terrain::BuildChunkGeometry(wide, wideDims, 1, 1, 3, vertices, indices);
@@ -13831,6 +13890,53 @@ void main()
 					  "a chunk without a mesh draws no indices, skirts or not");
 			}
 
+			// --- a field that forces a level mismatch ---------------------------
+			//
+			// Half of it flat and half of it bent, so the distance rule puts
+			// both halves on the same coarse level and the error rule pulls
+			// only the bent half finer. That is a real seam, and the chunks
+			// either side of it have to wear their walls.
+			if (Renderer::HasDevice())
+			{
+				TerrainData split = TerrainData::Flat(129, 0);
+				for (uint32_t z = 0; z < 129; ++z)
+					for (uint32_t x = 65; x < 129; ++x)
+					{
+						const float u = (float)(x - 65) / 64.0f;
+						const float v = (float)z / 128.0f;
+						const float h = 0.25f * (1.0f - std::cos(12.566371f * u))
+											  * (1.0f - std::cos(12.566371f * v));
+						split.Heights[(size_t)z * 129 + x] =
+							(uint16_t)Math::Round(Math::Clamp(h, 0.0f, 1.0f) * 65535.0f);
+					}
+
+				Dimensions splitDims;
+				splitDims.Size = 128.0f;
+				splitDims.Height = 20.0f;
+				RHI::Ref<Terrain> mixed = Terrain::Create(&Renderer::GetDevice(), split,
+														  AssetHandle::Invalid(), splitDims);
+				if (mixed && mixed->GetChunks().size() == 4)
+				{
+					Mat4 identity(1.0f);
+					mixed->SelectLod(Vec3(0.0f, 400.0f, 0.0f), identity);
+
+					int flatLevel = mixed->GetChunks()[0].Level;
+					int bentLevel = mixed->GetChunks()[1].Level;
+					Check(bentLevel < flatLevel,
+						  "ground that bends holds its subdivisions while flat ground "
+						  "beside it, at the same distance, coarsens");
+					Check(mixed->GetChunks()[0].LevelError[1] == 0.0f &&
+						  mixed->GetChunks()[1].LevelError[1] > 0.0f,
+						  "and the reason is measured per chunk: the flat half's levels "
+						  "are exact, the bent half's are not");
+
+					bool anyWall = false;
+					for (const Terrain::Chunk& c : mixed->GetChunks())
+						anyWall = anyWall || mixed->DrawIndexCount(c) > c.SurfaceIndices[c.Level];
+					Check(anyWall, "and a chunk on the seam between the two draws its skirts");
+				}
+			}
+
 			// --- the same on a device: how many indices a chunk draws ------------
 			if (Renderer::HasDevice())
 			{
@@ -13851,8 +13957,16 @@ void main()
 					const uint32_t surface = chunk.SurfaceIndices[chunk.Level];
 					Check(chunk.Level == 0 && whole == 6 * 64 * 64 + 2 * 12 * 64 && surface == 6 * 64 * 64,
 						  "the corner chunk's level 0 is 6x64^2 surface indices and two skirts after them");
-					Check(terrain->SkirtsDrawn() && terrain->DrawIndexCount(chunk) == whole,
-						  "a camera above the ground draws the chunk whole, skirts and all");
+					// **Only where a seam actually opens.** This field is flat,
+					// so every chunk drew the same level and no crack exists
+					// anywhere in it; the walls would be geometry that can
+					// only be seen from outside the slope they hang under,
+					// which on a headland is a row of dark teeth under the
+					// skyline. The mismatch case is checked below on a field
+					// built to produce one.
+					Check(terrain->SkirtsDrawn() && terrain->DrawIndexCount(chunk) == surface,
+						  "a camera above flat ground draws the surface alone: every "
+						  "neighbour drew the same level, so there is no seam to wall off");
 					terrain->SelectLod(Vec3(0.0f, 8.0f, 0.0f), identity);
 					Check(!terrain->SkirtsDrawn() && terrain->DrawIndexCount(chunk) == surface,
 						  "a camera under it draws the surface indices alone");
@@ -14147,6 +14261,175 @@ void main()
 		std::filesystem::remove(flatPath.string() + ".meta", error);
 		std::filesystem::remove(rampPath.string() + ".meta", error);
 		Assets::Registry::Refresh();
+	}
+
+	// The whole-terrain generation operators (ENGINE-NOTES 7at): erosion,
+	// bedding, and the landform masks painting reads. The brush is a hand;
+	// these are the processes, and what each one has to be *true of* is
+	// stated here rather than eyeballed in a frame.
+	void CheckTerrainOps()
+	{
+		using namespace TerrainOps;
+
+		Scale scale;
+		scale.SizeMetres = 64.0f;       // one metre a cell on a 65 grid
+		scale.HeightMetres = 100.0f;
+
+		auto MaxSlope = [&](const TerrainData& data)
+		{
+			const Landform lf = Analyse(data, scale, 0);
+			float worst = 0.0f;
+			for (float v : lf.Slope)
+				worst = Math::Max(worst, v);
+			return worst;
+		};
+
+		// A cone far steeper than any material stands at: the case thermal
+		// erosion exists for. Small, because settling one takes thousands of
+		// passes and the suite runs on every build. 45 m over a 12 m base is
+		// a slope of 3.8, which is five times the 35-degree repose angle it
+		// is asked to come down to, and it has room to spread to the 21 m
+		// radius that volume then wants.
+		auto Cone = []()
+		{
+			TerrainData data = TerrainData::Flat(65, 0);
+			for (uint32_t z = 0; z < 65; ++z)
+				for (uint32_t x = 0; x < 65; ++x)
+				{
+					const float dx = (float)x - 32.0f;
+					const float dz = (float)z - 32.0f;
+					const float r = std::sqrt(dx * dx + dz * dz);
+					const float h = Math::Max(1.0f - r / 12.0f, 0.0f);
+					data.Heights[(size_t)z * 65 + x] = (uint16_t)Math::Round(h * 30000.0f);
+				}
+			return data;
+		};
+
+		{
+			TerrainData cone = Cone();
+			const float before = MaxSlope(cone);
+
+			ThermalParams params;
+			params.Iterations = 400;
+			params.ReposeDegrees = 35.0f;
+			// **Iterated to convergence, which is the documented use.** One
+			// call is a fixed number of passes and each pass moves material
+			// at most one sample, so settling a cone this far out of repose
+			// takes thousands: the operator returns how many samples still
+			// moved so a caller can keep going until none do.
+			uint32_t moved = 0;
+			int rounds = 0;
+			do
+			{
+				moved = ThermalErode(cone, scale, params);
+				++rounds;
+			} while (moved > 0 && rounds < 24);
+			const float after = MaxSlope(cone);
+
+			// tan(35) is 0.70. It cannot get *under* the repose angle -- that
+			// is where it stops -- but it has to come down to about it.
+			Check(before > 2.0f && after < 1.0f,
+				  "thermal erosion brings a slope far steeper than the repose "
+				  "angle down to about it, and no further");
+			Check(moved == 0 && rounds < 24,
+				  "and it reaches a state where nothing moves again, so a "
+				  "caller can iterate until it settles");
+		}
+
+		{
+			// **The divergence guard.** Cutting a cell deepens it, which
+			// steepens the drop into it, which raises the next droplet's
+			// capacity: unlimited, this runs away, and it was measured
+			// reaching 1e33. The limiters have to hold it inside the field's
+			// own range.
+			TerrainData hill = Cone();
+			uint16_t low = 0, high = 0;
+			hill.MinMax(low, high);
+
+			HydraulicParams params;
+			params.Droplets = 20000;
+			params.Steps = 64;
+			params.Seed = 11;
+			HydraulicErode(hill, scale, params);
+
+			uint16_t erodedLow = 0, erodedHigh = 0;
+			hill.MinMax(erodedLow, erodedHigh);
+			Check(erodedHigh <= high && erodedLow >= 0,
+				  "hydraulic erosion stays inside the heightfield's range: it "
+				  "cuts and fills, it does not diverge");
+
+			// And it did something: a run that changes nothing is a run whose
+			// droplets all died on the first step.
+			const TerrainData fresh = Cone();
+			size_t changed = 0;
+			for (size_t i = 0; i < hill.Heights.size(); ++i)
+				changed += (hill.Heights[i] != fresh.Heights[i]) ? 1 : 0;
+			Check(changed > 200, "and it moved material where the droplets ran");
+		}
+
+		{
+			// Bedding shows on a face and not on a floor.
+			TerrainData flat = TerrainData::Flat(129, 20000);
+			const TerrainData before = flat;
+			StratifyParams params;
+			Stratify(flat, scale, params);
+			Check(flat.Heights == before.Heights,
+				  "stratification leaves flat ground alone: bedding is a thing "
+				  "you see on a face");
+
+			TerrainData cone = Cone();
+			const TerrainData coneBefore = cone;
+			Stratify(cone, scale, params);
+			Check(cone.Heights != coneBefore.Heights,
+				  "and steps into a steep one");
+		}
+
+		{
+			// The masks, on a dome standing in a plain: convex at its top,
+			// concave in the ring where its foot meets the flat, and the
+			// water running off it into that ring.
+			TerrainData dome = TerrainData::Flat(129, 20000);
+			for (uint32_t z = 0; z < 129; ++z)
+				for (uint32_t x = 0; x < 129; ++x)
+				{
+					const float dx = ((float)x - 64.0f) / 40.0f;
+					const float dz = ((float)z - 64.0f) / 40.0f;
+					const float r = Math::Min(dx * dx + dz * dz, 1.0f);
+					dome.Heights[(size_t)z * 129 + x] =
+						(uint16_t)Math::Round(20000.0f + (1.0f - r) * 20000.0f);
+				}
+
+			const Landform lf = Analyse(dome, scale, 40);
+			Check(lf.Resolution == 129 && lf.Slope.size() == 129u * 129u,
+				  "the landform masks come back on the heights' own grid");
+			Check(lf.CurvatureAt(64, 64) > 0.0f && lf.CurvatureAt(24, 64) < 0.0f,
+				  "curvature reads positive on the convex ground being stripped "
+				  "and negative in the concave ground receiving it");
+			Check(lf.FlowAt(24, 64) > 2.0f * lf.FlowAt(64, 64),
+				  "and the water leaves the dome's top for the ring at its "
+				  "foot, which is what a paint mask needs it to say");
+		}
+
+		{
+			// Painting follows the landform: rock on the steep ground, not on
+			// the flat beside it.
+			TerrainData step = TerrainData::Flat(129, 5000);
+			for (uint32_t z = 0; z < 129; ++z)
+				for (uint32_t x = 64; x < 129; ++x)
+					step.Heights[(size_t)z * 129 + x] =
+						(uint16_t)Math::Min(5000.0f + (float)(x - 64) * 900.0f, 65535.0f);
+
+			const Landform lf = Analyse(step, scale, 8);
+			PaintParams params;
+			params.SeaLevelMetres = -50.0f;      // keep the beach out of it
+			PaintByLandform(step, scale, lf, params);
+
+			Check(step.HasWeights(), "painting by landform allocates the weights");
+			const uint8_t rockOnSlope = step.WeightAt(96, 64, (uint32_t)params.RockLayer);
+			const uint8_t rockOnFlat = step.WeightAt(20, 64, (uint32_t)params.RockLayer);
+			Check(rockOnSlope > 200 && rockOnFlat == 0,
+				  "and puts rock on the steep ground and none on the flat");
+		}
 	}
 
 	// The terrain brush (ENGINE-NOTES 7ar): the kernel, the four modes, the
@@ -15709,6 +15992,7 @@ int RunTests(int argc, char** argv)
 	CheckStorageImages();
 	CheckTerrain();
 	CheckTerrainBrush();
+	CheckTerrainOps();
 	CheckGameModule();
 	CheckProject();
 	CheckProjectTemplate();

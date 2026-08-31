@@ -40,6 +40,69 @@ namespace RageV
 							 / ((float)(zr - zl) * cell);
 			return Math::Normalize(Vec3(-dhdx, 1.0f, -dhdz));
 		}
+
+		// How far a level's surface strays from level 0's over one chunk, in
+		// metres. This is what a coarse level *is*: straight lines drawn
+		// across ground that bends. On rolling ground the number is small and
+		// the level is free; on a cliff sampled every eighth height it is
+		// tens of metres, and those straight lines cut the face into a comb
+		// of triangles that reads as a row of spikes hanging off the skyline.
+		void ChunkLevelErrors(const TerrainData& data, const Terrain::Dimensions& dims,
+							  uint32_t sample0X, uint32_t sample0Z, uint32_t chunkQuads,
+							  float* out)
+		{
+			out[0] = 0.0f;
+			for (int level = 1; level < Terrain::kLevels; ++level)
+			{
+				float worst = 0.0f;
+				const uint32_t s = 1u << (uint32_t)level;
+				if (chunkQuads % s != 0)
+				{
+					out[level] = 0.0f;
+					continue;
+				}
+
+				for (uint32_t sz = sample0Z; sz <= sample0Z + chunkQuads; ++sz)
+				{
+					const uint32_t lz = sample0Z + ((sz - sample0Z) / s) * s;
+					const uint32_t hz = Math::Min(lz + s, sample0Z + chunkQuads);
+					const float tz = hz > lz ? (float)(sz - lz) / (float)(hz - lz) : 0.0f;
+
+					for (uint32_t sx = sample0X; sx <= sample0X + chunkQuads; ++sx)
+					{
+						const uint32_t lx = sample0X + ((sx - sample0X) / s) * s;
+						const uint32_t hx = Math::Min(lx + s, sample0X + chunkQuads);
+						const float tx = hx > lx ? (float)(sx - lx) / (float)(hx - lx) : 0.0f;
+
+						const float h00 = HeightMetres(data, dims, lx, lz);
+						const float h10 = HeightMetres(data, dims, hx, lz);
+						const float h01 = HeightMetres(data, dims, lx, hz);
+						const float h11 = HeightMetres(data, dims, hx, hz);
+						const float coarse = Math::Mix(Math::Mix(h00, h10, tx),
+													   Math::Mix(h01, h11, tx), tz);
+
+						worst = Math::Max(worst,
+							Math::Abs(coarse - HeightMetres(data, dims, sx, sz)));
+					}
+				}
+				out[level] = worst;
+			}
+		}
+
+		// How deep a given level's skirt hangs. **Per level, and only one
+		// level's worth of crack.** A chunk drawn at level L never meets a
+		// neighbour more than one level away -- SelectLod enforces that -- so
+		// the step it has to cover is the one between L and L+1, not the one
+		// between the finest level and the coarsest. Baking the worst case
+		// into every level gave a cliff chunk a 25 m wall under its level-0
+		// seams, and those walls are what read as black teeth once the cliff
+		// was refined and its coarse neighbours were not.
+		float SkirtDepthFor(const float* errors, int level, float cell)
+		{
+			const int coarser = Math::Min(level + 1, Terrain::kLevels - 1);
+			return Math::Max(1.25f * (errors[level] + errors[coarser]) + 0.5f * cell,
+							 0.01f);
+		}
 	}
 
 	Vec4 Terrain::WeightUvFor(const Dimensions& dims, uint32_t resolution)
@@ -129,14 +192,14 @@ namespace RageV
 			return surfaceIndices;
 
 		// --- the skirts ------------------------------------------------------
-		// The chunk's edge vertices again, dropped by half the chunk's own
-		// height range plus a sliver of the terrain's, joined to the edge by
-		// a strip wound *both* ways so it is not culled from either side. The
-		// range is over every sample in the chunk, not this level's, so each
-		// level's skirt hangs the same and the coarser levels stay inside the
-		// finest level's bounds. Both windings are what makes the strip a
-		// wall from under the ground, which is why the skirts are drawn only
-		// while the camera is above it (SelectLod, DrawIndexCount).
+		// The chunk's edge vertices again, dropped by enough to hide the
+		// worst crack a level change can open, joined to the edge by a strip
+		// wound *both* ways so it is not culled from either side. The drop is
+		// the same for every level of a chunk, so the coarser levels stay
+		// inside the finest level's bounds. Both windings are what makes the
+		// strip a wall from under the ground, which is why the skirts are
+		// drawn only while the camera is above it (SelectLod,
+		// DrawIndexCount).
 		//
 		// Only on edges a neighbouring chunk shares: a crack needs two levels
 		// meeting, and the terrain's outer edge meets nothing. A skirt there
@@ -148,18 +211,14 @@ namespace RageV
 		const bool skirtFarX = chunkX + 1 < chunksPerSide;
 		if (!skirtNearZ && !skirtFarZ && !skirtNearX && !skirtFarX)
 			return surfaceIndices;
-		float low = std::numeric_limits<float>::max();
-		float high = std::numeric_limits<float>::lowest();
-		for (uint32_t sz = sample0Z; sz <= sample0Z + chunkQuads; ++sz)
-		{
-			for (uint32_t sx = sample0X; sx <= sample0X + chunkQuads; ++sx)
-			{
-				const float h = HeightMetres(data, dims, sx, sz);
-				low = Math::Min(low, h);
-				high = Math::Max(high, h);
-			}
-		}
-		const float depth = Math::Max(0.5f * (high - low) + 0.02f * dims.Height, 0.01f);
+		// **How deep is measured, not guessed.** It used to be half the
+		// chunk's own height range plus a fiftieth of the terrain's, which is a
+		// reasonable proxy on rolling ground and wildly wrong on a cliff. A
+		// crack is not a height range: it is the distance between this surface
+		// and a coarser level's straight line across the same ground.
+		float errors[kLevels] = {};
+		ChunkLevelErrors(data, dims, sample0X, sample0Z, chunkQuads, errors);
+		const float depth = SkirtDepthFor(errors, Math::Clamp(level, 0, kLevels - 1), cell);
 
 		auto strip = [&](auto topIndexOf)
 		{
@@ -221,6 +280,8 @@ namespace RageV
 				Chunk chunk;
 				chunk.SampleX = cx * terrain->m_ChunkQuads;
 				chunk.SampleZ = cz * terrain->m_ChunkQuads;
+				ChunkLevelErrors(data, terrain->m_Dimensions, chunk.SampleX, chunk.SampleZ,
+								 terrain->m_ChunkQuads, chunk.LevelError);
 				terrain->RefreshBounds(chunk);
 				for (int level = 0; level < kLevels; ++level)
 					terrain->BuildLevel(chunk, cx, cz, level);
@@ -322,7 +383,51 @@ namespace RageV
 		for (Chunk& chunk : m_Chunks)
 		{
 			const Vec3 centre = Vec3(world * Vec4(chunk.Centre, 1.0f));
-			chunk.Level = LevelFor(Math::Distance(cameraWorld, centre), width);
+			const float distance = Math::Distance(cameraWorld, centre);
+
+			// **Distance chooses a level; the ground gets a veto.** A level
+			// is only allowed if the error it introduces stays under an
+			// angular budget -- kLevelErrorRatio of the distance, which is
+			// about a fifth of a degree. Flat ground errs by nothing and
+			// coarsens as freely as it always did; a 400 ft cliff two
+			// kilometres away errs by tens of metres at the coarsest level
+			// and is held finer, because a straight line across a cliff face
+			// is a triangle hanging off the skyline.
+			int level = LevelFor(distance, width);
+			const float budget = distance * kLevelErrorRatio;
+			while (level > 0 && chunk.LevelError[level] * scale > budget)
+				--level;
+			chunk.Level = level;
+		}
+
+		// **No neighbour more than one level away.** Without this a refined
+		// cliff chunk can sit beside one three levels coarser, and the seam
+		// between them is a step of tens of metres -- which the skirt then
+		// has to be tall enough to hide, and a wall that tall is visible from
+		// outside the slope it hangs under. Two sweeps settle a 16x16 field;
+		// the loop is bounded by the level count either way.
+		for (int pass = 0; pass < kLevels; ++pass)
+		{
+			bool changed = false;
+			for (uint32_t cz = 0; cz < m_ChunksPerSide; ++cz)
+			{
+				for (uint32_t cx = 0; cx < m_ChunksPerSide; ++cx)
+				{
+					Chunk& chunk = m_Chunks[(size_t)cz * m_ChunksPerSide + cx];
+					int cap = kLevels - 1;
+					if (cx > 0) cap = Math::Min(cap, m_Chunks[(size_t)cz * m_ChunksPerSide + cx - 1].Level + 1);
+					if (cx + 1 < m_ChunksPerSide) cap = Math::Min(cap, m_Chunks[(size_t)cz * m_ChunksPerSide + cx + 1].Level + 1);
+					if (cz > 0) cap = Math::Min(cap, m_Chunks[(size_t)(cz - 1) * m_ChunksPerSide + cx].Level + 1);
+					if (cz + 1 < m_ChunksPerSide) cap = Math::Min(cap, m_Chunks[(size_t)(cz + 1) * m_ChunksPerSide + cx].Level + 1);
+					if (chunk.Level > cap)
+					{
+						chunk.Level = cap;
+						changed = true;
+					}
+				}
+			}
+			if (!changed)
+				break;
 		}
 
 		// The skirts, only from above the ground. A skirt is a vertical drop
@@ -336,6 +441,32 @@ namespace RageV
 		const Vec3 local = Vec3(Math::Inverse(world) * Vec4(cameraWorld, 1.0f));
 		m_SkirtsDrawn = local.y >= HeightAt(local.x, local.z);
 
+		// **And only where there is a crack to hide.** A skirt is a wall
+		// hanging under a seam; where both sides of the seam drew the same
+		// level there is no seam, and the wall is geometry nobody can see --
+		// except that on steep ground it *is* seen, hanging outside the slope
+		// below it. A headland at 2 km, whose chunks are all at the coarsest
+		// level and all agree, wore a row of black teeth along its skyline
+		// for exactly this reason. So the choice is per chunk and per frame:
+		// wear skirts only if a four-neighbour drew a different level.
+		for (uint32_t cz = 0; cz < m_ChunksPerSide; ++cz)
+		{
+			for (uint32_t cx = 0; cx < m_ChunksPerSide; ++cx)
+			{
+				Chunk& chunk = m_Chunks[(size_t)cz * m_ChunksPerSide + cx];
+				chunk.WearsSkirt = false;
+				const int here = chunk.Level;
+				if (cx > 0)
+					chunk.WearsSkirt = chunk.WearsSkirt || m_Chunks[(size_t)cz * m_ChunksPerSide + cx - 1].Level != here;
+				if (cx + 1 < m_ChunksPerSide)
+					chunk.WearsSkirt = chunk.WearsSkirt || m_Chunks[(size_t)cz * m_ChunksPerSide + cx + 1].Level != here;
+				if (cz > 0)
+					chunk.WearsSkirt = chunk.WearsSkirt || m_Chunks[(size_t)(cz - 1) * m_ChunksPerSide + cx].Level != here;
+				if (cz + 1 < m_ChunksPerSide)
+					chunk.WearsSkirt = chunk.WearsSkirt || m_Chunks[(size_t)(cz + 1) * m_ChunksPerSide + cx].Level != here;
+			}
+		}
+
 		// The level each chunk will draw this frame is the one that must not
 		// be stale; the others wait for the stroke's release (7ar).
 		RebuildStale(false);
@@ -346,7 +477,8 @@ namespace RageV
 		const RHI::Ref<Mesh>& mesh = chunk.Selected();
 		if (!mesh)
 			return 0;
-		return m_SkirtsDrawn ? mesh->GetIndexCount() : chunk.SurfaceIndices[chunk.Level];
+		return m_SkirtsDrawn && chunk.WearsSkirt
+			 ? mesh->GetIndexCount() : chunk.SurfaceIndices[chunk.Level];
 	}
 
 	// --- editing (7ar) ------------------------------------------------------------
@@ -389,8 +521,13 @@ namespace RageV
 				high = Math::Max(high, h);
 			}
 		}
+		// The deepest skirt any level of this chunk wears, since the box has
+		// to hold all of them.
+		float errors[kLevels] = {};
+		ChunkLevelErrors(m_Data, m_Dimensions, chunk.SampleX, chunk.SampleZ,
+						 m_ChunkQuads, errors);
 		const float depth = m_ChunksPerSide > 1
-			? Math::Max(0.5f * (high - low) + 0.02f * m_Dimensions.Height, 0.01f) : 0.0f;
+			? SkirtDepthFor(errors, kLevels - 1, cell) : 0.0f;
 
 		chunk.Bounds.Min = Vec3(-half + (float)chunk.SampleX * cell, low - depth,
 								-half + (float)chunk.SampleZ * cell);

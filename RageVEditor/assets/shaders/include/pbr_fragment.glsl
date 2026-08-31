@@ -2349,19 +2349,34 @@ Surface SampleSurface(vec3 Ngeo, vec3 V)
 		vec2 uvL  = v_TexCoord * u_Layered.UvTransform[i].xy + u_Layered.UvTransform[i].zw; \
 		vec2 ddxL = ddx * u_Layered.UvTransform[i].xy;                                     \
 		vec2 ddyL = ddy * u_Layered.UvTransform[i].xy;                                     \
+		vec2 uvW  = wallUv  * u_Layered.UvTransform[i].xy + u_Layered.UvTransform[i].zw;   \
+		vec2 ddxW = wallDdx * u_Layered.UvTransform[i].xy;                                 \
+		vec2 ddyW = wallDdy * u_Layered.UvTransform[i].xy;                                 \
 		mat3 TBN  = TangentFrame(Ngeo, v_WorldPos, uvL);                                   \
 		if (w > 0.0)                                                                       \
 		{                                                                                  \
 			vec4 baseL = u_Layered.BaseColor[i];                                           \
 			if ((flags & MAP_BASE_COLOR) != 0)                                             \
-				baseL *= textureGrad(LAYER_BASE_COLOR(i), uvL, ddxL, ddyL);                \
+			{                                                                              \
+				vec4 floorT = textureGrad(LAYER_BASE_COLOR(i), uvL, ddxL, ddyL);           \
+				baseL *= wall > 0.0                                                        \
+					? mix(floorT, textureGrad(LAYER_BASE_COLOR(i), uvW, ddxW, ddyW), wall) \
+					: floorT;                                                              \
+			}                                                                              \
 			float roughL = u_Layered.Surface[i].y;                                         \
 			if ((flags & MAP_ROUGHNESS) != 0)                                              \
-				roughL *= textureGrad(LAYER_ROUGHNESS(i), uvL, ddxL, ddyL).r;              \
+			{                                                                              \
+				float floorR = textureGrad(LAYER_ROUGHNESS(i), uvL, ddxL, ddyL).r;         \
+				roughL *= wall > 0.0                                                       \
+					? mix(floorR,                                                          \
+						  textureGrad(LAYER_ROUGHNESS(i), uvW, ddxW, ddyW).r, wall)         \
+					: floorR;                                                              \
+			}                                                                              \
 			vec3 nL = Ngeo;                                                                \
 			if ((flags & MAP_NORMAL) != 0)                                                 \
-				nL = UnpackNormal(TBN, textureGrad(LAYER_NORMAL(i), uvL, ddxL, ddyL).xy,   \
-								  u_Layered.Surface[i].w);                                 \
+				nL = mix(UnpackNormal(TBN,                                                 \
+									  textureGrad(LAYER_NORMAL(i), uvL, ddxL, ddyL).xy,    \
+									  u_Layered.Surface[i].w), Ngeo, wall);                \
 			s.BaseColor += w * baseL;                                                      \
 			s.Metallic  += w * u_Layered.Surface[i].x;                                     \
 			s.Roughness += w * roughL;                                                     \
@@ -2390,6 +2405,44 @@ Surface SampleSurface(vec3 Ngeo, vec3 V)
 	// flow is still uniform.
 	vec2 ddx = dFdx(v_TexCoord);
 	vec2 ddy = dFdy(v_TexCoord);
+
+	// --- the wall projection -------------------------------------------------
+	//
+	// **A planar uv has nothing to say about a wall.** On terrain the uv is
+	// local metres over the texture scale -- a function of x and z alone --
+	// so on a face where the height runs and x and z barely move, every map
+	// is stretched into vertical stripes. On a 400 ft cliff those stripes
+	// *are* the surface, and no amount of painting fixes it: the only answer
+	// is to stop projecting from above.
+	//
+	// So a second projection, from whichever side the face turns towards,
+	// blended in as the surface stands up. Two planes rather than the
+	// textbook three -- the third is the one the fragment is most nearly
+	// parallel to, and it would contribute nothing but a sample.
+	//
+	// **Flat ground pays nothing.** `wall` is zero for anything under about
+	// twenty degrees, which is all of a rolling terrain, and the extra
+	// fetches sit behind a branch on it. textureGrad is what makes that
+	// branch legal: every derivative is taken here, while control flow is
+	// still uniform.
+	float wall = 1.0 - smoothstep(0.35, 0.78, abs(Ngeo.y));
+
+	// Metres per unit of uv, read off the mapping rather than passed in: for
+	// terrain the uv *is* position over the texture scale, so the ratio of
+	// the two derivatives is that scale, and the wall then tiles at the same
+	// rate as the floor instead of at some unrelated one.
+	vec2 dPos = dFdx(v_WorldPos.xz);
+	float uvMetres = dot(ddx, ddx) > 1e-12 ? length(dPos) / length(ddx) : 1.0;
+	float invMetres = 1.0 / max(uvMetres, 1e-4);
+
+	// Down is +v on both planes, so a cliff's texture runs down it rather
+	// than standing on its head on one side of the hill.
+	vec2 wallUvX = vec2(v_WorldPos.z, -v_WorldPos.y) * invMetres;
+	vec2 wallUvZ = vec2(v_WorldPos.x, -v_WorldPos.y) * invMetres;
+	bool faceX   = abs(Ngeo.x) > abs(Ngeo.z);
+	vec2 wallUv  = faceX ? wallUvX : wallUvZ;
+	vec2 wallDdx = faceX ? dFdx(wallUvX) : dFdx(wallUvZ);
+	vec2 wallDdy = faceX ? dFdy(wallUvX) : dFdy(wallUvZ);
 
 	Surface s;
 	s.BaseColor = vec4(0.0);

@@ -49,6 +49,22 @@ namespace RageV
 		// alongside the level being drawn.
 		static constexpr int kRayLevel = 0;
 
+		// How much a level is allowed to be wrong, as a fraction of the
+		// distance to it. SelectLod refuses a level whose error exceeds it,
+		// so detail follows *the ground* as well as the camera: a rolling
+		// hill coarsens as it always did, and a cliff stays subdivided until
+		// it is far enough away for its own error to fit in the budget.
+		//
+		// **It is tight because of the ray tracer, not because of the
+		// silhouette.** Rays trace the terrain at level 0 always (ForRays,
+		// and for good reason: an acceleration structure has no camera), so
+		// wherever the drawn level differs from level 0 the fine geometry
+		// shadows the coarse surface -- and a sun near the horizon stretches
+		// that mismatch by 1/tan(elevation), about seven times at 8 degrees.
+		// A metre of LOD error becomes seven metres of black. A silhouette
+		// budget alone would be five to ten times looser than this.
+		static constexpr float kLevelErrorRatio = 0.0003f;
+
 		struct Dimensions
 		{
 			float Size = 256.0f;          // metres a side
@@ -79,6 +95,19 @@ namespace RageV
 			uint32_t SurfaceIndices[kLevels] = {};
 			// The level chosen by the last SelectLod. 0 until one runs.
 			int Level = 0;
+			// How far each level's surface strays from level 0's over this
+			// chunk, in metres, measured once when the chunk is built. Read by
+			// SelectLod: it is the "sharp change" that has to keep its
+			// subdivisions.
+			float LevelError[kLevels] = {};
+			// Whether this chunk's seams need their walls this frame: true
+			// only when a four-neighbour drew a different level, because that
+			// difference *is* the crack. Set by SelectLod beside Level, read
+			// by DrawIndexCount. On steep ground a skirt is visible from
+			// outside the slope it hangs under, so drawing one where nothing
+			// can crack is not free -- it is a row of dark teeth under the
+			// skyline.
+			bool WearsSkirt = false;
 			// Levels whose mesh no longer matches the data, one bit per level
 			// (7ar). Set by Invalidate, cleared as each is rebuilt: the
 			// selected one by SelectLod, all of them by RebuildStale(true).
