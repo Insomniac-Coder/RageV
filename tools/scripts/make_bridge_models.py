@@ -1035,15 +1035,19 @@ def write_materials():
     # of the model's uv. The model is authored in metres and its uv scales
     # are the `uv=` on each primitive, so these are the numbers that put a
     # rivet at 110 mm and a plate seam at a metre.
-    for name, texture, colour, rough, tiling, height_scale in (
+    # NormalScale over 1 on the steel and the concrete: the relief in those
+    # maps is real millimetres, and at the distances this bridge is looked
+    # at from, honest millimetres disappear. Pushing the slope is the cheap
+    # half of what a close-up wants and costs nothing at range.
+    for name, texture, colour, rough, tiling, height_scale, normal_scale in (
             ("bridge_orange", "bridge_steel", (0.527, 0.037, 0.025), 0.42,
-             (1.0, 1.0), 0.006),
+             (1.0, 1.0), 0.006, 1.6),
             ("bridge_concrete", "bridge_concrete", (0.42, 0.41, 0.38), 0.78,
-             (1.0, 1.0), 0.004),
+             (1.0, 1.0), 0.004, 1.8),
             ("bridge_asphalt", "bridge_asphalt", (0.055, 0.055, 0.058), 0.86,
-             (2.4, 2.4), 0.0),
+             (2.4, 2.4), 0.0, 1.2),
             ("bridge_paint", "bridge_paint", (0.72, 0.71, 0.68), 0.70,
-             (1.0, 1.0), 0.0)):
+             (1.0, 1.0), 0.0, 1.0)):
         maps = {}
         for key, suffix in (("BaseColor", "color"), ("Normal", "normal"),
                             ("Roughness", "roughness"), ("Occlusion", "ao")):
@@ -1061,7 +1065,7 @@ def write_materials():
             "Metallic: 0",
             "Roughness: {0:g}".format(1.0 if "Roughness" in maps else rough),
             "Occlusion: 1",
-            "NormalScale: 1",
+            "NormalScale: {0:g}".format(normal_scale),
             "Specular: 0.5",
             "HeightScale: {0:g}".format(height_scale),
             "Tiling: [{0:g}, {1:g}]".format(*tiling),

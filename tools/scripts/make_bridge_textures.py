@@ -110,6 +110,50 @@ def seam_field(size, count, depth, width):
     return height
 
 
+def streaks(size, rng, density, length, sharpness=2.0):
+    """Vertical dirt runs: thin, high-frequency, and therefore tile-safe.
+
+    Weathering on a vertical surface runs *down*, and the runs are narrow.
+    That narrowness is what lets them carry the "this has been outside for
+    ninety years" reading without putting a low-frequency feature in the tile:
+    a streak two texels wide repeated eight times across a pier is invisible
+    as a repeat and unmistakable as grime.
+    """
+    # Narrow in x, long in y: a noise stretched along the run.
+    fine = wrapping_noise(size, rng, 4, base=density)
+    smear = np.zeros((size, size), np.float32)
+    steps = max(int(size * length), 1)
+    for i in range(steps):
+        smear += np.roll(fine, i, axis=0) * (1.0 - i / steps)
+    smear /= max(steps * 0.5, 1.0)
+    return np.clip((smear - 0.45) * sharpness, 0.0, 1.0)
+
+
+def stud_grid(size, span, pitch, radius, depth, offset=(0.5, 0.5)):
+    """Recessed circles on a regular grid -- form-tie holes, bolt heads.
+
+    **Regular by nature, so it tiles honestly.** The features a repeat cannot
+    betray are the ones that are genuinely identical everywhere, and a
+    form-tie plug is one: they are set out on the formwork's own grid and they
+    look the same on every pour.
+    """
+    per = max(int(round(span / pitch)), 1)
+    step = size / per
+    r = max(radius * size / span, 1.5)
+
+    y, x = np.mgrid[0:size, 0:size].astype(np.float32)
+    field = np.zeros((size, size), np.float32)
+    for j in range(per):
+        for i in range(per):
+            cx = (i + offset[0]) * step
+            cy = (j + offset[1]) * step
+            dx = np.minimum(np.abs(x - cx), size - np.abs(x - cx))
+            dy = np.minimum(np.abs(y - cy), size - np.abs(y - cy))
+            d = np.sqrt(dx * dx + dy * dy) / r
+            field = np.maximum(field, np.clip(1.0 - d * d, 0.0, 1.0) ** 0.6)
+    return field * depth
+
+
 def painted_steel(size, rng):
     """International Orange over riveted plate.
 
@@ -119,13 +163,23 @@ def painted_steel(size, rng):
     """
     span = 3.0
 
-    seams = seam_field(size, 3, 0.006, 0.010)
-    rivets = rivet_field(size, span, 0.11, 0.010,
+    seams = seam_field(size, 3, 0.008, 0.009)
+    rivets = rivet_field(size, span, 0.11, 0.013,
                          rows=(0.166, 0.5, 0.833))
+    # A second row of heads down the vertical plate edges: a lapped plate is
+    # riveted on all four sides, and from close in that is what the eye reads.
+    edges = np.transpose(rivet_field(size, span, 0.13, 0.011,
+                                     rows=(0.25, 0.75)))
     # The plate is not flat, but its waviness stays *small*: a slow swell at
     # base=2 is one blob per tile, and one blob per tile is a grid.
     swell = (wrapping_noise(size, rng, 3, base=9) - 0.5) * 0.0022
-    height = seams + rivets + swell
+    # **Orange peel.** Sprayed paint is not glass: it dries with a fine
+    # dimpling about a millimetre across, and that dimpling is most of why a
+    # painted surface scatters its highlight instead of mirroring it. Without
+    # it the normal is flat between the rivets and the whole plate reads as
+    # moulded plastic.
+    peel = (wrapping_noise(size, rng, 2, base=52) - 0.5) * 0.00055
+    height = seams + rivets + edges + swell + peel
 
     # **The albedo is nearly uniform and that is correct.** Paint is paint;
     # what varies is how much has chalked, which lightens and desaturates it,
@@ -143,20 +197,40 @@ def painted_steel(size, rng):
               + chalked[None, None, :] * chalk[:, :, None])
     colour = colour * (1.0 - rust[:, :, None]) + rusted[None, None, :] * rust[:, :, None]
 
-    # Paint thins over a rivet head, so the head reads a touch lighter.
-    colour *= (1.0 + np.clip(rivets / 0.010, 0.0, 1.0)[:, :, None] * 0.10)
+    # **Plate to plate, not texel to texel.** The tile holds four strips of
+    # plate between its seams, and on a real structure each was last painted
+    # in a different year: a couple of percent of brightness between them is
+    # what stops a large surface reading as one moulded piece. Four strips
+    # inside the tile is a feature *of* the tile, so it costs no repeat.
+    y = np.mgrid[0:size, 0:size][0].astype(np.float32)
+    strip = np.floor(y / size * 4.0).astype(np.int32)
+    ages = np.array([1.00, 0.94, 1.05, 0.97], np.float32)
+    colour *= ages[strip][:, :, None]
 
-    # Gloss where the paint is sound, matt where it has chalked, and matt in
-    # the seams where dirt collects.
-    rough = 0.34 + 0.30 * chalk + 0.22 * rust
-    rough += (wrapping_noise(size, rng, 3, base=11) - 0.5) * 0.10
-    rough += np.clip(-seams / 0.006, 0.0, 1.0) * 0.14
-    rough -= np.clip(rivets / 0.010, 0.0, 1.0) * 0.06
+    # Paint thins over a rivet head, so the head reads a touch lighter.
+    colour *= (1.0 + np.clip((rivets + edges) / 0.012, 0.0, 1.0)[:, :, None] * 0.12)
+
+    # Ninety years of salt air: dirt runs down from every seam.
+    grime = streaks(size, rng, 26, 0.16, 2.4)
+    colour *= (1.0 - grime[:, :, None] * 0.30)
+
+    # **Semi-gloss, and this is the number that decides whether it is metal.**
+    # It sat at 0.34 rising to 0.7 with the chalk, and at 0.7 there is no
+    # highlight and no sky in the surface -- a dielectric with no specular
+    # response is precisely what plastic looks like. Maintained bridge paint
+    # is 0.25-0.35; chalked paint gets to 0.55 and no further, because paint
+    # that rough has failed and would have been stripped.
+    rough = 0.24 + 0.20 * chalk + 0.22 * rust + 0.16 * grime
+    rough += (wrapping_noise(size, rng, 3, base=11) - 0.5) * 0.07
+    rough += np.clip(-seams / 0.008, 0.0, 1.0) * 0.10
+    # Paint pools slightly at a rivet's shoulder and thins over its crown, so
+    # the head is the glossiest thing on the plate.
+    rough -= np.clip((rivets + edges) / 0.012, 0.0, 1.0) * 0.09
 
     return {
         "color": np.clip(colour, 0.0, 1.0),
         "normal": normal_map(height, 1.0, span),
-        "roughness": np.clip(rough, 0.05, 0.95),
+        "roughness": np.clip(rough, 0.14, 0.62),
         "ao": cavity(height, max(size // 128, 2)),
     }
 
@@ -173,7 +247,21 @@ def board_concrete(size, rng):
     # Aggregate showing where the skin has weathered off.
     grain = wrapping_noise(size, rng, 6, base=14)
     exposure = np.clip((wrapping_noise(size, rng, 3, base=9) - 0.5) * 2.2, 0.0, 1.0)
-    height = boards + (grain - 0.5) * 0.0026 * (0.35 + exposure)
+
+    # **Form-tie holes.** The plugged holes left by the ties that held the
+    # formwork together, on the formwork's own grid at about 600 mm. They are
+    # the single feature that says "this was poured against boards" rather
+    # than "this is a grey box", and because they are genuinely identical
+    # everywhere they cost nothing in repeat.
+    ties = stud_grid(size, span, 0.60, 0.022, 1.0)
+
+    # Spalls: where the arris has chipped and the aggregate is proud.
+    spall = np.clip((wrapping_noise(size, rng, 5, base=17) - 0.62) * 5.0, 0.0, 1.0)
+
+    height = (boards
+              - ties * 0.0035
+              + (grain - 0.5) * 0.0030 * (0.35 + exposure)
+              - spall * 0.0032)
 
     # **Concrete is not white.** Weathered structural concrete sits around a
     # linear 0.28-0.32 -- it reads pale against dark water, not against the
@@ -187,17 +275,30 @@ def board_concrete(size, rng):
     # dark one at its foot, and eight repeats up a pylon is eight stripes.
     # Fine, vertical, high-frequency streaking reads as weathering and cannot
     # betray the repeat.
-    streak = wrapping_noise(size, rng, 4, base=12)
-    streak = np.clip((streak - 0.52) * 2.6, 0.0, 1.0)
+    streak = streaks(size, rng, 18, 0.22, 2.2)
+    # And the rust weep below each tie, which is the detail that dates a
+    # concrete structure faster than anything else on it.
+    weep = np.zeros((size, size), np.float32)
+    for i in range(int(size * 0.05)):
+        weep += np.roll(ties, i, axis=0) * (1.0 - i / max(size * 0.05, 1))
+    weep = np.clip(weep * 0.5, 0.0, 1.0)
 
-    mix = np.clip(0.26 * grain + 0.38 * streak + 0.18 * exposure, 0.0, 1.0)
+    mix = np.clip(0.30 * grain + 0.46 * streak + 0.22 * exposure
+                  + 0.55 * ties, 0.0, 1.0)
     colour = pale[None, None, :] * (1.0 - mix[:, :, None]) + dark[None, None, :] * mix[:, :, None]
 
-    rough = 0.74 + 0.16 * grain - 0.10 * streak
+    # The weep is not grey, it is iron.
+    stain = np.array([0.205, 0.108, 0.058], np.float32)
+    colour = colour * (1.0 - weep[:, :, None] * 0.7) \
+        + stain[None, None, :] * weep[:, :, None] * 0.7
+    # Fresh aggregate at a spall is paler and sharper than the weathered skin.
+    colour += spall[:, :, None] * 0.09
+
+    rough = 0.70 + 0.18 * grain - 0.06 * streak + 0.14 * spall
     return {
         "color": np.clip(colour, 0.0, 1.0),
         "normal": normal_map(height, 1.0, span),
-        "roughness": np.clip(rough, 0.35, 0.98),
+        "roughness": np.clip(rough, 0.42, 0.96),
         "ao": cavity(height, max(size // 96, 2)),
     }
 
