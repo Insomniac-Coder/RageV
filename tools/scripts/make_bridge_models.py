@@ -84,6 +84,7 @@ class MaterialSplit:
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "SampleProject" / "assets" / "models" / "bridge"
+TEXTURES = ROOT / "SampleProject" / "assets" / "textures"
 
 
 # --- the bridge, in metres above MHHW ----------------------------------------
@@ -109,6 +110,34 @@ PIER_TOP = 13.0             # the pier stands ~13 m out of the water
 NORTH_PIER_BASE = -21.0     # the coast was pulled back off the bridge, so
                             # this pier stands in the strait and has to reach
 SOUTH_PIER_BASE = -31.0     # 100 ft below the water, 335 m off Fort Point
+
+# --- the south pier's fender --------------------------------------------------
+#
+# **The thing in every photograph of this bridge that the model did not have.**
+# The south tower does not rise out of open water: it stands inside a great
+# elliptical concrete fender, an oval ring built first so the pier could be
+# sunk inside it in a tideway running at six knots. It is 300 ft by 155 ft,
+# it sits barely clear of the water, and from any camera at sea level it is
+# the widest thing in the frame after the towers.
+#
+# **Both piers, and the north one smaller.** The north pier sits at Lime
+# Point, close enough to shore that its fender is the lesser structure -- and
+# in *this* scene it is genuinely in the water, because the Marin coast was
+# pulled 165 m back off the bridge on the owner's call, so the pier stands in
+# the strait rather than on land. A pier standing in a tideway with no fender
+# reads as a column dropped in the sea. The size difference is what keeps the
+# two ends of this bridge from looking like each other, which is the thing the
+# symmetric first draft of the seabed got wrong.
+NORTH_FENDER = 0.82         # of the south one
+#
+# The long axis runs along the strait -- along x -- because that is the way
+# the tide runs and the way a ship would arrive.
+FENDER_A = 45.7             # 300 ft, along the strait
+FENDER_B = 23.6             # 155 ft, across it
+FENDER_TOP = 3.6            # the deck stands just clear of the water
+FENDER_FOOT = -14.0         # and carries well under it, as the pier does
+FENDER_BATTER = 1.07        # wider at the foot than at the deck
+FENDER_PARAPET = 1.15       # the low wall round the rim
 
 # The cable. y'' = w/H is the same either side of a tower, so ONE curvature
 # constant governs the main span and both side spans -- only the vertex moves.
@@ -137,6 +166,13 @@ SUSPENDER_SPACING = MODULE * 4.0    # 15.24 m
 SUSPENDER_RADIUS = 0.11
 SUSPENDER_PAIR = 0.55               # the two ropes of a station, either side
 
+# The cable bands: the cast-steel collars clamped round the main cable, one at
+# every suspender station, which is what the ropes actually hang from. 1.4 m
+# along the cable and standing a hand's breadth proud of it.
+CABLE_BAND_HALF = 0.70              # half its length, along the cable
+CABLE_BAND_RADIUS = CABLE_RADIUS * 1.28
+CABLE_BAND_FLANGE = 0.15            # the bolted split-line ridge on each flank
+
 # Railings: outer 1.22 m, posts on the module itself.
 RAIL_HEIGHT = 1.22
 RAIL_POST = MODULE
@@ -156,6 +192,24 @@ ARCH_CENTRE = 1030.0                # z, over the fort
 ARCH_HALF_SPAN = 48.0
 ARCH_SPRING = 9.0                   # where its feet stand
 
+# --- blunt arrises ------------------------------------------------------------
+# **A sharp 90-degree edge is a shape nothing this size has ever had.**
+# Concrete is cast against a chamfer strip -- 20 to 25 mm is the standard
+# section, because an unprotected arrise spalls the moment the forms come off
+# -- and ninety years in the Golden Gate's salt air rounds what the strip
+# left. Steel plate girders have no chamfer as such, but every corner carries
+# an angle section and a line of rivets, which breaks the edge the same way to
+# a camera.
+#
+# The sizes are bigger than the real strip on purpose. A 25 mm chamfer on a
+# 12 m pier is a fortieth of a pixel from the hero camera and reads only from
+# the deck; these are sized to survive to the middle distance, where the
+# lit chamfer band is doing the work.
+PIER_CHAMFER = 0.30         # the great concrete piers and the pylons
+CONCRETE_CHAMFER = 0.12     # bents, skewbacks, the fort
+CURB_CHAMFER = 0.06         # curbs, median, sidewalk edges -- deck camera work
+STEEL_CHAMFER = 0.14        # the tower struts and the truss chords
+
 # The materials every face picks from. **International Orange is not
 # decoration**: its reflectance peaks at 600 nm, right where a sodium lamp
 # emits, and that match is why this bridge looks right at night and most
@@ -164,12 +218,45 @@ MAT_STEEL = 0
 MAT_CONCRETE = 1
 MAT_ROAD = 2
 MAT_PAINT = 3
+
+# **The two that emit.** Split out as their own materials -- and so their own
+# meshes, since a MeshComponent holds one -- because an emissive surface is
+# not a shading variant of a lit one: it needs `Emissive` set and it must not
+# inherit the paint's roughness or the steel's normal map.
+#
+# `MAT_LAMP` is the lens of a sodium luminaire, `MAT_BEACON` the red
+# obstruction lights. Both are small, and both carry the whole night frame:
+# the sodium is what lights the roadway, and the red is what says the towers
+# are 227 m of steel in an aircraft's way.
+MAT_LAMP = 4
+MAT_BEACON = 5
+
 MATERIALS = [
     ("InternationalOrange", (0.527, 0.037, 0.025)),
     ("Concrete", (0.42, 0.41, 0.38)),
     ("Asphalt", (0.055, 0.055, 0.058)),
     ("LanePaint", (0.72, 0.71, 0.68)),
+    ("SodiumLens", (1.0, 0.62, 0.18)),
+    ("ObstructionRed", (0.75, 0.03, 0.02)),
 ]
+
+# --- the lights ---------------------------------------------------------------
+#
+# **Low-pressure sodium, which is why this bridge is that colour.** The lamps
+# emit almost entirely at 589 nm, and International Orange peaks at 600 -- the
+# paint was chosen to be lit by them. Modelled as a warm amber rather than the
+# true monochromatic yellow, because a single-wavelength source renders every
+# other hue in the scene to grey and the sea would stop being sea.
+SODIUM = (1.0, 0.60, 0.16)
+
+# Aviation obstruction red, which is a specified colour rather than a taste:
+# it sits at the long end where the eye's response is falling, which is why it
+# reads as a point at range instead of a glow.
+BEACON = (1.0, 0.05, 0.03)
+
+# Where the red lights go, off the photographs: two on each tower's saddle
+# housing, a row down each main cable, and one at each pier for the shipping.
+BEACON_CABLE_SPACING = MODULE * 24.0     # 91.4 m, every other pair of stations
 
 # The carriageway: six lanes between the curbs, a median down the middle and
 # a sidewalk outside each curb. Every number is the real one, and they are
@@ -201,6 +288,54 @@ STRUTS = [
     (179.9, 187.8),         # strut 2
     (208.8, 216.7),         # strut 1  -- shafts run free above it to the saddles
 ]
+
+
+def lamp_stations():
+    """(post x, which side, z) for every one of the 128 lamp standards.
+
+    **Exported rather than inlined**, because the scene has to put a light at
+    each one and a light that is not where its lens is reads as a lighting bug
+    rather than a placement one. One list, two readers.
+    """
+    out = []
+    count = int(round(2.0 * HALF_LENGTH / LAMP_SPACING))
+    for i in range(count + 1):
+        z = -HALF_LENGTH + i * LAMP_SPACING
+        if z > HALF_LENGTH:
+            break
+        for side in (-1.0, 1.0):
+            out.append((side * (RAIL_HALF_WIDTH - 0.55), side, z))
+    return out
+
+
+def lamp_light(x, side, z):
+    """Where a station's light sits: just under its lens, out over the road."""
+    return (x - side * LAMP_ARM, ROADWAY + CURB_HEIGHT + LAMP_HEIGHT + 0.48, z)
+
+
+def beacon_positions():
+    """Every red obstruction light, as (x, y, z).
+
+    Three kinds and one list: the saddle beacons at 227 m, the markers down
+    the cables that draw the catenary, and the marine lights on the fender
+    rims. They differ in what they warn, not in what they are.
+    """
+    out = []
+    for z in (-HALF_SPAN, HALF_SPAN):
+        for x in (-TRUSS_HALF, TRUSS_HALF):
+            out.append((x, TOWER_TOP + 2.62, z))
+        fender = (FENDER_A if z > 0.0 else FENDER_A * NORTH_FENDER) * 0.94
+        for end in (-1.0, 1.0):
+            out.append((end * fender, FENDER_TOP + FENDER_PARAPET + 0.6, z))
+
+    stations = int(PYLON_X / BEACON_CABLE_SPACING)
+    for side in (-TRUSS_HALF, TRUSS_HALF):
+        for i in range(-stations, stations + 1):
+            z = i * BEACON_CABLE_SPACING
+            if abs(abs(z) - HALF_SPAN) < BEACON_CABLE_SPACING * 0.4:
+                continue
+            out.append((side, cable_y(z) + CABLE_RADIUS + 0.3, z))
+    return out
 
 
 def cable_y(x):
@@ -242,7 +377,30 @@ def cables(segments=96, sides=10):
                 previous = point
 
     suspenders(mesh)
+    cable_beacons(mesh)
     return mesh
+
+
+def cable_beacons(mesh):
+    """Red markers down the main cables, every 91 m.
+
+    **They are what draws the catenary at night.** Unlit, the cable is a dark
+    line against a dark sky and the span's whole shape -- the one curve this
+    bridge is known for -- disappears. A row of red points along it is how
+    every night photograph of this bridge still reads as a suspension bridge.
+
+    Every twenty-fourth module, so they land on suspender stations rather than
+    between them.
+    """
+    stations = int(PYLON_X / BEACON_CABLE_SPACING)
+    for side in (-TRUSS_HALF, TRUSS_HALF):
+        for i in range(-stations, stations + 1):
+            z = i * BEACON_CABLE_SPACING
+            if abs(abs(z) - HALF_SPAN) < BEACON_CABLE_SPACING * 0.4:
+                continue
+            y = cable_y(z) + CABLE_RADIUS
+            mesh.box((side - 0.20, y, z - 0.20), (side + 0.20, y + 0.42, z + 0.20),
+                     uv=1.0, material=MAT_BEACON)
 
 
 def suspenders(mesh):
@@ -260,6 +418,14 @@ def suspenders(mesh):
     110 mm rather than the true 70: at half a kilometre the true diameter is
     a third of a pixel, and a rope that vanishes is worse than one a hair
     thick.
+
+    **And they hang off cable bands, which is why the bands are built in this
+    same loop rather than in one of their own.** A rope with no band sprouts
+    out of a smooth tube, and the cable stops reading as a bundle of 27 572
+    wires under a wrapping and starts reading as a wire itself. The two must
+    agree about which stations exist -- a band with no rope is a lump and a
+    rope with no band is the thing this fixes -- so there is one loop, one
+    set of skip rules, and no way for them to drift apart.
     """
     top = ROADWAY - CHORD_HALF
     stations = int(PYLON_X / SUSPENDER_SPACING)
@@ -273,8 +439,36 @@ def suspenders(mesh):
             anchor = cable_y(z)
             if anchor - top < 2.0:
                 continue
+
+            # **The band is sampled at both its ends, so it lies along the
+            # slope the cable actually has here.** That slope is nothing at
+            # mid-span and 25 degrees at the tower, and a collar drawn level
+            # would sit true in the middle of the span and stand clear of the
+            # cable at one end everywhere else -- worst exactly where the
+            # bands are densest and most visible.
+            back = (side, cable_y(z - CABLE_BAND_HALF), z - CABLE_BAND_HALF)
+            front = (side, cable_y(z + CABLE_BAND_HALF), z + CABLE_BAND_HALF)
+            mesh.strut(back, front, CABLE_BAND_RADIUS, sides=10, uv=1.0,
+                       smooth=True, material=MAT_STEEL)
+
+            # **The two halves bolt together on the horizontal**, and the
+            # flanges they bolt through are the whole silhouette: a plain
+            # collar is a bulge in the cable, and what says *casting* is the
+            # pair of ridges down its flanks. Not smoothed -- these are meant
+            # to catch a hard edge of light where the cable does not.
+            for flank in (-1.0, 1.0):
+                x = side + flank * (CABLE_BAND_RADIUS + CABLE_BAND_FLANGE * 0.5)
+                mesh.strut((x, back[1], back[2]), (x, front[1], front[2]),
+                           CABLE_BAND_FLANGE, sides=4, uv=1.0,
+                           material=MAT_STEEL)
+
+            # **Each leg takes the cable's height at its own z**, not the
+            # station's. The rope passes over the band and both legs hang, so
+            # they start 1.1 m apart along a cable that near the tower drops a
+            # quarter of a metre over that distance -- and starting them level
+            # leaves the downhill leg hanging out of thin air beside the band.
             for offset in (-SUSPENDER_PAIR, SUSPENDER_PAIR):
-                mesh.strut((side, anchor, z + offset),
+                mesh.strut((side, cable_y(z + offset), z + offset),
                            (side, top, z + offset),
                            SUSPENDER_RADIUS, sides=4, uv=1.0,
                            material=MAT_STEEL)
@@ -315,14 +509,14 @@ def deck():
         inner = side * CARRIAGEWAY_HALF
         outer = side * DECK_HALF_WIDTH
         lo, hi = min(inner, outer), max(inner, outer)
-        mesh.box((lo, ROADWAY - DECK_SLAB, -HALF_LENGTH),
-                 (hi, ROADWAY + CURB_HEIGHT, HALF_LENGTH),
-                 uv=2.4, material=MAT_CONCRETE)
+        mesh.chamfered_box((lo, ROADWAY - DECK_SLAB, -HALF_LENGTH),
+                           (hi, ROADWAY + CURB_HEIGHT, HALF_LENGTH),
+                           CURB_CHAMFER, uv=2.4, material=MAT_CONCRETE)
 
     # The median. Six lanes with nothing between them is a motorway, not this.
-    mesh.box((-MEDIAN_HALF, ROADWAY, -HALF_LENGTH),
-             (MEDIAN_HALF, ROADWAY + 0.82, HALF_LENGTH),
-             uv=2.4, material=MAT_CONCRETE)
+    mesh.chamfered_box((-MEDIAN_HALF, ROADWAY, -HALF_LENGTH),
+                       (MEDIAN_HALF, ROADWAY + 0.82, HALF_LENGTH),
+                       CURB_CHAMFER, uv=2.4, material=MAT_CONCRETE)
 
     # --- the markings --------------------------------------------------------
     #
@@ -352,9 +546,10 @@ def deck():
         # continuous in the real truss and a chain of boxes would show its
         # joints along the most-looked-at line on the bridge.
         for y in (top, bottom):
-            mesh.box((side - CHORD_HALF, y - CHORD_HALF, -HALF_LENGTH),
-                     (side + CHORD_HALF, y + CHORD_HALF, HALF_LENGTH),
-                     uv=6.0, material=MAT_STEEL)
+            mesh.chamfered_box(
+                (side - CHORD_HALF, y - CHORD_HALF, -HALF_LENGTH),
+                (side + CHORD_HALF, y + CHORD_HALF, HALF_LENGTH),
+                STEEL_CHAMFER, uv=6.0, material=MAT_STEEL)
 
         for i in range(panels + 1):
             z = -HALF_LENGTH + i * TRUSS_PANEL
@@ -448,13 +643,8 @@ def deck():
     #
     # Opposite, not staggered: 128 of them at 150 ft, and the pairing is
     # visible down the whole roadway in every photograph of it.
-    lamps = int(round(2.0 * HALF_LENGTH / LAMP_SPACING))
-    for i in range(lamps + 1):
-        z = -HALF_LENGTH + i * LAMP_SPACING
-        if z > HALF_LENGTH:
-            break
-        for side in (-1.0, 1.0):
-            x = side * (RAIL_HALF_WIDTH - 0.55)
+    for x, side, z in lamp_stations():
+        if True:
             base = ROADWAY + CURB_HEIGHT
             # `cylinder` has no uv of its own -- it is the one primitive
             # here whose `uv` would land in `add`'s per-face list.
@@ -472,9 +662,18 @@ def deck():
             for a, b in zip(curve, curve[1:]):
                 mesh.strut(a, b, 0.085, sides=6, uv=1.0, smooth=True,
                            material=MAT_STEEL)
-            mesh.box((x - side * LAMP_ARM - 0.36, head + 0.56, z - 0.24),
-                     (x - side * LAMP_ARM + 0.36, head + 0.80, z + 0.24),
+            # **The luminaire is two pieces, and that is the point.** The
+            # housing is painted steel and the lens under it is what glows, so
+            # they cannot be one mesh: a MeshComponent holds one material, and
+            # an emissive housing would put a lamp-sized block of light where
+            # there should be a lit strip under a dark shade.
+            lamp = x - side * LAMP_ARM
+            mesh.box((lamp - 0.36, head + 0.62, z - 0.24),
+                     (lamp + 0.36, head + 0.80, z + 0.24),
                      uv=1.0, material=MAT_STEEL)
+            mesh.box((lamp - 0.30, head + 0.50, z - 0.19),
+                     (lamp + 0.30, head + 0.62, z + 0.19),
+                     uv=1.0, material=MAT_LAMP)
 
     # --- the approach bents --------------------------------------------------
     #
@@ -488,9 +687,10 @@ def deck():
             if ground is None or ground > ROADWAY - TRUSS_DEPTH - 3.0:
                 continue
             for x in (-TRUSS_HALF * 0.55, TRUSS_HALF * 0.55):
-                mesh.box((x - 1.6, ground - 4.0, z - 1.6),
-                         (x + 1.6, ROADWAY - TRUSS_DEPTH, z + 1.6),
-                         uv=2.0, material=MAT_CONCRETE)
+                mesh.chamfered_box((x - 1.6, ground - 4.0, z - 1.6),
+                                   (x + 1.6, ROADWAY - TRUSS_DEPTH, z + 1.6),
+                                   CONCRETE_CHAMFER, uv=2.0,
+                                   material=MAT_CONCRETE)
     return mesh
 
 
@@ -635,6 +835,103 @@ def leg_half(elevation):
             0.5 * (LEG_BASE[1] + (LEG_TOP[1] - LEG_BASE[1]) * t))
 
 
+def elliptical_drum(mesh, a, b, y0, y1, batter, centre, material,
+                    sides=56, uv=3.0, inner=None):
+    """A closed elliptical drum -- the fender's mass, or its parapet as a ring.
+
+    Built by hand rather than with `cylinder` because that primitive carries no
+    uv of its own (it is the one whose `uv` argument would land in `add`'s
+    per-face list), and a 90 m concrete oval is not a thing to leave to the
+    world-space fallback.
+
+    `batter` widens the foot: a marine structure that meets the water on a
+    vertical face reads as a pipe, and the taper is most of what says mass.
+    `inner`, as a fraction of the semi-axes, makes it a hollow ring instead --
+    which is what the parapet round the deck is.
+
+    **Wound by the convexity test rather than by hand**, exactly as
+    `chamfered_box` is. A drum's side quads and two end fans wound by eye is
+    how a primitive ships inside out, and this toolkit has already lost its
+    trees to that once. Hollow rings are not convex, so those are wound
+    explicitly and only their caps are tested.
+    """
+    import math as _math
+
+    cx, _, cz = centre
+    rings = []
+    for y, scale in ((y0, batter), (y1, 1.0)):
+        for radial in ((1.0,) if inner is None else (1.0, inner)):
+            ring = []
+            for k in range(sides):
+                angle = 2.0 * _math.pi * k / sides
+                ring.append((cx + _math.cos(angle) * a * scale * radial, y,
+                             cz + _math.sin(angle) * b * scale * radial))
+            rings.append(ring)
+
+    points = [p for ring in rings for p in ring]
+    faces = []
+
+    def wall(low, high, flip):
+        """Side quads between two rings, by their first-point indices."""
+        for k in range(sides):
+            j = (k + 1) % sides
+            quad = (low + k, low + j, high + j, high + k)
+            faces.append(quad[::-1] if flip else quad)
+
+    if inner is None:
+        bottom, top = 0, sides
+        wall(bottom, top, False)
+        # Fans to a centre point at each end, which keeps the cap triangles
+        # well shaped instead of fanning them all off one rim vertex.
+        points.append((cx, y0, cz))
+        points.append((cx, y1, cz))
+        low_hub, high_hub = len(points) - 2, len(points) - 1
+        for k in range(sides):
+            j = (k + 1) % sides
+            faces.append((low_hub, bottom + j, bottom + k))
+            faces.append((high_hub, top + k, top + j))
+    else:
+        # Four rings: outer/inner at the foot, outer/inner at the top.
+        fo, fi, to, ti = 0, sides, 2 * sides, 3 * sides
+        wall(fo, to, False)        # outside
+        wall(fi, ti, True)         # inside, facing in
+        for k in range(sides):
+            j = (k + 1) % sides
+            faces.append((to + k, to + j, ti + j, ti + k))      # the deck
+            faces.append((fo + j, fo + k, fi + k, fi + j))      # the soffit
+
+    # **Outward is decided, never hand-written** -- the same rule
+    # `chamfered_box` uses, and for the same reason: a drum's side quads and
+    # end fans wound by eye is how a primitive ships inside out, which this
+    # toolkit has already paid for once with its trees.
+    #
+    # A solid drum is convex, so "away from the centre" is the whole test. A
+    # ring is not -- its inner wall correctly faces the middle -- so the
+    # reference is not the centre but the point on the tube's own centreline
+    # at that face's angle. Locally that makes the ring convex too, and one
+    # rule then covers both.
+    mid_y = (y0 + y1) * 0.5
+    mid_radial = 1.0 if inner is None else (1.0 + inner) * 0.5
+    oriented = []
+    for face in faces:
+        normal = fbxwrite.face_normal(points, face)
+        mid = [sum(points[i][k] for i in face) / len(face) for k in range(3)]
+        if inner is None:
+            reference = (cx, mid_y, cz)
+        else:
+            dx, dz = mid[0] - cx, mid[2] - cz
+            angle = _math.atan2(dz / max(b, 1e-6), dx / max(a, 1e-6))
+            reference = (cx + _math.cos(angle) * a * mid_radial, mid_y,
+                         cz + _math.sin(angle) * b * mid_radial)
+        away = [mid[k] - reference[k] for k in range(3)]
+        if sum(normal[k] * away[k] for k in range(3)) < 0.0:
+            face = tuple(reversed(face))
+        oriented.append(face)
+
+    return mesh.add(points, oriented,
+                    uv=fbxwrite.box_uv(points, oriented, uv), material=material)
+
+
 def tower(z, pier_base):
     """One tower: two stepped shafts and the seven struts between them.
 
@@ -654,10 +951,40 @@ def tower(z, pier_base):
     # a foundation 100 ft below the water; the north pier is on the mainland
     # at Lime Point with its foundation 20 ft down. A shared -9 m left the
     # south one hanging over a 30 m hole the moment the floor arrived.
-    for x in (-TRUSS_HALF, TRUSS_HALF):
-        mesh.box((x - LEG_BASE[0] * 0.62, pier_base, z - LEG_BASE[1] * 0.62),
-                 (x + LEG_BASE[0] * 0.62, PIER_TOP, z + LEG_BASE[1] * 0.62),
-                 uv=3.0, material=MAT_CONCRETE)
+    # **One pier, not two, which is what it always should have been.** A block
+    # under each leg left a 15 m slot of daylight straight through the base at
+    # the waterline -- the most looked-at part of the whole structure from any
+    # boat-level camera -- and the real bridge has a single mass under the
+    # whole tower. The chamfers added later made the slot read harder, not
+    # softer, because they gave its inner corners an edge to catch light on.
+    pier_x = TRUSS_HALF + LEG_BASE[0] * 0.62
+    pier_z = LEG_BASE[1] * 0.62
+    mesh.chamfered_box((-pier_x, pier_base, z - pier_z),
+                       (pier_x, PIER_TOP, z + pier_z),
+                       PIER_CHAMFER, uv=3.0, material=MAT_CONCRETE)
+
+    # The fender: the elliptical ring the tower stands inside. +z is San
+    # Francisco, so the southern one is the full 300 ft by 155 ft and the
+    # northern the smaller structure Lime Point carries.
+    fender = 1.0 if z > 0.0 else NORTH_FENDER
+    a, b = FENDER_A * fender, FENDER_B * fender
+    elliptical_drum(mesh, a, b, FENDER_FOOT, FENDER_TOP, FENDER_BATTER,
+                    (0.0, 0.0, z), MAT_CONCRETE, uv=4.0)
+
+    # And the parapet round its rim. **A ring, not a taller drum**: what reads
+    # in every photograph is the low wall with the deck sitting inside it, and
+    # a solid block of the same height would just be a fender 1.15 m higher.
+    elliptical_drum(mesh, a, b, FENDER_TOP, FENDER_TOP + FENDER_PARAPET, 1.0,
+                    (0.0, 0.0, z), MAT_CONCRETE, uv=2.0, inner=0.955)
+
+    # The marine lights on the fender's rim: a pier standing in a shipping
+    # channel is marked at its ends, and at water level they are the only red
+    # in the lower half of a night frame.
+    for end in (-1.0, 1.0):
+        mesh.box((end * a * 0.94 - 0.5, FENDER_TOP + FENDER_PARAPET,
+                  z - 0.5),
+                 (end * a * 0.94 + 0.5, FENDER_TOP + FENDER_PARAPET + 0.9,
+                  z + 0.5), uv=1.0, material=MAT_BEACON)
 
     # The shafts, one section per strut band, narrowing at each. A single
     # smooth taper from base to top is the wrong shape: the real tower steps,
@@ -708,13 +1035,15 @@ def tower(z, pier_base):
             for side in (-1.0, 1.0):
                 inner = side * CARRIAGEWAY_HALF
                 outer = side * TRUSS_HALF
-                mesh.box((min(inner, outer), bottom, z - depth * 0.5),
-                         (max(inner, outer), high, z + depth * 0.5),
-                         uv=2.0, material=MAT_STEEL)
+                mesh.chamfered_box((min(inner, outer), bottom,
+                                    z - depth * 0.5),
+                                   (max(inner, outer), high,
+                                    z + depth * 0.5),
+                                   STEEL_CHAMFER, uv=2.0, material=MAT_STEEL)
         else:
-            mesh.box((-TRUSS_HALF, bottom, z - depth * 0.5),
-                     (TRUSS_HALF, high, z + depth * 0.5), uv=3.0,
-                     material=MAT_STEEL)
+            mesh.chamfered_box((-TRUSS_HALF, bottom, z - depth * 0.5),
+                               (TRUSS_HALF, high, z + depth * 0.5),
+                               STEEL_CHAMFER, uv=3.0, material=MAT_STEEL)
 
         # The band's face, coffered, and the ledges that cap it top and
         # bottom. Only on the deep bands -- a 4 m strut has no room for it.
@@ -728,9 +1057,11 @@ def tower(z, pier_base):
             coffered_band(mesh, -inner, inner, bottom, high, z, depth,
                           max(6, int((2.0 * inner) / 1.6)), MAT_STEEL)
             for y in (bottom, high):
-                mesh.box((-TRUSS_HALF - 0.35, y - 0.55, z - depth * 0.5 - 0.5),
-                         (TRUSS_HALF + 0.35, y + 0.55, z + depth * 0.5 + 0.5),
-                         uv=2.0, material=MAT_STEEL)
+                mesh.chamfered_box((-TRUSS_HALF - 0.35, y - 0.55,
+                                    z - depth * 0.5 - 0.5),
+                                   (TRUSS_HALF + 0.35, y + 0.55,
+                                    z + depth * 0.5 + 0.5),
+                                   STEEL_CHAMFER, uv=2.0, material=MAT_STEEL)
 
     # --- the top ------------------------------------------------------------
     #
@@ -746,6 +1077,14 @@ def tower(z, pier_base):
         mesh.box((x - CABLE_RADIUS * 2.4, TOWER_TOP + 0.6, z - top_half[1] * 0.8),
                  (x + CABLE_RADIUS * 2.4, TOWER_TOP + 2.1, z + top_half[1] * 0.8),
                  uv=1.0, material=MAT_STEEL)
+        # **The obstruction light**, one over each shaft. At 227 m the towers
+        # are an aviation hazard and carry a red beacon each; in a night frame
+        # they are also the only thing that puts a mark at the very top of the
+        # silhouette, which is what stops the tower fading into the sky.
+        mesh.box((x - 0.24, TOWER_TOP + 2.1, z - 0.24),
+                 (x + 0.24, TOWER_TOP + 2.62, z + 0.24),
+                 uv=1.0, material=MAT_BEACON)
+
         for post in range(8):
             t = -1.0 + 2.0 * post / 7.0
             pz = z + t * top_half[1] * 1.05
@@ -827,25 +1166,27 @@ def pylons(mesh):
                 low = foot + (PYLON_TOP - foot) * start
                 high = (foot + (PYLON_TOP - foot) * stages[k + 1][0]
                         if k + 1 < len(stages) else PYLON_TOP)
-                mesh.box((x - PYLON_HALF[0] * scale, low,
-                          z - PYLON_HALF[1] * scale),
-                         (x + PYLON_HALF[0] * scale, high,
-                          z + PYLON_HALF[1] * scale),
-                         uv=2.4, material=MAT_CONCRETE)
+                mesh.chamfered_box((x - PYLON_HALF[0] * scale, low,
+                                    z - PYLON_HALF[1] * scale),
+                                   (x + PYLON_HALF[0] * scale, high,
+                                    z + PYLON_HALF[1] * scale),
+                                   PIER_CHAMFER, uv=2.4,
+                                   material=MAT_CONCRETE)
                 # The cornice at each setback.
                 if k + 1 < len(stages):
-                    mesh.box((x - PYLON_HALF[0] * scale * 1.06, high - 1.1,
-                              z - PYLON_HALF[1] * scale * 1.06),
-                             (x + PYLON_HALF[0] * scale * 1.06, high,
-                              z + PYLON_HALF[1] * scale * 1.06),
-                             uv=2.0, material=MAT_CONCRETE)
+                    mesh.chamfered_box(
+                        (x - PYLON_HALF[0] * scale * 1.06, high - 1.1,
+                         z - PYLON_HALF[1] * scale * 1.06),
+                        (x + PYLON_HALF[0] * scale * 1.06, high,
+                         z + PYLON_HALF[1] * scale * 1.06),
+                        CONCRETE_CHAMFER, uv=2.0, material=MAT_CONCRETE)
 
         # The portal beam over the road, which is what you drive under.
-        mesh.box((-(TRUSS_HALF + PYLON_HALF[0] * 2.0), ROADWAY + 12.0,
-                  z - PYLON_HALF[1] * 0.62),
-                 (TRUSS_HALF + PYLON_HALF[0] * 2.0, PYLON_TOP * 0.94,
-                  z + PYLON_HALF[1] * 0.62),
-                 uv=4.0, material=MAT_CONCRETE)
+        mesh.chamfered_box((-(TRUSS_HALF + PYLON_HALF[0] * 2.0),
+                            ROADWAY + 12.0, z - PYLON_HALF[1] * 0.62),
+                           (TRUSS_HALF + PYLON_HALF[0] * 2.0,
+                            PYLON_TOP * 0.94, z + PYLON_HALF[1] * 0.62),
+                           PIER_CHAMFER, uv=4.0, material=MAT_CONCRETE)
 
 
 def fort_point_arch(mesh, segments=30):
@@ -880,12 +1221,12 @@ def fort_point_arch(mesh, segments=30):
     # arch.
     ground = ground_at(0.0, ARCH_CENTRE)
     base = (ground - 1.5) if ground is not None else 0.0
-    mesh.box((-27.0, base, ARCH_CENTRE - 26.0),
-             (27.0, base + 11.5, ARCH_CENTRE + 26.0),
-             uv=2.4, material=MAT_CONCRETE)
-    mesh.box((-29.0, base + 11.5, ARCH_CENTRE - 28.0),
-             (29.0, base + 13.4, ARCH_CENTRE + 28.0),
-             uv=2.4, material=MAT_CONCRETE)
+    mesh.chamfered_box((-27.0, base, ARCH_CENTRE - 26.0),
+                       (27.0, base + 11.5, ARCH_CENTRE + 26.0),
+                       PIER_CHAMFER, uv=2.4, material=MAT_CONCRETE)
+    mesh.chamfered_box((-29.0, base + 11.5, ARCH_CENTRE - 28.0),
+                       (29.0, base + 13.4, ARCH_CENTRE + 28.0),
+                       CONCRETE_CHAMFER, uv=2.4, material=MAT_CONCRETE)
 
     for side in (-TRUSS_HALF, TRUSS_HALF):
         # The rib: two chords a metre apart with lacing between, which is what
@@ -922,9 +1263,10 @@ def fort_point_arch(mesh, segments=30):
         z0, y0 = arc(-1.0)
         z1, y1 = arc(1.0)
         for zf in (z0, z1):
-            mesh.box((side - 2.2, 0.0, zf - 3.0),
-                     (side + 2.2, ARCH_SPRING + 1.5, zf + 3.0),
-                     uv=3.0, material=MAT_CONCRETE)
+            mesh.chamfered_box((side - 2.2, 0.0, zf - 3.0),
+                               (side + 2.2, ARCH_SPRING + 1.5, zf + 3.0),
+                               CONCRETE_CHAMFER, uv=3.0,
+                               material=MAT_CONCRETE)
 
     # And the bracing between the two ribs, which is what stops them being
     # two arches standing next to each other.
@@ -969,6 +1311,8 @@ SHARED = [
     ("bridge_road", MAT_ROAD),
     ("bridge_piers", MAT_CONCRETE),
     ("bridge_paint", MAT_PAINT),
+    ("bridge_lamps", MAT_LAMP),
+    ("bridge_beacons", MAT_BEACON),
 ]
 
 
@@ -1039,29 +1383,93 @@ def write_materials():
     # maps is real millimetres, and at the distances this bridge is looked
     # at from, honest millimetres disappear. Pushing the slope is the cheap
     # half of what a close-up wants and costs nothing at range.
-    for name, texture, colour, rough, tiling, height_scale, normal_scale in (
-            ("bridge_orange", "bridge_steel", (0.527, 0.037, 0.025), 0.42,
-             (1.0, 1.0), 0.006, 1.6),
-            ("bridge_concrete", "bridge_concrete", (0.42, 0.41, 0.38), 0.78,
-             (1.0, 1.0), 0.004, 1.8),
-            ("bridge_asphalt", "bridge_asphalt", (0.055, 0.055, 0.058), 0.86,
-             (2.4, 2.4), 0.0, 1.2),
-            ("bridge_paint", "bridge_paint", (0.72, 0.71, 0.68), 0.70,
-             (1.0, 1.0), 0.0, 1.0)):
+    # **`tint` is what to write into BaseColor even when a colour map is
+    # bound**, and it exists for exactly one material. The rule above -- white
+    # where a map is bound -- is right whenever the map already *is* the
+    # surface's colour, which is true of concrete, asphalt and lane paint. It
+    # is not true of the steel: `acg_steel` is a photograph of bare, silvery
+    # plate, and what this bridge wears is International Orange paint over it.
+    #
+    # **The number is derived, not picked.** The map's mean is sRGB 188, a
+    # linear 0.503, and the colour wanted is the (0.527, 0.037, 0.025) this
+    # file has always used -- so the tint is that divided by 0.503, capped at
+    # one. (1.0, 0.07, 0.05) lands the product within 5% of the intended
+    # albedo in every channel and needs no value above 1.
+    #
+    # **And Metallic stays 0, which is the whole point.** The set ships a
+    # metalness map of solid 255, and the importer drops it deliberately: a
+    # metal's F0 *is* its albedo, so tinting a metal gives a coloured mirror
+    # rather than a painted surface. Paint is a dielectric film over the
+    # steel. See import_downloaded_materials.py.
+    # **Emissive is HDR here**, on the convention the camp's flame and lantern
+    # already set: 3 to 5.5 for something that should bloom without blowing
+    # the frame. The lamp and the beacon carry a base colour as well, because
+    # an emissive surface is still lit -- switched off in daylight it has to
+    # be a glass lens and a red glass, not a black hole.
+    for name, texture, colour, tint, rough, tiling, height_scale, normal_scale, glow, macro, tiling_synth in (
+            ("bridge_orange", "acg_steel", (0.527, 0.037, 0.025),
+             (1.0, 0.07, 0.05), 0.42, (1.0, 1.0), 0.006, 1.6, None, None, None),
+            # **Macro on, because the pier is where the repeat is worst.** The
+            # concrete tiles every 3 m and a pier face is 40 m across, so the
+            # eye gets a visible 13-square grid -- and it only became visible
+            # when the map gained real content to repeat. 18 m is six times the
+            # tile: far enough above it to break the grid, short enough that a
+            # single pier still gets two swells rather than one flat value.
+            # **Stochastic tiling on, and the tiling divided to match.** The
+            # synthesised tile is four times larger, so it has to be laid four
+            # times less often or all that has been bought is a sharper texture
+            # repeating exactly as before: 0.25 turns a 3 m repeat into 12 m.
+            # Macro stays on underneath it -- the two answer different
+            # questions, one removes the pattern and the other varies the tone
+            # across it.
+            ("bridge_concrete", "acg_concrete", (0.42, 0.41, 0.38),
+             None, 0.78, (0.25, 0.25), 0.004, 1.8, None, (14.0, 0.55),
+             (True, 4, 8)),
+            ("bridge_asphalt", "acg_road", (0.055, 0.055, 0.058),
+             None, 0.86, (2.4, 2.4), 0.0, 1.2, None, None, None),
+            ("bridge_paint", "bridge_paint", (0.72, 0.71, 0.68),
+             None, 0.70, (1.0, 1.0), 0.0, 1.0, None, None, None),
+            # The sodium lens. Warm amber rather than the true monochromatic
+            # 589 nm: a single wavelength renders every other hue in the scene
+            # to grey, and the sea would stop being sea.
+            # **Much hotter than it looks, because of what it has to survive.**
+            # A lamp's reflection in the water is spread over many pixels by
+            # the surface's roughness, so an emissive that reads correctly on
+            # the lens itself dims below visibility once reflected -- and the
+            # long glitter streaks under each lamp are most of what a night
+            # photograph of this bridge is. 26 is what puts them back.
+            ("bridge_lamp", None, (1.0, 0.72, 0.30),
+             None, 0.24, (1.0, 1.0), 0.0, 1.0, (26.0, 15.6, 4.2), None, None),
+            # Aviation obstruction red, and hotter than the sodium because it
+            # is a point rather than a strip: at a kilometre it has to survive
+            # as one bright pixel.
+            ("bridge_beacon", None, (1.0, 0.14, 0.10),
+             None, 0.30, (1.0, 1.0), 0.0, 1.0, (7.4, 0.36, 0.20), None, None)):
         maps = {}
-        for key, suffix in (("BaseColor", "color"), ("Normal", "normal"),
-                            ("Roughness", "roughness"), ("Occlusion", "ao")):
-            png = ROOT / "SampleProject" / "assets" / "textures" / \
-                "{0}_{1}.png".format(texture, suffix)
-            if png.exists():
-                maps[key] = handle_for(png.name)
+        for key, suffix in ((("BaseColor", "color"), ("Normal", "normal"),
+                             ("Roughness", "roughness"), ("Occlusion", "ao"))
+                            if texture else ()):
+            # Two extensions: the procedurally generated maps are PNG and the
+            # imported ambientCG ones are the JPEGs they ship as, copied
+            # through rather than re-encoded -- the engine loads both, and a
+            # re-encode could only lose quality.
+            for extension in (".png", ".jpg"):
+                file = TEXTURES / "{0}_{1}{2}".format(texture, suffix, extension)
+                if file.exists():
+                    maps[key] = handle_for(file.name)
+                    break
 
         path = out / (name + ".rmat")
+        base = tint if tint is not None else (
+            (1.0, 1.0, 1.0) if "BaseColor" in maps else colour)
         lines = [
             "Material: " + name,
-            "BaseColor: [1, 1, 1, 1]" if "BaseColor" in maps
-            else "BaseColor: [{0:g}, {1:g}, {2:g}, 1]".format(*colour),
-            "Emissive: [0, 0, 0, 1]",
+            *(["StochasticTiling: true",
+               "TilingScale: {0:d}".format(tiling_synth[1]),
+               "TilingCells: {0:d}".format(tiling_synth[2])] if tiling_synth else []),
+            "BaseColor: [{0:g}, {1:g}, {2:g}, 1]".format(*base),
+            "Emissive: [0, 0, 0, 1]" if glow is None
+            else "Emissive: [{0:g}, {1:g}, {2:g}, 1]".format(*glow),
             "Metallic: 0",
             "Roughness: {0:g}".format(1.0 if "Roughness" in maps else rough),
             "Occlusion: 1",
@@ -1069,6 +1477,8 @@ def write_materials():
             "Specular: 0.5",
             "HeightScale: {0:g}".format(height_scale),
             "Tiling: [{0:g}, {1:g}]".format(*tiling),
+            *(["MacroScale: {0:g}".format(macro[0]),
+               "MacroStrength: {1:g}".format(*macro)] if macro else []),
             "UvOffset: [0, 0]",
         ]
         if maps:

@@ -1,16 +1,19 @@
 Material: bay_rock
-BaseColor: [0.17, 0.14, 0.12, 1]
+BaseColor: [1, 1, 1, 1]
 Emissive: [0, 0, 0, 1]
 Metallic: 0
 Roughness: 1
 Occlusion: 1
-NormalScale: 1
+NormalScale: 1.6
 Specular: 0.5
-HeightScale: 0
-Tiling: [6, 6]
+HeightScale: 0.035
+MacroScale: 55
+MacroStrength: 0.34
+Tiling: [24, 24]
 UvOffset: [0, 0]
 Maps:
-  BaseColor: 17246187153222571135
-  Normal: 12973099232739305617
-  Roughness: 10909146574749930491
-  Height: 12081873772315894805
+  BaseColor: 8870656282751429255
+  Normal: 10989006472914796141
+  Roughness: 9310756612372080774
+  Occlusion: 6840659354360492658
+  Height: 14866983362957030277

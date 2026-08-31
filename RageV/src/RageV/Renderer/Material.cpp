@@ -224,6 +224,13 @@ namespace RageV
 		out.Specular    = m_Params.Specular;
 		out.HeightScale = m_Params.HeightScale;
 		out.AlphaCutoff = m_Params.AlphaCutoff;
+		out.Macro       = m_Params.Macro;
+		out.Clearcoat          = m_Params.Clearcoat;
+		out.ClearcoatRoughness = m_Params.ClearcoatRoughness;
+		out.Anisotropy         = m_Params.Anisotropy;
+		out.Subsurface         = m_Params.Subsurface;
+		out.SheenColor         = m_Params.SheenColor;
+		out.SheenRoughness     = m_Params.SheenRoughness;
 	}
 
 	uint64_t Material::GetBatchKey(bool bindless) const
@@ -397,8 +404,15 @@ namespace RageV
 																		  : TextureLoader::White(m_Device);
 			const Ref<RHITexture> normal = layer && layer->GetNormalMap() ? layer->GetNormalMap()
 																		 : TextureLoader::FlatNormal(m_Device);
-			const Ref<RHITexture> rough = layer && layer->GetRoughnessMap() ? layer->GetRoughnessMap()
-																		  : TextureLoader::White(m_Device);
+			// **The packed surface where there is one, the plain roughness
+			// map otherwise.** Both answer `.r` with roughness, so the slot
+			// means the same thing either way; the packed one additionally
+			// carries occlusion in green and height in blue, which is the only
+			// way this variant can have them at all.
+			const Ref<RHITexture> rough =
+				layer && layer->GetPackedSurfaceMap() ? layer->GetPackedSurfaceMap()
+				: layer && layer->GetRoughnessMap()   ? layer->GetRoughnessMap()
+													  : TextureLoader::White(m_Device);
 			textures[1 + i] = base;
 			textures[1 + kLayers + i] = normal;
 			textures[1 + 2 * kLayers + i] = rough;
@@ -412,10 +426,27 @@ namespace RageV
 				params.Surface[i] = { p.Metallic, p.Roughness, p.Occlusion, p.NormalScale };
 				params.UvTransform[i] = p.UvTransform;
 				params.Specular[i] = p.Specular;
-				// Only the three maps this variant reads; a layer's occlusion
-				// or height map is not bound and its flag must not say it is.
-				params.MapFlags[i] = (p.MapFlags & (MaterialMap_BaseColor | MaterialMap_Normal |
-													MaterialMap_Roughness)) | LayeredMap_Active;
+				// The march is per layer because the depth is: a gravel bed
+				// and a cliff face do not displace by the same amount, and
+				// the scale is a property of the map.
+				params.HeightScale[i] = p.HeightScale;
+				params.MacroScale[i] = p.Macro.x;
+				params.MacroStrength[i] = p.Macro.y;
+				// Base colour, normal and roughness always; occlusion and
+				// height only when the material packed them into the surface
+				// texture, because that is the only thing bound here that
+				// could carry them. Without a packed map their flags must stay
+				// clear or the shader would read the roughness texture's green
+				// as occlusion -- for an ordinary greyscale map that is the
+				// roughness value again, silently darkening every rough
+				// surface.
+				int32_t flags = (p.MapFlags & (MaterialMap_BaseColor | MaterialMap_Normal |
+											   MaterialMap_Roughness)) | LayeredMap_Active;
+
+				if (layer->GetPackedSurfaceMap())
+					flags |= p.MapFlags & (MaterialMap_Occlusion | MaterialMap_Height);
+
+				params.MapFlags[i] = flags;
 			}
 			else
 			{

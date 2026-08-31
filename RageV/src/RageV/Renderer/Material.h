@@ -140,6 +140,74 @@ namespace RageV
 		// use. Unity draws the line in the same place. Per-entity tiling, if it
 		// is ever wanted, belongs in the instance stream beside the overrides.
 		Vec4 UvTransform{ 1.0f, 1.0f, 0.0f, 0.0f };
+
+		// **Large-scale variation, driven by world position.** x is metres per
+		// macro cycle, y is how strongly it modulates; z and w are spare.
+		//
+		// A tiling texture repeats, and what the eye reads at range is not the
+		// seam but the fact that every repeat is byte-identical: a large face
+		// becomes a perfectly regular field. Nothing inside the tile fixes it
+		// -- anything bigger than a fraction of the tile appears once per
+		// repeat, in rows, and anything smaller averages away. The only thing
+		// that breaks it is a second field at a scale bigger than the object,
+		// and that field has to come from world position at shading time.
+		//
+		// **Both default to zero, and a scale of zero is off**, so no material
+		// authored before this moves by a bit. That default is what makes the
+		// feature safe to land in a project with a hundred materials in it.
+		//
+		// A vec4 rather than two floats because MaterialParams had no padding
+		// left: Specular, HeightScale and AlphaCutoff each took one of the
+		// three spare words precisely so the block would stay 80 bytes. This
+		// is the first field since that genuinely grows it, so it may as well
+		// grow it once and leave room.
+		Vec4 Macro{ 0.0f, 0.0f, 0.0f, 0.0f };
+
+		// --- the extended lobes ---------------------------------------------
+		//
+		// **A single GGX lobe is most of what a hard surface is, and not all of
+		// it.** Metallic-roughness covers metal, plastic, concrete, painted
+		// steel, stone and asphalt -- which is why it took this engine as far
+		// as a bridge. What it cannot say is that a surface has a *second*
+		// interface (lacquer over paint), a fuzzy one (cloth), a directional
+		// one (brushed metal, hair), or a translucent one (skin, marble, wax).
+		//
+		// All four default to off, so every material authored before this
+		// shades identically to the bit.
+		//
+		// x = clearcoat weight. A thin smooth dielectric layer over the base,
+		//     with its own fixed 4% reflectance. Car lacquer, varnish, a wet
+		//     surface. The base is attenuated by what the coat reflects, so
+		//     energy is conserved rather than added.
+		// y = clearcoat roughness.
+		// z = anisotropy, -1 to 1. Splits the GGX roughness into two axes about
+		//     the tangent, which is what stretches a highlight along a grain.
+		//     Water does this already with its own Beckmann lobe; this is the
+		//     same idea for brushed metal.
+		// w = subsurface weight. **A wrap, not a diffusion profile** -- light
+		//     is allowed to wrap past the terminator instead of being traced
+		//     through the medium. It is the cheap approximation and it is
+		//     honest about being one: it gets the soft terminator of skin,
+		//     marble and leaves, and it will not get the glow of a hand held
+		//     over a torch.
+		// **Four named floats, not a vec4, and the layout is identical.** In
+		// std140 four consecutive floats starting on a 16-byte boundary occupy
+		// exactly the sixteen bytes a vec4 would -- so the GPU sees no
+		// difference and the inspector gets four rows with names instead of one
+		// row labelled x/y/z/w with four unrelated meanings in it.
+		float Clearcoat = 0.0f;
+		float ClearcoatRoughness = 0.1f;
+		float Anisotropy = 0.0f;
+		float Subsurface = 0.0f;
+
+		// rgb = sheen colour, a = sheen roughness. The retroreflective rim
+		// cloth has at grazing angles: velvet, felt, dust on a surface. Charlie
+		// distribution, which is the one that does not fall off to nothing at
+		// the silhouette the way GGX does. Black is off.
+		// A vec3 followed by a float is a vec4's worth in std140 too, for the
+		// same reason.
+		Vec3 SheenColor{ 0.0f, 0.0f, 0.0f };
+		float SheenRoughness = 0.3f;
 	};
 
 	// The instance stream has had one of these since it was written; this block
@@ -147,7 +215,7 @@ namespace RageV
 	// something. A uniform block whose C++ and GLSL layouts disagree does not
 	// fail to compile or to bind -- it reads the wrong sixteen bytes, and the
 	// symptom is a material whose roughness is somebody else's tiling.
-	static_assert(sizeof(MaterialParams) == 80,
+	static_assert(sizeof(MaterialParams) == 128,
 				  "Must match the MaterialData block in include/pbr_fragment.glsl");
 
 	// What the bindless variant reads instead of a bound material set
@@ -171,8 +239,22 @@ namespace RageV
 		// here, per instance, which is what lets one masked pipeline draw many
 		// different cutouts in a single indirect call.
 		float    AlphaCutoff = 0.5f;
+		// As MaterialParams::Macro. The traced paths read this record too, so
+		// a macro-varied surface varies in a reflection and in a bounce as
+		// well as on screen -- without it a stained pier would reflect back
+		// perfectly even, which is the tell that gives a screen-space trick
+		// away.
+		Vec4     Macro{ 0.0f, 0.0f, 0.0f, 0.0f };
+		// As MaterialParams::Coat and ::Sheen. The traced paths shade hits with
+		// this record, so a clearcoat is a clearcoat in a reflection too.
+		float    Clearcoat = 0.0f;
+		float    ClearcoatRoughness = 0.1f;
+		float    Anisotropy = 0.0f;
+		float    Subsurface = 0.0f;
+		Vec3     SheenColor{ 0.0f, 0.0f, 0.0f };
+		float    SheenRoughness = 0.3f;
 	};
-	static_assert(sizeof(GpuMaterial) == 64,
+	static_assert(sizeof(GpuMaterial) == 112,
 				  "Must match GpuMaterial in include/pbr_fragment.glsl");
 
 	class TextureHeap;
@@ -298,6 +380,19 @@ namespace RageV
 		const RHI::Ref<RHI::RHITexture>& GetBaseColorMap() const { return m_BaseColor; }
 		const RHI::Ref<RHI::RHITexture>& GetNormalMap() const { return m_Normal; }
 		const RHI::Ref<RHI::RHITexture>& GetRoughnessMap() const { return m_Roughness; }
+		const RHI::Ref<RHI::RHITexture>& GetOcclusionMap() const { return m_Occlusion; }
+
+		// **Roughness, occlusion and height in one texture's R, G and B**,
+		// built by the asset layer from the three maps this material already
+		// names -- see TextureLoader::PackChannels for why it exists. Null
+		// unless the material has occlusion or height to pack; a material with
+		// only a roughness map keeps using it directly, since nothing would
+		// read the other two channels.
+		//
+		// Only the layered variant binds it. Every other path samples the
+		// three maps separately, because it has the samplers to.
+		void SetPackedSurfaceMap(const RHI::Ref<RHI::RHITexture>& texture) { m_PackedSurface = texture; }
+		const RHI::Ref<RHI::RHITexture>& GetPackedSurfaceMap() const { return m_PackedSurface; }
 		const RHI::Ref<RHI::RHITexture>& GetEmissiveMap() const { return m_Emissive; }
 		const RHI::Ref<RHI::RHISampler>& GetSampler() const { return m_Sampler; }
 
@@ -333,6 +428,7 @@ namespace RageV
 		RHI::Ref<RHI::RHITexture> m_Metallic;
 		RHI::Ref<RHI::RHITexture> m_Specular;
 		RHI::Ref<RHI::RHITexture> m_Height;
+		RHI::Ref<RHI::RHITexture> m_PackedSurface;
 		RHI::Ref<RHI::RHISampler> m_Sampler;
 
 		// Per frame in flight: the parameter block is host-visible and may be
@@ -372,6 +468,16 @@ namespace RageV
 		Vec4 UvTransform[kLayers];
 		// One dielectric reflectance per layer.
 		Vec4 Specular{ 0.5f, 0.5f, 0.5f, 0.5f };
+		// How deep each layer's parallax displaces, in UV units, from that
+		// layer's MaterialParams::HeightScale. Zero turns the march off, which
+		// is what every layer authored before this had.
+		Vec4 HeightScale{ 0.0f, 0.0f, 0.0f, 0.0f };
+		// Metres per macro cycle, and how strongly, per layer. See
+		// MaterialParams::Macro. Per layer because a cliff and a beach do not
+		// weather at the same scale; applied once, because the *noise* is a
+		// function of world position and does not care which layer asked.
+		Vec4 MacroScale{ 0.0f, 0.0f, 0.0f, 0.0f };
+		Vec4 MacroStrength{ 0.0f, 0.0f, 0.0f, 0.0f };
 		// The layer's MaterialMap flags for the three maps read, plus
 		// LayeredMap_Active for a layer that has a material at all.
 		int32_t MapFlags[kLayers] = { 0, 0, 0, 0 };
@@ -384,7 +490,7 @@ namespace RageV
 		// x = the weight map's slot; the rest padding.
 		uint32_t WeightSlot[4] = { 0, 0, 0, 0 };
 	};
-	static_assert(sizeof(LayeredParams) == 368,
+	static_assert(sizeof(LayeredParams) == 416,
 				  "Must match LayeredData in include/pbr_fragment.glsl");
 
 	// A layer with a material assigned. Above every MaterialMap bit.

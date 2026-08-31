@@ -49,6 +49,7 @@ import postprofile  # noqa: E402
 import make_lut  # noqa: E402
 import make_bridge_models as bridge  # noqa: E402
 import make_bridge_seabed as seabed  # noqa: E402
+import rockscatter  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 ASSETS = ROOT / "SampleProject" / "assets"
@@ -72,7 +73,8 @@ def read_handle(path):
 def handles():
     found = {}
     for name in ("bridge_towers", "bridge_deck", "bridge_cables",
-                 "bridge_road", "bridge_piers", "bridge_paint"):
+                 "bridge_road", "bridge_piers", "bridge_paint",
+                 "bridge_lamps", "bridge_beacons"):
         meta = MODELS / (name + ".fbx.meta")
         if not meta.exists():
             raise SystemExit(
@@ -153,13 +155,38 @@ SKIES = {
     # in.
     "night": {
         "sky": "Gradient",
-        "horizon": (0.0666, 0.0358, 0.0154),   # #4A3520, the city glow
-        "zenith": (0.0037, 0.0091, 0.0154),    # #0C1620, blue 4.2x red
+        # **Darker, and the warm band cut back.** The gradient is a linear
+        # mix from horizon to zenith with no falloff to shape it, so the only
+        # way to shorten the glow is to lower it until it falls under
+        # visibility sooner. A third of what it was: the city is a long way
+        # off across the bay and what reaches the sky over the Gate is a
+        # smudge on the horizon, not a third of the frame.
+        "horizon": (0.0225, 0.0121, 0.0052),   # the city glow, well down
+        "zenith": (0.0018, 0.0044, 0.0080),    # blue still 4.4x red
         "ground": (0.004, 0.005, 0.006),
         "ambient": (0.20, 0.26, 0.40),
         "ambient_intensity": 0.012,
         "sun": {"elevation": 34.0, "bearing": 118.0,
                 "color": (0.62, 0.70, 0.95), "intensity": 0.30},
+        # **Night needs a profile of its own, and auto exposure off in it.**
+        # Attached whether or not --cinematic is given, because the one thing
+        # a night frame cannot have is an exposure that hunts for mid grey:
+        # with it on, this scene came back looking like late afternoon --
+        # correctly exposed and completely wrong. A fixed stop is what makes
+        # a dark picture stay dark and the lamps read as the bright thing.
+        #
+        # The indirect is lifted because night leans on it: the direct light
+        # is 128 small lamps and eight floods, and everything not standing
+        # under one of them is lit by what bounced off the ones that are.
+        "post": {"AutoExposure": False, "Exposure": 2.4, "GiIntensity": 2.6,
+                 "BloomIntensity": 0.16,
+                 # **Raised right up, because at night the clamp it floors is
+                 # bounding against a black probe.** The sodium lenses sit at
+                 # an emissive of 26, so their reflection has to be allowed
+                 # somewhere near that or the glitter path under each lamp --
+                 # the thing every night photograph of this bridge is made of
+                 # -- never appears at all.
+                 "ReflectionFloor": 30.0},
     },
 }
 
@@ -206,8 +233,22 @@ CAMERAS = {
     # the shot is mirrored across the strait: same pitch, same height, same
     # three-quarter, yaw turned to look back down the span. Y is not written
     # here -- `build` stands it on the ground the terrain actually has.
+    # **Moved back off the headland, 2026-08-31, on the owner's call.** At
+    # (300, -1010) the rock filled the right third of the frame from **two to
+    # four metres** off the lens -- measured by ray-casting the frustum against
+    # the heightfield, not guessed at. Nothing reaches that: a 1K map tiled
+    # every 2 m is magnified past its own resolution, and a rock placed there
+    # would be inside the camera. It was also the reason two sessions of
+    # shader work on the cliffs showed nothing.
+    #
+    # `clear_eye` had done its job -- it clears the sight line to the *subject*
+    # -- but nothing stopped ground sitting beside the lens. The replacement
+    # was picked by scanning x/z for a spot that stands on land, still frames
+    # the tower, and has no ground within reach anywhere in the frustum. This
+    # one has 145 m clear, and being higher and further back is closer to what
+    # Battery Spencer actually is.
     "headland": {"tag": "Headland Camera",
-                 "position": (300.0, None, -1010.0),
+                 "position": (500.0, None, -1100.0),
                  "rotation": (-0.155, math.pi - 0.40, 0.0), "fov": 55,
                  "eye": 2.5, "sees": (0.0, 75.0, -640.1)},
     # The San Francisco bluff, kept because it is the approved shot's exact
@@ -223,6 +264,24 @@ CAMERAS = {
     "pier": {"tag": "Pier Camera",
              "position": (70.0, 4.5, 705.0),
              "rotation": (0.05, 0.82, 0.0), "fov": 55},
+    # **Square on to the Marin cliff face**, from 170 m out over the water at
+    # 55 m up. Added 2026-08-31 because every other camera in this scene looks
+    # *along* that coast rather than at it, so the cliff geometry could only be
+    # judged edge-on -- which is exactly the angle that shows a face panel's
+    # back instead of its front. The yaw is the inverse of the panels' own
+    # facing: they look out along the fall line, this looks back down it.
+    "cliff": {"tag": "Cliff Camera",
+              "position": (316.0, 55.0, -810.0),
+              "rotation": (-0.06, 0.585, 0.0), "fov": 55},
+    # **Broadside across open water, for the lamps' glitter path.** Added
+    # 2026-08-31. Every other camera looks *along* the span, which puts the
+    # deck edge-on at half a kilometre and leaves its lamps nowhere to reflect
+    # into frame -- the one thing a night photograph of this bridge is made of.
+    # This stands 300 m off the west side at 22 m, so the deck sits about ten
+    # degrees up and the water between carries the reflections.
+    "glitter": {"tag": "Glitter Camera",
+                "position": (300.0, 22.0, 180.0),
+                "rotation": (-0.045, 1.5708, 0.0), "fov": 52},
     # Under the north tower at Lime Point, looking back across the strait.
     # The one place the water is genuinely shallow enough to see through --
     # the north pier stands on the shore, so the surf against it is the
@@ -328,6 +387,13 @@ def write_look(sky):
     # the band it is standing against rather than into a grey nobody chose.
     settings["FogColor"] = "[{0:g}, {1:g}, {2:g}]".format(*sky["horizon"])
     settings["ColorLut"] = str(lut)
+    # **How much of the bounced light reaches the frame.** One dial serves the
+    # traced and the baked forms both. The baked field came out darker than
+    # the realtime estimate it replaced, and it should have: the realtime one
+    # was a handful of bounce rays at night, biased bright by the few that
+    # found a lamp. Correct is not the same as matching, so this is the look
+    # asking for more indirect, not the bake being wrong.
+    settings.update(sky.get("post", {}))
     return postprofile.write_named(SCENE.with_name("bridge_cinematic.rvpostprofile"),
                              settings)
 
@@ -344,7 +410,12 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
     # All four, always, so a shot is picked rather than rebuilt. Only the
     # hero's rank matters -- the runtime opens the lowest -- but the others
     # keep a stable order so the editor's list does not shuffle.
-    look = write_look(sky) if cinematic else 0
+    # **The post chain is this scene's default state, not an option.** It was
+    # gated behind --cinematic, which meant the shot everybody actually looks
+    # at was rendered without the fog, the grade or the exposure it was tuned
+    # against -- and night without a fixed exposure is unviewable outright.
+    # The flag stays only so a check can ask for the ungraded picture.
+    look = write_look(sky)
     order = [hero] + [name for name in CAMERAS if name != hero]
     for rank, name in enumerate(order):
         camera = CAMERAS[name]
@@ -360,6 +431,27 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
                 y = max(seabed.height_at(position[0], position[2]), 0.0)                     + camera["eye"]
             position = (position[0], round(y, 2), position[2])
             grounded[name] = position[1]
+        # **Rank 0 is the only camera that renders** -- the runtime opens the
+        # lowest ViewRank -- so it is the only one the rock scatter should
+        # spend its budget for. Captured here, after the grounded cameras have
+        # been stood on the terrain, because the scatter needs the resolved Y.
+        if rank == 0:
+            pitch, yaw = camera["rotation"][0], camera["rotation"][1]
+            level = math.cos(pitch)
+            forward = (-math.sin(yaw) * level, math.sin(pitch),
+                       -math.cos(yaw) * level)
+            # Right is forward crossed with world up, which is well defined for
+            # every camera here because none of them looks straight down.
+            right = (math.cos(yaw), 0.0, -math.sin(yaw))
+            up = (right[1] * forward[2] - right[2] * forward[1],
+                  right[2] * forward[0] - right[0] * forward[2],
+                  right[0] * forward[1] - right[1] * forward[0])
+            # PerspectiveFOV is the vertical angle; the horizontal follows from
+            # the aspect the demo is shot at.
+            half_v = math.radians(camera["fov"]) * 0.5
+            hero_view = (position, forward, right, up,
+                         math.tan(half_v) * (16.0 / 9.0), math.tan(half_v))
+
         s.entity(camera["tag"], position=position,
                  rotation=camera["rotation"])
         s.block("CameraComponent", [
@@ -398,6 +490,8 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
     concrete = seabed.terrain.handle_for("materials/bridge_concrete.rmat")
     asphalt = seabed.terrain.handle_for("materials/bridge_asphalt.rmat")
     paint = seabed.terrain.handle_for("materials/bridge_paint.rmat")
+    lamp = seabed.terrain.handle_for("materials/bridge_lamp.rmat")
+    beacon = seabed.terrain.handle_for("materials/bridge_beacon.rmat")
     for name, part, material in (
             ("Towers", "bridge_towers", steel),
             ("Deck", "bridge_deck", steel),
@@ -405,9 +499,147 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
             ("Roadway", "bridge_road", asphalt),
             ("Piers", "bridge_piers", concrete),
             ("Markings", "bridge_paint", paint),
+            ("Lamps", "bridge_lamps", lamp),
+            ("Beacons", "bridge_beacons", beacon),
     ):
         s.entity(name)
         s.mesh(mesh[part], material)
+
+    # --- baked irradiance ----------------------------------------------------
+    #
+    # **The scene was asking for these every time it loaded.** The project's
+    # GI is set to Baked and the runtime has been logging "no Irradiance
+    # Volume in it, falling back to Realtime" ever since -- so the towers were
+    # being lit by per-frame traced GI, and at night that is a handful of
+    # bounce rays that almost never find anything lit. The result was the red
+    # mottling over the shafts: not the metal, not ambient occlusion, and not
+    # reflections, all three eliminated by A/B.
+    #
+    # **Independent volumes, not one box, because one box cannot work here.**
+    # `MaxResolution` caps a volume's grid at 32 cells an axis, so a single
+    # volume stretched over 2.8 km of strait would sample every 87 m and mean
+    # nothing. Volumes have been independent since 2026-08-27 -- each keeps its
+    # own grid and spacing, and the scene packs them side by side into one
+    # atlas -- which is exactly the feature this needs.
+    #
+    # They cover the towers and not the whole scene, deliberately. A volume
+    # must cover everything *visible* or its boundary reads as a line across
+    # whatever crosses it, and the honest way to satisfy that at this scale is
+    # to bound the thing that actually suffers: the towers are static, they are
+    # where the artefact is, and the sea and sky around them have no bounced
+    # light to bake.
+    # **And the deck, in three.** `MaxResolution` clamps *per axis* and its
+    # own ceiling is 256, not 32 -- so a long thin volume is legal, and three
+    # of them carry the whole 2.7 km of truss at 5 m spacing. 5 m is the
+    # number that matters: the truss is 7.6 m deep, and a cell any coarser
+    # straddles the roadway and its soffit, so the underside would be handed
+    # the light falling on the top of the deck.
+    for z in (-913.0, 0.0, 913.0):
+        s.entity("Deck irradiance {0:+.0f}".format(z),
+                 position=(0.0, 72.0, z))
+        s.block("IrradianceVolumeComponent", [
+            ("AutoFit", "false"),
+            # Wide enough for the service pipes outboard of the trusses,
+            # and 58 m to 86 m in y -- soffit at 67.4, rail heads at 77.
+            ("Extents", vec(22.0, 14.0, 460.0)),
+            ("Spacing", 5.0),
+            ("MaxResolution", 256),
+            ("Passes", 8),
+            ("RaysPerCell", 512),
+        ])
+
+    for z in (-bridge.HALF_SPAN, bridge.HALF_SPAN):
+        s.entity("Tower irradiance {0:+.0f}".format(z),
+                 position=(0.0, 100.0, z))
+        s.block("IrradianceVolumeComponent", [
+            ("AutoFit", "false"),
+            # Half-extents: wide enough for the fender, tall enough to take
+            # the pier base at -35 m and the saddle at 230.
+            ("Extents", vec(58.0, 135.0, 40.0)),
+            # 9 m puts the tall axis at 30 cells, just inside the 32 cap.
+            ("Spacing", 9.0),
+            ("MaxResolution", 32),
+            ("Passes", 8),
+            ("RaysPerCell", 512),
+        ])
+
+    # --- the sodium lamps ----------------------------------------------------
+    #
+    # **128 spot lights, and they are the scene's lighting at night.** The sun
+    # in the night preset is a moon at 0.30 -- it exists to give the water a
+    # sheen and the towers an edge, not to light anything. What actually lights
+    # this bridge after dark is the sodium, which is also why the paint is
+    # International Orange: the lamps emit at 589 nm and the paint peaks at
+    # 600.
+    #
+    # **Spots aimed straight down, not points.** A street lamp is a reflector
+    # over a road; a point light at this height throws as much into the sky as
+    # onto the deck, which both looks wrong and doubles the number of clusters
+    # each one touches. The cone is wide because the luminaire's is.
+    #
+    # Positions come from `bridge.lamp_light`, which is the same function the
+    # geometry uses to place the lens -- a light that is not where its lamp is
+    # reads as a lighting bug rather than a placement one.
+    for index, (x, side, z) in enumerate(bridge.lamp_stations()):
+        s.entity("Sodium {0}".format(index),
+                 position=bridge.lamp_light(x, side, z),
+                 rotation=(-math.pi * 0.5, 0.0, 0.0))
+        s.block("LightComponent", [
+            ("Type", "Spot"),
+            ("Color", vec(*bridge.SODIUM)),
+            ("Intensity", 452),
+            # Reaches the deck and the truss under it and stops: 128 lights
+            # that each touch half the scene is how a clustered renderer is
+            # made to behave like a forward one.
+            # **44 m, and not more.** Reaching the water was tried at 95 and
+            # is a dead end: a lamp 75 m up delivers 1/75^2 of its intensity to
+            # the sea, which is nothing, and the lit patch would be directly
+            # under the deck rather than in the foreground anyway. The glitter
+            # path under a lit bridge is the lamps' *reflection*, not their
+            # cast light -- so the range only has to cover the deck and the
+            # truss under it, and paying for more is cluster overlap for no
+            # pixel.
+            ("Range", 44),
+            ("InnerCone", 34), ("OuterCone", 64),
+        ])
+
+    # --- the tower floodlighting --------------------------------------------
+    #
+    # **The towers are lit, and it is not the sodium doing it.** Every night
+    # photograph of this bridge shows the towers washed warm from below while
+    # the cables above go dark, and that is deck-level floodlighting aimed up
+    # the shafts. Without it the tower is a black cut-out over a lit roadway,
+    # which is the one thing a night frame of this bridge never looks like.
+    #
+    # Four per tower rather than a ring, so the light falls off round the
+    # shaft's sides and the flutes still read as flutes.
+    for z in (-bridge.HALF_SPAN, bridge.HALF_SPAN):
+        for x in (-bridge.TRUSS_HALF, bridge.TRUSS_HALF):
+            for offset in (-9.0, 9.0):
+                s.entity("Tower flood {0:.0f} {1:.0f} {2:.0f}".format(z, x, offset),
+                         position=(x + offset * 0.35, bridge.PIER_TOP + 2.0,
+                                   z + offset),
+                         rotation=(math.radians(78.0), 0.0, 0.0))
+                s.block("LightComponent", [
+                    ("Type", "Spot"),
+                    ("Color", vec(*bridge.SODIUM)),
+                    ("Intensity", 900),
+                    # **Up the whole shaft.** 105 m died below the second
+                    # portal and left the top two thirds black, which is not
+                    # what the references show -- the wash reaches nearly to
+                    # the saddle and only the cables above it go dark.
+                    ("Range", 250),
+                    # **Wide and soft.** At a 9-degree inner cone these read
+                    # as two hot blobs on the shaft rather than a wash --
+                    # a real floodlight is recessed behind a shield and lights
+                    # the whole face, and what gives a spot away is its edge.
+                    ("InnerCone", 26), ("OuterCone", 58),
+                ])
+
+    # **The red beacons are emissive and carry no light**, deliberately. They
+    # are markers -- they exist to be seen, not to illuminate -- and 46 more
+    # lights to light nothing would cost the cluster binning for no pixel that
+    # is not already delivered by the emissive material and the bloom over it.
 
     # --- the floor of the strait --------------------------------------------
     #
@@ -436,6 +668,20 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
             # through the headland is a demo with a hole in it.
             ("Collision", "true"),
         ])
+
+    # --- rock ------------------------------------------------------------------
+    #
+    # Placed by rockscatter, which owns the reasoning: which family belongs on
+    # which ground, and why an even sprinkle is the thing that gives scattered
+    # geometry away. What it fixes here is the near headland -- a heightfield
+    # cannot be vertical, so the cliffs are ramps wearing a stretched planar
+    # uv, and no shader change reaches that.
+    if seabed_name != "none":
+        # The viewpoints, so the scatter can spend its budget on ground that
+        # is actually looked at. Every camera in the scene, not just the hero:
+        # the hero is a flag and the others are one regeneration away.
+        stones = rockscatter.place(s, seabed, seabed.terrain.handle_for,
+                                   bridge.handle_for, hero_view)
 
     # --- the sea ------------------------------------------------------------
     #

@@ -496,6 +496,27 @@ namespace RageV
 		// under the other.
 		float GiIntensity = 1.0f;
 
+		// **The floor under the traced reflection's firefly clamp.**
+		//
+		// A traced mirror ray is bounded against the prefiltered probe --
+		// `min(traced, prefiltered * 8 + floor)` -- because a ray that lands on
+		// one bright texel is not a highlight the probe missed, it is a sample,
+		// and on a smooth surface the direction drifts with the jitter so the
+		// pixel blinks. Bounding it against the probe is right whenever the
+		// probe is a fair estimate of the same lobe.
+		//
+		// **At night it is not.** The environment goes black, `prefiltered * 8`
+		// goes to nothing, and the bound collapses onto this floor -- so a
+		// sodium lamp's reflection in water, which is a real highlight and the
+		// whole of what a night photograph of a lit bridge is made of, is
+		// crushed to 0.05 along with the fireflies.
+		//
+		// 0.05 is what it was as a constant, so leaving it alone changes no
+		// existing scene. A night scene raises it; the value is an *absolute*
+		// radiance, so it wants to be near the brightness of the sources whose
+		// reflections must survive.
+		float ReflectionFloor = 0.05f;
+
 		// How finely the screen-space gather is taken (ENGINE-NOTES 7az).
 		// Half resolution and twelve taps were constants, and they are why
 		// bleed read as a wash.

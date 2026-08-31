@@ -8,6 +8,10 @@
 #include "RageV/IO/TextureCook.h"
 #include "RageV/IO/VFS.h"
 #include "stb_image.h"
+#include "stb_write_image.h"
+#include "RageV/Asset/TilingSynthesis.h"
+#include "RageV/Project/Project.h"
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <functional>
@@ -557,6 +561,213 @@ namespace RageV
 
 		s_Cache[key] = texture;
 		RV_CORE_INFO("Loaded texture {0} ({1}x{2}, {3})", path, width, height, srgb ? "sRGB" : "linear");
+		return texture;
+	}
+
+	Ref<RHITexture> TextureLoader::SynthesisedTiling(RHIDevice& device, const std::string& path,
+													 int scale, int cells, uint32_t seed,
+													 bool srgb, bool regenerate)
+	{
+		if (path.empty() || scale <= 1)
+			return Load2D(device, path, srgb);
+
+		// The key covers the source's *content* and every number that shapes
+		// the output, so a repainted texture or a changed scale invalidates the
+		// stored answer without anyone remembering to.
+		uint64_t key = 1469598103934665603ull;
+		auto mix = [&key](uint64_t value)
+		{
+			key ^= value;
+			key *= 1099511628211ull;
+		};
+
+		std::vector<uint8_t> bytes;
+		if (!IO::VFS::ReadBytes(path, bytes))
+		{
+			RV_CORE_WARN("Could not read '{0}' to synthesise a tile from it", path);
+			return Load2D(device, path, srgb);
+		}
+		for (uint8_t b : bytes)
+			mix(b);
+		mix((uint64_t)scale);
+		mix((uint64_t)cells);
+		mix((uint64_t)seed);
+
+		char stamp[32];
+		std::snprintf(stamp, sizeof(stamp), "%016llx", (unsigned long long)key);
+
+		const std::filesystem::path source(path);
+		const std::filesystem::path folder = Project::CacheRoot() / "synthesis";
+		const std::filesystem::path cached =
+			folder / (source.stem().string() + "." + stamp + ".png");
+
+		std::error_code error;
+		if (regenerate)
+			std::filesystem::remove(cached, error);
+
+		if (!std::filesystem::exists(cached, error))
+		{
+			int width = 0, height = 0, channels = 0;
+			stbi_uc* pixels = stbi_load_from_memory(bytes.data(), (int)bytes.size(),
+													&width, &height, &channels, 0);
+			if (!pixels)
+			{
+				RV_CORE_ERROR("Could not decode '{0}' for synthesis: {1}", path,
+							  stbi_failure_reason());
+				return Load2D(device, path, srgb);
+			}
+
+			Assets::SynthesisRequest request;
+			request.Pixels = pixels;
+			request.Width = width;
+			request.Height = height;
+			request.Channels = channels;
+			request.Scale = scale;
+			request.Cells = cells;
+			request.Seed = seed;
+
+			const std::vector<uint8_t> out = Assets::SynthesiseTiling(request);
+			stbi_image_free(pixels);
+
+			if (out.empty())
+				return Load2D(device, path, srgb);
+
+			std::filesystem::create_directories(folder, error);
+			if (stbi_write_png(cached.string().c_str(), width * scale, height * scale,
+							   channels, out.data(), width * scale * channels) == 0)
+			{
+				RV_CORE_WARN("Could not write the synthesised tile '{0}'; it will be "
+							 "rebuilt every load", cached.string());
+			}
+			RV_CORE_INFO("Synthesised {0} ({1}x{2} -> {3}x{4}, {5} cells)",
+						 source.filename().string(), width, height,
+						 width * scale, height * scale, cells);
+		}
+
+		// Through Load2D, so the synthesised tile gets the same mip chain,
+		// colour space handling and cache every other texture does.
+		return Load2D(device, cached.string(), srgb);
+	}
+
+	Ref<RHITexture> TextureLoader::PackChannels(RHIDevice& device,
+												const std::string& red,
+												const std::string& green,
+												const std::string& blue,
+												uint8_t redNeutral,
+												uint8_t greenNeutral,
+												uint8_t blueNeutral,
+												const std::string& debugName)
+	{
+		// Keyed on all three sources. Two materials sharing a set share the
+		// texture, which is the usual case for a terrain's four layers.
+		const std::string key = red + "|" + green + "|" + blue + "|packed";
+		if (const auto it = s_Cache.find(key); it != s_Cache.end())
+			return it->second;
+
+		struct Channel
+		{
+			std::vector<stbi_uc> Pixels;
+			int Width = 0;
+			int Height = 0;
+			uint8_t Neutral = 0;
+		};
+
+		std::array<Channel, 3> channels;
+		channels[0].Neutral = redNeutral;
+		channels[1].Neutral = greenNeutral;
+		channels[2].Neutral = blueNeutral;
+
+		const std::array<const std::string*, 3> sources = { &red, &green, &blue };
+		for (size_t c = 0; c < 3; c++)
+		{
+			if (sources[c]->empty())
+				continue;
+
+			int ignored = 0;
+			// One channel: these are greyscale data maps, and asking stb for
+			// one lets it do the conversion for a source that is not.
+			stbi_uc* pixels = stbi_load(sources[c]->c_str(), &channels[c].Width,
+										&channels[c].Height, &ignored, 1);
+			if (!pixels)
+			{
+				// Not fatal. A map that will not read takes its neutral, which
+				// is the same thing an absent one does -- so a broken file
+				// costs that one channel rather than the whole surface.
+				RV_CORE_WARN("Could not read '{0}' to pack it; that channel falls "
+							 "back to its neutral", *sources[c]);
+				channels[c].Width = channels[c].Height = 0;
+				continue;
+			}
+			channels[c].Pixels.assign(pixels,
+									  pixels + (size_t)channels[c].Width * channels[c].Height);
+			stbi_image_free(pixels);
+		}
+
+		// The largest source decides the size. **Not the first present one**:
+		// a 4K roughness beside a 1K occlusion should not throw away three
+		// quarters of the roughness, and the cheap direction to resample is
+		// up.
+		int width = 0, height = 0;
+		for (const Channel& channel : channels)
+		{
+			width = std::max(width, channel.Width);
+			height = std::max(height, channel.Height);
+		}
+
+		if (width == 0 || height == 0)
+		{
+			// Every channel absent or unreadable. There is nothing to pack and
+			// nothing to bind; the caller keeps its neutral fallback.
+			s_Cache[key] = nullptr;
+			return nullptr;
+		}
+
+		std::vector<stbi_uc> packed((size_t)width * height * 4, 255);
+		for (size_t c = 0; c < 3; c++)
+		{
+			const Channel& channel = channels[c];
+			if (channel.Pixels.empty())
+			{
+				for (size_t i = 0; i < (size_t)width * height; i++)
+					packed[i * 4 + c] = channel.Neutral;
+				continue;
+			}
+
+			// Point sampling for a source that is not the target size. Bilinear
+			// would be better and needs a resampler this file does not have;
+			// in practice a set's maps ship at one size and this path is the
+			// mismatched-set safety net rather than the normal case.
+			const bool exact = channel.Width == width && channel.Height == height;
+			for (int y = 0; y < height; y++)
+			{
+				const int sy = exact ? y : y * channel.Height / height;
+				for (int x = 0; x < width; x++)
+				{
+					const int sx = exact ? x : x * channel.Width / width;
+					packed[((size_t)y * width + x) * 4 + c] =
+						channel.Pixels[(size_t)sy * channel.Width + sx];
+				}
+			}
+		}
+
+		TextureDesc desc;
+		desc.Width = (uint32_t)width;
+		desc.Height = (uint32_t)height;
+		// Linear, never sRGB: all three channels are data.
+		desc.Format = Format::R8G8B8A8_UNORM;
+		desc.Usage = TextureUsage::Sampled | TextureUsage::TransferDst | TextureUsage::TransferSrc;
+		desc.MipLevels = 0;   // the full chain
+		desc.DebugName = debugName;
+
+		auto texture = device.CreateTexture(desc);
+		if (texture)
+			texture->Upload(packed.data(), (uint64_t)width * height * 4);
+
+		s_Cache[key] = texture;
+		RV_CORE_INFO("Packed surface {0} ({1}x{2}) from r='{3}' g='{4}' b='{5}'",
+					 debugName, width, height,
+					 red.empty() ? "-" : red, green.empty() ? "-" : green,
+					 blue.empty() ? "-" : blue);
 		return texture;
 	}
 

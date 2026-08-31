@@ -203,7 +203,8 @@ def to_weights(*channels):
 
 
 def write_material(path, name, base_color, maps=None, tiling=(1.0, 1.0),
-                   roughness=1.0, height_scale=0.0):
+                   roughness=1.0, height_scale=0.0, normal_scale=1.0,
+                   macro_scale=0.0, macro_strength=0.0):
     """A `.rmat` beside a `.meta` whose SourceHash is the registry's own, so a
     check run leaves it clean. Untextured unless `maps` names the handles."""
     path = pathlib.Path(path)
@@ -215,9 +216,13 @@ def write_material(path, name, base_color, maps=None, tiling=(1.0, 1.0),
         "Metallic: 0",
         f"Roughness: {roughness:g}",
         "Occlusion: 1",
-        "NormalScale: 1",
+        f"NormalScale: {normal_scale:g}",
         "Specular: 0.5",
         f"HeightScale: {height_scale:g}",
+        # Omitted entirely when off, so every material authored before
+        # macro variation existed keeps the bytes it had.
+        *( [f"MacroScale: {macro_scale:g}",
+            f"MacroStrength: {macro_strength:g}"] if macro_scale > 0.0 else [] ),
         f"Tiling: [{tiling[0]:g}, {tiling[1]:g}]",
         "UvOffset: [0, 0]",
     ]

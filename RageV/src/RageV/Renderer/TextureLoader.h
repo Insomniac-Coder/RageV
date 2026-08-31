@@ -47,6 +47,60 @@ namespace RageV
 												bool srgb = true,
 												bool generateMips = true);
 
+		// **Three single-channel maps into one RGB texture**, red, green and
+		// blue, built in memory and cached like any other.
+		//
+		// This exists because the layered terrain variant has three samplers
+		// per layer and cannot grow a fourth: set 0 already spends 16 of the
+		// 32 texture units OpenGL guarantees a fragment stage, and four more
+		// arrays of four would be 33. Roughness, ambient occlusion and height
+		// are one channel each, so all three fit in one texture at one
+		// sampler and nothing has to be given up.
+		//
+		// **The material still declares them separately**, which is the point.
+		// Packing is a fact about how this renderer binds things, not about
+		// how a surface is authored, so it happens here rather than being
+		// pushed onto whoever writes the `.rmat`. An empty path takes the
+		// neutral given for its channel, so a set that ships fewer maps packs
+		// as though it shipped them all.
+		//
+		// In memory rather than on disk, unlike the glTF metallic-roughness
+		// split, and the difference is real: that one is written out because
+		// a *material stores handles* and an in-memory texture has none. This
+		// is derived state that nothing references by handle -- it is rebuilt
+		// from the three sources whenever the material is loaded.
+		//
+		// Always linear. Every channel here is data, never a picture.
+		static RHI::Ref<RHI::RHITexture> PackChannels(RHI::RHIDevice& device,
+													  const std::string& red,
+													  const std::string& green,
+													  const std::string& blue,
+													  uint8_t redNeutral,
+													  uint8_t greenNeutral,
+													  uint8_t blueNeutral,
+													  const std::string& debugName);
+
+		// **A larger, non-repeating tile synthesised from `path`.**
+		//
+		// Heitz & Neyret's histogram-preserving synthesis, run once into an
+		// output `scale` times bigger rather than three fetches a pixel
+		// forever. See Assets::SynthesiseTiling for the method and for why the
+		// lattice is square rather than hexagonal.
+		//
+		// **Cached on disk**, keyed by the source's bytes together with every
+		// number that shapes the result -- so it runs once per material and a
+		// changed source or a changed scale invalidates it by itself. 4K from
+		// 1K takes seconds; doing it on every load would be unusable, which is
+		// what makes the cache part of the feature rather than an optimisation.
+		//
+		// `regenerate` forces it again, for the case a stored answer cannot
+		// detect: the same shape IrradianceVolumeComponent::Recapture has.
+		static RHI::Ref<RHI::RHITexture> SynthesisedTiling(RHI::RHIDevice& device,
+														   const std::string& path,
+														   int scale, int cells,
+														   uint32_t seed, bool srgb,
+														   bool regenerate);
+
 		// An environment map, always linear and always float: a sky is the one
 		// thing in a scene that is genuinely brighter than white, and clipping
 		// it to 1.0 removes exactly the values bloom and (later) IBL exist to

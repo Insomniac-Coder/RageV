@@ -186,6 +186,46 @@ BASE = -125.0
 # have something to break on.
 TEXTURE_SCALE = 48.0
 
+# **Tiling is a texel density, not a taste.** The uv is metres over
+# TEXTURE_SCALE, so a layer repeats every TEXTURE_SCALE / tiling metres, and
+# what the eye actually judges is millimetres of surface per texel of map.
+#
+# The soil maps are 4096 square and were tiled at 6 -- 8 m a repeat, 1.95 mm
+# a texel. The imported sets are 1024 square, and left at 6 they landed at
+# 7.81 mm a texel: **four times blurrier than the ground they replaced**,
+# which is exactly the smearing that swap produced. 24 puts them back at 2 m
+# a repeat and 1.95 mm a texel, the same density as before. Silt keeps 6
+# because its maps are still the 4096 ones.
+TILING = 24.0
+
+# The bridge's own materials run 1.6 to 1.8 and say why: the relief in these
+# maps is real millimetres, and honest millimetres disappear at the distance
+# a thing is actually looked at from. Terrain is looked at from a hundred
+# times further than the bridge and was running at 1.
+NORMAL_SCALE = 1.6
+
+# How deep the parallax march displaces, in uv units. One uv unit is
+# TEXTURE_SCALE / TILING = 2 m here, so 0.035 is about 7 cm of apparent relief
+# -- enough for a rock face to read as cut rather than painted, and short
+# enough that the silhouette does not give it away at the chunk edges.
+HEIGHT_SCALE = 0.035
+
+# --- macro variation ----------------------------------------------------------
+#
+# **The thing that stops 1 400 identical repeats reading as one flat field.**
+# The layers tile every 2 m over a 2.8 km terrain; up close that is right, and
+# at any distance the eye stops resolving the tile and sees a perfectly regular
+# surface instead. Nothing inside the tile fixes that -- a feature larger than
+# a fraction of it appears once per repeat, in rows, and a smaller one averages
+# to grey. A second field at a scale bigger than the object is the only answer,
+# and it can only come from world position at shading time.
+#
+# 55 m is deliberately far above the 2 m tile and below the size of a headland:
+# a cliff gets two or three slow swells across it rather than one flat value or
+# a second texture.
+MACRO_SCALE = 55.0
+MACRO_STRENGTH = 0.34
+
 
 def smoothstep(x, edge0, edge1):
     """Hermite from 0 at `edge0` to 1 at `edge1`, either order."""
@@ -410,7 +450,59 @@ def heights_metres(seed=11):
     land = land + (np.minimum(land, grade) - land) * corridor
     hold = np.maximum(land, grade - 2.5)
     land = land + (hold - land) * corridor * smoothstep(z, -1150.0, -1330.0)
-    return np.where((z < north) | (z > south), np.maximum(land, 0.15), floor)
+    field = np.where((z < north) | (z > south), np.maximum(land, 0.15), floor)
+
+    # **The coastline was a step, not a slope, and that was the whole defect.**
+    # The line above is a `where`: at the shore it switches from the land field
+    # straight to the sea floor with nothing in between, and at Lime Point that
+    # is high ground against a -20 m floor. Measured across one face, adjacent
+    # samples differed by up to **60 m over a 2.73 m cell** -- 2.6 degrees off
+    # vertical, which a heightfield cannot hold. It renders as one-cell-wide
+    # vertical ribbons, and that corrugated wall is what "the terrain looks
+    # stretched" actually was. The talus passes above never touched it because
+    # they run on `land`, before this join exists.
+    #
+    # So the limiter runs last, on the joined field, where the step is.
+    return limit_slope(field, cell, degrees=58.0)
+
+
+def limit_slope(height, cell, degrees=58.0, iterations=240):
+    """Cap the height change between neighbours at a real angle of repose.
+
+    A heightfield's steepest representable face is set by its sample spacing:
+    at 2.73 m a cell, a 60 m step is a vertical wall drawn as a one-cell ribbon.
+    This walks the excess downhill until nothing exceeds `degrees`.
+
+    **Half the excess, both ways.** Moving the whole overshoot off the high
+    side carves notches into ridgelines; splitting it -- raising the low
+    neighbour and lowering the high one by the same amount -- conserves the
+    volume and leaves the ridge where it was, which is what keeps a headland a
+    headland instead of planing it into a dome.
+
+    58 degrees because the Marin Headlands genuinely are near that, and because
+    it is the steepest a 2.73 m grid can carry without the face becoming a
+    ribbon: tan(58) x 2.73 is 4.4 m between samples.
+    """
+    limit = math.tan(math.radians(degrees)) * cell
+    for _ in range(iterations):
+        moved = 0.0
+        for axis in (0, 1):
+            difference = np.diff(height, axis=axis)
+            excess = np.abs(difference) - limit
+            over = excess > 0.0
+            if not over.any():
+                continue
+            step = np.where(over, np.sign(difference) * excess * 0.5, 0.0)
+            moved = max(moved, float(np.abs(step).max()))
+            if axis == 0:
+                height[:-1, :] += step
+                height[1:, :] -= step
+            else:
+                height[:, :-1] += step
+                height[:, 1:] -= step
+        if moved < 1e-3:
+            break
+    return height
 
 
 def paint(height):
@@ -438,27 +530,84 @@ def paint(height):
     return terrain.to_weights(silt, rock, sand, scrub)
 
 
+def acg_maps(name):
+    """The three maps the layered terrain shader reads, by handle.
+
+    **Recomputed rather than copied.** `import_downloaded_materials.py` mints
+    each texture's handle as FNV-1a of its file name and so does this, so the
+    two agree by construction and a rename cannot leave a stale number behind
+    pointing at nothing.
+
+    **All five, named separately, exactly as any other material names them.**
+    The layered variant does bind only three samplers per layer -- set 0
+    already spends 16 of the 32 texture units OpenGL guarantees a fragment
+    stage -- but the asset layer packs roughness, occlusion and height into
+    one texture's r, g and b at load, so three samplers carry five maps. That
+    is `TextureLoader::PackChannels`, and nothing here has to know it happens.
+    """
+    return {"BaseColor": bridge.handle_for(name + "_color.jpg"),
+            "Normal": bridge.handle_for(name + "_normal.jpg"),
+            "Roughness": bridge.handle_for(name + "_roughness.jpg"),
+            "Occlusion": bridge.handle_for(name + "_ao.jpg"),
+            "Height": bridge.handle_for(name + "_height.jpg")}
+
+
 def materials():
-    """Four tints of the shared soil maps. Untextured colour under water
-    gives the caustics nothing to break on and the eye nothing to read
-    distance from, and above water it gives a 280 m hill no scale at all."""
-    maps = terrain.SOIL_MAPS
+    """Four layers, four genuinely different material sets.
+
+    **They used to be one soil texture tinted four ways**, which is why the
+    ground read as one flat brown from every camera: rock and sand were the
+    same picture, and `soil_color` measures a standard deviation of 13 out of
+    255 -- about 5% contrast -- so there was almost nothing in it to tell
+    apart in the first place. Rock050, Gravel032 and Ground048 measure 19, 25
+    and 32, and they are three different surfaces rather than three tints.
+
+    **And the tints are gone, which matters more than the textures.** The old
+    multipliers took the map to a *linear* albedo of 0.017, 0.008, 0.003 --
+    darker than charcoal, and five times darker in green than in red, which
+    is the whole of why everything came out the same dead brown. The rule the
+    bridge's own material writer states applies here and was not being
+    followed: where a colour map is bound, BaseColor stays white and the
+    texture's measured values reach the shader unscaled.
+
+    Silt keeps the soil maps. It is the fine sediment under the water, which
+    is what that texture actually looks like, and it means the four layers
+    are now four sets rather than three plus a repeat.
+    """
     return (
         terrain.write_material(MATERIALS / "bay_silt.rmat", "materials/bay_silt.rmat",
-                               (0.18, 0.15, 0.11), maps=maps, tiling=(6.0, 6.0)),
+                               (0.55, 0.52, 0.45), maps=terrain.SOIL_MAPS,
+                               tiling=(6.0, 6.0), normal_scale=NORMAL_SCALE,
+                               height_scale=HEIGHT_SCALE,
+                               macro_scale=MACRO_SCALE,
+                               macro_strength=MACRO_STRENGTH),
         # Mapped like the rest, now that the terrain shader projects from the
         # side on a steep face. Before that it had to be flat colour -- a
         # mapped layer on a cliff was a wall of vertical stripes -- and a
         # flat-colour cliff is a white slab, which is worse.
         terrain.write_material(MATERIALS / "bay_rock.rmat", "materials/bay_rock.rmat",
-                               (0.17, 0.14, 0.12), maps=maps, tiling=(6.0, 6.0)),
+                               (1.0, 1.0, 1.0), maps=acg_maps("acg_rock"),
+                               tiling=(TILING, TILING), normal_scale=NORMAL_SCALE,
+                               height_scale=HEIGHT_SCALE,
+                               macro_scale=MACRO_SCALE,
+                               macro_strength=MACRO_STRENGTH),
         terrain.write_material(MATERIALS / "bay_sand.rmat", "materials/bay_sand.rmat",
-                               (0.52, 0.45, 0.35), maps=maps, tiling=(6.0, 6.0)),
+                               (1.0, 1.0, 1.0), maps=acg_maps("acg_gravel"),
+                               tiling=(TILING, TILING), normal_scale=NORMAL_SCALE,
+                               height_scale=HEIGHT_SCALE,
+                               macro_scale=MACRO_SCALE,
+                               macro_strength=MACRO_STRENGTH),
         # **Tawny, off the photographs.** The Headlands are gold-brown for
-        # most of the year -- not the green a hill is reflexively painted,
-        # and not the neutral drab this had before the references arrived.
+        # most of the year -- not the green a hill is reflexively painted.
+        # A tint again, but a *chromatic* one: it pulls blue down and leaves
+        # red alone, so it moves the hue without darkening the surface, which
+        # is the mistake the other three were making.
         terrain.write_material(MATERIALS / "bay_scrub.rmat", "materials/bay_scrub.rmat",
-                               (0.23, 0.18, 0.08), maps=maps, tiling=(6.0, 6.0)),
+                               (1.0, 0.94, 0.70), maps=acg_maps("acg_ground"),
+                               tiling=(TILING, TILING), normal_scale=NORMAL_SCALE,
+                               height_scale=HEIGHT_SCALE,
+                               macro_scale=MACRO_SCALE,
+                               macro_strength=MACRO_STRENGTH),
     )
 
 

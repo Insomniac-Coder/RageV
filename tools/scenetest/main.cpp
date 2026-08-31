@@ -29,6 +29,7 @@
 #include "RageV/Scene/Entity.h"
 #include "RageV/Scene/Components.h"
 #include "RageV/Asset/Curve.h"
+#include "RageV/Asset/TilingSynthesis.h"
 #include "RageV/Asset/CurveSerializer.h"
 #include "RageV/Asset/PostProfileSerializer.h"
 #include "RageV/Asset/CubeLut.h"
@@ -13623,7 +13624,122 @@ void main()
 		// --- the layered material's numbers (7aq) -----------------------------
 		// The block is mirrored by hand in the shader; the size is the first
 		// thing that drifts.
-		Check(sizeof(LayeredParams) == 368, "LayeredParams is the 368 bytes LayeredData declares");
+		Check(sizeof(LayeredParams) == 416, "LayeredParams is the 416 bytes LayeredData declares");
+
+		// **The two blocks the shader mirrors by hand.** These are compile-time
+		// asserts in Material.h as well; they are here too because the failure
+		// they guard is not a crash -- a block whose C++ and GLSL layouts
+		// disagree reads the wrong sixteen bytes, and the symptom is a material
+		// whose roughness is somebody else's tiling.
+		Check(sizeof(MaterialParams) == 128,
+			  "MaterialParams is the 128 bytes MaterialData declares");
+		Check(sizeof(GpuMaterial) == 112,
+			  "GpuMaterial is the 112 bytes the bindless path declares");
+
+		// **The extended lobes are off in a default material.** The whole
+		// argument for landing them is that nothing already authored moves, and
+		// that argument is only worth as much as this check.
+		{
+			const MaterialParams fresh;
+			Check(fresh.Clearcoat == 0.0f && fresh.Anisotropy == 0.0f
+				  && fresh.Subsurface == 0.0f,
+				  "a default material has clearcoat, anisotropy and subsurface off");
+			Check(fresh.SheenColor.x == 0.0f && fresh.SheenColor.y == 0.0f
+				  && fresh.SheenColor.z == 0.0f,
+				  "and a black sheen, which is the lobe's own off switch");
+		}
+
+		// --- tiling synthesis (Heitz & Neyret, offline) -----------------------
+		//
+		// Three claims, and each one is a way the thing fails silently: a blend
+		// that loses contrast, an output that does not tile, and channels that
+		// drift apart from each other.
+		{
+			constexpr int kSide = 64;
+			std::vector<uint8_t> source((size_t)kSide * kSide * 3);
+			uint32_t rng = 12345u;
+			for (size_t i = 0; i < (size_t)kSide * kSide; i++)
+			{
+				rng = rng * 1664525u + 1013904223u;
+				const uint8_t value = (uint8_t)((rng >> 16) & 0xFFu);
+				// **Red and green identical, blue independent.** If the offsets
+				// were seeded per channel -- which they were, and it is exactly
+				// the bug this catches -- red and green would be drawn from
+				// different parts of the source and stop matching.
+				source[i * 3 + 0] = value;
+				source[i * 3 + 1] = value;
+				rng = rng * 1664525u + 1013904223u;
+				source[i * 3 + 2] = (uint8_t)((rng >> 16) & 0xFFu);
+			}
+
+			Assets::SynthesisRequest request;
+			request.Pixels = source.data();
+			request.Width = kSide;
+			request.Height = kSide;
+			request.Channels = 3;
+			request.Scale = 2;
+			request.Cells = 4;
+			const std::vector<uint8_t> out = Assets::SynthesiseTiling(request);
+
+			Check(out.size() == (size_t)kSide * 2 * kSide * 2 * 3,
+				  "tiling synthesis returns the requested size");
+
+			auto stats = [](const uint8_t* data, size_t count, size_t stride,
+							double& mean, double& deviation)
+			{
+				double sum = 0.0;
+				for (size_t i = 0; i < count; i++) sum += data[i * stride];
+				mean = sum / (double)count;
+				double square = 0.0;
+				for (size_t i = 0; i < count; i++)
+				{
+					const double d = data[i * stride] - mean;
+					square += d * d;
+				}
+				deviation = std::sqrt(square / (double)count);
+			};
+
+			// **The histogram survives**, which is the whole reason the blend
+			// happens in Gaussian space. A naive weighted mean of three draws
+			// keeps the mean and loses the contrast, so the deviation is the
+			// number that catches it.
+			double sourceMean = 0.0, sourceDeviation = 0.0;
+			double outMean = 0.0, outDeviation = 0.0;
+			stats(source.data(), (size_t)kSide * kSide, 3, sourceMean, sourceDeviation);
+			stats(out.data(), (size_t)kSide * 2 * kSide * 2, 3, outMean, outDeviation);
+			Check(std::abs(outMean - sourceMean) < 4.0,
+				  "synthesis keeps the source's mean");
+			Check(std::abs(outDeviation - sourceDeviation) < 6.0,
+				  "synthesis keeps the source's contrast, which a naive blend halves");
+
+			// **It tiles.** The edges have to match each other at least as well
+			// as neighbouring columns inside the image do -- a weaker bar than
+			// "identical" and a much stronger one than "looks fine".
+			const int side = kSide * 2;
+			auto columnDifference = [&](int a, int b)
+			{
+				double total = 0.0;
+				for (int y = 0; y < side; y++)
+					for (int c = 0; c < 3; c++)
+						total += std::abs((double)out[((size_t)y * side + a) * 3 + c]
+										  - (double)out[((size_t)y * side + b) * 3 + c]);
+				return total / (side * 3);
+			};
+			const double seam = columnDifference(0, side - 1);
+			const double interior = columnDifference(side / 3, side / 3 + 1);
+			Check(seam <= interior * 1.35,
+				  "the synthesised tile's edges match as well as its interior does");
+
+			// **The channels stay registered.** Identical inputs must give
+			// identical outputs, or the maps of one material stop describing
+			// one surface.
+			size_t drifted = 0;
+			for (size_t i = 0; i < (size_t)side * side; i++)
+				if (out[i * 3 + 0] != out[i * 3 + 1])
+					drifted++;
+			Check(drifted == 0,
+				  "channels share one offset field, so identical inputs stay identical");
+		}
 		{
 			// The weight coordinate lands sample i on texel centre (i + 0.5) / R,
 			// whatever the texture scale: sample 0 sits at uv = -Size / (2 T),

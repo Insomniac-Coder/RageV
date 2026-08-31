@@ -6,7 +6,199 @@ Everything is on **`main`**, pushed. Three commits landed on 2026-08-28:
 sky occlusion (`2f87153`), the ray-budget allocator (`0daf01b`), and the
 measurement flags (`b171234`). Each message carries its full reasoning.
 
-## NEXT TASK — macro breakup in the shader (owner-set, 2026-08-31)
+## Start here — 2026-08-31 (night session): lighting, tiling, and the two
+## defects that were wasting everyone's time
+
+**Everything below is unpushed and uncommitted.** `scenetest` is green on both
+backends (exit 0) and the demo renders clean.
+
+### The two findings that mattered most
+
+**1. The coastline was a step, not a slope.** `heights_metres` ends in a
+`np.where` that switches from the land field straight to the sea floor with
+nothing between. At Lime Point that put high ground against a -20 m floor:
+adjacent samples differing by **60 m over a 2.73 m cell**, which is 2.6 degrees
+off vertical and a shape a heightfield cannot hold. It renders as one-cell-wide
+vertical ribbons, and that corrugated wall was what "the terrain looks
+stretched" actually was. The talus passes never touched it because they run on
+`land`, before the join exists. Fixed by `limit_slope`, last, on the joined
+field: max adjacent step 60.4 m → 6.3 m, steepest face 86.6° → 67.8°.
+
+**2. The hero camera was two metres from a cliff.** Ray-casting the frustum
+against the heightfield showed the right third of the frame was terrain at
+**2 to 4 m** from the lens. No texture at any resolution survives that, which
+is why two sessions of shader work on the cliffs showed nothing. Moved to
+(500, ~102, -1100) — 145 m clear, still frames the tower, and closer to what
+Battery Spencer is. **A `cliff` camera was added** because every other camera
+looks *along* that coast rather than at it.
+
+### Lighting
+
+- **128 sodium lamps** as spots aimed down (Intensity 452, Range 44), positions
+  from `bridge.lamp_light()` — the same function the geometry uses for the
+  lens, so a light cannot drift from its lamp.
+- **8 tower floods** washing the shafts, and **46 red obstruction lights**
+  (saddles, cable markers, fender marine lights) which are **emissive only** —
+  markers illuminate nothing, and 46 more lights would cost cluster binning for
+  no pixel.
+- **Night carries its own post profile**, attached whether or not
+  `--cinematic` is given. Auto exposure is **off** in it: a night frame with an
+  exposure hunting for mid grey comes back correctly exposed and completely
+  wrong.
+- **Five baked irradiance volumes** (2 tower, 3 deck at 5 m spacing — the truss
+  is 7.6 m deep and a coarser cell hands the soffit the roadway's light).
+  `MaxResolution` clamps **per axis** and its ceiling is 256, not 32, which is
+  what makes long thin volumes legal.
+
+### Tiling: three separate things, and they are not substitutes
+
+- **Macro variation** (`MacroScale` / `MacroStrength`, both 0 = off) modulates
+  albedo, roughness *and* relief from world position. It fixes **uniformity at
+  range**. It cannot remove repetition — it multiplies a repeating pattern.
+  On terrain (55 m / 0.34) and concrete (14 m / 0.55).
+- **Stochastic tiling** removes it. `Assets::SynthesiseTiling` is Heitz &
+  Neyret's histogram-preserving synthesis run **once into a larger tile**,
+  cached on disk, with a `.rmat` toggle and a regenerate verb in the inspector.
+  On `bridge_concrete`, and the pier's chevron lattice is gone.
+- **A less directional source.** Concrete044D → **Concrete025**, chosen by
+  measurement over nine candidates: anisotropy 1.90 → 1.58, low-frequency
+  energy 0.27 → 0.10.
+
+### Movie-grade BRDF (2026-08-31, last thing in)
+
+Four lobes on top of metallic-roughness GGX, **all off by default and verified
+so**. `MaterialParams` 96 → 128 bytes, `GpuMaterial` 80 → 112, both checked in
+the suite: a block whose C++ and GLSL layouts disagree does not crash, it reads
+the wrong sixteen bytes.
+
+- **Clearcoat** — a second smooth dielectric interface at a fixed 4%. The base
+  is *attenuated* by what the coat reflects, so the two sum to no more than
+  arrived. Adding a coat without that is how a lacquered surface ends up
+  brighter than the light falling on it.
+- **Sheen** — Charlie distribution with Ashikhmin visibility. Charlie and not
+  GGX because a GGX lobe falls to nothing at the silhouette and cloth does the
+  opposite: velvet is brightest at its rim.
+- **Anisotropy** — GGX split into two axes about the surface tangent, Disney
+  aspect remap. Water keeps its own Beckmann lobe and ignores this.
+- **Subsurface** — a *wrap*, not a diffusion profile, and the code says so. It
+  buys the soft terminator of skin, marble and wax; it will not carry light
+  through a thin object.
+
+**They arrive through the `Surface` struct, never from `u_Material`.** The
+lighting is shared with the layered variant, whose set 1 has no such fields —
+reading them directly fails to compile for terrain. The layered body fills them
+off, which is also correct: ground is not lacquered, fuzzy, brushed or
+translucent.
+
+**Named floats, not packed vec4s.** Four consecutive floats on a 16-byte
+boundary occupy exactly a vec4's std140 bytes, so the GPU sees no difference
+and the inspector gets six labelled rows instead of two rows of x/y/z/w with
+unrelated meanings inside them.
+
+**Verified unchanged when off**, and the control is the point: against a
+pre-change frame the sky is bit-identical and the water and bridge differ by
+2.39 / 0.54 — which is exactly what *two runs of the same build* differ by,
+because the water is animated. Without that control the number means nothing.
+
+### The sodium flicker on the water, observed 2026-08-31
+
+The owner sees the lamps' reflections **flickering** on the sea. That is the
+documented firefly mode, not a new defect: `ReflectionFloor: 30` lets a traced
+mirror ray past the clamp that used to crush it to 0.05, so the reflections
+arrive — but a 0.6 m lens at 300 m is found by *one ray occasionally*, and the
+clamp's own comment predicts exactly this ("the direction drifts with the
+sub-pixel jitter, so which texel that is changes every frame, and the pixel
+blinks").
+
+**It is evidence for the area-light row (NEXT.md 6), not against the floor.** A
+source with extent is found reliably; a point is found by luck. Lowering
+`ReflectionFloor` stops the flicker and takes the streaks with it — that
+trade-off is the whole reason it is a setting rather than a constant.
+
+
+### Traps this session paid for
+
+- **A `//` comment inside a multi-line macro deletes the rest of it.** Every
+  line of `SHADE_LAYER` ends in a backslash, and a continuation at the end of a
+  `//` comment swallows the next line — silently, to the end of the macro. All
+  of that macro's prose lives outside it for this reason.
+- **The import cache can hold a truncated cooked mesh, and it bit twice.** A
+  run killed mid-cook leaves a file that fails *differently each time* and
+  never points at itself: first a 68-second hang on "uploading
+  bridge_deck.fbx" plus three **skeleton** test failures, then later an
+  outright `Uncaught exception: bad allocation` that aborted the suite before
+  it reached any of the new checks. Both looked like the change in flight and
+  were neither. `rm -rf SampleProject/Cache/v3/models` fixes it for the price
+  of a re-cook. **Suspect this first** when the suite fails somewhere
+  unrelated to what you touched.
+- **`--render-defaults=on` is not an RT toggle.** It resets every render
+  setting, so comparing it against `off` compares two different configurations.
+  Use `--raytracing=on|off`.
+- **Rotations in a `.rage` are radians.** Writing degrees tumbles a rock
+  through fifty revolutions instead of tilting it.
+
+### Next, in order
+
+1. **The volumes cover towers and deck only.** Terrain, water, pylons and the
+   arch are outside every box, and outside a volume `VolumeIrradiance` returns
+   false so *nothing fills in* — the fragment keeps the unconfident traced
+   bounce, which is where the remaining blotching lives.
+2. **Stochastic tiling on the terrain.** The engine feature is done and the
+   concrete proves it; the terrain layers still tile a 1K map every 2 m. Note
+   the layered path samples through `textureGrad` already.
+3. **The sodium's glitter path on the water is still missing**, and two
+   explanations have been eliminated. The traced reflection's firefly clamp was
+   crushing every reflection to 0.05 at night, because it bounds against a
+   prefiltered probe that goes black — that is fixed and is now the
+   `ReflectionFloor` setting (default 0.05, night sets 30), and the *tower's*
+   reflection appears as a result. The lamps' do not. Nor is it their cast
+   light: raising their range from 44 to 95 m to reach the sea changed nothing,
+   and could not have — a lamp 75 m up delivers 1/75² of its intensity to the
+   water, and the lit patch would sit under the deck rather than in frame.
+   Reverted.
+
+   What is left is a **sampling** problem. The streaks are the specular image
+   of a 0.6 m emitter seen at 300 m, spread across many pixels by the water's
+   roughness; a traced reflection samples that lobe with rays, and rays mostly
+   miss something that small. The levers are calmer water (a tighter lobe makes
+   a brighter, longer streak — the reference photographs are of fairly calm
+   water), a physically larger or brighter lens, or treating the lamps as area
+   emitters for the water specifically. A `glitter` camera was added for judging
+   this: broadside across open water, which is the only framing that puts the
+   deck's lamps where they *could* reflect into frame.
+4. **Cliff and rock assets** — the owner is bringing authored ones. The
+   generated cliff panels were deleted: a panel large enough to cover a face
+   reads as a flat patch stuck on a hillside, because its outline is a
+   rectangle and a cliff's is not.
+5. Tower floods still read a little hot at the base from the pier camera.
+
+---
+
+## ⭐ IMPORTANT, DEFERRED — macro breakup in the shader (owner-set, 2026-08-31)
+
+**Status: not built. Deliberately deferred on 2026-08-31, and worth coming
+back to — the case for it got stronger, not weaker.**
+
+The order changed because the terrain turned out to have a more basic problem
+underneath this one, and macro variation could not have fixed it: all four
+layers pointed at *one* soil texture tinted four ways, and the tints took it
+to a linear albedo of 0.017 / 0.008 / 0.003 — darker than charcoal. Multiplying
+a flat brown by a slow wave gives a slightly patchy flat brown. Real material
+sets and honest albedo had to come first, and did.
+
+**What that session then proved, which is the reason to come back.** Once the
+maps carried real content, the repetition it had been hiding came straight
+out: `bridge_concrete` at a 3 m repeat reads as a visible *grid* across a 12 m
+pier, and the headland is correct in colour and still smooth because nothing
+varies above the 8 m tile. Better textures did not create that — they revealed
+it. **The old maps hid their own repetition by having nothing in them worth
+repeating.** So this is now both justified and, for the first time, judgeable:
+there is content to modulate.
+
+Everything below was written before that and still stands.
+
+---
+
 
 **Large-scale variation across a whole pier -- the thing that stops any tiled
 surface looking uniform at range -- needs macro breakup in the shader, driven

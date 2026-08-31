@@ -1,16 +1,19 @@
 Material: bay_sand
-BaseColor: [0.52, 0.45, 0.35, 1]
+BaseColor: [1, 1, 1, 1]
 Emissive: [0, 0, 0, 1]
 Metallic: 0
 Roughness: 1
 Occlusion: 1
-NormalScale: 1
+NormalScale: 1.6
 Specular: 0.5
-HeightScale: 0
-Tiling: [6, 6]
+HeightScale: 0.035
+MacroScale: 55
+MacroStrength: 0.34
+Tiling: [24, 24]
 UvOffset: [0, 0]
 Maps:
-  BaseColor: 17246187153222571135
-  Normal: 12973099232739305617
-  Roughness: 10909146574749930491
-  Height: 12081873772315894805
+  BaseColor: 2692412917559714729
+  Normal: 1077137176162351111
+  Roughness: 3400702451801696344
+  Occlusion: 1244907262736721684
+  Height: 12374438324434269759

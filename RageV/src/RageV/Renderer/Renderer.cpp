@@ -164,6 +164,7 @@ namespace RageV
 	namespace
 	{
 		float s_GlobalIllumination = 0.0f;
+		float s_ReflectionFloor = 0.05f;
 		int s_GiBounces = 1;
 		float s_GiReach = 0.0f;
 		Vec2 s_ReflectionGloss{ 0.25f, 0.60f };
@@ -173,6 +174,16 @@ namespace RageV
 	void Renderer::SetGlobalIllumination(float intensity)
 	{
 		s_GlobalIllumination = intensity;
+	}
+
+	void Renderer::SetReflectionFloor(float floor)
+	{
+		s_ReflectionFloor = Math::Max(floor, 0.0f);
+	}
+
+	float Renderer::GetReflectionFloor()
+	{
+		return s_ReflectionFloor;
 	}
 
 	float Renderer::GetGlobalIllumination()

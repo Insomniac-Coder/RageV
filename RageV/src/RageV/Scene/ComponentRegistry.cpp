@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "ComponentRegistry.h"
+#include "RageV/Asset/MaterialSerializer.h"
 #include "Components.h"
 #include "Entity.h"
 #include "RageV/Renderer/Renderer.h"
@@ -2441,6 +2442,18 @@ namespace
 							"exactly the image without it. Read by both forms, "
 							"so a scene tuned under one is not re-tuned under "
 							"the other.")))),
+				Field<&PostSettings::ReflectionFloor>("ReflectionFloor",
+					Named("Reflection floor",
+						Slider(0.0f, 64.0f,
+							"The floor under the traced reflection's firefly "
+							"clamp. That clamp bounds a mirror ray against the "
+							"prefiltered probe, which is right by day and wrong "
+							"at night: the probe goes black, the bound collapses "
+							"onto this, and a real highlight -- a lamp reflected "
+							"in water -- is crushed with the fireflies. 0.05 is "
+							"what it was as a constant; a night scene raises it "
+							"towards the brightness of the sources whose "
+							"reflections have to survive."))),
 
 				Field<&PostSettings::GiBounces>("GiBounces",
 					Named("GI bounces", OnlyWhen(OffersGiBounces,
@@ -2573,6 +2586,107 @@ namespace
 		// registry in order, so the panel reads as the pipeline runs --
 		// somebody chasing an unexpected result can follow the rows downward.
 		// ENGINE-NOTES 7v.
+		std::vector<FieldDesc> BuildMaterial()
+		{
+			// Shown only once the feature is on: three numbers that mean
+			// nothing while it is off is exactly the clutter OnlyWhen exists
+			// for.
+			auto tilingOn = [](const void* block)
+			{
+				return static_cast<const Assets::MaterialDesc*>(block)->StochasticTiling;
+			};
+
+			return {
+				// --- the extended lobes ---------------------------------
+				//
+				// Nested, through MaterialDesc::Params: these are GPU block
+				// fields, but they are also the four decisions that say what
+				// kind of surface this is, so they belong in front of whoever
+				// is choosing.
+				Field<&Assets::MaterialDesc::Params, &MaterialParams::Clearcoat>("Clearcoat",
+					Named("Clearcoat", Slider(0.0f, 1.0f,
+						"A thin smooth layer over the base, with its own fixed "
+						"4% reflectance: car lacquer, varnish, a wet surface. "
+						"You get two highlights -- a sharp one from the coat and "
+						"a broader one from what is under it. The base is "
+						"attenuated by what the coat reflects, so this "
+						"redistributes light rather than adding it."))),
+
+				Field<&Assets::MaterialDesc::Params, &MaterialParams::ClearcoatRoughness>("ClearcoatRoughness",
+					Named("Clearcoat roughness", Slider(0.0f, 1.0f,
+						"How polished the coat is, independently of the surface "
+						"beneath. Weathered lacquer over smooth paint is the "
+						"case this exists for."))),
+
+				Field<&Assets::MaterialDesc::Params, &MaterialParams::Anisotropy>("Anisotropy",
+					Named("Anisotropy", Slider(-1.0f, 1.0f,
+						"Stretches the highlight along the surface's u "
+						"direction, or across it below zero. Brushed metal, "
+						"hair, a vinyl record. Zero is the ordinary round "
+						"highlight. Water has its own anisotropic lobe and does "
+						"not use this one."))),
+
+				Field<&Assets::MaterialDesc::Params, &MaterialParams::Subsurface>("Subsurface",
+					Named("Subsurface", Slider(0.0f, 1.0f,
+						"Lets the diffuse term reach past the terminator, which "
+						"is the soft edge skin, marble, wax and leaves have. "
+						"**A wrap, not a diffusion profile**: it will not carry "
+						"light through a thin object, so it gets the soft "
+						"terminator and not the glow of a hand over a torch."))),
+
+				Field<&Assets::MaterialDesc::Params, &MaterialParams::SheenColor>("SheenColor",
+					Named("Sheen colour", Color(
+						"The retroreflective rim cloth has at grazing angles: "
+						"velvet, felt, dust lying on a surface. Uses the Charlie "
+						"distribution, which rises at the silhouette where GGX "
+						"falls to nothing -- which is why velvet is brightest at "
+						"its edge. Black is off."))),
+
+				Field<&Assets::MaterialDesc::Params, &MaterialParams::SheenRoughness>("SheenRoughness",
+					Named("Sheen roughness", Slider(0.05f, 1.0f,
+						"How spread the fuzz is. Low is a tight rim, high is a "
+						"broad bloom across the whole surface."))),
+
+				Field<&Assets::MaterialDesc::StochasticTiling>("StochasticTiling",
+					Named("Stochastic tiling",
+						Tip("Synthesise a larger, non-repeating tile from this "
+							"material's maps. A tiling texture repeats, and past "
+							"a certain range the eye reads the repeat rather "
+							"than the tile: the same features in the same "
+							"places, over and over. Macro variation modulates "
+							"that and cannot remove it. This replaces the maps "
+							"with a synthesised tile that does not repeat "
+							"within itself. Cached on disk, so it costs nothing "
+							"at draw time. Divide Tiling by the scale as well, "
+							"or the bigger tile is only a sharper one repeating "
+							"just as often."))),
+
+				Field<&Assets::MaterialDesc::TilingScale>("TilingScale",
+					Named("Tile scale", OnlyWhen(tilingOn,
+						Slider(2, 8,
+							"How many times larger the synthesised tile is, per "
+							"axis. 4 turns a 1K source into 4K: sixteen times "
+							"the memory, and the repeat four times further "
+							"away.")))),
+
+				Field<&Assets::MaterialDesc::TilingCells>("TilingCells",
+					Named("Lattice cells", OnlyWhen(tilingOn,
+						Slider(2, 32,
+							"Lattice cells across the output. The random "
+							"offsets wrap at this, which is what keeps the "
+							"result seamless; more cells blends smaller pieces "
+							"of the source more often.")))),
+
+				Field<&Assets::MaterialDesc::RegenerateTiling>("RegenerateTiling",
+					Named("Regenerate", OnlyWhen(tilingOn,
+						Tip("Synthesise again. The result is cached against the "
+							"source maps and the numbers above, so it runs once "
+							"and a changed source invalidates it by itself. "
+							"This is for the case a stored answer cannot "
+							"detect.")))),
+			};
+		}
+
 		std::vector<FieldDesc> BuildLutRecipe()
 		{
 			return {
@@ -2705,6 +2819,17 @@ namespace
 	}
 
 	const FieldDesc* PostSettingsRegistry::Find(const std::string& name)
+	{
+		return FindIn(Fields(), name);
+	}
+
+	const std::vector<FieldDesc>& MaterialRegistry::Fields()
+	{
+		static const std::vector<FieldDesc> fields = BuildMaterial();
+		return fields;
+	}
+
+	const FieldDesc* MaterialRegistry::Find(const std::string& name)
 	{
 		return FindIn(Fields(), name);
 	}

@@ -1,0 +1,17 @@
+Material: rock_pebble
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1.5
+Specular: 0.5
+HeightScale: 0.04
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 2692412917559714729
+  Normal: 1077137176162351111
+  Roughness: 3400702451801696344
+  Occlusion: 1244907262736721684
+  Height: 12374438324434269759

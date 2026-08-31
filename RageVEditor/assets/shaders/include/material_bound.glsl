@@ -30,6 +30,18 @@ layout(set = 1, binding = 0) uniform MaterialData
 	float AlphaCutoff;
 	// xy scale, zw offset. See MaterialParams::UvTransform.
 	vec4  UvTransform;
+	// **Large-scale variation from world position.** x metres per cycle, y
+	// strength, zw spare. Zero is off, which is what every material authored
+	// before this carries. See MaterialParams::Macro.
+	vec4  Macro;
+	// Named on both sides. Four floats and a vec3+float occupy exactly the two
+	// vec4s' worth of std140 they replace. See MaterialParams.
+	float Clearcoat;
+	float ClearcoatRoughness;
+	float Anisotropy;
+	float Subsurface;
+	vec3  SheenColor;
+	float SheenRoughness;
 } u_Material;
 
 layout(set = 1, binding = 1) uniform sampler2D u_BaseColorMap;

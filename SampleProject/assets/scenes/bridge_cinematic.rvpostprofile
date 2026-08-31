@@ -1,6 +1,6 @@
 PostProfile: 1
 Fog: true
-FogColor: [0.29, 0.14, 0.062]
+FogColor: [0.0225, 0.0121, 0.0052]
 FogDensity: 0.00016
 FogHeightFalloff: 0.11
 FogHeight: 2
@@ -10,14 +10,14 @@ FogFloor: 0
 BloomEnabled: true
 BloomThreshold: 1.05
 BloomKnee: 0.55
-BloomIntensity: 0.085
+BloomIntensity: 0.16
 BloomClamp: 12
-AutoExposure: true
+AutoExposure: false
 AutoExposureKey: 0.17
 AutoExposureSpeed: 6
 AutoExposureMin: 0.15
 AutoExposureMax: 12
-Exposure: 1.05
+Exposure: 2.4
 DepthOfField: true
 FocalLength: 85
 Aperture: 2.8
@@ -30,3 +30,5 @@ FilmGrain: 0.045
 FilmGrainSize: 1.7
 ColorLutStrength: 0.8
 ColorLut: 8988021586003487733
+GiIntensity: 2.6
+ReflectionFloor: 30

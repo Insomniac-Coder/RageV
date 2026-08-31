@@ -83,6 +83,11 @@ namespace RageV::UI
 	// drawer says so rather than leaving it to be worked out. ENGINE-NOTES 7s.
 	void DrawPostProfile(AssetHandle handle, Scene* scene = nullptr);
 
+	// A `.rmat`, edited where it is used. Same argument the post profile
+	// drawer makes: the alternative is a round trip to the content browser to
+	// turn one flag on.
+	void DrawMaterial(AssetHandle handle);
+
 	// The rows under a Colour LUT slot, and the same drawer the content
 	// browser uses when a LUT is clicked.
 	//

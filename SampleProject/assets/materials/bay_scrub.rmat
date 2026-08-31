@@ -1,16 +1,19 @@
 Material: bay_scrub
-BaseColor: [0.23, 0.18, 0.08, 1]
+BaseColor: [1, 0.94, 0.7, 1]
 Emissive: [0, 0, 0, 1]
 Metallic: 0
 Roughness: 1
 Occlusion: 1
-NormalScale: 1
+NormalScale: 1.6
 Specular: 0.5
-HeightScale: 0
-Tiling: [6, 6]
+HeightScale: 0.035
+MacroScale: 55
+MacroStrength: 0.34
+Tiling: [24, 24]
 UvOffset: [0, 0]
 Maps:
-  BaseColor: 17246187153222571135
-  Normal: 12973099232739305617
-  Roughness: 10909146574749930491
-  Height: 12081873772315894805
+  BaseColor: 1849061157559500801
+  Normal: 14521239339019433727
+  Roughness: 12125796653351751760
+  Occlusion: 141192141672441052
+  Height: 5200834350781601767

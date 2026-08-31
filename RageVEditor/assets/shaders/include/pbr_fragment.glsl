@@ -26,6 +26,113 @@ const int MAP_METALLIC           = 1 << 6;
 const int MAP_SPECULAR           = 1 << 7;
 const int MAP_HEIGHT             = 1 << 8;
 
+// --- macro variation ---------------------------------------------------------
+//
+// **What stops a tiled surface reading as one flat field at range.** A texture
+// that repeats every two metres is fine close up; at four hundred metres the
+// eye no longer resolves the tile and every repeat is byte-identical, so a
+// large face becomes a perfectly regular field. Nothing authored *inside* the
+// tile fixes that: anything bigger than a fraction of it appears once per
+// repeat, in rows, and anything smaller averages to grey. The only thing that
+// breaks it is a second field at a scale larger than the object, and that
+// field can only come from world position at shading time.
+//
+// A formula rather than a texture, for three reasons: it costs no sampler on a
+// path that has none spare, it needs no authoring, and being a pure function of
+// position it gives the same answer to the raster shader, the reflection trace
+// and the bounce ray -- so a macro-varied pier reflects and bounces as the same
+// surface it draws as.
+uint MacroHash(uint x)
+{
+	x ^= x >> 16; x *= 0x7FEB352Du;
+	x ^= x >> 15; x *= 0x846CA68Bu;
+	x ^= x >> 16;
+	return x;
+}
+
+float MacroLattice(ivec3 cell)
+{
+	uint h = MacroHash(uint(cell.x * 73856093 ^ cell.y * 19349663 ^ cell.z * 83492791));
+	return float(h & 0x00FFFFFFu) / 16777216.0;
+}
+
+// Trilinear value noise, smoothstep interpolated. One octave.
+float MacroNoise(vec3 p)
+{
+	vec3 base = floor(p);
+	vec3 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	ivec3 c = ivec3(base);
+
+	float n000 = MacroLattice(c + ivec3(0, 0, 0));
+	float n100 = MacroLattice(c + ivec3(1, 0, 0));
+	float n010 = MacroLattice(c + ivec3(0, 1, 0));
+	float n110 = MacroLattice(c + ivec3(1, 1, 0));
+	float n001 = MacroLattice(c + ivec3(0, 0, 1));
+	float n101 = MacroLattice(c + ivec3(1, 0, 1));
+	float n011 = MacroLattice(c + ivec3(0, 1, 1));
+	float n111 = MacroLattice(c + ivec3(1, 1, 1));
+
+	return mix(mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
+			   mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y), f.z);
+}
+
+// Three octaves, returned **centred on zero**. Mean-preserving is the whole
+// point: a term that only darkened would make a material change its overall
+// value the moment macro was switched on, and then every existing look would
+// have to be re-tuned around it.
+//
+// Three and not more because the fourth octave is at an eighth of the scale
+// and a quarter of the amplitude -- by then it is competing with the tile it
+// exists to break up, and adding it would just be a second texture.
+float MacroField(vec3 worldPos, float metres)
+{
+	vec3 p = worldPos / max(metres, 0.01);
+	float n = MacroNoise(p) * 0.5333
+			+ MacroNoise(p * 2.03 + 11.7) * 0.2667
+			+ MacroNoise(p * 4.11 + 23.4) * 0.2000;
+	return n - 0.5;
+}
+
+// The modulation itself. **Roughness moves against albedo**, which is not a
+// stylistic choice: a darker patch on concrete or rock is a wetter or more
+// stained one, and wet is smoother. Moving them together would read as a
+// lighting change instead of a surface one.
+void ApplyMacro(inout vec3 albedo, inout float roughness, vec3 worldPos,
+				float metres, float strength)
+{
+	if (metres <= 0.0 || strength <= 0.0)
+		return;
+	float n = MacroField(worldPos, metres);
+	albedo *= max(1.0 + strength * n * 2.0, 0.0);
+	roughness = clamp(roughness * (1.0 - strength * n * 1.4), 0.045, 1.0);
+}
+
+// The same, and **also the relief** -- which is the half that actually matters
+// on a mapped surface.
+//
+// Modulating brightness alone was not enough, and the reason is worth keeping:
+// what reads as repetition on a normal-mapped wall is not tone, it is the
+// *bump pattern* recurring, and no amount of darkening one copy hides the fact
+// that the next one has the same dents in the same places. Fading the mapped
+// normal towards the geometric one over the macro field varies how deep the
+// relief looks from place to place, so the grid stops being a grid.
+//
+// Toward the geometric normal and never past it: this may flatten relief, never
+// invert or exaggerate it, so a surface can lose its bumps in a patch but can
+// never grow bumps the map does not have.
+void ApplyMacro(inout vec3 albedo, inout float roughness, inout vec3 normal,
+				vec3 geometricNormal, vec3 worldPos, float metres, float strength)
+{
+	if (metres <= 0.0 || strength <= 0.0)
+		return;
+	float n = MacroField(worldPos, metres);
+	albedo *= max(1.0 + strength * n * 2.0, 0.0);
+	roughness = clamp(roughness * (1.0 - strength * n * 1.4), 0.045, 1.0);
+	float flatten = clamp(strength * (0.5 - n) * 1.6, 0.0, 0.85);
+	normal = normalize(mix(normal, geometricNormal, flatten));
+}
+
 layout(set = 0, binding = 0) uniform SceneData
 {
 	mat4 ViewProjection;
@@ -297,6 +404,16 @@ struct GpuMaterial
 	// See MaterialParams::AlphaCutoff. Per material rather than per pipeline,
 	// which is what lets one masked draw carry many different cutouts.
 	float AlphaCutoff;
+	// x metres per macro cycle, y strength. See MaterialParams::Macro.
+	vec4  Macro;
+	// Four floats and a vec3+float, which in std140 is two vec4s worth. See
+	// MaterialParams: named on both sides so the inspector can label them.
+	float Clearcoat;
+	float ClearcoatRoughness;
+	float Anisotropy;
+	float Subsurface;
+	vec3  SheenColor;
+	float SheenRoughness;
 };
 
 layout(std430, set = 0, binding = 13) readonly buffer MaterialBlock
@@ -359,6 +476,12 @@ layout(set = 1, binding = 0) uniform LayeredData
 	vec4  UvTransform[LAYERS];
 	// One dielectric reflectance per layer.
 	vec4  Specular;
+	// Parallax depth per layer, in uv units; 0 is no march.
+	vec4  HeightScale;
+	// Metres per macro cycle and strength, per layer. See
+	// MaterialParams::Macro.
+	vec4  MacroScale;
+	vec4  MacroStrength;
 	// The layer's MAP_ flags for the three maps read, plus LAYER_ACTIVE.
 	ivec4 MapFlags;
 	// v_TexCoord * xy + zw is the weight map's coordinate.
@@ -1759,6 +1882,16 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	vec3 albedo = hit.BaseColor.rgb;
 	if ((material.MapFlags & MAP_BASE_COLOR) != 0)
 		albedo *= textureLod(u_Textures[nonuniformEXT(material.Maps0.x)], uv, 0.0).rgb;
+	// **The same variation the raster shader applies.** Without it a
+	// macro-varied pier reflects back perfectly even, and a bounce off it
+	// carries a colour the surface does not have -- which is exactly the tell
+	// that gives a screen-space trick away. Roughness is unused here: a hit is
+	// shaded Lambert, so only the albedo moves.
+	{
+		float ignored = 1.0;
+		ApplyMacro(albedo, ignored, hitPosition, material.Macro.x, material.Macro.y);
+	}
+
 	vec3 emissive = hit.EmissiveColor.rgb;
 	if ((material.MapFlags & MAP_EMISSIVE) != 0)
 		emissive *= textureLod(u_Textures[nonuniformEXT(material.Maps0.w)], uv, 0.0).rgb;
@@ -2136,6 +2269,67 @@ float WaterCaustics(vec2 bottomXZ, float through, float gradientDepth,
 }
 #endif
 
+// --- the extended lobes -------------------------------------------------------
+//
+// **One GGX lobe is most of what a hard surface is, and not all of it.** What
+// it cannot express is a second interface, a fuzzy one, a directional one, or a
+// translucent one. Each of the four below is off at zero, so a material that
+// does not ask for them shades exactly as it did.
+
+// Anisotropic GGX: the roughness split into two axes about the tangent, which
+// is what stretches a highlight along a grain -- brushed metal, hair, vinyl.
+// Water already does this with its own Beckmann lobe a few functions up; this
+// is the same idea for everything else.
+float DistributionGGXAniso(float NdotH, float TdotH, float BdotH, float ax, float ay)
+{
+	const float a2 = ax * ay;
+	const vec3 d = vec3(ay * TdotH, ax * BdotH, a2 * NdotH);
+	const float d2 = dot(d, d);
+	if (d2 <= 0.0)
+		return 0.0;
+	const float b2 = a2 / d2;
+	return a2 * b2 * b2 * (1.0 / PI);
+}
+
+// **Charlie, not GGX, and the difference is the whole point.** A GGX lobe falls
+// to nothing at the silhouette; cloth does the opposite -- velvet is brightest
+// at its rim, because the fibres stand up and catch light the surface beneath
+// cannot. Estevez & Kulla's distribution is the one that rises there.
+float DistributionCharlie(float NdotH, float roughness)
+{
+	const float inverse = 1.0 / max(roughness, 0.07);
+	const float sin2 = max(1.0 - NdotH * NdotH, 0.0);
+	return (2.0 + inverse) * pow(sin2, inverse * 0.5) / (2.0 * PI);
+}
+
+// Ashikhmin's visibility, which pairs with Charlie. Smith does not: it is
+// derived for the same microfacet model GGX is, and using it here puts the
+// sheen back where GGX would have had it.
+float VisibilityAshikhmin(float NdotV, float NdotL)
+{
+	return 1.0 / (4.0 * (NdotL + NdotV - NdotL * NdotV) + 1.0e-4);
+}
+
+// Kelemen's, for the clearcoat. A coat is smooth and thin enough that the full
+// Smith height-correlated term is spending arithmetic on a difference nothing
+// can see.
+float VisibilityKelemen(float VdotH)
+{
+	return 0.25 / max(VdotH * VdotH, 1.0e-4);
+}
+
+// **A wrap, not a diffusion profile, and it says so.** Real subsurface
+// scattering traces light through the medium and comes out somewhere else;
+// this lets the diffuse term reach past the terminator instead. It buys the
+// soft edge of skin, marble, wax and leaves -- which is most of what the eye
+// reads as translucent -- and it will not buy the glow of a hand held over a
+// torch. Anything wanting that needs a real profile, and that is a feature and
+// not a constant.
+float WrapDiffuse(float NdotL, float wrap)
+{
+	return clamp((NdotL + wrap) / ((1.0 + wrap) * (1.0 + wrap)), 0.0, 1.0);
+}
+
 vec3 FresnelSchlick(float cosTheta, vec3 F0)
 {
 	return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
@@ -2270,6 +2464,20 @@ struct Surface
 	// The shading normal, after any normal map.
 	vec3  N;
 	vec3  Emissive;
+
+	// **The extended lobes arrive here, not from u_Material.** The lighting
+	// below is shared with the layered variant, whose set 1 has no such
+	// fields -- reading them directly would fail to compile for terrain. This
+	// is the same reason everything else about a surface comes through this
+	// struct: nothing after it knows which body filled it.
+	//
+	// The shading tangent, for the anisotropic lobe. A zero vector means
+	// isotropic, which is what the layered path fills.
+	vec3  Tangent;
+	// x clearcoat weight, y clearcoat roughness, z anisotropy, w subsurface.
+	vec4  Coat;
+	// rgb sheen colour, a sheen roughness. Black is off.
+	vec4  Sheen;
 };
 
 #ifndef RV_LAYERED
@@ -2324,10 +2532,68 @@ Surface SampleSurface(vec3 Ngeo, vec3 V)
 	if (HasMap(MAP_EMISSIVE))
 		s.Emissive *= texture(u_EmissiveMap, uv).rgb;
 
+	// **Last, and on the assembled surface.** It modulates what every map
+	// added up to rather than any one of them, so no later multiply can undo
+	// it and a material with no colour map varies exactly as one with.
+	ApplyMacro(s.BaseColor.rgb, s.Roughness, s.N, Ngeo, v_WorldPos,
+			   u_Material.Macro.x, u_Material.Macro.y);
+
+	// The tangent the anisotropic lobe turns about, and the four lobes
+	// themselves. TBN[0] is the surface's own u direction, so a brushed metal's
+	// grain follows its uv rather than the world.
+	s.Tangent = TBN[0];
+	s.Coat = vec4(u_Material.Clearcoat, u_Material.ClearcoatRoughness,
+				  u_Material.Anisotropy, u_Material.Subsurface);
+	s.Sheen = vec4(u_Material.SheenColor, u_Material.SheenRoughness);
+
 	return s;
 }
 
 #else   // RV_LAYERED
+
+// Parallax occlusion for one layer, marched through the blue channel of the
+// packed surface map.
+//
+// **Height rides in blue** because the layered variant binds three samplers a
+// layer and cannot grow a fourth, so roughness, occlusion and height share one
+// texture (TextureLoader::PackChannels). The march is the same one the
+// single-material path runs, reading `.b` instead of a height map's `.r`.
+//
+// `textureLod`, not `textureGrad`: the trip count varies per fragment, so this
+// is divergent control flow and an implicit derivative in it is undefined.
+// Level zero, because a mip of a height field is a shallower height field and
+// the march would terminate early against it.
+vec2 ParallaxLayer(sampler2D surface, vec2 uv, vec3 viewTS, float scale)
+{
+	if (scale <= 0.0)
+		return uv;
+
+	// More steps at grazing angles, where the ray crosses more surface, and
+	// the clamp on viewTS.z stops the offset exploding at the silhouette.
+	float steps = mix(24.0, 8.0, clamp(viewTS.z, 0.0, 1.0));
+	float step = 1.0 / steps;
+	vec2 delta = (viewTS.xy / max(viewTS.z, 0.15)) * scale / steps;
+
+	vec2 cur = uv;
+	float depth = 0.0;
+	float h = 1.0 - textureLod(surface, cur, 0.0).b;
+	float prevH = h;
+
+	while (depth < h && depth < 1.0)
+	{
+		prevH = h;
+		cur -= delta;
+		depth += step;
+		h = 1.0 - textureLod(surface, cur, 0.0).b;
+	}
+
+	// One secant step between the sample above the surface and the one below,
+	// which removes the layering the raw march leaves on slopes.
+	float after = h - depth;
+	float before = prevH - (depth - step);
+	float t = clamp(after / (after - before + 1e-5), 0.0, 1.0);
+	return cur + delta * t;
+}
 
 // One layer's contribution, at a constant index so every sampler it names
 // is a constant. A macro rather than a function so the bound path's sampler
@@ -2342,50 +2608,101 @@ Surface SampleSurface(vec3 Ngeo, vec3 V)
 // the frame is a function of the transformed coordinate and a layer's
 // tiling may be non-uniform or mirrored; four frames are four derivative
 // pairs and cost nothing.
-#define SHADE_LAYER(i)                                                                     \
-	{                                                                                      \
-		int   flags = u_Layered.MapFlags[i];                                               \
-		float w     = weight[i];                                                           \
+//
+// **Two frames per layer, because the wall projection needs its own.** When
+// the terrain gained cliffs, the colour and the roughness were given a side
+// projection and the normal was not -- it faded to the geometric normal as
+// the surface stood up, which discards the normal map outright on anything
+// steep. A 400 ft headland came out as smooth clay: correctly projected
+// colour, correctly projected roughness, and no relief at all.
+//
+// Fading it was the safe thing rather than a wrong one. `TBN` is built from
+// the planar x/z coordinate, which is degenerate on a vertical face, so
+// unpacking through it gives a garbage direction -- and garbage is worse
+// than flat. The answer is not to unpack through that frame but to build the
+// frame the *wall* coordinate implies and unpack through that, then blend
+// two real normals. `TangentFrame` takes the uv it is meant for, so this is
+// the same call with the other coordinate.
+//
+// **One fetch, three maps, and the condition is "any of the three".** The
+// surface texture carries roughness, occlusion and height in r, g and b, so
+// gating the fetch on MAP_ROUGHNESS alone meant a material with occlusion and
+// no roughness map sampled nothing at all. Each channel is applied under its
+// own flag, so an absent map leaves its scalar alone rather than multiplying
+// it by a neutral.
+//
+// **And nothing inside the macro may be a // comment.** Every line of it ends
+// in a backslash, and a line continuation at the end of a // comment makes the
+// next line part of that comment -- which silently deletes the rest of the
+// macro, all the way to the one line that carries no backslash. It compiles;
+// it just stops shading. That is why all of this prose lives out here.
+#define SHADE_LAYER(i)                                                                      \
+	{                                                                                       \
+		int   flags = u_Layered.MapFlags[i];                                                \
+		float w     = weight[i];                                                            \
 		vec2 uvL  = v_TexCoord * u_Layered.UvTransform[i].xy + u_Layered.UvTransform[i].zw; \
-		vec2 ddxL = ddx * u_Layered.UvTransform[i].xy;                                     \
-		vec2 ddyL = ddy * u_Layered.UvTransform[i].xy;                                     \
-		vec2 uvW  = wallUv  * u_Layered.UvTransform[i].xy + u_Layered.UvTransform[i].zw;   \
-		vec2 ddxW = wallDdx * u_Layered.UvTransform[i].xy;                                 \
-		vec2 ddyW = wallDdy * u_Layered.UvTransform[i].xy;                                 \
-		mat3 TBN  = TangentFrame(Ngeo, v_WorldPos, uvL);                                   \
-		if (w > 0.0)                                                                       \
-		{                                                                                  \
-			vec4 baseL = u_Layered.BaseColor[i];                                           \
-			if ((flags & MAP_BASE_COLOR) != 0)                                             \
-			{                                                                              \
-				vec4 floorT = textureGrad(LAYER_BASE_COLOR(i), uvL, ddxL, ddyL);           \
-				baseL *= wall > 0.0                                                        \
-					? mix(floorT, textureGrad(LAYER_BASE_COLOR(i), uvW, ddxW, ddyW), wall) \
-					: floorT;                                                              \
-			}                                                                              \
-			float roughL = u_Layered.Surface[i].y;                                         \
-			if ((flags & MAP_ROUGHNESS) != 0)                                              \
-			{                                                                              \
-				float floorR = textureGrad(LAYER_ROUGHNESS(i), uvL, ddxL, ddyL).r;         \
-				roughL *= wall > 0.0                                                       \
-					? mix(floorR,                                                          \
-						  textureGrad(LAYER_ROUGHNESS(i), uvW, ddxW, ddyW).r, wall)         \
-					: floorR;                                                              \
-			}                                                                              \
-			vec3 nL = Ngeo;                                                                \
-			if ((flags & MAP_NORMAL) != 0)                                                 \
-				nL = mix(UnpackNormal(TBN,                                                 \
-									  textureGrad(LAYER_NORMAL(i), uvL, ddxL, ddyL).xy,    \
-									  u_Layered.Surface[i].w), Ngeo, wall);                \
-			s.BaseColor += w * baseL;                                                      \
-			s.Metallic  += w * u_Layered.Surface[i].x;                                     \
-			s.Roughness += w * roughL;                                                     \
-			s.Occlusion += w * u_Layered.Surface[i].z;                                     \
-			s.Specular  += w * u_Layered.Specular[i];                                      \
-			s.Emissive  += w * u_Layered.EmissiveColor[i].rgb;                             \
-			s.N         += w * nL;                                                         \
-		}                                                                                  \
+		vec2 ddxL = ddx * u_Layered.UvTransform[i].xy;                                      \
+		vec2 ddyL = ddy * u_Layered.UvTransform[i].xy;                                      \
+		vec2 uvW  = wallUv  * u_Layered.UvTransform[i].xy + u_Layered.UvTransform[i].zw;    \
+		vec2 ddxW = wallDdx * u_Layered.UvTransform[i].xy;                                  \
+		vec2 ddyW = wallDdy * u_Layered.UvTransform[i].xy;                                  \
+		mat3 TBN  = TangentFrame(Ngeo, v_WorldPos, uvL);                                    \
+		mat3 TBNW = TangentFrame(Ngeo, v_WorldPos, uvW);                                    \
+		if (w > 0.0)                                                                        \
+		{                                                                                   \
+			float pom = (flags & MAP_HEIGHT) != 0                                           \
+				? u_Layered.HeightScale[i] * smoothstep(0.5, 0.8, w) : 0.0;                 \
+			if (pom > 0.0 && wall < 1.0)                                                    \
+				uvL = ParallaxLayer(LAYER_ROUGHNESS(i), uvL,                                \
+									normalize(transpose(TBN) * V), pom * (1.0 - wall));     \
+			if (pom > 0.0 && wall > 0.0)                                                    \
+				uvW = ParallaxLayer(LAYER_ROUGHNESS(i), uvW,                                \
+									normalize(transpose(TBNW) * V), pom * wall);            \
+			vec4 baseL = u_Layered.BaseColor[i];                                            \
+			if ((flags & MAP_BASE_COLOR) != 0)                                              \
+			{                                                                               \
+				vec4 floorT = textureGrad(LAYER_BASE_COLOR(i), uvL, ddxL, ddyL);            \
+				baseL *= wall > 0.0                                                         \
+					? mix(floorT, textureGrad(LAYER_BASE_COLOR(i), uvW, ddxW, ddyW), wall)  \
+					: floorT;                                                               \
+			}                                                                               \
+			float roughL = u_Layered.Surface[i].y;                                          \
+			float aoL    = u_Layered.Surface[i].z;                                          \
+			if ((flags & (MAP_ROUGHNESS | MAP_OCCLUSION | MAP_HEIGHT)) != 0)                \
+			{                                                                               \
+				vec3 floorRAH = textureGrad(LAYER_ROUGHNESS(i), uvL, ddxL, ddyL).rgb;       \
+				vec3 rah = wall > 0.0                                                       \
+					? mix(floorRAH,                                                         \
+						  textureGrad(LAYER_ROUGHNESS(i), uvW, ddxW, ddyW).rgb, wall)       \
+					: floorRAH;                                                             \
+				if ((flags & MAP_ROUGHNESS) != 0)                                           \
+					roughL *= rah.r;                                                        \
+				if ((flags & MAP_OCCLUSION) != 0)                                           \
+					aoL *= rah.g;                                                           \
+			}                                                                               \
+			vec3 nL = Ngeo;                                                                 \
+			if ((flags & MAP_NORMAL) != 0)                                                  \
+			{                                                                               \
+				vec3 nF = UnpackNormal(TBN,                                                 \
+						textureGrad(LAYER_NORMAL(i), uvL, ddxL, ddyL).xy,                   \
+						u_Layered.Surface[i].w);                                            \
+				vec3 nW = UnpackNormal(TBNW,                                                \
+						textureGrad(LAYER_NORMAL(i), uvW, ddxW, ddyW).xy,                   \
+						u_Layered.Surface[i].w);                                            \
+				nL = wall > 0.0 ? normalize(mix(nF, nW, wall)) : nF;                        \
+			}                                                                               \
+			ApplyMacro(baseL.rgb, roughL, nL, Ngeo, v_WorldPos,                             \
+					   u_Layered.MacroScale[i], u_Layered.MacroStrength[i]);                \
+			s.BaseColor += w * baseL;                                                       \
+			s.Metallic  += w * u_Layered.Surface[i].x;                                      \
+			s.Roughness += w * roughL;                                                      \
+			s.Occlusion += w * aoL;                                                         \
+			s.Specular  += w * u_Layered.Specular[i];                                       \
+			s.Emissive  += w * u_Layered.EmissiveColor[i].rgb;                              \
+			s.N         += w * nL;                                                          \
+		}                                                                                   \
 	}
+
 
 Surface SampleSurface(vec3 Ngeo, vec3 V)
 {
@@ -2425,7 +2742,12 @@ Surface SampleSurface(vec3 Ngeo, vec3 V)
 	// fetches sit behind a branch on it. textureGrad is what makes that
 	// branch legal: every derivative is taken here, while control flow is
 	// still uniform.
-	float wall = 1.0 - smoothstep(0.35, 0.78, abs(Ngeo.y));
+	// **Widened 2026-08-31.** At 0.35/0.78 the blend only reached full side
+	// projection past 69.5 degrees, so a 56-degree sea cliff -- which is most of
+	// the Marin coast -- ran at wall = 0.54 and kept half of the planar uv's
+	// vertical smear. 0.50/0.88 is fully side-projected by 60 degrees and still
+	// costs a rolling terrain nothing: anything under 28 degrees is untouched.
+	float wall = 1.0 - smoothstep(0.50, 0.88, abs(Ngeo.y));
 
 	// Metres per unit of uv, read off the mapping rather than passed in: for
 	// terrain the uv *is* position over the texture scale, so the ratio of
@@ -2464,6 +2786,13 @@ Surface SampleSurface(vec3 Ngeo, vec3 V)
 	// state.
 	float length2 = dot(s.N, s.N);
 	s.N = length2 > 1e-8 ? s.N * inversesqrt(length2) : Ngeo;
+
+	// **Off for terrain, and that is not a stub.** Ground is not lacquered,
+	// fuzzy, brushed or translucent; the four lobes would be four branches
+	// never taken on the most pixel-heavy surface in the scene.
+	s.Tangent = vec3(0.0);
+	s.Coat = vec4(0.0, 0.1, 0.0, 0.0);
+	s.Sheen = vec4(0.0, 0.0, 0.0, 0.3);
 	return s;
 }
 
@@ -2893,7 +3222,32 @@ void main()
 		float G   = WaterBeckmannG1(V, N, waterT, waterB, roughness)
 				  * WaterBeckmannG1(L, N, waterT, waterB, roughness);
 #else
-		float NDF = DistributionGGX(N, H, roughness);
+		// **Anisotropic only when asked for, and only with a tangent to turn
+		// about.** The layered path fills a zero tangent, so terrain takes the
+		// isotropic branch without needing to know the lobe exists.
+		float NDF;
+		if (abs(surface.Coat.z) > 0.001 && dot(surface.Tangent, surface.Tangent) > 0.0)
+		{
+			const vec3 T = normalize(surface.Tangent - N * dot(surface.Tangent, N));
+			const vec3 B = cross(N, T);
+			const float alpha = roughness * roughness;
+			// The Disney remap: one dial from -1 to 1 stretching the lobe along
+			// the tangent or across it, with the total area kept.
+			const float aspect = sqrt(1.0 - abs(surface.Coat.z) * 0.9);
+			float ax = max(alpha / aspect, 0.001);
+			float ay = max(alpha * aspect, 0.001);
+			if (surface.Coat.z < 0.0)
+			{
+				const float swap = ax;
+				ax = ay;
+				ay = swap;
+			}
+			NDF = DistributionGGXAniso(max(dot(N, H), 0.0), dot(T, H), dot(B, H), ax, ay);
+		}
+		else
+		{
+			NDF = DistributionGGX(N, H, roughness);
+		}
 		float G   = GeometrySmith(N, V, L, roughness);
 #endif
 		vec3  F   = FresnelSchlick(max(dot(H, V), 0.0), F0);
@@ -2905,6 +3259,35 @@ void main()
 		// Energy conservation: what is not reflected is refracted, and metals
 		// refract nothing.
 		vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+
+		// **The clearcoat takes its share before the base gets any.** A coat is
+		// a second interface *above* the surface, so what it reflects never
+		// reaches what is underneath -- attenuating the base by the coat's
+		// Fresnel is what keeps the two summing to no more than arrived. Adding
+		// a coat on top without that is how a lacquered surface ends up
+		// brighter than the light falling on it.
+		if (surface.Coat.x > 0.0)
+		{
+			const float VdotH = max(dot(V, H), 0.0);
+			const float coatRoughness = clamp(surface.Coat.y, 0.045, 1.0);
+			const float Dc = DistributionGGX(N, H, coatRoughness);
+			const float Vc = VisibilityKelemen(VdotH);
+			// A coat is a dielectric film: 4%, always, whatever is beneath it.
+			const float Fc = (0.04 + 0.96 * pow(1.0 - VdotH, 5.0)) * surface.Coat.x;
+
+			specular = specular * (1.0 - Fc) + vec3(Dc * Vc * Fc);
+			kD *= (1.0 - Fc);
+		}
+
+		// Sheen sits on top of both and is not attenuated by them: the fibres
+		// that produce it stand above the surface rather than under a coat.
+		if (dot(surface.Sheen.rgb, surface.Sheen.rgb) > 0.0)
+		{
+			const float Ds = DistributionCharlie(max(dot(N, H), 0.0),
+												 clamp(surface.Sheen.a, 0.07, 1.0));
+			const float Vs = VisibilityAshikhmin(max(dot(N, V), 0.0), NdotL);
+			specular += surface.Sheen.rgb * Ds * Vs;
+		}
 
 		// Each light carries which kind of shadow it has, if any: under maps
 		// which map, under rays whether the ray goes to infinity or to the
@@ -2930,7 +3313,14 @@ void main()
 								 v_WorldPos, N);
 #endif
 
-		Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow;
+		// **The wrap applies to the diffuse and not the specular.** Light that
+		// entered the surface and came back out has forgotten which way it
+		// arrived; light that bounced off the surface has not. Wrapping both
+		// would put a highlight on the dark side of a face.
+		const float diffuseCosine = surface.Coat.w > 0.0
+			? WrapDiffuse(dot(N, L), surface.Coat.w) : NdotL;
+
+		Lo += (kD * albedo / PI * diffuseCosine + specular * NdotL) * radiance * shadow;
 #ifdef RV_WATER
 		waterSpecular += specular * radiance * NdotL * shadow;
 #endif
@@ -3204,8 +3594,19 @@ void main()
 			// eight times leaves that alone while removing the hundredfold
 			// spikes. The additive term keeps the bound from collapsing to zero
 			// where the probe is black.
+			// **The floor is a setting now, and this is why.** The bound is
+			// right whenever the probe is a fair estimate of the same lobe --
+			// which is every daylit scene. At night the environment is black,
+			// `prefiltered * 8` collapses, and the whole bound becomes this
+			// floor: a sodium lamp's reflection in water, which is a genuine
+			// highlight and most of what a night frame of a lit bridge is
+			// made of, was being crushed to 0.05 along with the fireflies.
+			//
+			// Indirect.z, defaulting to the 0.05 this used to hardcode, so no
+			// scene that does not raise it changes by a bit.
 			const float kTracedBound = 8.0;
-			traced = min(traced, prefiltered * kTracedBound + vec3(0.05));
+			const float floorLevel = max(u_Scene.Indirect.z, 0.0);
+			traced = min(traced, prefiltered * kTracedBound + vec3(floorLevel));
 
 			prefiltered = mix(prefiltered, traced, mirror);
 		}

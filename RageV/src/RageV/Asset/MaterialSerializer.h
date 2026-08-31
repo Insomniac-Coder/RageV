@@ -44,6 +44,43 @@ namespace RageV::Assets
 		// The same shape as EntityRef needing to be its own type: a field whose
 		// zero value means "none" cannot use a type whose default is "something
 		// new".
+		// --- stochastic tiling ----------------------------------------------
+		//
+		// **Synthesise a larger, non-repeating tile from this material's maps.**
+		//
+		// A tiling texture repeats, and past a certain distance the eye stops
+		// resolving the tile and reads the repeat instead -- a lattice of the
+		// same features in the same places. Macro variation modulates that; it
+		// cannot remove it, because it multiplies a repeating pattern rather
+		// than replacing one.
+		//
+		// The removal is Heitz & Neyret's histogram-preserving synthesis
+		// (Assets::SynthesiseTiling). Run per pixel it is genuinely aperiodic
+		// and costs three texture fetches a map, forever. Run **once, offline,
+		// into a bigger tile** it costs nothing at draw time and pushes the
+		// repeat `TilingScale` times further away, which is the trade this
+		// engine takes.
+		//
+		// Off by default: every material authored before this keeps its maps.
+		bool StochasticTiling = false;
+
+		// How many times larger the synthesised tile is, per axis. 4 turns a
+		// 1K source into 4K -- sixteen times the memory, and the repeat four
+		// times further off.
+		int TilingScale = 4;
+
+		// Lattice cells across the output. The offsets wrap at this, which is
+		// what keeps the result seamless; more cells means smaller pieces of
+		// the source blended more often.
+		int TilingCells = 8;
+
+		// **The verb.** Synthesis is cached on disk against the source maps and
+		// these numbers, so it runs once; this forces it again. The same shape
+		// IrradianceVolumeComponent::Recapture has, and for the same reason --
+		// what the engine can detect automatically is a subset of what
+		// invalidates a stored answer.
+		bool RegenerateTiling = false;
+
 		AssetHandle BaseColorMap = AssetHandle::Invalid();
 		AssetHandle NormalMap = AssetHandle::Invalid();
 		AssetHandle OcclusionMap = AssetHandle::Invalid();

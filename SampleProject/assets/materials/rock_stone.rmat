@@ -1,0 +1,17 @@
+Material: rock_stone
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1.5
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 8870656282751429255
+  Normal: 10989006472914796141
+  Roughness: 9310756612372080774
+  Occlusion: 6840659354360492658
+  Height: 14866983362957030277

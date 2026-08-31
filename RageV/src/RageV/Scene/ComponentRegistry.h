@@ -394,6 +394,21 @@ namespace RageV
 		static const FieldDesc* Find(const std::string& name);
 	};
 
+	// A surface. Lives on a `.rmat` asset that a mesh or a terrain layer points
+	// at.
+	//
+	// **Only the fields that are not shading maths.** MaterialParams is a GPU
+	// block, edited by whoever authors the texture set; what is here is the
+	// handful of decisions a person makes *about* a material -- chiefly whether
+	// its maps get synthesised into a larger non-repeating tile, which is a
+	// property of the asset and not of any scene using it.
+	class MaterialRegistry
+	{
+	public:
+		static const std::vector<FieldDesc>& Fields();
+		static const FieldDesc* Find(const std::string& name);
+	};
+
 	// How a look is *made*. Lives on a `.rvlut` asset, which a post profile's
 	// Colour LUT row points at.
 	//

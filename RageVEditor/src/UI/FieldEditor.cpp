@@ -23,6 +23,9 @@
 #include <cstring>
 #include <sstream>
 #include <string>
+#include "RageV/Project/Project.h"
+#include "RageV/Renderer/TextureLoader.h"
+#include "RageV/Asset/MaterialSerializer.h"
 
 // One reflected field, drawn.
 //
@@ -684,6 +687,12 @@ namespace RageV::UI
 				if (hint.Accepts == AssetType::PostProfile && handle.IsValid())
 					DrawPostProfile(handle, scene);
 
+				// The same argument, for the same reason: turning stochastic
+				// tiling on for a pier's concrete should not require finding
+				// the asset in the browser first.
+				if (hint.Accepts == AssetType::Material && handle.IsValid())
+					DrawMaterial(handle);
+
 				// And a LUT under its own slot, for the same reason: the
 				// moment you want to change a grade is the moment you are
 				// looking at the profile that uses it. One drawer, shared with
@@ -1172,6 +1181,82 @@ namespace RageV::UI
 			ImGui::SetTooltip("Bakes the table these knobs describe and writes it as a\n"
 							  ".cube, which Resolve, Photoshop and every other grading\n"
 							  "tool reads.");
+		}
+
+		ImGui::Unindent();
+	}
+
+	void DrawMaterial(AssetHandle handle)
+	{
+		if (!handle.IsValid())
+			return;
+
+		const std::filesystem::path file = Assets::Registry::GetAbsolutePath(handle);
+		if (file.empty())
+			return;
+
+		// **The asset is what is edited, not the loaded Material.** A `.rmat`
+		// is shared by every mesh pointing at it, and the runtime Material is a
+		// consequence of the file rather than the thing itself -- so the desc
+		// is read once, edited in place, and written back.
+		static std::unordered_map<uint64_t, Assets::MaterialDesc> s_Editing;
+		auto entry = s_Editing.find((uint64_t)handle);
+		if (entry == s_Editing.end())
+		{
+			Assets::MaterialDesc desc;
+			if (!Assets::MaterialSerializer::Load(desc, file))
+				return;
+			entry = s_Editing.emplace((uint64_t)handle, desc).first;
+		}
+		Assets::MaterialDesc& desc = entry->second;
+
+		ImGui::Indent();
+		const std::string& path = Assets::Registry::GetMetadata(handle).Path;
+		UI::TextCaption("Editing %s -- shared by every mesh using it",
+						path.empty() ? "this material" : path.c_str());
+
+		if (DrawFields(MaterialRegistry::Fields(), &desc))
+		{
+			// **The verb never reaches the file, deliberately.** A regenerate
+			// flag written to disk would re-synthesise on every load forever,
+			// which is the shape of bug that hides for months behind "loading
+			// is a bit slow". So the button does its own work here: drop the
+			// cached synthesis this material's maps would find, and reload.
+			// The loader then rebuilds because there is nothing to find.
+			const bool regenerate = desc.RegenerateTiling;
+			desc.RegenerateTiling = false;
+
+			Assets::MaterialSerializer::Save(desc, file);
+
+			if (regenerate)
+			{
+				const AssetHandle maps[] = { desc.BaseColorMap, desc.NormalMap,
+											 desc.RoughnessMap, desc.OcclusionMap,
+											 desc.HeightMap, desc.MetallicMap,
+											 desc.EmissiveMap, desc.SpecularMap };
+				std::error_code error;
+				const std::filesystem::path folder = RageV::Project::CacheRoot() / "synthesis";
+				for (AssetHandle map : maps)
+				{
+					if (!map.IsValid())
+						continue;
+					const std::filesystem::path source = Assets::Registry::GetAbsolutePath(map);
+					if (source.empty())
+						continue;
+					const std::string stem = source.stem().string() + ".";
+					if (!std::filesystem::exists(folder, error))
+						continue;
+					for (const auto& file2 : std::filesystem::directory_iterator(folder, error))
+						if (file2.path().filename().string().rfind(stem, 0) == 0)
+							std::filesystem::remove(file2.path(), error);
+				}
+
+				// The synthesised tiles are also held by path in the texture
+				// cache, so the disk file going away is not enough on its own.
+				RageV::TextureLoader::ClearCache();
+			}
+
+			Assets::Manager::ReloadMaterial(handle);
 		}
 
 		ImGui::Unindent();

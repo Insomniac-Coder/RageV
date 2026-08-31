@@ -59,6 +59,40 @@ namespace RageV::Assets
 		emitter << YAML::Key << "NormalScale" << YAML::Value << params.NormalScale;
 		emitter << YAML::Key << "Specular"    << YAML::Value << params.Specular;
 		emitter << YAML::Key << "HeightScale" << YAML::Value << params.HeightScale;
+		// **Two named scalars, not a vector**, because that is what a person
+		// authoring a material thinks in: metres per cycle, and how much. The
+		// pair rides in a vec4 only because MaterialParams had no spare words
+		// left, and the file has no reason to know that.
+		// Written only when on, so no material authored before the extended
+		// lobes existed gains a line.
+		if (params.Clearcoat > 0.0f)
+		{
+			emitter << YAML::Key << "Clearcoat" << YAML::Value << params.Clearcoat;
+			emitter << YAML::Key << "ClearcoatRoughness" << YAML::Value << params.ClearcoatRoughness;
+		}
+		if (params.Anisotropy != 0.0f)
+			emitter << YAML::Key << "Anisotropy" << YAML::Value << params.Anisotropy;
+		if (params.Subsurface > 0.0f)
+			emitter << YAML::Key << "Subsurface" << YAML::Value << params.Subsurface;
+		if (params.SheenColor.x > 0.0f || params.SheenColor.y > 0.0f || params.SheenColor.z > 0.0f)
+		{
+			emitter << YAML::Key << "SheenColor" << YAML::Value << YAML::Flow
+					<< YAML::BeginSeq << params.SheenColor.x << params.SheenColor.y
+					<< params.SheenColor.z << YAML::EndSeq;
+			emitter << YAML::Key << "SheenRoughness" << YAML::Value << params.SheenRoughness;
+		}
+
+		if (material.StochasticTiling)
+		{
+			emitter << YAML::Key << "StochasticTiling" << YAML::Value << true;
+			emitter << YAML::Key << "TilingScale" << YAML::Value << material.TilingScale;
+			emitter << YAML::Key << "TilingCells" << YAML::Value << material.TilingCells;
+		}
+		if (params.Macro.x != 0.0f || params.Macro.y != 0.0f)
+		{
+			emitter << YAML::Key << "MacroScale" << YAML::Value << params.Macro.x;
+			emitter << YAML::Key << "MacroStrength" << YAML::Value << params.Macro.y;
+		}
 
 		// Only when it is not the default, so every material written before
 		// transparency existed still round-trips byte for byte -- which is what
@@ -160,6 +194,26 @@ namespace RageV::Assets
 		if (root["NormalScale"]) params.NormalScale = root["NormalScale"].as<float>();
 		if (root["Specular"])    params.Specular = root["Specular"].as<float>();
 		if (root["HeightScale"]) params.HeightScale = root["HeightScale"].as<float>();
+		if (root["Clearcoat"])          params.Clearcoat = root["Clearcoat"].as<float>();
+		if (root["ClearcoatRoughness"]) params.ClearcoatRoughness = root["ClearcoatRoughness"].as<float>();
+		if (root["Anisotropy"])         params.Anisotropy = root["Anisotropy"].as<float>();
+		if (root["Subsurface"])         params.Subsurface = root["Subsurface"].as<float>();
+		if (root["SheenRoughness"])     params.SheenRoughness = root["SheenRoughness"].as<float>();
+		if (root["SheenColor"])
+		{
+			const auto sheen = root["SheenColor"];
+			if (sheen.size() >= 3)
+			{
+				params.SheenColor.x = sheen[0].as<float>();
+				params.SheenColor.y = sheen[1].as<float>();
+				params.SheenColor.z = sheen[2].as<float>();
+			}
+		}
+		if (root["StochasticTiling"]) material.StochasticTiling = root["StochasticTiling"].as<bool>();
+		if (root["TilingScale"])      material.TilingScale = root["TilingScale"].as<int>();
+		if (root["TilingCells"])      material.TilingCells = root["TilingCells"].as<int>();
+		if (root["MacroScale"])    params.Macro.x = root["MacroScale"].as<float>();
+		if (root["MacroStrength"]) params.Macro.y = root["MacroStrength"].as<float>();
 
 		if (const YAML::Node blend = root["Blend"])
 		{

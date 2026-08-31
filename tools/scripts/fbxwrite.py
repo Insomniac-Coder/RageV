@@ -98,6 +98,125 @@ class Mesh:
                  (3, 7, 6, 2), (0, 4, 7, 3), (1, 2, 6, 5)]
         return self.add(points, faces, uv=box_uv(points, faces, uv), **place)
 
+    def chamfered_box(self, low, high, chamfer, uv=None, **place):
+        """A box with all twelve arrises cut back by `chamfer`.
+
+        **Nothing this size has a sharp arris.** Concrete is cast against
+        formwork with a chamfer strip nailed into every internal corner -- 20
+        to 25 mm is the standard section -- because an unprotected arrise
+        spalls off the moment the forms are struck. Seventy years of salt air
+        then rounds what the strip left. So a sharp edge on a pier is not a
+        simplification, it is a shape the object has never had.
+
+        And it reads, which is the point: a sharp edge gives the eye one line
+        where two faces meet, and those two faces are lit as a pair at every
+        sun angle. A chamfer inserts a *third* face on the bisector, which is
+        lit as neither -- so the arrise becomes a band of real width that goes
+        bright against a dark face or dark against a bright one, and turns
+        over as the sun moves. That band is most of what separates cast
+        concrete from a shaded polygon.
+
+        26 faces against `box`'s 6, so this is for pieces that are large and
+        near -- piers, pylons, curbs, the fort -- and emphatically not for a
+        railing picket, of which there are 3 648.
+
+        **Flat by default gives a cast chamfer; `smooth=True` gives a
+        weathered one.** The chamfer face sits 45 degrees off each neighbour,
+        which is inside `smooth_normals`' 60-degree crease, so marking the
+        piece smooth blends all three into a rounded fillet instead. Both are
+        real finishes and the call site chooses.
+
+        **The winding is decided, not written down.** Twelve edge quads and
+        eight corner triangles is exactly the sort of hand-authored table that
+        ships inside out -- which is the defect `check_models` exists for, and
+        which cost this toolkit its trees once already. The solid is convex
+        and contains its own centre, so a face is outward exactly when its
+        normal agrees with the direction from that centre to the face, and
+        that is tested here per face rather than trusted.
+        """
+        x0, y0, z0 = low
+        x1, y1, z1 = high
+        centre = ((x0 + x1) * 0.5, (y0 + y1) * 0.5, (z0 + z1) * 0.5)
+
+        # A third of the shortest side, never more. At half a side the
+        # chamfers off opposite arrises meet, the face between them vanishes,
+        # and past that the solid turns through itself -- silently, because
+        # every face is still wound the way this builds it.
+        c = min(chamfer, (x1 - x0) / 3.0, (y1 - y0) / 3.0, (z1 - z0) / 3.0)
+        if c <= 1e-6:
+            return self.box(low, high, uv=uv, **place)
+
+        # Three vertices per corner, one per face meeting there: it keeps the
+        # box's full extent along its own axis and is pulled in by `c` along
+        # the other two. Twenty-four in all, and the corner's three are the
+        # corner triangle.
+        points = []
+        index = {}
+        for sx in (-1, 1):
+            for sy in (-1, 1):
+                for sz in (-1, 1):
+                    corner = [x1 if sx > 0 else x0,
+                              y1 if sy > 0 else y0,
+                              z1 if sz > 0 else z0]
+                    for axis in range(3):
+                        p = list(corner)
+                        for other in range(3):
+                            if other != axis:
+                                p[other] -= c * (sx, sy, sz)[other]
+                        index[(sx, sy, sz, axis)] = len(points)
+                        points.append(tuple(p))
+
+        def vertex(signs, axis):
+            return index[(signs[0], signs[1], signs[2], axis)]
+
+        faces = []
+
+        # The six shrunken faces.
+        for axis in range(3):
+            u_axis, v_axis = [(1, 2), (0, 2), (0, 1)][axis]
+            for s in (-1, 1):
+                quad = []
+                for su, sv in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+                    signs = [0, 0, 0]
+                    signs[axis], signs[u_axis], signs[v_axis] = s, su, sv
+                    quad.append(vertex(signs, axis))
+                faces.append(tuple(quad))
+
+        # The twelve edge bands. An arrise is shared by two faces; the band
+        # bridges their two strips along the third axis.
+        for a in range(3):
+            for b in range(a + 1, 3):
+                along = 3 - a - b
+                for sa in (-1, 1):
+                    for sb in (-1, 1):
+                        quad = []
+                        for face_axis, order in ((a, (-1, 1)), (b, (1, -1))):
+                            for s in order:
+                                signs = [0, 0, 0]
+                                signs[a], signs[b], signs[along] = sa, sb, s
+                                quad.append(vertex(signs, face_axis))
+                        faces.append(tuple(quad))
+
+        # The eight corner triangles.
+        for sx in (-1, 1):
+            for sy in (-1, 1):
+                for sz in (-1, 1):
+                    faces.append(tuple(vertex((sx, sy, sz), axis)
+                                       for axis in range(3)))
+
+        outward = []
+        for face in faces:
+            normal = face_normal(points, face)
+            mid = [sum(points[i][k] for i in face) / len(face)
+                   for k in range(3)]
+            away = [mid[k] - centre[k] for k in range(3)]
+            if sum(normal[k] * away[k] for k in range(3)) < 0.0:
+                face = tuple(reversed(face))
+            outward.append(face)
+
+        return self.add(points, outward, uv=box_uv(points, outward, uv),
+                        **place)
+
     def prism(self, low, high, near, far, uv=None, **place):
         """A box whose far end is a different rectangle: a taper, a wedge, a
         tent. `near` and `far` are (half width, half depth) at each end."""

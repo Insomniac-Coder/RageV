@@ -95,6 +95,12 @@ namespace RageV
 		static void SetGlobalIllumination(float intensity);
 		static float GetGlobalIllumination();
 
+		// The floor under the traced reflection's firefly bound. See
+		// PostSettings::ReflectionFloor for why it is a setting and not the
+		// constant it used to be.
+		static void SetReflectionFloor(float floor);
+		static float GetReflectionFloor();
+
 		// How many times a traced bounce ray's light bounces again before the
 		// probe answers (ENGINE-NOTES 7ax). 1 or 2; the frame sets it, the lit
 		// shader reads it out of the scene block.

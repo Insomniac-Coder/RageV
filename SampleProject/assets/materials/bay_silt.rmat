@@ -1,12 +1,14 @@
 Material: bay_silt
-BaseColor: [0.18, 0.15, 0.11, 1]
+BaseColor: [0.55, 0.52, 0.45, 1]
 Emissive: [0, 0, 0, 1]
 Metallic: 0
 Roughness: 1
 Occlusion: 1
-NormalScale: 1
+NormalScale: 1.6
 Specular: 0.5
-HeightScale: 0
+HeightScale: 0.035
+MacroScale: 55
+MacroStrength: 0.34
 Tiling: [6, 6]
 UvOffset: [0, 0]
 Maps:

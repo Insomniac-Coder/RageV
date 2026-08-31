@@ -2768,8 +2768,14 @@ namespace RageV
 		// The same two numbers for the indirect buffer, read the same way.
 		const Renderer::ScreenIndirect* indirect = Renderer::GetScreenIndirect();
 		const bool haveIndirect = indirect && indirect->Texture && indirect->Intensity > 0.0f;
+		// z carries the traced reflection's firefly floor, which had been a
+		// constant in the shader. Here because this vec4's zw were the only
+		// pair in the block already declared in *both* mirrors and written as
+		// zero -- adding a field would have meant editing pbr_fragment.glsl
+		// and scene_vertex.glsl in step, and 7at is the note about what
+		// happens on OpenGL when that is done to one of them only.
 		s_Data->Scene.Indirect = Vec4(haveIndirect ? indirect->Intensity : 0.0f,
-									  rowSign, 0.0f, 0.0f);
+									  rowSign, Renderer::GetReflectionFloor(), 0.0f);
 		s_Data->Scene.CameraPosition = Vec4(Vec3(cameraTransform[3]), 1.0f);
 		s_Data->Scene.Ambient = Vec4(environment.AmbientColor, environment.AmbientIntensity);
 

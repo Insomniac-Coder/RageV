@@ -43,6 +43,16 @@ demanded by a picture somebody wants to make.
 
 Ranked by value per hour, not by size. Numbers are engineering judgement.
 
+**What actually moves realism, ranked, after a night spent failing at it
+(2026-08-31):** the *assets* first and by a wide margin — every object in the
+demo is procedurally generated and every texture is a 1K CC0 set, and no
+renderer feature compensates for that. Then **LODs** (5), because they are what
+lets denser assets exist at all. Then **area lights** (6). Then **volumetrics**
+(7). The renderer itself is not the gap: clustered forward with no light cap,
+ray-traced shadows, reflections, AO, GI and water refraction, baked irradiance
+volumes, five AA modes and a full post chain all run together at 129–212 FPS at
+2560x1600.
+
 ### ~~0 · Alpha-cutout materials~~ — ✅ **done 2026-08-28**
 `BlendMode::Masked` with an `AlphaCutoff` per material, glTF `MASK` importing
 as itself, its own draw bucket, run and pipeline. Both backends. Verified end
@@ -181,10 +191,56 @@ bays pays full triangle price forever. Import-time simplification plus a
 distance selector is the systemic answer; hand-authored near/far variants get
 one scene shipped.
 
-### 6 · Volumetric light shafts — ~1–2 weeks
+**Promoted in practice by the night session (2026-08-31).** It is no longer
+only a performance row: it is what caps how much geometry a scene may contain,
+which caps density, which caps realism. Every asset in the Golden Gate frame is
+procedurally generated at low density — the bridge is 105k triangles for a
+2.7 km structure — and the reason is that nothing sheds detail with distance,
+so everything must be cheap everywhere. Authored or scanned rock, which is the
+owner's next move on the cliffs, is expensive for exactly this reason. **This
+blocks the largest realism win there is, which is the assets.**
+
+### 6 · Analytic area lights — ~1 week
+**Every light in this engine is punctual.** `AreaEmitter` exists (Light.h) but
+it is next-event estimation for the *traced* GI, capped at 16 — it makes
+emissive geometry contribute to a bounce, and it is not direct specular.
+
+Found the hard way on 2026-08-31, chasing the sodium lamps' glitter path on the
+water and failing:
+
+- **A point source cannot make a streak.** Its specular reflection is a delta —
+  a wave facet returns light only where its normal exactly mirrors camera to
+  light, which is a vanishingly small set of pixels. An area source is
+  integrated over a *solid angle*, so many facets return something and the
+  result is the continuous vertical smear every night photograph of this bridge
+  is made of. The streak's length is the source's size convolved with the wave
+  slope distribution. No brightness setting substitutes for extent, and two
+  sessions' worth of work on the reflection path could not have produced it.
+- **The tower floods blow out**, and were hand-tuned from a 12°/30° cone to
+  26°/58° to hide it. That is papering over a punctual source: all its energy
+  leaves one point, so the near field is always over-bright. An area source
+  spreads the same energy and falls off up the shaft without a cone to tune.
+- **Soft shadows do not widen.** A 0.6 m luminaire throws a penumbra that grows
+  with distance from the occluder; a point throws a hard edge or a uniform
+  blur.
+- **The lens and the light are two objects pretending to be one.** The glowing
+  luminaire is emissive geometry and the illumination is a separate spot, so
+  they can drift — `bridge.lamp_light()` exists only to keep them together.
+  With area lights the emissive quad *is* the light, and what is seen, what is
+  lit, what reflects and what shadows agree by construction.
+
+LTC (linearly transformed cosines) is the standard answer: analytic, two lookup
+textures, roughly twice a punctual light's ALU. With 128 lamps already binned
+into clusters and the night frame at 12.6 ms, affordable.
+
+### 7 · Volumetric light shafts — ~1–2 weeks
 Froxel grid, ray march, temporal reprojection. The effect that puts visible
 cones under sodium lamps in sea mist. Do it *after* height fog proves the
 appetite — fog delivers most of the mood for a tenth of the work.
+
+**And the appetite is now proved.** Sea mist under sodium is most of the mood
+in every reference the owner has brought to the night scene; height fog gives
+the distance cue and none of the shafts.
 
 ### Not scheduled, and why
 

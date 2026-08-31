@@ -563,6 +563,7 @@ namespace RageV
 		const bool rayGi = giDetail != RayDetail::Off &&
 						   Renderer3D::CanTraceGlobalIllumination();
 		Renderer::SetGlobalIllumination(rayGi ? Math::Max(desc.Post.GiIntensity, 0.0f) : 0.0f);
+		Renderer::SetReflectionFloor(desc.Post.ReflectionFloor);
 		// One while the traced form is off, so the uniform never claims a
 		// depth nothing is tracing -- the same shape as the intensity above.
 		Renderer::SetGiBounces(rayGi ? ResolveGiBounces(desc.Post) : 1);

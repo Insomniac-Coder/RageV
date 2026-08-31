@@ -1,0 +1,11 @@
+Material: bridge_beacon
+BaseColor: [1, 0.14, 0.1, 1]
+Emissive: [7.4, 0.36, 0.2, 1]
+Metallic: 0
+Roughness: 0.3
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]

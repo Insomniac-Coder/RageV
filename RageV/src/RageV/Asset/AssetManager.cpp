@@ -934,11 +934,44 @@ namespace RageV::Assets
 		// The maps, and with them the flags. Assigning a null texture clears
 		// the slot and its flag, so a handle that resolves to nothing lands on
 		// the scalar parameter rather than on a missing binding.
+		// **Stochastic tiling replaces the map, it does not sit beside it.**
+		// The synthesised tile *is* the texture from here on -- same mip chain,
+		// same colour space, same cache -- so nothing downstream has to know a
+		// material was synthesised, and a material that turns the flag off goes
+		// back to its source maps by doing nothing.
+		//
+		// It needs the source *file*, which a handle can give but a loaded
+		// texture cannot, so it is resolved here rather than inside GetTexture.
 		auto assign = [&](AssetHandle map, void (Material::*setter)(const RHI::Ref<RHI::RHITexture>&),
 						  ColorSpace space)
 		{
-			if (map.IsValid())
-				(material.get()->*setter)(GetTexture(map, space));
+			if (!map.IsValid())
+				return;
+
+			if (desc.StochasticTiling)
+			{
+				const std::filesystem::path source = Registry::GetAbsolutePath(map);
+				if (!source.empty())
+				{
+					// One seed for the whole material, so every map of it is
+					// drawn from the same places -- see SynthesisRequest::Seed.
+					// Derived from the name so two materials do not synthesise
+					// identically and give a wall and its floor the same
+					// arrangement.
+					const uint32_t seed = (uint32_t)std::hash<std::string>{}(desc.Name);
+					auto tile = TextureLoader::SynthesisedTiling(
+						*s_Device, source.string(),
+						Math::Max(desc.TilingScale, 1), Math::Max(desc.TilingCells, 2),
+						seed, space == ColorSpace::Srgb, desc.RegenerateTiling);
+					if (tile)
+					{
+						(material.get()->*setter)(tile);
+						return;
+					}
+				}
+			}
+
+			(material.get()->*setter)(GetTexture(map, space));
 		};
 
 		// Two of these are pictures and five are data. Reading a normal map
@@ -954,6 +987,44 @@ namespace RageV::Assets
 		assign(desc.MetallicMap, &Material::SetMetallicMap, ColorSpace::Linear);
 		assign(desc.SpecularMap, &Material::SetSpecularMap, ColorSpace::Linear);
 		assign(desc.HeightMap, &Material::SetHeightMap, ColorSpace::Linear);
+
+		// **Roughness, occlusion and height into one texture, built here.**
+		// The layered terrain variant binds three samplers per layer and
+		// cannot grow a fourth -- set 0 already spends 16 of the 32 texture
+		// units OpenGL guarantees a fragment stage -- so occlusion and height
+		// were simply unavailable to it. Each of the three is one channel, so
+		// all three fit in one texture at one sampler.
+		//
+		// **The `.rmat` still names them separately**, and that is the point:
+		// packing is a fact about how one variant binds things, not about how
+		// a surface is authored. Doing it here means nothing outside this line
+		// has to know, and a material authored for the ordinary lit shader
+		// works on terrain unchanged.
+		//
+		// Only when there is something to pack. A material with roughness
+		// alone keeps using that map directly: the other two channels would
+		// never be read, and packing it would cost three times the memory for
+		// nothing. Any combination of the three works -- an absent one takes
+		// the neutral for its channel, and `PackChannels` returns null if none
+		// of them could be read at all.
+		if (desc.OcclusionMap.IsValid() || desc.HeightMap.IsValid())
+		{
+			auto sourceOf = [](AssetHandle map)
+			{
+				return map.IsValid() ? Registry::GetAbsolutePath(map).string() : std::string();
+			};
+
+			material->SetPackedSurfaceMap(RHI::Ref<RHI::RHITexture>(
+				TextureLoader::PackChannels(*s_Device,
+											sourceOf(desc.RoughnessMap),
+											sourceOf(desc.OcclusionMap),
+											sourceOf(desc.HeightMap),
+											// Neutrals: full roughness (never
+											// read without its flag), nothing
+											// occluded, no displacement.
+											255, 255, 0,
+											desc.Name + " (packed surface)")));
+		}
 
 		material->Invalidate();
 
