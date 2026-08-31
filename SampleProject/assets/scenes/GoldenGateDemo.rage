@@ -11,6 +11,24 @@ Environment:
   SkyRotation: 0
   SkyTexture: 0
 Entities:
+  - EntityID: 12086993812364939721
+    TagComponent:
+      Tag: Headland Camera
+    TransformComponent:
+      Position: [300, 76.22, -1010]
+      Rotation: [-0.155, 2.74159, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 55
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 8000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 0
   - EntityID: 11531348261339546839
     TagComponent:
       Tag: Deck Camera
@@ -19,7 +37,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     CameraComponent:
-      ViewRank: 0
+      ViewRank: 1
       FixedAspectRatio: false
       ProjectionType: Perspective
       PerspectiveFOV: 50
@@ -37,28 +55,10 @@ Entities:
       Rotation: [0, 1.5708, 0]
       Scale: [1, 1, 1]
     CameraComponent:
-      ViewRank: 1
-      FixedAspectRatio: false
-      ProjectionType: Perspective
-      PerspectiveFOV: 42
-      PerspectiveNearClip: 0.05
-      PerspectiveFarClip: 8000
-      OrthographicScale: 10
-      OrthographicNearClip: -1
-      OrthographicFarClip: 1
-      PostProfile: 0
-  - EntityID: 12086993812364939721
-    TagComponent:
-      Tag: Headland Camera
-    TransformComponent:
-      Position: [300, 76.22, -1010]
-      Rotation: [-0.155, 2.74159, 0]
-      Scale: [1, 1, 1]
-    CameraComponent:
       ViewRank: 2
       FixedAspectRatio: false
       ProjectionType: Perspective
-      PerspectiveFOV: 55
+      PerspectiveFOV: 42
       PerspectiveNearClip: 0.05
       PerspectiveFarClip: 8000
       OrthographicScale: 10
@@ -169,6 +169,16 @@ Entities:
     MeshComponent:
       Mesh: 17569586576507270388
       Material: 11637483637505477495
+  - EntityID: 2756159681780722273
+    TagComponent:
+      Tag: Markings
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 16787712030706170601
+      Material: 17496098469689552178
   - EntityID: 15269762335764735707
     TagComponent:
       Tag: Seabed

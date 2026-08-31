@@ -163,11 +163,24 @@ ARCH_SPRING = 9.0                   # where its feet stand
 MAT_STEEL = 0
 MAT_CONCRETE = 1
 MAT_ROAD = 2
+MAT_PAINT = 3
 MATERIALS = [
     ("InternationalOrange", (0.527, 0.037, 0.025)),
     ("Concrete", (0.42, 0.41, 0.38)),
     ("Asphalt", (0.055, 0.055, 0.058)),
+    ("LanePaint", (0.72, 0.71, 0.68)),
 ]
+
+# The carriageway: six lanes between the curbs, a median down the middle and
+# a sidewalk outside each curb. Every number is the real one, and they are
+# what the markings are laid out from rather than eyeballed onto the slab.
+CARRIAGEWAY_HALF = 9.45         # 18.90 m curb to curb
+MEDIAN_HALF = 0.35
+SIDEWALK = 3.05                 # each side, outside the curb
+CURB_HEIGHT = 0.26
+LANE_MARK_HALF = 0.075
+DASH_LENGTH = 3.0
+DASH_PERIOD = 12.0
 
 # Leg plan: transverse (across the bridge) x longitudinal (along it). The long
 # axis is along the bridge, which is what makes the tower read as a slab from
@@ -291,8 +304,46 @@ def deck():
     # Asphalt, and its own material: the deck is the one dark thing in a
     # bridge that is otherwise all one colour, and at dusk it is what
     # separates the near truss from the far one.
-    mesh.box((-DECK_HALF_WIDTH, ROADWAY - DECK_SLAB, -HALF_LENGTH),
-             (DECK_HALF_WIDTH, ROADWAY, HALF_LENGTH), uv=8.0, material=MAT_ROAD)
+    mesh.box((-CARRIAGEWAY_HALF, ROADWAY - DECK_SLAB, -HALF_LENGTH),
+             (CARRIAGEWAY_HALF, ROADWAY, HALF_LENGTH), uv=8.0, material=MAT_ROAD)
+
+    # The sidewalks outside the curbs, raised, and the curb itself. **The
+    # deck is not one flat plane**: from the deck camera and from the tower
+    # window the step from carriageway to walkway is the first thing that
+    # says how wide the road is.
+    for side in (-1.0, 1.0):
+        inner = side * CARRIAGEWAY_HALF
+        outer = side * DECK_HALF_WIDTH
+        lo, hi = min(inner, outer), max(inner, outer)
+        mesh.box((lo, ROADWAY - DECK_SLAB, -HALF_LENGTH),
+                 (hi, ROADWAY + CURB_HEIGHT, HALF_LENGTH),
+                 uv=6.0, material=MAT_CONCRETE)
+
+    # The median. Six lanes with nothing between them is a motorway, not this.
+    mesh.box((-MEDIAN_HALF, ROADWAY, -HALF_LENGTH),
+             (MEDIAN_HALF, ROADWAY + 0.82, HALF_LENGTH),
+             uv=6.0, material=MAT_CONCRETE)
+
+    # --- the markings --------------------------------------------------------
+    #
+    # Three lanes a side between the median and the curb, so the boundaries
+    # fall where the arithmetic puts them rather than where they look right.
+    lane = (CARRIAGEWAY_HALF - MEDIAN_HALF) / 3.0
+    paint_y = ROADWAY + 0.012
+    for side in (-1.0, 1.0):
+        for k in (1, 2):
+            x = side * (MEDIAN_HALF + lane * k)
+            count = int(2.0 * HALF_LENGTH / DASH_PERIOD)
+            for i in range(count):
+                z = -HALF_LENGTH + i * DASH_PERIOD
+                mesh.box((x - LANE_MARK_HALF, ROADWAY, z),
+                         (x + LANE_MARK_HALF, paint_y, z + DASH_LENGTH),
+                         uv=1.0, material=MAT_PAINT)
+        # The solid edge line, one box for the whole run.
+        edge = side * (CARRIAGEWAY_HALF - 0.28)
+        mesh.box((edge - LANE_MARK_HALF, ROADWAY, -HALF_LENGTH),
+                 (edge + LANE_MARK_HALF, paint_y, HALF_LENGTH),
+                 uv=8.0, material=MAT_PAINT)
 
     # --- the two side trusses ------------------------------------------------
     panels = int(round(2.0 * HALF_LENGTH / TRUSS_PANEL))
@@ -346,18 +397,52 @@ def deck():
                        WEB_HALF * 0.6, sides=4, uv=3.0, material=MAT_STEEL)
 
     # --- the railings --------------------------------------------------------
+    #
+    # **Pickets, not a rail on posts.** The outer railing is a close comb of
+    # verticals with a rail top and bottom, and from the sidewalk it is most
+    # of what you see. At 1.5 m the comb reads without putting a picket in
+    # every pixel of a distant shot -- the true spacing is about five inches,
+    # which would be twenty thousand of them a side and nothing but aliasing
+    # from any camera that is not standing on the deck.
+    base = ROADWAY + CURB_HEIGHT
+    pickets = int(2.0 * HALF_LENGTH / 1.5)
     posts = int(round(2.0 * HALF_LENGTH / RAIL_POST))
     for side in (-RAIL_HALF_WIDTH, RAIL_HALF_WIDTH):
-        mesh.box((side - 0.09, ROADWAY + RAIL_HEIGHT - 0.16, -HALF_LENGTH),
-                 (side + 0.09, ROADWAY + RAIL_HEIGHT, HALF_LENGTH),
-                 uv=6.0, material=MAT_STEEL)
+        for y in (base + RAIL_HEIGHT - 0.14, base + RAIL_HEIGHT * 0.52):
+            mesh.box((side - 0.08, y, -HALF_LENGTH),
+                     (side + 0.08, y + 0.14, HALF_LENGTH),
+                     uv=6.0, material=MAT_STEEL)
+        for i in range(pickets + 1):
+            z = -HALF_LENGTH + i * 1.5
+            if z > HALF_LENGTH:
+                break
+            mesh.box((side - 0.035, base, z - 0.035),
+                     (side + 0.035, base + RAIL_HEIGHT, z + 0.035),
+                     uv=1.0, material=MAT_STEEL)
+        # The heavier posts the comb hangs between, on the 12.5 ft module.
         for i in range(posts + 1):
             z = -HALF_LENGTH + i * RAIL_POST
             if z > HALF_LENGTH:
                 break
-            mesh.box((side - 0.07, ROADWAY, z - 0.07),
-                     (side + 0.07, ROADWAY + RAIL_HEIGHT, z + 0.07),
+            mesh.box((side - 0.09, base, z - 0.09),
+                     (side + 0.09, base + RAIL_HEIGHT + 0.1, z + 0.09),
                      uv=1.0, material=MAT_STEEL)
+
+    # The service pipe along the outside of each truss, which is the one
+    # horizontal line on this bridge that is not structure.
+    for side in (-1.0, 1.0):
+        x = side * (TRUSS_HALF + 0.55)
+        y = ROADWAY - 1.35
+        mesh.strut((x, y, -HALF_LENGTH), (x, y, HALF_LENGTH), 0.42, sides=8,
+                   uv=8.0, smooth=True, material=MAT_STEEL)
+        # And the brackets that carry it off the truss, every other panel.
+        brackets = int(2.0 * HALF_LENGTH / (TRUSS_PANEL * 2.0))
+        for i in range(brackets + 1):
+            z = -HALF_LENGTH + i * TRUSS_PANEL * 2.0
+            if z > HALF_LENGTH:
+                break
+            mesh.strut((side * TRUSS_HALF, y + 0.55, z), (x, y, z),
+                       0.10, sides=4, uv=1.0, material=MAT_STEEL)
 
     # --- the lamp standards --------------------------------------------------
     #
@@ -369,18 +454,26 @@ def deck():
         if z > HALF_LENGTH:
             break
         for side in (-1.0, 1.0):
-            x = side * (RAIL_HALF_WIDTH + 0.32)
-            base = ROADWAY + RAIL_HEIGHT * 0.2
+            x = side * (RAIL_HALF_WIDTH - 0.55)
+            base = ROADWAY + CURB_HEIGHT
             # `cylinder` has no uv of its own -- it is the one primitive
             # here whose `uv` would land in `add`'s per-face list.
             mesh.cylinder(0.13, LAMP_HEIGHT, sides=6, taper=0.7,
                           base_y=base, offset=(x, 0.0, z),
                           material=MAT_STEEL)
+            # **The arm curves.** A straight bracket reads as a sign post;
+            # what says street lamp is the quarter circle from the shaft out
+            # over the road, and three segments is enough to draw it.
             head = base + LAMP_HEIGHT
-            mesh.strut((x, head, z), (x - side * LAMP_ARM, head + 0.28, z),
-                       0.09, sides=4, uv=1.0, material=MAT_STEEL)
-            mesh.box((x - side * LAMP_ARM - 0.30, head + 0.06, z - 0.22),
-                     (x - side * LAMP_ARM + 0.30, head + 0.32, z + 0.22),
+            curve = [(x, head - 0.35, z),
+                     (x, head + 0.42, z),
+                     (x - side * LAMP_ARM * 0.55, head + 0.78, z),
+                     (x - side * LAMP_ARM, head + 0.80, z)]
+            for a, b in zip(curve, curve[1:]):
+                mesh.strut(a, b, 0.085, sides=6, uv=1.0, smooth=True,
+                           material=MAT_STEEL)
+            mesh.box((x - side * LAMP_ARM - 0.36, head + 0.56, z - 0.24),
+                     (x - side * LAMP_ARM + 0.36, head + 0.80, z + 0.24),
                      uv=1.0, material=MAT_STEEL)
 
     # --- the approach bents --------------------------------------------------
@@ -413,6 +506,113 @@ def ground_at(x, z):
     except Exception:
         return None
     return make_bridge_seabed.height_at(x, z)
+
+
+# --- fluted, chamfered sections ----------------------------------------------
+#
+# **The tower's shafts are not boxes and the difference is the whole
+# building.** Every photograph of the Golden Gate's towers shows deep vertical
+# reveals running the full height of each leg, corners cut back rather than
+# square, and a projecting ledge at every setback. Drawn as tapered boxes they
+# read as a pylon from a motorway bridge; drawn with the plan below they read
+# as this one, and from any distance.
+#
+# So the leg is an extrusion of a *plan*, not a box: a rectangle with its
+# corners chamfered and a row of reveals cut into each face. Both ends of a
+# section use the same plan at different sizes, so the flutes taper with the
+# shaft and stay in line all the way up.
+
+def fluted_edge(start, end, inward, count, depth):
+    """Points from `start` towards `end`, with `count` reveals cut into the
+    face. `inward` points into the section. `start` is included, `end` is not:
+    the next edge begins there."""
+    (ax, az), (bx, bz) = start, end
+    ix, iz = inward
+    points = [(ax, az)]
+    if count <= 0:
+        return points
+
+    # Each reveal is a quarter of its slot wide, centred in it, so the flat
+    # between two of them is the same width as the reveal itself.
+    for i in range(count):
+        t0 = (i + 0.30) / count
+        t1 = (i + 0.70) / count
+        for t, sunk in ((t0, False), (t0, True), (t1, True), (t1, False)):
+            x = ax + (bx - ax) * t
+            z = az + (bz - az) * t
+            if sunk:
+                x += ix * depth
+                z += iz * depth
+            points.append((x, z))
+    return points
+
+
+def leg_plan(half_x, half_z, chamfer_frac=0.22, flutes=(3, 5), depth_frac=0.11):
+    """The leg's plan, counter-clockwise in the order `prism` uses.
+
+    `flutes` is (across the bridge, along it): the faces you see from the deck
+    are the narrow ones and carry fewer.
+    """
+    c = min(half_x, half_z) * chamfer_frac
+    dx = half_x * depth_frac
+    dz = half_z * depth_frac
+    plan = []
+    plan += fluted_edge((-half_x + c, -half_z), (half_x - c, -half_z),
+                        (0.0, 1.0), flutes[0], dz)
+    plan += fluted_edge((half_x, -half_z + c), (half_x, half_z - c),
+                        (-1.0, 0.0), flutes[1], dx)
+    plan += fluted_edge((half_x - c, half_z), (-half_x + c, half_z),
+                        (0.0, -1.0), flutes[0], dz)
+    plan += fluted_edge((-half_x, half_z - c), (-half_x, -half_z + c),
+                        (1.0, 0.0), flutes[1], dx)
+    return plan
+
+
+def extrude_plan(mesh, plan_low, plan_high, y0, y1, offset, material,
+                 cap_low=True, cap_high=True):
+    """A plan swept from y0 to y1, tapering from `plan_low` to `plan_high`.
+
+    Wound exactly as `prism` winds: the sides are (bottom i, top i, top i+1,
+    bottom i+1) and the caps are fans, the lower one in plan order and the
+    upper one reversed. A face wound the other way is not merely invisible
+    under backface culling -- it is lit from behind.
+
+    The caps fan from an added centre point rather than from a corner,
+    because a fluted plan is concave and a corner fan would cut triangles
+    across the reveals.
+    """
+    n = len(plan_low)
+    points = [(x, y0, z) for x, z in plan_low]
+    points += [(x, y1, z) for x, z in plan_high]
+    faces = [(i, n + i, n + (i + 1) % n, (i + 1) % n) for i in range(n)]
+
+    if cap_low:
+        centre = len(points)
+        points.append((0.0, y0, 0.0))
+        faces += [(centre, (i + 1) % n, i) for i in range(n)]
+    if cap_high:
+        centre = len(points)
+        points.append((0.0, y1, 0.0))
+        faces += [(centre, n + i, n + (i + 1) % n) for i in range(n)]
+
+    return mesh.add(points, faces, offset=offset, material=material)
+
+
+def coffered_band(mesh, x0, x1, y0, y1, z, depth, fins, material):
+    """A strut face with a row of vertical fins across it.
+
+    The horizontal bands between the tower's openings are not flat plate:
+    they are coffered, and the stripe of light and shade that makes is what
+    separates one band from the next at a kilometre.
+    """
+    span = x1 - x0
+    for i in range(fins):
+        t0 = x0 + span * (i + 0.22) / fins
+        t1 = x0 + span * (i + 0.78) / fins
+        for face in (-1.0, 1.0):
+            mesh.box((t0, y0 + 0.45, z + face * depth * 0.5),
+                     (t1, y1 - 0.45, z + face * (depth * 0.5 + 0.34)),
+                     uv=1.0, material=material)
 
 
 def leg_half(elevation):
@@ -466,8 +666,19 @@ def tower(z, pier_base):
     for x in (-TRUSS_HALF, TRUSS_HALF):
         for i in range(len(levels) - 1):
             low, high = levels[i], levels[i + 1]
-            mesh.prism(low, high, leg_half(low), leg_half(high),
-                       offset=(x, 0.0, z), uv=3.0, material=MAT_STEEL)
+            extrude_plan(mesh, leg_plan(*leg_half(low)),
+                         leg_plan(*leg_half(high)), low, high,
+                         (x, 0.0, z), MAT_STEEL)
+
+            # The cornice at the setback: a short flared band that catches
+            # the light and says the shaft has just stepped in. Without them
+            # the steps read as a modelling seam rather than as the Art Deco
+            # they are.
+            if i + 1 < len(levels) - 1:
+                wide = [(px * 1.055, pz * 1.055)
+                        for px, pz in leg_plan(*leg_half(high))]
+                extrude_plan(mesh, wide, wide, high - 1.15, high,
+                             (x, 0.0, z), MAT_STEEL)
 
     # The struts, spanning between the shafts.
     #
@@ -487,6 +698,41 @@ def tower(z, pier_base):
         mesh.box((-TRUSS_HALF, bottom, z - depth * 0.5),
                  (TRUSS_HALF, high, z + depth * 0.5), uv=3.0,
                  material=MAT_STEEL)
+
+        # The band's face, coffered, and the ledges that cap it top and
+        # bottom. Only on the deep bands -- a 4 m strut has no room for it.
+        if high - bottom > 5.0:
+            inner = TRUSS_HALF - leg_half(bottom)[0] * 0.9
+            coffered_band(mesh, -inner, inner, bottom, high, z, depth,
+                          max(6, int((2.0 * inner) / 1.6)), MAT_STEEL)
+            for y in (bottom, high):
+                mesh.box((-TRUSS_HALF - 0.35, y - 0.55, z - depth * 0.5 - 0.5),
+                         (TRUSS_HALF + 0.35, y + 0.55, z + depth * 0.5 + 0.5),
+                         uv=2.0, material=MAT_STEEL)
+
+    # --- the top ------------------------------------------------------------
+    #
+    # The cable does not stop at the shaft: it runs over a saddle in a housing
+    # that stands proud of the tower top, and there is a railed platform round
+    # it. Both are in every photograph taken from the deck looking up.
+    for x in (-TRUSS_HALF, TRUSS_HALF):
+        top_half = leg_half(TOWER_TOP)
+        mesh.box((x - top_half[0] * 1.12, TOWER_TOP - 1.0,
+                  z - top_half[1] * 1.12),
+                 (x + top_half[0] * 1.12, TOWER_TOP + 0.6,
+                  z + top_half[1] * 1.12), uv=2.0, material=MAT_STEEL)
+        mesh.box((x - CABLE_RADIUS * 2.4, TOWER_TOP + 0.6, z - top_half[1] * 0.8),
+                 (x + CABLE_RADIUS * 2.4, TOWER_TOP + 2.1, z + top_half[1] * 0.8),
+                 uv=1.0, material=MAT_STEEL)
+        for post in range(8):
+            t = -1.0 + 2.0 * post / 7.0
+            pz = z + t * top_half[1] * 1.05
+            mesh.box((x - top_half[0] * 1.12, TOWER_TOP + 0.6, pz - 0.09),
+                     (x - top_half[0] * 0.95, TOWER_TOP + 1.7, pz + 0.09),
+                     uv=1.0, material=MAT_STEEL)
+            mesh.box((x + top_half[0] * 0.95, TOWER_TOP + 0.6, pz - 0.09),
+                     (x + top_half[0] * 1.12, TOWER_TOP + 1.7, pz + 0.09),
+                     uv=1.0, material=MAT_STEEL)
 
     # --- the corner gussets, which are the "arch" ---------------------------
     #
@@ -613,6 +859,7 @@ PARTS = [
 SHARED = [
     ("bridge_road", MAT_ROAD),
     ("bridge_piers", MAT_CONCRETE),
+    ("bridge_paint", MAT_PAINT),
 ]
 
 
@@ -671,7 +918,8 @@ def write_materials():
     for name, colour, rough in (
             ("bridge_orange", (0.527, 0.037, 0.025), 0.42),
             ("bridge_concrete", (0.42, 0.41, 0.38), 0.78),
-            ("bridge_asphalt", (0.055, 0.055, 0.058), 0.86)):
+            ("bridge_asphalt", (0.055, 0.055, 0.058), 0.86),
+            ("bridge_paint", (0.72, 0.71, 0.68), 0.70)):
         path = out / (name + ".rmat")
         body = NEWLINE.join([
             "Material: " + name,

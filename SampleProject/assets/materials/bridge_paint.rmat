@@ -1,0 +1,11 @@
+Material: bridge_paint
+BaseColor: [0.72, 0.71, 0.68, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 0.7
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0
+Tiling: [1, 1]
+UvOffset: [0, 0]

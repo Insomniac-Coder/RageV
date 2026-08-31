@@ -70,7 +70,7 @@ def read_handle(path):
 def handles():
     found = {}
     for name in ("bridge_towers", "bridge_deck", "bridge_cables",
-                 "bridge_road", "bridge_piers"):
+                 "bridge_road", "bridge_piers", "bridge_paint"):
         meta = MODELS / (name + ".fbx.meta")
         if not meta.exists():
             raise SystemExit(
@@ -299,12 +299,14 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None):
     steel = seabed.terrain.handle_for("materials/bridge_orange.rmat")
     concrete = seabed.terrain.handle_for("materials/bridge_concrete.rmat")
     asphalt = seabed.terrain.handle_for("materials/bridge_asphalt.rmat")
+    paint = seabed.terrain.handle_for("materials/bridge_paint.rmat")
     for name, part, material in (
             ("Towers", "bridge_towers", steel),
             ("Deck", "bridge_deck", steel),
             ("Cables", "bridge_cables", steel),
             ("Roadway", "bridge_road", asphalt),
             ("Piers", "bridge_piers", concrete),
+            ("Markings", "bridge_paint", paint),
     ):
         s.entity(name)
         s.mesh(mesh[part], material)
