@@ -162,6 +162,16 @@ From five 2560×1600 captures (glitter/headland/deck/pier/cliff cameras):
   so do not fight the resolve to preserve sparkle.
 - A bake is real only if its file has ~118k non-zero bytes of 157k; an
   OpenGL "bake" writes zeros and later runs trust it.
+- **A fixed additive dither (or any display-referred constant) is only the
+  right size at the write nearest the final low-precision target.** WR-2
+  found this the hard way: `1/255` added in sky/fog's linear pre-exposure
+  space came out near 10 levels of 255 after `Exposure`/ACES/gamma at a dark
+  night value — gamma's encoding slope is steepest near black, which a night
+  scene lives in. One dither point after every amplifying stage (this
+  engine's tonemap pass) covers every upstream write; dithering upstream of
+  exposure/tonemap needs no flat constant, it needs the *local* downstream
+  gain, which is not worth computing. Applies to WR-11 and WR-12, both of
+  which add HDR-stage writes.
 
 **The scene file is currently hand-owned — do not regenerate it (until WR-0
 lands).** Commit `dab692d` added `SourceRadius`/`Range`/`OuterCone` to 120
@@ -351,19 +361,62 @@ must multiply only the sky/ambient term, never the field's bounced light
 
 ---
 
-## WR-2 · TPDF dither (Playdead INSIDE recipe)
+## ~~WR-2 · TPDF dither (Playdead INSIDE recipe)~~ — ✅ **done 2026-09-01**
 
 **Goal.** Kill banding in night gradients. Sky, fog composite, and
 tonemap-out each get ~1 LSB of triangularly-distributed noise at write time.
 
-**Changes.** In `sky.rvshader`, `fog.rvshader`, `tonemap.rvshader` final
-writes: `colour += (rand1 + rand2 - 1.0) * (1.0/255.0)` with per-frame-seeded
-hashes (animated noise reads as film grain; static noise reads as dirt).
-Dither **every** pass that writes a lower-precision target, not just the
-last — banding introduced mid-chain gets amplified by later contrast.
+**Landed differently from the brief above, and the reason is worth keeping.**
+The recipe as written — dither at all three passes' final writes — was built
+and measured, not just built. Sky and fog write to a linear, pre-exposure
+HDR target; "1/255" is only actually one display level *after* `Exposure`,
+the ACES curve and `pow(x, 1/2.2)` gamma encoding, all of which lie between
+those writes and the swapchain. Worked through the chain at a representative
+night-sky value (~0.01 linear, `Exposure 2.4`) a ±1/255 linear perturbation
+comes out near **10 levels of 255** at the final pixel — gamma's encoding
+slope is steepest exactly in the near-black range a night sky lives in.
+Rendered, not just derived: the owner saw it as faint but real grain on the
+sky at normal size, and a box-blur noise measurement on the sky region
+confirmed it — std 1.70 (no dither) → 3.08 (dithered at all three writes,
+sky region), against a p99 that went from 5 to 8 levels.
+
+**What shipped instead: `tonemap.rvshader` dithers once, after Exposure,
+ACES and gamma — the only point in this pipeline where "1/255" is the unit
+it claims to be**, because nothing downstream of it has gain left to apply.
+That single dither point covers every upstream pass's writes, sky and fog
+included, since they all funnel through it. Measured the same way: std 1.74
+against the 1.70 no-dither floor — indistinguishable from noise already
+present in the render (RT sampling variance, confirmed separately: two
+renders of the same build/frame differ by at most 1 level on 0.002% of
+pixels, so that floor is not run-to-run instability either). `HashU`
+factored into `include/dither.glsl` so grain and dither share one
+reproducible hash instead of each pass growing its own.
+
+**Addendum, same day: `sky.rvshader` got its dither back, opt-in.** The
+owner asked for a toggle rather than leaving the capability out entirely --
+`SceneEnvironment::SkyDither` (default off), a spare lane in `SkyExtra`
+(`CityGlowColor.a`), and the same `TpdfDither` call as before but scaled by
+`kSkyDitherCompensation = 0.1` before it goes into the linear write -- the
+measured ~10x overshoot, inverted, so switching it on lands close to the
+same ~1 level tonemap's own dither already guarantees rather than
+reintroducing the original mistake behind a flag. Stated as what it is, not
+derived: the factor is measured for a typical night sky's brightness, and a
+much brighter gradient would under-dither with it, which is the safe
+direction to be wrong in. `fog.rvshader` was not asked for and stayed as
+landed above -- no dither, no plumbing.
+
+**The general lesson, for WR-11 and WR-12 (both add HDR-stage writes):** a
+fixed additive dither is only correctly sized at the stage nearest the final
+low-precision write. Anything upstream of exposure/tonemap needs either no
+dither, or an amplitude scaled to survive the *specific* downstream gain at
+that brightness — never the flat display-referred constant.
 
 **Verify.** Amplified (×12) screenshot of the night sky gradient before/after:
-bands gone, noise floor invisible at 1×. No change in scenetest.
+bands gone, noise floor invisible at 1× (confirmed by the box-blur std
+comparison above, not eyeballing alone — the over-strong version looked
+"slightly visible" rather than obviously wrong, which a bare screenshot
+comparison could easily have missed). scenetest green on both backends,
+unchanged.
 
 ---
 

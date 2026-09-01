@@ -115,5 +115,20 @@ namespace RageV
 		float MoonElevation = 0.0f;   // degrees over the horizon
 		float MoonBearing = 0.0f;     // degrees, CityGlowBearing's convention
 		float MoonDisc = 0.0046f;     // angular radius, radians (the real moon's)
+
+		// **WR-2, opt-in.** A first landing dithered this pass's own linear,
+		// pre-exposure write and measured the mistake: `Exposure` and the
+		// ACES/gamma chain between here and the swapchain amplify a night
+		// sky's near-black values hardest, so a "1/255" term here comes out
+		// closer to 10 levels of 255 at the pixel -- confirmed both by
+		// working the chain through and by the owner seeing faint grain on
+		// a real render. `sky.rvshader` compensates by roughly that same
+		// factor when this is on, which is a measured correction for a
+		// typical night sky's brightness, not a general one -- a much
+		// brighter sky would want a smaller one. Off by default, on the
+		// same "measure before shipping" grounds that took the always-on
+		// version out; tonemap.rvshader's own dither, downstream of every
+		// amplifying stage, is what actually carries WR-2's guarantee.
+		bool SkyDither = false;
 	};
 }

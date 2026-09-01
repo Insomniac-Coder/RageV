@@ -21,6 +21,8 @@ void main()
 #type fragment
 #version 450 core
 
+#include "include/dither.glsl"
+
 layout(location = 0) in vec2 v_UV;
 layout(location = 0) out vec4 o_Color;
 
@@ -100,28 +102,13 @@ layout(std430, set = 0, binding = 3) readonly buffer ExposureState
 // it carries a regular grid of grain-free dots -- the artefact this is
 // replacing, rotated 45 degrees. ENGINE-NOTES 7x.
 
-// An integer hash, not `fract(sin(x) * 43758.5453)`.
-//
-// The sine version is the common one and it is not *reproducible*: the
-// precision of `sin` is implementation-defined, the arguments it is fed are
-// large, and the answer lives entirely in the low bits that the two backends
-// are least likely to agree on. Integer multiplies and shifts are exact and
-// wrap identically everywhere, which is what makes a grain pattern something
-// a Vulkan and an OpenGL screenshot can be compared on at all.
-//
-// lowbias32 (Wellons), chosen over the usual Wang hash because its avalanche
-// is good enough that consecutive integers do not need a second round to stop
-// looking consecutive -- and consecutive integers is exactly what a lattice
-// feeds it.
-uint HashU(uint x)
-{
-	x ^= x >> 16;
-	x *= 0x7feb352du;
-	x ^= x >> 15;
-	x *= 0x846ca68bu;
-	x ^= x >> 16;
-	return x;
-}
+// `HashU` -- the integer hash grain and WR-2's dither both build on -- now
+// lives in include/dither.glsl, lowbias32 (Wellons) unchanged; moved there
+// so sky.rvshader and fog.rvshader can seed their dither the same
+// reproducible way instead of each growing their own copy. Chosen over the
+// usual Wang hash because its avalanche is good enough that consecutive
+// integers do not need a second round to stop looking consecutive -- and
+// consecutive integers is exactly what a lattice feeds it.
 
 // One lattice point's value, in 0..1.
 float Lattice(ivec2 cell, uint seed)
@@ -325,6 +312,16 @@ void main()
 		color = clamp(color + grain * (u_Params.Grain * kGrainAmplitude * response),
 					  0.0, 1.0);
 	}
+
+	// **WR-2 dither, last of all -- the actual 8-bit write.** Sky and fog
+	// dither their own gradient writes upstream so exposure and the curve
+	// above cannot amplify quantisation into a visible band; this one is
+	// what stops the LUT and grain from reintroducing one right at the
+	// swapchain's own UNORM write, salt 3 so its pattern is independent of
+	// theirs on the same pixel. Reuses u_Params.Frame -- already the exact
+	// reproducible seed grain above needs for the same reason.
+	color = clamp(color + vec3(TpdfDither(gl_FragCoord.xy, uint(u_Params.Frame), 3u)),
+				  0.0, 1.0);
 
 	o_Color = vec4(color, 1.0);
 }

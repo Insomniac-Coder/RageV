@@ -568,9 +568,16 @@ namespace RageV
 		motionBuffer->Upload(&motion, sizeof(motion));
 
 		SkyExtra extra;
+		// The frame number in the fourth lane, WR-2's dither seed -- masked
+		// to 24 bits so the float conversion in the shader is exact, the same
+		// mask PostProcess's tonemap Frame field uses. Uploaded regardless of
+		// whether SkyDither is on: a masked frame count costs nothing to
+		// compute, and the shader is what decides whether to read it.
+		const float ditherFrame = (float)(Renderer::GetFrameCount() & 0xFFFFFFu);
 		extra.Shape = Vec4(environment.SkyCurve, environment.CityAzimuthK,
-						  environment.CityElevationK, 0.0f);
-		extra.CityGlowColor = Vec4(environment.CityGlowColor, 0.0f);
+						  environment.CityElevationK, ditherFrame);
+		extra.CityGlowColor = Vec4(environment.CityGlowColor,
+								  environment.SkyDither ? 1.0f : 0.0f);
 		extra.CityDirection = Vec4(DirectionFromCompass(environment.CityGlowBearing, 0.0f), 0.0f);
 		extra.MoonDirection = Vec4(
 			DirectionFromCompass(environment.MoonBearing, environment.MoonElevation),

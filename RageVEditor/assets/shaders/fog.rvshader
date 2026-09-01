@@ -76,6 +76,10 @@ layout(push_constant) uniform Params
 	vec4 CameraRow0;       // rows of the camera-to-world rotation
 	vec4 CameraRow1;
 	vec4 CameraRow2;
+	// xyz: the camera's world position. w unused (WR-2 tried the frame
+	// number here for dither seeding and backed it out -- pre-exposure
+	// linear space is the wrong place for a fixed 1/255 term; see
+	// tonemap.rvshader's final write).
 	vec4 CameraPosition;
 
 	// rgb: what the fog is. w: the world height the density is quoted at,
@@ -219,5 +223,11 @@ void main()
 	const float fog = clamp((1.0 - exp(-max(optical, 0.0)))
 							* clamp(u_Fog.MaxOpacity, 0.0, 1.0), 0.0, 1.0);
 
+	// **WR-2: no dither here** -- tried it (salted, seeded off
+	// CameraPosition.w) and measured a linear pre-exposure 1/255 coming out
+	// close to 10 levels of 255 after Exposure/ACES/gamma at a representative
+	// night-sky brightness, the same finding that took it out of
+	// sky.rvshader. tonemap.rvshader's single dither, after all of that, is
+	// what actually lands at ~1 level.
 	o_Color = vec4(mix(scene.rgb, u_Fog.Color.rgb, fog), scene.a);
 }

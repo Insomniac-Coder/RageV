@@ -30,6 +30,8 @@ void main()
 #type fragment
 #version 450 core
 
+#include "include/dither.glsl"
+
 const float SKY_GRADIENT = 1.0;
 const float SKY_CUBEMAP  = 2.0;
 
@@ -82,9 +84,14 @@ layout(set = 0, binding = 1) uniform SkyMotion
 // the 128 guaranteed bytes.
 layout(set = 0, binding = 2) uniform SkyExtra
 {
-	// x = SkyCurve, y = CityAzimuthK, z = CityElevationK, w unused.
+	// x = SkyCurve, y = CityAzimuthK, z = CityElevationK, w = the frame
+	// number, WR-2's dither seed when SkyDither is on (reproducible, not a
+	// clock -- tonemap's Frame field the same way). Computed and uploaded
+	// either way; costs nothing to have ready.
 	vec4 Shape;
-	vec4 CityGlowColor;   // rgb, a unused
+	// rgb: the glow colour. a: SkyDither as 0.0/1.0 -- a spare lane, not a
+	// new binding, for a toggle that is off far more often than on.
+	vec4 CityGlowColor;
 	// xyz normalized, y = 0 (a bearing, not an elevation); w unused.
 	vec4 CityDirection;
 	// xyz normalized (the world direction the moon stands in), w = its
@@ -201,7 +208,30 @@ void main()
 		}
 	}
 
-	// Linear and unbounded, like every other shader that writes the scene
-	// target. The tone curve belongs to the tonemap pass.
+	// **WR-2, off by default -- SkyDither opts in, and the amplitude is
+	// compensated, not the raw recipe.** This write is linear and
+	// pre-exposure; "1/255" is only actually one display level *after*
+	// Exposure, the ACES curve and gamma encoding, and a night sky sitting
+	// at 0.002-0.02 linear is exactly where gamma's pow(x, 1/2.2) has its
+	// steepest slope. Measured (worked through the chain, then confirmed on
+	// a real render): an uncompensated +-1/255 here came out near 10 levels
+	// of 255 at the final write. kSkyDitherCompensation divides the raw
+	// term down by roughly that factor before it goes in, so switching this
+	// on lands close to the same ~1 level tonemap.rvshader's own dither
+	// already guarantees downstream of every amplifying stage -- that one
+	// is unconditional and covers this pass regardless; this toggle is for
+	// whoever wants to compare the gradient with and without a second,
+	// earlier dither pass under contention. **The factor is measured for a
+	// typical night sky's brightness, not derived for any brightness** -- a
+	// much brighter sky (a saturated day gradient, say) would see less
+	// amplification and this would under-dither it; that is the safe
+	// direction to be wrong in, so it is not compensated further.
+	const float kSkyDitherCompensation = 0.1;
+	if (u_Extra.CityGlowColor.a > 0.5)
+	{
+		colour += vec3(TpdfDither(gl_FragCoord.xy, uint(u_Extra.Shape.w), 1u)
+					 * kSkyDitherCompensation);
+	}
+
 	o_Color = vec4(colour * u_Params.Horizon.a, 1.0);
 }

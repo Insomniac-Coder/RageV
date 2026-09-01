@@ -2833,6 +2833,17 @@ namespace
 					Named("Moon angular size", OnlyWhen(SkyIsGradient, Drag(0.0001f, 0.0f, 0.05f,
 						"Angular radius in radians. The real moon's is about "
 						"0.0046.")))),
+
+				Field<&SceneEnvironment::SkyDither>("SkyDither",
+					Named("Sky dither", OnlyWhen(SkyIsGradient,
+						FieldHint{ .Tooltip =
+							"Triangular noise on the gradient to hide banding. Off "
+							"by default: a first version dithered before Exposure "
+							"and the tone curve, which amplify a night sky's dark "
+							"values hardest -- measured near 10x too strong there. "
+							"On compensates for a typical night sky's brightness, "
+							"not any brightness; judge it by eye against banding, "
+							"not by whether the number feels right." }))),
 			};
 		}
 
