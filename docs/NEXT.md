@@ -39,6 +39,35 @@ demanded by a picture somebody wants to make.
 
 ---
 
+## ⭐ FIRST — a realism research session (owner-set, 2026-09-01)
+
+**Before more feature work on the demo: sit down and work out what actually
+separates the night scene from the reference photographs, and which of those
+gaps are the engine's.** Set after the area-light session ended "not up to
+the mark": two forms of streak were built and tuned, and the honest lesson
+was that guessing at features one at a time is slower than knowing the gap.
+
+What the session is, concretely:
+
+- **Side-by-side against the references.** The owner's photographs of the
+  bridge at night against our frames from matched angles, and a written list
+  of every visible difference -- streaks, bloom character, exposure and
+  contrast at night, colour of the sodium, silhouette softness, water
+  texture, atmospheric depth, geometric density. Named differences, not
+  impressions.
+- **For each difference: scene, tuning, or engine?** Some gaps are assets and
+  placement (already known: the roadmap's own verdict is that assets beat
+  renderer features), some are dials that exist and are set wrong, some are
+  missing renderer capability. The output is each gap filed under one of the
+  three, with the evidence.
+- **For the engine gaps: what do the renderers that solve this actually do?**
+  Not folklore -- the specific technique (LTC line lights, filmic exposure at
+  night, froxel volumetrics, whatever the list turns out to be), what it
+  costs, and what order buys the most realism per week.
+
+The deliverable is a ranked plan that replaces guesswork, written into this
+file. Nothing gets built in the research session itself.
+
 ## The order
 
 Ranked by value per hour, not by size. Numbers are engineering judgement.
