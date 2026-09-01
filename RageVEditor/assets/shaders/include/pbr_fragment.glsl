@@ -707,6 +707,21 @@ float CascadeFactor(int cascade, vec3 worldPos, vec3 N, vec3 L)
 	if (coordinate.z < 0.0)
 		return 1.0;
 
+	// **And beyond its sides, for the same reason.** The test above catches a
+	// fragment past the cascade's far plane; nothing caught one outside its
+	// lateral footprint. The lookup then landed off the edge of the map, the
+	// sampler clamped, and whatever depth sat on that border was compared
+	// against a surface hundreds of metres away -- which draws as a hard-edged
+	// band of false shadow: straight, because it is the map's own edge
+	// projected onto the ground, and sliding as the camera moves, because the
+	// cascades are fitted to the camera.
+	//
+	// It only shows where geometry is outside *every* cascade, so it takes a
+	// scene bigger than ShadowDistance to see: a 4 km terrain under the default
+	// 40 m puts the whole ground out there, which is how it was found.
+	if (any(lessThan(coordinate.xy, vec2(0.0))) || any(greaterThan(coordinate.xy, vec2(1.0))))
+		return 1.0;
+
 	// 3x3 of hardware 2x2 taps. Nine fetches is the point at which the edge
 	// stops looking like a staircase and starts looking like a penumbra.
 	float texel = u_Scene.ShadowParams.z;
