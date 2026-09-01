@@ -2394,6 +2394,24 @@ namespace RageV
 			}
 		}
 
+		else if (gpuCull)
+		{
+			// No blended slots this frame: the count from the last one must
+			// not survive into a frame that built no table.
+			//
+			// **This `else` belongs to the slot-layout `if` above, and it once
+			// got stolen.** The water check below was originally spliced in
+			// between the two, which re-attached this branch to
+			// `if (!m_HasBlended)` -- so every scene that *had* blended
+			// geometry under GPU culling zeroed its own freshly built table.
+			// The blended cull result went out empty, and the traced
+			// reflections that read instances through it lost the glass:
+			// the showroom's windshield spent two days without its mirror
+			// while every raster path looked perfectly fine (found 2026-09-01,
+			// introduced by the water component commit `7f0b72a`).
+			m_BlendObjectCount = 0;
+		}
+
 		// **Water counts too, and it is not a MeshComponent.**
 		//
 		// This flag is not a statistic: the runtime and the editor ask it to
@@ -2407,6 +2425,9 @@ namespace RageV
 		// graph asks before anything draws has to be asked of the whole scene,
 		// and "the whole scene" stopped meaning "the meshes" the moment
 		// something else could be transparent.
+		//
+		// A plain `if`, deliberately after the blended-table `if/else` has
+		// closed. It must never carry that `else`.
 		if (!m_HasBlended)
 		{
 			auto water = m_Registry.GetView<TransformComponent, WaterComponent>();
@@ -2416,10 +2437,6 @@ namespace RageV
 				m_HasBlended = true;
 				break;
 			}
-		}
-		else if (gpuCull)
-		{
-			m_BlendObjectCount = 0;
 		}
 	}
 
