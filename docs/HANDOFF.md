@@ -1,48 +1,55 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-08-30 (water session).
+**Read this first.** Updated 2026-09-01.
 
-Everything is on **`main`**, pushed. Three commits landed on 2026-08-28:
-sky occlusion (`2f87153`), the ray-budget allocator (`0daf01b`), and the
-measurement flags (`b171234`). Each message carries its full reasoning.
+Everything is on **`main`**, pushed. The night session landed as `2711321`
+(sodium, baked GI, stochastic tiling, the movie-grade BRDF) on 2026-08-31.
 
-## ⛔ START THE NEXT SESSION HERE — the traced GI bounce is not running
+## ✅ Resolved 2026-09-01 — the traced GI bounce runs; the "broken shader" was a stale asset copy
 
-**`rtgi_trace.rvshader` does not compile**, and the engine says so every load:
+The previous version of this section said `rtgi_trace.rvshader` does not
+compile, that `RV_RAY_GI` was not reaching it, and that the traced GI bounce
+had therefore never run. **All three claims were wrong**, and the section is
+kept because *how* they came to be believed is the useful part. Verified at
+`bd98aee` with a clean tree:
 
-    Renderer3D: assets/shaders/rtgi_trace.rvshader did not compile, so the
-    traced bounce cannot run; falling back to the screen-space form for this
-    session
+- `shaderinfo` compiles it with the renderer's actual define set
+  (`RV_BINDLESS RV_RAY_SHADOWS [RV_RAY_REFLECTIONS] RV_RAY_GI`) — and
+  `Renderer3D.cpp` has pushed `RV_RAY_GI` unconditionally since `c71234b`,
+  precisely so baking never depends on the realtime bounce's switch.
+- A live `GoldenGateDemo` run prints `Renderer3D: global illumination traced`
+  and renders clean. The bounce is on. Nothing was changed to make it so.
 
-    ERROR: 0:4302: 'GiHash' : no matching overloaded function found
-    ERROR: 0:4301: '=' : cannot convert from 'const float' to 'temp highp uint'
+**What the error actually was: stale artefact #1, runtime flavour.** The run
+that printed it (bake verification, 22:45 on 2026-08-31) resolved
+`assets/shaders/` through `build/bin/Release/RageVRuntime/assets/` — a copy
+refreshed only by a build. `pbr_fragment.glsl` was being edited right up to
+the 22:54 commit, so that run compiled the day's `rtgi_trace` against an
+older copy of the include it depends on. The next build refreshed the copy
+and the failure ceased to exist. Same trap as "the editor keeps its own
+staged shaders" below, wearing the runtime's clothes.
 
-**It is not from the night session.** Checked against `HEAD`'s own copy of
-`pbr_fragment.glsl` before that session's changes: identical failure, identical
-cause. It has been broken for some time and the fallback line is easy to miss
-in a wall of startup logging.
+**How the false "it predates the session" was manufactured.** The standalone
+check ran `shaderinfo` *without* `-DRV_RAY_GI` — and without that define,
+`GiHash` (guarded by `#ifdef RV_RAY_GI`) vanishes and **any** version of
+these files fails with the *identical* two errors at the *identical* lines,
+because glslang counts `#ifdef`'d-out lines. Same error text, same numbers,
+against HEAD's copy: it looked like proof the defect was old, and proved
+nothing. The lesson worth keeping: **a reproduction is not a reproduction
+until the inputs match — same defines, same asset copies — and "identical
+error text" is what a wrong-input repro looks like too.**
 
-**Why it matters more than it looks.** `GiHash` is defined inside
-`#ifdef RV_RAY_GI` and the failure is the signature of it being absent from the
-compilation entirely — so the define is not reaching this shader. Which means
-the *ray-traced* global illumination has not been running at all: every frame
-judged this session was on the screen-space bounce. Some of the reasoning about
-GI noise and the baked volumes was therefore against the wrong form, and is
-worth re-checking once the traced one actually runs. The baked volumes are
-still right and still fixed the mottling — but "the traced bounce is noisy at
-night" was never tested.
-
-**Where to start.** Find who compiles `rtgi_trace` and with which defines
-(`Renderer3D.cpp` builds the define list — `RV_RAY_GI` is pushed there for the
-lit pipelines; check whether the trace pass gets the same set). `shaderinfo`
-reproduces it standalone, so the loop is fast.
+One narrow claim survives: any night-session run whose log carries the
+fallback line was judging frames on the screen-space bounce. The baked
+volumes' conclusions stand regardless — they were judged against their own
+before/after.
 
 
 ## Start here — 2026-08-31 (night session): lighting, tiling, and the two
 ## defects that were wasting everyone's time
 
-**Everything below is unpushed and uncommitted.** `scenetest` is green on both
-backends (exit 0) and the demo renders clean.
+**Committed and pushed as `2711321`.** `scenetest` is green on both backends
+(exit 0) and the demo renders clean.
 
 ### The two findings that mattered most
 
@@ -2848,6 +2855,12 @@ every time.
 running the old shader. The fix landed, the runtime proved it, and the editor
 still showed the defect -- which reads as "the fix did not work" rather than
 "the fix is not in this binary". Build the editor target too, or all of them.
+The runtime has the same staged copy (`build/bin/<config>/RageVRuntime/assets/`),
+and it goes stale the same way: running it mid-edit compiled the day's
+`rtgi_trace` against an older `pbr_fragment.glsl` and produced a compile
+failure that a whole handoff section then blamed on the define plumbing (see
+the resolved section at the top). A shader compile error from a run that did
+not immediately follow a build is a stale copy until proven otherwise.
 
 **2. A project's script module is built against the engine's headers.** Adding
 three fields to `ParticleEmitterComponent` moved `Burst`, and `SampleProject`'s
