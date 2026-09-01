@@ -688,11 +688,27 @@ namespace RageV
 		// see the definition.
 		std::filesystem::path FieldBakePath(uint64_t lighting, bool rtFlavour) const;
 
-		// Where one probe's cube is stored under the scene's current lighting.
-		// One file per probe *per lighting*, for the reason the definition
-		// gives: a scene can be in more than one, and a cube captured in one is
-		// the wrong photograph in the other.
-		std::filesystem::path ProbeBakePath(UUID probe) const;
+		// Where one probe's cube is stored under a given lighting. One file per
+		// probe *per lighting*, for the reason the definition gives: a scene
+		// can be in more than one, and a cube captured in one is the wrong
+		// photograph in the other.
+		//
+		// **The lighting is a parameter and not `m_FieldLighting`**, because a
+		// probe must be able to find its file on the first frame of a scene --
+		// before any irradiance field has been evaluated, and in a scene that
+		// has no field at all. See CaptureReflectionProbes.
+		std::filesystem::path ProbeBakePath(UUID probe, uint64_t lighting) const;
+
+		// **What the baked lighting is, as one number**: every baked light and
+		// every field of the environment, hashed field by field.
+		//
+		// Shared by the irradiance field and the reflection probes because they
+		// must agree -- the two name their files with it, and a probe that
+		// hashed the lighting differently from the field would write under one
+		// name and look under another. Field by field rather than by struct,
+		// because struct padding is whatever the allocation held and would make
+		// the key depend on the build; the definition carries that story.
+		uint64_t LightingHash(const LightList& lights) const;
 
 	public:
 		// **Bake this scene's stored lighting now.**

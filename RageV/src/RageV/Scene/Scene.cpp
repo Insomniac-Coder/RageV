@@ -3128,6 +3128,34 @@ namespace RageV
 		if (anyCapturing)
 			UpdateWorldTransforms();
 
+		// **The lighting this scene is in, hashed here rather than borrowed
+		// from the irradiance field.**
+		//
+		// A probe's file is named for it, and the field's copy (`m_FieldLighting`)
+		// is not available when a probe needs it: the field is evaluated later
+		// in the frame, so on the frame a scene loads there is no hash yet --
+		// and a scene with probes and no volume never gets one at all.
+		//
+		// Deferred until a probe actually reaches a bake path. A scene whose
+		// probes are all realtime, or all already adopted, never walks the
+		// lights: `AdoptChecked` closes the read side after one look and
+		// `probe.Baked` closes the write side, so this settles to zero calls a
+		// frame rather than one. It must come *after* the transform walk above
+		// -- a light parented to something that moved is at last frame's
+		// position until then, and a hash off stale positions names a file that
+		// does not exist.
+		uint64_t lightingHash = 0;
+		bool lightingHashed = false;
+		auto sceneLighting = [&]() -> uint64_t
+		{
+			if (!lightingHashed)
+			{
+				lightingHash = LightingHash(CollectLights());
+				lightingHashed = true;
+			}
+			return lightingHash;
+		};
+
 		m_CapturingProbes = true;
 
 		for (auto& item : view)
@@ -3150,18 +3178,24 @@ namespace RageV
 			const bool storeable = captured && !realtime && !probe.Baked
 								&& !m_SourcePath.empty() && BakingLighting();
 
-			// **And a stored cube is worth one look, on the frame the lighting
-			// hash exists.**
+			// **And a stored cube is worth one look, on the first frame.**
 			//
-			// The hash names the file, and it is computed in the scene walk --
-			// which runs *after* this, later in the same frame. So on the first
-			// frame of a scene there is no hash yet and no file to look for;
-			// the probe captures as it always did, and this asks on the next
-			// frame, by which time the walk has run. `AdoptChecked` is what
-			// makes it one look rather than a reason to fall through this test
-			// every frame for the rest of the scene.
+			// This used to wait for `m_FieldEvaluated`, because the hash that
+			// names the file was computed in the scene walk -- which runs after
+			// this, later in the same frame. So the probe captured all six
+			// faces on the frame a scene loaded and adopted the file on the
+			// next one, *over the capture it had just paid for*. The feature
+			// whose entire purpose is to not render those faces rendered them
+			// anyway, and then read a file and decoded it on top: strictly more
+			// work than having no bake at all, and invisible because the
+			// picture was right either way.
+			//
+			// The hash is computed here now (`sceneLighting`), so the file can
+			// be found on the first frame and the capture below never happens.
+			// `AdoptChecked` is what makes it one look rather than a reason to
+			// fall through this test every frame for the rest of the scene.
 			const bool adoptable = !realtime && !probe.AdoptChecked && !probe.Baked
-								&& m_FieldEvaluated && !ForcingBake()
+								&& !ForcingBake()
 								&& !m_SourcePath.empty();
 
 			if (!realtime && captured && !probe.Dirty && !storeable && !adoptable)
@@ -3206,8 +3240,7 @@ namespace RageV
 			// field's load follows: a press means "make this one again", and
 			// adopting the file it is about to replace would make the button
 			// do nothing.
-			if (!realtime && !ForcingBake() && !m_SourcePath.empty() && probe.Probe && cmd
-				&& m_FieldEvaluated)
+			if (!realtime && !ForcingBake() && !m_SourcePath.empty() && probe.Probe && cmd)
 			{
 				probe.AdoptChecked = true;
 				BakedLighting::Stamp wanted;
@@ -3220,7 +3253,7 @@ namespace RageV
 				wanted.Lighting = environment;
 
 				const std::filesystem::path file =
-					ProbeBakePath(Entity{ item, this }.GetUUID());
+					ProbeBakePath(Entity{ item, this }.GetUUID(), sceneLighting());
 
 				BakedLighting::Stamp stored;
 				std::vector<uint8_t> payload;
@@ -3324,7 +3357,7 @@ namespace RageV
 				stamp.Lighting = environment;
 
 				const std::filesystem::path file =
-					ProbeBakePath(Entity{ item, this }.GetUUID());
+					ProbeBakePath(Entity{ item, this }.GetUUID(), sceneLighting());
 
 				if (BakedLighting::Write(Renderer::GetDevice(), file,
 										 BakedLighting::Kind::ReflectionProbe,
@@ -3441,87 +3474,9 @@ namespace RageV
 		// one and kept under the other lights the room from a scene that is no
 		// longer there.
 		//
-		// The lights and the environment, as one number. Both are plain data,
-		// so a byte hash catches every field of them -- an intensity, a colour,
-		// a cone angle, a light appearing or disappearing -- without anyone
-		// having to list which ones matter.
-		//
-		// It does not catch a moved wall or an edited material, and that is the
-		// same line the reflection probe draws: those cost more to detect than
-		// they save, and Recapture is the verb for them.
-		// **Field by field, and never the bytes between them.**
-		//
-		// This hashed whole structs -- `mix(lights.data(), count * sizeof(...))`
-		// -- which is the same idea and a different function, because a struct
-		// is not only its fields. `LightRenderData` has three floats after a
-		// bool and an enum, so it carries padding, and padding is whatever the
-		// allocation happened to contain. MSVC fills it with 0xCD in a debug
-		// build and with nothing in particular in a release one.
-		//
-		// So the same scene, unchanged, hashed three different ways: the
-		// runtime, the debug editor and the release editor each asked for a
-		// different bake and each fell back to Realtime saying nothing was on
-		// disk. A bake keyed on a value that depends on the *build* is a bake
-		// nothing can ever load, and it fails in the direction that looks like
-		// a missing file rather than a broken key.
-		//
-		// Named fields hash the lighting and nothing else, so a file baked by
-		// any build loads in every other one.
-		uint64_t lighting = 1469598103934665603ull;
-		auto mixBytes = [&lighting](const void* data, size_t size)
-		{
-			const unsigned char* bytes = reinterpret_cast<const unsigned char*>(data);
-			for (size_t i = 0; i < size; i++)
-			{
-				lighting ^= bytes[i];
-				lighting *= 1099511628211ull;
-			}
-		};
-		auto mixFloat = [&mixBytes](float value)
-		{
-			// Through the bit pattern, so 0.1f hashes as 0.1f everywhere, and
-			// a negative zero as itself rather than as a positive one.
-			mixBytes(&value, sizeof(value));
-		};
-		auto mixVec = [&mixFloat](const Vec3& v)
-		{
-			mixFloat(v.x);
-			mixFloat(v.y);
-			mixFloat(v.z);
-		};
-		auto mixUint = [&mixBytes](uint64_t value) { mixBytes(&value, sizeof(value)); };
-
-		for (const LightRenderData& light : lights)
-		{
-			// **A realtime light is not part of the lighting.** It renders as
-			// it always did, but the bake neither stores its bounce nor keys a
-			// file on it -- so a script flipping a headlamp on and off keeps
-			// reading the same .rvfield instead of demanding a bake per
-			// combination of switches. Skipped wholesale: a light the solve
-			// cannot see must not be able to rename the file either.
-			if (!light.IsBaked)
-				continue;
-
-			mixVec(light.Position);
-			mixVec(light.Direction);
-			mixVec(light.Color);
-			mixFloat(light.Intensity);
-			mixFloat(light.Range);
-			mixFloat(light.InnerCone);
-			mixFloat(light.OuterCone);
-			mixUint((uint64_t)light.Type);
-			mixUint(light.CastShadows ? 1u : 0u);
-		}
-
-		mixVec(m_Environment.AmbientColor);
-		mixFloat(m_Environment.AmbientIntensity);
-		mixUint((uint64_t)m_Environment.Sky);
-		mixVec(m_Environment.SkyHorizon);
-		mixVec(m_Environment.SkyZenith);
-		mixVec(m_Environment.SkyGround);
-		mixFloat(m_Environment.SkyIntensity);
-		mixFloat(m_Environment.SkyRotation);
-		mixUint((uint64_t)m_Environment.SkyTexture);
+		// The reflection probes key their files on the same number, from the
+		// same function -- see LightingHash.
+		const uint64_t lighting = LightingHash(lights);
 
 		// **Every volume in the scene, composed into one field.**
 		//
@@ -4094,7 +4049,95 @@ namespace RageV
 		return BakedLighting::DirectoryFor(m_SourcePath) / name;
 	}
 
-	std::filesystem::path Scene::ProbeBakePath(UUID probe) const
+	uint64_t Scene::LightingHash(const LightList& lights) const
+	{
+		// The lights and the environment, as one number. Both are plain data,
+		// so hashing every field of them catches an intensity, a colour, a cone
+		// angle, a light appearing or disappearing, without anyone having to
+		// list which ones matter.
+		//
+		// It does not catch a moved wall or an edited material, and that is the
+		// same line the reflection probe draws: those cost more to detect than
+		// they save, and Recapture is the verb for them.
+		//
+		// **Field by field, and never the bytes between them.**
+		//
+		// This hashed whole structs -- `mix(lights.data(), count * sizeof(...))`
+		// -- which is the same idea and a different function, because a struct
+		// is not only its fields. `LightRenderData` has three floats after a
+		// bool and an enum, so it carries padding, and padding is whatever the
+		// allocation happened to contain. MSVC fills it with 0xCD in a debug
+		// build and with nothing in particular in a release one.
+		//
+		// So the same scene, unchanged, hashed three different ways: the
+		// runtime, the debug editor and the release editor each asked for a
+		// different bake and each fell back to Realtime saying nothing was on
+		// disk. A bake keyed on a value that depends on the *build* is a bake
+		// nothing can ever load, and it fails in the direction that looks like
+		// a missing file rather than a broken key.
+		//
+		// Named fields hash the lighting and nothing else, so a file baked by
+		// any build loads in every other one.
+		uint64_t lighting = 1469598103934665603ull;
+		auto mixBytes = [&lighting](const void* data, size_t size)
+		{
+			const unsigned char* bytes = reinterpret_cast<const unsigned char*>(data);
+			for (size_t i = 0; i < size; i++)
+			{
+				lighting ^= bytes[i];
+				lighting *= 1099511628211ull;
+			}
+		};
+		auto mixFloat = [&mixBytes](float value)
+		{
+			// Through the bit pattern, so 0.1f hashes as 0.1f everywhere, and
+			// a negative zero as itself rather than as a positive one.
+			mixBytes(&value, sizeof(value));
+		};
+		auto mixVec = [&mixFloat](const Vec3& v)
+		{
+			mixFloat(v.x);
+			mixFloat(v.y);
+			mixFloat(v.z);
+		};
+		auto mixUint = [&mixBytes](uint64_t value) { mixBytes(&value, sizeof(value)); };
+
+		for (const LightRenderData& light : lights)
+		{
+			// **A realtime light is not part of the lighting.** It renders as
+			// it always did, but the bake neither stores its bounce nor keys a
+			// file on it -- so a script flipping a headlamp on and off keeps
+			// reading the same .rvfield instead of demanding a bake per
+			// combination of switches. Skipped wholesale: a light the solve
+			// cannot see must not be able to rename the file either.
+			if (!light.IsBaked)
+				continue;
+
+			mixVec(light.Position);
+			mixVec(light.Direction);
+			mixVec(light.Color);
+			mixFloat(light.Intensity);
+			mixFloat(light.Range);
+			mixFloat(light.InnerCone);
+			mixFloat(light.OuterCone);
+			mixUint((uint64_t)light.Type);
+			mixUint(light.CastShadows ? 1u : 0u);
+		}
+
+		mixVec(m_Environment.AmbientColor);
+		mixFloat(m_Environment.AmbientIntensity);
+		mixUint((uint64_t)m_Environment.Sky);
+		mixVec(m_Environment.SkyHorizon);
+		mixVec(m_Environment.SkyZenith);
+		mixVec(m_Environment.SkyGround);
+		mixFloat(m_Environment.SkyIntensity);
+		mixFloat(m_Environment.SkyRotation);
+		mixUint((uint64_t)m_Environment.SkyTexture);
+
+		return lighting;
+	}
+
+	std::filesystem::path Scene::ProbeBakePath(UUID probe, uint64_t lighting) const
 	{
 		// **Named for the probe *and* the lighting**, exactly as a field is.
 		//
@@ -4109,10 +4152,16 @@ namespace RageV
 		// A cube is 12.5 MB at 512 faces, so a scene with several lightings
 		// pays for several. That is the argument for BC6H in the cooker, not
 		// an argument for storing one cube and hoping.
+		// **The caller's lighting, not `m_FieldLighting`.** That member is only
+		// assigned when a field is (re)built, so it is stale on the first frame
+		// of a scene and never assigned at all in a scene that has probes and
+		// no irradiance volume -- which named every such probe's file after a
+		// lighting of zero and let two lightings collide on one cube, the very
+		// thing the paragraph above says this stopped doing.
 		char name[80];
 		std::snprintf(name, sizeof(name), "%llu_%016llx.rvprobe",
 					  (unsigned long long)(uint64_t)probe,
-					  (unsigned long long)m_FieldLighting);
+					  (unsigned long long)lighting);
 		return BakedLighting::DirectoryFor(m_SourcePath) / name;
 	}
 
