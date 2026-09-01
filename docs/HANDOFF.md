@@ -38,13 +38,31 @@ frame over frame. Guarded at `NdotH <= 1e-3`. **Mid-bake frames also show the
 field unconverged (red wash, hot spots); that is the solve settling and stores
 nothing** -- judge lighting only after the bake exits.
 
-**Not built yet, and now the honest next steps of the roadmap row:** rect/tube
-shapes (LTC) for the lamps' true form, the traced path knowing emissive area
+**Owner's verdict on the first form (2026-09-01): the streaks are there but
+do not yet look like the reference photographs, and that is the next piece of
+work on this row.** The references show long, continuous vertical shafts
+running far down the water; the sphere form produces soft elliptical pools
+with short trails. The gap has named mechanisms, in likely order of yield:
+
+1. **The widening is isotropic and a streak is not.** At grazing incidence a
+   real streak elongates along the view axis because the up-down facet tilt
+   dominates what can still mirror the source; spreading the lobe equally in
+   all directions makes pools. The standard fix is elongating the widened
+   lobe toward the viewer (anisotropic widening in the view-projected frame),
+   or proper LTC where the integration is exact.
+2. **A lamp row reads as a line, not a point.** The deck's lamps sit metres
+   apart; the reference shafts are plausibly the merged image of several.
+   LTC tube/rect sources are the honest answer and were always this row's
+   destination -- the sphere was the affordable first form.
+3. **The water's anisotropy points along the wind, not toward the viewer**,
+   so the Beckmann stretch fights the streak direction in most framings.
+4. Exposure and bloom at the streak band are untuned.
+
+Also still open from the first form: the traced path knowing emissive area
 (mirror-sharp reflections still see a lamp as its mesh), and a specular-only
-range so reach for streaks does not pay diffuse cluster cost. The marker
-emissives stay emissive -- their streaks come from the four real marine lights
-now, not the traced path, so the reflection floor stays at 0.5 with no
-fireflies.
+range so streak reach does not pay diffuse cluster cost. The marker emissives
+stay emissive -- their streaks come from the four real marine lights, so the
+reflection floor stays at 0.5 with no fireflies.
 
 ## ✅ Resolved 2026-09-01 — the windshield's lost reflection was a stolen `else`, fixed at `90b7ac1`
 
