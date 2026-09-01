@@ -42,6 +42,22 @@ namespace RageV
 		float InnerCone = 20.0f;
 		float OuterCone = 30.0f;
 
+		// **The physical size of the emitter, in metres of radius. Zero is a
+		// point, and the default, and every light authored before this.**
+		//
+		// What it buys is the specular image: a point source's reflection is a
+		// delta -- a wave facet returns it only where the mirror direction is
+		// exact, which is a handful of pixels that blink -- while a sphere of
+		// real size is integrated over the microfacet lobe and comes back as
+		// the continuous streak every night photograph of water is made of.
+		// No brightness setting substitutes for extent.
+		//
+		// Diffuse lighting, cones, range and shadows are untouched: at these
+		// radii the diffuse difference is far below what the inverse-square
+		// window already discards, so the cost stays in the one term that
+		// shows it.
+		float SourceRadius = 0.0f;
+
 		// Only one directional light's shadows are rendered per frame -- the
 		// first that asks. A second set of cascades is four more scene renders
 		// for a light that, in almost every scene, is a fill.
@@ -157,6 +173,8 @@ namespace RageV
 		float Range = 10.0f;
 		float InnerCone = 20.0f;   // degrees
 		float OuterCone = 30.0f;
+		// See Light::SourceRadius. Rides GpuLight.Direction.w to the shader.
+		float SourceRadius = 0.0f;
 		Light::LightType Type = Light::LightType::Directional;
 		bool CastShadows = false;
 		// See Light::IsBaked: hashed into the lighting only when set, and the

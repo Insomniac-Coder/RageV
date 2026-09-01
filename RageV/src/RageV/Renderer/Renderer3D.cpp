@@ -2821,7 +2821,9 @@ namespace RageV
 			entry.Position = Vec4(light.Position, directional ? 0.0f : 1.0f);
 			// Copied through, still unit length -- see the normalise in
 			// Scene.cpp that produces it. The shaders do not re-normalise.
-			entry.Direction = Vec4(light.Direction, 0.0f);
+			// w is the emitter's radius in metres (Light::SourceRadius): the
+			// lane was spare, and the sphere-light specular reads it there.
+			entry.Direction = Vec4(light.Direction, light.SourceRadius);
 			entry.Color = Vec4(light.Color, light.Intensity);
 
 			// Cones are compared as cosines in the shader, so convert once here

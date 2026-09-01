@@ -9,6 +9,43 @@ night session landed there as `2711321` (sodium, baked GI, stochastic tiling,
 the movie-grade BRDF). This line said "everything is on main" for days while
 it was not; check `git branch --show-current` rather than trusting it.
 
+## ✅ 2026-09-01 — area lights, first form: lights have a radius, and the water gets its streaks
+
+**`Light::SourceRadius` (metres, default 0 = a point and bit-identical to
+before -- verified: the showroom renders byte-for-byte with radius 0).** The
+sphere-light treatment lives in the lit loop's specular only: the
+representative point (Karis) aims the half-vector at the nearest point of the
+sphere, the lobe is widened by the source's angular radius, and the energy is
+renormalised. Diffuse, cones, range and shadows keep the true direction. The
+radius rides the spare `GpuLight.Direction.w` lane; it is mixed into the
+lighting hash **only when non-zero**, so every existing bake keeps its name.
+
+**What it proves on the demo:** the four fender marine lights (new, realtime,
+`IsBaked: false`) lay coherent red shimmer-paths on the water at
+`ReflectionFloor: 0.5` with **zero flicker** -- the analytic lobe integrates
+what one traced ray per pixel could only sample, which was the whole argument
+of the area-lights roadmap row. The 120 sodium lamps (radius 0.6, Range 600,
+outer cone 85) paint their pools along the span from the moved glitter camera
+(500 m out, 2.5 m up -- streaks live below ~10 degrees of reflection
+elevation, where Fresnel rises; nearer, steeper cameras cannot see them, which
+is why earlier framings showed nothing).
+
+**The NaN that multiplied.** `WaterBeckmannD` underflowed to 0/0 at the last
+millradian before grazing: unreachable while the range window kept lamps off
+horizon water, opened by Range 600, and self-breeding because TAA's history
+clamp cannot reject NaN (min/max of NaN is NaN) -- white-cored holes that grew
+frame over frame. Guarded at `NdotH <= 1e-3`. **Mid-bake frames also show the
+field unconverged (red wash, hot spots); that is the solve settling and stores
+nothing** -- judge lighting only after the bake exits.
+
+**Not built yet, and now the honest next steps of the roadmap row:** rect/tube
+shapes (LTC) for the lamps' true form, the traced path knowing emissive area
+(mirror-sharp reflections still see a lamp as its mesh), and a specular-only
+range so reach for streaks does not pay diffuse cluster cost. The marker
+emissives stay emissive -- their streaks come from the four real marine lights
+now, not the traced path, so the reflection floor stays at 0.5 with no
+fireflies.
+
 ## ✅ Resolved 2026-09-01 — the windshield's lost reflection was a stolen `else`, fixed at `90b7ac1`
 
 **Reported: "I no longer see reflection on the windshield of the car in

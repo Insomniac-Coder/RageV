@@ -750,6 +750,11 @@ namespace
 					Drag(1.0f, 0.0f, 1000.0f)),
 				Field<&LightComponent::Light, &Light::Range>("Range",
 					OnlyWhen(IsPositional, Drag(0.25f, 0.01f, 500.0f))),
+				// Metres of emitter radius; 0 is a point. What it changes is
+				// the specular image: a sphere's reflection on water is the
+				// streak, a point's is a blinking speck. See Light::SourceRadius.
+				Field<&LightComponent::Light, &Light::SourceRadius>("SourceRadius",
+					OnlyWhen(IsPositional, Drag(0.05f, 0.0f, 10.0f))),
 				Field<&LightComponent::Light, &Light::InnerCone>("InnerCone",
 					OnlyWhen(IsSpot, Slider(0.0f, 89.0f))),
 				Field<&LightComponent::Light, &Light::OuterCone>("OuterCone",

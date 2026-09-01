@@ -2900,6 +2900,7 @@ namespace RageV
 			data.Range = light.Light.Range;
 			data.InnerCone = light.Light.InnerCone;
 			data.OuterCone = light.Light.OuterCone;
+			data.SourceRadius = light.Light.SourceRadius;
 			data.Type = light.Light.Type;
 			data.CastShadows = light.Light.CastShadows;
 			data.IsBaked = light.Light.IsBaked;
@@ -4120,6 +4121,11 @@ namespace RageV
 			mixFloat(light.Range);
 			mixFloat(light.InnerCone);
 			mixFloat(light.OuterCone);
+			// Only when set: a zero radius is the world every stored bake was
+			// solved in, and mixing the zero would rename every one of their
+			// files for a value that changes nothing they hold.
+			if (light.SourceRadius > 0.0f)
+				mixFloat(light.SourceRadius);
 			mixUint((uint64_t)light.Type);
 			mixUint(light.CastShadows ? 1u : 0u);
 		}

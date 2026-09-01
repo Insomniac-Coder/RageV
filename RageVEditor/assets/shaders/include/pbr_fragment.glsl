@@ -228,6 +228,7 @@ struct GpuLight
 	vec4 Position;
 	// xyz forward axis: the direction a directional light travels and the cone
 	// axis of a spot. Not derivable from the position, which is why it is here.
+	// w = the emitter's radius in metres (Light::SourceRadius); 0 is a point.
 	vec4 Direction;
 	// rgb colour, a intensity
 	vec4 Color;
@@ -2223,7 +2224,16 @@ float WaterBeckmannD(vec3 H, vec3 N, vec3 T, vec3 B, float roughness)
 	const float ay = max(roughness * 0.86, 0.02);
 
 	const float NdotH = dot(N, H);
-	if (NdotH <= 0.0)
+	// **Strictly above zero is not enough.** In the last millradian before
+	// grazing, exp(-slope) underflows to 0.0 while n2*n2 underflows too, and
+	// 0/0 is NaN -- one NaN pixel that TAA's history then keeps forever,
+	// because min and max of a NaN are NaN and the clamp cannot reject it.
+	// Unreachable while the range window kept lamps off grazing water; the
+	// moment a light could reach the horizon band (area lamps at 600 m), the
+	// sea grew white-cored holes that multiplied frame over frame. A facet
+	// this far from the normal carries no visible energy, so zero is the
+	// honest answer as well as the safe one.
+	if (NdotH <= 1.0e-3)
 		return 0.0;
 
 	const float th = dot(T, H);
@@ -3224,6 +3234,57 @@ void main()
 		vec3 H = normalize(V + L);
 		vec3 radiance = lightColor * attenuation;
 
+		// **A light with a radius is a sphere, and only the mirror image knows.**
+		//
+		// The representative point (Karis 2013): the specular half-vector is
+		// built toward the point of the sphere nearest the reflection ray, so
+		// the highlight has the source's extent instead of a delta's -- and the
+		// lobe is widened by the sphere's angular radius with the energy
+		// renormalised, so a bigger lamp spreads its image rather than
+		// multiplying it. On water this is the difference between a streak and
+		// a blinking speck: a facet no longer needs the exact mirror alignment,
+		// only one within the lamp's disc, and at grazing angles the band of
+		// facets that qualify runs vertically toward the viewer -- which is the
+		// streak every night photograph of a lit shore is made of.
+		//
+		// Diffuse, cone, range and shadow all keep the true direction L: at
+		// lamp radii the diffuse difference is beneath the range window's own
+		// cut, so the cost stays in the one term the eye can see.
+		//
+		// specRoughness/specScale fold to exactly roughness/1.0 when the
+		// radius is zero, so every light authored before this shades to the
+		// bit it always did.
+		float specRoughness = roughness;
+		float specScale = 1.0;
+		if (isPositional != 0.0 && light.Direction.w > 0.0)
+		{
+			const vec3 R = reflect(-V, N);
+			const vec3 toCentre = light.Position.xyz - v_WorldPos;
+			const vec3 centreToRay = dot(toCentre, R) * R - toCentre;
+			const vec3 closest = toCentre + centreToRay *
+				clamp(light.Direction.w *
+					  inversesqrt(max(dot(centreToRay, centreToRay), 1.0e-8)),
+					  0.0, 1.0);
+			H = normalize(V + normalize(closest));
+
+			const float angular = light.Direction.w *
+								  inversesqrt(max(dot(toCentre, toCentre), 1.0e-8));
+#ifdef RV_WATER
+			// Water's roughness is the RMS slope itself (see WaterBeckmannD),
+			// so the angular radius adds to it directly.
+			const float widened = min(specRoughness + 0.5 * angular, 1.0);
+			specScale = (specRoughness * specRoughness) / (widened * widened);
+			specRoughness = widened;
+#else
+			// Everything else squares the perceptual value into alpha, so the
+			// widening happens there and comes back through the square root.
+			const float alpha = specRoughness * specRoughness;
+			const float widenedAlpha = min(alpha + 0.5 * angular, 1.0);
+			specScale = (alpha / widenedAlpha) * (alpha / widenedAlpha);
+			specRoughness = sqrt(widenedAlpha);
+#endif
+		}
+
 #ifdef RV_WATER
 		// The anisotropic Beckmann lobe, in a frame aligned to the wind: the
 		// tangent is the wind flattened onto the surface, which is what makes
@@ -3233,9 +3294,9 @@ void main()
 								- N * dot(vec3(waterWind.x, 0.0, waterWind.y), N));
 		vec3 waterB = cross(N, waterT);
 
-		float NDF = WaterBeckmannD(H, N, waterT, waterB, roughness);
-		float G   = WaterBeckmannG1(V, N, waterT, waterB, roughness)
-				  * WaterBeckmannG1(L, N, waterT, waterB, roughness);
+		float NDF = WaterBeckmannD(H, N, waterT, waterB, specRoughness);
+		float G   = WaterBeckmannG1(V, N, waterT, waterB, specRoughness)
+				  * WaterBeckmannG1(L, N, waterT, waterB, specRoughness);
 #else
 		// **Anisotropic only when asked for, and only with a tangent to turn
 		// about.** The layered path fills a zero tangent, so terrain takes the
@@ -3261,13 +3322,13 @@ void main()
 		}
 		else
 		{
-			NDF = DistributionGGX(N, H, roughness);
+			NDF = DistributionGGX(N, H, specRoughness);
 		}
-		float G   = GeometrySmith(N, V, L, roughness);
+		float G   = GeometrySmith(N, V, L, specRoughness);
 #endif
 		vec3  F   = FresnelSchlick(max(dot(H, V), 0.0), F0);
 
-		vec3 numerator = NDF * G * F;
+		vec3 numerator = NDF * G * F * specScale;
 		float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
 		vec3 specular = numerator / denominator;
 

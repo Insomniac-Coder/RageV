@@ -123,11 +123,11 @@ Entities:
     TagComponent:
       Tag: Glitter Camera
     TransformComponent:
-      Position: [300, 22, 180]
-      Rotation: [-0.045, 1.5708, 0]
+      Position: [500, 2.5, 180]
+      Rotation: [0.02, 1.5708, 0]
       Scale: [1, 1, 1]
     CameraComponent:
-      ViewRank: 6
+      ViewRank: -1
       FixedAspectRatio: false
       ProjectionType: Perspective
       PerspectiveFOV: 52
@@ -225,6 +225,66 @@ Entities:
     MeshComponent:
       Mesh: 2713190348884938302
       Material: 1892120402306226948
+  - EntityID: 1770912000000000000
+    TagComponent:
+      Tag: Marine light 0
+    TransformComponent:
+      Position: [-35.23, 5.35, -640.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.08, 0.04]
+      Intensity: 60
+      Range: 130
+      SourceRadius: 0.4
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 1770912000000000001
+    TagComponent:
+      Tag: Marine light 1
+    TransformComponent:
+      Position: [35.23, 5.35, -640.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.08, 0.04]
+      Intensity: 60
+      Range: 130
+      SourceRadius: 0.4
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 1770912000000000002
+    TagComponent:
+      Tag: Marine light 2
+    TransformComponent:
+      Position: [-42.96, 5.35, 640.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.08, 0.04]
+      Intensity: 60
+      Range: 130
+      SourceRadius: 0.4
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 1770912000000000003
+    TagComponent:
+      Tag: Marine light 3
+    TransformComponent:
+      Position: [42.96, 5.35, 640.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.08, 0.04]
+      Intensity: 60
+      Range: 130
+      SourceRadius: 0.4
+      CastShadows: false
+      IsBaked: false
   - EntityID: 1915434030085456926
     TagComponent:
       Tag: Beacons
@@ -316,9 +376,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 14829242624606768089
     TagComponent:
       Tag: Sodium 1
@@ -330,9 +391,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 14829239326071883456
     TagComponent:
       Tag: Sodium 2
@@ -344,9 +406,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 14829240425583511667
     TagComponent:
       Tag: Sodium 3
@@ -358,9 +421,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 14829245923141652722
     TagComponent:
       Tag: Sodium 4
@@ -372,9 +436,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 14829247022653280933
     TagComponent:
       Tag: Sodium 5
@@ -386,9 +451,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 14829243724118396300
     TagComponent:
       Tag: Sodium 6
@@ -400,9 +466,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 14829244823630024511
     TagComponent:
       Tag: Sodium 7
@@ -414,9 +481,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 14829250321188165566
     TagComponent:
       Tag: Sodium 8
@@ -428,9 +496,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 14829251420699793777
     TagComponent:
       Tag: Sodium 9
@@ -442,9 +511,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8522785545006988523
     TagComponent:
       Tag: Sodium 10
@@ -456,9 +526,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8522784445495360312
     TagComponent:
       Tag: Sodium 11
@@ -470,9 +541,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8522787744030244945
     TagComponent:
       Tag: Sodium 12
@@ -484,9 +556,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8522786644518616734
     TagComponent:
       Tag: Sodium 13
@@ -498,9 +571,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8522789943053501367
     TagComponent:
       Tag: Sodium 14
@@ -512,9 +586,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8522788843541873156
     TagComponent:
       Tag: Sodium 15
@@ -526,9 +601,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8522792142076757789
     TagComponent:
       Tag: Sodium 16
@@ -540,9 +616,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8522791042565129578
     TagComponent:
       Tag: Sodium 17
@@ -554,9 +631,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8522776748913962835
     TagComponent:
       Tag: Sodium 18
@@ -568,9 +646,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8522775649402334624
     TagComponent:
       Tag: Sodium 19
@@ -582,9 +661,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8519951004030028240
     TagComponent:
       Tag: Sodium 20
@@ -596,9 +676,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8519952103541656451
     TagComponent:
       Tag: Sodium 21
@@ -610,9 +691,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8519953203053284662
     TagComponent:
       Tag: Sodium 22
@@ -624,9 +706,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8519954302564912873
     TagComponent:
       Tag: Sodium 23
@@ -638,9 +721,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8519955402076541084
     TagComponent:
       Tag: Sodium 24
@@ -652,9 +736,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8519956501588169295
     TagComponent:
       Tag: Sodium 25
@@ -666,9 +751,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8519957601099797506
     TagComponent:
       Tag: Sodium 26
@@ -680,9 +766,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8519958700611425717
     TagComponent:
       Tag: Sodium 27
@@ -694,9 +781,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8519959800123053928
     TagComponent:
       Tag: Sodium 28
@@ -708,9 +796,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8519960899634682139
     TagComponent:
       Tag: Sodium 29
@@ -722,9 +811,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8520802026030074329
     TagComponent:
       Tag: Sodium 30
@@ -736,9 +826,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8520800926518446118
     TagComponent:
       Tag: Sodium 31
@@ -750,9 +841,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8520799827006817907
     TagComponent:
       Tag: Sodium 32
@@ -764,9 +856,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8520798727495189696
     TagComponent:
       Tag: Sodium 33
@@ -778,9 +871,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8520806424076587173
     TagComponent:
       Tag: Sodium 34
@@ -792,9 +886,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8520805324564958962
     TagComponent:
       Tag: Sodium 35
@@ -806,9 +901,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8520804225053330751
     TagComponent:
       Tag: Sodium 36
@@ -820,9 +916,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8520803125541702540
     TagComponent:
       Tag: Sodium 37
@@ -834,9 +931,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8520810822123100017
     TagComponent:
       Tag: Sodium 38
@@ -848,9 +946,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8520809722611471806
     TagComponent:
       Tag: Sodium 39
@@ -862,9 +961,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8525584901611846054
     TagComponent:
       Tag: Sodium 40
@@ -876,9 +976,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8525586001123474265
     TagComponent:
       Tag: Sodium 41
@@ -890,9 +991,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8525582702588589632
     TagComponent:
       Tag: Sodium 42
@@ -904,9 +1006,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8525583802100217843
     TagComponent:
       Tag: Sodium 43
@@ -918,9 +1021,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8525589299658358898
     TagComponent:
       Tag: Sodium 44
@@ -932,9 +1036,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8525590399169987109
     TagComponent:
       Tag: Sodium 45
@@ -946,9 +1051,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8525587100635102476
     TagComponent:
       Tag: Sodium 46
@@ -960,9 +1066,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8525588200146730687
     TagComponent:
       Tag: Sodium 47
@@ -974,9 +1081,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8525593697704871742
     TagComponent:
       Tag: Sodium 48
@@ -988,9 +1096,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8525594797216499953
     TagComponent:
       Tag: Sodium 49
@@ -1002,9 +1111,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8526576661100303151
     TagComponent:
       Tag: Sodium 50
@@ -1016,9 +1126,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8526575561588674940
     TagComponent:
       Tag: Sodium 51
@@ -1030,9 +1141,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8526578860123559573
     TagComponent:
       Tag: Sodium 52
@@ -1044,9 +1156,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8526577760611931362
     TagComponent:
       Tag: Sodium 53
@@ -1058,9 +1171,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8526572263053790307
     TagComponent:
       Tag: Sodium 54
@@ -1072,9 +1186,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8526571163542162096
     TagComponent:
       Tag: Sodium 55
@@ -1086,9 +1201,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8526574462077046729
     TagComponent:
       Tag: Sodium 56
@@ -1100,9 +1216,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8526573362565418518
     TagComponent:
       Tag: Sodium 57
@@ -1114,9 +1231,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8526585457193328839
     TagComponent:
       Tag: Sodium 58
@@ -1128,9 +1246,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8526584357681700628
     TagComponent:
       Tag: Sodium 59
@@ -1142,9 +1261,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8523777304495445620
     TagComponent:
       Tag: Sodium 60
@@ -1156,9 +1276,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8523778404007073831
     TagComponent:
       Tag: Sodium 61
@@ -1170,9 +1291,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8523779503518702042
     TagComponent:
       Tag: Sodium 62
@@ -1184,9 +1306,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8523780603030330253
     TagComponent:
       Tag: Sodium 63
@@ -1198,9 +1321,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8523772906448932776
     TagComponent:
       Tag: Sodium 64
@@ -1212,9 +1336,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8523774005960560987
     TagComponent:
       Tag: Sodium 65
@@ -1226,9 +1351,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8523775105472189198
     TagComponent:
       Tag: Sodium 66
@@ -1240,9 +1366,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8523776204983817409
     TagComponent:
       Tag: Sodium 67
@@ -1254,9 +1381,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8523768508402419932
     TagComponent:
       Tag: Sodium 68
@@ -1268,9 +1396,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8523769607914048143
     TagComponent:
       Tag: Sodium 69
@@ -1282,9 +1411,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8524628326495491709
     TagComponent:
       Tag: Sodium 70
@@ -1296,9 +1426,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8524627226983863498
     TagComponent:
       Tag: Sodium 71
@@ -1310,9 +1441,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8524626127472235287
     TagComponent:
       Tag: Sodium 72
@@ -1324,9 +1456,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8524625027960607076
     TagComponent:
       Tag: Sodium 73
@@ -1338,9 +1471,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8524623928448978865
     TagComponent:
       Tag: Sodium 74
@@ -1352,9 +1486,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8524622828937350654
     TagComponent:
       Tag: Sodium 75
@@ -1366,9 +1501,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8524621729425722443
     TagComponent:
       Tag: Sodium 76
@@ -1380,9 +1516,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8524620629914094232
     TagComponent:
       Tag: Sodium 77
@@ -1394,9 +1531,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8524619530402466021
     TagComponent:
       Tag: Sodium 78
@@ -1408,9 +1546,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8524618430890837810
     TagComponent:
       Tag: Sodium 79
@@ -1422,9 +1561,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8529411202077263434
     TagComponent:
       Tag: Sodium 80
@@ -1436,9 +1576,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8529412301588891645
     TagComponent:
       Tag: Sodium 81
@@ -1450,9 +1591,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8529409003054007012
     TagComponent:
       Tag: Sodium 82
@@ -1464,9 +1606,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8529410102565635223
     TagComponent:
       Tag: Sodium 83
@@ -1478,9 +1621,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8529406804030750590
     TagComponent:
       Tag: Sodium 84
@@ -1492,9 +1636,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8529407903542378801
     TagComponent:
       Tag: Sodium 85
@@ -1506,9 +1651,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8529404605007494168
     TagComponent:
       Tag: Sodium 86
@@ -1520,9 +1666,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8529405704519122379
     TagComponent:
       Tag: Sodium 87
@@ -1534,9 +1681,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8529402405984237746
     TagComponent:
       Tag: Sodium 88
@@ -1548,9 +1696,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8529403505495865957
     TagComponent:
       Tag: Sodium 89
@@ -1562,9 +1711,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8530367777193617779
     TagComponent:
       Tag: Sodium 90
@@ -1576,9 +1726,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8530366677681989568
     TagComponent:
       Tag: Sodium 91
@@ -1590,9 +1741,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8530369976216874201
     TagComponent:
       Tag: Sodium 92
@@ -1604,9 +1756,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8530368876705245990
     TagComponent:
       Tag: Sodium 93
@@ -1618,9 +1771,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8530372175240130623
     TagComponent:
       Tag: Sodium 94
@@ -1632,9 +1786,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8530371075728502412
     TagComponent:
       Tag: Sodium 95
@@ -1646,9 +1801,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8530374374263387045
     TagComponent:
       Tag: Sodium 96
@@ -1660,9 +1816,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8530373274751758834
     TagComponent:
       Tag: Sodium 97
@@ -1674,9 +1831,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8530376573286643467
     TagComponent:
       Tag: Sodium 98
@@ -1688,9 +1846,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 8530375473775015256
     TagComponent:
       Tag: Sodium 99
@@ -1702,9 +1861,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17611652266532268065
     TagComponent:
       Tag: Sodium 100
@@ -1716,9 +1876,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17611651167020639854
     TagComponent:
       Tag: Sodium 101
@@ -1730,9 +1891,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17611650067509011643
     TagComponent:
       Tag: Sodium 102
@@ -1744,9 +1906,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17611648967997383432
     TagComponent:
       Tag: Sodium 103
@@ -1758,9 +1921,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17611656664578780909
     TagComponent:
       Tag: Sodium 104
@@ -1772,9 +1936,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17611655565067152698
     TagComponent:
       Tag: Sodium 105
@@ -1786,9 +1951,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17611654465555524487
     TagComponent:
       Tag: Sodium 106
@@ -1800,9 +1966,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17611653366043896276
     TagComponent:
       Tag: Sodium 107
@@ -1814,9 +1981,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17611643470439242377
     TagComponent:
       Tag: Sodium 108
@@ -1828,9 +1996,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17611642370927614166
     TagComponent:
       Tag: Sodium 109
@@ -1842,9 +2011,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17610660507043810968
     TagComponent:
       Tag: Sodium 110
@@ -1856,9 +2026,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17610661606555439179
     TagComponent:
       Tag: Sodium 111
@@ -1870,9 +2041,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17610662706067067390
     TagComponent:
       Tag: Sodium 112
@@ -1884,9 +2056,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17610663805578695601
     TagComponent:
       Tag: Sodium 113
@@ -1898,9 +2071,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17610664905090323812
     TagComponent:
       Tag: Sodium 114
@@ -1912,9 +2086,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17610666004601952023
     TagComponent:
       Tag: Sodium 115
@@ -1926,9 +2101,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17610667104113580234
     TagComponent:
       Tag: Sodium 116
@@ -1940,9 +2116,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17610668203625208445
     TagComponent:
       Tag: Sodium 117
@@ -1954,9 +2131,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17610651710950785280
     TagComponent:
       Tag: Sodium 118
@@ -1968,9 +2146,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 17610652810462413491
     TagComponent:
       Tag: Sodium 119
@@ -1982,9 +2161,10 @@ Entities:
       Type: Spot
       Color: [1, 0.6, 0.16]
       Intensity: 452
-      Range: 44
+      Range: 600
+      SourceRadius: 0.6
       InnerCone: 34
-      OuterCone: 64
+      OuterCone: 85
   - EntityID: 10313800728101866043
     TagComponent:
       Tag: Tower flood -640 -14 -9
@@ -1997,6 +2177,7 @@ Entities:
       Color: [1, 0.6, 0.16]
       Intensity: 900
       Range: 250
+      SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
   - EntityID: 2688536787208971100
@@ -2011,6 +2192,7 @@ Entities:
       Color: [1, 0.6, 0.16]
       Intensity: 900
       Range: 250
+      SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
   - EntityID: 16034002356625523916
@@ -2025,6 +2207,7 @@ Entities:
       Color: [1, 0.6, 0.16]
       Intensity: 900
       Range: 250
+      SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
   - EntityID: 11878620995977830049
@@ -2039,6 +2222,7 @@ Entities:
       Color: [1, 0.6, 0.16]
       Intensity: 900
       Range: 250
+      SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
   - EntityID: 11869253532279414356
@@ -2053,6 +2237,7 @@ Entities:
       Color: [1, 0.6, 0.16]
       Intensity: 900
       Range: 250
+      SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
   - EntityID: 17059566857819458249
@@ -2067,6 +2252,7 @@ Entities:
       Color: [1, 0.6, 0.16]
       Intensity: 900
       Range: 250
+      SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
   - EntityID: 1392350580349523161
@@ -2081,6 +2267,7 @@ Entities:
       Color: [1, 0.6, 0.16]
       Intensity: 900
       Range: 250
+      SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
   - EntityID: 8861365048419577726
@@ -2095,6 +2282,7 @@ Entities:
       Color: [1, 0.6, 0.16]
       Intensity: 900
       Range: 250
+      SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
   - EntityID: 15269762335764735707
