@@ -2218,10 +2218,11 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 // The ratio 1.16 : 0.86 is the square root of Cox-Munk's asymptotic variance
 // ratio (3.16 : 1.92 per unit wind), applied about the shared mean so the
 // total slope energy the footprint block budgeted is preserved.
-float WaterBeckmannD(vec3 H, vec3 N, vec3 T, vec3 B, float roughness)
+// The explicit-axis core, split out so a sized light can evaluate the lobe in
+// a frame and width of its own (the streak frame below). The wind-frame form
+// wraps it with the Cox-Munk axes and is bit-identical to what it replaced.
+float WaterBeckmannDX(vec3 H, vec3 N, vec3 T, vec3 B, float ax, float ay)
 {
-	const float ax = max(roughness * 1.16, 0.02);
-	const float ay = max(roughness * 0.86, 0.02);
 
 	const float NdotH = dot(N, H);
 	// **Strictly above zero is not enough.** In the last millradian before
@@ -2244,17 +2245,21 @@ float WaterBeckmannD(vec3 H, vec3 N, vec3 T, vec3 B, float roughness)
 	return exp(-slope) / (PI * ax * ay * n2 * n2);
 }
 
+float WaterBeckmannD(vec3 H, vec3 N, vec3 T, vec3 B, float roughness)
+{
+	return WaterBeckmannDX(H, N, T, B,
+						   max(roughness * 1.16, 0.02),
+						   max(roughness * 0.86, 0.02));
+}
+
 // Walter's rational fit of the Beckmann Smith shadowing term, one direction,
 // with the roughness projected into that direction's azimuth so the term
 // matches the anisotropic lobe above rather than an isotropic stand-in.
-float WaterBeckmannG1(vec3 v, vec3 N, vec3 T, vec3 B, float roughness)
+float WaterBeckmannG1X(vec3 v, vec3 N, vec3 T, vec3 B, float ax, float ay)
 {
 	const float NdotV = dot(N, v);
 	if (NdotV <= 0.0)
 		return 0.0;
-
-	const float ax = max(roughness * 1.16, 0.02);
-	const float ay = max(roughness * 0.86, 0.02);
 
 	const float tv = dot(T, v);
 	const float bv = dot(B, v);
@@ -2266,6 +2271,13 @@ float WaterBeckmannG1(vec3 v, vec3 N, vec3 T, vec3 B, float roughness)
 	if (a >= 1.6)
 		return 1.0;
 	return (3.535 * a + 2.181 * a * a) / (1.0 + 2.276 * a + 2.577 * a * a);
+}
+
+float WaterBeckmannG1(vec3 v, vec3 N, vec3 T, vec3 B, float roughness)
+{
+	return WaterBeckmannG1X(v, N, T, B,
+							max(roughness * 1.16, 0.02),
+							max(roughness * 0.86, 0.02));
 }
 
 // The web of light a rippled surface focuses onto whatever sits beneath it.
@@ -3294,9 +3306,67 @@ void main()
 								- N * dot(vec3(waterWind.x, 0.0, waterWind.y), N));
 		vec3 waterB = cross(N, waterT);
 
-		float NDF = WaterBeckmannD(H, N, waterT, waterB, specRoughness);
-		float G   = WaterBeckmannG1(V, N, waterT, waterB, specRoughness)
-				  * WaterBeckmannG1(L, N, waterT, waterB, specRoughness);
+		// **A sized light trades the wind frame for the streak frame.** The
+		// reference photographs' shafts run toward the viewer, not along the
+		// wind: at grazing incidence the facets that can still mirror the
+		// source differ mostly in their toward-viewer tilt, so the lobe is
+		// widened along the view direction projected onto the surface and
+		// held near the Cox-Munk width across it. Isotropic widening spreads
+		// the same energy into a pool; this stretches it into the shaft.
+		// Point lights (radius zero) keep the wind frame bit-for-bit.
+		float NDF;
+		float G;
+		if (isPositional != 0.0 && light.Direction.w > 0.0)
+		{
+			vec3 Tv = V - N * dot(V, N);
+			const float tv2 = dot(Tv, Tv);
+			// Looking straight down there is no toward-viewer axis and no
+			// streak to draw; the wind frame answers as before.
+			if (tv2 > 1.0e-6)
+			{
+				Tv *= inversesqrt(tv2);
+				const vec3 Bv = cross(N, Tv);
+				const float ax0 = max(specRoughness * 1.16, 0.02);
+				const float ay0 = max(specRoughness * 0.86, 0.02);
+				const float angular = light.Direction.w *
+					inversesqrt(max(dot(light.Position.xyz - v_WorldPos,
+										light.Position.xyz - v_WorldPos), 1.0e-8));
+				// Along the view: the streak's length. The 3x is the artist
+				// term that makes the shaft read at all; the angular term is
+				// the physical one that scales it with the source. Across:
+				// only the source's own width, so the shaft stays narrow.
+				const float axS = min(ax0 * 3.0 + 4.0 * angular, 1.0);
+				const float ayS = min(ay0 + 0.5 * angular, 1.0);
+				// **Half the renormalisation, on purpose.** The exact factor
+				// (ax0*ay0)/(axS*ayS) conserves energy and buries the shaft:
+				// three times the length at a third the brightness reads as
+				// nothing on a night sea. The square root keeps the streak
+				// visibly lit while still paying for most of its spread --
+				// the same licence every renderer takes with a sun glitter
+				// path, because the alternative is a shaft nobody can see.
+				specScale = sqrt((ax0 * ay0) / (axS * ayS));
+				NDF = WaterBeckmannDX(H, N, Tv, Bv, axS, ayS);
+				// **The masking stays at the surface's own width.** The
+				// stretch stands in for the source's size, and a bigger lamp
+				// does not make the sea shadow itself more -- widening G with
+				// D collapsed G1(V) at exactly the grazing angles the shaft
+				// lives at, and the streak died of its own correction.
+				G   = WaterBeckmannG1X(V, N, Tv, Bv, ax0, ay0)
+					* WaterBeckmannG1X(L, N, Tv, Bv, ax0, ay0);
+			}
+			else
+			{
+				NDF = WaterBeckmannD(H, N, waterT, waterB, specRoughness);
+				G   = WaterBeckmannG1(V, N, waterT, waterB, specRoughness)
+					* WaterBeckmannG1(L, N, waterT, waterB, specRoughness);
+			}
+		}
+		else
+		{
+			NDF = WaterBeckmannD(H, N, waterT, waterB, specRoughness);
+			G   = WaterBeckmannG1(V, N, waterT, waterB, specRoughness)
+				* WaterBeckmannG1(L, N, waterT, waterB, specRoughness);
+		}
 #else
 		// **Anisotropic only when asked for, and only with a tangent to turn
 		// about.** The layered path fills a zero tangent, so terrain takes the

@@ -44,7 +44,20 @@ work on this row.** The references show long, continuous vertical shafts
 running far down the water; the sphere form produces soft elliptical pools
 with short trails. The gap has named mechanisms, in likely order of yield:
 
-1. **The widening is isotropic and a streak is not.** At grazing incidence a
+1. ~~**The widening is isotropic and a streak is not.**~~ **Done the same
+   evening**: sized lights on water now evaluate the lobe in the
+   view-projected streak frame -- widened 3x along the viewer axis plus the
+   source's angular term, held near Cox-Munk across -- with masking kept at
+   the surface's own width (widening G with D collapsed G1(V) at exactly the
+   grazing angles the shaft lives at and killed it), and half the energy
+   renormalisation (the exact factor buried the shaft; the square root is the
+   sun-glitter licence every renderer takes). The pier's marine paths run
+   visibly longer and narrower; the 500 m span row is still pools, because
+   perspective compresses any world-length shaft near the horizon -- the
+   remaining gap to the reference is now items 2-4, chiefly LTC line sources.
+   Original note: at grazing incidence a real streak elongates along the view
+   axis because the up-down facet tilt dominates what can still mirror the
+   source; spreading the lobe equally in all directions makes pools. At grazing incidence a
    real streak elongates along the view axis because the up-down facet tilt
    dominates what can still mirror the source; spreading the lobe equally in
    all directions makes pools. The standard fix is elongating the widened
