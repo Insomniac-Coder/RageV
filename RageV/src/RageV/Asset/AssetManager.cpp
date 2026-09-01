@@ -1134,8 +1134,17 @@ namespace RageV::Assets
 
 		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
 
+		// **Two inputs, one grid.** `.rvterrain` is the engine's own format and
+		// the only one it writes; a heightmap image is an import source, cooked
+		// to the same samples on the way in. Chosen by extension rather than by
+		// trying one and falling back, so a genuinely corrupt `.rvterrain`
+		// reports itself instead of being retried as a picture.
 		TerrainData data;
-		if (path.empty() || !TerrainSerializer::Load(data, path))
+		const bool ok = !path.empty()
+					 && (TerrainSerializer::IsHeightmapImage(path)
+							 ? TerrainSerializer::LoadImage(data, path)
+							 : TerrainSerializer::Load(data, path));
+		if (!ok)
 		{
 			s_TerrainFailed.insert(handle);
 			return nullptr;
@@ -1149,6 +1158,27 @@ namespace RageV::Assets
 	{
 		if (!GetTerrain(handle))
 			return nullptr;
+
+		// **An image-backed terrain is not sculptable, and refusing here is the
+		// whole guard.** SaveTerrain writes through to the asset's own path, so
+		// letting the brush touch one would end with `.rvterrain` bytes written
+		// over the author's PNG -- their source file, destroyed, by a stroke
+		// that looked like it worked. Declining the edit makes the brush simply
+		// not engage, which is a visible nothing rather than a silent loss.
+		//
+		// Sculpting an imported heightmap is a real thing to want; it needs a
+		// "convert to .rvterrain" verb that writes a new asset and repoints the
+		// component, and that is a deliberate action rather than a side effect
+		// of dragging a brush.
+		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+		if (TerrainSerializer::IsHeightmapImage(path))
+		{
+			RV_CORE_WARN("Terrain {0} came from a heightmap image, so it cannot be sculpted: "
+						 "the edit would have to be written back over the image. Bring it in "
+						 "as an .rvterrain to sculpt it.", path.filename().string());
+			return nullptr;
+		}
+
 		s_TerrainDirty.insert(handle);
 		return &s_Terrains[handle];
 	}
@@ -1170,6 +1200,19 @@ namespace RageV::Assets
 			return false;
 
 		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
+
+		// A second lock on the same door EditTerrain closed. Nothing should be
+		// able to reach here with an image-backed terrain, and if something
+		// finds a way, writing our binary over someone's PNG is the one outcome
+		// worth spending a branch to make impossible.
+		if (TerrainSerializer::IsHeightmapImage(path))
+		{
+			RV_CORE_ERROR("Refusing to save terrain over the heightmap image {0}: that would "
+						  "overwrite the source with engine data.", path.filename().string());
+			s_TerrainDirty.erase(handle);
+			return false;
+		}
+
 		if (path.empty() || !TerrainSerializer::Save(cached->second, path))
 		{
 			RV_CORE_ERROR("Terrain {0} could not be saved to {1}", (uint64_t)handle, path.string());

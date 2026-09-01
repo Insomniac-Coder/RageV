@@ -42,5 +42,35 @@ namespace RageV::Assets
 		// To disk. False when the data is not valid or the file cannot be
 		// written; nothing is written for invalid data.
 		static bool Save(const TerrainData& data, const std::filesystem::path& path);
+
+		// **A heightmap image as a second input, cooked to the same samples.**
+		//
+		// An addition to `.rvterrain`, not a replacement: that format is still
+		// what the engine owns, what sculpting writes, and what a painted
+		// terrain's weights live in. This is the *import* side, and it is the
+		// shape Unity's "Import Raw" and Unreal's landscape import both take --
+		// an image is a source you bring heights in from, never the live
+		// representation, because heights have to be sixteen bits, on the CPU,
+		// and writable.
+		//
+		// Reads 16-bit greyscale by preference and 8-bit if that is all there
+		// is, saying so, because 8 bits is 256 steps and over a few hundred
+		// metres of relief that terraces visibly.
+		//
+		// **The image is resampled to the nearest legal 2^n + 1.** A terrain
+		// grid must be one -- see TerrainData -- and a heightmap is almost
+		// always a power of two, so a 1024 image becomes 1025 samples. Bilinear
+		// across the image's whole extent, so the edges land on the edges.
+		//
+		// Weights are left empty: an image carries heights and nothing about
+		// which material goes where, so an imported terrain is layer 0 until
+		// something paints it.
+		static bool LoadImage(TerrainData& out, const std::filesystem::path& path);
+
+		// Whether a path is one LoadImage can be asked for -- i.e. anything
+		// that is not the engine's own format. Extension-based, so the decision
+		// is made once and both the loader and the "can this be sculpted"
+		// question read the same answer.
+		static bool IsHeightmapImage(const std::filesystem::path& path);
 	};
 }

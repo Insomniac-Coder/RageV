@@ -1,0 +1,59 @@
+Scene: Terrain from a heightmap image
+Version: 6
+Environment:
+  AmbientColor: [0.05, 0.06, 0.08]
+  AmbientIntensity: 0.4
+  Sky: 1
+  SkyHorizon: [0.35, 0.42, 0.55]
+  SkyZenith: [0.12, 0.2, 0.42]
+  SkyGround: [0.06, 0.06, 0.07]
+  SkyIntensity: 1
+  SkyRotation: 0
+Entities:
+  - EntityID: 11400714819323198486
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 3200, 2900]
+      Rotation: [-0.85, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 60
+      PerspectiveNearClip: 0.5
+      PerspectiveFarClip: 12000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 4354685564936845355
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0, 500, 0]
+      Rotation: [-0.5236, 2.6, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Directional
+      Color: [1, 0.96, 0.9]
+      Intensity: 3
+      Range: 60
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 15755400384260043840
+    TagComponent:
+      Tag: Marin headlands
+    TransformComponent:
+      Position: [0, -20.6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      Terrain: 15170848739604411501
+      Material: 4166830874159429347
+      Layer1: 17589339863833376696
+      Size: 4096
+      Height: 305.1
+      TextureScale: 48
+      Collision: true
