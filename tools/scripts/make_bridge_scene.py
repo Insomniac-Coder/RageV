@@ -166,8 +166,41 @@ SKIES = {
         "ground": (0.004, 0.005, 0.006),
         "ambient": (0.20, 0.26, 0.40),
         "ambient_intensity": 0.012,
+        # **WR-1: recoloured from (0.62, 0.70, 0.95) -- movie-blue-night,
+        # exactly the convention the research called out as backwards. Real
+        # moonlight is ~4100 K, warmer than daylight; the bridge has no blue
+        # light sources at all, so a blue directional here was fill light
+        # nothing in the scene could cast. Elevation/bearing unchanged --
+        # they are also the moon DISC's direction below, read from this same
+        # dict entry rather than duplicated, so the light and what you see
+        # standing in the sky cannot drift apart (WR-9 names this trap for
+        # lamps; the same discipline applies here).
         "sun": {"elevation": 34.0, "bearing": 118.0,
-                "color": (0.62, 0.70, 0.95), "intensity": 0.30},
+                "color": (1.0, 0.89, 0.72), "intensity": 0.30},
+        # **WR-1 additions.** SkyCurve, city glow and the moon disc all
+        # default OFF/linear/black in the engine, so every OTHER sky preset
+        # here (dusk, flat) is untouched -- these four keys exist only on
+        # the night preset, which is the only one asking for a shaped sky.
+        # Values are starting points from the research (case studies +
+        # Garstang skyglow model + real lunar photometry), for the owner to
+        # grade by eye against the reference photographs, not final numbers.
+        #
+        # **Two passes in and still a sunset, not a horizon band** -- 127x
+        # then 30x zenith, K 6/12 then 8/20, both read almost the same. The
+        # exposure multiplies this term too (Exposure 2.4), so a peak that
+        # looks modest in raw linear terms is already well up the tonemap's
+        # near-linear range at the horizon before the elevation falloff ever
+        # gets a chance to matter. Cutting an order of magnitude harder this
+        # time rather than nudging again.
+        "sky_curve": 0.4,             # 0.3-0.5 crowds the glow to the horizon
+        "city_glow_color": (0.025, 0.0105, 0.003),   # ~3.7x zenith luminance
+        "city_glow_bearing": 0.0,     # +z, south -- San Francisco
+        "city_azimuth_k": 8.0,
+        "city_elevation_k": 20.0,
+        # Bright enough to clip into bloom under Exposure 2.4 -- the disc is
+        # meant to blow out like the lamp lenses do, not sit as a soft grey
+        # circle. Angular size left at the engine default (the real moon's).
+        "moon_color": (6.0, 5.3, 4.0),
         # **Night needs a profile of its own, and auto exposure off in it.**
         # Attached whether or not --cinematic is given, because the one thing
         # a night frame cannot have is an exposure that hunts for mid grey:
@@ -274,14 +307,16 @@ CAMERAS = {
               "position": (316.0, 55.0, -810.0),
               "rotation": (-0.06, 0.585, 0.0), "fov": 55},
     # **Broadside across open water, for the lamps' glitter path.** Added
-    # 2026-08-31. Every other camera looks *along* the span, which puts the
-    # deck edge-on at half a kilometre and leaves its lamps nowhere to reflect
-    # into frame -- the one thing a night photograph of this bridge is made of.
-    # This stands 300 m off the west side at 22 m, so the deck sits about ten
-    # degrees up and the water between carries the reflections.
+    # 2026-08-31, **moved lower and further out 2026-09-01** during the
+    # realism research captures (hand-edited directly in the scene, same
+    # trap as the lamps' -- see WR-0): 22 m up read the water almost flat,
+    # so the streaks foreshortened to slivers; 2.5 m, nearly at the waterline,
+    # is what actually shows a lamp row's reflection running the deck's
+    # length. Moved out to 500 m off the west side to keep the same lamps in
+    # frame from the new, shallower angle.
     "glitter": {"tag": "Glitter Camera",
-                "position": (300.0, 22.0, 180.0),
-                "rotation": (-0.045, 1.5708, 0.0), "fov": 52},
+                "position": (500.0, 2.5, 180.0),
+                "rotation": (0.02, 1.5708, 0.0), "fov": 52},
     # Under the north tower at Lime Point, looking back across the strait.
     # The one place the water is genuinely shallow enough to see through --
     # the north pier stands on the shore, so the surf against it is the
@@ -588,19 +623,17 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
             ("Type", "Spot"),
             ("Color", vec(*bridge.SODIUM)),
             ("Intensity", 452),
-            # Reaches the deck and the truss under it and stops: 128 lights
-            # that each touch half the scene is how a clustered renderer is
-            # made to behave like a forward one.
-            # **44 m, and not more.** Reaching the water was tried at 95 and
-            # is a dead end: a lamp 75 m up delivers 1/75^2 of its intensity to
-            # the sea, which is nothing, and the lit patch would be directly
-            # under the deck rather than in the foreground anyway. The glitter
-            # path under a lit bridge is the lamps' *reflection*, not their
-            # cast light -- so the range only has to cover the deck and the
-            # truss under it, and paying for more is cluster overlap for no
-            # pixel.
-            ("Range", 44),
-            ("InnerCone", 34), ("OuterCone", 64),
+            # **Widened to 600 m and a 0.6 m source, 2026-09-01 (commit
+            # dab692d).** The 44 m range above was right for the deck's own
+            # illumination but wrong for the glitter path: the lamps' water
+            # reflection needs the source's own extent (SourceRadius) to
+            # produce a streak rather than a point, and the mirror ray that
+            # finds it has to reach the sea from 83 m up, which 44 m never
+            # could. Widening the cone to 85 degrees is what lets a shallow
+            # mirror ray see the lens at all near the horizon.
+            ("Range", 600),
+            ("SourceRadius", 0.6),
+            ("InnerCone", 34), ("OuterCone", 85),
         ])
 
     # --- the tower floodlighting --------------------------------------------
@@ -629,6 +662,9 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
                     # what the references show -- the wash reaches nearly to
                     # the saddle and only the cables above it go dark.
                     ("Range", 250),
+                    # A recessed floodlight's aperture, not a point -- gives
+                    # the shaft's own reflections a source to widen against.
+                    ("SourceRadius", 0.5),
                     # **Wide and soft.** At a 9-degree inner cone these read
                     # as two hot blobs on the shaft rather than a wash --
                     # a real floodlight is recessed behind a shield and lights
@@ -640,6 +676,34 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
     # are markers -- they exist to be seen, not to illuminate -- and 46 more
     # lights to light nothing would cost the cluster binning for no pixel that
     # is not already delivered by the emissive material and the bloom over it.
+    #
+    # **Except the four on the fenders' rims, which do.** They sit at the
+    # waterline rather than 220 m up a tower, so unlike a saddle beacon or a
+    # cable marker they land in the one place a light's own reflection is the
+    # entire point: a boat-level camera reads them as a dim red glow *and* a
+    # matching streak on the water, the way the marine lights on a real pier
+    # fender do. Same fender-rim corner as the emissive markers themselves
+    # (`beacon_positions`'s marine-light sub-loop: `end * fender_a * 0.94`,
+    # `FENDER_TOP + FENDER_PARAPET + 0.6`) so the light cannot drift from its
+    # lens -- but hand-rounded to 2 decimals, same as the mesh loop's `0.94`
+    # fudge, when added directly to the scene at `dab692d`. Reproduced
+    # verbatim (not re-derived at full precision) per WR-0, so a regenerate
+    # cannot nudge the position and silently invalidate the bake.
+    for name, position in (
+            ("Marine light 0", (-35.23, 5.35, -bridge.HALF_SPAN)),
+            ("Marine light 1", (35.23, 5.35, -bridge.HALF_SPAN)),
+            ("Marine light 2", (-42.96, 5.35, bridge.HALF_SPAN)),
+            ("Marine light 3", (42.96, 5.35, bridge.HALF_SPAN))):
+        s.entity(name, position=position)
+        s.block("LightComponent", [
+            ("Type", "Point"),
+            ("Color", vec(1.0, 0.08, 0.04)),
+            ("Intensity", 60),
+            ("Range", 130),
+            ("SourceRadius", 0.4),
+            ("CastShadows", "false"),
+            ("IsBaked", "false"),
+        ])
 
     # --- the floor of the strait --------------------------------------------
     #
@@ -739,7 +803,7 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
         ("CastShadows", "true"),
     ])
 
-    return "\n".join([
+    environment = [
         "Scene: Golden Gate at night -- stage 1, the silhouette",
         "Version: 6",
         "Environment:",
@@ -752,6 +816,28 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
         "  SkyIntensity: 1",
         "  SkyRotation: 0",
         "  SkyTexture: 0",
+    ]
+
+    # WR-1: only the presets that opt in (the "sky_curve" key's presence is
+    # the signal) write these -- everything else keeps the exact Environment
+    # block it always wrote, so a non-night scene regenerated with this
+    # script is untouched to the byte.
+    if "sky_curve" in sky:
+        moon = sky["sun"]
+        environment += [
+            "  SkyCurve: {0:g}".format(sky["sky_curve"]),
+            "  CityGlowColor: {0}".format(vec(*sky["city_glow_color"])),
+            "  CityGlowBearing: {0:g}".format(sky["city_glow_bearing"]),
+            "  CityAzimuthK: {0:g}".format(sky["city_azimuth_k"]),
+            "  CityElevationK: {0:g}".format(sky["city_elevation_k"]),
+            "  MoonColor: {0}".format(vec(*sky["moon_color"])),
+            # Read from the same "sun" entry the moonlight itself uses, not
+            # duplicated -- see the comment on "night"'s sun key.
+            "  MoonElevation: {0:g}".format(moon["elevation"]),
+            "  MoonBearing: {0:g}".format(moon["bearing"]),
+        ]
+
+    return "\n".join(environment + [
         "Entities:",
         s.text(),
         "",

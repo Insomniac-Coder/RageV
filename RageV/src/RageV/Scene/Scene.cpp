@@ -4139,6 +4139,23 @@ namespace RageV
 		mixFloat(m_Environment.SkyIntensity);
 		mixFloat(m_Environment.SkyRotation);
 		mixUint((uint64_t)m_Environment.SkyTexture);
+		// WR-1: the shaped sky changes what a direction that never touches
+		// SkyHorizon/SkyZenith/SkyGround reads as -- the glow lobe and the
+		// moon disc both add light the three corner colours above know
+		// nothing about. The irradiance volume's stored bounce is solved
+		// against a snapshot of the visible sky (the corner colours already
+		// do this; these have to for the same reason), so they belong in the
+		// key: a bake made before a city glow or a moon was added must be
+		// refused, not read as though that light had always been absent.
+		mixFloat(m_Environment.SkyCurve);
+		mixVec(m_Environment.CityGlowColor);
+		mixFloat(m_Environment.CityGlowBearing);
+		mixFloat(m_Environment.CityAzimuthK);
+		mixFloat(m_Environment.CityElevationK);
+		mixVec(m_Environment.MoonColor);
+		mixFloat(m_Environment.MoonElevation);
+		mixFloat(m_Environment.MoonBearing);
+		mixFloat(m_Environment.MoonDisc);
 
 		return lighting;
 	}

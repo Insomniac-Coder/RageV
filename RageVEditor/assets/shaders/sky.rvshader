@@ -77,6 +77,22 @@ layout(set = 0, binding = 1) uniform SkyMotion
 	vec4 Jitter;
 } u_Motion;
 
+// WR-1's shaped-sky terms. A uniform buffer for the same reason SkyMotion is
+// one and not four more push constants: SkyParams above is already 112 of
+// the 128 guaranteed bytes.
+layout(set = 0, binding = 2) uniform SkyExtra
+{
+	// x = SkyCurve, y = CityAzimuthK, z = CityElevationK, w unused.
+	vec4 Shape;
+	vec4 CityGlowColor;   // rgb, a unused
+	// xyz normalized, y = 0 (a bearing, not an elevation); w unused.
+	vec4 CityDirection;
+	// xyz normalized (the world direction the moon stands in), w = its
+	// angular radius in radians. Both zero when there is no moon.
+	vec4 MoonDirection;
+	vec4 MoonColor;       // rgb, a unused
+} u_Extra;
+
 void main()
 {
 	// The sky is not a surface. First and unconditionally, for the reason
@@ -142,13 +158,47 @@ void main()
 	{
 		// Raised to a fractional power so the transition crowds towards the
 		// horizon. A linear ramp puts the interesting half of the gradient
-		// above the part of the sky anyone is looking at.
+		// above the part of the sky anyone is looking at. SkyCurve replaced
+		// the fixed 0.45 this used to be (WR-1) -- still the default, so an
+		// untouched scene draws the same pow() it always did.
 		float height = clamp(abs(direction.y), 0.0, 1.0);
-		float t = pow(height, 0.45);
+		float t = pow(height, u_Extra.Shape.x);
 
 		colour = direction.y >= 0.0
 			? mix(u_Params.Horizon.rgb, u_Params.Zenith.rgb, t)
 			: mix(u_Params.Horizon.rgb, u_Params.Ground.rgb, t);
+
+		// The city glow and the moon are both above-horizon-only and additive
+		// -- light arriving on top of the gradient, not replacing it.
+		if (direction.y >= 0.0)
+		{
+			// direction.xz is not unit length on its own (some of the length
+			// is in y), and a degenerate looking-straight-up ray leaves it
+			// exactly zero -- normalize() of that is NaN, silently, so the
+			// fallback direction matters even though its azimuth term is
+			// killed a line later by (1 - height)^K going to zero.
+			float horizontalLength = length(direction.xz);
+			vec2 azimuth = horizontalLength > 1e-4
+				? direction.xz / horizontalLength : vec2(0.0, 1.0);
+
+			float azimuthTerm = clamp(dot(azimuth, u_Extra.CityDirection.xz), 0.0, 1.0);
+			colour += u_Extra.CityGlowColor.rgb
+				* pow(azimuthTerm, u_Extra.Shape.y)
+				* pow(1.0 - height, u_Extra.Shape.z);
+
+			// The moon: an analytic disc, limb-darkened, additive. A radius of
+			// zero (no moon set) can never satisfy `cosAngle > discCosine`
+			// because a real direction's cosine similarity to itself tops out
+			// at 1.0 and cos(0) is also 1.0 -- so this is inert rather than a
+			// special case.
+			float cosAngle = dot(direction, u_Extra.MoonDirection.xyz);
+			float discCosine = cos(u_Extra.MoonDirection.w);
+			if (cosAngle > discCosine)
+			{
+				float edge = clamp((cosAngle - discCosine) / max(1e-5, 1.0 - discCosine), 0.0, 1.0);
+				colour += u_Extra.MoonColor.rgb * sqrt(edge);
+			}
+		}
 	}
 
 	// Linear and unbounded, like every other shader that writes the scene

@@ -47,6 +47,34 @@ namespace RageV
 			Vec4 Jitter{ 0.0f };
 		};
 
+		// WR-1's shaped-sky terms, mirroring sky.rvshader's `SkyExtra` block
+		// field for field. A uniform buffer rather than more push constants
+		// for the same reason SkyMotion is one -- see its comment.
+		struct SkyExtra
+		{
+			// x = SkyCurve, y = CityAzimuthK, z = CityElevationK, w unused.
+			Vec4 Shape{ 0.45f, 6.0f, 12.0f, 0.0f };
+			Vec4 CityGlowColor{ 0.0f };
+			Vec4 CityDirection{ 0.0f, 0.0f, 1.0f, 0.0f };
+			Vec4 MoonDirection{ 0.0f, 1.0f, 0.0f, 0.0f };
+			Vec4 MoonColor{ 0.0f };
+		};
+
+		// A bearing/elevation pair, `sun_rotation`'s convention
+		// (make_bridge_scene.py): 0 degrees bearing is south (+z), 90 is west
+		// (+x); elevation is degrees above the horizon. Shared by the shader
+		// upload and the CPU gradient mirror below so the compass direction a
+		// scene author sets is the same direction in both -- computed once
+		// rather than the trig living in two places to drift apart.
+		Vec3 DirectionFromCompass(float bearingDegrees, float elevationDegrees)
+		{
+			const float bearing = Math::Radians(bearingDegrees);
+			const float elevation = Math::Radians(elevationDegrees);
+			const float horizontal = Math::Cos(elevation);
+			return Vec3(horizontal * Math::Sin(bearing), Math::Sin(elevation),
+					   horizontal * Math::Cos(bearing));
+		}
+
 		struct SkyboxData
 		{
 			RHIDevice* Device = nullptr;
@@ -90,6 +118,10 @@ namespace RageV
 			// have the second overwrite what the first is about to use. The
 			// same reason Renderer3D keeps a scene block per scene.
 			std::vector<std::vector<Ref<RHIBuffer>>> MotionBuffers;
+			// Same shape, for SkyExtra (WR-1). A separate vector rather than
+			// folding into MotionBuffers because the two are logically
+			// unrelated blocks that happen to both be "small and per-set".
+			std::vector<std::vector<Ref<RHIBuffer>>> ExtraBuffers;
 
 			// Direction-to-clip as the last Draw left it, and the jitter that
 			// was folded into it.
@@ -113,6 +145,19 @@ namespace RageV
 			Vec3 GradientHorizon{ -1.0f };
 			Vec3 GradientZenith{ -1.0f };
 			Vec3 GradientGround{ -1.0f };
+			// WR-1's shaped-sky inputs, same staleness role as the three
+			// colours above -- the cube must rebuild when any of these
+			// change too, or a probe/reflection keeps showing yesterday's
+			// curve, glow or moon after the dial moves.
+			float GradientSkyCurve = -1.0f;
+			Vec3 GradientCityGlowColor{ -1.0f };
+			float GradientCityGlowBearing = -1e6f;
+			float GradientCityAzimuthK = -1.0f;
+			float GradientCityElevationK = -1.0f;
+			Vec3 GradientMoonColor{ -1.0f };
+			float GradientMoonElevation = -1e6f;
+			float GradientMoonBearing = -1e6f;
+			float GradientMoonDisc = -1.0f;
 
 			bool Ready = false;
 		};
@@ -124,15 +169,46 @@ namespace RageV
 		constexpr uint32_t kGradientCubeSize = 32;
 
 		// Shared with sky.rvshader. Both have to agree, or a mirrored surface
-		// shows a different sky from the one behind it.
+		// shows a different sky from the one behind it -- including the WR-1
+		// terms below: a probe that never saw the city glow or the moon
+		// would reflect a plainer sky than the one actually drawn.
 		Vec3 GradientAt(const Vec3& direction, const SceneEnvironment& environment)
 		{
 			const float height = Math::Clamp(Math::Abs(direction.y), 0.0f, 1.0f);
-			const float t = Math::Pow(height, 0.45f);
+			const float t = Math::Pow(height, environment.SkyCurve);
 
-			return direction.y >= 0.0f
+			Vec3 colour = direction.y >= 0.0f
 				 ? Math::Mix(environment.SkyHorizon, environment.SkyZenith, t)
 				 : Math::Mix(environment.SkyHorizon, environment.SkyGround, t);
+
+			if (direction.y >= 0.0f)
+			{
+				const float horizontalLength =
+					Math::Sqrt(direction.x * direction.x + direction.z * direction.z);
+				const Vec2 azimuth = horizontalLength > 1e-4f
+					? Vec2(direction.x, direction.z) / horizontalLength : Vec2(0.0f, 1.0f);
+
+				const Vec3 cityDirection = DirectionFromCompass(environment.CityGlowBearing, 0.0f);
+				const float azimuthTerm = Math::Clamp(
+					azimuth.x * cityDirection.x + azimuth.y * cityDirection.z, 0.0f, 1.0f);
+				colour += environment.CityGlowColor
+					* Math::Pow(azimuthTerm, environment.CityAzimuthK)
+					* Math::Pow(1.0f - height, environment.CityElevationK);
+
+				const Vec3 moonDirection =
+					DirectionFromCompass(environment.MoonBearing, environment.MoonElevation);
+				const float cosAngle = direction.x * moonDirection.x + direction.y * moonDirection.y
+									  + direction.z * moonDirection.z;
+				const float discCosine = Math::Cos(environment.MoonDisc);
+				if (cosAngle > discCosine)
+				{
+					const float edge = Math::Clamp(
+						(cosAngle - discCosine) / Math::Max(1e-5f, 1.0f - discCosine), 0.0f, 1.0f);
+					colour += environment.MoonColor * Math::Sqrt(edge);
+				}
+			}
+
+			return colour;
 		}
 
 		std::unique_ptr<SkyboxData> s_Data;
@@ -165,6 +241,7 @@ namespace RageV
 
 		s_Data->Sets.resize(device.GetFramesInFlight());
 		s_Data->MotionBuffers.resize(device.GetFramesInFlight());
+		s_Data->ExtraBuffers.resize(device.GetFramesInFlight());
 		s_Data->Ready = s_Data->Shader != nullptr;
 
 		if (s_Data->Ready)
@@ -228,7 +305,16 @@ namespace RageV
 		const bool stale = !s_Data->GradientCube ||
 						   s_Data->GradientHorizon != environment.SkyHorizon ||
 						   s_Data->GradientZenith != environment.SkyZenith ||
-						   s_Data->GradientGround != environment.SkyGround;
+						   s_Data->GradientGround != environment.SkyGround ||
+						   s_Data->GradientSkyCurve != environment.SkyCurve ||
+						   s_Data->GradientCityGlowColor != environment.CityGlowColor ||
+						   s_Data->GradientCityGlowBearing != environment.CityGlowBearing ||
+						   s_Data->GradientCityAzimuthK != environment.CityAzimuthK ||
+						   s_Data->GradientCityElevationK != environment.CityElevationK ||
+						   s_Data->GradientMoonColor != environment.MoonColor ||
+						   s_Data->GradientMoonElevation != environment.MoonElevation ||
+						   s_Data->GradientMoonBearing != environment.MoonBearing ||
+						   s_Data->GradientMoonDisc != environment.MoonDisc;
 
 		if (stale)
 		{
@@ -271,6 +357,15 @@ namespace RageV
 			s_Data->GradientHorizon = environment.SkyHorizon;
 			s_Data->GradientZenith = environment.SkyZenith;
 			s_Data->GradientGround = environment.SkyGround;
+			s_Data->GradientSkyCurve = environment.SkyCurve;
+			s_Data->GradientCityGlowColor = environment.CityGlowColor;
+			s_Data->GradientCityGlowBearing = environment.CityGlowBearing;
+			s_Data->GradientCityAzimuthK = environment.CityAzimuthK;
+			s_Data->GradientCityElevationK = environment.CityElevationK;
+			s_Data->GradientMoonColor = environment.MoonColor;
+			s_Data->GradientMoonElevation = environment.MoonElevation;
+			s_Data->GradientMoonBearing = environment.MoonBearing;
+			s_Data->GradientMoonDisc = environment.MoonDisc;
 		}
 
 		return s_Data->GradientCube ? s_Data->GradientCube
@@ -410,6 +505,7 @@ namespace RageV
 		const uint32_t frame = s_Data->Device->GetFrameIndex();
 		auto& sets = s_Data->Sets[frame];
 		auto& buffers = s_Data->MotionBuffers[frame];
+		auto& extraBuffers = s_Data->ExtraBuffers[frame];
 
 		while (s_Data->SetCursor >= sets.size())
 			sets.push_back(s_Data->Device->CreateResourceSet(s_Data->Pipeline, 0));
@@ -422,6 +518,15 @@ namespace RageV
 			desc.DebugName = "Skybox.motion";
 			buffers.push_back(s_Data->Device->CreateBuffer(desc));
 		}
+		while (s_Data->SetCursor >= extraBuffers.size())
+		{
+			BufferDesc desc;
+			desc.Size = sizeof(SkyExtra);
+			desc.Usage = BufferUsage::Uniform;
+			desc.Memory = MemoryDomain::HostVisible;
+			desc.DebugName = "Skybox.extra";
+			extraBuffers.push_back(s_Data->Device->CreateBuffer(desc));
+		}
 
 		const uint32_t slot = s_Data->SetCursor++;
 
@@ -431,6 +536,10 @@ namespace RageV
 
 		const Ref<RHIBuffer>& motionBuffer = buffers[slot];
 		if (!motionBuffer)
+			return;
+
+		const Ref<RHIBuffer>& extraBuffer = extraBuffers[slot];
+		if (!extraBuffer)
 			return;
 
 		// Always written, even in gradient mode: the shader declares the cube
@@ -458,8 +567,20 @@ namespace RageV
 
 		motionBuffer->Upload(&motion, sizeof(motion));
 
+		SkyExtra extra;
+		extra.Shape = Vec4(environment.SkyCurve, environment.CityAzimuthK,
+						  environment.CityElevationK, 0.0f);
+		extra.CityGlowColor = Vec4(environment.CityGlowColor, 0.0f);
+		extra.CityDirection = Vec4(DirectionFromCompass(environment.CityGlowBearing, 0.0f), 0.0f);
+		extra.MoonDirection = Vec4(
+			DirectionFromCompass(environment.MoonBearing, environment.MoonElevation),
+			environment.MoonDisc);
+		extra.MoonColor = Vec4(environment.MoonColor, 0.0f);
+		extraBuffer->Upload(&extra, sizeof(extra));
+
 		set->SetTexture(0, bound, s_Data->Sampler);
 		set->SetUniformBuffer(1, motionBuffer, 0, sizeof(SkyMotion));
+		set->SetUniformBuffer(2, extraBuffer, 0, sizeof(SkyExtra));
 		set->Commit();
 
 		SkyParams params;

@@ -2790,6 +2790,49 @@ namespace
 				Field<&SceneEnvironment::SkyTexture>("SkyTexture",
 					Named("Environment map",
 						OnlyWhen(SkyIsCubemap, AssetRef(AssetType::Texture)))),
+
+				// --- shaped sky (WR-1) ------------------------------------------
+				Field<&SceneEnvironment::SkyCurve>("SkyCurve",
+					Named("Sky curve", OnlyWhen(SkyIsGradient, Drag(0.01f, 0.05f, 2.0f,
+						"How fast the gradient crowds toward the horizon. 1 is a "
+						"straight ramp; under 1 holds a bright band low in the sky "
+						"instead of spreading it evenly to the zenith -- what a "
+						"real night sky's glow looks like. 0.45 is the curve every "
+						"scene used before this field existed.")))),
+
+				Field<&SceneEnvironment::CityGlowColor>("CityGlowColor",
+					Named("City glow colour", OnlyWhen(SkyIsGradient, Color(
+						"An additive lobe low in the sky, toward CityGlowBearing -- "
+						"a city's light pollution. Black adds nothing.")))),
+				Field<&SceneEnvironment::CityGlowBearing>("CityGlowBearing",
+					Named("City glow bearing", OnlyWhen(SkyIsGradient, Drag(1.0f, 0.0f, 360.0f,
+						"Degrees, this scene's compass: 0 is south (+z), 90 is "
+						"west (+x) -- sun_rotation's convention.")))),
+				Field<&SceneEnvironment::CityAzimuthK>("CityAzimuthK",
+					Named("City glow width", OnlyWhen(SkyIsGradient, Drag(0.1f, 1.0f, 32.0f,
+						"How tightly the glow hugs its bearing. Higher is "
+						"narrower.")))),
+				Field<&SceneEnvironment::CityElevationK>("CityElevationK",
+					Named("City glow height", OnlyWhen(SkyIsGradient, Drag(0.1f, 1.0f, 32.0f,
+						"How fast the glow fades with elevation. Higher stays "
+						"lower in the sky.")))),
+
+				Field<&SceneEnvironment::MoonColor>("MoonColor",
+					Named("Moon colour", OnlyWhen(SkyIsGradient, Color(
+						"The disc's own colour, pre-exposure -- set it high enough "
+						"and it clips into bloom. Black draws no moon.")))),
+				Field<&SceneEnvironment::MoonElevation>("MoonElevation",
+					Named("Moon elevation", OnlyWhen(SkyIsGradient, Drag(0.5f, -90.0f, 90.0f,
+						"Degrees over the horizon. This struct cannot see the "
+						"scene's entities, so it does not know a moon light's own "
+						"rotation -- set this to match it if the scene has one.")))),
+				Field<&SceneEnvironment::MoonBearing>("MoonBearing",
+					Named("Moon bearing", OnlyWhen(SkyIsGradient, Drag(1.0f, 0.0f, 360.0f,
+						"Degrees, CityGlowBearing's compass.")))),
+				Field<&SceneEnvironment::MoonDisc>("MoonDisc",
+					Named("Moon angular size", OnlyWhen(SkyIsGradient, Drag(0.0001f, 0.0f, 0.05f,
+						"Angular radius in radians. The real moon's is about "
+						"0.0046.")))),
 			};
 		}
 

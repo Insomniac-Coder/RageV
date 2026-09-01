@@ -10,6 +10,14 @@ Environment:
   SkyIntensity: 1
   SkyRotation: 0
   SkyTexture: 0
+  SkyCurve: 0.4
+  CityGlowColor: [0.025, 0.0105, 0.003]
+  CityGlowBearing: 0
+  CityAzimuthK: 8
+  CityElevationK: 20
+  MoonColor: [6, 5.3, 4]
+  MoonElevation: 34
+  MoonBearing: 118
 Entities:
   - EntityID: 12086993812364939721
     TagComponent:
@@ -127,7 +135,7 @@ Entities:
       Rotation: [0.02, 1.5708, 0]
       Scale: [1, 1, 1]
     CameraComponent:
-      ViewRank: -1
+      ViewRank: 6
       FixedAspectRatio: false
       ProjectionType: Perspective
       PerspectiveFOV: 52
@@ -225,66 +233,6 @@ Entities:
     MeshComponent:
       Mesh: 2713190348884938302
       Material: 1892120402306226948
-  - EntityID: 1770912000000000000
-    TagComponent:
-      Tag: Marine light 0
-    TransformComponent:
-      Position: [-35.23, 5.35, -640.1]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    LightComponent:
-      Type: Point
-      Color: [1, 0.08, 0.04]
-      Intensity: 60
-      Range: 130
-      SourceRadius: 0.4
-      CastShadows: false
-      IsBaked: false
-  - EntityID: 1770912000000000001
-    TagComponent:
-      Tag: Marine light 1
-    TransformComponent:
-      Position: [35.23, 5.35, -640.1]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    LightComponent:
-      Type: Point
-      Color: [1, 0.08, 0.04]
-      Intensity: 60
-      Range: 130
-      SourceRadius: 0.4
-      CastShadows: false
-      IsBaked: false
-  - EntityID: 1770912000000000002
-    TagComponent:
-      Tag: Marine light 2
-    TransformComponent:
-      Position: [-42.96, 5.35, 640.1]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    LightComponent:
-      Type: Point
-      Color: [1, 0.08, 0.04]
-      Intensity: 60
-      Range: 130
-      SourceRadius: 0.4
-      CastShadows: false
-      IsBaked: false
-  - EntityID: 1770912000000000003
-    TagComponent:
-      Tag: Marine light 3
-    TransformComponent:
-      Position: [42.96, 5.35, 640.1]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    LightComponent:
-      Type: Point
-      Color: [1, 0.08, 0.04]
-      Intensity: 60
-      Range: 130
-      SourceRadius: 0.4
-      CastShadows: false
-      IsBaked: false
   - EntityID: 1915434030085456926
     TagComponent:
       Tag: Beacons
@@ -2285,6 +2233,66 @@ Entities:
       SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
+  - EntityID: 1471243475781642455
+    TagComponent:
+      Tag: Marine light 0
+    TransformComponent:
+      Position: [-35.23, 5.35, -640.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.08, 0.04]
+      Intensity: 60
+      Range: 130
+      SourceRadius: 0.4
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 1471242376270014244
+    TagComponent:
+      Tag: Marine light 1
+    TransformComponent:
+      Position: [35.23, 5.35, -640.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.08, 0.04]
+      Intensity: 60
+      Range: 130
+      SourceRadius: 0.4
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 1471245674804898877
+    TagComponent:
+      Tag: Marine light 2
+    TransformComponent:
+      Position: [-42.96, 5.35, 640.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.08, 0.04]
+      Intensity: 60
+      Range: 130
+      SourceRadius: 0.4
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 1471244575293270666
+    TagComponent:
+      Tag: Marine light 3
+    TransformComponent:
+      Position: [42.96, 5.35, 640.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.08, 0.04]
+      Intensity: 60
+      Range: 130
+      SourceRadius: 0.4
+      CastShadows: false
+      IsBaked: false
   - EntityID: 15269762335764735707
     TagComponent:
       Tag: Seabed
@@ -4912,7 +4920,7 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Directional
-      Color: [0.62, 0.7, 0.95]
+      Color: [1, 0.89, 0.72]
       Intensity: 0.3
       Range: 10
       InnerCone: 20

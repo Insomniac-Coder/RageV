@@ -39,34 +39,37 @@ demanded by a picture somebody wants to make.
 
 ---
 
-## ⭐ FIRST — a realism research session (owner-set, 2026-09-01)
+### ~~⭐ FIRST — a realism research session (owner-set, 2026-09-01)~~ — ✅ **done 2026-09-01**
 
-**Before more feature work on the demo: sit down and work out what actually
-separates the night scene from the reference photographs, and which of those
-gaps are the engine's.** Set after the area-light session ended "not up to
-the mark": two forms of streak were built and tuned, and the honest lesson
-was that guessing at features one at a time is slower than knowing the gap.
+**The deliverable is `docs/RENDERING-REVAMP.md`** — fourteen work items
+(WR-0…WR-14), each a self-contained brief with named shipped precedents,
+costs, backend tags, verification protocols and traps, written so an agent
+can pick one up cold. Research base: four parallel literature strands over
+GDC/SIGGRAPH primary sources + a completeness critic, the bridge's measured
+lighting design (DOE PNNL-21894: 128 posts, 250 W HPS behind amber lenses,
+graduated 150/250/400 W tower uplights), reference photographs, five
+bake-matched captures of the current night scene, and a ReSTIR deep-dive.
 
-What the session is, concretely:
+The ranked order (rationale and details in the plan):
+**WR-0** generator parity (the scene is hand-owned since `dab692d` —
+regenerating DESTROYS the lamp radius/range work and the marine lights, and
+silently invalidates the bake) → **WR-1** shaped sky + SF glow dome + moon
+(the cheapest big win; probe/GI/fog/water all inherit it) → **WR-2** dither →
+**WR-3** fog inscatter from the sky per view direction → **WR-4** measured
+photometry & the missing fixtures (floods, beacons, nav lights) → **WR-5**
+night glare structure (thresholdless bloom + Spencer PSF weights + lamp
+flare sprites) → **WR-6** water sparkle fix (local bound replaces
+ReflectionFloor 30 — mechanism owner-confirmed) → **WR-7** capsule lights →
+**WR-10** world-space light grid at RT hits (kills the walk-every-light hit
+loop AND the 16-emitter cap) → **WR-13+WR-8** specular AA + LTC line/tube →
+**WR-9** luminaire binding + the four-path single-counting contract →
+**WR-14** foam at night → **WR-11** froxel volumetrics (the one real new
+system) → **WR-12** display finishers. Budget: ~2.5–3 ms of adds on the
+12.6 ms night frame; target 60 fps at 2560×1600 held.
 
-- **Side-by-side against the references.** The owner's photographs of the
-  bridge at night against our frames from matched angles, and a written list
-  of every visible difference -- streaks, bloom character, exposure and
-  contrast at night, colour of the sodium, silhouette softness, water
-  texture, atmospheric depth, geometric density. Named differences, not
-  impressions.
-- **For each difference: scene, tuning, or engine?** Some gaps are assets and
-  placement (already known: the roadmap's own verdict is that assets beat
-  renderer features), some are dials that exist and are set wrong, some are
-  missing renderer capability. The output is each gap filed under one of the
-  three, with the evidence.
-- **For the engine gaps: what do the renderers that solve this actually do?**
-  Not folklore -- the specific technique (LTC line lights, filmic exposure at
-  night, froxel volumetrics, whatever the list turns out to be), what it
-  costs, and what order buys the most realism per week.
-
-The deliverable is a ranked plan that replaces guesswork, written into this
-file. Nothing gets built in the research session itself.
+Rows 6 (area lights) and 7 (volumetrics) below are subsumed by WR-8 and
+WR-11 respectively — the revamp plan is their spec now. Row 5 (LODs) stands
+apart and unchanged.
 
 ## The order
 

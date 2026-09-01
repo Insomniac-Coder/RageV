@@ -69,5 +69,51 @@ namespace RageV
 		// AssetHandle is declared in the asset layer and the asset layer already
 		// depends on this one. Whoever resolves it does so by handle.
 		UUID SkyTexture = UUID::Invalid();
+
+		// --- shaped sky (WR-1) --------------------------------------------------
+		//
+		// Only read when Sky is Gradient. `height` below is the fragment's
+		// abs(direction.y), so 1 is a plain linear mix and less than 1 crowds
+		// the transition toward the horizon -- a real night sky's brightness
+		// lives in a thin band low down, not spread evenly to the zenith.
+		// **0.45 is not a design choice, it is the value the shader hardcoded
+		// before this field existed** (`pow(height, 0.45)` in sky.rvshader and
+		// `Skybox::GradientAt`'s mirror of it) -- kept as the default so every
+		// scene that has never touched this field renders unchanged.
+		float SkyCurve = 0.45f;
+
+		// An additive lobe low in the sky, toward CityGlowBearing -- a city's
+		// light pollution. Linear/HDR like the other sky colours; black (the
+		// default) adds nothing, so an untouched scene is unaffected.
+		Vec3 CityGlowColor{ 0.0f, 0.0f, 0.0f };
+		// Degrees, the scene's own compass: 0 is south (+z), 90 is west (+x)
+		// -- the same convention `sun_rotation` in make_bridge_scene.py uses,
+		// so a scene's sun/moon bearing and its city's bearing read as the
+		// same kind of number.
+		float CityGlowBearing = 0.0f;
+		// How tightly the glow hugs CityGlowBearing (higher = narrower) and how
+		// fast it fades with elevation (higher = stays lower in the sky).
+		// Research range ~4-8 / ~8-16; defaults sit mid-range and are inert
+		// while CityGlowColor is black.
+		float CityAzimuthK = 6.0f;
+		float CityElevationK = 12.0f;
+
+		// An analytic disc, drawn on the sky and baked into the reflection
+		// probe like everything else here. Pre-exposure colour -- set it high
+		// enough and it clips into bloom, which is the point. Black (the
+		// default) draws nothing, so MoonElevation/MoonBearing/MoonDisc are
+		// inert until it is set.
+		//
+		// **A second source of truth, on purpose, not by oversight.** This
+		// struct cannot see the scene's entities (see the header comment
+		// above), so it cannot read a moon light's own rotation -- a scene
+		// that wants the disc and the illumination to agree sets this to the
+		// same elevation/bearing it gave that light. WR-9 names the general
+		// version of this trap for lamps and lenses; nothing here prevents it
+		// for the moon, only documents it.
+		Vec3 MoonColor{ 0.0f, 0.0f, 0.0f };
+		float MoonElevation = 0.0f;   // degrees over the horizon
+		float MoonBearing = 0.0f;     // degrees, CityGlowBearing's convention
+		float MoonDisc = 0.0046f;     // angular radius, radians (the real moon's)
 	};
 }
