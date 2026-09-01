@@ -12,17 +12,26 @@ guarantees that need keeping apart before any of this is planned.
 
 ## 0. The three meanings, and which one RageV has
 
-| | what it means | survives a restart | RageV today |
+> **This section describes 2026-08-25, before any of it was built.** It is kept
+> for the definitions, which are still the ones this document uses. The "RageV
+> today" column and the paragraph under it are **no longer true** — irradiance
+> fields and probe cubes are both baked to disk now (§1.1–§1.3, all shipped).
+> Read §3 for where the work actually stands. *(Corrected 2026-09-01, after an
+> audit found this page still telling readers the engine cannot bake.)*
+
+| | what it means | survives a restart | RageV in 2026-08-25 |
 |---|---|---|---|
 | **realtime** | recomputed every frame | n/a | SSGI, voxel GI, traced GI, realtime probes |
 | **cached** | computed once at runtime, held in memory | **no** | `ProbeUpdate::Cached` (was misnamed `Baked`) |
 | **baked** | computed offline, written to disk, shipped | **yes** | **nothing** |
 
-The engine has **no baking of any kind.** Not lightmaps, not irradiance
-volumes, not light probes, not SH, not a bake tool, not an on-disk format that
-could hold a lighting result. `MeshVertex` is `Position`/`Normal`/`TexCoord`
-(`Mesh.h:17-22`) — one UV set — so lightmaps are not merely unimplemented, they
-are **unrepresentable** without a vertex-format change.
+At that date the engine had **no baking of any kind.** Not lightmaps, not
+irradiance volumes, not light probes, not SH, not a bake tool, not an on-disk
+format that could hold a lighting result. `MeshVertex` is
+`Position`/`Normal`/`TexCoord` (`Mesh.h:17-22`) — one UV set — so lightmaps are
+not merely unimplemented, they are **unrepresentable** without a vertex-format
+change. **That last sentence is the one thing here still true today**; it is why
+§1.4 stays refused.
 
 Every "bake" verb in the codebase is something else: animation curve tables
 (`Curve.cpp:104`), colour-grading LUTs (`LutRecipe.cpp:56`), font atlases
@@ -98,7 +107,13 @@ missing is only **serialisation**.
   `ImportCache.h:62-86` document that a container format change is two version
   bumps and hard-rejects old paks. This repo has paid for that once.
 
-### 1.2 Irradiance volume, filled at runtime — **M/L, the one that matters**
+### ~~1.2 Irradiance volume, filled at runtime~~ — ✅ **done 2026-08-26**
+
+*The component is `IrradianceVolumeComponent`, the runtime field is a live
+`Scene` member solved every frame, and the fragment reads it as
+`u_IrradianceField` at set 0 binding 18. Chebyshev visibility went in with it,
+as the "budget for this as part of the feature" note below insisted. The plan
+below is kept for its reasoning.*
 
 The piece that serves **dynamic objects**, which is the half of Unity's system
 the static flag does not cover. Needs no UV2, no static flag, no vertex-format
@@ -121,7 +136,12 @@ change, and can be filled by the path tracer the engine already owns.
   has no free binding (0–17 all used). The scene UBO took the probe table for
   exactly this reason and is the likely home again.
 
-### 1.3 The baker, and the volume on disk — **M, only after 1.2**
+### ~~1.3 The baker, and the volume on disk~~ — ✅ **done 2026-08-26**
+
+*The baker is a child `RageVRuntime.exe` launched with `--bake=force`, driven
+from the editor's Bake button. Fields are written beside the scene as
+`.rvfield`, in an rt/ss pair, adopted only on a matching stamp. The plan below
+is kept for its reasoning.*
 
 A headless tool that loads a scene, builds the same TLAS, runs the same
 `TraceSurface` to convergence, and writes the volume.
@@ -197,20 +217,29 @@ convergence) rather than inherit the single-frame rule.
 
 ```
 done   0.  probe hygiene: Cached rename, invalidation, Recapture verb
-       1.  reflection probes to disk           S/M   needs BC6H first
-       2.  irradiance volume, runtime-filled   M/L   the one that matters
-       3.  the baker + volume on disk          M     2 is its oracle
+done   1.  reflection probes to disk           S/M   needs BC6H first
+done   2.  irradiance volume, runtime-filled   M/L   the one that matters
+done   3.  the baker + volume on disk          M     2 is its oracle
        never 4. lightmaps                      XL    revisit only if 3 leaves a gap
 ```
 
-**Do 2 before 1 if only one gets done.** Probes-to-disk is a load-time win;
-the volume is the thing that changes how dynamic objects look, which is the
-actual complaint. 1 is listed first only because it is smaller and its
-prerequisite (BC6H in the cooker) is independently useful.
+**This order is spent** — 1, 2 and 3 all shipped between 2026-08-26 and
+2026-08-28, and the paragraph that used to stand here ("do 2 before 1 if only
+one gets done") was advice for choosing between two jobs that are both
+finished. What 1 did *not* deliver is recorded in §1.1; it is a remainder, not
+a reason to do 1 again.
 
-**A prerequisite that is not on this list:** BC6H compression in the texture
-cooker. Both 1 and any HDR bake need it, and without it the on-disk sizes are
-indefensible.
+**A prerequisite that is not on this list, and is still not built:** BC6H
+compression in the texture **cooker**. Both 1 and any HDR bake need it, and
+without it the on-disk sizes are indefensible.
+
+*Not to be confused with the BC6H that does exist.* `BakedLighting.cpp`
+carries its own encoder, and it is why a 512-pixel probe cube is 1.5 MB on
+disk rather than 12.5. That one is private to the `.rvprobe` container.
+`TextureCook` — the path every imported image takes — still offers only
+RGBA8/BC1/BC3/BC4/BC5 and accepts 8-bit input alone, so it cannot carry an HDR
+source at all. An audit on 2026-09-01 read the first and concluded this line
+was stale; it is not.
 
 ---
 

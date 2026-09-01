@@ -9,6 +9,58 @@ night session landed there as `2711321` (sodium, baked GI, stochastic tiling,
 the movie-grade BRDF). This line said "everything is on main" for days while
 it was not; check `git branch --show-current` rather than trusting it.
 
+## ✅ Resolved 2026-09-01 — the windshield's lost reflection was a stolen `else`, fixed at `90b7ac1`
+
+**Reported: "I no longer see reflection on the windshield of the car in
+showroom."** Two wrong explanations died on the way to the right one, and all
+three are worth recording.
+
+**Wrong once: "it's the studio lighting mode."** The scene does open in the
+dark studio mode (`StartMode: 1` since `09776b7`, semantics 1 = studio,
+2 = showroom — the script reads `StartMode != 2`, so 0 is still studio), and
+mode 2 is far brighter (windshield 122 against 39). But the owner had videos
+from the 27th and a screenshot from the 29th with the shine present in the
+same mode, which disproved it: the studio mode itself had dimmed.
+
+**Wrong twice: "traced reflections are just like that."** They are not —
+before the regression the glass cast mirror rays and caught the lit panel.
+
+**The truth, found by a nine-build bisect** (windshield mean, same frame:
+47.4 on the 27th morning → 44.2 after sky occlusion, a real correction →
+39.15 from `7f0b72a` "Water as a component" onward): `RefreshDrawList` ended
+its blended-table layout with
+
+    if (gpuCull && !m_BlendSlots.empty()) { ...build the table... }
+    else if (gpuCull)                     { m_BlendObjectCount = 0; }
+
+and the water commit spliced its `if (!m_HasBlended)` water check **between
+the `if` and its `else`**. The `else` re-attached to the water check — so
+every scene that *had* blended geometry under GPU culling zeroed the blended
+cull table it had just built. Traced reflections read glass instances through
+that table; the raster paths do not. Hence the signature: every ordinary draw
+perfect, and only the mirror image gone. The diff never showed it, because
+the `else if` lines themselves never changed.
+
+**Fixed at `90b7ac1`**: the water check moved below the closed `if/else`,
+byte-identical otherwise, with a comment standing guard. Verified: windshield
+back to 44.35 (the pre-regression value to the second decimal), bridge water
+bit-stable against a pre-fix frame (354 px vs ~26k of pure animation noise),
+showroom2 clean, scenetest green on both backends. Merged to `main`.
+
+**Method notes that earned their keep:**
+
+- The screenshot from the 29th was timestamped two minutes after `02406b2`
+  landed — that pinned the regression to a 24-commit window better than any
+  build could.
+- The date-ordered `git log` hid a branch join: two "adjacent" commits
+  differed by 57 files. Bisect on topology, not timestamps.
+- Three shader-side suspects were eliminated by editing the *staged* copy
+  (no rebuild): the firefly clamp, emissive at traced hits, and hit normals.
+  The hit-normal debug is what showed glass casting no rays at all.
+- A patch-bisect inside the culprit commit (shader includes → renderer →
+  scene) landed on three water-view blocks, then on the one `if` — whose
+  loop body never even runs in a waterless scene. The bug was pure structure.
+
 ## ✅ Resolved 2026-09-01 — the traced GI bounce runs; the "broken shader" was a stale asset copy
 
 The previous version of this section said `rtgi_trace.rvshader` does not
@@ -219,8 +271,28 @@ trade-off is the whole reason it is a setting rather than a constant.
 
 ## ⭐ IMPORTANT, DEFERRED — macro breakup in the shader (owner-set, 2026-08-31)
 
-**Status: not built. Deliberately deferred on 2026-08-31, and worth coming
-back to — the case for it got stronger, not weaker.**
+**Status: the shader half shipped in `2711321`, the same day this section was
+written saying it had not.** `MacroHash`/`MacroNoise`/`MacroField`/`ApplyMacro`
+are in `pbr_fragment.glsl` with three live call sites (raster, layered, traced
+hit), the fields round-trip through the serialiser, and five shipped materials
+drive it — `bridge_concrete` at 14 / 0.55 and the four `bay_*` terrain layers
+at 55 / 0.34, all reachable from `GoldenGateDemo`.
+
+**Two things are left:**
+
+- **No inspector rows.** `ComponentRegistry::BuildMaterial` registers every
+  sibling parameter from the same commit — clearcoat, anisotropy, subsurface,
+  sheen, stochastic tiling — and not `Macro`. There is even tip prose pointing
+  at a panel row that does not exist. So `MacroScale` and `MacroStrength` can
+  only be set by hand-editing a `.rmat` or re-running a generator script.
+- **Neither suite check was written**: that `MacroScale = 0` is bit-identical
+  to a material without the field, and that two points a macro-wavelength apart
+  shade differently. The first is the one that protects the "0 = off, nothing
+  moves" guarantee the whole design rests on.
+
+*The account below is why it was deferred and what the terrain needed first. It
+is kept because the reasoning still holds; only the status line above was
+wrong.*
 
 The order changed because the terrain turned out to have a more basic problem
 underneath this one, and macro variation could not have fixed it: all four
