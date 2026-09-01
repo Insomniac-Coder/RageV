@@ -31,4 +31,4 @@ FilmGrainSize: 1.7
 ColorLutStrength: 0.8
 ColorLut: 8988021586003487733
 GiIntensity: 2.6
-ReflectionFloor: 30
+ReflectionFloor: 0.5
