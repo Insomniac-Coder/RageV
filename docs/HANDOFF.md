@@ -38,9 +38,13 @@ frame over frame. Guarded at `NdotH <= 1e-3`. **Mid-bake frames also show the
 field unconverged (red wash, hot spots); that is the solve settling and stores
 nothing** -- judge lighting only after the bake exits.
 
-**Owner's verdict on the first form (2026-09-01): the streaks are there but
-do not yet look like the reference photographs, and that is the next piece of
-work on this row.** The references show long, continuous vertical shafts
+**Owner's verdict, standing after both forms (2026-09-01): still not up to
+the mark against the reference photographs.** The sphere form made pools; the
+anisotropic streak frame made the pier's paths longer and narrower, and the
+owner judged the result short of the references and paused the row here. The
+next session picks this up at item 2 -- LTC line/rect sources -- which was
+always this row's destination; the widening tricks have been taken as far as
+they go.** The references show long, continuous vertical shafts
 running far down the water; the sphere form produces soft elliptical pools
 with short trails. The gap has named mechanisms, in likely order of yield:
 
