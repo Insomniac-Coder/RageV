@@ -2,8 +2,12 @@
 
 **Read this first.** Updated 2026-09-01.
 
-Everything is on **`main`**, pushed. The night session landed as `2711321`
-(sodium, baked GI, stochastic tiling, the movie-grade BRDF) on 2026-08-31.
+**Not on `main`.** Everything since 2026-08-29 is on
+**`showroom2-and-the-card-look`**, pushed, and that branch is **26 commits
+ahead of `main`** — `main` is still at `02406b2` (half-res occlusion). The
+night session landed there as `2711321` (sodium, baked GI, stochastic tiling,
+the movie-grade BRDF). This line said "everything is on main" for days while
+it was not; check `git branch --show-current` rather than trusting it.
 
 ## ✅ Resolved 2026-09-01 — the traced GI bounce runs; the "broken shader" was a stale asset copy
 

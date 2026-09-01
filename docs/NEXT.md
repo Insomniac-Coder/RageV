@@ -155,12 +155,18 @@ pixels changed with early-z still rejecting 73x, depth of field and motion
 blur unchanged to the byte, showroom max diff 8 levels (Vulkan) on
 high-contrast edges only.
 
-### 3 · Sky occlusion in the irradiance volume — ~2–3 days
-Already briefed in HANDOFF, already chosen by the owner. Store per cell how
-much sky it sees; multiply by the live sky colour at shade time. Nearly free
-at bake time because the solve already traces the rays and *discards* the
-misses. Storage rides in the visibility tile's unused `.y`. **Bump
-`BakedLighting::kVersion`** or old bakes read zero and darken everything.
+### ~~3 · Sky occlusion in the irradiance volume~~ — ✅ **done 2026-08-28**
+Shipped as `2f87153`, "Carry sky visibility in the light tiles' alpha", and
+left standing on this list for four days afterwards — which is how it came to
+be quoted back to the owner as open work on 2026-09-01. Each cell stores how
+much sky it sees; the fragment multiplies by the live sky colour at shade
+time, so a bake follows the time of day instead of freezing it. It rides the
+light tile's alpha lane rather than the visibility tile's `.y` as planned.
+`BakedLighting::kVersion` is 3, so pre-`2f87153` bakes are rejected rather
+than read as zero.
+
+**Strike a row the day it lands.** A stale roadmap is worse than no roadmap:
+it is confidently wrong, and nothing in a build catches it.
 
 ### ~~4 · Independent irradiance volumes~~ — ✅ **done 2026-08-27**
 Volumes are no longer composed into one union box. Each keeps its own grid,
