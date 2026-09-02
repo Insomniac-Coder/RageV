@@ -1,0 +1,19 @@
+Material: bridge_thin
+BaseColor: [1, 0.07, 0.05, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1.6
+Specular: 0.5
+HeightScale: 0.006
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Blend: Masked
+AlphaCutoff: 0
+FadeStart: 300
+FadeEnd: 450
+Maps:
+  BaseColor: 96693054890993519
+  Normal: 4371629079649644629
+  Roughness: 9577008808220263438

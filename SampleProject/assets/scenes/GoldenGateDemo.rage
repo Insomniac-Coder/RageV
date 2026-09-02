@@ -245,6 +245,16 @@ Entities:
     MeshComponent:
       Mesh: 7438714803141607984
       Material: 7495206329882308034
+  - EntityID: 14484620588401291689
+    TagComponent:
+      Tag: Thin members
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Mesh: 10005588724188204308
+      Material: 17098433173927783847
   - EntityID: 2845979481031566204
     TagComponent:
       Tag: Deck irradiance -913
@@ -324,8 +334,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -339,8 +349,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -354,8 +364,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -369,8 +379,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -384,8 +394,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -399,8 +409,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -414,8 +424,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -429,8 +439,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -444,8 +454,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -459,8 +469,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -474,8 +484,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -489,8 +499,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -504,8 +514,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -519,8 +529,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -534,8 +544,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -549,8 +559,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -564,8 +574,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -579,8 +589,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -594,8 +604,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -609,8 +619,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -624,8 +634,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -639,8 +649,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -654,8 +664,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -669,8 +679,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -684,8 +694,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -699,8 +709,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -714,8 +724,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -729,8 +739,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -744,8 +754,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -759,8 +769,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -774,8 +784,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -789,8 +799,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -804,8 +814,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -819,8 +829,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -834,8 +844,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -849,8 +859,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -864,8 +874,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -879,8 +889,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -894,8 +904,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -909,8 +919,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -924,8 +934,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -939,8 +949,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -954,8 +964,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -969,8 +979,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -984,8 +994,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -999,8 +1009,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1014,8 +1024,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1029,8 +1039,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1044,8 +1054,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1059,8 +1069,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1074,8 +1084,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1089,8 +1099,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1104,8 +1114,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1119,8 +1129,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1134,8 +1144,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1149,8 +1159,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1164,8 +1174,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1179,8 +1189,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1194,8 +1204,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1209,8 +1219,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1224,8 +1234,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1239,8 +1249,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1254,8 +1264,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1269,8 +1279,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1284,8 +1294,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1299,8 +1309,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1314,8 +1324,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1329,8 +1339,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1344,8 +1354,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1359,8 +1369,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1374,8 +1384,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1389,8 +1399,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1404,8 +1414,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1419,8 +1429,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1434,8 +1444,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1449,8 +1459,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1464,8 +1474,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1479,8 +1489,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1494,8 +1504,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1509,8 +1519,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1524,8 +1534,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1539,8 +1549,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1554,8 +1564,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1569,8 +1579,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1584,8 +1594,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1599,8 +1609,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1614,8 +1624,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1629,8 +1639,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1644,8 +1654,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1659,8 +1669,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1674,8 +1684,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1689,8 +1699,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1704,8 +1714,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1719,8 +1729,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1734,8 +1744,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1749,8 +1759,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1764,8 +1774,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1779,8 +1789,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1794,8 +1804,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1809,8 +1819,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1824,8 +1834,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1839,8 +1849,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1854,8 +1864,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1869,8 +1879,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1884,8 +1894,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1899,8 +1909,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1914,8 +1924,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1929,8 +1939,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1944,8 +1954,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1959,8 +1969,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1974,8 +1984,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -1989,8 +1999,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -2004,8 +2014,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -2019,8 +2029,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -2034,8 +2044,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -2049,8 +2059,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -2064,8 +2074,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -2079,8 +2089,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -2094,8 +2104,8 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
@@ -2109,132 +2119,1072 @@ Entities:
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 452
+      Color: [1, 0.2795, 0.0091]
+      Intensity: 10593
       Range: 600
       SourceRadius: 0.6
       InnerCone: 34
       OuterCone: 85
-  - EntityID: 10313800728101866043
+  - EntityID: 16509819680869302598
     TagComponent:
-      Tag: Tower flood -640 -14 -9
+      Tag: Tower flood -648 -15 75.7 150W
     TransformComponent:
-      Position: [-16.865, 15, -649.1]
-      Rotation: [1.36136, 0, 0]
+      Position: [-15.315, 75.66, -648.1]
+      Rotation: [1.53589, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 900
+      Color: [1, 1, 1]
+      Intensity: 6021
       Range: 250
       SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
-  - EntityID: 2688536787208971100
+      CastShadows: false
+  - EntityID: 2270543904747777918
     TagComponent:
-      Tag: Tower flood -640 -14 9
+      Tag: Tower flood -645 -15 75.7 250W
     TransformComponent:
-      Position: [-10.565, 15, -631.1]
-      Rotation: [1.36136, 0, 0]
+      Position: [-15.315, 75.66, -645.1]
+      Rotation: [1.53589, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 900
+      Color: [1, 1, 1]
+      Intensity: 10036
       Range: 250
       SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
-  - EntityID: 16034002356625523916
+      CastShadows: false
+  - EntityID: 5342425825582709186
     TagComponent:
-      Tag: Tower flood -640 14 -9
+      Tag: Tower flood -642 -15 75.7 400W
     TransformComponent:
-      Position: [10.565, 15, -649.1]
-      Rotation: [1.36136, 0, 0]
+      Position: [-15.315, 75.66, -642.1]
+      Rotation: [1.53589, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 900
+      Color: [1, 1, 1]
+      Intensity: 16057
       Range: 250
       SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
-  - EntityID: 11878620995977830049
+      CastShadows: false
+  - EntityID: 2379268988595352315
     TagComponent:
-      Tag: Tower flood -640 14 9
+      Tag: Tower flood -638 -15 75.7 400W
     TransformComponent:
-      Position: [16.865, 15, -631.1]
-      Rotation: [1.36136, 0, 0]
+      Position: [-15.315, 75.66, -638.1]
+      Rotation: [1.53589, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 900
+      Color: [1, 1, 1]
+      Intensity: 16057
       Range: 250
       SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
-  - EntityID: 11869253532279414356
+      CastShadows: false
+  - EntityID: 7593762636531494141
     TagComponent:
-      Tag: Tower flood 640 -14 -9
+      Tag: Tower flood -635 -15 75.7 250W
     TransformComponent:
-      Position: [-16.865, 15, 631.1]
-      Rotation: [1.36136, 0, 0]
+      Position: [-15.315, 75.66, -635.1]
+      Rotation: [1.53589, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 900
+      Color: [1, 1, 1]
+      Intensity: 10036
       Range: 250
       SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
-  - EntityID: 17059566857819458249
+      CastShadows: false
+  - EntityID: 8528138766898983655
     TagComponent:
-      Tag: Tower flood 640 -14 9
+      Tag: Tower flood -632 -15 75.7 150W
     TransformComponent:
-      Position: [-10.565, 15, 649.1]
-      Rotation: [1.36136, 0, 0]
+      Position: [-15.315, 75.66, -632.1]
+      Rotation: [1.53589, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 900
+      Color: [1, 1, 1]
+      Intensity: 6021
       Range: 250
       SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
-  - EntityID: 1392350580349523161
+      CastShadows: false
+  - EntityID: 104325826086002419
     TagComponent:
-      Tag: Tower flood 640 14 -9
+      Tag: Tower flood -648 -15 66.2 150W
     TransformComponent:
-      Position: [10.565, 15, 631.1]
-      Rotation: [1.36136, 0, 0]
+      Position: [-15.315, 66.18, -648.1]
+      Rotation: [1.53589, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 900
+      Color: [1, 1, 1]
+      Intensity: 6021
       Range: 250
       SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
-  - EntityID: 8861365048419577726
+      CastShadows: false
+  - EntityID: 7277840424356064867
     TagComponent:
-      Tag: Tower flood 640 14 9
+      Tag: Tower flood -645 -15 66.2 250W
     TransformComponent:
-      Position: [16.865, 15, 649.1]
-      Rotation: [1.36136, 0, 0]
+      Position: [-15.315, 66.18, -645.1]
+      Rotation: [1.53589, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
       Type: Spot
-      Color: [1, 0.6, 0.16]
-      Intensity: 900
+      Color: [1, 1, 1]
+      Intensity: 10036
       Range: 250
       SourceRadius: 0.5
       InnerCone: 26
       OuterCone: 58
+      CastShadows: false
+  - EntityID: 7764320898733222743
+    TagComponent:
+      Tag: Tower flood -642 -15 66.2 400W
+    TransformComponent:
+      Position: [-15.315, 66.18, -642.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 16057
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 16253077343841738818
+    TagComponent:
+      Tag: Tower flood -638 -15 66.2 400W
+    TransformComponent:
+      Position: [-15.315, 66.18, -638.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 16057
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 17304780490035738480
+    TagComponent:
+      Tag: Tower flood -635 -15 66.2 250W
+    TransformComponent:
+      Position: [-15.315, 66.18, -635.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 10036
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 7266813554628507206
+    TagComponent:
+      Tag: Tower flood -632 -15 66.2 150W
+    TransformComponent:
+      Position: [-15.315, 66.18, -632.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 6021
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 11414851214271757643
+    TagComponent:
+      Tag: Tower flood -648 15 75.7 150W
+    TransformComponent:
+      Position: [15.315, 75.66, -648.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 6021
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 14042361570251748381
+    TagComponent:
+      Tag: Tower flood -645 15 75.7 250W
+    TransformComponent:
+      Position: [15.315, 75.66, -645.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 10036
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 5648918125380421367
+    TagComponent:
+      Tag: Tower flood -642 15 75.7 400W
+    TransformComponent:
+      Position: [15.315, 75.66, -642.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 16057
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 9584681765858833352
+    TagComponent:
+      Tag: Tower flood -638 15 75.7 400W
+    TransformComponent:
+      Position: [15.315, 75.66, -638.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 16057
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 13894233312027120224
+    TagComponent:
+      Tag: Tower flood -635 15 75.7 250W
+    TransformComponent:
+      Position: [15.315, 75.66, -635.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 10036
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 1055765182471605028
+    TagComponent:
+      Tag: Tower flood -632 15 75.7 150W
+    TransformComponent:
+      Position: [15.315, 75.66, -632.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 6021
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 18190692723692317298
+    TagComponent:
+      Tag: Tower flood -648 15 66.2 150W
+    TransformComponent:
+      Position: [15.315, 66.18, -648.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 6021
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 1544117678916082320
+    TagComponent:
+      Tag: Tower flood -645 15 66.2 250W
+    TransformComponent:
+      Position: [15.315, 66.18, -645.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 10036
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 3969213307403119110
+    TagComponent:
+      Tag: Tower flood -642 15 66.2 400W
+    TransformComponent:
+      Position: [15.315, 66.18, -642.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 16057
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 9524758731404941697
+    TagComponent:
+      Tag: Tower flood -638 15 66.2 400W
+    TransformComponent:
+      Position: [15.315, 66.18, -638.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 16057
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 18338268558839894273
+    TagComponent:
+      Tag: Tower flood -635 15 66.2 250W
+    TransformComponent:
+      Position: [15.315, 66.18, -635.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 10036
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 13244368519491888413
+    TagComponent:
+      Tag: Tower flood -632 15 66.2 150W
+    TransformComponent:
+      Position: [15.315, 66.18, -632.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 6021
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 6969288372646748326
+    TagComponent:
+      Tag: Tower flood 632 -15 75.7 150W
+    TransformComponent:
+      Position: [-15.315, 75.66, 632.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 6021
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 15109022161829894108
+    TagComponent:
+      Tag: Tower flood 635 -15 75.7 250W
+    TransformComponent:
+      Position: [-15.315, 75.66, 635.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 10036
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 14108573624445743906
+    TagComponent:
+      Tag: Tower flood 638 -15 75.7 400W
+    TransformComponent:
+      Position: [-15.315, 75.66, 638.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 16057
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 5800887079704937239
+    TagComponent:
+      Tag: Tower flood 642 -15 75.7 400W
+    TransformComponent:
+      Position: [-15.315, 75.66, 642.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 16057
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 8073702977161307903
+    TagComponent:
+      Tag: Tower flood 645 -15 75.7 250W
+    TransformComponent:
+      Position: [-15.315, 75.66, 645.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 10036
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 13044213484504472707
+    TagComponent:
+      Tag: Tower flood 648 -15 75.7 150W
+    TransformComponent:
+      Position: [-15.315, 75.66, 648.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 6021
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 14835016813542866387
+    TagComponent:
+      Tag: Tower flood 632 -15 66.2 150W
+    TransformComponent:
+      Position: [-15.315, 66.18, 632.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 6021
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 1988718619907083141
+    TagComponent:
+      Tag: Tower flood 635 -15 66.2 250W
+    TransformComponent:
+      Position: [-15.315, 66.18, 635.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 10036
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 15932168950166378295
+    TagComponent:
+      Tag: Tower flood 638 -15 66.2 400W
+    TransformComponent:
+      Position: [-15.315, 66.18, 638.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 16057
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 2973576668144460838
+    TagComponent:
+      Tag: Tower flood 642 -15 66.2 400W
+    TransformComponent:
+      Position: [-15.315, 66.18, 642.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 16057
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 17650280964057543758
+    TagComponent:
+      Tag: Tower flood 645 -15 66.2 250W
+    TransformComponent:
+      Position: [-15.315, 66.18, 645.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 10036
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 4439454176972030186
+    TagComponent:
+      Tag: Tower flood 648 -15 66.2 150W
+    TransformComponent:
+      Position: [-15.315, 66.18, 648.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 6021
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 11673559219177128747
+    TagComponent:
+      Tag: Tower flood 632 15 75.7 150W
+    TransformComponent:
+      Position: [15.315, 75.66, 632.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 6021
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 11057707141688459127
+    TagComponent:
+      Tag: Tower flood 635 15 75.7 250W
+    TransformComponent:
+      Position: [15.315, 75.66, 635.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 10036
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 4654037239980329943
+    TagComponent:
+      Tag: Tower flood 638 15 75.7 400W
+    TransformComponent:
+      Position: [15.315, 75.66, 638.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 16057
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 2644738924948362228
+    TagComponent:
+      Tag: Tower flood 642 15 75.7 400W
+    TransformComponent:
+      Position: [15.315, 75.66, 642.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 16057
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 15927921028527187086
+    TagComponent:
+      Tag: Tower flood 645 15 75.7 250W
+    TransformComponent:
+      Position: [15.315, 75.66, 645.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 10036
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 10917683728497261440
+    TagComponent:
+      Tag: Tower flood 648 15 75.7 150W
+    TransformComponent:
+      Position: [15.315, 75.66, 648.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 6021
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 9414189742389518290
+    TagComponent:
+      Tag: Tower flood 632 15 66.2 150W
+    TransformComponent:
+      Position: [15.315, 66.18, 632.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 6021
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 14258284894116523878
+    TagComponent:
+      Tag: Tower flood 635 15 66.2 250W
+    TransformComponent:
+      Position: [15.315, 66.18, 635.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 10036
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 1826445353443031526
+    TagComponent:
+      Tag: Tower flood 638 15 66.2 400W
+    TransformComponent:
+      Position: [15.315, 66.18, 638.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 16057
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 626928901884662645
+    TagComponent:
+      Tag: Tower flood 642 15 66.2 400W
+    TransformComponent:
+      Position: [15.315, 66.18, 642.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 16057
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 9052262139187644595
+    TagComponent:
+      Tag: Tower flood 645 15 66.2 250W
+    TransformComponent:
+      Position: [15.315, 66.18, 645.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 10036
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 15369911472775985457
+    TagComponent:
+      Tag: Tower flood 648 15 66.2 150W
+    TransformComponent:
+      Position: [15.315, 66.18, 648.1]
+      Rotation: [1.53589, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 6021
+      Range: 250
+      SourceRadius: 0.5
+      InnerCone: 26
+      OuterCone: 58
+      CastShadows: false
+  - EntityID: 12383031304717903468
+    TagComponent:
+      Tag: Post top 0
+    TransformComponent:
+      Position: [-16.315, 16.4, -649.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.2154, 0]
+      Intensity: 729
+      Range: 60
+      SourceRadius: 0.22
+      CastShadows: false
+  - EntityID: 12383032404229531679
+    TagComponent:
+      Tag: Post top 1
+    TransformComponent:
+      Position: [-16.315, 16.4, -631.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.2154, 0]
+      Intensity: 729
+      Range: 60
+      SourceRadius: 0.22
+      CastShadows: false
+  - EntityID: 12383033503741159890
+    TagComponent:
+      Tag: Post top 2
+    TransformComponent:
+      Position: [16.315, 16.4, -649.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.2154, 0]
+      Intensity: 729
+      Range: 60
+      SourceRadius: 0.22
+      CastShadows: false
+  - EntityID: 12383034603252788101
+    TagComponent:
+      Tag: Post top 3
+    TransformComponent:
+      Position: [16.315, 16.4, -631.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.2154, 0]
+      Intensity: 729
+      Range: 60
+      SourceRadius: 0.22
+      CastShadows: false
+  - EntityID: 12383026906671390624
+    TagComponent:
+      Tag: Post top 4
+    TransformComponent:
+      Position: [-16.315, 16.4, 631.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.2154, 0]
+      Intensity: 729
+      Range: 60
+      SourceRadius: 0.22
+      CastShadows: false
+  - EntityID: 12383028006183018835
+    TagComponent:
+      Tag: Post top 5
+    TransformComponent:
+      Position: [-16.315, 16.4, 649.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.2154, 0]
+      Intensity: 729
+      Range: 60
+      SourceRadius: 0.22
+      CastShadows: false
+  - EntityID: 12383029105694647046
+    TagComponent:
+      Tag: Post top 6
+    TransformComponent:
+      Position: [16.315, 16.4, 631.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.2154, 0]
+      Intensity: 729
+      Range: 60
+      SourceRadius: 0.22
+      CastShadows: false
+  - EntityID: 12383030205206275257
+    TagComponent:
+      Tag: Post top 7
+    TransformComponent:
+      Position: [16.315, 16.4, 649.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.2154, 0]
+      Intensity: 729
+      Range: 60
+      SourceRadius: 0.22
+      CastShadows: false
+  - EntityID: 3839768634590378939
+    TagComponent:
+      Tag: Nav white 0
+    TransformComponent:
+      Position: [-16.015, 66.48, 0]
+      Rotation: [0, 1.5708, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 300
+      Range: 90
+      SourceRadius: 0.18
+      InnerCone: 55
+      OuterCone: 78
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 3839767535078750728
+    TagComponent:
+      Tag: Nav white 1
+    TransformComponent:
+      Position: [-16.015, 64.68, 0]
+      Rotation: [0, 1.5708, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 300
+      Range: 90
+      SourceRadius: 0.18
+      InnerCone: 55
+      OuterCone: 78
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 3839770833613635361
+    TagComponent:
+      Tag: Nav white 2
+    TransformComponent:
+      Position: [-16.015, 62.88, 0]
+      Rotation: [0, 1.5708, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 300
+      Range: 90
+      SourceRadius: 0.18
+      InnerCone: 55
+      OuterCone: 78
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 1691562811892756832
+    TagComponent:
+      Tag: Nav green 3
+    TransformComponent:
+      Position: [-16.015, 59.68, 0]
+      Rotation: [0, 1.5708, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [0, 1, 0.1065]
+      Intensity: 277
+      Range: 90
+      SourceRadius: 0.18
+      InnerCone: 55
+      OuterCone: 78
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 3839773032636891783
+    TagComponent:
+      Tag: Nav white 4
+    TransformComponent:
+      Position: [16.015, 66.48, 0]
+      Rotation: [0, -1.5708, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 300
+      Range: 90
+      SourceRadius: 0.18
+      InnerCone: 55
+      OuterCone: 78
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 3839771933125263572
+    TagComponent:
+      Tag: Nav white 5
+    TransformComponent:
+      Position: [16.015, 64.68, 0]
+      Rotation: [0, -1.5708, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 300
+      Range: 90
+      SourceRadius: 0.18
+      InnerCone: 55
+      OuterCone: 78
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 3839775231660148205
+    TagComponent:
+      Tag: Nav white 6
+    TransformComponent:
+      Position: [16.015, 62.88, 0]
+      Rotation: [0, -1.5708, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [1, 1, 1]
+      Intensity: 300
+      Range: 90
+      SourceRadius: 0.18
+      InnerCone: 55
+      OuterCone: 78
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 1691567209939269676
+    TagComponent:
+      Tag: Nav green 7
+    TransformComponent:
+      Position: [16.015, 59.68, 0]
+      Rotation: [0, -1.5708, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Spot
+      Color: [0, 1, 0.1065]
+      Intensity: 277
+      Range: 90
+      SourceRadius: 0.18
+      InnerCone: 55
+      OuterCone: 78
+      CastShadows: false
+      IsBaked: false
+  - EntityID: 17827459776320477794
+    TagComponent:
+      Tag: Tower beacon 0
+    TransformComponent:
+      Position: [0, 230.8, -640.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.05, 0.03]
+      Intensity: 7984
+      Range: 400
+      SourceRadius: 0.3
+      CastShadows: false
+      IsBaked: false
+    ManagedScriptComponent:
+      Script: Beacon
+      Fields:
+        Peak: 7984
+        Period: 2.0
+        Duty: 0.18
+        Phase: 0.0
+  - EntityID: 17827460875832106005
+    TagComponent:
+      Tag: Tower beacon 1
+    TransformComponent:
+      Position: [0, 230.8, 640.1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 0.05, 0.03]
+      Intensity: 7984
+      Range: 400
+      SourceRadius: 0.3
+      CastShadows: false
+      IsBaked: false
+    ManagedScriptComponent:
+      Script: Beacon
+      Fields:
+        Peak: 7984
+        Period: 2.0
+        Duty: 0.18
+        Phase: 1.0
   - EntityID: 1471243475781642455
     TagComponent:
       Tag: Marine light 0

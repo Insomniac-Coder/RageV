@@ -113,13 +113,24 @@ namespace RageV
 		// pass and `velocity` the scene's motion vectors; `hasHistory` is
 		// false on the first frame and after a resize, where the correct
 		// answer is the current frame whole. ENGINE-NOTES 7r.
+		//
+		// `moments` is last frame's second attachment of the same history --
+		// frames accumulated in .x, the first two luminance moments of the
+		// arriving sample in .yz -- and `momentsFormat` is what this frame
+		// writes it back as. The resolve uses them to keep its neighbourhood
+		// clamp from squeezing tighter than the pixel's own known
+		// fluctuation, which is what let sub-pixel geometry flicker under
+		// the jitter. The shader writes the attachment on every path, so a
+		// history handed to this must carry it.
 		static void TemporalResolve(RHI::RHICommandList& cmd,
 									const RHI::Ref<RHI::RHITexture>& current,
 									const RHI::Ref<RHI::RHITexture>& history,
 									const RHI::Ref<RHI::RHITexture>& velocity,
 									uint32_t width, uint32_t height,
 									RHI::Format outputFormat,
-									float feedback, bool hasHistory);
+									float feedback, bool hasHistory,
+									const RHI::Ref<RHI::RHITexture>& moments,
+									RHI::Format momentsFormat);
 
 		// Depth of field, in the three passes it takes. On the linear HDR
 		// scene, after the anti-aliasing resolve and before bloom -- see
@@ -358,11 +369,18 @@ namespace RageV
 			Mat4  View{ 1.0f };
 		};
 
+		// `skyCube` is what the scene's surfaces reflect -- the gradient baked
+		// to a cube, or the scene's own environment map -- and is where the
+		// fog gets its per-direction colour from (WR-3). Null is allowed and
+		// means "this scene has no sky": the pass binds a black cube for the
+		// binding's sake and forces both sky dials off, so the fog falls back
+		// to its constant colour rather than tinting toward black.
 		static void Fog(RHI::RHICommandList& cmd,
 						const RHI::Ref<RHI::RHITexture>& scene,
 						const RHI::Ref<RHI::RHITexture>& depth,
 						const FogSettings& fog, const FogView& view,
-						RHI::Format outputFormat);
+						RHI::Format outputFormat,
+						const RHI::Ref<RHI::RHITexture>& skyCube = nullptr);
 
 		// The water's backdrop: the opaque frame copied beside its depth
 		// linearised to view metres, taken between the opaque passes and the

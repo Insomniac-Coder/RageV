@@ -290,6 +290,8 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.Width = m_Width;
 	frame.Height = m_Height;
 	frame.Environment = m_Scene->GetEnvironment();
+	// WR-3's fog reads its inscatter colour from this. See FrameDesc::SkyCube.
+	frame.SkyCube = m_Scene->ResolveSky();
 	frame.Render = Project::Render();
 	frame.Post = m_Scene->GetPostSettings();
 	frame.OutputFormat = device.GetSwapchainFormat();

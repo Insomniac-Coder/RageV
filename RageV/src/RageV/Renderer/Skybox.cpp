@@ -166,7 +166,7 @@ namespace RageV
 		// of it has nothing in it that 32 texels a side cannot say, and the
 		// cost of being wrong about that is a slightly soft reflection of a
 		// gradient.
-		constexpr uint32_t kGradientCubeSize = 32;
+		constexpr uint32_t kGradientCubeSize = 128;
 
 		// Shared with sky.rvshader. Both have to agree, or a mirrored surface
 		// shows a different sky from the one behind it -- including the WR-1

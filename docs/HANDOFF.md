@@ -14,6 +14,325 @@ trust this sentence.**
 succeed anyway — the branch is protected and the owner's account bypasses
 it. Expected, not an error, but worth knowing before it alarms someone.)
 
+## Start here — 2026-09-02 (third session): the flicker, measured per AA mode, half fixed
+
+**Committed at the end of this session together with the second session's
+tree, and pushed.** The owner's brief: fix the bridge's flicker (WR-13's symptom), and *the fix has to work
+no matter which AA is picked*. The full account, tables and corrections are
+in `docs/RENDERING-REVAMP.md`'s WR-13 item — **the WR-13 paragraphs in the
+section below this one are superseded by it** (their "frozen" numbers were
+taken on animated water; see the trap).
+
+### What is settled by measurement
+
+- **Under no AA and MSAA, 100% of the blinking was WR-15's soft-shadow
+  sample** being re-rolled every frame (pixel ^ light ^ frame). Forcing the
+  ray hard took the deck from 14.5% (no AA) / 23.8% (MSAA) to 0.0%.
+- **Under TAA it is the jitter plus a resolve that rejects the history on
+  sub-pixel geometry** — ribs, ropes, pickets, lamp standards. Jitter off:
+  tower and cables 0.0%. All ray tracing off: still 40%. RTAO, reflections
+  and refraction moved the count by zero parked.
+
+### What shipped (AA-independent)
+
+`TraceShadowSoftFrom` in `pbr_fragment.glsl`: interleaved gradient noise per
+pixel shifting an R2 point set per light, frame-advanced only while
+`u_Scene.Jitter` is non-zero. No AA / MSAA: 5.8% of the frame → 0.01%, the
+floor. Stills unchanged. Both backends' scenetest green (see the log line
+at the end of this section).
+
+### What is built but is the owner's call (TAA's own dial)
+
+`taa_resolve.rvshader` + `TemporalResolve` + `FrameGraphBuilder.cpp`: the
+TAA and AO histories carry a second attachment with per-pixel frames and
+luminance moments (the GI denoiser's pattern); the clamp never squeezes
+below the pixel's own temporal sigma; `kStillFeedback = 0.98` for pixels
+that moved less than a texel (the warm-up cap `kMaxFrames` had to go from 16
+to 64 or the floor 1/16 silently held the feedback at 0.94 — three arms
+identical to the pixel before that was found); and `--msaa=N` is honoured
+under TAA as a measurement flag. Tower 34.5 → 6.0%, cables 1.9 → 0.7%, full
+frame 3.59 → 0.78%. Under no AA / MSAA these change nothing (0.01% before and
+after). **Judge it in motion before keeping it**: the still-feedback boost
+trades response to a genuine lighting change on a static pixel; the moments
+floor can ghost briefly where a pixel that used to flicker is then covered
+by something else.
+
+### The lamp sprites (WR-5, first half) — built, owner picking the intensity
+
+`Renderer/LightGlow.{h,cpp}` + `light_glow.rvshader`, hooked at the end of
+`Renderer3D::EndScene`, viewport handed over by the frame graph around the
+scene draw (zero outside it, so probe faces and cascades draw none). Every
+positional light with a `SourceRadius` becomes a fixed-size soft disc
+carrying I/(d²Ω); fades out where the lens is bigger than the disc; the
+flare is a share of the energy in a wider halo with rays, drawn as a ring
+round a big lens. Six profile dials (`LightGlow*`, `LightFlare*`) in
+`PostSettings`, the registry, the bridge profile and the generator.
+**Lessons paid for:** narrow floods must not glow from the side (scaled by
+cone width now); the flare must not fade with the disc; the physical
+intensity (1.0) reads far too bright next to the eye-tuned lens boxes, and
+the owner asked for it toned well down — candidates at 0.05/0.02 were shot
+and **0.02, flare 0.2, no rays was chosen**; profile and generator carry it.
+
+### What still flickers, and what it is
+
+The deck band under TAA (~23%) is **not the lamps any more** (their heads
+are absent from the blink mask): it is the lamp posts, railing pickets and
+truss webs, a tenth of a pixel wide at a kilometre, lit bright, present one
+frame in eight. `--msaa=4` under TAA barely moves it (22.5%). That is
+content thinner than a pixel, and **the fix is built: a distance fade in
+the material.** `MaterialParams::Macro.zw` = `FadeStart`/`FadeEnd` (metres,
+serialised under those names); the masked lit shader discards past the end
+and on a gradient-noise dither between (walked per frame only under TAA);
+the ray hit test (`RayCandidateIsThere`) honours it too, or the water's
+mirror rays keep reflecting members that are not drawn (the owner's "random
+red dots in the water"). **Scope after the owner's verdict:** only members
+under 0.2 m — pickets, lamp arms, brackets, band flanges — in `bridge_thin`
+(300–450 m, `Blend: Masked`, `AlphaCutoff: 0`), one new entity, mesh and
+`.rmat`. The first cut also faded the suspender ropes, rails, posts, lamp
+shafts and the truss webs, and the ropes vanishing from the headland was
+rejected on sight; those are back in `bridge_orange` and keep their
+flicker. Scene regenerated with `--sky night --seabed bay --hero headland
+--cinematic`; lights identical as a multiset to before; `cinematic.cube.meta`
+restored after (the generator's known side effect). To tune the distances,
+edit `bridge_thin.rmat` or the `fade` column in `write_materials`. The
+round-trip guard fails against HEAD only because HEAD predates WR-4's
+lights.
+
+**Where the numbers stand at hand-back** (Headland, pinned clock, blink =
+swing ≥ 6 with reversals; tower / deck / cables / water-near / full frame):
+start of the session under TAA 34.5 / 32.6 / 1.9 / 26 / 3.59%; now under
+TAA 28.0 / 31.8 / 1.8 / 17 / 2.77% — the lamps no longer pop and the water
+is crisp (its 17% is sparkle, which is the picture), while the ropes, posts
+and webs the owner chose to keep flicker as sub-pixel geometry always has.
+Under no AA and MSAA: 5.8% → 0.00%. scenetest green on both backends.
+
+### The TAA gate, and the water — read this before touching the resolve
+
+The still-pixel feedback (0.98) first counted anything under a texel of
+motion as still, and **the water paid**: its crests move a few thousandths
+of a texel a frame from the headland, so fifty frames of glitter averaged
+into a smear with horizontal bands (the owner's "streaks more blurry, weird
+bands"). A thirtieth of a texel still caught it; **so did 0.003** — near the
+horizon the water moves less on screen than float error and its sparkle
+changes every frame regardless, and the owner saw the bands a second time.
+**The boost is off** (`kStillFeedback = 0`, the constant and the reason
+kept in the shader). The moments floor stays, gated on the same stillness
+so it never touches the water, and the moments forget in 16 frames
+(`kMomentFrames`) so a flashing beacon cannot leave a tail. The sub-pixel
+members the boost was reached for are what the material fade removes.
+
+### Traps paid for this session
+
+- **`--frame-time=0` is the wall clock.** `Application.cpp` falls back to
+  the measured step when the flag is zero. Pin with `--frame-time=0.000001`.
+  Every "frozen" number in the second session was animated water and
+  flashing beacons; `check_glint_flicker.py`'s docstring now says so.
+- **Measure per region.** The whole-frame count is dominated by the water,
+  and the water was moving. Tower / deck / cables / water regions told the
+  story the single number hid.
+- **A per-frame stochastic term must be gated on a temporal filter actually
+  running**, and the jitter is the signal (no history, no jitter).
+
+## Start here — 2026-09-02 (second session): WR-3, WR-4, WR-15
+
+**Committed at the end of the third session (see above). Work was halted by
+the owner part-way through the water-streak investigation.** Two owner
+decisions are already made and applied; one item (WR-15) is built and
+unjudged; one (WR-13) is measured but not started.
+
+### Settled by the owner this session
+
+- **Exposure is metered now, and the numbers are the owner's picks.**
+  `AutoExposure: true`, `AutoExposureKey: 0.015`, `Exposure: 1.0` (compensation
+  once metering is on), `BloomThreshold: 5`. All four in the generator's night
+  preset, so a regenerate keeps them.
+
+  The chain that got there, because it is the most useful thing in this
+  section: WR-4 made the lamps physical, ~15x brighter than the values chosen
+  by eye, and **everything downstream had been tuned against the dim ones.**
+  `Exposure: 2.4` then put a correct road (14 lux, asphalt at 0.070
+  reflectance, 0.31 cd/m^2) at **222 of 255 before bloom** — the deck read as
+  blown out from every camera standing on it. And **`bloom_prefilter` carries
+  no exposure term at all**, so it thresholds the raw HDR: lowering the stop
+  changes not one pixel of what feeds the glow, and the threshold has to move
+  with it. It marks "where the picture is bright", which is 1/Exposure.
+  Finally a *fixed* stop cannot serve both framings — the deck is lit two
+  decades above the water and sky in the wide shot, so 0.21 was right on the
+  road and nearly black from the headland. Metering solves that, but only at a
+  night key: 0.17 is the 18%-grey daylight convention and it turned the bridge
+  into late afternoon, which is the note that had metering switched off
+  originally.
+
+  **The deck is on the auto-exposure floor at this key** — identical at 0.015
+  and 0.02 because `AutoExposureMin: 0.15` clamps it. It is being limited
+  rather than metered; that floor is the dial if it ever needs to go darker.
+
+
+- **The 128-texel sky cube stays** (`kGradientCubeSize`, `Skybox.cpp`).
+- **The bridge's fog is authored and reduced**: layer e-folding 165 m rather
+  than 9 m, density 0.0008, `FogSkyAffect: 1`, `FogSkyOcclusion: 0.3`. Both in
+  the generator and the committed profile.
+- **WR-15's mechanism**: the shadow ray samples `SourceRadius`.
+
+### WR-15 — built, not yet judged
+
+`TraceShadowSoftFrom` in `pbr_fragment.glsl`. **One ray per light, aimed at a
+point on the source disc instead of its centre**, seeded from pixel ^ light ^
+`GlobalIllumination.y` (the free-running frame counter the traced bounce
+already hashes, so frame N is reproducible). Falls through to the hard path at
+radius zero and for directional lights, so every light authored before
+`SourceRadius` traces the ray it always did.
+
+- **The picket fence is gone.** Before: 120 lamps each cast a crisp
+  point-source shadow of the deck railing onto the water, so the glitter came
+  out as rectangles with the streak missing inside them — the owner reported
+  it twice, from two cameras, before it was found.
+- **A static seed is not enough.** The first landing seeded from pixel and
+  light only, to keep screenshots reproducible, and came back as heavy
+  salt-and-pepper: one sample per light needs *something* to integrate it, and
+  TAA is what integrates it. The frame term is what made it resolve.
+- **Cost +2.3 ms** (52.7 → 55.0 ms at 1600×900). No extra rays; it is the
+  hash, the frame build, a sin/cos and a sqrt per shadow ray. If that needs
+  winning back, the trig is the first thing to replace.
+- `scenetest` green on both backends. **Not judged by the owner yet.**
+
+### The streak investigation — what is and is not the cause
+
+Measured, not assumed. **Correcting a wrong statement made mid-session:** an
+earlier test concluded "the wedges are not shadows". That test was worthless —
+the patcher only *replaced* existing keys and the Sodium lights carry no
+`CastShadows` key at all, so it changed nothing and the byte-identical frame
+was read as evidence. Redone by inserting the key, lamp shadows are exactly
+what the wedges were.
+
+| tried | result |
+|---|---|
+| `--rt-reflections=off` | streak band moves 2% — **not the traced path** |
+| `ReflectionFloor` 0.5 → 30 | 23k isolated specks, mean unmoved — **the pinhole problem WR-6's own footnote predicts, not a column** |
+| near-water slope floor 0.045 → 0.13 | streaks shorter *and* dimmer — **not roughness** |
+| lamp `CastShadows` off (properly) | **wedges and truss lattice gone — this was the defect** |
+| lamp `Range` 600 → 2400 | **the columns appear** — but see the cost below |
+
+**So the streak's remaining problem is the `Range: 600` / `OuterCone: 85`
+gate**, and it cannot be paid for as authored: 44.2 ms at 600, 92.6 at 1200,
+106.4 at 2400 (interleaved, two pairs each). **The cost is the per-pixel light
+loop, not shadow rays** — 120 lamps in range of every water pixel. That is
+what makes **WR-8's line/tube LTC** the real dependency: the lamp row as a
+handful of line lights fixes the streak's shape *and* collapses the count.
+(One caveat: the "not shadow rays" half of that was measured with the same
+broken flag. Re-measure before relying on it.)
+
+### WR-13 — built, and it does not fix the flicker
+
+**Implemented and correct; nine pixels of difference out of 120 000.** Full
+account in `docs/RENDERING-REVAMP.md`'s WR-13 item — read that before touching
+the bridge's flicker again. The short version:
+
+- The filter keys off curvature within a pixel, and this bridge is smooth
+  plate and cylinder. **Plumbing verified, not assumed** — forcing the value
+  to 1.0 moves 242 686 pixels, so it reaches the shading and is simply small.
+- Measured four ways with `tools/scripts/check_glint_flicker.py`: TAA +
+  animation **14.0%** blinking, TAA frozen 13.2%, MSAA 4x + animation 7.2%,
+  MSAA frozen 7.9%.
+- **Animation is not the cause. TAA roughly doubles it, 8% to 14%** — the
+  resolve does not converge on sub-pixel high-contrast detail. That is the
+  lever.
+- The residual ~8% is stochastic ray sampling with a frozen scene and no
+  temporal filter; **WR-15's shadow jitter is 0.9 points of it**, the rest is
+  RTAO and traced reflections.
+- Keep it: a handful of ALU, and groundwork for WR-7/WR-8 which widen the same
+  lobe. Do not record it as having fixed the flicker.
+
+### WR-13 — the original baseline (superseded by the above)
+
+The owner reported cables and lamp standards flickering at distance. That is
+WR-13, and the mechanism is worth stating because the owner's reading was
+close but not it: **MSAA 4× supersamples coverage, not shading**, so a
+highlight smaller than a pixel flickers whatever the resolve does.
+
+`tools/scripts/check_glint_flicker.py` (new) is the measurement, and the
+metric is the blinking-pixel COUNT rather than the worst pixel — the lesson
+from the earlier flicker session. **Baseline on the Headland camera, 16
+frames: 14.17% of the deck-and-cables band blinks, mean swing 21.2 levels,
+worst 220.6.**
+
+### Traps paid for this session
+
+- **`CastShadows` feeds `Scene::LightingHash`.** Any experiment with it
+  invalidates the bake, and the frame then falls back to Realtime GI and comes
+  back saturated red. Judge nothing from such a frame.
+- **A scene patcher that only replaces existing keys silently does nothing**
+  for a field the entity never wrote. It cost a whole wrong conclusion here.
+  Report insertions and replacements separately.
+- **`make_bridge_scene.build()` rewrites `cinematic.cube.meta` with
+  `SourceHash: 0`** as a side effect. Restore that file after regenerating, or
+  it lands in the diff as a placeholder.
+- **The runtime clamps its window to the display**, so `--width=2560
+  --height=1630` yields a 2560×1570 swapchain. There is no way to ask the
+  runtime for an image larger than the screen; `--ssaa` supersamples internally
+  but still resolves to the window's size.
+
+## Start here — 2026-09-02 (second session): WR-3 and WR-4
+
+**Committed at the end of the third session.** The owner has two decisions
+open (below) and WR-4 carries an owner gate.
+
+### WR-3, the fog takes the sky's colour — code done
+
+`fog.rvshader` samples the sky cube `Skybox::ResolveEnvironment` already
+builds, rather than sharing WR-1's gradient function: the push block was
+already 128 bytes to the byte, and the cube path also works for a **cubemap
+sky**, which an analytic evaluator cannot. Four scalars ride the `w` lanes of
+the camera rows that were being uploaded as zeros. Two profile keys,
+`FogSkyAffect` and `FogSkyOcclusion`, **both default 0 = the fog this pass
+already had**; `FrameDesc::SkyCube` carries the cube in, and `Scene::
+ResolveSky` is public for it.
+
+- **The sample is lifted to the horizon.** Read literally, a ray aimed at the
+  water reads the *ground* half of the gradient and the haze came out navy
+  under an amber sky.
+- **The committed night fog cannot show the feature.** Its layer e-folds at
+  **9 m** and the hero camera is at **89 m** — the camera is above its own
+  fog, and `FogSkyAffect: 1` moves 44 k pixels by one level. With a layer that
+  reaches the towers the same dial moves the frame by 23 levels and varies
+  with bearing. **The fog values are the owner's call and were left alone.**
+
+### WR-4, photometry and fixtures — built, awaiting the gate
+
+`tools/scripts/derive_lamp_color.py` is new and does both halves: chromaticity
+→ linear Rec.709, and the deck-lamp intensity solved backwards through this
+engine's own spot falloff from the survey's road illuminance. 191 lights where
+there were 133 (48 graded tower floods, 8 LPS post-tops, 8 midspan nav lights,
+2 flashing tower beacons), scene regenerated and **re-baked**
+(`field_6ef83b34f7c820f0_*`; the old pair deleted).
+
+- **The lamp colour was out by a gamma** — `(1.0, 0.60, 0.16)` is `#FF8B14`
+  display-encoded in a linear field. Derived: `(1.0, 0.2795, 0.0091)`.
+- **The lamps were ~15× too dim in luminous terms.** The roadway sat barely
+  brighter than the sky behind it. **This makes `GiIntensity: 2.6` a live
+  suspect for compensating for under-lit lamps.**
+- **+2.3 ms** (50.4 → 52.7 ms at 1600×900) for 58 lights, none casting.
+- **`CastShadows: false` is no occlusion test at all**, so a tower flood lights
+  the far side of the shaft it stands under. The trade was taken deliberately
+  against 15 ms of shadow tracing.
+- **120 posts, not the survey's 128**: 128 at 45.72 m needs 2 880 m and this
+  model is 2 737 m long. Spacing kept, discrepancy documented in
+  `lamp_stations`.
+- **Closed a regeneration trap**: the generator had been writing
+  `ReflectionFloor: 30` over the committed `0.5` on every rebuild.
+
+### The two open decisions
+
+1. **What the bridge's fog should be.** Three captures were taken (as
+   committed / thin haze reaching the towers / marine layer). The profile is
+   untouched apart from the two new keys at 0.
+2. **`kGradientCubeSize` 32 → 128**, left in the tree and revertible on its
+   own. `CityElevationK: 20` makes WR-1's glow lobe about 3° tall and a
+   32-per-face texel is 2.8°, so the lobe is under-resolved — in the fog, and
+   in **every reflection and probe**, since it is the same cube. At 128 the
+   fog's glow peak gains 12 levels and the city-to-ocean contrast goes 12 → 20.
+   `scenetest` green on both backends.
+
 ## Start here — 2026-09-02: the rendering revamp's first items, and what the frame actually costs
 
 Four commits on `main`: **`c4b6bdc`** (WR-0 + WR-1), **`45e1565`** (WR-2),

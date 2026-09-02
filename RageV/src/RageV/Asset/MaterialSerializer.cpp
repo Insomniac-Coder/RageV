@@ -108,6 +108,13 @@ namespace RageV::Assets
 		if (material.Blend == BlendMode::Masked)
 			emitter << YAML::Key << "AlphaCutoff" << YAML::Value << params.AlphaCutoff;
 
+		// The thin-member fade (MaterialParams::Macro.zw), only when set.
+		if (params.Macro.w > 0.0f)
+		{
+			emitter << YAML::Key << "FadeStart" << YAML::Value << params.Macro.z;
+			emitter << YAML::Key << "FadeEnd" << YAML::Value << params.Macro.w;
+		}
+
 		// Written as a pair of pairs rather than a raw vec4, because "Tiling:
 		// [8, 8]" is what somebody editing this by hand is looking for.
 		emitter << YAML::Key << "Tiling" << YAML::Value << YAML::Flow
@@ -226,6 +233,8 @@ namespace RageV::Assets
 											  : BlendMode::Opaque;
 		}
 		if (root["AlphaCutoff"]) params.AlphaCutoff = root["AlphaCutoff"].as<float>();
+		if (root["FadeStart"])   params.Macro.z = root["FadeStart"].as<float>();
+		if (root["FadeEnd"])     params.Macro.w = root["FadeEnd"].as<float>();
 
 		auto readPair = [](const YAML::Node& node, float& x, float& y)
 		{

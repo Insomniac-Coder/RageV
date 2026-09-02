@@ -64,10 +64,22 @@ void main()
 
 layout(location = 0) in vec2 v_UV;
 layout(location = 0) out vec4 o_Color;
+// **What this pixel has learned about itself, for the next frame** -- the
+// GI denoiser's second attachment, carried here for the same reason:
+//   .x  frames accumulated here, capped
+//   .y  running mean of the arriving sample's luminance
+//   .z  running mean of its square
+// Written on every path, including the early outs: an attachment a path
+// forgets holds whatever was in the target, and the next frame would read
+// it as a count.
+layout(location = 1) out vec4 o_Moments;
 
 layout(set = 0, binding = 0) uniform sampler2D u_Current;
 layout(set = 0, binding = 1) uniform sampler2D u_History;
 layout(set = 0, binding = 2) uniform sampler2D u_Velocity;
+// Last frame's counter and moments, reprojected with the colour. Point
+// sampled: a count is not a thing to interpolate.
+layout(set = 0, binding = 3) uniform sampler2D u_Moments;
 
 layout(push_constant) uniform Params
 {
@@ -80,9 +92,77 @@ layout(push_constant) uniform Params
 	// Zero on the first frame, after a resize, and any other time the history
 	// does not describe this scene at this size.
 	float HasHistory;
-	float Unused0;
+	// Whether u_Moments holds a real frame yet. Separate from HasHistory: the
+	// first frame after a resize has a pair with nothing in it.
+	float HasMoments;
 	float FlipY;
 } u_Params;
+
+// **How many frames a pixel may remember**, for the warm-up below. Once 1/n
+// falls under the configured feedback the feedback governs, so the count
+// stops here rather than climbing forever in a half float. **It has to reach
+// past the still feedback's 1/(1 - f)**: at 16 the floor was 1/16 = 0.0625
+// and a still feedback of 0.97 (0.03) was never reached -- measured as 0.94
+// in effect, three arms identical to the pixel. 64 is exact in a half float
+// and covers 0.98.
+const float kMaxFrames = 64.0;
+
+// **The one dial of the temporal floor.** How many of the pixel's own
+// standard deviations the history may sit from the box's centre before it is
+// pulled in. Two covers ~95% of a normal fluctuation. Higher trusts a
+// flickering pixel's past further and ghosts more where it then genuinely
+// changes; lower rejects more and lets the flicker through.
+const float kTemporalSigma = 2.0;
+
+// **A pixel that did not move keeps more of its past.** The configured
+// feedback is the ghosting-versus-flicker dial, and it is set for the case
+// that ghosts: motion. A pixel whose reprojection lands where it already was
+// cannot ghost -- the history *is* this surface -- and for it the only cost
+// of a high feedback is a slower response to a real change in lighting. The
+// blend's share of the current frame is what remains of the flicker once the
+// clamp keeps the history: a suspender rope rasterised one frame in four at
+// forty times the pixel's mean still moves the pixel by a tenth of that
+// difference at 0.9, and by a fiftieth at 0.98. Measured on the bridge
+// (tower region, parked, pinned, with the moments floor): 0.9 → 28% of
+// pixels blinking, 0.97 → 8.6%, 0.98 → 6.0%; the cables 1.9% → 0.7%. 0.98
+// is where TemporalResolve caps the configured feedback too. Scaled by how
+// far the pixel moved, in its own texels, so anything in motion keeps
+// exactly the configured number.
+//
+// **"Still" means it did not move at all, not that it moved less than a
+// pixel.** The first landing counted anything under a texel of motion as
+// still, and the water paid for it: its crests move a tenth of a texel a
+// frame from the headland, so every pixel of it took the 0.98 and fifty
+// frames of moving glitter averaged into a smear with horizontal bands where
+// the crests had been. A second landing at a thirtieth of a texel still
+// caught it: the swell a kilometre out moves a few thousandths of a texel a
+// frame. Geometry that is genuinely still reprojects to within about a
+// hundred-thousandth (the jitter is subtracted exactly, and what remains is
+// float error at clip range), so the threshold sits between the two with an
+// order of magnitude to spare on each side. The temporal floor is gated the
+// same way: a moving surface's fluctuation is what it looks like, not noise
+// to be averaged out.
+// **Off (2026-09-02).** Left in place with the reason it cannot be on: no
+// signal the resolve can read separates still steel from far water. The
+// water's crests move a few thousandths of a texel a frame near the
+// horizon and its sparkle changes every frame regardless, so any threshold
+// that admits geometry admits the far water too, and the owner saw the
+// glitter smear into horizontal bands twice. The sub-pixel members that
+// this was reached for -- ropes, pickets, posts, webs -- are handled where
+// they arise instead, by the thin-member distance fade in the material.
+// Set at or below the configured feedback, the max() below picks the
+// configured number and nothing here changes the picture.
+const float kStillFeedback = 0.0;
+const float kStillWithinTexels = 0.003;
+
+// **How many frames the moments remember**, and it is shorter than the
+// colour's memory on purpose. The floor exists for flicker on the jitter's
+// own period, eight frames; it must not hold a bright past open for a light
+// that has genuinely gone out. A beacon flashes 360 ms in every two seconds,
+// and moments with the colour's fifty-frame memory kept its glow decaying
+// for most of a second after each flash. Sixteen frames covers two jitter
+// cycles and forgets a flash in a quarter of a second.
+const float kMomentFrames = 16.0;
 
 // Y, Co, Cg. The transform is exact and cheap -- adds and shifts in fixed
 // point, which is why every temporal filter uses it for this.
@@ -149,6 +229,11 @@ void main()
 
 	vec4 current = texture(u_Current, uv);
 
+	// The moments track the luminance of what *arrives* each frame -- the
+	// current sample, not the blended output -- because the question the
+	// clamp needs answered is how much this pixel's input swings.
+	const float currentLuma = ToYCoCg(current.rgb).x;
+
 	// Nothing to accumulate into. Not a special case to be tidied away later
 	// -- it is the correct answer on the first frame and after every resize,
 	// and taking it whole is what stops one frame of uninitialised memory
@@ -156,6 +241,8 @@ void main()
 	if (u_Params.HasHistory < 0.5)
 	{
 		o_Color = current;
+		// One frame seen, and its luminance is the whole of what is known.
+		o_Moments = vec4(1.0, currentLuma, currentLuma * currentLuma, 0.0);
 		return;
 	}
 
@@ -187,6 +274,10 @@ void main()
 	if (any(lessThan(historyUV, vec2(0.0))) || any(greaterThan(historyUV, vec2(1.0))))
 	{
 		o_Color = current;
+		// Disoccluded: the count starts again here. Carrying the old one would
+		// tell the next frame to trust the fluctuation of a surface that is
+		// not the one now under this pixel.
+		o_Moments = vec4(1.0, currentLuma, currentLuma * currentLuma, 0.0);
 		return;
 	}
 
@@ -225,14 +316,65 @@ void main()
 	// revisiting on *slow* motion -- a pixel a frame or less, where the clip
 	// keeps most of the history and the resampling is what degrades it -- and
 	// that scene does not exist here yet.
-	vec3 history = ToYCoCg(texture(u_History, historyUV).rgb);
-	history = ClipToBox(history, 0.5 * (lowest + highest), 0.5 * (highest - lowest));
+	// **The pixel's own history of itself, which the neighbours cannot
+	// supply.** The box above says how much this *area* disagrees; the
+	// moments say how much this *pixel's input* has been swinging. They
+	// answer different questions, and the second one was missing.
+	//
+	// What it fixes, measured on the bridge with the camera parked and the
+	// clock pinned: a suspender rope, a railing picket or a tower rib
+	// thinner than a pixel is rasterised in the frames the jitter lands a
+	// sample on it and absent in the frames it does not. In the absent
+	// frames the 3x3 box is all background, the clip pulls the history to
+	// the background, and the 10% of the rope that entered the blend the
+	// frame before is thrown away -- so the pixel never accumulates it and
+	// shows the raw sample every time (19, 19, 19, 47, 19, 19, 19, 45 ...
+	// on the eight-frame Halton cycle). 34% of the tower's pixels and 33% of
+	// the deck's swung six levels or more with reversals; with the jitter
+	// off, none. A box that cannot narrow below the pixel's own known
+	// fluctuation keeps that history, and the pixel converges on the
+	// coverage-weighted average the jitter was sampling for.
+	//
+	// Last frame's count and moments for this surface, fetched with the same
+	// reprojection the colour uses. The warm-up is the GI denoiser's: with
+	// few frames behind it the estimate moves freely, and once 1/n falls
+	// below the configured feedback the feedback governs.
+	const vec4 prevMoments = u_Params.HasMoments > 0.5
+						   ? texture(u_Moments, historyUV) : vec4(0.0);
+	const float frames = min(prevMoments.x + 1.0, kMaxFrames);
+	const float motionTexels = length(velocity / u_Params.TexelSize);
+	const float stillness = motionTexels < kStillWithinTexels ? 1.0 : 0.0;
+	const float feedback = mix(u_Params.Feedback,
+							   max(u_Params.Feedback, kStillFeedback), stillness);
+	const float alpha = max(1.0 / frames, 1.0 - feedback);
+	const float momentAlpha = max(alpha, 1.0 / kMomentFrames);
+	const float momMean = mix(prevMoments.y, currentLuma, momentAlpha);
+	const float momMeanSq = mix(prevMoments.z, currentLuma * currentLuma, momentAlpha);
+	// Only for a pixel that did not move: on water and anything else whose
+	// shading legitimately changes in place, the fluctuation is the picture.
+	const float temporalSigma = sqrt(max(momMeanSq - momMean * momMean, 0.0)) * stillness;
+	o_Moments = vec4(frames, momMean, momMeanSq, 0.0);
 
-	// Compressed, mixed, expanded. The mix itself is the plain feedback
-	// fraction -- the brightness handling is entirely in the space it happens
-	// in, which is what keeps it unbiased.
+	// **Never clamp tighter than this pixel is known to fluctuate.** Widened
+	// as a whole -- the same factor on all three axes -- so the box keeps its
+	// shape and a rope's colour survives with its brightness rather than
+	// being clipped to the background's hue. The neighbourhood still sets
+	// the floor: where the pixel has been steady this is exactly the box it
+	// was, and a genuinely still image changes by nothing.
+	const vec3 boxCentre = 0.5 * (lowest + highest);
+	vec3 boxExtent = max(0.5 * (highest - lowest), vec3(1e-5));
+	const float widen = max(1.0, kTemporalSigma * temporalSigma / boxExtent.x);
+	boxExtent *= widen;
+
+	vec3 history = ToYCoCg(texture(u_History, historyUV).rgb);
+	history = ClipToBox(history, boxCentre, boxExtent);
+
+	// Compressed, mixed, expanded. The mix is the feedback fraction once the
+	// pixel is warm and less than it while it is not -- the brightness
+	// handling is entirely in the space it happens in, which is what keeps
+	// it unbiased.
 	vec3 blended = Expand(mix(Compress(centreYCoCg), Compress(history),
-							  u_Params.Feedback));
+							  1.0 - alpha));
 
 	o_Color = vec4(ToRGB(blended), current.a);
 }

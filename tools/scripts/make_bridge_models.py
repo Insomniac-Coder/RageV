@@ -231,6 +231,22 @@ MAT_PAINT = 3
 MAT_LAMP = 4
 MAT_BEACON = 5
 
+# **The members that are nothing but noise at the hero distances**, in a
+# material that dissolves with distance (`FadeStart`/`FadeEnd` in the .rmat,
+# the masked lit shader does the rest). Measured reason: from the headland,
+# a pixel covers about a metre of bridge, and a picket (0.07 m), a lamp arm
+# (0.17 m), a bracket (0.2 m) or a band flange (0.15 m) is drawn in the
+# frames a sample lands on it and not in the rest -- they blinked under TAA
+# after every other cause was removed, and no resolve can average an input
+# that is on or off. The generator's own railing note said as much: a comb
+# that would be "nothing but aliasing from any camera that is not standing
+# on the deck". **Only members under 0.2 m.** The first cut faded the
+# suspender ropes, the rails, the lamp posts and the truss webs too, and the
+# owner's verdict was immediate: the ropes are the silhouette, and a bridge
+# without them "just looks bad". Those stay MAT_STEEL and keep their flicker.
+# Same paint; only the fade differs.
+MAT_THIN = 6
+
 MATERIALS = [
     ("InternationalOrange", (0.527, 0.037, 0.025)),
     ("Concrete", (0.42, 0.41, 0.38)),
@@ -238,16 +254,45 @@ MATERIALS = [
     ("LanePaint", (0.72, 0.71, 0.68)),
     ("SodiumLens", (1.0, 0.62, 0.18)),
     ("ObstructionRed", (0.75, 0.03, 0.02)),
+    ("InternationalOrangeThin", (0.527, 0.037, 0.025)),
 ]
 
 # --- the lights ---------------------------------------------------------------
 #
 # **Low-pressure sodium, which is why this bridge is that colour.** The lamps
 # emit almost entirely at 589 nm, and International Orange peaks at 600 -- the
-# paint was chosen to be lit by them. Modelled as a warm amber rather than the
-# true monochromatic yellow, because a single-wavelength source renders every
-# other hue in the scene to grey and the sea would stop being sea.
-SODIUM = (1.0, 0.60, 0.16)
+# paint was chosen to be lit by them.
+#
+# **WR-4: every colour below is derived, and `derive_lamp_color.py` is where
+# from.** The value this constant held before -- (1.0, 0.60, 0.16) -- is very
+# nearly `#FF8B14` *display-encoded* typed into a field the renderer reads as
+# linear, so the lamps were about a gamma too pale and the deck lost the
+# monochromatic character that is the whole reason the paint is orange.
+# Run the script to reproduce any of these; it converts the measured
+# chromaticity to linear Rec.709, which is the space `tonemap.rvshader` works
+# in, and it reproduces the plan's independently-sourced `#FF8000` for the
+# 589 nm case to four decimals, which is the check that it is right.
+#
+# 250 W HPS behind the amber acrylic fitted in 1972. xy (0.520, 0.418).
+SODIUM = (1.0, 0.2795, 0.0091)
+SODIUM_LUMINANCE = 0.4131        # what a candela costs in Intensity
+
+# 35 W low-pressure sodium, the tower-base post-tops: one line at 589 nm, and
+# the blue channel comes out negative before it is clipped -- there is none.
+LPS_589 = (1.0, 0.2154, 0.0)
+LPS_589_LUMINANCE = 0.3666
+
+# The tower floods, "neutral-white HPS class" in the survey. D65 stands in
+# until a lamp type is chosen for them.
+FLOOD_WHITE = (1.0, 1.0, 1.0)
+FLOOD_WHITE_LUMINANCE = 1.0
+
+# The midspan navigation lantern. IALA green is a region rather than a point;
+# this is its centre.
+NAV_GREEN = (0.0, 1.0, 0.1065)
+NAV_GREEN_LUMINANCE = 0.7229
+NAV_WHITE = (1.0, 1.0, 1.0)
+NAV_WHITE_LUMINANCE = 1.0
 
 # Aviation obstruction red, which is a specified colour rather than a taste:
 # it sits at the long end where the eye's response is falling, which is why it
@@ -291,11 +336,21 @@ STRUTS = [
 
 
 def lamp_stations():
-    """(post x, which side, z) for every one of the 128 lamp standards.
+    """(post x, which side, z) for every lamp standard: 60 stations, 120 posts.
 
     **Exported rather than inlined**, because the scene has to put a light at
     each one and a light that is not where its lens is reads as a lighting bug
     rather than a placement one. One list, two readers.
+
+    **120, and the survey says 128 -- the two cannot both hold here.** WR-4
+    quotes 128 posts at 45.72 m along a bridge this file builds 2 737 m of,
+    and 128 posts is 64 opposite-pole stations, which at that spacing needs
+    2 880 m. Something in the survey's count reaches past the structure this
+    model ends at -- the approach viaduct is the obvious candidate. The
+    spacing is the number kept, because it is twelve of the 12.5 ft module
+    that every other dimension here is a multiple of, and because the posts
+    have to land where the lamp geometry puts them; squeezing 64 stations in
+    would move all 120 lenses to make room for 8.
     """
     out = []
     count = int(round(2.0 * HALF_LENGTH / LAMP_SPACING))
@@ -335,6 +390,71 @@ def beacon_positions():
             if abs(abs(z) - HALF_SPAN) < BEACON_CABLE_SPACING * 0.4:
                 continue
             out.append((side, cable_y(z) + CABLE_RADIUS + 0.3, z))
+    return out
+
+
+def tower_flood_stations():
+    """Every tower uplight, as (x, y, z, watts).
+
+    WR-4. **Twelve at sidewalk level and twelve below the roadway, per tower,
+    graded 4x150 / 4x250 / 4x400 W** -- the survey's own arrangement, and the
+    reason it matters is that a tower washed by one uniform light reads as a
+    painted flat. Real floodlighting falls off up the shaft because the
+    fixtures are graded *and* because inverse-square does the rest; the
+    grading is what stops the two mechanisms cancelling into a flat wash.
+
+    Six per leg per level, spread along the leg's longitudinal axis, which is
+    16.46 m at the base. The wattages alternate along that run rather than
+    grouping, so no face of the shaft gets only the weak ones.
+    """
+    out = []
+    # Sidewalk level and the underside of the truss. Aimed up the shaft from
+    # both, which is what the references show: the wash starts at the deck
+    # and reaches nearly to the saddle.
+    levels = (ROADWAY + CURB_HEIGHT + 0.4, ROADWAY - TRUSS_DEPTH - 1.2)
+    watts = (150.0, 250.0, 400.0, 400.0, 250.0, 150.0)
+    for z in (-HALF_SPAN, HALF_SPAN):
+        for leg in (-TRUSS_HALF, TRUSS_HALF):
+            for level in levels:
+                for i, offset in enumerate((-8.0, -5.0, -2.0, 2.0, 5.0, 8.0)):
+                    # Set out from the leg's face rather than its centre, or
+                    # the fixture is inside the tower and lights its inside.
+                    out.append((leg + (1.6 if leg > 0.0 else -1.6),
+                                level, z + offset, watts[i]))
+    return out
+
+
+def navigation_light_stations():
+    """The midspan channel lights, as (x, y, z, kind).
+
+    Three white over one green, on both faces, under the deck at mid-span --
+    what tells a ship's master where the centre of the channel is and how much
+    air draught is under it. They are navigation aids rather than lighting:
+    small, aimed at the water, and nothing else in the frame is lit by them.
+    """
+    out = []
+    bottom = ROADWAY - TRUSS_DEPTH - 0.9
+    for face in (-1.0, 1.0):
+        x = face * (TRUSS_HALF + 0.9)
+        for i in range(3):
+            out.append((x, bottom - i * 1.8, 0.0, "white"))
+        out.append((x, bottom - 3 * 1.8 - 1.4, 0.0, "green"))
+    return out
+
+
+def post_top_stations():
+    """The 35 W low-pressure sodium post-tops round each tower's base.
+
+    The one place on the bridge still lit by the 1937 colour rather than an
+    imitation of it, and they sit at pier level where a boat-height camera
+    sees them against the concrete.
+    """
+    out = []
+    for z in (-HALF_SPAN, HALF_SPAN):
+        for leg in (-TRUSS_HALF, TRUSS_HALF):
+            for offset in (-9.0, 9.0):
+                out.append((leg + (2.6 if leg > 0.0 else -2.6),
+                            PIER_TOP + 3.4, z + offset))
     return out
 
 
@@ -460,7 +580,7 @@ def suspenders(mesh):
                 x = side + flank * (CABLE_BAND_RADIUS + CABLE_BAND_FLANGE * 0.5)
                 mesh.strut((x, back[1], back[2]), (x, front[1], front[2]),
                            CABLE_BAND_FLANGE, sides=4, uv=1.0,
-                           material=MAT_STEEL)
+                           material=MAT_THIN)
 
             # **Each leg takes the cable's height at its own z**, not the
             # station's. The rope passes over the band and both legs hang, so
@@ -613,7 +733,7 @@ def deck():
                 break
             mesh.box((side - 0.035, base, z - 0.035),
                      (side + 0.035, base + RAIL_HEIGHT, z + 0.035),
-                     uv=1.0, material=MAT_STEEL)
+                     uv=1.0, material=MAT_THIN)
         # The heavier posts the comb hangs between, on the 12.5 ft module.
         for i in range(posts + 1):
             z = -HALF_LENGTH + i * RAIL_POST
@@ -637,7 +757,7 @@ def deck():
             if z > HALF_LENGTH:
                 break
             mesh.strut((side * TRUSS_HALF, y + 0.55, z), (x, y, z),
-                       0.10, sides=4, uv=1.0, material=MAT_STEEL)
+                       0.10, sides=4, uv=1.0, material=MAT_THIN)
 
     # --- the lamp standards --------------------------------------------------
     #
@@ -661,7 +781,7 @@ def deck():
                      (x - side * LAMP_ARM, head + 0.80, z)]
             for a, b in zip(curve, curve[1:]):
                 mesh.strut(a, b, 0.085, sides=6, uv=1.0, smooth=True,
-                           material=MAT_STEEL)
+                           material=MAT_THIN)
             # **The luminaire is two pieces, and that is the point.** The
             # housing is painted steel and the lens under it is what glows, so
             # they cannot be one mesh: a MeshComponent holds one material, and
@@ -1313,6 +1433,7 @@ SHARED = [
     ("bridge_paint", MAT_PAINT),
     ("bridge_lamps", MAT_LAMP),
     ("bridge_beacons", MAT_BEACON),
+    ("bridge_thin", MAT_THIN),
 ]
 
 
@@ -1406,9 +1527,16 @@ def write_materials():
     # the frame. The lamp and the beacon carry a base colour as well, because
     # an emissive surface is still lit -- switched off in daylight it has to
     # be a glass lens and a red glass, not a black hole.
-    for name, texture, colour, tint, rough, tiling, height_scale, normal_scale, glow, macro, tiling_synth in (
+    # **`fade` is the thin-member dissolve**, (start, end) in metres of camera
+    # distance, and it is what makes `bridge_thin` a separate material from
+    # the orange it otherwise is: a masked material whose alpha comes from
+    # distance (see MaterialParams::Macro). Pickets, lamp arms, brackets and
+    # band flanges -- everything under 0.2 m -- are gone by 450 m.
+    for name, texture, colour, tint, rough, tiling, height_scale, normal_scale, glow, macro, tiling_synth, fade in (
             ("bridge_orange", "acg_steel", (0.527, 0.037, 0.025),
-             (1.0, 0.07, 0.05), 0.42, (1.0, 1.0), 0.006, 1.6, None, None, None),
+             (1.0, 0.07, 0.05), 0.42, (1.0, 1.0), 0.006, 1.6, None, None, None, None),
+            ("bridge_thin", "acg_steel", (0.527, 0.037, 0.025),
+             (1.0, 0.07, 0.05), 0.42, (1.0, 1.0), 0.006, 1.6, None, None, None, (300.0, 450.0)),
             # **Macro on, because the pier is where the repeat is worst.** The
             # concrete tiles every 3 m and a pier face is 40 m across, so the
             # eye gets a visible 13-square grid -- and it only became visible
@@ -1424,11 +1552,11 @@ def write_materials():
             # across it.
             ("bridge_concrete", "acg_concrete", (0.42, 0.41, 0.38),
              None, 0.78, (0.25, 0.25), 0.004, 1.8, None, (14.0, 0.55),
-             (True, 4, 8)),
+             (True, 4, 8), None),
             ("bridge_asphalt", "acg_road", (0.055, 0.055, 0.058),
-             None, 0.86, (2.4, 2.4), 0.0, 1.2, None, None, None),
+             None, 0.86, (2.4, 2.4), 0.0, 1.2, None, None, None, None),
             ("bridge_paint", "bridge_paint", (0.72, 0.71, 0.68),
-             None, 0.70, (1.0, 1.0), 0.0, 1.0, None, None, None),
+             None, 0.70, (1.0, 1.0), 0.0, 1.0, None, None, None, None),
             # The sodium lens. Warm amber rather than the true monochromatic
             # 589 nm: a single wavelength renders every other hue in the scene
             # to grey, and the sea would stop being sea.
@@ -1439,12 +1567,12 @@ def write_materials():
             # long glitter streaks under each lamp are most of what a night
             # photograph of this bridge is. 26 is what puts them back.
             ("bridge_lamp", None, (1.0, 0.72, 0.30),
-             None, 0.24, (1.0, 1.0), 0.0, 1.0, (26.0, 15.6, 4.2), None, None),
+             None, 0.24, (1.0, 1.0), 0.0, 1.0, (26.0, 15.6, 4.2), None, None, None),
             # Aviation obstruction red, and hotter than the sodium because it
             # is a point rather than a strip: at a kilometre it has to survive
             # as one bright pixel.
             ("bridge_beacon", None, (1.0, 0.14, 0.10),
-             None, 0.30, (1.0, 1.0), 0.0, 1.0, (7.4, 0.36, 0.20), None, None)):
+             None, 0.30, (1.0, 1.0), 0.0, 1.0, (7.4, 0.36, 0.20), None, None, None)):
         maps = {}
         for key, suffix in ((("BaseColor", "color"), ("Normal", "normal"),
                              ("Roughness", "roughness"), ("Occlusion", "ao"))
@@ -1480,6 +1608,12 @@ def write_materials():
             *(["MacroScale: {0:g}".format(macro[0]),
                "MacroStrength: {1:g}".format(*macro)] if macro else []),
             "UvOffset: [0, 0]",
+            # Masked so the lit shader may discard, with a cutoff of zero so
+            # the alpha itself never does; the fade is what discards.
+            *(["Blend: Masked",
+               "AlphaCutoff: 0",
+               "FadeStart: {0:g}".format(fade[0]),
+               "FadeEnd: {1:g}".format(*fade)] if fade else []),
         ]
         if maps:
             lines.append("Maps:")

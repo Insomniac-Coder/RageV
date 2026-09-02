@@ -1758,6 +1758,11 @@ namespace
 			return static_cast<const PostSettings*>(block)->BloomEnabled;
 		}
 
+		bool LightGlowOn(const void* block)
+		{
+			return static_cast<const PostSettings*>(block)->LightGlow;
+		}
+
 		bool SkyIsGradient(const void* block)
 		{
 			return static_cast<const SceneEnvironment*>(block)->Sky == SkyType::Gradient;
@@ -2143,6 +2148,75 @@ namespace
 							"The most the fog may take. Not physical -- it is how "
 							"a scene keeps a landmark readable through air thick "
 							"enough to sell the distance in front of it.")))),
+
+				Field<&PostSettings::FogSkyAffect>("FogSkyAffect",
+					Named("Sky affect", OnlyWhen(UsesFog,
+						Drag(0.01f, 0.0f, 1.0f,
+							"How much of the fog's colour comes from the sky in "
+							"each view direction instead of from the fog colour "
+							"above. One constant colour is what makes a night "
+							"haze read as grey paint: real air is amber toward a "
+							"city and near-black toward open water, because fog "
+							"glows with the sky it sits under. Sampled from the "
+							"same cube the scene reflects, so a gradient sky and "
+							"an environment map both work. Zero is the flat "
+							"colour this pass had before the dial existed.")))),
+
+				Field<&PostSettings::FogSkyOcclusion>("FogSkyOcclusion",
+					Named("Sky occlusion", OnlyWhen(UsesFog,
+						Drag(0.01f, 0.0f, 1.0f,
+							"How much the fog eats the sky behind it. Once the "
+							"fog's colour is the sky's, a pixel showing only sky "
+							"mixes the sky toward itself and comes out unchanged "
+							"however thick the air gets -- so a fog bank in front "
+							"of a city glow could brighten the skyline but never "
+							"swallow it. This dims the background by the fog "
+							"amount, which is what makes a bank read as a "
+							"silhouette. Sky pixels only: geometry is already "
+							"attenuated by the fog itself.")))),
+
+				Field<&PostSettings::LightGlow>("LightGlow",
+					Named("Light glow", Tip(
+						"Every light with a source size is drawn as a soft disc a "
+						"few pixels across whatever its distance, carrying the "
+						"light's own intensity. It exists because a lamp's lens is "
+						"geometry, and geometry smaller than a pixel blinks under "
+						"every anti-aliasing mode the moment anything moves; the "
+						"disc covers whole pixels in every frame and cannot. It "
+						"fades out where the lens is bigger on screen than the "
+						"disc, so close-ups keep the authored look."))),
+
+				Field<&PostSettings::LightGlowPixels>("LightGlowPixels",
+					Named("Glow size", OnlyWhen(LightGlowOn,
+						Drag(0.1f, 1.0f, 32.0f,
+							"Diameter of the disc in pixels. Larger is softer and "
+							"dimmer per pixel; the total light is the same.")))),
+
+				Field<&PostSettings::LightGlowIntensity>("LightGlowIntensity",
+					Named("Glow intensity", OnlyWhen(LightGlowOn,
+						Drag(0.01f, 0.0f, 10.0f,
+							"A multiplier on the physical brightness. One is the "
+							"light's own intensity; below it the lamps read dimmer "
+							"than they are.")))),
+
+				Field<&PostSettings::LightFlare>("LightFlare",
+					Named("Flare", OnlyWhen(LightGlowOn,
+						Drag(0.01f, 0.0f, 1.0f,
+							"How much of each light's glow goes into a wider, "
+							"fainter halo -- the glare a lens or an eye adds to a "
+							"bright point at night. Moves energy rather than adding "
+							"it. Zero is a plain disc.")))),
+
+				Field<&PostSettings::LightFlareSize>("LightFlareSize",
+					Named("Flare size", OnlyWhen(LightGlowOn,
+						Drag(0.5f, 2.0f, 256.0f,
+							"Diameter of the halo in pixels.")))),
+
+				Field<&PostSettings::LightFlareRays>("LightFlareRays",
+					Named("Flare rays", OnlyWhen(LightGlowOn,
+						Drag(1.0f, 0.0f, 12.0f,
+							"How many rays the halo carries. Zero is a plain halo; "
+							"six is what a lens with a six-blade iris draws.")))),
 
 				Field<&PostSettings::Exposure>("Exposure",
 					Drag(0.01f, 0.01f, 16.0f,

@@ -808,6 +808,38 @@ bool RayCandidateIsThere(rayQueryEXT query)
 #ifdef RV_BINDLESS
 	GpuMaterial material = u_Materials.Materials[hit.MaterialIndex];
 
+#ifndef RV_IRRADIANCE_FILL
+	// **The thin-member fade, for rays too** (MaterialParams::Macro.zw). A
+	// member the lit pass has dissolved at this distance must not still be
+	// found by a mirror ray from the water: the first landing left the rays
+	// alone and the owner saw "random red dots in the water" -- the
+	// reflections of pickets and ropes that were no longer on screen to
+	// explain them. Same distances, from the same camera, and a dither from
+	// the hit point so a member in the fade band thins out in its reflection
+	// the way it thins out on screen. Not in the irradiance solve, which has
+	// no camera: the bake keeps every member.
+	if (material.Macro.w > material.Macro.z)
+	{
+		const vec3 hitPoint = rayQueryGetWorldRayOriginEXT(query)
+							+ rayQueryGetWorldRayDirectionEXT(query)
+							  * rayQueryGetIntersectionTEXT(query, false);
+		const float away = length(hitPoint - u_Scene.CameraPosition.xyz);
+		const float keep = 1.0 - smoothstep(material.Macro.z, material.Macro.w, away);
+		if (keep <= 0.0)
+			return false;
+		if (keep < 1.0)
+		{
+			// The hit point on a 5 cm lattice, hashed: deterministic per
+			// place rather than per frame, so a still frame is still.
+			const uvec3 cell = uvec3(ivec3(floor(hitPoint * 20.0)) + ivec3(0x40000000));
+			uint h = cell.x * 73856093u ^ cell.y * 19349663u ^ cell.z * 83492791u;
+			h ^= h >> 16; h *= 0x7FEB352Du; h ^= h >> 15; h *= 0x846CA68Bu; h ^= h >> 16;
+			if (keep <= float(h >> 8) * (1.0 / 16777216.0))
+				return false;
+		}
+	}
+#endif
+
 	// No map, no fetch: the alpha is the material's scalar and the whole
 	// triangle stands or falls together.
 	if ((material.MapFlags & MAP_BASE_COLOR) == 0)
@@ -897,12 +929,130 @@ float TraceShadowFrom(vec3 worldPos, vec3 Ng, vec3 L, float tMax)
 		 ? 1.0 : 0.0;
 }
 
+// **WR-15: a lamp has a size, so its shadow has an edge.**
+//
+// The hard shadow above is right for one light and wrong for a hundred and
+// twenty. The deck carries 120 sodium lamps at 45.7 m spacing, each of them a
+// 0.6 m sphere the specular already knows about (`SourceRadius`, commit
+// `dab692d`) and each of them a *point* to the shadow ray -- so the railing
+// pickets cast 120 crisp shadows onto the water and the glitter path came out
+// as a picket fence, dark inside each rectangle and bright between. The owner
+// reported it twice from two different cameras before it was found, and the
+// reason it survived that long is that it looks like a reflection artefact
+// rather than a shadow one.
+//
+// **One ray, aimed at a point on the source rather than at its centre.** The
+// obvious fix -- N rays per light and average -- multiplies the most expensive
+// term in this frame by N, and with 120 casting lamps that is not a trade
+// anybody would take. Instead each light's single ray is aimed at a point
+// sampled uniformly over the source disc, so the shadow is still hard *per
+// light* and the softness comes out of the array: where twenty lamps overlap,
+// twenty independently displaced hard edges sum to the penumbra the real
+// installation has. That is not a trick, it is what a penumbra *is* -- the
+// partial visibility of an extended source -- and a dense array is the one
+// case where one sample per light is enough to resolve it.
+//
+// **Seeded from the pixel and the light; from the frame only when something
+// is there to integrate it.** The first landing hashed pixel, light and frame
+// together as white noise, and that made the penumbra a property of the
+// anti-aliasing mode: under TAA the resolve averaged the frames and the
+// railing's shadow came out soft, under MSAA or no AA the same ray was
+// re-rolled every frame with nothing to average it and the whole lit roadway
+// and the water under it blinked -- measured with the clock pinned on the
+// Headland camera, 14.7% of the deck's pixels swinging six levels or more
+// with no AA, 0.3% with this ray forced hard. A shading term that only works
+// under one AA mode is a defect in the term, not in the other modes.
+//
+// So the sample is built the other way round. Per pixel, an interleaved
+// gradient noise value (Jimenez 2014) -- a fixed pattern whose error sits in
+// the highest spatial frequencies, where the eye and every downstream filter
+// average it, unlike a hash's white noise which reads as salt and pepper.
+// Per light, the R2 sequence (Roberts 2018): the lights in range of a pixel
+// take points of a low-discrepancy set on the disc rather than independent
+// draws, so the array's own sum -- twenty or forty lamps at a water pixel --
+// converges like a stratified estimate rather than a random one. The pixel's
+// noise shifts the whole set toroidally, which keeps its structure and
+// decorrelates neighbours.
+//
+// **The frame term is gated on the jitter**, because that is what a temporal
+// accumulator announces itself with: `u_Scene.Jitter` is non-zero only while
+// a TemporalHistory is being filled (FrameGraphBuilder: no history, no
+// jitter). Under TAA the shift walks the golden ratio each frame and the
+// resolve integrates it; under anything else it stands still and the
+// picture is the same every frame, which is what every screenshot
+// comparison in this repository already requires. The counter is
+// `GlobalIllumination.y`, a frame index and not a clock, so frame N is
+// reproducible either way.
+//
+// Falls through to the hard path when the source has no size, so every light
+// authored before `SourceRadius` existed traces exactly the ray it always did.
+// Jimenez's interleaved gradient noise: a plane-tiling pattern with almost
+// no low-frequency energy, from two fracts and a dot. The constants are the
+// published ones.
+float InterleavedGradientNoise(vec2 pixel)
+{
+	return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
+}
+
+float TraceShadowSoftFrom(vec3 worldPos, vec3 Ng, vec3 L, float tMax,
+						  float sourceRadius, uint light)
+{
+	// No size, or a directional light -- whose tMax is a stand-in for infinity
+	// and whose radius in metres would mean nothing against it.
+	if (sourceRadius <= 0.0 || tMax >= 1.0e4)
+		return TraceShadowFrom(worldPos, Ng, L, tMax);
+
+	// The pixel's shift: one gradient-noise value per axis, the second read
+	// at an offset so the two are not the same pattern.
+	const vec2 pixel = gl_FragCoord.xy;
+	vec2 shift = vec2(InterleavedGradientNoise(pixel),
+					  InterleavedGradientNoise(pixel + vec2(5.588238, 5.588238)));
+	// Walked by the golden ratio per frame, only while a temporal filter is
+	// there to integrate it. mod keeps the product small enough that fract
+	// below still has its precision after thousands of frames.
+	if (any(notEqual(u_Scene.Jitter, vec4(0.0))))
+	{
+		const float frame = mod(u_Scene.GlobalIllumination.y, 1024.0);
+		shift += frame * vec2(0.61803398875, 0.38196601125);
+	}
+	// The R2 point for this light, shifted: the plastic constant's powers.
+	const vec2 u = fract(shift + float(light) * vec2(0.75487766625, 0.56984029100));
+	const float u1 = u.x;
+	const float u2 = u.y;
+
+	// Uniform over the disc: sqrt on the radius, or the samples crowd the
+	// centre and the penumbra keeps a hard core.
+	const float radius = sourceRadius * sqrt(u1);
+	const float phi = 6.28318530718 * u2;
+
+	// A frame about L. The guard is the usual one: a cross product with a
+	// parallel vector is zero and normalising it is a NaN, which TAA would
+	// then keep forever.
+	const vec3 up = abs(L.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+	const vec3 t = normalize(cross(up, L));
+	const vec3 b = cross(L, t);
+
+	const vec3 target = L * tMax + (t * cos(phi) + b * sin(phi)) * radius;
+	// The sampled point is fractionally further than the centre; ending the
+	// ray at the centre distance would let the source's own far edge occlude
+	// it. sqrt is exact here and the term is one instruction.
+	return TraceShadowFrom(worldPos, Ng, normalize(target),
+						   sqrt(tMax * tMax + radius * radius));
+}
+
 // The surface being shaded: its own geometric normal. The tracing above takes
 // its normal as an argument and is what a pass with no varyings uses.
 #ifndef RV_TRACE_ONLY
 float TraceShadow(vec3 worldPos, vec3 L, float tMax)
 {
 	return TraceShadowFrom(worldPos, normalize(v_Normal), L, tMax);
+}
+
+float TraceShadowSoft(vec3 worldPos, vec3 L, float tMax,
+					  float sourceRadius, uint light)
+{
+	return TraceShadowSoftFrom(worldPos, normalize(v_Normal), L, tMax,
+							   sourceRadius, light);
 }
 
 #ifdef RV_RAY_SKY
@@ -2977,6 +3127,35 @@ void main()
 	// in a single indirect call.
 	if (surface.BaseColor.a < u_Material.AlphaCutoff)
 		discard;
+
+	// **The thin-member fade** (MaterialParams::Macro.zw). A member thinner
+	// than a pixel is rasterised in the frames a sample lands on it and not
+	// in the rest, and it blinks under every anti-aliasing mode the moment
+	// anything moves -- measured on the bridge's lamp posts, pickets and
+	// truss webs from the headland at 23% of the deck band's pixels after
+	// every other cause was gone. No resolve can average an input that is
+	// on or off, so past the material's FadeEnd the member is simply not
+	// drawn, and between FadeStart and FadeEnd it dissolves on a per-pixel
+	// dither: interleaved gradient noise, whose error sits in the highest
+	// frequencies, walked by the golden ratio per frame only while a
+	// temporal filter is running to integrate it (the jitter is the signal,
+	// as in the soft shadow). The depth prepass never draws masked geometry,
+	// so a discarded fragment leaves no depth behind.
+	{
+		const float fadeStart = u_Material.Macro.z;
+		const float fadeEnd = u_Material.Macro.w;
+		if (fadeEnd > fadeStart)
+		{
+			const float away = length(v_WorldPos - u_Scene.CameraPosition.xyz);
+			const float keep = 1.0 - smoothstep(fadeStart, fadeEnd, away);
+			float threshold = fract(52.9829189
+				* fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+			if (any(notEqual(u_Scene.Jitter, vec4(0.0))))
+				threshold = fract(threshold + mod(u_Scene.GlobalIllumination.y, 1024.0) * 0.61803398875);
+			if (keep <= threshold)
+				discard;
+		}
+	}
 #endif
 
 	vec4 baseColor = surface.BaseColor;
@@ -3206,6 +3385,69 @@ void main()
 	float occlusion = surface.Occlusion;
 	vec3 N = surface.N;
 
+	// **WR-13: a highlight smaller than a pixel has to be widened, not
+	// sampled harder.**
+	//
+	// The bridge is made of things thinner than a pixel at any distance worth
+	// looking at it from -- main cables, suspender ropes, railing pickets,
+	// truss webs, lamp standards -- and at night every one of them carries an
+	// isolated, high-energy sodium glint. As the camera moves that glint
+	// lands inside a pixel or misses it, and the pixel blinks. Measured on
+	// the Headland camera before this: **14.17% of the deck-and-cables band
+	// blinking over 16 frames**, mean swing 21 levels.
+	//
+	// **MSAA cannot fix it and it is worth being precise about why.** MSAA
+	// takes several samples of *coverage* -- how much of the pixel the cable
+	// fills -- and shades **once**. The flicker is in the shading, so more
+	// coverage samples average nothing. The owner's own reading was that the
+	// anti-aliasing was struggling with detail that small; it is the right
+	// instinct about the cause and the wrong half of the pipeline.
+	//
+	// Tokuyoshi & Kaplanyan, "Improved Geometric Specular Antialiasing"
+	// (I3D 2019): read how fast the shading normal turns across this pixel
+	// from its screen derivatives, treat that as extra slope variance, and
+	// add it to the surface's own. A pixel covering a whole cable's worth of
+	// curvature gets a lobe wide enough to hold every direction inside it, so
+	// the answer stops depending on where the sample happened to land.
+	// KAPPA caps how much can be added, or a silhouette pixel -- where the
+	// normal swings through ninety degrees in one step -- would go fully
+	// rough and read as a grey smear along every edge.
+	//
+	// **The conventions have to line up or this does nothing.** The paper's
+	// `roughness2` is the squared GGX alpha, and this engine's `roughness` is
+	// the perceptual value that `DistributionGGX` squares on the way in. So
+	// the filter is applied in alpha-squared and brought back through two
+	// square roots, and what comes out is a perceptual roughness the existing
+	// call sites can take unchanged.
+	//
+	// **Analytic lights only.** `o_Surface` keeps the unfiltered value, so
+	// SSR and the traced paths are untouched -- they cannot use screen
+	// derivatives anyway, and they already carry their own bounds. Water is
+	// excluded too: its roughness is read as RMS slope rather than squared,
+	// and its footprint block already does this job with a distance term
+	// fitted to Cox-Munk. Two mechanisms widening the same lobe would
+	// double-count.
+#ifdef RV_WATER
+	float shadingRoughness = roughness;
+#else
+	float shadingRoughness = roughness;
+	{
+		// The pixel filter's variance, 1/(2*pi).
+		const float kSigma2 = 0.15915494;
+		// The ceiling on what may be added. The paper's value.
+		const float kKappa = 0.18;
+
+		const vec3 dndx = dFdx(N);
+		const vec3 dndy = dFdy(N);
+		const float variance = kSigma2 * (dot(dndx, dndx) + dot(dndy, dndy));
+		const float kernel = min(2.0 * variance, kKappa);
+
+		const float alpha = roughness * roughness;
+		const float filtered = min(alpha * alpha + kernel, 1.0);
+		shadingRoughness = sqrt(sqrt(filtered));
+	}
+#endif
+
 	// The surface as SSR will see it: the *shading* normal, after the normal
 	// map, so a reflection off the brick floor follows the mortar and not a
 	// flat plane. Written here, as soon as all three are final, and
@@ -3346,7 +3588,11 @@ void main()
 		// specRoughness/specScale fold to exactly roughness/1.0 when the
 		// radius is zero, so every light authored before this shades to the
 		// bit it always did.
-		float specRoughness = roughness;
+		// WR-13's filtered value, not the surface's own: everything below --
+		// the sized-light widening, the water lobe, the GGX call -- works from
+		// here, so the antialiasing lands on every analytic light including
+		// the capsule and LTC forms when they arrive.
+		float specRoughness = shadingRoughness;
 		float specScale = 1.0;
 		if (isPositional != 0.0 && light.Direction.w > 0.0)
 		{
@@ -3526,7 +3772,13 @@ void main()
 		if (kind == 1)
 			shadow = TraceShadow(v_WorldPos, L, 1.0e4);
 		else if (kind != 0)
-			shadow = TraceShadow(v_WorldPos, L, length(light.Position.xyz - v_WorldPos));
+			// WR-15: aimed at a point on the source rather than at its
+			// centre, so a dense array of lamps casts a penumbra instead of
+			// a picket fence. `light.Direction.w` is SourceRadius; zero
+			// traces the ray this line always traced.
+			shadow = TraceShadowSoft(v_WorldPos, L,
+									 length(light.Position.xyz - v_WorldPos),
+									 light.Direction.w, uint(i));
 #else
 		if (kind == 1)
 			shadow = ShadowFactor(v_WorldPos, N, L);

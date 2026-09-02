@@ -182,6 +182,20 @@ namespace RageV
 		RenderSettings Render;
 		PostSettings Post;
 
+		// **The sky as a cube, already resolved.** WR-3's fog takes its
+		// inscatter colour from the sky in each view direction, and this is
+		// where it reads it: the baked gradient for a gradient sky, the
+		// scene's own environment map for a cubemap one -- `Scene::ResolveSky`
+		// decides which, exactly as it does for the probes and the sky draw,
+		// so all three cannot end up looking at different skies.
+		//
+		// Passed rather than resolved here for the reason the whole renderer
+		// layer is arranged around: an environment map is an *asset*, and
+		// resolving a handle to one would make this file depend on the asset
+		// layer. Null is fine and means the fog keeps its constant colour --
+		// which is what a scene whose sky is a flat colour should get.
+		RHI::Ref<RHI::RHITexture> SkyCube;
+
 		// The camera's clip planes, which is what turns a depth buffer value
 		// back into metres. Depth of field, motion blur and SSAO all read
 		// them, and they need real distances rather than the non-linear 0..1

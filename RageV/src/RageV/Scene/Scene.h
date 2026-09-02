@@ -508,6 +508,17 @@ namespace RageV
 		// that terrain's extent even when another terrain covers it.
 		bool TerrainHeightAt(Entity terrainEntity, const Vec3& worldPosition, float& height);
 
+		// The sky cube for this frame, whether it came from an asset or from
+		// the gradient. Resolved in one place because four callers want it and
+		// two of them used to derive it themselves.
+		//
+		// **Public since WR-3**, which added the fourth: the fog pass takes
+		// its colour from the sky per view direction, and the frame graph
+		// cannot resolve a cubemap handle itself without the renderer layer
+		// depending on the asset layer. Whoever fills a FrameDesc hands this
+		// over, the same way it hands over the environment.
+		RHI::Ref<RHI::RHITexture> ResolveSky() const;
+
 	private:
 		// `viewCamera` is the camera as the viewer set it. What the scene is
 		// actually drawn through is that projection plus this frame's temporal
@@ -515,11 +526,6 @@ namespace RageV
 		void OnRender(const Camera& viewCamera, const Mat4& cameraTransform,
 					  const ViewportGridSettings* grid = nullptr,
 					  const EditorIconSettings* icons = nullptr);
-
-		// The sky cube for this frame, whether it came from an asset or from
-		// the gradient. Resolved in one place because three callers want it and
-		// two of them used to derive it themselves.
-		RHI::Ref<RHI::RHITexture> ResolveSky() const;
 
 		// The face size the probe arrays should hold: the largest of the sky's
 		// resolution and every probe's.

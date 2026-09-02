@@ -293,6 +293,10 @@ namespace RageV
 		// as one run and the second would be tested at the first one's cutoff.
 		mixBits(&m_Params.AlphaCutoff, sizeof(m_Params.AlphaCutoff));
 		mixBits(&m_Params.UvTransform, sizeof(m_Params.UvTransform));
+		// The masked variant reads the thin-member fade from Macro.zw, and the
+		// macro itself is read from the block on the bound path: same
+		// argument as the cutoff above.
+		mixBits(&m_Params.Macro, sizeof(m_Params.Macro));
 
 		return hash;
 	}

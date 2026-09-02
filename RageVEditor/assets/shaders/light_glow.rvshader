@@ -1,0 +1,247 @@
+// **A light's glow, drawn at a fixed size on screen** (WR-5, the first half).
+//
+// The problem it exists for, measured on the bridge with the camera parked:
+// a sodium lens is a 0.7 m box at emissive 26, and from the headland a pixel
+// covers about a metre of bridge. Whether a pixel *sees* the lens depends on
+// where its one sample falls, and that changes every frame -- TAA moves the
+// sample on purpose, and any camera motion does the same in every AA mode --
+// so the lamp pops between full brightness and nothing. 23% of the deck
+// band's pixels swung six levels or more with reversals after every other
+// cause had been removed, and no blend share tames an input that is on or
+// off. This pass makes the input stable instead: every positional light with
+// a source size is drawn as a soft disc a few pixels across whatever its
+// distance, so it covers whole pixels in every frame and cannot pop.
+//
+// **Energy, not looks, sets the brightness.** A source of intensity I at
+// distance d delivers irradiance I/d² at the camera; a pixel of solid angle
+// Ω that took all of it would read I/(d²Ω) -- which is exactly what a
+// correctly integrated sub-pixel source would put in the pixel it lands in.
+// The disc spreads that same total over its pixels through a profile that
+// integrates to one, so the lamp row adds the light it always should have,
+// and bloom sees the same energy it would from an ideal render. The lens
+// mesh stays for close-ups: the disc fades out once the lens is bigger on
+// screen than the disc, so the authored look takes over where it can be
+// seen and the disc carries the light only where the lens cannot.
+//
+// **The flare is optional, and it is glare, not light.** Part of the disc's
+// energy -- the profile's Flare share -- goes into a wider, much fainter
+// halo, with a few rays if asked for: what a lens or an eye does to a bright
+// point at night. It moves energy rather than adding it, so the total is the
+// same with it on or off.
+//
+// Drawn at the end of the opaque pass, into the scene target, additive,
+// depth-tested against the geometry the scene has already written and not
+// writing depth. The quad's depth is pulled a little toward the camera so the
+// fixture's own housing does not occlude its glow. Not culled: a quad that
+// always faces the viewer has no back.
+
+#type vertex
+#version 450 core
+
+layout(set = 0, binding = 0) uniform GlowScene
+{
+	mat4 ViewProjection;
+	vec4 CameraRight;      // xyz
+	vec4 CameraUp;         // xyz
+	vec4 CameraPosition;   // xyz; w = the angle one pixel subtends, radians
+	// x = glow diameter in pixels, y = flare diameter in pixels,
+	// z = intensity scale, w = flare share of the energy
+	vec4 Sizes;
+	// x = flare ray count (0 = a plain halo), y = how much a fixture seen
+	// from outside its cone still glows, zw unused
+	vec4 Params;
+} u_Glow;
+
+// GpuLight, exactly as pbr_fragment.glsl declares it: this pass reads the
+// scene's own light buffer, so a light needs nothing added to glow.
+struct GpuLight
+{
+	vec4 Position;    // xyz, w = 1 positional / 0 directional
+	vec4 Direction;   // xyz forward axis, w = source radius in metres
+	vec4 Color;       // rgb, a = intensity
+	vec4 Params;      // x range, y cos(inner), z cos(outer), w IsBaked
+	vec4 Shadow;
+};
+
+layout(std430, set = 0, binding = 1) readonly buffer LightBlock
+{
+	GpuLight Lights[];
+} u_Lights;
+
+layout(location = 0) out vec2 v_Offset;     // this corner, in pixels from the centre
+layout(location = 1) out vec3 v_Radiance;   // the disc's total, per unit of profile weight
+layout(location = 2) out vec4 v_Shape;      // x glow diameter px, y flare diameter px, z flare share, w rays
+layout(location = 3) out vec3 v_Flare;      // the flare's total, which does not hand over to the lens
+layout(location = 4) out float v_LensRadius; // the lens on screen, pixels; the halo starts outside it
+
+void main()
+{
+	const vec2 corners[6] = vec2[6](
+		vec2(-0.5, -0.5), vec2(0.5, -0.5), vec2(0.5, 0.5),
+		vec2(-0.5, -0.5), vec2(0.5, 0.5), vec2(-0.5, 0.5));
+	const vec2 corner = corners[gl_VertexIndex];
+
+	const GpuLight light = u_Lights.Lights[gl_InstanceIndex];
+
+	const float pixelAngle = u_Glow.CameraPosition.w;
+	const float glowPixels = u_Glow.Sizes.x;
+	const float flareShare = clamp(u_Glow.Sizes.w, 0.0, 1.0);
+	const float flarePixels = flareShare > 0.0 ? u_Glow.Sizes.y : 0.0;
+
+	const vec3 toCamera = u_Glow.CameraPosition.xyz - light.Position.xyz;
+	const float dist = length(toCamera);
+
+	// Only a positional light with a size glows; a directional light has no
+	// place to glow from and a sizeless point predates SourceRadius and is
+	// left exactly as it was.
+	float visible = (light.Position.w != 0.0 && light.Direction.w > 0.0 && dist > 1.0e-3)
+				  ? 1.0 : 0.0;
+
+	// **Which way the fixture faces.** Inside its cone a spot's lens is
+	// looked into and glows in full; outside it what is seen depends on the
+	// fixture. A street lamp is a wide diffuse lens under a hood -- its cone
+	// is 85 degrees here -- and from the side the lens is still plainly
+	// visible, which is why every night photograph of the bridge shows the
+	// whole lamp row as points from the headland, far outside any lamp's
+	// cone. A floodlight is a narrow projector behind louvres, and from the
+	// side there is nothing to see but its housing: the first landing let
+	// the forty-eight tower floods glow at a quarter from the side and the
+	// tower bases came out as blinding white blobs. So the side glow is
+	// scaled by how wide the cone is: full for a lens wider than about 70
+	// degrees, gone below about 40. From behind, nothing. A point light
+	// glows the same from everywhere.
+	const vec3 lightToEye = toCamera / max(dist, 1.0e-6);
+	const float cosView = dot(lightToEye, light.Direction.xyz);
+	float facing = 1.0;
+	if (light.Params.z < light.Params.y)
+	{
+		const float cone = clamp((cosView - light.Params.z)
+								 / max(light.Params.y - light.Params.z, 1.0e-4), 0.0, 1.0);
+		// cos 70 = 0.34, cos 40 = 0.77: the outer cone's cosine is small for
+		// a wide lens and large for a narrow beam.
+		const float diffuse = 1.0 - smoothstep(0.34, 0.77, light.Params.z);
+		facing = max(cone, u_Glow.Params.y * diffuse) * smoothstep(-0.35, 0.05, cosView);
+	}
+
+	// **The hand-over to the lens.** How many pixels the source itself
+	// covers; the disc is full while the lens is under half its size, gone
+	// once the lens is half again as big as it. Between, both draw and the
+	// disc's share falls smoothly -- there is no distance at which anything
+	// jumps.
+	const float lensPixels = 2.0 * light.Direction.w / max(dist * pixelAngle, 1.0e-6);
+	const float fade = 1.0 - smoothstep(0.5, 1.5, lensPixels / max(glowPixels, 1.0e-3));
+
+	// I/(d² Ω): the pixel value a point source of this intensity integrates
+	// to, which the profiles then spread over the disc and the halo.
+	const float perPixel = 1.0 / max(dist * dist * pixelAngle * pixelAngle, 1.0e-12);
+	const vec3 arriving = light.Color.rgb * light.Color.a * perPixel
+						* u_Glow.Sizes.z * visible * facing;
+	// The disc hands over to the lens; the flare does not. Glare is what the
+	// camera does to the light *arriving*, however big the source looks, so
+	// it stays at any distance and is drawn as a ring outside the lens once
+	// the lens is bigger than a point -- see the fragment stage.
+	v_Radiance = arriving * fade;
+	v_Flare = arriving;
+
+	// The quad covers whichever is larger, the glow or the flare; and when
+	// the lens is big on screen the flare rings it, so the lens's own
+	// diameter is added. A pixel of margin so the profile's tail is not cut
+	// by the edge.
+	const float lensRadiusPixels = 0.5 * lensPixels * (flareShare > 0.0 ? 1.0 : 0.0);
+	const float diameterPixels = max(glowPixels, flarePixels + 2.0 * lensRadiusPixels) + 2.0;
+	const float worldSize = diameterPixels * dist * pixelAngle;
+
+	// Pulled toward the camera by at least a metre and at least the source's
+	// own diameter, so the fixture that holds the light -- the lens box the
+	// light sits just beneath -- does not depth-test its own glow away. Never
+	// past halfway to the camera.
+	const float pull = min(max(1.0, 2.0 * light.Direction.w), dist * 0.5);
+	const vec3 centre = light.Position.xyz + lightToEye * pull;
+	const vec3 world = centre
+					 + (u_Glow.CameraRight.xyz * corner.x + u_Glow.CameraUp.xyz * corner.y)
+					   * worldSize;
+
+	// A light with nothing to draw collapses to a point behind the camera
+	// rather than paying for its pixels.
+	const bool dead = dot(arriving, arriving) <= 0.0
+				   || (fade <= 0.0 && flareShare <= 0.0);
+	gl_Position = dead ? vec4(0.0, 0.0, 2.0, 1.0) : u_Glow.ViewProjection * vec4(world, 1.0);
+
+	v_Offset = corner * diameterPixels;
+	v_Shape = vec4(glowPixels, flarePixels, flareShare, u_Glow.Params.x);
+	v_LensRadius = lensRadiusPixels;
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_Offset;
+layout(location = 1) in vec3 v_Radiance;
+layout(location = 2) in vec4 v_Shape;
+layout(location = 3) in vec3 v_Flare;
+layout(location = 4) in float v_LensRadius;
+
+// The scene target's whole shape, for the reason particle.rvshader gives:
+// an attachment a shader declares and does not write is undefined, and the
+// blend is additive, so zero is a no-op on the three this pass has nothing
+// to say to.
+layout(location = 0) out vec4 o_Color;
+layout(location = 1) out vec2 o_Velocity;
+layout(location = 2) out vec4 o_Surface;
+layout(location = 3) out vec4 o_Indirect;
+
+const float PI = 3.14159265359;
+
+void main()
+{
+	const float r = length(v_Offset);
+
+	// **The core: a Gaussian whose integral over the plane is one**, in pixel
+	// units, so the disc's total equals the intensity the vertex stage
+	// worked out and its brightness per pixel falls as it is made larger.
+	// Sigma at 0.3 of the diameter puts the 1/e² edge just inside it.
+	const float sigma = max(v_Shape.x * 0.3, 0.35);
+	const float core = exp(-0.5 * r * r / (sigma * sigma)) / (2.0 * PI * sigma * sigma);
+
+	// **The flare: an exponential halo, which is what scattering in a lens
+	// looks like -- a bright centre with a long tail rather than a second
+	// disc -- with an optional star of rays laid over it.** Also normalised
+	// to one, so `share` moves energy from the core into it rather than
+	// adding any. The rays modulate the halo by a factor whose mean over the
+	// circle is one, so they redistribute the halo around the ring instead
+	// of brightening it.
+	// **Outside the lens, not from its centre.** Far away the lens is a
+	// point and the halo is a disc; up close every point of a big lens
+	// scatters, and the halo the camera sees is the lens's image smeared
+	// outward -- a ring of glare beyond its edge. The profile is taken from
+	// the lens's edge and normalised over the annulus it then covers: the
+	// integral of e^(-t/rho) over 2 pi (t + R) dt is 2 pi rho (rho + R).
+	float flare = 0.0;
+	const float share = v_Shape.z;
+	if (share > 0.0 && v_Shape.y > 0.0)
+	{
+		const float rho = max(v_Shape.y * 0.18, 0.5);
+		const float R = v_LensRadius;
+		const float t = max(r - R, 0.0);
+		float halo = exp(-t / rho) / (2.0 * PI * rho * (rho + R));
+		const float rays = v_Shape.w;
+		if (rays >= 1.0)
+		{
+			// cos^8 of the ray angle: sharp spokes, and the average of
+			// cos^8 over a full turn is 35/128, so the modulation
+			// 1 + k(cos^8 - 35/128) keeps the mean at one for any k.
+			const float theta = atan(v_Offset.y, v_Offset.x);
+			const float c = cos(0.5 * rays * theta);
+			const float spoke = c * c * c * c * c * c * c * c;
+			halo *= 1.0 + 3.0 * (spoke - 35.0 / 128.0);
+		}
+		flare = max(halo, 0.0);
+	}
+
+	const vec3 colour = v_Radiance * (1.0 - share) * core + v_Flare * share * flare;
+
+	o_Color = vec4(colour, 1.0);
+	o_Velocity = vec2(0.0);
+	o_Surface = vec4(0.0);
+	o_Indirect = vec4(0.0);
+}

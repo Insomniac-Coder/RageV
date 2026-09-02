@@ -2,6 +2,10 @@
 #include <rvpch.h>
 #include "PostProcess.h"
 #include "Renderer.h"
+// The stand-in cube the fog binds when a scene has no sky to take its colour
+// from (WR-3). A declared binding with nothing in it is undefined on both
+// backends, so "no sky" has to be a black cube rather than a null.
+#include "TextureLoader.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include <array>
 #include <map>
@@ -1069,10 +1073,17 @@ namespace RageV
 			float StartDistance = 0.0f;
 			float Floor = -1.0e9f;
 
-			Vec4 CameraRow0{ 1.0f, 0.0f, 0.0f, 0.0f };
-			Vec4 CameraRow1{ 0.0f, 1.0f, 0.0f, 0.0f };
-			Vec4 CameraRow2{ 0.0f, 0.0f, 1.0f, 0.0f };
-			Vec4 CameraPosition{ 0.0f, 0.0f, 0.0f, 0.0f };
+			// **The w lanes carry WR-3, and that is what kept it out of a
+			// uniform buffer.** The sky the fog takes its colour from is
+			// seven vec4s of gradient state if it is evaluated, and this
+			// block has none of them spare -- it ends at exactly 128. Sampled
+			// from the sky cube instead, it is four scalars, and four scalars
+			// is precisely what the rotation rows were already uploading as
+			// zeros. See fog.rvshader for which lane is which.
+			Vec4 CameraRow0{ 1.0f, 0.0f, 0.0f, 0.0f };   // w: SkyIntensity
+			Vec4 CameraRow1{ 0.0f, 1.0f, 0.0f, 0.0f };   // w: SkyRotation
+			Vec4 CameraRow2{ 0.0f, 0.0f, 1.0f, 0.0f };   // w: SkyAffect
+			Vec4 CameraPosition{ 0.0f, 0.0f, 0.0f, 0.0f };  // w: SkyOcclusion
 			Vec4 Color{ 0.55f, 0.60f, 0.68f, 0.0f };      // w: the reference height
 		};
 		static_assert(offsetof(FogParams, CameraRow0) % 16 == 0,
@@ -1082,7 +1093,8 @@ namespace RageV
 
 	void PostProcess::Fog(RHICommandList& cmd, const Ref<RHITexture>& scene,
 						  const Ref<RHITexture>& depth, const FogSettings& fog,
-						  const FogView& view, Format outputFormat)
+						  const FogView& view, Format outputFormat,
+						  const Ref<RHITexture>& skyCube)
 	{
 		if (!s_Data || !scene || !depth)
 			return;
@@ -1103,16 +1115,35 @@ namespace RageV
 		// inverse is the transpose, so the camera's rows are the view's
 		// columns, and the position falls out of the full inverse.
 		const Mat4 camera = Math::Inverse(view.View);
-		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0], 0.0f);
-		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);
-		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], 0.0f);
-		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2], 0.0f);
+
+		// **WR-3 rides the w lanes**, which were zeros. A sky the pass cannot
+		// read is a sky it must not blend toward, so a missing cube forces the
+		// dials off here rather than being discovered as black fog at the
+		// far plane -- the caller passes null for a scene whose sky is a flat
+		// colour, which is exactly the case with no sky to take a colour from.
+		const float skyAffect = skyCube ? Math::Clamp(fog.SkyAffect, 0.0f, 1.0f) : 0.0f;
+		const float skyOcclusion = skyCube ? Math::Clamp(fog.SkyOcclusion, 0.0f, 1.0f) : 0.0f;
+
+		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0],
+								 Math::Max(fog.SkyIntensity, 0.0f));
+		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], fog.SkyRotation);
+		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], skyAffect);
+		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2], skyOcclusion);
 
 		// **Depth is point sampled.** A linear fetch across a silhouette
 		// averages two depths that describe nothing, and the fog would read a
 		// point floating between the near object and the far one.
+		//
+		// The sky cube is bound whether or not the dials are on: the shader
+		// declares the binding unconditionally, and a declared binding with
+		// nothing in it is undefined behaviour on both backends rather than a
+		// helpful zero -- the same rule the identity LUT and the unit exposure
+		// buffer follow. Filtered, because the gradient cube is 32 texels a
+		// face and a point sample of it would show its own texels as facets.
 		Dispatch(cmd, Shader::Fog, outputFormat, scene, depth,
-				 &params, sizeof(params), Sampling::Linear, Sampling::Point);
+				 &params, sizeof(params), Sampling::Linear, Sampling::Point,
+				 skyCube ? skyCube : TextureLoader::BlackCube(*s_Data->Device),
+				 Sampling::Linear);
 	}
 
 	void PostProcess::WaterBackdrop(RHICommandList& cmd, const Ref<RHITexture>& scene,
@@ -1399,7 +1430,8 @@ namespace RageV
 									  const Ref<RHITexture>& history,
 									  const Ref<RHITexture>& velocity,
 									  uint32_t width, uint32_t height, Format outputFormat,
-									  float feedback, bool hasHistory)
+									  float feedback, bool hasHistory,
+									  const Ref<RHITexture>& moments, Format momentsFormat)
 	{
 		PostParams params;
 		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
@@ -1409,6 +1441,10 @@ namespace RageV
 		// look, from the outside, exactly like the resolve having stopped.
 		params.A = Math::Clamp(feedback, 0.0f, 0.98f);
 		params.B = hasHistory ? 1.0f : 0.0f;
+		// Whether last frame's moments are there to be read. The first frame
+		// after a resize has a pair but no history in it, and the shader must
+		// start its count from one rather than read a count out of garbage.
+		params.C = (moments && momentsFormat != Format::Undefined && hasHistory) ? 1.0f : 0.0f;
 
 		// The neighbourhood is read at exact texel offsets, so the current
 		// frame is sampled point -- a filtered read of a 3x3 box would blur
@@ -1424,7 +1460,13 @@ namespace RageV
 		// motion of nothing.
 		Dispatch(cmd, Shader::TaaResolve, outputFormat, current, history,
 				 &params, sizeof(params), Sampling::Point, Sampling::Linear,
-				 velocity, Sampling::Point);
+				 velocity, Sampling::Point,
+				 // Binding 3 is filled whether or not there are moments to
+				 // read, for GiDenoise's reason: a declared binding with
+				 // nothing bound is undefined behaviour, and params.C is what
+				 // says the black is not data.
+				 moments ? moments : s_Data->Black, Sampling::Point,
+				 nullptr, nullptr, momentsFormat);
 	}
 
 	void PostProcess::GiDenoise(RHICommandList& cmd, const Ref<RHITexture>& current,

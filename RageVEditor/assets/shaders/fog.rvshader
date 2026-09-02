@@ -50,6 +50,26 @@ layout(location = 0) out vec4 o_Color;
 layout(set = 0, binding = 0) uniform sampler2D u_Scene;
 layout(set = 0, binding = 1) uniform sampler2D u_Depth;
 
+// **WR-3: the sky this fog is standing under.** The same cube the scene's
+// surfaces reflect -- the baked gradient for a gradient sky, the scene's own
+// environment map for a cubemap one -- so the haze cannot disagree with what
+// is drawn behind it, and an HDRI sky tints the fog without this shader
+// knowing what a gradient is. Always bound, because a declared binding with
+// nothing in it is undefined on both backends; SkyAffect at zero is what says
+// "do not read it", not a null.
+//
+// **A cube sample rather than a shared gradient function**, which is what the
+// plan first proposed. Two reasons it came out this way: the gradient is
+// seven vec4s of state and this pass's push block is already 128 bytes to the
+// byte, so sharing the function means giving the fog a uniform buffer that
+// PostProcess::Dispatch has no parameter for; and an analytic evaluator is
+// blind to a cubemap sky, which is precisely the case where guessing the
+// horizon colour is most wrong. The cost is resolution -- the gradient cube is
+// 32 texels a face -- and fog is the one term in the frame that has no high
+// frequencies to lose. The moon does not survive that filtering, which is
+// correct: a crisp moon inside a haze layer would be the artefact.
+layout(set = 0, binding = 2) uniform samplerCube u_Sky;
+
 layout(push_constant) uniform Params
 {
 	float TexelX;          // PostParams' shared header
@@ -73,13 +93,19 @@ layout(push_constant) uniform Params
 	float StartDistance;
 	float FogFloor;        // no air, and so no fog, below this world height
 
-	vec4 CameraRow0;       // rows of the camera-to-world rotation
-	vec4 CameraRow1;
-	vec4 CameraRow2;
-	// xyz: the camera's world position. w unused (WR-2 tried the frame
-	// number here for dither seeding and backed it out -- pre-exposure
-	// linear space is the wrong place for a fixed 1/255 term; see
-	// tonemap.rvshader's final write).
+	// Rows of the camera-to-world rotation. **Their w lanes are WR-3's four
+	// scalars**, and they go here rather than in a longer struct because this
+	// block is already 128 bytes -- the size every Vulkan implementation
+	// guarantees and the most this pass can be given. Four floats that were
+	// being uploaded as zeros anyway is exactly the room WR-3 needed, which is
+	// the only reason it did not have to grow a uniform buffer.
+	vec4 CameraRow0;       // w: SkyIntensity
+	vec4 CameraRow1;       // w: SkyRotation, radians
+	vec4 CameraRow2;       // w: SkyAffect  -- inscatter colour from the sky
+	// xyz: the camera's world position. w: SkyOcclusion -- how much the fog
+	// eats the sky behind it. (WR-2 tried the frame number in this lane for
+	// dither seeding and backed it out -- pre-exposure linear space is the
+	// wrong place for a fixed 1/255 term; see tonemap.rvshader's final write.)
 	vec4 CameraPosition;
 
 	// rgb: what the fog is. w: the world height the density is quoted at,
@@ -223,11 +249,79 @@ void main()
 	const float fog = clamp((1.0 - exp(-max(optical, 0.0)))
 							* clamp(u_Fog.MaxOpacity, 0.0, 1.0), 0.0, 1.0);
 
+	// **WR-3: what colour the fog is, in this direction.**
+	//
+	// Air glows with the sky it sits under, and the sky is not one colour --
+	// down this strait it is amber toward the city and near-black toward the
+	// ocean, which is the single most characteristic thing about the view and
+	// nothing a constant `Color` can say. Both dials at zero is the constant
+	// this pass shipped with, so every profile written before WR-3 renders
+	// byte-for-byte as it did; the branch is on push constants, so it is
+	// uniform across the draw and the scenes that do not use it pay nothing.
+	vec3 inscatter = u_Fog.Color.rgb;
+	float occlusion = 0.0;
+
+	const float skyAffect = clamp(u_Fog.CameraRow2.w, 0.0, 1.0);
+	const float skyOcclusion = clamp(u_Fog.CameraPosition.w, 0.0, 1.0);
+
+	if (skyAffect > 0.0 || skyOcclusion > 0.0)
+	{
+		// **Never below the horizon, and this is not a detail.** The obvious
+		// reading of "the sky in this view direction" hands a ray aimed down
+		// at the water the *ground* half of the gradient, and the first render
+		// of this said so plainly: the haze over the strait went navy while
+		// the sky above it stayed amber, because SkyGround is a stand-in for
+		// dark terrain and a downward ray reads nothing else. But the air
+		// between the camera and a ship two kilometres out is not lit by the
+		// sea under it -- it is lit by the low sky in that bearing, which at
+		// night is the city. Lifting the sample to the horizon plane keeps the
+		// azimuth, which is where the whole effect lives (amber toward the
+		// city, near-black toward the ocean), and drops only the elevation,
+		// which for a horizontal kilometre of air was never the answer.
+		// Aerial perspective by day works out the same way: a distant valley
+		// goes pale toward the horizon sky, not dark toward the ground.
+		const vec3 lifted = vec3(direction.x, max(direction.y, 0.0), direction.z);
+
+		// **Spun the way the sky is spun, not the way the camera is.**
+		// Skybox::BuildDirectionMatrix turns the sky by +SkyRotation and says
+		// in as many words that the two differ by a sign; taking the other one
+		// here would tint the fog toward a patch of sky the frame is not
+		// showing, and it would look like a plausible colour while doing it.
+		const float spin = u_Fog.CameraRow1.w;
+		const float sine = sin(spin);
+		const float cosine = cos(spin);
+		const vec3 skyDirection = vec3(cosine * lifted.x + sine * lifted.z,
+									   lifted.y,
+									   -sine * lifted.x + cosine * lifted.z);
+
+		// Level 0 explicitly. The post-process sampler is MaxLod 0 so this is
+		// the only level it could read anyway, and asking for it by name keeps
+		// an implicit-derivative fetch out of a branch -- which is undefined
+		// the day someone makes this branch per-pixel.
+		//
+		// Times SkyIntensity, because the cube holds the sky's colours
+		// unscaled: sky.rvshader applies exactly this multiply at its own
+		// write, and fog that skipped it would tint toward a sky darker or
+		// brighter than the one on screen.
+		const vec3 sky = textureLod(u_Sky, skyDirection, 0.0).rgb * u_Fog.CameraRow0.w;
+
+		inscatter = mix(u_Fog.Color.rgb, sky, skyAffect);
+
+		// **Only where the sky itself is the thing behind.** A geometry pixel
+		// is already attenuated by the mix below -- that is what the blend
+		// *is* -- and dimming it again here would be a second, undeclared
+		// exposure control. A background pixel is the one place the fog would
+		// otherwise mix the sky toward itself and come out unchanged however
+		// thick the air got, which is why a bank of it could not eat a
+		// skyline until this term existed.
+		occlusion = background ? skyOcclusion : 0.0;
+	}
+
 	// **WR-2: no dither here** -- tried it (salted, seeded off
-	// CameraPosition.w) and measured a linear pre-exposure 1/255 coming out
-	// close to 10 levels of 255 after Exposure/ACES/gamma at a representative
-	// night-sky brightness, the same finding that took it out of
-	// sky.rvshader. tonemap.rvshader's single dither, after all of that, is
-	// what actually lands at ~1 level.
-	o_Color = vec4(mix(scene.rgb, u_Fog.Color.rgb, fog), scene.a);
+	// CameraPosition.w, which is WR-3's SkyOcclusion now) and measured a
+	// linear pre-exposure 1/255 coming out close to 10 levels of 255 after
+	// Exposure/ACES/gamma at a representative night-sky brightness, the same
+	// finding that took it out of sky.rvshader. tonemap.rvshader's single
+	// dither, after all of that, is what actually lands at ~1 level.
+	o_Color = vec4(mix(scene.rgb * (1.0 - fog * occlusion), inscatter, fog), scene.a);
 }

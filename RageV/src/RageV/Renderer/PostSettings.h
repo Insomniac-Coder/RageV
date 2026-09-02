@@ -158,6 +158,51 @@ namespace RageV
 		// is far below any scene, so every profile written before this reads
 		// back as the behaviour it was authored against.
 		float Floor = -1.0e9f;
+
+		// --- WR-3: the fog takes its colour from the sky ------------------------
+		//
+		// **How much of the inscatter colour comes from the sky in this view
+		// direction rather than from `Color` above.** One constant colour is
+		// what makes a night fog read as grey paint: the real haze down a
+		// strait is amber toward a city and near-black toward open ocean,
+		// because fog is lit by the sky it sits under and the sky is not one
+		// colour. At 1 the fog is the sky, sampled per pixel; at 0 it is
+		// `Color`, which is what the pass did before this existed -- and is
+		// the default, so every profile written before WR-3 renders unchanged.
+		//
+		// **The sky, not a second guess at it.** The colour comes from the
+		// same cube the scene's surfaces reflect (`Skybox::ResolveEnvironment`)
+		// -- the baked gradient for a gradient sky, the scene's own
+		// environment map for a cubemap one -- so the haze cannot disagree
+		// with what is drawn behind it, and an HDRI sky tints the fog without
+		// this pass knowing anything about gradients.
+		float SkyAffect = 0.0f;
+
+		// **How much the fog eats the sky behind it**, 0 to 1, and it is not
+		// the same question as SkyAffect.
+		//
+		// Once the inscatter *is* the sky, a pixel showing nothing but sky
+		// mixes the sky toward itself and comes out unchanged however thick
+		// the air is -- which is right for a uniform medium lit by that same
+		// sky, and wrong for the picture WR-3 is after: a fog bank standing in
+		// front of a city glow reads as a dark silhouette eating the skyline,
+		// because the glow reaching the camera has been attenuated by the
+		// kilometre of air in the way while the haze in front is lit by the
+		// far dimmer sky overhead. This attenuates the background by the fog
+		// amount so that a bank can occlude rather than only add.
+		//
+		// Applied to background pixels only -- geometry is already attenuated
+		// by the fog blend itself, and dimming it twice would be a second,
+		// undeclared exposure control.
+		float SkyOcclusion = 0.0f;
+
+		// `SceneEnvironment::SkyIntensity` and `::SkyRotation`, which the fog
+		// needs for the same reason `sky.rvshader` does: the cube holds the
+		// sky's colours unscaled and unturned, and the drawn sky is those
+		// colours times the intensity, sampled through the rotation. Fog that
+		// skipped either would tint toward a sky nobody is looking at.
+		float SkyIntensity = 1.0f;
+		float SkyRotation = 0.0f;
 	};
 
 	enum class RayBudgetMode : uint32_t
@@ -242,6 +287,40 @@ namespace RageV
 		// Fog stops at this world height: the waterline, in a scene that has
 		// one. See FogSettings::Floor.
 		float FogFloor = -1.0e9f;
+		// WR-3's two dials. See FogSettings::SkyAffect and ::SkyOcclusion --
+		// both default to zero, which is the fog this engine had before them.
+		float FogSkyAffect = 0.0f;
+		float FogSkyOcclusion = 0.0f;
+
+		// --- WR-5: the lights' glow -----------------------------------------
+		//
+		// **Every positional light with a source size is drawn as a soft
+		// disc a few pixels across, whatever its distance.** A lamp's lens is
+		// geometry, and geometry thinner than a pixel is present in the
+		// frames a sample lands on it and absent in the rest -- so a row of
+		// street lamps a kilometre away blinks under every anti-aliasing mode
+		// the moment anything moves, and no temporal filter can average an
+		// input that is on or off. The disc covers whole pixels in every
+		// frame and cannot pop. It carries the light's own intensity, spread
+		// over its pixels so the total is what a correctly integrated point
+		// source would put on screen, and it fades out where the lens itself
+		// is bigger on screen than the disc, so a close-up keeps the authored
+		// look. Lights without a SourceRadius are untouched, which is every
+		// light authored before the radius existed. See LightGlow.
+		bool  LightGlow = true;
+		// Diameter of the disc, in pixels of the scene target.
+		float LightGlowPixels = 4.0f;
+		// A multiplier on the physical intensity, for taste; 1 is the
+		// light's own.
+		float LightGlowIntensity = 1.0f;
+		// The share of the disc's energy moved into a wider, fainter halo --
+		// glare, what a lens or an eye does to a bright point at night. Zero
+		// is a plain disc. It moves energy rather than adding it.
+		float LightFlare = 0.0f;
+		// Diameter of that halo, in pixels.
+		float LightFlareSize = 24.0f;
+		// Rays laid over the halo; 0 is a plain halo.
+		float LightFlareRays = 6.0f;
 
 		float Exposure = 1.0f;
 

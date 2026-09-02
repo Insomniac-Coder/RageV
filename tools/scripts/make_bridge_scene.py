@@ -57,6 +57,63 @@ MODELS = ASSETS / "models" / "bridge"
 SCENE = ASSETS / "scenes" / "GoldenGateDemo.rage"
 
 
+# --- photometry (WR-4) --------------------------------------------------------
+#
+# **Every intensity below is a real fixture's, in candela, divided by the
+# luminance its colour carries.** The two halves matter separately. The
+# candela come from the lamp's rated flux and the luminaire's distribution --
+# or, for the deck lamps, from the road illuminance the DOE survey measured,
+# solved backwards through this engine's own spot falloff by
+# `derive_lamp_color.py`. The division is because the colours are
+# peak-normalised so a colour picker can hold them: a saturated sodium orange
+# carries 0.41 of the luminance a white of the same peak would, and a fixture
+# authored without dividing it out emits 40% of the light it is meant to.
+#
+# **These are absolute, and that is the point of the item.** They put the
+# roadway around fifteen times brighter, relative to the sky behind it, than
+# the values chosen by eye did -- which is the correct direction for a night
+# exterior and is the change WR-4 exists to make. If the frame needs bringing
+# back, the dial for that is the camera's exposure, not these.
+#
+#   flux (lm) / effective solid angle (sr) = candela
+#
+# The solid angles are the engine's cone integrated in cos(theta), which is
+# how `pbr_fragment.glsl` shapes a spot: flat inside the inner angle, linear
+# in cos to the outer one.
+
+# 250 W HPS, 28 000 lm, behind amber acrylic. Solved from 14 lux average on
+# the drivelane -- run derive_lamp_color.py to reproduce the number.
+DECK_LAMP_CANDELA = 4376.0
+DECK_LAMP_INTENSITY = round(DECK_LAMP_CANDELA / bridge.SODIUM_LUMINANCE)
+
+# The tower uplights: 400 W HPS is 48 000 lm, a recessed shielded floodlight
+# passes about 0.6 of it, and this engine's 26/58-degree cone gathers into
+# 1.79 sr. The other two wattages ride the survey's own grading, which is the
+# ratio of their lamps and not a taper somebody liked.
+FLOOD_400_CANDELA = 48000.0 * 0.6 / 1.7936
+FLOOD_CANDELA = {400.0: FLOOD_400_CANDELA,
+                 250.0: FLOOD_400_CANDELA * 0.625,
+                 150.0: FLOOD_400_CANDELA * 0.375}
+
+# 35 W low-pressure sodium post-top: 4 800 lm, a globe luminaire keeps about
+# 0.7 of it and throws it all round, so 4*pi rather than a cone.
+POST_TOP_CANDELA = 4800.0 * 0.7 / (4.0 * math.pi)
+
+# FAA L-864: the red obstruction beacon on an aviation structure is specified
+# at 2 000 cd, which is a number rather than an opinion.
+BEACON_CANDELA = 2000.0
+# Aviation red is far out at the end of the visible band, so it carries a
+# quarter of the luminance its peak channel suggests -- the same peak-
+# normalisation correction every colour here needs.
+BEACON_LUMINANCE = 0.2505
+
+# The midspan channel lights. A bridge navigation lantern is rated by nominal
+# range rather than candela; these are the intensities a 3-5 nautical-mile
+# lantern runs at.
+NAV_WHITE_CANDELA = 300.0
+NAV_GREEN_CANDELA = 200.0
+
+
 def read_handle(path):
     """The registry's own handle for an asset, from the `.meta` beside it.
 
@@ -74,7 +131,7 @@ def handles():
     found = {}
     for name in ("bridge_towers", "bridge_deck", "bridge_cables",
                  "bridge_road", "bridge_piers", "bridge_paint",
-                 "bridge_lamps", "bridge_beacons"):
+                 "bridge_lamps", "bridge_beacons", "bridge_thin"):
         meta = MODELS / (name + ".fbx.meta")
         if not meta.exists():
             raise SystemExit(
@@ -223,17 +280,46 @@ SKIES = {
         # a dark picture stay dark and the lamps read as the bright thing.
         #
         # The indirect is lifted because night leans on it: the direct light
-        # is 128 small lamps and eight floods, and everything not standing
+        # is 128 small lamps and 48 graded floods, and everything not standing
         # under one of them is lit by what bounced off the ones that are.
-        "post": {"AutoExposure": False, "Exposure": 2.4, "GiIntensity": 2.6,
+        # **Exposure 0.21, and 2.4 was measured to be 11x too high.** WR-4 made
+        # the lamps physical -- about 15x brighter in luminous terms than the
+        # values chosen by eye -- and this number was left where it had been
+        # tuned against the dim ones. Traced end to end: 14 lux on the
+        # drivelane, asphalt at 0.070 reflectance, 0.31 cd/m^2 of road, times
+        # 2.4 arrives at 222 of 255 before bloom is added. The deck read as
+        # blown out from every camera standing on it. 0.21 puts the road near
+        # 70, which is a lit road at night.
+        #
+        # **And the bloom threshold has to move with it.** bloom_prefilter
+        # thresholds the raw HDR image and carries no exposure term at all, so
+        # lowering the stop does not change one pixel of what feeds the glow.
+        # The threshold means "where the picture is bright", and that point is
+        # 1/Exposure -- so at 0.21 it is ~5, and leaving it at 1.05 blooms
+        # everything above a fifth of mid-grey, which is what "soft af" was.
+        # **Metering on, owner's call.** A fixed stop cannot serve both
+        # framings: the deck is lit to 0.31 cd/m^2 while the wide shot is
+        # mostly water and sky two decades below it, so 0.21 is right
+        # standing on the road and nearly black from the headland.
+        # With metering on, `Exposure` stops being the stop and becomes
+        # compensation on top of the metered one -- so it goes back to 1.
+        "post": {"AutoExposure": True, "Exposure": 1.0, "GiIntensity": 2.6,
+                 "BloomThreshold": 5.0,
                  "BloomIntensity": 0.16,
-                 # **Raised right up, because at night the clamp it floors is
-                 # bounding against a black probe.** The sodium lenses sit at
-                 # an emissive of 26, so their reflection has to be allowed
-                 # somewhere near that or the glitter path under each lamp --
-                 # the thing every night photograph of this bridge is made of
-                 # -- never appears at all.
-                 "ReflectionFloor": 30.0},
+                 # **0.5, and 30 was measured to be credit given to the wrong
+                 # knob** (`5d28c0c`). The floor was turned up to 30 until the
+                 # tower's reflection appeared; measurement then found the
+                 # reflection identical at 0.05 and at 30 -- 798 pixels of a
+                 # million differ, all isolated specks -- while what 30 did buy
+                 # was 44 water pixels blinking per frame, which was the
+                 # flicker the owner had reported. Swept 0.05 to 30: blinking
+                 # starts at 2. The owner picked 0.5.
+                 #
+                 # **This line is why a regenerate used to be unsafe.** The
+                 # generator kept writing 30 over the committed 0.5, silently,
+                 # every time the scene was rebuilt -- the WR-0-shaped gap the
+                 # handoff names. WR-4 has to regenerate, so it closes it.
+                 "ReflectionFloor": 0.5},
     },
 }
 
@@ -384,8 +470,19 @@ CINEMATIC = {
     # atmosphere, it is a lens cap. What is wanted is the far tower sitting
     # a little back from the near one and the water body's far edge going
     # quietly -- everything else keeps its contrast.
-    "FogDensity": 0.00016,
-    "FogHeightFalloff": 0.11,
+    # **The layer has to reach the towers, and it did not.** 0.11 per metre
+    # e-folds the density in nine metres, so the whole fog lived in a band at
+    # the waterline while the hero camera stands at 89 m and the towers at
+    # 227 -- the camera was above its own atmosphere and WR-3's sky-coloured
+    # inscatter had nothing to colour. 0.006 puts the e-folding height at
+    # 165 m, which is a marine layer that the deck stands in and the tower
+    # tops rise out of, and which is what the reference photographs show.
+    #
+    # The density comes down as the layer goes up, or the two multiply: this
+    # is a light haze, deliberately. The owner asked for less of it than the
+    # first pass carried.
+    "FogDensity": 0.0008,
+    "FogHeightFalloff": 0.006,
     "FogHeight": 2.0,
     "FogStartDistance": 420.0,
     "FogMaxOpacity": 0.42,
@@ -393,6 +490,31 @@ CINEMATIC = {
     # the height falloff would otherwise give the seabed *more* of it than
     # the surface. Without this the strait had haze under it.
     "FogFloor": 0.0,
+    # **WR-3, on.** The fog takes its colour from the sky in each view
+    # direction rather than from the one constant below, which is what makes
+    # the haze amber toward the city and near-black out toward the ocean --
+    # the single most characteristic thing about this view, and nothing a
+    # single colour can say. The occlusion term is well short of 1: at full
+    # strength the fog eats the city glow entirely, and the references keep
+    # the glow band clearly visible behind a softened skyline.
+    "FogSkyAffect": 1.0,
+    "FogSkyOcclusion": 0.3,
+
+    # WR-5, the lights' glow: every light with a SourceRadius is drawn as a
+    # soft disc a few pixels across at any distance, carrying its own
+    # intensity, so the lamp row cannot blink under any AA once the lens is
+    # smaller than a pixel. **The intensity is the owner's pick, not the
+    # physical value** (2026-09-02): at 1.0 -- the lamps' own 4 375 cd --
+    # the row read as blown-out stars beside lens boxes that were tuned by
+    # eye, and the owner called the six-ray flare "out of place and not
+    # real"; 0.05 with rays and 0.05 without were shot beside 0.02 with a
+    # plain fifth-share halo, and the owner chose the last.
+    "LightGlow": True,
+    "LightGlowPixels": 4.0,
+    "LightGlowIntensity": 0.02,
+    "LightFlare": 0.2,
+    "LightFlareSize": 24.0,
+    "LightFlareRays": 0.0,
 
     "BloomEnabled": True,
     "BloomThreshold": 1.05,
@@ -401,7 +523,23 @@ CINEMATIC = {
     "BloomClamp": 12.0,
 
     "AutoExposure": True,
-    "AutoExposureKey": 0.17,
+    # **0.015, and 0.17 is a daylight convention.** 0.17 is metering to
+    # 18% grey, which is what a light meter does in sunshine; pointed at
+    # a night frame that is mostly dark water it lifts the whole picture
+    # until the average reaches that target, and the bridge came back
+    # looking like late afternoon -- correctly exposed and completely
+    # wrong, which is the note that had metering switched off in the
+    # first place. Metering a night scene low is what stops that.
+    #
+    # Swept 0.17 / 0.06 / 0.03 / 0.02 / 0.015 on the deck and the
+    # headland; owner picked 0.015. Nothing is blown at any of them --
+    # even 0.03 puts only 0.03% of pixels at 245.
+    #
+    # **Note the deck is on the floor at this key**: it renders the same
+    # at 0.015 and 0.02 because AutoExposureMin (0.15) clamps it, so the
+    # deck is being limited rather than metered. Lowering that floor is
+    # the dial if it ever needs to go darker still.
+    "AutoExposureKey": 0.015,
     "AutoExposureSpeed": 6.0,
     "AutoExposureMin": 0.15,
     "AutoExposureMax": 12.0,
@@ -541,6 +679,10 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
     paint = seabed.terrain.handle_for("materials/bridge_paint.rmat")
     lamp = seabed.terrain.handle_for("materials/bridge_lamp.rmat")
     beacon = seabed.terrain.handle_for("materials/bridge_beacon.rmat")
+    # The members that are nothing but noise at the hero distances, in the
+    # material that dissolves with distance -- see MAT_THIN in
+    # make_bridge_models.py for the measurement and the owner's line.
+    thin = seabed.terrain.handle_for("materials/bridge_thin.rmat")
     for name, part, material in (
             ("Towers", "bridge_towers", steel),
             ("Deck", "bridge_deck", steel),
@@ -550,6 +692,7 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
             ("Markings", "bridge_paint", paint),
             ("Lamps", "bridge_lamps", lamp),
             ("Beacons", "bridge_beacons", beacon),
+            ("Thin members", "bridge_thin", thin),
     ):
         s.entity(name)
         s.mesh(mesh[part], material)
@@ -636,7 +779,16 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
         s.block("LightComponent", [
             ("Type", "Spot"),
             ("Color", vec(*bridge.SODIUM)),
-            ("Intensity", 452),
+            # **WR-4: solved, not chosen.** `derive_lamp_color.py` sums this
+            # engine's own spot falloff over a grid of the carriageway and
+            # scales until the average lands on the 14 lux the DOE survey
+            # measured; the colour is peak-normalised, so the candela is
+            # divided by its luminance to get here. The 452 this replaced was
+            # about fifteen times too dim in luminous terms -- the deck was
+            # barely brighter than the sky behind it, which is the wrong way
+            # round for a night exterior and is a live suspect for what
+            # `GiIntensity: 2.6` has been compensating for.
+            ("Intensity", DECK_LAMP_INTENSITY),
             # **Widened to 600 m and a 0.6 m source, 2026-09-01 (commit
             # dab692d).** The 44 m range above was right for the deck's own
             # illumination but wrong for the glitter path: the lamps' water
@@ -654,37 +806,166 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
     #
     # **The towers are lit, and it is not the sodium doing it.** Every night
     # photograph of this bridge shows the towers washed warm from below while
-    # the cables above go dark, and that is deck-level floodlighting aimed up
-    # the shafts. Without it the tower is a black cut-out over a lit roadway,
-    # which is the one thing a night frame of this bridge never looks like.
+    # the cables above go dark, and that is floodlighting aimed up the shafts.
+    # Without it the tower is a black cut-out over a lit roadway, which is the
+    # one thing a night frame of this bridge never looks like.
     #
-    # Four per tower rather than a ring, so the light falls off round the
-    # shaft's sides and the flutes still read as flutes.
-    for z in (-bridge.HALF_SPAN, bridge.HALF_SPAN):
-        for x in (-bridge.TRUSS_HALF, bridge.TRUSS_HALF):
-            for offset in (-9.0, 9.0):
-                s.entity("Tower flood {0:.0f} {1:.0f} {2:.0f}".format(z, x, offset),
-                         position=(x + offset * 0.35, bridge.PIER_TOP + 2.0,
-                                   z + offset),
-                         rotation=(math.radians(78.0), 0.0, 0.0))
-                s.block("LightComponent", [
-                    ("Type", "Spot"),
-                    ("Color", vec(*bridge.SODIUM)),
-                    ("Intensity", 900),
-                    # **Up the whole shaft.** 105 m died below the second
-                    # portal and left the top two thirds black, which is not
-                    # what the references show -- the wash reaches nearly to
-                    # the saddle and only the cables above it go dark.
-                    ("Range", 250),
-                    # A recessed floodlight's aperture, not a point -- gives
-                    # the shaft's own reflections a source to widen against.
-                    ("SourceRadius", 0.5),
-                    # **Wide and soft.** At a 9-degree inner cone these read
-                    # as two hot blobs on the shaft rather than a wash --
-                    # a real floodlight is recessed behind a shield and lights
-                    # the whole face, and what gives a spot away is its edge.
-                    ("InnerCone", 26), ("OuterCone", 58),
-                ])
+    # **WR-4 replaced eight fixtures with forty-eight, and the count is the
+    # survey's.** Twelve at sidewalk level and twelve below the roadway on
+    # each tower, wattage-graded 4x150 / 4x250 / 4x400. The grading is the
+    # whole reason not to paint the shaft with one uniform light: a real
+    # installation fades up the tower because the fixtures differ *and*
+    # because inverse-square does the rest, and one uniform source cancels
+    # the first mechanism into a flat wash. They are neutral white rather
+    # than sodium -- the towers are the one place International Orange
+    # re-saturates at night, and it cannot do that under a light with no red
+    # information in it to give back.
+    #
+    # **None of them casts a shadow**, and that is a measurement rather than
+    # a preference: the 2026-09-02 pass found ray-traced shadows at ~15 ms of
+    # a 50 ms frame with 128 casting lamps and nothing capping how many a
+    # pixel traces. Forty more casters would be the largest single regression
+    # in this scene's history. What they are for is the wash, and a wash needs
+    # no shadow.
+    for x, y, z, watts in bridge.tower_flood_stations():
+        s.entity("Tower flood {0:.0f} {1:.0f} {2:.1f} {3:.0f}W".format(z, x, y, watts),
+                 position=(x, y, z),
+                 # Straight up the shaft. The 78-degree tilt this replaces
+                 # belonged to fixtures standing on the pier 60 m below the
+                 # deck; from the sidewalk the shaft is overhead.
+                 rotation=(math.radians(88.0), 0.0, 0.0))
+        s.block("LightComponent", [
+            ("Type", "Spot"),
+            ("Color", vec(*bridge.FLOOD_WHITE)),
+            ("Intensity", round(FLOOD_CANDELA[watts] / bridge.FLOOD_WHITE_LUMINANCE)),
+            # **Up the whole shaft.** 105 m died below the second portal and
+            # left the top two thirds black, which is not what the references
+            # show -- the wash reaches nearly to the saddle and only the
+            # cables above it go dark.
+            ("Range", 250),
+            # A recessed floodlight's aperture, not a point -- gives the
+            # shaft's own reflections a source to widen against.
+            ("SourceRadius", 0.5),
+            # **Wide and soft.** At a 9-degree inner cone these read as hot
+            # blobs on the shaft rather than a wash -- a real floodlight is
+            # recessed behind a shield and lights the whole face, and what
+            # gives a spot away is its edge.
+            ("InnerCone", 26), ("OuterCone", 58),
+            ("CastShadows", "false"),
+        ])
+
+    # --- the tower-base post-tops -------------------------------------------
+    #
+    # **35 W low-pressure sodium, and the only fixtures on the bridge still
+    # wearing the 1937 colour** rather than an imitation of it through amber
+    # plastic. One monochromatic line at 589 nm, so the blue channel is
+    # literally zero and everything they light goes to shades of orange and
+    # black -- which is what CRI 22 light does, and is the character the deck
+    # lamps only approximate.
+    for index, (x, y, z) in enumerate(bridge.post_top_stations()):
+        s.entity("Post top {0}".format(index), position=(x, y, z))
+        s.block("LightComponent", [
+            ("Type", "Point"),
+            ("Color", vec(*bridge.LPS_589)),
+            ("Intensity", round(POST_TOP_CANDELA / bridge.LPS_589_LUMINANCE)),
+            ("Range", 60),
+            ("SourceRadius", 0.22),
+            ("CastShadows", "false"),
+        ])
+
+    # --- the midspan channel lights -----------------------------------------
+    #
+    # **Three white over one green, both faces, under the deck at mid-span.**
+    # Not lighting: a navigation aid, saying where the centre of the channel
+    # is and how much air draught is under it. They are in the scene because
+    # a sea-level camera sees them, and because their reflection is the only
+    # green in the frame -- everything else this bridge emits lies between
+    # amber and red.
+    # **Sectored, not point sources, and the first pass got this wrong.** As
+    # bare points a metre off the truss they put 300 lux on the steel beside
+    # them and read as one blown white blob under the deck -- the owner
+    # spotted it in the first capture. A real lantern is a shielded sector
+    # aimed at the channel: it is bright to a ship's master and puts nothing
+    # on the structure carrying it. A spot aimed outboard is what this engine
+    # has to say that with, and the shield is the cone rather than a number
+    # somebody dialled down until the blob stopped.
+    #
+    # **They are still lights rather than markers**, which is the opposite of
+    # the call made for the red beacons a few lines down. The difference is
+    # what each is for: a beacon warns aircraft 200 m up and only has to be
+    # seen, and it has emissive geometry to be seen by; these have no
+    # geometry yet, so light is the only way they exist at all. When the
+    # lanterns get modelled they should change sides -- emissive markers, no
+    # light -- and this loop should go.
+    for index, (x, y, z, kind) in enumerate(bridge.navigation_light_stations()):
+        green = kind == "green"
+        outboard = 1.0 if x > 0.0 else -1.0
+        s.entity("Nav {0} {1}".format(kind, index),
+                 # Clear of the steel, not against it.
+                 position=(x + outboard * 1.4, y, z),
+                 # Forward is -Z in a light's own frame, so a yaw of -90
+                 # degrees aims it at +x and +90 at -x: outboard, across the
+                 # channel, away from the structure behind it.
+                 rotation=(0.0, -math.pi * 0.5 * outboard, 0.0))
+        s.block("LightComponent", [
+            ("Type", "Spot"),
+            ("Color", vec(*(bridge.NAV_GREEN if green else bridge.NAV_WHITE))),
+            ("Intensity", round((NAV_GREEN_CANDELA if green else NAV_WHITE_CANDELA)
+                                / (bridge.NAV_GREEN_LUMINANCE if green
+                                   else bridge.NAV_WHITE_LUMINANCE))),
+            ("Range", 90),
+            ("SourceRadius", 0.18),
+            # The lantern's sector: wide enough to be seen from anywhere on
+            # the water, and it stops well before the steel above and behind.
+            ("InnerCone", 55), ("OuterCone", 78),
+            ("CastShadows", "false"),
+            ("IsBaked", "false"),
+        ])
+
+    # --- the tower-top beacons ----------------------------------------------
+    #
+    # **FAA L-864: 2 000 cd of aviation red, flashing.** The saddle housings
+    # already carry emissive markers; what WR-4 adds is the light and the
+    # flash, because a beacon that does not flash is a red dot, and one that
+    # does is unmistakably an aircraft warning.
+    #
+    # **The flash is a script and the script is deterministic** -- elapsed
+    # time, no clock and no RNG, the discipline `Flicker.cs` documents: every
+    # screenshot comparison in this repository depends on frame N being the
+    # same picture twice. `Beacon.cs` owns the cycle, and remember `Sample.dll`
+    # has to be rebuilt (`dotnet build -c Release -o bin` from
+    # SampleProject/Scripts) or the component resolves to nothing at all.
+    #
+    # **Not baked, and it must not be**: a light whose intensity moves is not
+    # one a solve can pre-integrate, and leaving IsBaked on would put a
+    # flashing source into a stored file -- the frame may guess, a store may
+    # not.
+    for index, z in enumerate((-bridge.HALF_SPAN, bridge.HALF_SPAN)):
+        s.entity("Tower beacon {0}".format(index),
+                 position=(0.0, bridge.TOWER_TOP + 3.4, z))
+        s.block("LightComponent", [
+            ("Type", "Point"),
+            ("Color", vec(*bridge.BEACON)),
+            ("Intensity", round(BEACON_CANDELA / BEACON_LUMINANCE)),
+            ("Range", 400),
+            ("SourceRadius", 0.3),
+            ("CastShadows", "false"),
+            ("IsBaked", "false"),
+        ])
+        # **`managed_script`, not `script`.** The latter writes a
+        # NativeScriptComponent, which names something the C++ module
+        # registered; pointing one at a C# class loads with "Scene references
+        # unknown script" and an entity that silently does nothing. The camp
+        # scene lost its camera move and its firelight to exactly that.
+        #
+        # 30 flashes a minute, the middle of the FAA 20-40 band, and the two
+        # towers deliberately out of phase: a real pair is not synchronised,
+        # and a synchronised pair reads as one object.
+        s.managed_script("Beacon",
+                         Peak=round(BEACON_CANDELA / BEACON_LUMINANCE),
+                         Period=2.0,
+                         Duty=0.18,
+                         Phase=0.0 if index == 0 else 1.0)
 
     # **The red beacons are emissive and carry no light**, deliberately. They
     # are markers -- they exist to be seen, not to illuminate -- and 46 more

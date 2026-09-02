@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "Renderer3D.h"
+#include "LightGlow.h"
 #include "Renderer.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include "TextureLoader.h"
@@ -2763,6 +2764,10 @@ namespace RageV
 
 		s_Data->Scene.ViewProjection = viewProjection;
 
+		// The lights' glow draws with the same jittered camera the geometry
+		// does, so its discs move with the scene rather than against it.
+		LightGlow::BeginScene(viewProjection, cameraTransform, camera.GetProjection());
+
 		// Recorded after reading, and only for a real chain. What this frame
 		// draws with is what the next frame of *this* chain reprojects from.
 		if (motion)
@@ -4356,6 +4361,15 @@ namespace RageV
 
 			start = end;
 		}
+
+		// **The lights' glow, last of the opaque pass** (WR-5, first half).
+		// After every opaque draw so the depth it tests against is complete,
+		// and before the transparent pass so the water composites over it
+		// where it should. The buffer is the one the lit draws just read.
+		// Draws nothing outside the scene pass proper -- a probe face or a
+		// cascade never receives a viewport -- and nothing in a scene whose
+		// lights have no size.
+		LightGlow::Draw(*cmd, slot.Lights, (uint32_t)Math::Max(s_Data->Scene.LightCount, 0));
 
 		// **Kept, not cleared, when something blended is still waiting.** The
 		// transparent pass runs later in the same frame and reads the same

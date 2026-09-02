@@ -4,6 +4,7 @@
 #include "Renderer3D.h"
 #include "DebugRenderer.h"
 #include "ParticleRenderer.h"
+#include "LightGlow.h"
 #include "RageV/Particles/GpuParticles.h"
 #include "Skybox.h"
 #include "ViewportGrid.h"
@@ -56,6 +57,7 @@ namespace RageV
 		Renderer3D::Init(device);
 		DebugRenderer::Init(device);
 		ParticleRenderer::Init(device);
+		LightGlow::Init(device);
 		// After the renderer: an emitter that cannot simulate on the GPU still
 		// draws, and Init logs which of the two it got.
 		Particles::Gpu::Init(device);
@@ -90,6 +92,7 @@ namespace RageV
 		ViewportGrid::Shutdown();
 		Skybox::Shutdown();
 		Particles::Gpu::Shutdown();
+		LightGlow::Shutdown();
 		ParticleRenderer::Shutdown();
 		DebugRenderer::Shutdown();
 		Renderer3D::Shutdown();
@@ -552,6 +555,7 @@ namespace RageV
 		Renderer3D::SetTargetFormats(color, depth, samples, velocity, normal, indirect);
 		DebugRenderer::SetTargetFormats(color, depth, samples, velocity, normal, indirect);
 		ParticleRenderer::SetTargetFormats(color, depth, samples, velocity, normal, indirect);
+		LightGlow::SetTargetFormats(color, depth, samples, velocity, normal, indirect);
 		Skybox::SetTargetFormats(color, depth, samples, velocity, normal, indirect);
 		ViewportGrid::SetTargetFormats(color, depth, samples, velocity, normal, indirect);
 	}

@@ -612,6 +612,10 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.Width = (uint32_t)m_ViewportSize.x;
 	scene.Height = (uint32_t)m_ViewportSize.y;
 	scene.Environment = m_Scene->GetEnvironment();
+	// The sky the fog takes its colour from (WR-3). The same cube the probes
+	// and the sky draw use, resolved by the scene because an environment map
+	// is an asset and the renderer layer may not go looking for one.
+	scene.SkyCube = m_Scene->ResolveSky();
 	// Cost from the project, grade from the primary camera's profile. The
 	// viewport shows what the game shows, deliberately: a grade you cannot
 	// see while authoring is a grade you author blind. ENGINE-NOTES 7s.
@@ -775,6 +779,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 		game.Width = (uint32_t)m_GameViewportSize.x;
 		game.Height = (uint32_t)m_GameViewportSize.y;
 		game.Environment = m_Scene->GetEnvironment();
+		game.SkyCube = m_Scene->ResolveSky();
 		game.Render = Project::Render();
 		game.Post = m_Scene->GetPostSettings();
 		game.ClearColor = Vec4(m_ClearColor, 1.0f);

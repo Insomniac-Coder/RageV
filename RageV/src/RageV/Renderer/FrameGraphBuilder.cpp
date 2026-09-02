@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "FrameGraphBuilder.h"
+#include "LightGlow.h"
 #include "PostProcess.h"
 #include "RageV/Core/EngineConfig.h"
 #include "RageV/Core/FrameProfiler.h"
@@ -368,7 +369,14 @@ namespace RageV
 		// SanitiseMsaaSamples answers with a count that exists, and with one
 		// the *device* says it can do. ENGINE-NOTES 7ci.
 		int msaa = 1;
-		if (aa == AntiAliasing::MSAA)
+		// **And under TAA when the command line asks** (`--msaa=N`): coverage
+		// samples answer the one thing a temporal resolve cannot -- geometry
+		// thinner than a pixel is present in every frame's resolved image
+		// instead of only in the frames the jitter lands on it -- and the
+		// resolve then converges on shading. A measurement flag first; a
+		// project setting is the owner's call.
+		if (aa == AntiAliasing::MSAA
+			|| (aa == AntiAliasing::TAA && config.MsaaOverride > 0))
 		{
 			const int asked = config.MsaaOverride > 0 ? config.MsaaOverride
 													  : desc.Render.MsaaSamples;
@@ -564,6 +572,19 @@ namespace RageV
 						   Renderer3D::CanTraceGlobalIllumination();
 		Renderer::SetGlobalIllumination(rayGi ? Math::Max(desc.Post.GiIntensity, 0.0f) : 0.0f);
 		Renderer::SetReflectionFloor(desc.Post.ReflectionFloor);
+
+		// The lights' glow (WR-5): the profile's dials, handed over once per
+		// frame the way the reflection floor is.
+		{
+			LightGlowSettings glow;
+			glow.Enabled = desc.Post.LightGlow;
+			glow.GlowPixels = desc.Post.LightGlowPixels;
+			glow.Intensity = desc.Post.LightGlowIntensity;
+			glow.FlareShare = desc.Post.LightFlare;
+			glow.FlarePixels = desc.Post.LightFlareSize;
+			glow.FlareRays = desc.Post.LightFlareRays;
+			LightGlow::SetSettings(glow);
+		}
 		// One while the traced form is off, so the uniform never claims a
 		// depth nothing is tracing -- the same shape as the intensity above.
 		Renderer::SetGiBounces(rayGi ? ResolveGiBounces(desc.Post) : 1);
@@ -861,9 +882,16 @@ namespace RageV
 				// whenever it was last enabled.
 				Renderer::SetCameraMotion(motion);
 
+				// The glow's viewport, on the same edges and for the same
+				// reason as the jitter: only the scene pass has pixels for a
+				// disc to be sized in. A probe face or a cascade sees zero
+				// and draws none.
+				LightGlow::SetViewport(context.Width, context.Height);
+
 				if (draw)
 					draw(context);
 
+				LightGlow::SetViewport(0, 0);
 				Renderer::SetCameraMotion(nullptr);
 				Renderer::SetJitter(Vec2(0.0f, 0.0f));
 				Renderer::SetScreenReflections(nullptr);
@@ -1033,7 +1061,14 @@ namespace RageV
 		if (wantTemporal)
 		{
 			TemporalHistory& history = *desc.History;
+			// **A second attachment, for what the resolve remembers about
+			// each pixel**: frames accumulated and the first two luminance
+			// moments of the arriving sample, which is what keeps the
+			// neighbourhood clamp from rejecting sub-pixel detail every frame
+			// the jitter misses it. Ping-ponged with the colour by the same
+			// pair, so the two cannot get out of step. See taa_resolve.
 			history.Prepare(Renderer::GetDevice(), desc.Width, desc.Height,
+							Format::R16G16B16A16_SFLOAT, "TemporalHistory",
 							Format::R16G16B16A16_SFLOAT);
 
 			// Null only if the device refused the allocation, which is a
@@ -1069,7 +1104,11 @@ namespace RageV
 							// is off -- and SSAA and TAA cannot both be on.
 							context.Color(source, velocityIndex),
 							context.Width, context.Height,
-							Format::R16G16B16A16_SFLOAT, feedback, hasHistory);
+							Format::R16G16B16A16_SFLOAT, feedback, hasHistory,
+							// Attachment 1 of the same history: last frame's
+							// count and moments.
+							hasHistory ? context.Color(previous, 1) : nullptr,
+							Format::R16G16B16A16_SFLOAT);
 					});
 
 				shaded = current;
@@ -1750,8 +1789,13 @@ namespace RageV
 			if (desc.Occlusion && PostProcess::IsReady())
 			{
 				TemporalHistory& occlusion = *desc.Occlusion;
+				// The same second attachment the TAA history carries: the
+				// resolve they share writes it on every path, and occlusion
+				// is exactly the kind of noisy input the temporal floor was
+				// built for.
 				occlusion.Prepare(Renderer::GetDevice(), halfWidth, halfHeight,
-								  Format::R16G16B16A16_SFLOAT, "Occlusion");
+								  Format::R16G16B16A16_SFLOAT, "Occlusion",
+								  Format::R16G16B16A16_SFLOAT);
 
 				if (occlusion.Current() && occlusion.Previous())
 				{
@@ -1783,7 +1827,9 @@ namespace RageV
 								has ? context.Color(previousAo) : nullptr,
 								context.Color(sceneHDR, velocityIndex),
 								halfWidth, halfHeight,
-								Format::R16G16B16A16_SFLOAT, 0.9f, has);
+								Format::R16G16B16A16_SFLOAT, 0.9f, has,
+								has ? context.Color(previousAo, 1) : nullptr,
+								Format::R16G16B16A16_SFLOAT);
 						});
 
 					aoAccumulated = currentAo;
@@ -1877,6 +1923,22 @@ namespace RageV
 			fogSettings.StartDistance = desc.Post.FogStartDistance;
 			fogSettings.Floor = desc.Post.FogFloor;
 			fogSettings.MaxOpacity = desc.Post.FogMaxOpacity;
+			// WR-3. The two dials are the profile's; the two sky terms are the
+			// scene's, and they have to come from the environment rather than
+			// the profile because they describe the sky being drawn, not the
+			// grade -- a camera that changed SkyIntensity would be fogging
+			// toward a sky nobody rendered.
+			fogSettings.SkyAffect = desc.Post.FogSkyAffect;
+			fogSettings.SkyOcclusion = desc.Post.FogSkyOcclusion;
+			fogSettings.SkyIntensity = desc.Environment.SkyIntensity;
+			fogSettings.SkyRotation = desc.Environment.SkyRotation;
+
+			// **A flat background is not a sky.** SkyType::Color draws nothing
+			// at all, so there is no colour in any direction to take -- and
+			// the cube the scene would hand over for it is black, which as an
+			// inscatter colour is worse than the constant it replaced.
+			const Ref<RHITexture> skyCube =
+				desc.Environment.Sky == SkyType::Color ? nullptr : desc.SkyCube;
 
 			PostProcess::FogView fogView;
 			fogView.NearClip = desc.NearClip;
@@ -1897,11 +1959,11 @@ namespace RageV
 					builder.Sample(sceneHDR);
 					builder.DisableDepth();
 				},
-				[clear, sceneHDR, fog = fogSettings, fogView](RGPassContext& context)
+				[clear, sceneHDR, fog = fogSettings, fogView, skyCube](RGPassContext& context)
 				{
 					PostProcess::Fog(context.Cmd, context.Color(clear),
 									 context.Depth(sceneHDR), fog, fogView,
-									 Format::R16G16B16A16_SFLOAT);
+									 Format::R16G16B16A16_SFLOAT, skyCube);
 				});
 
 			shaded = fogged;

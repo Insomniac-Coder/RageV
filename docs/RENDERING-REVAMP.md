@@ -200,9 +200,9 @@ feature is wanted on both backends and the GL path needs its own mechanism
 | WR-0 | Generator parity for the hand-edited scene | n/a | 0 | 0.5 d | — |
 | WR-1 | Night sky: shaped gradient + city glow + moon | BOTH | ~0 | 2–3 d | — |
 | WR-2 | TPDF dither at sky/fog/tonemap writes | BOTH | ~0 | 0.5 d | — |
-| WR-3 | Fog inscatter takes the sky's colour per view direction | BOTH | ~0 | 0.5–1 d | WR-1 |
-| WR-4 | Photometry & fixtures pass (scene data) | BOTH | ~0 | 1 d | WR-0 |
-| WR-5 | Night glare: thresholdless audit, PSF weights, lamp flare sprites | BOTH | <0.5 ms (inferred — run the overdraw benchmark in the item) | 2–3 d | WR-4 helps |
+| WR-3 | ~~Fog inscatter takes the sky's colour per view direction~~ ✅ | BOTH | ~0 (one cube fetch, uniform-branched off) | done | WR-1 |
+| WR-4 | ~~Photometry & fixtures pass (scene data)~~ ✅ owner gate | BOTH | +2.3 ms measured (58 more lights, none casting) | done | WR-0 |
+| WR-5 | Night glare: ~~lamp flare sprites~~ 🔨 **built** (owner-picked intensity); thresholdless audit and PSF weights still open | BOTH | <0.5 ms (inferred — run the overdraw benchmark in the item) | 2–3 d | WR-4 helps |
 | WR-6 | Water sparkle: local specular bound replaces flat ReflectionFloor | VK-only | ~0 | 1 d | — |
 | WR-7 | Capsule (source-length) specular — interim streak fix | BOTH | ~0 | 1 d | — |
 | WR-8 | LTC area lights: rect, then line/tube for the lamp rows | BOTH | ~3–5× punctual ALU per light, cluster-bounded (measured class: 0.56 ms/full-screen light on a 2014 laptop GPU, near-linear) | 4–6 d | WR-13 with it |
@@ -210,10 +210,13 @@ feature is wanted on both backends and the GL path needs its own mechanism
 | WR-10 | World-space light grid + stochastic sampling at RT hits | VK-only | net ≤0, build <0.5 ms | 3–4 d | — |
 | WR-11 | Froxel volumetrics (or analytic airlight fallback) | GL-fallback (see item) | 1–1.5 ms (shipped-precedent class) | 1–2 wk | WR-1, WR-4 |
 | WR-12 | Display finishers: night toe, Purkinje switch, local exposure, stars | BOTH | <0.5 ms | 2–3 d | WR-1, WR-5 |
-| WR-13 | Specular antialiasing (Tokuyoshi–Kaplanyan) — lands WITH WR-8 | BOTH | few ALU/lit px | 1 d | — |
+| WR-13 | ~~Specular antialiasing (Tokuyoshi–Kaplanyan)~~ 🔨 built (nine pixels); **the flicker itself is measured per AA mode in the item** — WR-15's sampling was the non-TAA half (fixed), the TAA half is a candidate, the lamp lenses are what remains (WR-5) | BOTH | few ALU/lit px | done | — |
 | WR-14 | Water foam at night | BOTH | ~0 | 0.5–1 d | WR-1, WR-4 |
-| WR-15 | Soft shadows from dense point-light arrays (tower-base streak fan) | VK-only | untested | 3–5 d (design first) | WR-8 helps |
+| WR-15 | ~~Soft shadows from dense point-light arrays~~ 🔨 built; **sampling rebuilt 2026-09-02 so it no longer needs TAA to integrate it** (see the item) | VK-only | +2.3 ms measured | done, unjudged | WR-8 helps |
 | WR-16 | ReSTIR DI: reservoir light sampling for the 128-lamp direct lighting | VK-only | target: replace ~15 ms of shadow tracing with ~1 ray/px | 2–3 wk | WR-10 complements |
+
+**Done so far: WR-0, WR-1, WR-2, WR-3, WR-4.** The order that remains starts
+at WR-5.
 
 **Recommended order:** WR-0 → WR-1 → WR-2 → WR-3 → WR-4 → WR-5 → WR-6 →
 WR-7 → WR-10 → WR-13+WR-8 → WR-9 → WR-14 → WR-11 → WR-12. Rationale: the
@@ -461,7 +464,51 @@ unchanged.
 
 ---
 
-## WR-3 · Fog inscatter takes the sky's colour per view direction
+## ~~WR-3 · Fog inscatter takes the sky's colour per view direction~~ — ✅ **code done 2026-09-02, the scene's fog values are an owner call**
+
+> **Built as a cube sample, not a shared gradient function.** The plan proposed
+> moving WR-1's gradient into `include/sky_gradient.glsl` and calling it from
+> `fog.rvshader`. That was not free: the gradient is seven vec4s of state and
+> the fog pass's push block is already **128 bytes to the byte**, so sharing
+> the function meant giving the fog a uniform buffer, and `PostProcess::
+> Dispatch` has no parameter for one. Sampling `Skybox::ResolveEnvironment`'s
+> cube instead costs one texture binding and four scalars -- which fitted in
+> the `w` lanes of the camera rows, already being uploaded as zeros -- and it
+> works for a **cubemap sky as well**, which an analytic evaluator structurally
+> cannot. The cost is resolution, and see the cube-size finding below.
+>
+> **Two dials, not one** (owner's call): `FogSkyAffect` blends the inscatter
+> colour from the constant `FogColor` toward the sky, `FogSkyOcclusion` dims
+> the sky *behind* the fog so a bank can eat a skyline instead of only adding
+> to it. Both default 0, which is byte-for-byte the fog this pass had.
+>
+> **The sample is lifted to the horizon, and the first render is why.** Read
+> literally, "the sky in this view direction" hands a ray aimed at the water
+> the *ground* half of the gradient: the haze over the strait came out navy
+> under an amber sky. The air between the camera and a ship two kilometres out
+> is lit by the low sky in that bearing, not by the sea beneath it, so the
+> sample clamps `direction.y` to zero. Azimuth -- where the whole effect lives
+> -- is untouched.
+>
+> **Two findings from doing it:**
+>
+> 1. **The committed night fog cannot show this feature at all.** Its layer is
+>    `FogHeightFalloff: 0.11`, an e-folding height of **9 m**, and the hero
+>    camera stands at **89 m**. The camera is above its own fog. Turning
+>    `FogSkyAffect` to 1 on the scene as committed moves 44 k pixels by at most
+>    **one level**. With a layer that reaches the towers the same dial moves
+>    the frame by up to 23 levels and varies with bearing. **The fog values are
+>    an authoring decision and are still the owner's** -- nothing was committed
+>    to the profile but the two keys, both at 0.
+> 2. **The 32-texel gradient cube under-resolves WR-1's glow lobe**, and not
+>    only for the fog. `CityElevationK: 20` makes the lobe about 3° tall; a
+>    32-per-face cube texel is 2.8°. Raised to 128 (a CPU bake that runs only
+>    when a sky dial moves; the irradiance convolution's cost does not depend
+>    on it), the fog's glow peak gains **12 levels** and the city-to-ocean
+>    contrast goes from 12 to 20 levels. **The same cube is what every
+>    reflective surface and every probe reads**, so they have been reflecting
+>    an under-resolved glow since WR-1. `scenetest` is green on both backends
+>    at 128. Left in the tree as a separate, revertible change.
 
 **Goal.** Distance haze at night fades things toward the sky radiance *in
 that view direction* — warm amber toward the city, near-black toward the
@@ -490,7 +537,54 @@ defaulted to current behaviour. Both backends.
 
 ---
 
-## WR-4 · Photometry & fixtures pass (scene data only, no engine code)
+## ~~WR-4 · Photometry & fixtures pass (scene data only, no engine code)~~ — ✅ **built 2026-09-02, awaiting the owner gate**
+
+> **What landed.** `tools/scripts/derive_lamp_color.py` (new, committed beside
+> the scene tools) does both halves: chromaticity to linear Rec.709, and the
+> deck lamps' intensity solved backwards through *this engine's own* spot
+> falloff from the survey's road illuminance. `make_bridge_models.py` carries
+> the derived colours, `make_bridge_scene.py` the photometry and the new
+> fixtures, `SampleProject/Scripts/Beacon.cs` the flash. Scene regenerated,
+> re-baked, 191 lights where there were 133.
+>
+> **The colour was out by a gamma.** `SODIUM` was `(1.0, 0.60, 0.16)`, which is
+> almost exactly `#FF8B14` *display-encoded* written into a field the renderer
+> reads as linear. Derived, it is `(1.0, 0.2795, 0.0091)`. The script's own
+> check: fed the 589 nm LPS point it reproduces the plan's independently
+> sourced `#FF8000` to four decimals.
+>
+> **The lamps were about fifteen times too dim in luminous terms**, and this is
+> the finding with consequences past WR-4. At `Intensity: 452` the roadway sat
+> at roughly 0.03 cd/m² against a sky of 0.0225 -- a road barely brighter than
+> the sky behind it, which is the wrong way round for a night exterior.
+> Measured, the drivelane wants 14 lux and about 0.45 cd/m². **That makes
+> `GiIntensity: 2.6` a live suspect for compensating for under-lit lamps**
+> rather than for anything about the bounce.
+>
+> **The cone model cannot be a shoebox, and it shows in the uniformity.** Real
+> cutoff street lighting runs about 3:1 max-to-average; solved into this
+> engine's flat-topped cone the same average gives 81 lux under a post against
+> 14 average, nearly 6:1. Not fixable in scene data.
+>
+> **Everything new is `CastShadows: false`, measured rather than preferred** --
+> shadows are ~15 ms of the 50 ms frame with 128 casters and no cap. The whole
+> pass costs **+2.3 ms** (50.4 → 52.7 ms at 1600×900) for 58 more lights.
+> **The trade is real and worth stating: `CastShadows: false` is no occlusion
+> test at all**, so the tower floods light the far side of the shaft they
+> stand under.
+>
+> **120 posts, not 128.** The survey's count and its 45.72 m spacing cannot both
+> hold over the 2 737 m this model builds -- 128 posts is 64 opposite-pole
+> stations and needs 2 880 m. The spacing is kept (it is twelve of the 12.5 ft
+> module every other dimension derives from, and the lights must land on the
+> lamp geometry); the count is short by four stations that reach past the
+> structure. Stated in `lamp_stations`.
+>
+> **A regeneration trap closed on the way through.** The generator had been
+> writing `ReflectionFloor: 30` over the committed `0.5` every time the scene
+> was rebuilt -- the WR-0-shaped gap the handoff names, which WR-4 had to run
+> into because WR-4 regenerates. Fixed at the source, with `5d28c0c`'s
+> measurement quoted beside it.
 
 **Goal.** Set every lamp parameter from measurement instead of taste, and add
 the missing fixture types. This is the "film set" half — placement and
@@ -538,7 +632,90 @@ lamp sprites (that is what CRI-22 light does). Checklist items 1–3 by eye.
 
 ---
 
-## WR-5 · Night glare: bloom audit, PSF weights, lamp flare sprites
+## WR-5 · Night glare — 🔨 **the lamp sprites are built (2026-09-02, third session); bloom audit and PSF weights are not**
+
+> **Why the sprites came first.** The flicker table in the WR-13 item ends
+> with the one thing no resolve could touch: the lamp lenses, 0.7 m boxes at
+> emissive 26 that a headland pixel a metre wide lands on one frame and
+> misses the next. `LightGlow` (`Renderer/LightGlow.cpp`,
+> `light_glow.rvshader`) draws every positional light that has a
+> `SourceRadius` as a soft disc a fixed few pixels across, at the end of the
+> opaque pass, additive, depth-tested, reading the scene's own light buffer
+> so a light needs nothing added. The disc carries **I/(d²Ω)** — the value a
+> correctly integrated sub-pixel source would put in a pixel — spread through
+> a profile that integrates to one, so the lamp row adds the light it always
+> should have and bloom sees the same energy an ideal render would. It fades
+> out where the lens itself is bigger on screen than the disc (0.5× to 1.5×
+> of the disc's diameter), so close-ups keep the authored look. The flare is
+> a share of that energy moved into a wider exponential halo with an optional
+> star of rays, drawn as a **ring outside the lens** when the lens is big
+> (the lens's image smeared outward, normalised over the annulus), so it stays
+> at every distance as glare should. Six profile dials: `LightGlow`,
+> `LightGlowPixels`, `LightGlowIntensity`, `LightFlare`, `LightFlareSize`,
+> `LightFlareRays`; the bridge profile and the generator carry them.
+>
+> **Two things the first landing got wrong, both visible.** (1) Every light
+> glowed at a quarter from outside its cone, and the forty-eight tower floods
+> — narrow projectors behind louvres — came out as blinding white blobs on
+> the tower bases and at deck level. The side glow is now scaled by the cone's
+> width: a wide diffuse lens (the 85° street lamps, the 78° marine lights)
+> keeps it, a narrow beam (the 58° floods) gets none. (2) The flare faded out
+> with the disc, so a close lamp had no glare at all; it now persists as the
+> ring above. **The owner's first verdict on the flare at physical intensity:
+> "looks bad, out of place and not real"; at 0.3 and 0.1 "better"; asked for
+> more toned down** — candidates at 0.05 (rays and no rays) and 0.02 were
+> shot, and **the owner chose 0.02 with a plain fifth-share halo and no
+> rays** ("this looks better"); that is what the profile and the generator
+> carry. The physical value is 1.0 and is far brighter than the lens boxes
+> ever were, because the lamps are 4 375 cd and the lens boxes were tuned by
+> eye. The white channel lights under the towers (three 300 cd lanterns
+> stacked per side, facing the camera inside their cone) read strongest of
+> all; the owner called them overpowering at 0.05 and acceptable at 0.02.
+>
+> **What it does and does not fix, measured** (Headland, pinned clock,
+> blink = swing ≥ 6 with reversals): the lamp heads no longer appear in the
+> blink mask under any mode; no AA / MSAA stay at 0.01% of the frame. **The
+> deck band under TAA stays at ~23%, and the mask says exactly where: the
+> lamp posts, the railing pickets and the truss webs** — members a tenth of
+> a pixel wide at a kilometre, lit brightly, present in one frame in eight.
+> Coverage AA barely helps (`--msaa=4` under TAA: 22.5%) and no blend share
+> can. That is content thinner than a pixel, and the fix is the one the
+> generator's own railing note already describes: **members that are
+> sub-pixel at a camera's distance are not drawn.** Built the same evening:
+> `MaterialParams::Macro.zw` carry `FadeStart`/`FadeEnd` (metres; serialised
+> under those names), and the masked variant of the lit shader discards past
+> FadeEnd and on a per-pixel gradient-noise dither between the two — walked
+> per frame only under a temporal filter, the soft shadow's rule. **The ray
+> hit test honours the same fade** (`RayCandidateIsThere`, dithered from the
+> hit point): the first landing left the rays alone and the water's mirror
+> rays kept finding pickets and ropes that were no longer on screen — the
+> owner's "random red dots in the water".
+>
+> **How far it goes is the owner's call, and the first cut went too far.**
+> It faded everything under 0.3 m plus the 0.6 m truss webs — suspender
+> ropes, rails, rail posts, lamp shafts and housings, webs — and from the
+> headland the ropes vanished: *"the fade made the cables disappear
+> completely which just makes the scene look bad."* Now only the members
+> that are nothing but noise at any distance go: pickets (0.07 m), lamp arms
+> (0.17 m), brackets (0.2 m) and band flanges (0.15 m), in `bridge_thin`
+> (300 → 450 m, `Blend: Masked`, `AlphaCutoff: 0`), one extra entity. The
+> ropes, rails, posts, lamp shafts and webs stay unfaded steel and keep
+> their sub-pixel flicker under TAA; the lighting hash is untouched, so the
+> bake still loads. (The round-trip guard compares against HEAD, which is
+> still the pre-WR-4 scene, so it reports WR-4's 191 lights against HEAD's
+> 133 until that session's scene is committed; the regeneration reproduces
+> the current 191 as an exact multiset.)
+>
+> **And the still-pixel feedback boost in the TAA is off** (`kStillFeedback
+> = 0`): a second, thousandfold tighter motion gate still let the far water
+> through — near the horizon its crests move less on screen than float
+> error, and its sparkle changes every frame regardless — and the owner saw
+> the streaks smear into bands a second time. The moments floor stays; it
+> is gated on the same stillness and leaves the water alone. The sub-pixel
+> members the boost was reached for are what the fade removes.
+>
+> **Still open from this item:** the bloom audit and the PSF weights.
+
 
 **Goal.** Above-clip luminance is the only brightness channel the display has
 left at night; glare structure is how it reaches the eye. Three sub-items,
@@ -918,6 +1095,109 @@ sparse-and-dim is correct; no Milky Way (Bortle 8–9). Half a day, after WR-1.
 
 ---
 
+## WR-13 · The bridge's flicker — 🔨 **measured per AA mode 2026-09-02 (third session); the AA-independent half is fixed, the TAA half is a candidate**
+
+> **Read this before spending another hour on the bridge's flicker.** The
+> specular antialiasing below is built, correct and moves nine pixels; the
+> flicker is two separate mechanisms, and the table says which is which. The
+> owner's constraint for the fix: *it has to work no matter which AA is
+> picked.*
+>
+> ### The harness, and the trap the first numbers fell into
+>
+> `--frame-time=0` is the **wall clock**, not a frozen clock (`Application.
+> cpp`: a step of zero falls back to the measured frame time), so every
+> "time frozen" arm of the earlier session was animated — the waves rolled,
+> the tower beacons flashed, and the water's 15–65% "blinking" was wave
+> motion. Pin with `--frame-time=0.000001`. With that, a hard-shadowed frame
+> blinks at **0.01%**, which is the metric's floor. Headland camera,
+> 1600×900, frames 240–255, `--render-defaults=off` plus one flag per arm,
+> blinking = swing ≥ 6 levels with ≥ 2 reversals; per region, because the
+> whole-frame number mixes the water in.
+>
+> | arm | tower | deck | cables | water near |
+> |---|---|---|---|---|
+> | no AA, as shipped | 0.0% | 14.5% | 0.0% | 65% |
+> | no AA, soft lamp shadows forced hard | 0.0% | 0.05% | 0.0% | 0.03% |
+> | MSAA 4×, as shipped | 0.0% | 23.8% | 0.0% | 65% |
+> | MSAA 4×, shadows forced hard | 0.0% | 0.00% | 0.0% | 0.04% |
+> | TAA, as shipped | 34.5% | 32.6% | 1.9% | 26% |
+> | TAA, jitter scale 0 | 0.0% | 7.6% | 0.0% | 22% |
+> | TAA, all ray tracing off | 40.0% | 27.7% | 1.7% | 40% |
+> | no AA, RTAO off / reflections off | 0.0% | 14.6% | 0.0% | 65% |
+>
+> ### Mechanism 1 — under no AA and MSAA, all of it was WR-15's sampling
+>
+> The soft lamp shadow aimed its one ray at a point hashed from pixel, light
+> **and frame**, so every lit pixel was re-rolled every frame and only TAA
+> ever averaged it. That is a shading term that works under one AA mode —
+> the defect is in the term. **Fixed, and AA-independent:**
+> `TraceShadowSoftFrom` now shifts an R2 low-discrepancy point set (indexed
+> by the light, so the lamps in range of a pixel stratify the disc between
+> them) by a per-pixel interleaved-gradient-noise value, and walks the shift
+> by the golden ratio per frame **only while `u_Scene.Jitter` is non-zero**
+> — the one signal that a temporal accumulator exists. No AA / MSAA: **5.8%
+> of the frame → 0.01%**, identical to hard shadows, penumbra kept; the
+> Glitter-camera stills before and after are visually the same. Under TAA
+> the water improves (26 → 19%) and the resolve integrates the shift.
+>
+> ### Mechanism 2 — under TAA, jitter plus a resolve that rejects the history
+>
+> With the jitter off, the tower and cables blink at exactly zero. With it,
+> the per-pixel series on a tower rib reads `19 19 19 47 19 19 19 45` on the
+> Halton cycle: a rib, rope or picket thinner than a pixel is rasterised only
+> in the frames the jitter lands a sample on it; in the other frames the 3×3
+> box is all background, the clip pulls the history to the background, and
+> the tenth of the rib that entered the blend is thrown away. The pixel
+> never accumulates it. Ray tracing plays no part (all rays off: 40%).
+>
+> **Built and measured, left in the tree as candidates because they are
+> TAA's own dial** (`taa_resolve.rvshader`, `TemporalResolve` +
+> `FrameGraphBuilder.cpp`):
+>
+> | TAA variant | tower | deck | cables | water near | full frame |
+> |---|---|---|---|---|---|
+> | as shipped | 34.5% | 32.6% | 1.9% | 26% | 3.59% |
+> | + per-pixel temporal moments (the GI denoiser's floor on the clamp) | 27.7% | 32.5% | 1.9% | 18% | 2.81% |
+> | + still-pixel feedback, capped at 0.94 by a 16-frame warm-up (the first landing) | 20.0% | 29.5% | 1.4% | 9% | 1.89% |
+> | + still-pixel feedback 0.97, warm-up cap 64 | 8.6% | 25.1% | 0.9% | 1.6% | 0.98% |
+> | **+ still-pixel feedback 0.98, warm-up cap 64 (what is in the tree)** | **6.0%** | **23.2%** | **0.7%** | **0.5%** | **0.78%** |
+>
+> The moments do what they were built for — those pixels now keep their
+> history and settle on the coverage-weighted mean — and what remains is the
+> blend's own share of the current frame: one sample in four at 20–70× the
+> mean moves the pixel by a tenth of the difference at 0.9 and a fiftieth at
+> 0.98. **The warm-up cap was the trap**: `alpha = max(1/frames, 1 - f)`
+> with frames capped at 16 floors alpha at 0.0625, so a still feedback above
+> 0.9375 did nothing — three arms came back identical to the pixel before it
+> was found. Feedback alone (no moments) was measured too: 0.97 → tower 17%,
+> 0.8 → 48%. `--msaa=4` is honoured under TAA as a measurement flag; with
+> the moments and the capped feedback it took the tower to 11%. Under no AA
+> and MSAA every variant measures 0.01% before and after, so nothing here
+> reaches the other modes.
+>
+> ### What is left, and it is the same thing in every variant
+>
+> **The deck band stays at ~23% under TAA because of the lamp lenses**: a
+> sub-pixel emitter at 26 HDR that the jitter (or MSAA's sample pattern, or
+> any motion) lands on one frame in two or four. No blend share tames a
+> quarter-pixel source that bright, and no AA mode is immune in motion. The
+> AA-independent answer is **WR-5's lamp flare sprites** — a minimum
+> on-screen size, energy-conserving — which is where this hands over.
+>
+> ### Corrections to the earlier note, so nobody re-derives them
+>
+> - "Scene animation is not the cause" was measured on animated frames. True
+>   for the deck band, untestable for the water as taken.
+> - "The residual ~8% is stochastic ray sampling … RTAO and the traced
+>   reflections" — it was WR-15's shadow sample (100% of it) and wave motion.
+>   RTAO and reflections moved the count by zero when parked.
+> - "TAA roughly doubles it" — TAA is the whole of the tower's and cables'
+>   flicker and none of the deck's under other modes; they are different
+>   mechanisms, not one scaled.
+> - The specular antialiasing stays: a handful of ALU and groundwork for
+>   WR-7/WR-8, and it was never the lever.
+
 ## WR-13 · Specular antialiasing (lands with WR-8, or before it)
 
 **Goal.** Filtered NDF roughness so sub-pixel highlights on thin glossy
@@ -970,6 +1250,47 @@ its local lighting justifies (dark water ⇒ dark foam), and no specular
 streak crosses a foam patch intact. **[OWNER GATE]**
 
 ---
+
+## ~~WR-15 · Soft shadows from dense point-light arrays~~ — 🔨 **built 2026-09-02, not yet judged**
+
+> **The defect was worse than "a streak fan at the tower base".** With 120
+> lamps each a point to the shadow ray, the deck railing cast 120 crisp
+> shadows onto the water and the glitter path came out as rectangles with the
+> streak missing inside them. The owner reported it twice, from two cameras,
+> and it reads as a reflection artefact rather than a shadow one, which is why
+> it survived.
+>
+> **One ray per light, aimed at a point on the source disc** rather than N
+> rays averaged: with 120 casting lamps, multiplying the frame's most
+> expensive term by N is not a trade anybody would take, and a dense array
+> integrates its own samples — a penumbra *is* the partial visibility of an
+> extended source. `TraceShadowSoftFrom` in `pbr_fragment.glsl`, seeded from
+> pixel ^ light ^ the frame counter the traced bounce already hashes.
+>
+> **The frame term is load-bearing.** Seeded from pixel and light alone — to
+> keep frame N reproducible — it came back as heavy salt-and-pepper. One
+> sample per light needs something to integrate it and TAA is what integrates
+> it; the counter used is a frame *index*, not a clock, so frame N is still
+> the same picture every run.
+>
+> **+2.3 ms** (52.7 → 55.0 ms at 1600×900), all of it ALU: a hash, a frame
+> build, sin/cos and a sqrt per shadow ray. The trig is the first thing to
+> replace if that needs winning back. Both backends green.
+>
+> **The sampling was rebuilt the same day (third session), and the reason is
+> the flicker table in the WR-13 item.** Hashing pixel, light and frame as
+> white noise made the penumbra a property of the AA mode: under TAA the
+> resolve averaged it; under MSAA or no AA every lit pixel of the roadway and
+> the water was re-rolled every frame — **14.5% of the deck's pixels blinking
+> with no AA, 23.8% under MSAA 4×, 0.05% with the ray forced hard**. Now: a
+> per-pixel interleaved-gradient-noise shift of an R2 point set indexed by
+> the light (the lamps in range of a pixel stratify the disc between them),
+> advanced per frame only while `u_Scene.Jitter` says a temporal filter is
+> running. No AA / MSAA: 0.01%, the metric's floor, with the penumbra kept
+> and the stills visually unchanged. The frame term is gated on the jitter
+> rather than on a setting because the jitter is the one thing a
+> `TemporalHistory` cannot exist without (FrameGraphBuilder: no history, no
+> jitter).
 
 ## WR-15 · Soft shadows from dense point-light arrays
 

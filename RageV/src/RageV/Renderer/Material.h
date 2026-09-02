@@ -161,6 +161,23 @@ namespace RageV
 		// three spare words precisely so the block would stay 80 bytes. This
 		// is the first field since that genuinely grows it, so it may as well
 		// grow it once and leave room.
+		// x metres per macro cycle, y strength -- and **zw are the thin-member
+		// fade**: the camera distance at which a masked material starts to
+		// dissolve and the distance at which it is gone, in metres, both 0
+		// for none. In the two lanes the macro never used, for the reason
+		// `Specular` and `AlphaCutoff` sit in padding: the block stays 128
+		// bytes and no cooked material moves.
+		//
+		// What it is for: geometry thinner than a pixel -- a suspender rope,
+		// a railing picket, a lamp post a kilometre away -- is drawn in the
+		// frames a sample lands on it and not in the rest, and it blinks
+		// under every anti-aliasing mode the moment anything moves. No
+		// resolve can average an input that is on or off; the fix is not to
+		// draw a member the camera cannot resolve. The masked variant of the
+		// lit shader discards a fragment past FadeEnd, and between the two
+		// distances discards on a per-pixel dither so the member dissolves
+		// rather than pops; under TAA the dither walks and converges to a
+		// smooth fade. Serialised as `FadeStart` / `FadeEnd`.
 		Vec4 Macro{ 0.0f, 0.0f, 0.0f, 0.0f };
 
 		// --- the extended lobes ---------------------------------------------
