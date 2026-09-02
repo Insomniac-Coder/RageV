@@ -1729,6 +1729,26 @@ the document's own rule is never to simplify per frame). Its baked-GI
 caveat holds by construction: the solve traces its own path against the
 full structure.
 
+### In plain words — the owner's list, noted as read (2026-09-02)
+
+1. **Do not look into the water where you cannot see into it.** Every
+   water pixel currently fires a ray under the surface. At a low viewing
+   angle, or where the water is deep, nothing comes back. Skip those rays.
+   Could be worth 30 ms.
+2. **Render smaller and let the anti-aliasing fill it back in.** Render at
+   three quarters size, upscale with the TAA we already have. Cuts most of
+   the frame by a third or more. The glitter might soften. The owner's eye
+   decides.
+3. **Do reflections at half size in their own pass.** About 7 to 10 ms. We
+   tried once and hit a precision problem; it is a one-line fix.
+4. **WR-10 matters more than we thought.** The reflection and under-water
+   rays each light their hit with all 191 lamps. Already on the list, just
+   bigger.
+5. **Smaller wins:** skip lights too dim to see, and shade smooth dark
+   water at a lower rate.
+
+The detail behind each is the ranked list below.
+
 ### Other candidates, ranked by expected time on the sea cameras
 
 1. **Refraction rays only where transmission can show** (up to ~30 ms).
@@ -1771,6 +1791,47 @@ full structure.
 
 Not worth touching: RTAO (0.1 ms), the post chain (under 2 ms together),
 MSAA and SSAA (inert under TAA), Hi-Z occlusion (an open structure).
+
+### The second document, `RT_Multi_Light_Shadow_Optimization_Debugging.md`, read against what is measured
+
+A profiling-and-optimisation checklist for many shadow-casting lights,
+written for exactly this case (191 lights, 147 casting, a 90 ms frame, a
+per-light distance falloff already in). In plain words:
+
+- **Most of its diagnostics are done.** Shadows on/off (about a third of
+  the frame), light count per pixel (the busiest cluster holds 146–178),
+  rays per light (one, WR-15), the per-light falloff (WR-17, four arms
+  measured), resolution scaling (the frame scales with pixel count, so it
+  is pixel- and ray-bound), and acceptance by per-pixel diff (the standing
+  rule; it suggests PSNR/SSIM, which the diff-image rule already beats).
+- **Its one big recommendation is WR-16.** Replace the per-light falloff
+  with a *global per-pixel ray budget*: rank the pixel's lights by
+  importance, pick a few at random in proportion, trace only those, weight
+  by the odds, and let temporal reuse fill in the rest over frames. That is
+  what ReSTIR DI does with reservoirs and spatial reuse on top. The
+  document argues to do it; our matrix adds the caution it lacks: tracing
+  far lamps sparsely per frame reconstructs their shadow only with a
+  temporal filter, and the owner's rule is that the fix must hold under
+  every AA mode. ReSTIR's spatial reuse is what makes it work without
+  leaning on TAA alone — the plain "budget + temporal" form would be the
+  no-AA blink WR-15 already taught us.
+- **One of its assumptions is contradicted by the matrix.** "Skip the
+  shadow ray when the light's contribution is negligible" is the Share
+  shape, and it lost: a hundred negligible lamps behind one slab are not
+  negligible together. Any per-cluster cap on casting lights ranked by
+  contribution has the same failure built in.
+- **Worth taking now, cheap:** a rays-per-pixel and lights-per-pixel debug
+  view and a total-shadow-ray line in the benchmark report (today only
+  "busiest cluster" is printed). Its ray-mask and shadow-LOD advice is the
+  proxy-BLAS item above. Its hybrid idea — shadow maps for static lights —
+  is an option for the 128 fixed lamps (render each map once and keep it;
+  the sea is a receiver, not a caster), with the penumbra quality and the
+  memory to be judged; noted, not recommended yet.
+- **Before WR-16 is built, run its Experiment 4 as a pre-check:** a fixed
+  budget of 1, 2, 4 and 8 shadow rays per pixel spread over the cell's
+  lights by importance, under no AA, MSAA and TAA, on the three cameras
+  with the matrix's diff. That is a day, and it says what any budgeted
+  scheme can reach here before three weeks go into reservoirs.
 
 ---
 
