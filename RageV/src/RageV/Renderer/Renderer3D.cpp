@@ -2866,8 +2866,11 @@ namespace RageV
 		// solve must see the lights the hash describes.
 		{
 			const EngineConfig& config = EngineConfig::Get();
-			const float cutoff = config.HasLightCutoffOverride ? config.LightCutoffOverride
-															   : render.LightCutoffDistance;
+			const float cutoff = config.HasLightCutoffOverride
+				? config.LightCutoffOverride
+				: RayOptimisationPresetFor(config.HasRayOptimisationOverride
+											   ? (RayOptimisation)config.RayOptimisationOverride
+											   : render.RtOptimisation).Cutoff;
 			if (cutoff > 0.0f && !config.BakeLighting && !config.ForceLightingBake)
 			{
 				for (LightRenderData& light : s_Data->Ordered)
@@ -2935,18 +2938,18 @@ namespace RageV
 			Vec4(Math::Normalize(Vec3(cameraTransform * Vec4(0, 0, -1, 0))), 0.0f);
 		s_Data->Scene.ShadowParams = Vec4(0.0f, 0.0f, 0.0f, -1.0f);
 
-		// WR-17: the render settings' shadow-ray falloff, or the run's
+		// WR-17: the RT optimisation preset's shadow-ray falloff, or the run's
 		// --shadow-rays override, into the block's last row. Sent under maps
 		// too; the shader reads it only on the traced path.
 		{
 			const EngineConfig& config = EngineConfig::Get();
+			const RayOptimisationPreset preset = RayOptimisationPresetFor(
+				config.HasRayOptimisationOverride ? (RayOptimisation)config.RayOptimisationOverride
+												  : render.RtOptimisation);
 			s_Data->Scene.ShadowRayFade = config.HasShadowRayOverride
 				? Vec4((float)config.ShadowRayShapeOverride, config.ShadowRayStartOverride,
 					   config.ShadowRayEndOverride, config.ShadowRayShareOverride)
-				: Vec4((float)(uint32_t)render.ShadowRayFade, render.ShadowRayFadeStart,
-					   render.ShadowRayFadeEnd,
-					   render.ShadowRayFade == ShadowRayFalloff::Share ? render.ShadowRayShare
-																	   : render.ShadowRayFloor);
+				: Vec4((float)(uint32_t)preset.Shape, preset.Start, preset.End, preset.Floor);
 		}
 
 		const uint32_t cascadeCount = ShadowMap::HasCascades() ? ShadowMap::GetCascadeCount() : 0;

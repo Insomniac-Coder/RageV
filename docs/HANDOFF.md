@@ -145,20 +145,28 @@ until the owner picks a setting from WR-17's menu.
   (450 m: −32% on Headland, but a third of the Glitter camera's streak
   band goes).
 
-### What is next, in order
+### The owner's decision, and what is next
 
-1. **The owner picks a setting** from the menu at the end of WR-17
-   (recommendation there: linear 300/600 as the default, the cutoff by eye).
-2. The after-table: `python tools/scripts/bench_night.py --label after-wr17
-   --extra "--shadow-rays=linear,300,600 --light-cutoff=0"` (or the pick).
-3. The flicker protocol for the pick under no AA / MSAA / TAA on Headland
-   and Pier (`check_glint_flicker.py`; a runner is described in WR-17).
-   The dither is fixed per pixel and walks only under TAA by construction,
-   which is the claim to measure.
-4. A look in the editor: the four new rows sit in Render Settings under
-   ray tracing (the registry drives them), and `Light cutoff` beside
-   `Distance`.
-5. Then WR-10 (the traced-hit light walk: reflections and refraction
+The owner read the menu and asked for a preset instead of dials: **RT
+optimisation** in Render Settings under the ray-tracing switch — Off /
+Quality (linear 300/600) / Balanced (linear 150/300, floor 1/8) /
+Performance (cutoff 300 m). `RenderSettings::RtOptimisation`, the table in
+`RayOptimisationPresetFor`, one registry field; the detailed fields are
+gone from the settings, the flags stay for measurement, and
+`--rt-optimisation=<level>` benchmarks a preset without editing the
+project. Each level was checked against its matrix row on Headland before
+the commit (numbers at the end of WR-17). **The project ships at Off.**
+
+1. Pick the level the scene ships with (the owner's eye, in the editor:
+   the row is under ray tracing).
+2. The after-table per level: `python tools/scripts/bench_night.py --label
+   after-quality --extra "--rt-optimisation=quality"`, and the same for
+   balanced and performance.
+3. The flicker protocol for the shipped level under no AA / MSAA / TAA on
+   Headland and Pier (`check_glint_flicker.py`). The dither is fixed per
+   pixel and walks only under TAA by construction, which is the claim to
+   measure.
+4. Then WR-10 (the traced-hit light walk: reflections and refraction
    shade every hit against all 191 lights, no clusters) and WR-16.
 
 ### Traps this session paid for

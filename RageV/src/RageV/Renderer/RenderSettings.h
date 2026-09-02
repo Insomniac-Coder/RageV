@@ -146,6 +146,42 @@ namespace RageV
 		Share,       // by the light's share of the pixel's direct light
 	};
 
+	// **RT optimisation: the owner's four settings for WR-17**, chosen from the
+	// falloff matrix (RENDERING-REVAMP WR-17) rather than from dials. Each
+	// level is a fixed set of the numbers below; the project carries the
+	// level and nothing else, so a scene cannot end up on an untested
+	// combination. Measured on Headland at 2560x1440 against 114 ms with every
+	// ray traced: Quality 100 ms with nothing the eye finds; Balanced 96 ms
+	// with speckle on the dark water and the glitter band; Performance 50 ms
+	// with no lamp reaching past 300 m, which dims the far glitter.
+	enum class RayOptimisation : uint32_t
+	{
+		Off = 0,      // every shadow ray traced, every light its full range
+		Quality,      // rays thin linearly from 300 to 600 m, half kept at 450
+		Balanced,     // rays thin from 150 to 300 m, one in eight kept past it
+		Performance,  // no light reaches past 300 m
+	};
+
+	struct RayOptimisationPreset
+	{
+		ShadowRayFalloff Shape;
+		float Start;    // metres, thinning starts
+		float End;      // metres, thinning reaches the floor
+		float Floor;    // fraction of far rays still traced past the end
+		float Cutoff;   // metres past which no positional light reaches; 0 = none
+	};
+
+	constexpr RayOptimisationPreset RayOptimisationPresetFor(RayOptimisation level)
+	{
+		switch (level)
+		{
+			case RayOptimisation::Quality:     return { ShadowRayFalloff::Linear, 300.0f, 600.0f, 0.0f,   0.0f };
+			case RayOptimisation::Balanced:    return { ShadowRayFalloff::Linear, 150.0f, 300.0f, 0.125f, 0.0f };
+			case RayOptimisation::Performance: return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   300.0f };
+			default:                           return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   0.0f };
+		}
+	}
+
 	struct RenderSettings
 	{
 		AntiAliasing AA = AntiAliasing::FXAA;
@@ -419,34 +455,12 @@ namespace RageV
 		// shadow pass also writes back faces.
 		float ShadowNormalOffset = 0.9f;
 
-		// WR-17: see ShadowRayFalloff above. Off traces every ray, which is
-		// what every scene did before this existed. Appended, so nothing
-		// compiled against the earlier layout reads a moved field.
-		ShadowRayFalloff ShadowRayFade = ShadowRayFalloff::Off;
-		// Metres from the shaded point to the light. Under the start every ray
-		// is traced; past the end none is; Share ignores the end.
-		float ShadowRayFadeStart = 150.0f;
-		float ShadowRayFadeEnd = 300.0f;
-		// Share only: the fraction of the pixel's unshadowed direct light
-		// below which a light past the start distance earns no ray.
-		float ShadowRayShare = 0.02f;
-		// The distance shapes: the fraction of a light's rays still traced past
-		// the end -- the aggressive dial. A skipped ray borrows the visibility
-		// of the far rays the pixel did trace, and that estimate is only as
-		// good as its sample: at zero the far group is never sampled and its
-		// shadow (the deck over the water) fills in; at an eighth it holds.
-		float ShadowRayFloor = 0.125f;
-
-		// **WR-17's other lever: a cutoff past which no positional light reaches
-		// at all**, whatever its own range. Owner-set: "a complete cut off for
-		// light sources above a certain distance ... their contribution to the
-		// scene is minimal or negligible." Each light's range is clamped to it
-		// before the cluster lists are built, so a far lamp leaves the cell and
-		// costs a pixel nothing -- no shading, no ray -- and the falloff window
-		// takes it to zero smoothly at the cutoff rather than cutting it. Zero
-		// leaves every light the range it was authored with. Not applied while
-		// baking: the solve sees the lights as authored, which is what the
-		// lighting hash keys on.
-		float LightCutoffDistance = 0.0f;
+		// **WR-17: RT optimisation**, see RayOptimisation above. Off traces
+		// every ray and gives every light its range, which is what every scene
+		// did before this existed. The numbers behind each level are the
+		// preset table's; `--shadow-rays=` and `--light-cutoff=` override them
+		// for a measurement. Appended, so nothing compiled against the earlier
+		// layout reads a moved field.
+		RayOptimisation RtOptimisation = RayOptimisation::Off;
 	};
 }

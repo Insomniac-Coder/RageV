@@ -75,8 +75,9 @@ apart and unchanged.
 agenda section: Headland 114 ms, the water pass is the frame), and
 **WR-17** — shadow rays thinning with distance plus a light cutoff, render
 settings driving every light — is built and measured in place of WR-8,
-owner's call. The setting is the owner's pick from the menu in
-RENDERING-REVAMP WR-17; then the after-table, then WR-10 and WR-16.
+owner's call, and shipped as the **RT optimisation** preset (Off / Quality /
+Balanced / Performance; the project still at Off). Next: pick the level,
+the after-table per level, then WR-10 and WR-16.
 
 ## The order
 

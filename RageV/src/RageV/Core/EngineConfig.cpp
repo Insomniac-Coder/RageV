@@ -375,6 +375,23 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "rt-optimisation" || key == "rt-optimization" || key == "rtopt")
+		{
+			static const char* const kLevels[] = { "off", "quality", "balanced", "performance" };
+			for (int i = 0; i < 4; i++)
+			{
+				if (value == kLevels[i])
+				{
+					config.HasRayOptimisationOverride = true;
+					config.RayOptimisationOverride = i;
+					return true;
+				}
+			}
+			RV_CORE_WARN("rt-optimisation expects off, quality, balanced or performance; got '{0}'",
+						 value);
+			return false;
+		}
+
 		if (key == "light-cutoff" || key == "lightcutoff")
 		{
 			// <metres> -- WR-17's cutoff on how far any positional light reaches,

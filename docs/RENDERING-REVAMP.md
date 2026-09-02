@@ -214,7 +214,7 @@ feature is wanted on both backends and the GL path needs its own mechanism
 | WR-14 | Water foam at night | BOTH | ~0 | 0.5–1 d | WR-1, WR-4 |
 | WR-15 | ~~Soft shadows from dense point-light arrays~~ ✅ **judged good by the owner 2026-09-02**; sampling rebuilt the same day so it no longer needs TAA to integrate it (see the item) | VK-only | +2.3 ms measured | done | WR-8 helps |
 | WR-16 | ReSTIR DI: reservoir light sampling for the 128-lamp direct lighting | VK-only | target: replace ~15 ms of shadow tracing with ~1 ray/px | 2–3 wk | WR-10 complements |
-| WR-17 | Shadow rays thin with distance (+ a light cutoff): render settings, one dial for every light — 🔨 **built and measured 2026-09-02, the setting is the owner's pick (menu in the item)** | VK-only | measured: −13% lossless, −16% to −56% with a visible change (table in the item) | done + the matrix | — |
+| WR-17 | Shadow rays thin with distance (+ a light cutoff), shipped as the **RT optimisation** preset: Off / Quality / Balanced / Performance — ✅ **built, measured and preset 2026-09-02; the project still at Off** | VK-only | measured on Headland: 114 → 100 / 96 / 50 ms (table in the item) | done | — |
 
 **Done so far: WR-0, WR-1, WR-2, WR-3, WR-4, WR-13, WR-15, and WR-5's lamp
 sprites.** The order that remains starts at WR-5's bloom audit and WR-6.
@@ -1407,7 +1407,7 @@ it does not. **[OWNER GATE]**
 
 ---
 
-## WR-17 · Shadow rays thin with distance — 🔨 **built and measured 2026-09-02 (fourth session); the setting is the owner's pick, menu at the end of the item**
+## WR-17 · Shadow rays thin with distance — ✅ **built and measured 2026-09-02 (fourth session); shipped as the RT optimisation preset (Off / Quality / Balanced / Performance), the project still at Off**
 
 **Owner-set 2026-09-02, in place of WR-8 as the first frame-time item.** The
 owner's question was why area lights at all: "how about we just use less
@@ -1609,17 +1609,34 @@ and the two diff percentages; the untouched frame is 114 / 100 / 107):
 | light cutoff 300 m alone | 50.4 / 6.24 / 3.23 | 56.3 / 15.08 / 4.66 | 38.9 / 10.89 / 4.09 | the same, harder, −56% |
 | linear 300/600 + cutoff 450 | 75.3 / 4.35 / 0.69 | 76.8 / 3.15 / 1.37 | 59.7 / 9.43 / 3.58 | the cutoff's change, with the gentle thinning's saving on top (lit arm; re-measure under borrow) |
 
-Recommendation, not a decision: **linear 300/600 as the project default
-now** — it is free by the standing bar — and the cutoff as the aggressive
-dial the owner sets by eye against the far-streak references, since its
-change is a *look* (how far the glitter reaches) rather than an error.
-The project's render settings are unchanged in this commit (`ShadowRayFade:
-Off`, `LightCutoffDistance: 0`); nothing renders differently until a
-setting is chosen. **[OWNER GATE]** — then the eight-camera after-table
-(`bench_night.py --label after-wr17 --extra "--shadow-rays=… --light-cutoff=…"`)
-and the flicker protocol under all three AA modes for the chosen setting
-(the dither is fixed per pixel and walks only under TAA, by construction,
-but it has to be measured, not assumed).
+**The owner's decision (2026-09-02, end of the session): a preset, not
+dials.** `RenderSettings::RtOptimisation` — **RT optimisation** in the
+panel, under the ray-tracing switch — with four levels, each a fixed row
+of the table above (`RayOptimisationPresetFor` in RenderSettings.h is the
+one place the numbers live):
+
+| level | what it is | Headland, measured |
+|---|---|---|
+| Off | every ray traced, every light its range | 114 ms |
+| Quality | linear 300/600, half the far rays kept at 450 m | 100 ms, nothing the eye finds |
+| Balanced | linear 150/300, one ray in eight kept past it | 96 ms, speckle on dark water and glitter |
+| Performance | no light reaches past 300 m | 50 ms, the far glitter dims |
+
+Checked before the commit, Headland at 2560x1440, 150 frames, through
+`--rt-optimisation=`: Off 114.4 ms, Quality 100.7, Balanced 96.0,
+Performance 50.5 (busiest cluster 146 → 115 under the cutoff) — each level
+lands on its matrix row.
+
+The detailed fields are gone from the settings — a project carries a level
+and cannot land on an untested combination — and `--shadow-rays=` /
+`--light-cutoff=` remain as measurement overrides, with
+`--rt-optimisation=<level>` to benchmark a preset without editing the
+project. The project still ships at Off. Next: the eight-camera after-table
+per preset (`bench_night.py --label after-<level> --extra
+"--rt-optimisation=<level>"`) and the flicker protocol under all three AA
+modes for whichever level the scene ships with (the dither is fixed per
+pixel and walks only under TAA, by construction, but it has to be measured,
+not assumed).
 
 **Cost accounting the matrix settled.** Rays to far lamps are the
 expensive rays: over the water toward a lamp half a kilometre away a ray

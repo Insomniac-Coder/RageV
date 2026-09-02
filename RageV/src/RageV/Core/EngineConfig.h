@@ -75,6 +75,8 @@
 //                           | smooth | log | share with the distances in metres
 //   --light-cutoff=<m>      override the project's light cutoff (WR-17): no
 //                           positional light reaches past this many metres
+//   --rt-optimisation=off|quality|balanced|performance  override the project's
+//                           RT optimisation preset (WR-17) for one run
 
 #include "RageV/Renderer/RHI/RHITypes.h"
 #include "RageV/Renderer/RenderSettings.h"
@@ -239,9 +241,14 @@ namespace RageV
 		float ShadowRayStartOverride = 0.0f;
 		float ShadowRayEndOverride = 0.0f;
 		float ShadowRayShareOverride = 0.0f;
-		// --light-cutoff=<m>: RenderSettings::LightCutoffDistance for one run.
+		// --light-cutoff=<m>: the preset's cutoff, overridden for one run.
 		bool  HasLightCutoffOverride = false;
 		float LightCutoffOverride = 0.0f;
+		// --rt-optimisation=<level>: RenderSettings::RtOptimisation for one run,
+		// in RayOptimisation's order, so each preset can be benchmarked without
+		// editing the project. The two overrides above still win over it.
+		bool  HasRayOptimisationOverride = false;
+		int   RayOptimisationOverride = 0;
 
 		// **--gi-source=baked|realtime.** Which form of indirect light to use,
 		// stated rather than inferred. Without it the only lever is whether a
