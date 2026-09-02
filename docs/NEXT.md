@@ -71,6 +71,13 @@ Rows 6 (area lights) and 7 (volumetrics) below are subsumed by WR-8 and
 WR-11 respectively — the revamp plan is their spec now. Row 5 (LODs) stands
 apart and unchanged.
 
+**2026-09-02, fourth session:** the 1440p baseline is taken (HANDOFF's
+agenda section: Headland 114 ms, the water pass is the frame), and
+**WR-17** — shadow rays thinning with distance plus a light cutoff, render
+settings driving every light — is built and measured in place of WR-8,
+owner's call. The setting is the owner's pick from the menu in
+RENDERING-REVAMP WR-17; then the after-table, then WR-10 and WR-16.
+
 ## The order
 
 Ranked by value per hour, not by size. Numbers are engineering judgement.

@@ -213,6 +213,17 @@ layout(set = 0, binding = 0) uniform SceneData
 	vec4 ProbeCount;              // x = how many rows are real
 	vec4 ProbePlacement[15];
 	vec4 ProbeSlot[15];
+
+	// **WR-17: shadow rays thin with distance.** x = the falloff shape (0 off,
+	// 1 hard, 2 linear, 3 smoothstep, 4 log, 5 share; +16 = a skipped ray
+	// counts its light lit, the measurement arm), y = the distance from the
+	// shaded point at which a light's rays start thinning, z = where the
+	// thinning reaches its floor, w = under the share shape the share of the
+	// pixel's direct light below which a light earns no ray, under the
+	// distance shapes the fraction of rays still traced past the end.
+	// Render settings, so one dial drives every light. Appended; mirrored
+	// by hand in scene_block.glsl and Renderer3D.cpp.
+	vec4 ShadowRayFade;
 } u_Scene;
 
 // Every light in the scene, however many that is.
@@ -1053,6 +1064,84 @@ float TraceShadowSoft(vec3 worldPos, vec3 L, float tMax,
 {
 	return TraceShadowSoftFrom(worldPos, normalize(v_Normal), L, tMax,
 							   sourceRadius, light);
+}
+
+// **WR-17: the farther a light, the fewer of its shadow rays a pixel
+// traces.** A water pixel under the bridge walks up to 178 lamps and traced a
+// ray to every one of them, and at 1440p that was a third of the frame --
+// for shadows that, from a lamp half a kilometre away, are a picket's width
+// projected to nothing. The owner's rule: the farther a light, the less it
+// contributes, so the farther it is the more of its rays may go.
+//
+// Returns the fraction of this pixel's rays to the light that are skipped
+// and counted lit, from 0 (trace as always) to 1 (never trace). The shape
+// between the start and end distances is the render setting under test
+// (docs/RENDERING-REVAMP.md WR-17): hard, linear, smoothstep, log -- or the
+// light's *share* of the pixel's direct light, which is the physical form
+// of the rule and needs no end distance, only a floor under which nothing
+// is skipped so the deck keeps its own lamps' shadows.
+// The shape lane's bit 16: a skipped ray counts its light lit instead of
+// borrowing (below). The measurement arm; the flag's `lit` token sets it.
+bool ShadowRaySkippedLit()
+{
+	return u_Scene.ShadowRayFade.x >= 16.0;
+}
+
+float ShadowRaySkip(float distance, float share)
+{
+	const float shape = mod(u_Scene.ShadowRayFade.x, 16.0);
+	if (shape < 0.5)
+		return 0.0;
+
+	const float start = u_Scene.ShadowRayFade.y;
+	const float end = max(u_Scene.ShadowRayFade.z, start + 1.0e-3);
+
+	if (shape > 4.5)
+	{
+		if (distance < start)
+			return 0.0;
+		return 1.0 - clamp(share / max(u_Scene.ShadowRayFade.w, 1.0e-6), 0.0, 1.0);
+	}
+
+	// **The floor: past the end, this fraction of a light's rays is still
+	// traced.** Found by the matrix: linear 300/600 with the borrow moved
+	// 0.18% of Headland and nothing over six levels, while every 150/300
+	// shape moved five percent -- because past the end no far ray is
+	// traced at all, and the borrowed pool then holds only mid-distance
+	// lamps, lit where the far ones are blocked. A traced fraction that
+	// never reaches zero keeps the pool representative however far the
+	// light is; it is the aggressive dial, not the end distance.
+	const float ceiling = 1.0 - clamp(u_Scene.ShadowRayFade.w, 0.0, 1.0);
+	if (shape < 1.5)
+		return distance >= end ? ceiling : 0.0;
+
+	const float t = clamp((distance - start) / (end - start), 0.0, 1.0);
+	if (shape < 2.5)
+		return t * ceiling;
+	if (shape < 3.5)
+		return t * t * (3.0 - 2.0 * t) * ceiling;
+	// Log: most of the thinning happens early, so the far end is reached
+	// aggressively -- log2(1 + t) is 0.58 at the halfway point.
+	return log2(1.0 + t) * ceiling;
+}
+
+// Whether this pixel traces this light's ray at the fraction above. A fixed
+// per-pixel dither, walked per frame only while a temporal filter is there
+// to integrate it -- exactly WR-15's rule, learned the hard way: a random
+// draw here blinks under no AA and MSAA. Its own offset into the gradient
+// noise, so the skip pattern and the soft-shadow sample do not line up.
+bool ShadowRayKept(float skip, uint light)
+{
+	if (skip <= 0.0)
+		return true;
+	if (skip >= 1.0)
+		return false;
+
+	float u = InterleavedGradientNoise(gl_FragCoord.xy + vec2(17.0, 31.0));
+	if (any(notEqual(u_Scene.Jitter, vec4(0.0))))
+		u += mod(u_Scene.GlobalIllumination.y, 1024.0) * 0.61803398875;
+	u = fract(u + float(light) * 0.75487766625);
+	return u >= skip;
 }
 
 #ifdef RV_RAY_SKY
@@ -3486,6 +3575,71 @@ void main()
 
 	int total = directionalCount + int(cellCount);
 
+#ifdef RV_RAY_SHADOWS
+	// **WR-17, share shape only: what this pixel receives unshadowed from
+	// every light in its cell**, so a light's share of it can say whether
+	// its shadow ray is worth tracing. Diffuse irradiance -- colour times
+	// falloff times cosine -- and not the BRDF, which is the expensive half
+	// of the loop below; the same falloff and cone arithmetic as that loop,
+	// copied rather than shared so the loop's own bits stay exactly what
+	// they were. Uniform-branched off under every other shape.
+	float directIrradiance = 0.0;
+	if (mod(u_Scene.ShadowRayFade.x, 16.0) > 4.5)
+	{
+		for (int entry = 0; entry < total; ++entry)
+		{
+			int i = entry < directionalCount
+				  ? entry
+				  : int(u_CellIndices.Indices[cellOffset + uint(entry - directionalCount)]);
+			GpuLight light = u_Lights.Lights[i];
+
+			vec3 L;
+			float attenuation = 1.0;
+			if (light.Position.w == 0.0)
+			{
+				L = -light.Direction.xyz;
+			}
+			else
+			{
+				vec3 toLight = light.Position.xyz - v_WorldPos;
+				float distance2 = dot(toLight, toLight);
+				L = toLight * inversesqrt(max(distance2, 1.0e-8));
+				float range = max(light.Params.x, 0.0001);
+				float t = distance2 / (range * range);
+				float ratio = clamp(1.0 - t * t, 0.0, 1.0);
+				attenuation = (ratio * ratio) / max(distance2, 0.0001);
+				if (light.Params.z < light.Params.y)
+				{
+					float theta = dot(L, -light.Direction.xyz);
+					attenuation *= clamp((theta - light.Params.z)
+										 / max(light.Params.y - light.Params.z, 0.0001), 0.0, 1.0);
+				}
+			}
+			directIrradiance += dot(light.Color.rgb, vec3(0.2126, 0.7152, 0.0722))
+							  * light.Color.a * attenuation * max(dot(N, L), 0.0);
+		}
+	}
+
+	// **What a skipped ray borrows.** The first landing counted a skipped
+	// light lit, and the Headland diff showed the water under the deck
+	// brightening by seventy levels: each far lamp is negligible on its own,
+	// but a hundred of them blocked by the same slab are not, and "lit" put
+	// their whole sum back. The second landing borrowed the *mean*
+	// visibility of every far ray the pixel had traced, and the foreground
+	// water went darker instead: a pixel that sees the lamps on its side of
+	// the tower and not the ones behind it averages the two groups, and the
+	// lit lamps pay for the blocked ones.
+	//
+	// So the borrow is local. Consecutive light indices are consecutive
+	// stations along the deck (the generator writes them in order and the
+	// cluster list keeps it), and neighbouring lamps share their occluder --
+	// the deck, the tower, the pier -- far more than the row as a whole
+	// does. A skipped light takes the visibility of the last thinned light
+	// this pixel traced, which the dither's R2 spacing puts within a few
+	// stations of it; before any was traced it is lit.
+	float lastFarVisible = 1.0;
+#endif
+
 	// `entry`, not `slot`: the loop body already has a `slot`, which is the
 	// shadow map this light was given.
 	for (int entry = 0; entry < total; ++entry)
@@ -3770,15 +3924,39 @@ void main()
 		float shadow = 1.0;
 #ifdef RV_RAY_SHADOWS
 		if (kind == 1)
+		{
 			shadow = TraceShadow(v_WorldPos, L, 1.0e4);
+		}
 		else if (kind != 0)
-			// WR-15: aimed at a point on the source rather than at its
-			// centre, so a dense array of lamps casts a penumbra instead of
-			// a picket fence. `light.Direction.w` is SourceRadius; zero
-			// traces the ray this line always traced.
-			shadow = TraceShadowSoft(v_WorldPos, L,
-									 length(light.Position.xyz - v_WorldPos),
-									 light.Direction.w, uint(i));
+		{
+			// WR-17: a far light's ray is traced by a fraction of the pixels
+			// that decreases with its distance (see ShadowRaySkip); a pixel
+			// that skips counts the light lit. Under the share shape the
+			// fraction is the light's share of the pixel's direct light.
+			const float distance = length(light.Position.xyz - v_WorldPos);
+			const float share = directIrradiance > 0.0
+				? dot(lightColor, vec3(0.2126, 0.7152, 0.0722)) * attenuation * NdotL
+				  / directIrradiance
+				: 1.0;
+			const float skip = ShadowRaySkip(distance, share);
+			if (ShadowRayKept(skip, uint(i)))
+			{
+				// WR-15: aimed at a point on the source rather than at its
+				// centre, so a dense array of lamps casts a penumbra instead
+				// of a picket fence. `light.Direction.w` is SourceRadius;
+				// zero traces the ray this line always traced.
+				shadow = TraceShadowSoft(v_WorldPos, L, distance,
+										 light.Direction.w, uint(i));
+				// Only the thinned lights lend: a near lamp's shadow is its
+				// own picket, not the deck the far ones share.
+				if (skip > 0.0)
+					lastFarVisible = shadow;
+			}
+			else if (!ShadowRaySkippedLit())
+			{
+				shadow = lastFarVisible;
+			}
+		}
 #else
 		if (kind == 1)
 			shadow = ShadowFactor(v_WorldPos, N, L);

@@ -70,6 +70,11 @@
 //   --camera=x,y,z,d,yaw,pitch   where the editor camera starts (degrees)
 //   --ray-budget=<ms>       hold this GPU frame time by scaling ray counts;
 //                           0 (default) spends the quality rung's full count
+//   --shadow-rays=<shape>,<start>,<end>[,<floor>][,lit]  override the project's
+//                           shadow-ray falloff (WR-17): off, or hard | linear
+//                           | smooth | log | share with the distances in metres
+//   --light-cutoff=<m>      override the project's light cutoff (WR-17): no
+//                           positional light reaches past this many metres
 
 #include "RageV/Renderer/RHI/RHITypes.h"
 #include "RageV/Renderer/RenderSettings.h"
@@ -223,6 +228,20 @@ namespace RageV
 		// with it far. Making the count the variable is what turns that into
 		// a flat frame instead of a visible dip.
 		float RayBudgetMs = 0.0f;
+
+		// --shadow-rays=<shape>,<start>,<end>[,<share>]: the project's shadow-ray
+		// falloff (RenderSettings::ShadowRayFade, WR-17), overridden for one run
+		// so the falloff matrix renders one scene every way without editing the
+		// project between runs. The shape is RenderSettings::ShadowRayFalloff's
+		// order as an integer.
+		bool  HasShadowRayOverride = false;
+		int   ShadowRayShapeOverride = 0;
+		float ShadowRayStartOverride = 0.0f;
+		float ShadowRayEndOverride = 0.0f;
+		float ShadowRayShareOverride = 0.0f;
+		// --light-cutoff=<m>: RenderSettings::LightCutoffDistance for one run.
+		bool  HasLightCutoffOverride = false;
+		float LightCutoffOverride = 0.0f;
 
 		// **--gi-source=baked|realtime.** Which form of indirect light to use,
 		// stated rather than inferred. Without it the only lever is whether a

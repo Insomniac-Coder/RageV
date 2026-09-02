@@ -122,6 +122,30 @@ namespace RageV
 		return best;
 	}
 
+	// **WR-17: how a light's shadow rays thin with its distance.** Under
+	// traced shadows every casting light costs every pixel one ray, and the
+	// night scene's water walks up to 178 lamps -- a third of the frame spent
+	// on shadows that, from half a kilometre, are a picket's width projected
+	// to nothing. The owner's rule: the farther a light, the less it
+	// contributes, so the farther it is the more of its rays may go. A pixel
+	// that skips a ray counts the light lit; which pixels skip is a fixed
+	// dither, so it holds still under no AA and integrates under TAA.
+	//
+	// The shape between the start and end distances is what the falloff
+	// matrix (tools/scripts/shadow_ray_matrix.py) measures. Share is the
+	// physical form: a light whose unshadowed share of the pixel's direct
+	// light is under the floor earns no ray, whatever its distance past the
+	// start.
+	enum class ShadowRayFalloff : uint32_t
+	{
+		Off = 0,
+		Hard,        // every ray to the end distance, none past it
+		Linear,      // the skipped fraction rises linearly from start to end
+		SmoothStep,  // the same, eased at both ends
+		Log,         // most of the thinning early: log2(1 + t)
+		Share,       // by the light's share of the pixel's direct light
+	};
+
 	struct RenderSettings
 	{
 		AntiAliasing AA = AntiAliasing::FXAA;
@@ -394,5 +418,35 @@ namespace RageV
 		// their casters; there is no value that has neither, which is why the
 		// shadow pass also writes back faces.
 		float ShadowNormalOffset = 0.9f;
+
+		// WR-17: see ShadowRayFalloff above. Off traces every ray, which is
+		// what every scene did before this existed. Appended, so nothing
+		// compiled against the earlier layout reads a moved field.
+		ShadowRayFalloff ShadowRayFade = ShadowRayFalloff::Off;
+		// Metres from the shaded point to the light. Under the start every ray
+		// is traced; past the end none is; Share ignores the end.
+		float ShadowRayFadeStart = 150.0f;
+		float ShadowRayFadeEnd = 300.0f;
+		// Share only: the fraction of the pixel's unshadowed direct light
+		// below which a light past the start distance earns no ray.
+		float ShadowRayShare = 0.02f;
+		// The distance shapes: the fraction of a light's rays still traced past
+		// the end -- the aggressive dial. A skipped ray borrows the visibility
+		// of the far rays the pixel did trace, and that estimate is only as
+		// good as its sample: at zero the far group is never sampled and its
+		// shadow (the deck over the water) fills in; at an eighth it holds.
+		float ShadowRayFloor = 0.125f;
+
+		// **WR-17's other lever: a cutoff past which no positional light reaches
+		// at all**, whatever its own range. Owner-set: "a complete cut off for
+		// light sources above a certain distance ... their contribution to the
+		// scene is minimal or negligible." Each light's range is clamped to it
+		// before the cluster lists are built, so a far lamp leaves the cell and
+		// costs a pixel nothing -- no shading, no ray -- and the falloff window
+		// takes it to zero smoothly at the cutoff rather than cutting it. Zero
+		// leaves every light the range it was authored with. Not applied while
+		// baking: the solve sees the lights as authored, which is what the
+		// lighting hash keys on.
+		float LightCutoffDistance = 0.0f;
 	};
 }

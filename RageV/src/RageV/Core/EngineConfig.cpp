@@ -375,6 +375,86 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "light-cutoff" || key == "lightcutoff")
+		{
+			// <metres> -- WR-17's cutoff on how far any positional light reaches,
+			// for one run; 0 leaves the lights their own ranges.
+			try
+			{
+				config.LightCutoffOverride = Math::Max(std::stof(value), 0.0f);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("light-cutoff expects metres; got '{0}'", value);
+				return false;
+			}
+			config.HasLightCutoffOverride = true;
+			return true;
+		}
+
+		if (key == "shadow-rays" || key == "shadowrays")
+		{
+			// <shape>,<start>,<end>[,<share>] -- WR-17's render settings for one
+			// run. The shape is a word, in RenderSettings::ShadowRayFalloff's
+			// order; `off` alone needs no numbers.
+			static const char* const kShapes[] = { "off", "hard", "linear", "smooth", "log", "share" };
+
+			std::string parts[5];
+			size_t count = 0;
+			size_t start = 0;
+			while (count < 5 && start <= value.size())
+			{
+				const size_t comma = value.find(',', start);
+				parts[count++] = value.substr(start, comma == std::string::npos
+														? std::string::npos : comma - start);
+				if (comma == std::string::npos)
+					break;
+				start = comma + 1;
+			}
+
+			int shape = -1;
+			for (int i = 0; i < 6; i++)
+				if (parts[0] == kShapes[i] || (i == 3 && parts[0] == "smoothstep"))
+					shape = i;
+
+			if (shape < 0 || (shape > 0 && count < 3))
+			{
+				RV_CORE_WARN("shadow-rays expects off, or <shape>,<start>,<end>[,<share>] "
+							 "with the shape one of hard, linear, smooth, log, share; got '{0}'",
+							 value);
+				return false;
+			}
+
+			// A trailing `lit` makes a skipped ray count its light lit rather
+			// than borrow the traced far rays' visibility -- the measurement
+			// arm the borrow was judged against. Bit 16 of the shape lane.
+			bool lit = false;
+			float numbers[3] = { 0.0f, 0.0f, 0.0f };
+			try
+			{
+				size_t number = 0;
+				for (size_t i = 1; i < count; i++)
+				{
+					if (parts[i] == "lit")
+						lit = true;
+					else if (number < 3)
+						numbers[number++] = std::stof(parts[i]);
+				}
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("shadow-rays: the distances in '{0}' are not numbers", value);
+				return false;
+			}
+
+			config.HasShadowRayOverride = true;
+			config.ShadowRayShapeOverride = shape + (lit ? 16 : 0);
+			config.ShadowRayStartOverride = numbers[0];
+			config.ShadowRayEndOverride = numbers[1];
+			config.ShadowRayShareOverride = numbers[2];
+			return true;
+		}
+
 		if (key == "camera")
 		{
 			// x,y,z,distance,yaw,pitch -- the editor camera's whole state, which

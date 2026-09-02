@@ -95,6 +95,86 @@ which item moved what, but the table the owner reads is eight rows of
 ms / fps, before and after. The last such measurement (1600x900, Headland)
 is in the first 2026-09-02 section below: 50.4 ms.
 
+## Start here — 2026-09-02 (fourth session): the baseline, and WR-17 built and measured
+
+**Committed locally at the end of the session, not pushed.** The project's
+render settings are untouched, so the scene renders exactly as before
+until the owner picks a setting from WR-17's menu.
+
+### What happened, in order
+
+1. **The baseline the agenda asked for** is in the agenda section above and
+   in `build/bench/before-wr8.json`: eight cameras, 2560x1440, two passes a
+   millisecond apart. Headland 114 ms, Lime Point 132, Deck 15. The water
+   pass is the frame wherever the sea is in view; a water pixel walks up
+   to 178 lights and traces a soft shadow ray to each.
+2. **WR-8 was set aside by the owner before it started** ("why line
+   lights? just use less rays for light sources beyond a certain distance …
+   the fall off pattern needs to be tested"), and **WR-17** was built in its
+   place: `RenderSettings::ShadowRayFade` (Off / Hard / Linear / SmoothStep /
+   Log / Share) with `ShadowRayFadeStart`, `ShadowRayFadeEnd`,
+   `ShadowRayFloor`, `ShadowRayShare`, and `LightCutoffDistance` — one value
+   each, driving every light, per the owner ("no per-light dials"). Flags:
+   `--shadow-rays=<shape>,<start>,<end>[,<floor>][,lit]` and
+   `--light-cutoff=<m>`. The scene block grew one row (`ShadowRayFade`,
+   appended, three mirrors). Off is bit-identical to before.
+3. **The falloff matrix** (`tools/scripts/shadow_ray_matrix.py`, results in
+   `build/shadow_rays/` with every still and amplified diff) ran four arms —
+   skipped rays counted lit; borrowing the mean of the traced far rays; a
+   floor of far rays always traced; borrowing the nearest traced
+   neighbour. The tables and the reading are in RENDERING-REVAMP WR-17.
+
+### What the matrix found (read the item for the numbers)
+
+- **"The farther the lamp, the less it contributes" holds per lamp and
+  fails per group.** Counting skipped rays lit brightened the water under
+  the deck by 70 levels: a hundred negligible lamps behind one slab are not
+  negligible.
+- **A skipped ray must borrow a traced one's visibility, and that only
+  works while the far group is still sampled.** Linear 300/600 — half the
+  far rays kept at 450 m — meets the bar (Headland 0.18–0.32% of pixels
+  moved, none over 6 levels) at −13%. Thin to one in eight and no borrowing
+  rule (mean or neighbour) reconstructs the per-lamp visibility field
+  under the bridge; the residual is 3.5% of the frame either way.
+- **The shape never mattered.** Linear, smoothstep and log are within
+  noise at both distance pairs. The end distance and the floor are the
+  dial.
+- **Far rays are the expensive rays**: keeping one in eight of them kept
+  half their time.
+- **The cutoff is a look, not an error**: it dims the far glitter band
+  (450 m: −32% on Headland, but a third of the Glitter camera's streak
+  band goes).
+
+### What is next, in order
+
+1. **The owner picks a setting** from the menu at the end of WR-17
+   (recommendation there: linear 300/600 as the default, the cutoff by eye).
+2. The after-table: `python tools/scripts/bench_night.py --label after-wr17
+   --extra "--shadow-rays=linear,300,600 --light-cutoff=0"` (or the pick).
+3. The flicker protocol for the pick under no AA / MSAA / TAA on Headland
+   and Pier (`check_glint_flicker.py`; a runner is described in WR-17).
+   The dither is fixed per pixel and walks only under TAA by construction,
+   which is the claim to measure.
+4. A look in the editor: the four new rows sit in Render Settings under
+   ray tracing (the registry drives them), and `Light cutoff` beside
+   `Distance`.
+5. Then WR-10 (the traced-hit light walk: reflections and refraction
+   shade every hit against all 191 lights, no clusters) and WR-16.
+
+### Traps this session paid for
+
+- **`cmake --build … -- /m` under Git Bash becomes `M:/`** and MSBuild
+  fails with MSB1008 — after `--clean-first` has already deleted every
+  binary. Use `-- -m`.
+- **The shell's working directory drifts** after a `cd` inside a chained
+  command; a background `cmake --build build` then fails with "could not
+  load cache". Absolute paths for anything that runs detached.
+- **A background command's final `grep -c` that finds nothing exits 1**
+  and the task reports failure for a build that succeeded.
+- **The matrix is only valid while nothing rebuilds**: every executable's
+  staged shader is what runs, so a build mid-matrix swaps the shader under
+  the benchmark. Edit sources freely, build only between arms.
+
 ## Start here — 2026-09-02 (third session): the flicker, measured per AA mode, half fixed
 
 **Committed at the end of this session together with the second session's

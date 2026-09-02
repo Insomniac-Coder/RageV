@@ -214,6 +214,7 @@ feature is wanted on both backends and the GL path needs its own mechanism
 | WR-14 | Water foam at night | BOTH | ~0 | 0.5–1 d | WR-1, WR-4 |
 | WR-15 | ~~Soft shadows from dense point-light arrays~~ ✅ **judged good by the owner 2026-09-02**; sampling rebuilt the same day so it no longer needs TAA to integrate it (see the item) | VK-only | +2.3 ms measured | done | WR-8 helps |
 | WR-16 | ReSTIR DI: reservoir light sampling for the 128-lamp direct lighting | VK-only | target: replace ~15 ms of shadow tracing with ~1 ray/px | 2–3 wk | WR-10 complements |
+| WR-17 | Shadow rays thin with distance (+ a light cutoff): render settings, one dial for every light — 🔨 **built and measured 2026-09-02, the setting is the owner's pick (menu in the item)** | VK-only | measured: −13% lossless, −16% to −56% with a visible change (table in the item) | done + the matrix | — |
 
 **Done so far: WR-0, WR-1, WR-2, WR-3, WR-4, WR-13, WR-15, and WR-5's lamp
 sprites.** The order that remains starts at WR-5's bloom audit and WR-6.
@@ -1403,6 +1404,236 @@ correctness against a brute-force all-lights reference on a still frame, and
 the frame cost measured interleaved three pairs against today's ~15 ms. It
 has to *beat* the number above to be worth its complexity — say so plainly if
 it does not. **[OWNER GATE]**
+
+---
+
+## WR-17 · Shadow rays thin with distance — 🔨 **built and measured 2026-09-02 (fourth session); the setting is the owner's pick, menu at the end of the item**
+
+**Owner-set 2026-09-02, in place of WR-8 as the first frame-time item.** The
+owner's question was why area lights at all: "how about we just use less
+rays for light sources beyond a certain distance … the farther they are the
+lesser they contribute." WR-8's LTC line lights would have bought frame time
+only by collapsing the far lamp row into a few lines, which changes the
+picture (per-lamp streak columns become a band); this keeps every light as
+it is and thins only the rays. **One render setting drives every light** —
+the owner refused per-light dials — and the falloff shape is chosen by
+measurement, not by argument.
+
+**Why it is the first item.** The 1440p baseline (HANDOFF, fourth session):
+a water pixel walks up to 178 of the 191 lights and traces a soft shadow
+ray (WR-15) to each; scaling the third session's isolation, shadow rays
+are about a third of the sea cameras' 90–130 ms frame. From half a
+kilometre, a picket's shadow projects to nothing.
+
+**Mechanism** (`pbr_fragment.glsl`, `ShadowRaySkip` / `ShadowRayKept`;
+`RenderSettings::ShadowRayFade` + start / end / share; `--shadow-rays=`
+for a run). Per light in the lit loop, on the traced path only: a skip
+fraction from the light's distance to the shaded point, and a **fixed
+per-pixel dither** (interleaved gradient noise, its own offset, R2-shifted
+per light, walked per frame only under a temporal filter — WR-15's rule)
+decides whether this pixel traces the ray or counts the light lit. Under
+no AA / MSAA the pattern holds still; under TAA it integrates to the
+fraction. Shapes: Hard (all rays to the end, none past), Linear,
+SmoothStep, Log (`log2(1+t)`, most of the thinning early), and **Share** —
+the physical form of the owner's rule: a light whose unshadowed share of
+the pixel's direct diffuse irradiance is under a floor earns no ray, past a
+start distance that protects the deck's own lamps. Share costs a cheap
+pre-loop over the cell's lights (falloff, cone, cosine; no BRDF, no ray),
+uniform-branched off under every other shape. Directional lights are
+untouched. Off is bit-identical to before.
+
+**The second lever, owner-set the same evening: a complete cutoff.** "A
+complete cut off for light sources above a certain distance ... their
+contribution to the scene is minimal or negligible."
+`RenderSettings::LightCutoffDistance` (`--light-cutoff=<m>`) clamps every
+positional light's range on the frame's copy before the cluster grid bins
+it, so a lamp past the cutoff leaves every cell and every pixel's loop --
+no shading, no ray -- and the existing falloff window takes it to zero
+smoothly there. The scene's ranges and the lighting hash are untouched, and
+the clamp is skipped while baking. The caveat is what the 600 m range was
+set for: the Headland streaks' mirror points sit 400-600 m from the lamps,
+so a cutoff under that removes them, and the diff will show where.
+
+**What a skipped ray counts as — found by the first matrix rows, the same
+evening.** The first landing counted a skipped light *lit*. Hard 150/300
+on Headland: 114 → 83 ms, and the diff image was one clean band — the
+water under and beside the deck brighter by up to 73 levels (5.0% of the
+frame over 2 levels, 2.2% over 6; Pier 10.3% / 2.9%). The far lamps' rays
+that were skipped were exactly the rays the deck itself was blocking:
+each far lamp is negligible alone, a hundred of them behind one slab are
+not, and "lit" put their sum back. The owner's rule holds per light and
+fails per group. So a skipped light now **borrows** the mean visibility
+of the far rays this pixel did trace (`farTraced` / `farVisible` in the
+lit loop; only thinned lights feed the pool, a near lamp's picket is not
+the deck) — the lamps sit along one deck, their visibility is correlated,
+and the traced fraction estimates the group. Before any far ray was
+traced it is lit. The flag's trailing `lit` token keeps the old arm for
+measurement (bit 16 of the shape lane); the matrix's `+borrow` rows are
+the ones the shape is judged on.
+
+**The matrix** (`tools/scripts/shadow_ray_matrix.py`): each shape at a
+gentle and an aggressive distance pair (150/300, 300/600; share floors 2%
+and 5%), the cutoff alone at 450 and 300 m, and linear 300/600 with the
+450 m cutoff, on Headland, Pier and Glitter; frame time from `--benchmark`,
+and a still at frame 60 with the clock pinned, diffed per pixel against
+the untouched frame (pixels moved by more than 2 and more than 6 levels;
+the amplified difference image written beside the stills). Bar: the diff
+near zero, per the standing rule. Then the winner gets the full
+eight-camera table and the flicker protocol under all three AA modes.
+
+**Results, first arm (skipped = lit) and the cutoffs, 2026-09-02.** 150
+frames per cell at 2560x1440; ms, then the percentage of pixels moved by
+more than 2 and more than 6 levels of 255 against the untouched still.
+
+| variant | Headland | Pier | Glitter |
+|---|---|---|---|
+| off | 114.0 / ref | 100.3 / ref | 107.3 / ref |
+| hard 150/300 | 83.4 / 5.00 / 2.17 | 81.0 / 10.31 / 2.88 | 74.2 / 2.71 / 0.99 |
+| hard 300/600 | 115.4 / 0.00 / 0.00 | 100.7 / 0.00 / 0.00 | 108.1 / 0.00 / 0.00 |
+| linear 150/300 | 81.6 / 6.77 / 3.74 | 76.7 / 23.51 / 9.65 | 71.7 / 3.02 / 1.29 |
+| linear 300/600 | 100.4 / 1.84 / 0.21 | 92.7 / 2.45 / 0.80 | 94.1 / 2.14 / 0.54 |
+| smooth 150/300 | 81.7 / 6.67 / 3.62 | 77.1 / 23.04 / 9.29 | 71.9 / 2.99 / 1.27 |
+| smooth 300/600 | 99.4 / 1.25 / 0.09 | 93.0 / 1.97 / 0.52 | 92.7 / 2.03 / 0.45 |
+| log 150/300 | 81.9 / 6.83 / 3.80 | 76.7 / 25.31 / 10.40 | 71.9 / 3.04 / 1.31 |
+| log 300/600 | 98.7 / 2.37 / 0.42 | 92.3 / 2.79 / 1.10 | 92.3 / 2.26 / 0.63 |
+| share 2% | 98.4 / 5.64 / 2.72 | 87.8 / 20.10 / 8.57 | 93.5 / 2.81 / 1.05 |
+| share 5% | 97.4 / 7.01 / 3.75 | 84.5 / 32.57 / 12.42 | 88.5 / 3.10 / 1.27 |
+| cutoff 450 m | 77.4 / 4.63 / 0.89 | 78.7 / 3.61 / 1.55 | 62.8 / 9.41 / 3.59 |
+| cutoff 300 m | 50.4 / 6.24 / 3.23 | 56.3 / 15.08 / 4.66 | 38.9 / 10.89 / 4.09 |
+| linear 300/600 + cutoff 450 | 75.3 / 4.35 / 0.69 | 76.8 / 3.15 / 1.37 | 59.7 / 9.43 / 3.58 |
+
+What the arm says: (1) hard 300/600 is a clean null — the lamps' range is
+600 m, so a cutoff there changes nothing, and the pipeline reports exactly
+zero. (2) Under "skipped = lit" the *shape* barely matters: every 150/300
+shape lands at 81–83 ms on Headland with 6.7–6.8% moved, because nearly
+every ray past 300 m goes either way; what matters is the end distance and
+what a skipped ray counts as. The diff is one band — the water under and
+beside the deck brighter (Pier, which sits under the deck, moves 23–33%).
+(3) Share buys the least for its change: its pre-loop costs, and a light's
+share is small exactly where a hundred small shares add up. (4) The cutoff
+is a different kind of change: its diff is *darker*, the far glitter band
+along the deck's reflection dimming, and it leaves the deck's shadow alone
+— 450 m takes Headland to 77 ms with 0.9% over 6 levels, but removes a
+third of the Glitter camera's mid band, which was placed 500 m out to see
+that streak.
+
+**Second arm: a skipped light borrows the mean visibility of the far rays
+the pixel did trace.** Same protocol.
+
+| variant | Headland | Pier | Glitter |
+|---|---|---|---|
+| linear 150/300 + borrow | 80.4 / 5.42 / 1.68 | 76.3 / 9.99 / 5.34 | 71.3 / 2.95 / 1.22 |
+| smooth 150/300 + borrow | 81.5 / 5.42 / 1.80 | 77.0 / 10.99 / 5.82 | 72.3 / 2.94 / 1.22 |
+| log 150/300 + borrow | 82.4 / 5.49 / 1.79 | 77.2 / 11.16 / 5.57 | 72.0 / 2.97 / 1.24 |
+| **linear 300/600 + borrow** | **99.6 / 0.18 / 0.00** | **92.5 / 0.53 / 0.01** | 94.0 / 1.86 / 0.41 |
+| log 300/600 + borrow | 99.4 / 0.34 / 0.00 | 92.8 / 0.76 / 0.02 | 93.0 / 1.98 / 0.50 |
+| share 2% + borrow | 98.8 / 3.15 / 0.54 | 88.5 / 12.15 / 5.92 | 94.1 / 2.56 / 0.83 |
+| share 5% + borrow | 98.1 / 4.45 / 1.66 | 85.0 / 17.56 / 8.66 | 89.7 / 2.87 / 1.07 |
+| log 150/300 + borrow + cutoff 450 | 63.4 / 5.21 / 2.03 | 65.0 / 8.94 / 4.27 | 45.3 / 9.68 / 3.79 |
+
+What it says: (1) **Borrowing works where the far group is still sampled
+and fails where it is not.** Linear 300/600 thins the 300–600 m lamps and
+still traces half of them at 450 m: Headland 0.18% moved and nothing over
+six levels, Pier 0.53% and 0.01% — the bar. Every 150/300 shape reaches a
+skip of 1 at its end, so past 300 m no far ray is traced, the pool holds
+only the 150–300 m lamps, and those are lit where the far ones sit behind
+the deck: the large changes halved (Pier 9.7 → 5.3%) and no more. Hence
+the **floor** (`ShadowRayFloor`, the w lane for the distance shapes): a
+fraction of far rays always traced, so the estimate is consistent however
+far the light; it is the aggressive dial. (2) **Glitter's residual is not
+the deck.** That camera reads the far streaks, and each far lamp's streak
+is modulated by the railing's soft shadow (WR-15) — per-lamp information
+no borrowed mean recovers; 1.9% over 2 levels and 0.4% over 6 is the price
+of not tracing it. (3) Share is out: its pre-loop costs as much as the
+600 m shapes and it changes more, because a light's share is small exactly
+where a hundred small shares add up. (4) The shape between start and end
+never mattered more than a millisecond or a tenth of a percent: linear,
+smoothstep and log are within noise of each other at both distance pairs.
+Linear stays as the default for being the one with nothing to explain.
+
+**Third arm: the floor, still borrowing the global mean.** A fraction of a
+far light's rays always traced past the end.
+
+| variant | Headland | Pier | Glitter |
+|---|---|---|---|
+| linear 150/300, floor 1/8 | 96.0 / 3.95 / 1.29 | 84.6 / 5.90 / 2.35 | 85.4 / 2.65 / 0.98 |
+| linear 150/300, floor 1/16 | 93.7 / 3.48 / 1.39 | 83.7 / 7.81 / 3.46 | 83.0 / 2.76 / 1.06 |
+| linear 150/300, floor 1/32 | 90.3 / 3.35 / 1.47 | 81.7 / 8.48 / 4.09 | 79.2 / 2.81 / 1.09 |
+| log 150/300, floor 1/8 | 97.0 / 4.05 / 1.39 | 84.6 / 6.64 / 2.44 | 84.8 / 2.67 / 0.99 |
+| hard 150/300, floor 1/8 | 97.7 / 2.93 / 0.57 | 88.3 / 4.73 / 1.34 | 86.9 / 2.40 / 0.81 |
+| linear 150/300, floor 1/8 + cutoff 450 | 70.1 / 5.66 / 2.16 | 69.6 / 6.90 / 2.95 | 51.6 / 9.63 / 3.68 |
+
+Two things it says. **The far rays are the expensive ones**: keeping one
+in eight of them costs 16 ms of the 34 the thinning saved on Headland
+(80 → 96), because a ray toward a lamp half a kilometre away over the
+water traverses far more of the bridge than a ray to the lamp overhead.
+And **the global mean fails the other way once the far group is
+sampled**: Headland's diff gained a *darker* band on the foreground water
+(2.5% of the frame) — a pixel that sees the lamps on its side of the tower
+and not the ones behind it averages both groups, and the visible lamps
+pay for the blocked ones. Hence the local borrow (fourth arm): a skipped
+light takes the visibility of the last thinned light the pixel traced —
+consecutive light indices are consecutive stations along the deck, and
+neighbours share their occluder.
+
+**Fourth arm: the local borrow** (a skipped light takes the visibility of
+the last thinned light this pixel traced; the rule now in the shader).
+
+| variant | Headland | Pier | Glitter |
+|---|---|---|---|
+| linear 150/300, no floor, local | 81.8 / 5.60 / 2.13 | 77.2 / 9.60 / 5.04 | 72.1 / 2.95 / 1.23 |
+| linear 150/300, floor 1/8, local | 95.8 / 3.53 / 1.57 | 84.7 / 4.35 / 1.71 | 85.0 / 2.65 / 0.97 |
+| linear 150/300, floor 1/16, local | 92.9 / 3.47 / 1.73 | 83.0 / 6.56 / 2.81 | 82.3 / 2.77 / 1.06 |
+| **linear 300/600, local** | **100.3 / 0.32 / 0.01** | **93.6 / 0.59 / 0.03** | **94.3 / 1.93 / 0.41** |
+
+It did not change the answer: at one traced ray in eight the residual is
+the same size as under the global mean and only its sign moved (the mean
+darkened lamps that were visible, the neighbour brightens ones that were
+blocked; Pier improved 5.9 → 4.4%, Headland 3.9 → 3.5%). **The
+per-lamp visibility field at a water pixel under the bridge — the deck
+edge, the pickets, the towers, each lamp's ray on its own path — cannot be
+reconstructed from one sample in eight by any borrowing rule. From one in
+two it can.** That is the finding of the whole matrix, and it is a
+property of the scene, not of the shape: the shape between start and end
+never mattered, the fraction of far rays traced is everything.
+
+**The menu, for the owner to pick from** (Headland / Pier / Glitter, ms
+and the two diff percentages; the untouched frame is 114 / 100 / 107):
+
+| setting | Headland | Pier | Glitter | what changes |
+|---|---|---|---|---|
+| **linear 300/600** (floor moot) | 100.3 / 0.32 / 0.01 | 93.6 / 0.59 / 0.03 | 94.3 / 1.93 / 0.41 | nothing the eye finds: −13% for a diff at the floor |
+| linear 150/300, floor 1/8 | 95.8 / 3.53 / 1.57 | 84.7 / 4.35 / 1.71 | 85.0 / 2.65 / 0.97 | speckle on the dark water and the glitter band, −16% |
+| linear 150/300, no floor | 81.8 / 5.60 / 2.13 | 77.2 / 9.60 / 5.04 | 72.1 / 2.95 / 1.23 | the deck's shadow on the water fills in, −28% |
+| light cutoff 450 m alone | 77.4 / 4.63 / 0.89 | 78.7 / 3.61 / 1.55 | 62.8 / 9.41 / 3.59 | the far glitter band dims; Glitter loses a third of its streak band, −32% |
+| light cutoff 300 m alone | 50.4 / 6.24 / 3.23 | 56.3 / 15.08 / 4.66 | 38.9 / 10.89 / 4.09 | the same, harder, −56% |
+| linear 300/600 + cutoff 450 | 75.3 / 4.35 / 0.69 | 76.8 / 3.15 / 1.37 | 59.7 / 9.43 / 3.58 | the cutoff's change, with the gentle thinning's saving on top (lit arm; re-measure under borrow) |
+
+Recommendation, not a decision: **linear 300/600 as the project default
+now** — it is free by the standing bar — and the cutoff as the aggressive
+dial the owner sets by eye against the far-streak references, since its
+change is a *look* (how far the glitter reaches) rather than an error.
+The project's render settings are unchanged in this commit (`ShadowRayFade:
+Off`, `LightCutoffDistance: 0`); nothing renders differently until a
+setting is chosen. **[OWNER GATE]** — then the eight-camera after-table
+(`bench_night.py --label after-wr17 --extra "--shadow-rays=… --light-cutoff=…"`)
+and the flicker protocol under all three AA modes for the chosen setting
+(the dither is fixed per pixel and walks only under TAA, by construction,
+but it has to be measured, not assumed).
+
+**Cost accounting the matrix settled.** Rays to far lamps are the
+expensive rays: over the water toward a lamp half a kilometre away a ray
+traverses most of the bridge, where a ray to the lamp overhead ends at
+once. Keeping one in eight of them kept half their time (Headland 80 →
+96 ms). So the frame-time lever is the *end* of the thinning and the
+cutoff, and the floor is what the picture costs — the two are the same
+dial seen from both sides.
+
+**Traps.** A random draw instead of the dither blinks under no AA (WR-15's
+first landing). The share pre-loop duplicates the loop's falloff
+arithmetic on purpose, so the loop's own bits stay what they were. The
+scene block grew a row (`ShadowRayFade`, appended) in all three mirrors.
+`--frame-time=0` is the wall clock: pin with 0.000001 for the stills.
 
 ---
 

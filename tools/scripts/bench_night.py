@@ -50,11 +50,11 @@ def editor_running():
     return "RageVEditor" in out
 
 
-def run(camera_flag, frames, width, height, scene):
+def run(camera_flag, frames, width, height, scene, extra):
     command = [str(RUNTIME), f"--project={ROOT / 'SampleProject'}", f"--scene={scene}",
                "--rhi=vulkan", "--render-defaults=off", "--vsync=off",
                f"--width={width}", f"--height={height}", f"--benchmark={frames}",
-               f"--camera={camera_flag}"]
+               f"--camera={camera_flag}"] + extra
     started = time.time()
     proc = subprocess.run(command, cwd=RUNTIME.parent, capture_output=True, text=True,
                           timeout=900, errors="replace")
@@ -150,6 +150,9 @@ def main():
     parser.add_argument("--cameras", default="all", help="comma-separated names, or all")
     parser.add_argument("--out", default=str(ROOT / "build" / "bench"))
     parser.add_argument("--table", help="print the table from an earlier run's JSON and exit")
+    parser.add_argument("--extra", default="",
+                        help="further runtime flags, space-separated, e.g. "
+                             "\"--shadow-rays=log,150,300 --light-cutoff=450\" (WR-17)")
     args = parser.parse_args()
 
     if args.table:
@@ -169,11 +172,12 @@ def main():
     for pass_ in args.passes.split(","):
         for name, flag in wanted:
             code, stdout, stderr, seconds = run(flag, args.frames, args.width, args.height,
-                                                args.scene)
+                                                args.scene, args.extra.split())
             (out / f"{args.label}_{pass_}_{name.replace(' ', '')}.log").write_text(
                 stdout + "\n--- stderr ---\n" + stderr, encoding="utf-8")
             parsed = parse(stdout)
-            parsed.update(camera=name, pass_=pass_, exit=code, wall=round(seconds, 1), flag=flag)
+            parsed.update(camera=name, pass_=pass_, exit=code, wall=round(seconds, 1), flag=flag,
+                          extra=args.extra)
             results.append(parsed)
             mean = parsed.get("mean")
             print(f"[{pass_}] {name:<10} exit {code}  {seconds:5.1f}s  "

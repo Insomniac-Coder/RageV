@@ -1565,6 +1565,8 @@ namespace
 		// Off, then the two the rasterised dial uses -- rays, then resolution.
 		const char* const kRayDetailNames[] = { "Off", "Low", "Medium", "High" };
 		const char* const kRayBudgetNames[] = { "Off", "Absolute ray time", "Fractional" };
+		// WR-17, in RenderSettings::ShadowRayFalloff order.
+		const char* const kShadowRayFalloffNames[] = { "Off", "Hard", "Linear", "Smooth step", "Log", "Share" };
 
 		const char* const kFocusModeNames[] = { "Manual", "Target" };
 		const char* const kMsaaCountNames[] = { "2x", "4x", "8x" };
@@ -1644,6 +1646,24 @@ namespace
 		{
 			const auto* render = static_cast<const RenderSettings*>(block);
 			return render->ShadowsEnabled && !RayTracingOn(block);
+		}
+
+		// WR-17's dials mean nothing without traced shadows; the end distance
+		// nothing under Share, and the share floor nothing under anything else.
+		bool ThinsShadowRays(const void* block)
+		{
+			return RayTracingOn(block)
+				&& static_cast<const RenderSettings*>(block)->ShadowRayFade != ShadowRayFalloff::Off;
+		}
+		bool ThinsByDistance(const void* block)
+		{
+			return ThinsShadowRays(block)
+				&& static_cast<const RenderSettings*>(block)->ShadowRayFade != ShadowRayFalloff::Share;
+		}
+		bool ThinsByShare(const void* block)
+		{
+			return ThinsShadowRays(block)
+				&& static_cast<const RenderSettings*>(block)->ShadowRayFade == ShadowRayFalloff::Share;
 		}
 
 		bool HasColorLut(const void* block)
@@ -1983,6 +2003,65 @@ namespace
 							"Starving them helps nothing -- rays are a large part of "
 							"a traced frame by design -- so this is a ceiling on "
 							"their share, not a target to sit at.")))),
+
+				// WR-17: shadow rays thin with distance, one dial for every light.
+				Field<&RenderSettings::ShadowRayFade>("ShadowRayFade",
+					Named("Shadow ray falloff", OnlyWhen(RayTracingOn,
+						Enum(kShadowRayFalloffNames,
+							"How a light's shadow rays thin with its distance from the "
+							"surface. Every casting light costs every pixel one ray, "
+							"and a sea under a hundred lamps pays for all of them; "
+							"the farther a light the less it contributes, so the "
+							"farther it is the more of its rays a pixel may skip and "
+							"count lit. A fixed dither decides which pixels skip, so "
+							"it holds still without a temporal filter and integrates "
+							"under TAA.\n\n"
+							"Off traces every ray. Hard traces every ray to the end "
+							"distance and none past it. Linear, Smooth step and Log "
+							"thin between the start and the end, Log most of it "
+							"early. Share skips by the light's share of the pixel's "
+							"direct light instead of its distance, past the start.")))),
+
+				Field<&RenderSettings::ShadowRayFadeStart>("ShadowRayFadeStart",
+					Named("Fade start", OnlyWhen(ThinsShadowRays,
+						Drag(1.0f, 0.0f, 5000.0f,
+							"Metres from the surface to the light under which every "
+							"ray is traced. Keep it past the deck's own lamps, or the "
+							"roadway loses its picket shadows.")))),
+
+				Field<&RenderSettings::ShadowRayFadeEnd>("ShadowRayFadeEnd",
+					Named("Fade end", OnlyWhen(ThinsByDistance,
+						Drag(1.0f, 0.0f, 5000.0f,
+							"Metres past which no ray is traced and every light is "
+							"counted lit. The aggressive dial: the closer to the "
+							"start, the more of the frame comes back.")))),
+
+				Field<&RenderSettings::ShadowRayFloor>("ShadowRayFloor",
+					Named("Ray floor", OnlyWhen(ThinsByDistance,
+						Drag(0.005f, 0.0f, 1.0f,
+							"The fraction of a far light's rays still traced past the "
+							"fade end. The rays a pixel skips borrow the visibility of "
+							"the far rays it did trace, so this is how well the far "
+							"lamps' shadow is sampled: at 0 it is never sampled and the "
+							"deck's shadow on the water fills in; an eighth holds it. "
+							"This is the aggressive dial.")))),
+
+				Field<&RenderSettings::ShadowRayShare>("ShadowRayShare",
+					Named("Share floor", OnlyWhen(ThinsByShare,
+						Drag(0.001f, 0.0f, 1.0f,
+							"The fraction of the pixel's unshadowed direct light below "
+							"which a light earns no ray. 0.02 skips lights under two "
+							"percent; the thinning ramps up to it.")))),
+
+				Field<&RenderSettings::LightCutoffDistance>("LightCutoffDistance",
+					Named("Light cutoff", Drag(1.0f, 0.0f, 10000.0f,
+						"Metres past which no positional light reaches, whatever its "
+						"own range: its falloff windows to zero there and it leaves the "
+						"cluster lists, so a far lamp costs a pixel nothing at all. "
+						"0 leaves every light its range. Not applied while baking, so "
+						"a bake keys on the lights as authored.\n\n"
+						"Mind what a range was set for: the night scene's lamps reach "
+						"600 m because their streaks on the water need it."))),
 
 				Field<&RenderSettings::ShadowDistance>("ShadowDistance",
 					Named("Distance", OnlyWhen(UsesCascades,

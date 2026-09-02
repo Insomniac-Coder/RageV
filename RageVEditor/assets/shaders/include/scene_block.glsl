@@ -110,6 +110,11 @@ layout(set = 0, binding = 0) uniform SceneData
 	vec4 ProbeCount;              // x = how many rows are real
 	vec4 ProbePlacement[15];
 	vec4 ProbeSlot[15];
+
+	// WR-17: shadow rays thin with distance. Read by the fragment stage only;
+	// declared here because this block is mirrored by hand and OpenGL links
+	// both stages into one program. x = shape, y = start, z = end, w = share.
+	vec4 ShadowRayFade;
 } u_Scene;
 
 // Per instance, indexed by the draw's instance number.

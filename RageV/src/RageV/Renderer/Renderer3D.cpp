@@ -202,6 +202,12 @@ namespace RageV
 			Vec4 ProbeCount{ 0.0f };
 			Vec4 ProbePlacement[15]{};
 			Vec4 ProbeSlot[15]{};
+
+			// WR-17: shadow rays thin with distance. x = the falloff shape,
+			// y = start, z = end, w = the share floor. Appended, so every
+			// offset above is unchanged; mirrored in scene_block.glsl and
+			// pbr_fragment.glsl.
+			Vec4 ShadowRayFade{};
 		};
 
 		// Where a batch starts in the instance buffer. The model matrix used to
@@ -2852,6 +2858,24 @@ namespace RageV
 		for (uint32_t index : s_Data->LightOrder)
 			s_Data->Ordered.push_back(lights[index]);
 
+		// **WR-17: the light cutoff.** Clamped on the frame's own copy, before
+		// the cluster grid bins by range and before the range reaches the
+		// shader, so a lamp past the cutoff leaves every cell and every pixel's
+		// loop at once -- the scene's lights keep the ranges they were authored
+		// with, and so does the lighting hash. Left alone while baking: the
+		// solve must see the lights the hash describes.
+		{
+			const EngineConfig& config = EngineConfig::Get();
+			const float cutoff = config.HasLightCutoffOverride ? config.LightCutoffOverride
+															   : render.LightCutoffDistance;
+			if (cutoff > 0.0f && !config.BakeLighting && !config.ForceLightingBake)
+			{
+				for (LightRenderData& light : s_Data->Ordered)
+					if (light.Type != Light::LightType::Directional)
+						light.Range = Math::Min(light.Range, cutoff);
+			}
+		}
+
 		s_Data->LightScratch.clear();
 		s_Data->LightScratch.reserve(lights.size());
 
@@ -2910,6 +2934,20 @@ namespace RageV
 		s_Data->Scene.CameraForward =
 			Vec4(Math::Normalize(Vec3(cameraTransform * Vec4(0, 0, -1, 0))), 0.0f);
 		s_Data->Scene.ShadowParams = Vec4(0.0f, 0.0f, 0.0f, -1.0f);
+
+		// WR-17: the render settings' shadow-ray falloff, or the run's
+		// --shadow-rays override, into the block's last row. Sent under maps
+		// too; the shader reads it only on the traced path.
+		{
+			const EngineConfig& config = EngineConfig::Get();
+			s_Data->Scene.ShadowRayFade = config.HasShadowRayOverride
+				? Vec4((float)config.ShadowRayShapeOverride, config.ShadowRayStartOverride,
+					   config.ShadowRayEndOverride, config.ShadowRayShareOverride)
+				: Vec4((float)(uint32_t)render.ShadowRayFade, render.ShadowRayFadeStart,
+					   render.ShadowRayFadeEnd,
+					   render.ShadowRayFade == ShadowRayFalloff::Share ? render.ShadowRayShare
+																	   : render.ShadowRayFloor);
+		}
 
 		const uint32_t cascadeCount = ShadowMap::HasCascades() ? ShadowMap::GetCascadeCount() : 0;
 		if (s_Data->RayShadowsOn)
