@@ -213,6 +213,7 @@ feature is wanted on both backends and the GL path needs its own mechanism
 | WR-13 | Specular antialiasing (Tokuyoshi–Kaplanyan) — lands WITH WR-8 | BOTH | few ALU/lit px | 1 d | — |
 | WR-14 | Water foam at night | BOTH | ~0 | 0.5–1 d | WR-1, WR-4 |
 | WR-15 | Soft shadows from dense point-light arrays (tower-base streak fan) | VK-only | untested | 3–5 d (design first) | WR-8 helps |
+| WR-16 | ReSTIR DI: reservoir light sampling for the 128-lamp direct lighting | VK-only | target: replace ~15 ms of shadow tracing with ~1 ray/px | 2–3 wk | WR-10 complements |
 
 **Recommended order:** WR-0 → WR-1 → WR-2 → WR-3 → WR-4 → WR-5 → WR-6 →
 WR-7 → WR-10 → WR-13+WR-8 → WR-9 → WR-14 → WR-11 → WR-12. Rationale: the
@@ -236,6 +237,46 @@ cluster-bounded, grid likely net-negative, glare/finishers <1 combined).
 **Target: hold 60 fps at 2560×1600 — stay under 16.6 ms.** Costs labelled
 "inferred" must be measured (interleaved, three pairs) before they anchor
 any ordering decision.
+
+> ### ⚠ The 12.6 ms above is a RAY-TRACING-OFF number. Measured 2026-09-02.
+>
+> The owner saw 46 ms in the editor and asked what was in the frame. Measured
+> on the committed night scene, `--benchmark`, Vulkan, **1600×900** — a third
+> of the pixels the 12.6 ms figure quotes:
+>
+> | configuration | frame | water (Transparent) | Scene |
+> |---|---:|---:|---:|
+> | as committed (RT on) | **50.4 ms** (20 fps) | 32.9 | 16.5 |
+> | `--raytracing=off` | **13.6 ms** (74 fps) | 6.7 | 5.5 |
+>
+> **13.6 ms with RT off at 1600×900 is what the plan's "12.6 ms" actually
+> describes.** With ray tracing on — which is how the project is configured
+> and how every capture in this plan was taken — the frame is 50 ms at a
+> third of the stated resolution. The budget the WR items are ranked against
+> ("~2.5-3 ms of adds on a 12.6 ms frame") is therefore measured against a
+> frame nobody is looking at, and **the 60 fps target is already missed by
+> 3× before a single WR item lands.** Re-baseline before using any of the
+> per-item budgets to sequence work.
+>
+> Where the ~37 ms of ray tracing goes, isolated one effect at a time
+> (same scene, same camera, one flag changed per run):
+>
+> | effect | cost | where |
+> |---|---:|---|
+> | RT shadows | **~15 ms** | ~8 scene, ~7 water |
+> | RT water refraction | **~13 ms** | all water (`RayTracedWaterRefraction`) |
+> | RT reflections | **~9 ms** | ~6 water, ~3 scene |
+> | RT ambient occlusion | ~0.1 ms | enabled, negligible |
+> | RT global illumination | 0 ms | never runs; `RayTracedGiSource: Baked` |
+>
+> **Shadows are the single biggest item, and the cause is structural, not a
+> tuning error: 128 sodium lamps all cast shadows, the engine traces every
+> casting light with no cap, and the sea fills most of the frame — so most
+> screen pixels trace shadow rays toward many lamps each.** That is WR-10's
+> "walks every light" problem, arriving in direct shadows before GI. It is
+> also the same design that produces WR-15's shadow-streak fan: one fix
+> plausibly serves both. Neither AO nor GI is worth touching for
+> performance — there is nothing there to win.
 
 ---
 
@@ -978,11 +1019,86 @@ shadows changes the picture's whole night character, not just one artifact.
 
 ---
 
+## WR-16 · ReSTIR DI for the lamp array
+
+**Owner-set 2026-09-02.** This plan originally deferred ReSTIR (see the
+rejected list below, which is now amended rather than deleted — the reasoning
+there was sound on the evidence it had). Two things changed: the owner wants
+it, and a measurement arrived that the original decision did not have.
+
+**Goal.** Shade the 128 lamps' direct lighting from roughly one shadow ray
+per pixel instead of one per light per pixel, by keeping and reusing light
+samples over time and across neighbouring pixels.
+
+**The evidence that reopened it (measured 2026-09-02, see the frame-budget
+box in §2).** Ray-traced *shadows* are the single largest item in the night
+frame — **~15 ms of ~50 ms**, more than refraction (13) or reflections (9).
+The cause is structural: every lamp casts, the engine traces every casting
+light with no cap, and the sea fills most of the frame, so a typical pixel
+traces shadow rays toward many lamps. That is precisely the workload ReSTIR
+DI exists for, and it is not a workload the grid+CDF answer in WR-10 fully
+solves — a grid tells a pixel *which* lights are near, but a pixel next to
+128 near lamps still has 128 candidates to shadow.
+
+**Scope: DI only. GI stays rejected**, and for the unchanged original
+reason — a second temporal reuse scheme fights the GI denoiser's own
+history, and this engine has one already (`gi_denoise.rvshader`). Do not
+bundle them.
+
+**Design (Bitterli et al. 2020; the SIGGRAPH 2023 course is the current
+reference).**
+1. **Candidate generation** per pixel: sample a handful of lights (8–32)
+   proportional to something cheap — `power/d²`, or WR-10's per-cell CDF if
+   that lands first. This is where WR-10 and this item cooperate rather than
+   compete.
+2. **A reservoir** per pixel: one surviving sample plus its weight and a
+   sample count `M`, ~16 bytes. Reservoir sampling picks the survivor in one
+   pass without storing the candidates.
+3. **Temporal reuse**: combine with the reservoir this pixel held last frame,
+   reprojected. **Cap `M` (~8–20)** or old samples dominate and the image
+   stops responding to change.
+4. **Spatial reuse**: combine with a few neighbours' reservoirs, one or two
+   passes. Neighbours must be rejected on normal and depth or light leaks
+   across silhouettes.
+5. **One shadow ray** to the surviving light, then the existing denoiser.
+
+**Traps, most of which are the known failure modes rather than guesses:**
+- **Boiling** — reuse feeding itself into flicker on a static image. The
+  M-cap and per-pixel randomisation are the standard defences.
+- **Disocclusion** — reprojected reservoirs are invalid where geometry was
+  hidden last frame; they must be discarded, not blended.
+- **Correlation with TAA.** Two temporal systems on one image is exactly the
+  trap that got ReSTIR GI rejected. Measure the pair, not either alone.
+- **The flashing-emitter rule already in Ground rules applies here too**: the
+  tower beacons and nav flashers must bypass or hard-clamp the reservoir
+  history like every other history buffer.
+- **Bias.** The weighting when combining reservoirs is where correctness
+  lives; a plausible-looking image with wrong weights is the standard way
+  this goes wrong silently. The sealed-room leak fixtures must stay at 0.000.
+
+**Verify.** A fixture with the lamp row and a known occluder: noise measured
+as blinking-pixel count over 100 frames (the flicker protocol), shadow
+correctness against a brute-force all-lights reference on a still frame, and
+the frame cost measured interleaved three pairs against today's ~15 ms. It
+has to *beat* the number above to be worth its complexity — say so plainly if
+it does not. **[OWNER GATE]**
+
+---
+
 ## Deferred / rejected, with reasons (do not re-litigate blind)
 
 - **ReSTIR GI** — replaces the whole GI estimator; heavy, denoiser-entangled.
   Revisit only after WR-10's ladder is exhausted. (Full deep-dive summary in
   WR-10's options; primary sources: Bitterli 2020, SIGGRAPH 2023 course.)
+  **Still rejected, and for the unchanged reason.**
+- ~~**ReSTIR DI**~~ — **no longer deferred: it is WR-16**, owner-set
+  2026-09-02. This list previously held it on the grounds that at N≈150
+  homogeneous lamps the reservoir machinery buys little over a grid+CDF.
+  That reasoning was sound on the evidence available and is superseded by
+  evidence that arrived later: RT shadows measured as the single biggest
+  item in the night frame (~15 ms of ~50), caused by every one of the 128
+  lamps casting with no cap. WR-16 carries the design; this row stays so the
+  change of mind is legible rather than looking like the list simply forgot.
 - **Light BVH / stochastic lightcuts** — built for thousands-to-millions of
   emitters; at N≈150 the grid+CDF wins on simplicity (RTSL: 11.5 ms at
   1080p/RTX 2080 — an order of magnitude more machinery than this needs).

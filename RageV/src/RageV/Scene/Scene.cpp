@@ -5150,7 +5150,18 @@ namespace RageV
 		// it still has a sky, and an empty scene showing the clear colour is
 		// how this looked before.
 		if (Renderer::HasDevice() && m_Environment.Sky != SkyType::Color)
-			Skybox::Draw(camera, cameraTransform, m_Environment, sky, jitter);
+		{
+			// The moon's face, resolved here for the reason the sky cube is:
+			// the renderer does not depend on the asset layer, so whoever
+			// owns the handles hands over the texture. sRGB because it is a
+			// photograph, not a data map.
+			const RHI::Ref<RHI::RHITexture> moon =
+				m_Environment.MoonTexture.IsValid()
+					? Assets::Manager::GetTexture(m_Environment.MoonTexture)
+					: nullptr;
+
+			Skybox::Draw(camera, cameraTransform, m_Environment, sky, jitter, moon);
+		}
 
 		// After the sky and before the particles, and neither half of that is
 		// interchangeable. After the sky, because the sky is drawn at the far

@@ -15,9 +15,11 @@ Environment:
   CityGlowBearing: 0
   CityAzimuthK: 8
   CityElevationK: 20
-  MoonColor: [6, 5.3, 4]
+  MoonColor: [0.3, 0.28, 0.25]
   MoonElevation: 34
   MoonBearing: 118
+  MoonDisc: 0.015
+  MoonTexture: 18056946286422347205
 Entities:
   - EntityID: 12086993812364939721
     TagComponent:

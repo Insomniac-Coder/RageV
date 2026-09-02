@@ -450,7 +450,7 @@ namespace RageV
 
 	void Skybox::Draw(const Camera& camera, const Mat4& cameraTransform,
 					  const SceneEnvironment& environment, const Ref<RHITexture>& cubemap,
-					  const Vec2& jitter)
+					  const Vec2& jitter, const Ref<RHITexture>& moon)
 	{
 		if (!s_Data || !s_Data->Ready || environment.Sky == SkyType::Color)
 			return;
@@ -582,12 +582,24 @@ namespace RageV
 		extra.MoonDirection = Vec4(
 			DirectionFromCompass(environment.MoonBearing, environment.MoonElevation),
 			environment.MoonDisc);
-		extra.MoonColor = Vec4(environment.MoonColor, 0.0f);
+		// The alpha lane says whether a moon FACE exists, not whether a moon
+		// does: the shader branches on it to choose the textured disc over
+		// the analytic one. Resolved from whether the caller handed us a
+		// texture rather than from the handle, because a handle that fails to
+		// load must fall back to something drawable rather than to a black
+		// hole in the sky.
+		const bool hasMoonFace = moon != nullptr;
+		extra.MoonColor = Vec4(environment.MoonColor, hasMoonFace ? 1.0f : 0.0f);
 		extraBuffer->Upload(&extra, sizeof(extra));
 
 		set->SetTexture(0, bound, s_Data->Sampler);
 		set->SetUniformBuffer(1, motionBuffer, 0, sizeof(SkyMotion));
 		set->SetUniformBuffer(2, extraBuffer, 0, sizeof(SkyExtra));
+		// Binding 3 is declared unconditionally by the shader, so it is filled
+		// unconditionally here -- white when there is no moon face, which the
+		// shader never samples because the branch above is false.
+		set->SetTexture(3, hasMoonFace ? moon : TextureLoader::White(*s_Data->Device),
+						s_Data->Sampler);
 		set->Commit();
 
 		SkyParams params;

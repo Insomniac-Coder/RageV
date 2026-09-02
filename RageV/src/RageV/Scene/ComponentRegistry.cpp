@@ -2834,6 +2834,14 @@ namespace
 						"Angular radius in radians. The real moon's is about "
 						"0.0046.")))),
 
+				Field<&SceneEnvironment::MoonTexture>("MoonTexture",
+					Named("Moon texture", OnlyWhen(SkyIsGradient,
+						Tip("An image of the moon's face, disc filling the "
+							"frame with alpha outside the limb. Unset, the "
+							"disc is drawn analytically instead -- which "
+							"reads as a sun, not a moon.",
+							AssetRef(AssetType::Texture))))),
+
 				Field<&SceneEnvironment::SkyDither>("SkyDither",
 					Named("Sky dither", OnlyWhen(SkyIsGradient,
 						FieldHint{ .Tooltip =

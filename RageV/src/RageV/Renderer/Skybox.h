@@ -44,10 +44,16 @@ namespace RageV
 		// it: the sky writes motion vectors too, and they have to be free of
 		// the camera's dither. Defaulted to none, so a caller that did not
 		// jitter its camera does not get the correction either.
+		// `moon` is the face of the moon disc, resolved from the environment's
+		// MoonTexture by whoever owns the asset manager -- the same division
+		// `cubemap` follows, and for the same reason: this layer does not
+		// depend on the asset layer. Null draws the analytic disc instead,
+		// which is a sun.
 		static void Draw(const Camera& camera, const Mat4& cameraTransform,
 						 const SceneEnvironment& environment,
 						 const RHI::Ref<RHI::RHITexture>& cubemap,
-						 const Vec2& jitter = Vec2(0.0f, 0.0f));
+						 const Vec2& jitter = Vec2(0.0f, 0.0f),
+						 const RHI::Ref<RHI::RHITexture>& moon = nullptr);
 
 		// What the scene's surfaces reflect.
 		//

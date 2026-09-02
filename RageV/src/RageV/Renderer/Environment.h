@@ -116,6 +116,26 @@ namespace RageV
 		float MoonBearing = 0.0f;     // degrees, CityGlowBearing's convention
 		float MoonDisc = 0.0046f;     // angular radius, radians (the real moon's)
 
+		// **An image of the moon, and without one this draws a sun.**
+		//
+		// Unset, the disc is analytic: a limb-darkened circle, which is the
+		// right shape for a *sun* and cannot be a moon at all -- the maria are
+		// the whole read, and nothing procedural gets to them convincingly
+		// (tried; it looked like mould on a ping-pong ball). Set, the disc
+		// samples this texture across its face and the shader skips the
+		// analytic shading entirely.
+		//
+		// RGBA, disc centred and touching all four edges, alpha 0 outside the
+		// limb -- `tools/scripts/make_moon_texture.py` writes exactly that
+		// from NASA's public-domain Lunar Reconnaissance Orbiter render.
+		//
+		// **Note the real moon is far too small to draw.** Its angular radius
+		// is 0.0046 rad, and a disc that size does not survive to the screen
+		// at any sane resolution -- measured 2026-09-02, it renders nothing
+		// below roughly 0.02. A scene that wants a visible moon oversizes it,
+		// which is the same licence every matte painter takes.
+		UUID MoonTexture = UUID::Invalid();
+
 		// **WR-2, opt-in.** A first landing dithered this pass's own linear,
 		// pre-exposure write and measured the mistake: `Exposure` and the
 		// ACES/gamma chain between here and the swapchain amplify a night

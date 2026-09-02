@@ -60,6 +60,13 @@ layout(location = 3) out vec4 o_Indirect;
 
 layout(set = 0, binding = 0) uniform samplerCube u_Sky;
 
+// The moon's face. Always bound -- with a 1x1 white stand-in when the scene
+// sets no texture -- because a declared binding with nothing in it is
+// undefined behaviour on both backends rather than a helpful zero. Whether
+// it holds a real moon is said by MoonColor.a below, not by asking the
+// sampler.
+layout(set = 0, binding = 3) uniform sampler2D u_Moon;
+
 layout(push_constant) uniform SkyParams
 {
 	// Clip space back to a world direction, with the camera's translation
@@ -193,17 +200,49 @@ void main()
 				* pow(azimuthTerm, u_Extra.Shape.y)
 				* pow(1.0 - height, u_Extra.Shape.z);
 
-			// The moon: an analytic disc, limb-darkened, additive. A radius of
-			// zero (no moon set) can never satisfy `cosAngle > discCosine`
-			// because a real direction's cosine similarity to itself tops out
-			// at 1.0 and cos(0) is also 1.0 -- so this is inert rather than a
-			// special case.
+			// The disc, additive. A radius of zero (nothing set) can never
+			// satisfy `cosAngle > discCosine` because a real direction's
+			// cosine similarity to itself tops out at 1.0 and cos(0) is also
+			// 1.0 -- so this is inert rather than a special case.
 			float cosAngle = dot(direction, u_Extra.MoonDirection.xyz);
 			float discCosine = cos(u_Extra.MoonDirection.w);
 			if (cosAngle > discCosine)
 			{
-				float edge = clamp((cosAngle - discCosine) / max(1e-5, 1.0 - discCosine), 0.0, 1.0);
-				colour += u_Extra.MoonColor.rgb * sqrt(edge);
+				if (u_Extra.MoonColor.a > 0.5)
+				{
+					// **A moon: sample its face.** Gnomonic projection onto
+					// the disc's tangent plane -- push the view ray out to
+					// where it crosses that plane (`direction / cosAngle`),
+					// take the offset from the disc centre, and measure it
+					// against the plane distance the limb sits at, which is
+					// tan(radius). That lands the limb exactly on the texture
+					// edge for any radius, which is what lets a scene oversize
+					// the moon (and it must -- see Environment.h) without the
+					// image cropping or floating inside its own disc.
+					vec3 up0 = abs(u_Extra.MoonDirection.y) < 0.99
+							 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+					vec3 right = normalize(cross(up0, u_Extra.MoonDirection.xyz));
+					vec3 up = cross(u_Extra.MoonDirection.xyz, right);
+
+					vec3 offset = direction / max(cosAngle, 1e-4)
+								- u_Extra.MoonDirection.xyz;
+					vec2 disc = vec2(dot(offset, right), dot(offset, up))
+							  / max(tan(u_Extra.MoonDirection.w), 1e-6);
+
+					vec4 face = texture(u_Moon, disc * 0.5 + 0.5);
+					// Alpha masks the limb; the texture is already black
+					// outside it, so this is belt and braces against a
+					// filtered tap at the very edge.
+					colour += u_Extra.MoonColor.rgb * face.rgb * face.a;
+				}
+				else
+				{
+					// **No texture: an analytic limb-darkened disc**, which is
+					// a sun and not a moon. Featureless and blown out is
+					// exactly right for one and hopeless for the other.
+					float edge = clamp((cosAngle - discCosine) / max(1e-5, 1.0 - discCosine), 0.0, 1.0);
+					colour += u_Extra.MoonColor.rgb * sqrt(edge);
+				}
 			}
 		}
 	}

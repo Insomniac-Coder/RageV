@@ -197,10 +197,24 @@ SKIES = {
         "city_glow_bearing": 0.0,     # +z, south -- San Francisco
         "city_azimuth_k": 8.0,
         "city_elevation_k": 20.0,
-        # Bright enough to clip into bloom under Exposure 2.4 -- the disc is
-        # meant to blow out like the lamp lenses do, not sit as a soft grey
-        # circle. Angular size left at the engine default (the real moon's).
-        "moon_color": (6.0, 5.3, 4.0),
+        # The disc is a photograph now (NASA/LRO, see the texture's
+        # ATTRIBUTION), so this is a tint on it rather than the disc's whole
+        # colour -- and it has to be **much** dimmer than a self-lit disc
+        # would be, because the maria are the whole point and the tone curve
+        # eats them first. Worked through the chain rather than guessed: at
+        # Exposure 2.4, a value of 2.6 puts the highlands at ~1.3 into ACES,
+        # which clips to white and takes the maria with it (rendered, and the
+        # face came back blank). 0.30 lands the highlands near 0.85 display
+        # and the maria near 0.75 -- about 26 levels apart, which is the
+        # contrast the photograph actually has. Still far and away the
+        # brightest thing in the sky, and still blooms at the rim.
+        "moon_color": (0.30, 0.28, 0.25),
+        # **Oversized, and it has to be.** The real moon's angular radius is
+        # 0.0046 rad; measured 2026-09-02, a disc that small renders nothing
+        # at all here and does not start appearing until roughly 0.02. This is
+        # ~3x life size -- the licence every matte painter takes, and the
+        # alternative is no moon.
+        "moon_disc": 0.015,
         # **Night needs a profile of its own, and auto exposure off in it.**
         # Attached whether or not --cinematic is given, because the one thing
         # a night frame cannot have is an exposure that hunts for mid grey:
@@ -835,7 +849,20 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
             # duplicated -- see the comment on "night"'s sun key.
             "  MoonElevation: {0:g}".format(moon["elevation"]),
             "  MoonBearing: {0:g}".format(moon["bearing"]),
+            "  MoonDisc: {0:g}".format(sky["moon_disc"]),
         ]
+
+        # The moon's face. Read from the .meta rather than pasted, the same
+        # rule the models follow -- a handle copied by hand is a handle that
+        # goes stale silently. Absent, the engine draws its analytic disc,
+        # which is a sun; the scene simply has no moon until the texture is
+        # generated (`tools/scripts/make_moon_texture.py`).
+        face = ASSETS / "textures" / "moon.png.meta"
+        if face.exists():
+            environment.append("  MoonTexture: {0}".format(read_handle(face)))
+        else:
+            print("  no moon.png.meta -- run make_moon_texture.py; "
+                  "the sky will draw an analytic disc instead")
 
     return "\n".join(environment + [
         "Entities:",
