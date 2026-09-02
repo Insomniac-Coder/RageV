@@ -1,13 +1,128 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-01.
+**Read this first.** Updated 2026-09-02.
 
-**Not on `main`.** Everything since 2026-08-29 is on
-**`showroom2-and-the-card-look`**, pushed, and that branch is **26 commits
-ahead of `main`** — `main` is still at `02406b2` (half-res occlusion). The
-night session landed there as `2711321` (sodium, baked GI, stochastic tiling,
-the movie-grade BRDF). This line said "everything is on main" for days while
-it was not; check `git branch --show-current` rather than trusting it.
+**On `main` now, and pushed.** The 2026-09-02 session worked on `main` and
+pushed four commits to it, ending at **`bd7f813`**. The paragraph that used
+to sit here said `main` was still at `02406b2` and that everything lived on
+`showroom2-and-the-card-look` — that was true until this session and is not
+any more. It is the second time this line has gone stale while being read as
+current, so: **check `git branch --show-current` and `git log -1`, do not
+trust this sentence.**
+
+(Pushes to `main` report "Changes must be made through a pull request" and
+succeed anyway — the branch is protected and the owner's account bypasses
+it. Expected, not an error, but worth knowing before it alarms someone.)
+
+## Start here — 2026-09-02: the rendering revamp's first items, and what the frame actually costs
+
+Four commits on `main`: **`c4b6bdc`** (WR-0 + WR-1), **`45e1565`** (WR-2),
+**`9f78bff`** (the moon, the frame-budget finding, WR-16), **`bd7f813`**
+(traced sky visibility). `scenetest` green on both backends throughout.
+`docs/RENDERING-REVAMP.md` is the plan being executed and is kept current —
+read it before picking up an item, and read its §2 frame-budget box before
+believing any per-item cost in it.
+
+### The one finding that changes other decisions
+
+**The plan's "~12.6 ms night frame" is a ray-tracing-OFF number, and every
+per-item budget in it is ranked against a frame nobody is looking at.**
+Measured on the committed night scene at **1600×900** — a third of the pixels
+the plan quotes:
+
+| | frame | water (Transparent) | Scene |
+|---|---:|---:|---:|
+| as committed (RT on) | **50.4 ms** | 32.9 | 16.5 |
+| `--raytracing=off` | **13.6 ms** | 6.7 | 5.5 |
+
+Isolated one flag per run: **shadows ~15 ms, water refraction ~13,
+reflections ~9, AO ~0.1, GI 0** (it never runs — `RayTracedGiSource: Baked`).
+Shadows lead for a structural reason: all 128 lamps cast, nothing caps how
+many a pixel traces, and the sea fills the screen. That measurement is why
+**WR-16 (ReSTIR DI) exists** — owner-set, scoped to DI only; ReSTIR GI stays
+rejected because a second temporal reuse scheme fights the GI denoiser's own
+history. WR-15 (the tower-base shadow-streak fan the owner spotted) is the
+same 128-hard-shadows design seen from the image side.
+
+### What landed
+
+- **WR-0, generator parity.** `make_bridge_scene.py` now reproduces all 133
+  committed lights and the Glitter camera's hand-tuned pose, so regenerating
+  no longer silently reverts `dab692d`'s work. `check_bridge_roundtrip.py` is
+  the standing guard (falsified before being trusted).
+- **WR-1, shaped sky.** `SkyCurve` (default 0.45 — the value the shader
+  hardcoded, so untouched scenes are unchanged), an additive city-glow lobe,
+  and a moon. CPU mirror in `Skybox::GradientAt` matches the shader term for
+  term; both feed `Scene::LightingHash`, so changing them invalidates bakes
+  **by design**.
+- **WR-2, dither.** Only `tonemap.rvshader` dithers, deliberately — see the
+  trap below. `sky.rvshader` has an opt-in `SkyDither` with a compensated
+  amplitude.
+- **The moon is a photograph** (NASA/LRO, public domain, attribution beside
+  the texture). `Environment.MoonTexture`; unset, the old analytic disc still
+  draws and is the right shape for a **sun**.
+- **Traced sky visibility** (`RenderSettings::RayTracedSkyVisibility`,
+  Off/Quarter/Half/Full = 0/2/4/8 rays, **default Off**, +2.2 ms at Half).
+  The sky term's occlusion previously came only from a baked irradiance
+  volume, so it was 1.0 everywhere a volume did not reach.
+
+### Traps this session paid for — do not re-run these
+
+- **A test camera aimed at the horizon here sees only terrain, so the sky
+  shader never runs and every sky probe reads as a null result.** This fooled
+  me three separate times and sent me hunting a transform bug that does not
+  exist. Aim *up* (≥34°) before concluding anything about the sky.
+- **`--aa=none` does not disable TAA.** The `--aa` enum is
+  none/fxaa/smaa/ssaa/msaa — there is no TAA entry, so that flag never
+  touched it. A conclusion I drew from it was wrong.
+- **Dither belongs only at the final write.** `1/255` added in sky/fog's
+  linear pre-exposure space comes out near **10 levels of 255** after
+  Exposure 2.4, ACES and gamma — gamma's slope is steepest exactly in the
+  near-black a night sky lives in. Applies to WR-11 and WR-12, both of which
+  add HDR-stage writes.
+- **The moon renders nothing below ~0.02 rad** (the real moon is 0.0046).
+  Not a bug — confirmed by dialling the size live in the editor, it shrinks
+  smoothly and fades. The scene oversizes it ~3×; anything sub-degree in the
+  sky, **including WR-12's stars**, will hit this.
+- **`make_bridge_scene.build()` writes files as a side effect** (the post
+  profile, and `make_lut` rewrites `cinematic.cube.meta` with a placeholder
+  `SourceHash: 0`). Calling it for a "dry run" dirties the tree.
+- **The generator always rewrites `bridge_cinematic.rvpostprofile` with
+  `ReflectionFloor: 30`,** while the committed value is `0.5` (lowered
+  deliberately in `5d28c0c`). So regenerating the scene silently re-raises
+  it. That is a WR-0-shaped gap WR-6 should close.
+- **Each executable stages its own copy of the shaders.** Editing
+  `RageVEditor/assets/shaders/…` does not reach a running runtime until it is
+  copied to `build/bin/Release/RageVRuntime/assets/shaders/`.
+
+### State of the bakes — read before judging any screenshot
+
+WR-1 added fields to `Scene::LightingHash`, which **invalidated every bake in
+the project**. Only two scenes have been re-baked: **GoldenGateDemo** and
+**showroom**. The other nine (`field_room`, `field_two`, `irradiance_field`,
+`irradiance_leak*`, `showroom-mark85`, `showroom2`, `sky_occlusion`) still
+have stale bakes and **silently fall back to Realtime GI**, which on the
+bridge looks like everything turning saturated red (`GiIntensity 2.6` making
+red albedo effectively emit). If a scene looks wrong, check the log for
+"no bake matches" before debugging the renderer. Orphaned field pairs were
+deleted in this session's cleanup; each scene now keeps only what it asks
+for.
+
+### Open, and the owner's call
+
+- **The moon is not visible from the hero camera** — bearing 118°/elevation
+  34° puts it behind the Marin ridge. Composition, not a defect; note the
+  disc's direction is deliberately shared with the moonlight, so moving one
+  moves the other.
+- **Next in the plan's order is WR-3** (fog inscatter takes the sky's colour
+  per view direction), which builds directly on WR-1.
+- `GiIntensity: 2.6` is compensating for something and is the dial the plan
+  blames for the red towers. A specific suspicion worth testing: emissive
+  meshes become **one area-emitter rectangle from the mesh's bounding box**,
+  so all 128 lamp lenses are a single glowing rectangle spanning the whole
+  2.7 km bridge. (`kMaxAreaEmitters = 16` is *not* the binding constraint —
+  the lamps are one entity, so the cap is never reached. I claimed otherwise
+  mid-session and was wrong.)
 
 ## ✅ 2026-09-01 — area lights, first form: lights have a radius, and the water gets its streaks
 
