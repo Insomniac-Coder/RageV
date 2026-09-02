@@ -14,6 +14,87 @@ trust this sentence.**
 succeed anyway — the branch is protected and the owner's account bypasses
 it. Expected, not an error, but worth knowing before it alarms someone.)
 
+## Next session's agenda, set by the owner 2026-09-02
+
+**First, a proper benchmark of the night scene at 2560x1440 from several
+angles. Then WR-8, WR-10 and WR-16**, the three items that buy frame time
+(the lamp row as line lights, a light grid for ray hits, ReSTIR for the
+lamp shadows). Nothing else before those.
+
+### The benchmark, so it can start cold
+
+`--benchmark=N` runs N frames after a warm-up and prints `FrameProfiler`'s
+by-pass report to stdout on exit; `tools/scripts/bench_scale.py` shows the
+launch shape and the patterns it parses. A screenshot or a benchmark needs
+`--render-defaults=off` to measure the project as configured (TAA, RT on).
+This laptop's GPU drifts about a millisecond over a session, so **interleave
+A/B runs** (A, B, A, B) rather than trusting one run each, and keep the
+editor closed. The window is clamped to the display; 2560x1440 fits.
+
+The eight scene cameras as `--camera=` flags (focus x,y,z, distance, yaw,
+pitch; distance 0.01 puts the eye on the focus, the angles are the scene's
+Euler rotations negated and in degrees):
+
+| camera | flag |
+|---|---|
+| Headland (hero, ViewRank 0) | `--camera=500,89.47,-1100,0.01,-157.08,8.88` |
+| Deck | `--camera=0,76.4,950,0.01,0,0` |
+| Profile | `--camera=2400,150,0,0.01,-90,0` |
+| Bluff | `--camera=45,49.94,1150,0.01,-5.04,8.88` |
+| Pier | `--camera=70,4.5,705,0.01,-46.98,-2.86` |
+| Cliff | `--camera=316,55,-810,0.01,-33.52,3.44` |
+| Glitter | `--camera=500,2.5,180,0.01,-90,-1.146` |
+| Lime Point | `--camera=185,5.5,-590,0.01,-143.24,1.146` |
+
+So, from `build/bin/Release/RageVRuntime`:
+
+    RageVRuntime.exe --project=<SampleProject> --scene=scenes/GoldenGateDemo.rage
+        --rhi=vulkan --render-defaults=off --vsync=off --width=2560 --height=1440
+        --benchmark=300 --camera=<row above>
+
+**Or all sixteen runs in one command** -- `tools/scripts/bench_night.py
+--label <name>` runs the eight cameras twice (passes A and B), keeps every
+report under `build/bench/`, and prints the owner's table; `--table
+<json>` reprints one. Note that the pose lands on the scene's *primary*
+camera (Headland, 55 degrees), so every row renders at that field of view
+rather than its own: Bluff's 42 becomes 55. Consistent before and after,
+which is what the comparison needs.
+
+### The baseline, before WR-8 (2026-09-02, fourth session)
+
+Two passes, a millisecond apart everywhere, so the drift did not bite.
+Water = the `scene/Transparent` pass, scene = `scene/Scene`, both GPU ms
+from pass B; the busiest cluster is how many of the 191 lights one cell
+holds -- the number of lights a water pixel walks and traces a soft shadow
+ray to.
+
+| camera | A: ms / fps | B: ms / fps | water ms | scene ms | busiest cluster |
+|---|---|---|---|---|---|
+| Headland | 114.4 / 8.7 | 115.2 / 8.7 | 75.0 | 38.1 | 146 |
+| Deck | 14.8 / 67.4 | 14.7 / 67.9 | 2.1 | 9.9 | 113 |
+| Profile | 52.6 / 19.0 | 52.5 / 19.0 | 40.6 | 10.3 | 102 |
+| Bluff | 89.7 / 11.1 | 89.8 / 11.1 | 48.6 | 39.0 | 135 |
+| Pier | 100.4 / 10.0 | 100.6 / 9.9 | 59.8 | 38.6 | 178 |
+| Cliff | 47.0 / 21.3 | 47.0 / 21.3 | 19.4 | 25.5 | 111 |
+| Glitter | 108.7 / 9.2 | 108.6 / 9.2 | 66.3 | 40.2 | 151 |
+| Lime Point | 131.7 / 7.6 | 132.4 / 7.6 | 82.7 | 47.5 | 142 |
+
+Every frame is GPU bound and every pass but the two lit ones is under a
+millisecond. The water pass is the frame wherever the sea fills it, and
+the opaque pass is 38-48 ms on the cameras that see the towers and deck;
+the Deck camera, looking along the roadway with almost no sea in view, is
+the only one near 60 fps. The 50.4 ms at 1600x900 from the third session
+scales to this by pixel count, which says the cost is per fragment: the
+lit loop over up to 178 clustered lights, each with a shadow ray.
+
+**What the owner wants from it is the headline pair per camera: frame
+time in milliseconds and frames per second**, before WR-8/10/16 and again
+after each, so the improvement is a number. The by-pass shares (shadows,
+reflections, refraction) are worth keeping beside them because they say
+which item moved what, but the table the owner reads is eight rows of
+ms / fps, before and after. The last such measurement (1600x900, Headland)
+is in the first 2026-09-02 section below: 50.4 ms.
+
 ## Start here — 2026-09-02 (third session): the flicker, measured per AA mode, half fixed
 
 **Committed at the end of this session together with the second session's

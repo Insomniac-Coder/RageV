@@ -209,7 +209,9 @@ namespace RageV
 		// way out, and both are exactly the cases that alias. Driving the camera
 		// by hand to check them is not a check anybody repeats, and "it looked
 		// fine from the default angle" is how a horizon full of moire ships.
-		// Ignored by the runtime, which renders through the scene's camera.
+		// The runtime honours it too: RuntimeLayer poses the scene's primary
+		// camera from it, so a benchmark can name its shot (HANDOFF's
+		// night-scene protocol). The camera's own projection is kept.
 		// **A GPU frame time to hold, in milliseconds, by spending fewer
 		// rays.** Zero -- the default -- means the quality rungs get their
 		// full ray counts and a costly view simply takes longer.
