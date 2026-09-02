@@ -1877,6 +1877,20 @@ namespace
 						"where materials are bindless as well, because a "
 						"refracted hit is shaded through the material heap.")))),
 
+				Field<&RenderSettings::RayTracedSkyVisibility>("RayTracedSkyVisibility",
+					Named("RT sky visibility", OnlyWhen(RayTracingOn,
+						Enum(kAoDetailNames,
+						"How much sky a surface can actually see, traced per "
+						"pixel instead of read from a baked irradiance volume. "
+						"The baked fraction only exists where a volume reaches, "
+						"so without this the sky arrives unoccluded under the "
+						"deck, inside the truss, beside a cliff, and on anything "
+						"that moved since the bake. It scales the sky term only "
+						"-- never the bounced light, which was already occluded "
+						"on its way in. Quarter, Half and Full are 2, 4 and 8 "
+						"rays, the same currency the traced occlusion below "
+						"spends; four is what it was measured at.")))),
+
 				Field<&RenderSettings::RayTracedAmbientOcclusion>("RayTracedAmbientOcclusion",
 					Named("RT ambient occlusion", OnlyWhen(RayTracingOn,
 						WasBool((int)AoDetail::Half, Enum(kAoDetailNames,

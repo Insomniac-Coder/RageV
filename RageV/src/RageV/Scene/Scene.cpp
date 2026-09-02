@@ -1715,6 +1715,21 @@ namespace RageV
 		// written where the others are rather than re-derived inside.
 		Renderer3D::SetRayTracedWaterRefraction(
 			traced && Project::Render().RayTracedWaterRefraction);
+		// And the sky's own visibility, on the same beat and the same gate:
+		// it asks the shadows' structure how much sky a point can see, so
+		// without the structure there is nothing to ask.
+		// Off / Quarter / Half / Full as 0 / 2 / 4 / 8 rays -- the same
+		// currency AoDetail spends for the traced occlusion, converted here
+		// so the renderer stores the number rather than the enum.
+		int skyRays = 0;
+		switch (Project::Render().RayTracedSkyVisibility)
+		{
+			case AoDetail::Quarter: skyRays = 2; break;
+			case AoDetail::Half:    skyRays = 4; break;
+			case AoDetail::Full:    skyRays = 8; break;
+			default:                skyRays = 0; break;
+		}
+		Renderer3D::SetRayTracedSkyVisibility(traced ? skyRays : 0);
 		// And the traced bounce (7at), on the same beat and by the same
 		// resolve. Its dial is the post profile's, handed to the renderer
 		// here so the lit shader has it: zero while the traced form is not

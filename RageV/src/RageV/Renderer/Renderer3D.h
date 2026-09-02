@@ -485,6 +485,12 @@ namespace RageV
 		static void SetRayTracedReflections(bool enabled);
 		static bool IsRayTracedReflections();
 
+		// The sky term's visibility, traced per pixel instead of read from a
+		// baked volume. Rides on the shadows' structure.
+		// `rays` is the dial as a count: 0 off, 2/4/8 for Quarter/Half/Full.
+		static void SetRayTracedSkyVisibility(int rays);
+		static int RayTracedSkyVisibilityRays();
+
 		// The traced bounce (ENGINE-NOTES 7at): needs traced shadows for the
 		// structure and bindless for the heap, exactly as reflections do, and
 		// silently stays off without either. Recompiles the lit shaders.

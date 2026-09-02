@@ -269,6 +269,34 @@ namespace RageV
 		// shaded through the material heap.
 		bool RayTracedWaterRefraction = false;
 
+		// **The sky as an occluded light, rather than a term that arrives
+		// everywhere equally.**
+		//
+		// The lit shader multiplies its sky term -- the flat ambient plus the
+		// probe's directional irradiance -- by how much sky the point can
+		// actually see. That fraction has only ever come from a baked
+		// irradiance volume, so it is 1.0 everywhere a volume does not reach:
+		// full sky under a bridge deck, inside a truss, beside a cliff, and on
+		// anything that moved since the bake. On, the fraction is traced per
+		// pixel instead, against the structure the shadows already build, so
+		// it is right everywhere and right for things that move.
+		//
+		// It replaces the volume's number rather than multiplying with it --
+		// they measure the same quantity, and stacking them darkens twice.
+		// It also does not touch the bounced term, which arrived having
+		// already been occluded; that is the double-count the sky-occlusion
+		// comment in pbr_fragment.glsl exists to warn about.
+		//
+		// Rides on ray shadows, like reflections and refraction: no structure,
+		// no answer.
+		//
+		// Off / Quarter / Half / Full is the ray count, the same currency
+		// AoDetail already spends for the traced occlusion it sits beside --
+		// 2, 4 and 8 rays, all at the frame's own resolution. Half is where
+		// it ships when it ships at all: four rays is what the measurement
+		// above was taken at, and the temporal filter is what carries it.
+		AoDetail RayTracedSkyVisibility = AoDetail::Off;
+
 		// Off, Half or Full, the same three the profile's own AO offers and
 		// for the same reason -- the level is the resolution the occlusion is
 		// computed at. Where this is anything but Off it answers instead of

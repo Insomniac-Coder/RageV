@@ -904,6 +904,86 @@ float TraceShadow(vec3 worldPos, vec3 L, float tMax)
 {
 	return TraceShadowFrom(worldPos, normalize(v_Normal), L, tMax);
 }
+
+#ifdef RV_RAY_SKY
+// **How much sky this point can actually see.**
+//
+// The sky term is a light like any other, and a light is occluded by the
+// things in front of it. Until now that occlusion came only from a baked
+// irradiance volume, so it was 1.0 -- full, unobstructed sky -- everywhere a
+// volume does not reach: under the deck, inside the truss, beside a cliff,
+// and on anything that has moved since the bake. This asks the structure
+// instead, per pixel, which is right in all four cases.
+//
+// Its own hash and sampler rather than GiHash/CosineDirection, which live
+// under RV_RAY_GI and are not compiled when only shadows are on. Same
+// lowbias32 constants, so the two agree where both exist.
+uint SkyHash(uint x)
+{
+	x ^= x >> 16; x *= 0x7FEB352Du;
+	x ^= x >> 15; x *= 0x846CA68Bu;
+	x ^= x >> 16;
+	return x;
+}
+
+// Cosine-weighted about `n`, which is the distribution the diffuse sky
+// integral wants: the mean of the samples *is* the visibility, with no
+// per-sample cosine left to divide back out.
+vec3 SkyDirection(vec3 n, inout uint seed)
+{
+	seed = SkyHash(seed);
+	float u1 = float(seed & 0x00FFFFFFu) / 16777216.0;
+	seed = SkyHash(seed);
+	float u2 = float(seed & 0x00FFFFFFu) / 16777216.0;
+
+	vec3 axis = abs(n.x) < 0.7 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+	vec3 t = normalize(cross(axis, n));
+	vec3 b = cross(n, t);
+
+	float r = sqrt(u1);
+	float phi = 6.2831853 * u2;
+	return normalize(t * (r * cos(phi)) + b * (r * sin(phi))
+					+ n * sqrt(max(1.0 - u1, 0.0)));
+}
+
+// **Four rays, and the temporal filter does the rest.** Four is not enough
+// to resolve this on its own -- it is enough that TAA's accumulation over a
+// held camera converges it, which is the same bargain RTGI takes. The seed
+// carries the frame so consecutive frames draw different directions; a fixed
+// seed would converge to its own four rays and stay wrong.
+//
+// The rays run to `far`, not to a short AO radius: the question is whether
+// the *sky* is blocked, and a tower blocks it from a kilometre away. That is
+// also what makes this a different quantity from the AO term, which stays a
+// contact darkening and is applied separately.
+float TraceSkyVisibility(vec3 worldPos, vec3 Ng, vec3 N, float far)
+{
+	if (u_Scene.ShadowParams.x <= 0.0)
+		return 1.0;
+
+	// GlobalIllumination.y is a per-BeginScene counter -- advanced whether or
+	// not the traced bounce is running, and advanced per *view* so a probe
+	// face and the main camera do not draw the same four rays.
+	uint seed = SkyHash(uint(gl_FragCoord.x) * 73856093u
+					  ^ SkyHash(uint(gl_FragCoord.y) * 19349663u
+					  ^ SkyHash(uint(u_Scene.GlobalIllumination.y))));
+
+	// The dial, carried by the define itself: Quarter/Half/Full are 2/4/8.
+	const int kRays = RV_RAY_SKY;
+	float open = 0.0;
+	for (int i = 0; i < kRays; i++)
+	{
+		vec3 dir = SkyDirection(N, seed);
+		// Never sample into the geometry: a shading normal can lean past the
+		// true surface, and a ray starting below it reports the surface it
+		// started on as the sky being blocked.
+		if (dot(dir, Ng) <= 0.0)
+			dir = reflect(dir, Ng);
+		open += TraceShadowFrom(worldPos, Ng, dir, far);
+	}
+	return open / float(kRays);
+}
+#endif
 #endif
 #else
 float ShadowFactor(vec3 worldPos, vec3 N, vec3 L)
@@ -3602,6 +3682,22 @@ void main()
 		if (VolumeIrradiance(v_WorldPos, N, true, storedBounce, skyVisible))
 			irradiance += storedBounce * (1.0 - bounceAnswered);
 	}
+
+#ifdef RV_RAY_SKY
+	// **Traced, and it REPLACES the volume's number rather than joining it.**
+	// Both measure the same thing -- the fraction of sky this point can see --
+	// so multiplying them would darken twice for one occlusion. The traced one
+	// wins because it is the one that is right outside a volume, right for
+	// geometry that moved, and right per pixel instead of per cell.
+	//
+	// Deliberately not applied to `irradiance`: bounced light already arrived
+	// having been occluded on its way in, and the comment below this is the
+	// standing warning about exactly that double-count.
+	// 1.0e4 is this shader's standing "as far as anything goes" -- the same
+	// tMax the directional shadow ray uses, and the right one here: a tower
+	// blocks the sky from a kilometre away, so this is not an AO radius.
+	skyVisible = TraceSkyVisibility(v_WorldPos, normalize(v_Normal), N, 1.0e4);
+#endif
 
 	float NdotV = max(dot(N, V), 0.0);
 	vec3 F = FresnelSchlickRoughness(NdotV, F0, roughness);

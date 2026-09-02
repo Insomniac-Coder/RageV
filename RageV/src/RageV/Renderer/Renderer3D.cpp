@@ -903,6 +903,11 @@ namespace RageV
 			// the shaders are recompiled and the pipelines rebuilt when it does.
 			bool RayShadowsOn = false;
 			bool RayReflectionsOn = false;
+			// The sky's visibility, traced per pixel rather than baked. The
+			// count is the dial: 0 is off, and 2/4/8 are Quarter/Half/Full.
+			// Stored as the number the shader wants rather than the enum, so
+			// the define below is one conversion and not two.
+			int RaySkyVisibilityRays = 0;
 			// The traced bounce (7at): same structures, same heap, its own
 			// define, so it recompiles the lit shaders the way the other two
 			// do.
@@ -1344,6 +1349,12 @@ namespace RageV
 			defines.push_back("RV_RAY_REFLECTIONS");
 		if (s_Data->RayGlobalIlluminationOn)
 			defines.push_back("RV_RAY_GI");
+		// The count rides the define: `#ifdef RV_RAY_SKY` still tests presence,
+		// and the shader reads it as the loop bound. Changing quality
+		// recompiles the lit shaders, which is what toggling any of the other
+		// traced features already does.
+		if (s_Data->RaySkyVisibilityRays > 0)
+			defines.push_back("RV_RAY_SKY=" + std::to_string(s_Data->RaySkyVisibilityRays));
 
 		// The meshlet lit stage compiles with the identical define set, so
 		// its fragment half is bit-for-bit the classic one's: same bindless
@@ -1669,13 +1680,14 @@ namespace RageV
 			return;
 
 		s_Data->RayShadowsOn = enabled;
-		// Reflections, the traced bounce and the water's refraction all ride
-		// on the shadows' structure; off with them.
+		// Reflections, the traced bounce, the water's refraction and the
+		// sky's visibility all ride on the shadows' structure; off with them.
 		if (!enabled)
 		{
 			s_Data->RayReflectionsOn = false;
 			s_Data->RayGlobalIlluminationOn = false;
 			s_Data->RayWaterRefractionOn = false;
+			s_Data->RaySkyVisibilityRays = 0;
 		}
 		RV_CORE_INFO("Renderer3D: shadows {0}", enabled ? "traced" : "from maps");
 
@@ -1706,6 +1718,32 @@ namespace RageV
 		RV_CORE_INFO("Renderer3D: reflections {0}", enabled ? "traced" : "screen-space or probe");
 		if (CompileLitShaders())
 			s_Data->PipelineDirty = true;
+	}
+
+	void Renderer3D::SetRayTracedSkyVisibility(int rays)
+	{
+		if (!s_Data)
+			return;
+		// Rides on the shadows' structure, like reflections and refraction:
+		// with no acceleration structure there is nothing to ask.
+		if (rays > 0 && !s_Data->RayShadowsOn)
+			rays = 0;
+		rays = Math::Clamp(rays, 0, 8);
+		if (s_Data->RaySkyVisibilityRays == rays)
+			return;
+
+		s_Data->RaySkyVisibilityRays = rays;
+		if (rays > 0)
+			RV_CORE_INFO("Renderer3D: sky visibility traced, {0} rays", rays);
+		else
+			RV_CORE_INFO("Renderer3D: sky visibility from the baked volume");
+		if (CompileLitShaders())
+			s_Data->PipelineDirty = true;
+	}
+
+	int Renderer3D::RayTracedSkyVisibilityRays()
+	{
+		return s_Data ? s_Data->RaySkyVisibilityRays : 0;
 	}
 
 	bool Renderer3D::IsRayTracedReflections()
