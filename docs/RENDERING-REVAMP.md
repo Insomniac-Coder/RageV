@@ -1654,6 +1654,126 @@ scene block grew a row (`ShadowRayFade`, appended) in all three mirrors.
 
 ---
 
+## Frame-time candidates beyond the list, and the GPU-driven LOD design doc read against this frame (2026-09-02, end of the fourth session)
+
+The owner asked, with the frame still at 114 ms on Headland after WR-17's
+presets, what else would buy time, and how the design document
+`gpu_driven_on_the_fly_lod_raster_rt.md` (Downloads; a Nanite-shaped
+clustered-geometry system with GPU LOD selection and separate LOD per ray
+type) fits this engine. Written from the numbers, not from habit.
+
+**Where the 114 ms goes** (Headland, 2560x1440, RTX 5070 Ti laptop; the
+1600x900 isolation scaled by pixel count, so the shares overlap and sum
+past 100): shadow rays ~38 ms (WR-17's presets take 14–64 of it), the
+water's refraction rays ~33, reflection rays ~23 (water 15, steel 8), the
+lit loop's own BRDF walk ~35 (146 lights of anisotropic Beckmann per water
+pixel ~17, the steel ~14). Everything else in the frame is under 2 ms
+together. Geometry is not the cost: 2.85 M triangles, 200 draws, 1 ms of
+CPU, a depth prepass already in. The frame is fragment- and ray-bound.
+
+### The design document, read against this frame
+
+**What it proposes.** Meshes cut into ~128-triangle clusters with a
+hierarchy and a geometric error per level; GPU compute selects clusters
+per frame by screen-space error, frustum, Hi-Z occlusion and temporal
+hysteresis, then emits indirect draws; ray tracing selects its *own* LOD
+per ray type by importance (reflections coarser than primary, GI coarser
+still, shadow rays by blocker silhouette), first as prebuilt BLAS levels
+per mesh, later as cluster-level RT geometry; then geometry paging and
+streaming; only last, on-the-fly GPU simplification, cached, never per
+frame. Seven phases.
+
+**What the engine already has.** GPU culling into indirect draws (roadmap
+8.3, `cull_lit.rvshader`), a meshlet lit stage (`pbr_meshlet.rvshader`),
+the depth prepass, a per-instance TLAS with a caster table
+(`RayShadows`), and instance masks written into the TLAS
+(`VulkanResources.cpp`, `out.mask`) — which every ray query then ignores by
+passing `0xFF`. It has no LOD chain and no simplifier (NEXT row 5), no
+Hi-Z occlusion, no cluster hierarchy.
+
+**The raster half buys almost no frame time here.** The geometry is
+cheap; the Scene pass's 38 ms is lighting and rays per fragment. What
+raster LOD buys this scene is *quality*: the sub-pixel pickets, ropes and
+truss webs that flicker under TAA (WR-13's residual) are exactly what a
+distance LOD removes. That stays NEXT row 5, and the document's Phase 1–2
+is the right shape for it when it comes; Phase 3's Hi-Z is worth little on
+an open bridge.
+
+**The RT half is the fit, and it lands on WR-17's residual.** The matrix
+proved two things the document's Phase 4 is built for: the far visible
+shadow on the water is the deck, the towers and the piers — big blockers —
+and far rays are expensive because they traverse the bridge's thin steel
+(one in eight kept half their time). Phase 4's "Strategy A" collapses, for
+this scene, to something small:
+
+1. **A proxy BLAS per bridge mesh** — the deck as a slab, the towers and
+   piers as boxes, the railings as a strip — that the generator can emit
+   beside the real meshes (it already writes both). Added to the *same*
+   TLAS through `AddInstance` with instance mask bit 1; the real geometry
+   keeps bit 0.
+2. **Far shadow rays trace with the proxy mask.** `TraceShadowSoftFrom`
+   already knows the light's distance and WR-17's skip fraction; the same
+   rule picks the mask: near lights against the real structure (the
+   pickets' penumbra, which is the look), far lights against the proxy.
+   The bake and every other query keep bit 0.
+3. Later, a mid-detail BLAS for the water's mirror rays (a tower's
+   reflection does not need pickets) and the refraction rays.
+
+What it buys: far rays a fraction of their cost, so WR-17's floor stops
+being a quality dial — all far rays traced, against the proxy, for about
+what one in eight costs today — and Balanced's speckle and the deck's
+shadow filling in go away. The number is an estimate to be measured; the
+mechanism is not. One to two days. Skip for now: Strategy B (cluster-level
+RT needs custom traversal), phases 5–7 (2.85 M triangles fit in memory;
+the document's own rule is never to simplify per frame). Its baked-GI
+caveat holds by construction: the solve traces its own path against the
+full structure.
+
+### Other candidates, ranked by expected time on the sea cameras
+
+1. **Refraction rays only where transmission can show** (up to ~30 ms).
+   Every water fragment traces a refracted ray 300 m into the scene, then
+   shades the hit against all 191 lights and adds caustics
+   (`pbr_fragment.glsl`, `RV_RAY_REFRACTION`). At grazing angles Fresnel
+   sends almost nothing into the water, and the transmittance
+   `exp(-sigma * through)` is under 1/256 a few metres down. Gate the ray
+   on `(1 - F) * exp(-sigma_min * waterThickness)` above a threshold —
+   `waterThickness` is already read from the backdrop depth before the
+   block — and otherwise take the lit colour, which is what a miss already
+   does. Every engine's water skips refraction at grazing on the Fresnel
+   term; the diff image will show exactly where it changes.
+2. **Render scale with temporal upsampling** (30–45% of everything
+   per-pixel). No render scale exists (SSAA only goes up). The frame is
+   per-pixel bound, TAA is in, and a 0.75x internal resolution resolved up
+   by the TAA is the standard lever (TAAU). Risk: the glitter's sharpness
+   under upsample; the owner's eye decides.
+3. **Reflection rays out of the fragment shader, at half resolution**
+   (~7–10 ms). Reflections still ride in the lit shader at the frame's
+   pixel rate; the reverted pass failed on the 8-bit normal buffer
+   (`kNormalFormat`, one constant) — R16G16 octahedral unblocks it, and
+   RTGI's own Medium rung proved half-res rays indistinguishable at 12x.
+   With it, a night-specific cut for the steel's mirror rays: at roughness
+   0.27 the whole bridge traces a ray per pixel to see dark sky and water.
+4. **The proxy BLAS above.**
+5. **WR-10's true size.** Not new, but both the reflection and the
+   refraction hits walk all 191 lights with no cluster, and 56 ms sits in
+   those two passes. After WR-17 it is the largest listed item.
+6. **Contribution culling in the lit loop** (~5–8 ms, a candidate). The
+   water evaluates 146 lights' full streak BRDF; a light whose unshadowed
+   term is under 1/512 of the pixel's last-frame luminance cannot show.
+   Needs the TAA history bound in the lit pass — one sampler slot is left
+   on OpenGL's layered variant.
+7. **Variable-rate shading.** The 5070 Ti supports it; the engine queries
+   nothing for it. The ray budget's importance tiles are a ready-made
+   shading-rate image: 2x2 on smooth dark water, 1x1 on the glitter and
+   the steel. Medium effort, untested here.
+8. **Async overlap** of the ray passes with raster, once (3) exists. Small.
+
+Not worth touching: RTAO (0.1 ms), the post chain (under 2 ms together),
+MSAA and SSAA (inert under TAA), Hi-Z occlusion (an open structure).
+
+---
+
 ## Deferred / rejected, with reasons (do not re-litigate blind)
 
 - **ReSTIR GI** — replaces the whole GI estimator; heavy, denoiser-entangled.

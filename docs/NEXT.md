@@ -78,6 +78,11 @@ settings driving every light — is built and measured in place of WR-8,
 owner's call, and shipped as the **RT optimisation** preset (Off / Quality /
 Balanced / Performance; the project still at Off). Next: pick the level,
 the after-table per level, then WR-10 and WR-16.
+Beyond the list, ranked from the numbers, in RENDERING-REVAMP's
+"Frame-time candidates" section: refraction rays only where they can show,
+render scale with temporal upsample, reflections out of the fragment
+shader at half res, and the GPU-LOD design doc's one fit — a proxy BLAS
+for far shadow rays through the instance masks the TLAS already carries.
 
 ## The order
 
