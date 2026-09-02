@@ -210,13 +210,13 @@ feature is wanted on both backends and the GL path needs its own mechanism
 | WR-10 | World-space light grid + stochastic sampling at RT hits | VK-only | net ≤0, build <0.5 ms | 3–4 d | — |
 | WR-11 | Froxel volumetrics (or analytic airlight fallback) | GL-fallback (see item) | 1–1.5 ms (shipped-precedent class) | 1–2 wk | WR-1, WR-4 |
 | WR-12 | Display finishers: night toe, Purkinje switch, local exposure, stars | BOTH | <0.5 ms | 2–3 d | WR-1, WR-5 |
-| WR-13 | ~~Specular antialiasing (Tokuyoshi–Kaplanyan)~~ 🔨 built (nine pixels); **the flicker itself is measured per AA mode in the item** — WR-15's sampling was the non-TAA half (fixed), the TAA half is a candidate, the lamp lenses are what remains (WR-5) | BOTH | few ALU/lit px | done | — |
+| WR-13 | ~~Specular antialiasing (Tokuyoshi–Kaplanyan)~~ ✅ **judged good by the owner 2026-09-02**; the flicker itself is measured per AA mode in the item — WR-15's sampling was the non-TAA half (fixed), the lamp lenses went to WR-5's sprites, the sub-pixel members the owner keeps are what remains under TAA | BOTH | few ALU/lit px | done | — |
 | WR-14 | Water foam at night | BOTH | ~0 | 0.5–1 d | WR-1, WR-4 |
-| WR-15 | ~~Soft shadows from dense point-light arrays~~ 🔨 built; **sampling rebuilt 2026-09-02 so it no longer needs TAA to integrate it** (see the item) | VK-only | +2.3 ms measured | done, unjudged | WR-8 helps |
+| WR-15 | ~~Soft shadows from dense point-light arrays~~ ✅ **judged good by the owner 2026-09-02**; sampling rebuilt the same day so it no longer needs TAA to integrate it (see the item) | VK-only | +2.3 ms measured | done | WR-8 helps |
 | WR-16 | ReSTIR DI: reservoir light sampling for the 128-lamp direct lighting | VK-only | target: replace ~15 ms of shadow tracing with ~1 ray/px | 2–3 wk | WR-10 complements |
 
-**Done so far: WR-0, WR-1, WR-2, WR-3, WR-4.** The order that remains starts
-at WR-5.
+**Done so far: WR-0, WR-1, WR-2, WR-3, WR-4, WR-13, WR-15, and WR-5's lamp
+sprites.** The order that remains starts at WR-5's bloom audit and WR-6.
 
 **Recommended order:** WR-0 → WR-1 → WR-2 → WR-3 → WR-4 → WR-5 → WR-6 →
 WR-7 → WR-10 → WR-13+WR-8 → WR-9 → WR-14 → WR-11 → WR-12. Rationale: the
@@ -1251,7 +1251,7 @@ streak crosses a foam patch intact. **[OWNER GATE]**
 
 ---
 
-## ~~WR-15 · Soft shadows from dense point-light arrays~~ — 🔨 **built 2026-09-02, not yet judged**
+## ~~WR-15 · Soft shadows from dense point-light arrays~~ — ✅ **built 2026-09-02, judged good by the owner the same evening**
 
 > **The defect was worse than "a streak fan at the tower base".** With 120
 > lamps each a point to the shadow ray, the deck railing cast 120 crisp

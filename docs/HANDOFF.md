@@ -194,7 +194,8 @@ radius zero and for directional lights, so every light authored before
 - **Cost +2.3 ms** (52.7 → 55.0 ms at 1600×900). No extra rays; it is the
   hash, the frame build, a sin/cos and a sqrt per shadow ray. If that needs
   winning back, the trig is the first thing to replace.
-- `scenetest` green on both backends. **Not judged by the owner yet.**
+- `scenetest` green on both backends. **Judged good by the owner at the end
+  of the third session**, after the sampling was rebuilt (see above).
 
 ### The streak investigation — what is and is not the cause
 
