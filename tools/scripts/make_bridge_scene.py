@@ -755,6 +755,33 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
             ("RaysPerCell", 512),
         ])
 
+    # **And the bay and the shores (7cx, 2026-09-03).** With the lamps fully
+    # baked beyond two metres, everything they light has to be inside a
+    # volume or it is lit live at the full cost -- and the frame turned out
+    # to be the water's reflection and refraction hits on the sea floor and
+    # the shores, plus the terrain the Headland, Cliff and Bluff cameras
+    # stand on. Three more boxes: the bay over the whole terrain from the sea
+    # floor (-125 m) to the low shores, and two over the highlands the
+    # cameras stand on. Light there comes from lamps sixty metres and more
+    # away and changes over tens of metres, so the spacing is coarse; what
+    # it cannot carry is a pier's shadow on the sand (Bluff), a known cost.
+    # The atlas packs volumes as boxes since 7cx, so a 2800 m box beside the
+    # 44 m deck boxes costs its own cells and not everyone else's.
+    for name, position, extents, spacing, cap in (
+            ("Bay irradiance", (0.0, -40.0, 0.0), (1400.0, 90.0, 1400.0), 32.0, 256),
+            ("Headland irradiance", (500.0, 110.0, -1025.0), (250.0, 60.0, 375.0), 12.0, 128),
+            ("South shore irradiance", (60.0, 75.0, 1200.0), (200.0, 45.0, 200.0), 12.0, 64),
+    ):
+        s.entity(name, position=position)
+        s.block("IrradianceVolumeComponent", [
+            ("AutoFit", "false"),
+            ("Extents", vec(*extents)),
+            ("Spacing", spacing),
+            ("MaxResolution", cap),
+            ("Passes", 8),
+            ("RaysPerCell", 512),
+        ])
+
     # --- the sodium lamps ----------------------------------------------------
     #
     # **128 spot lights, and they are the scene's lighting at night.** The sun
@@ -799,6 +826,12 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
             # mirror ray see the lens at all near the horizon.
             ("Range", 600),
             ("SourceRadius", 0.6),
+            # Hybrid Full Bake (ENGINE-NOTES 7cx, owner 2026-09-03): half
+            # baked within 2 m of the lamp -- the head and the top of the
+            # post stay live and keep their glow -- fully baked beyond, where
+            # the field carries the light of a hundred lamps for one fetch.
+            ("Mobility", "Hybrid Full Bake"),
+            ("HybridRadius", 2),
             ("InnerCone", 34), ("OuterCone", 85),
         ])
 
@@ -846,6 +879,9 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
             # A recessed floodlight's aperture, not a point -- gives the
             # shaft's own reflections a source to widen against.
             ("SourceRadius", 0.5),
+            # As the sodium lamps: Hybrid Full Bake at 2 m.
+            ("Mobility", "Hybrid Full Bake"),
+            ("HybridRadius", 2),
             # **Wide and soft.** At a 9-degree inner cone these read as hot
             # blobs on the shaft rather than a wash -- a real floodlight is
             # recessed behind a shield and lights the whole face, and what
@@ -870,6 +906,9 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
             ("Intensity", round(POST_TOP_CANDELA / bridge.LPS_589_LUMINANCE)),
             ("Range", 60),
             ("SourceRadius", 0.22),
+            # As the sodium lamps: Hybrid Full Bake at 2 m.
+            ("Mobility", "Hybrid Full Bake"),
+            ("HybridRadius", 2),
             ("CastShadows", "false"),
         ])
 
@@ -1026,6 +1065,8 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
             # It *is* its own collider, and a bridge demo that lets you fall
             # through the headland is a demo with a hole in it.
             ("Collision", "true"),
+            # And baked (7cx): the headland and the seabed are in the field.
+            ("Static", "true"),
         ])
 
     # --- rock ------------------------------------------------------------------
