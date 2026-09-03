@@ -977,13 +977,20 @@ analytic light contributes.
 > where it is admissible. Option C (the bake) is off the table by the
 > owner's decision: the lamps stay Half bake for the car shot.
 >
+> **2026-09-03: that reason is gone.** The static / moving split (ENGINE-
+> NOTES 7cx) means a moving car takes every lamp live and shadows the deck
+> from them whatever their mobility, so Full bake on the lamps no longer
+> costs the car shot anything. Which lamps go Full bake is the owner's
+> lighting call, and option C is back on the table for exactly them.
+>
 > **The light mobility setting landed with it:** `LightMobility`
 > (Realtime / Half bake / Full bake) replaces `IsBaked` on `Light` and
 > `LightRenderData`; the registry serialises it by name and loads the old
 > bool (`IsBaked: false` → Realtime, absent → Half bake); the lighting hash
 > mixes it only for Full bake so no stored bake is renamed; `GpuLight
 > Params.w` carries 0/1/2; the live loops skip a full-baked light wherever a
-> field is bound; the fill solves a full-baked light's direct irradiance at
+> field is bound (on static surfaces only since 7cx, 2026-09-03 -- a moving
+> surface takes it live); the fill solves a full-baked light's direct irradiance at
 > every cell with one ray to the light, in the faces' own units (irradiance
 > over pi), added after the Monte Carlo normalisation. Verified on
 > `showroom_fullbake.rage` (a copy with its sixteen half-baked lights set to

@@ -103,10 +103,11 @@ layout(set = 0, binding = 0) uniform SceneData
 	// above. (Both carried a single composed box until 2026-08-27.)
 	vec4 IrradianceCentre;
 	vec4 IrradianceExtents;
-	// Five rows a volume, up to eight: centre|zOffset, extents|spacing, and
-	// the three rows that take a world direction into that box's own axes,
-	// each carrying one of its cell counts in w.
-	vec4 IrradianceBox[40];
+	// Six rows a volume, up to eight: centre|zOffset, extents|spacing, the
+	// three rows that take a world direction into that box's own axes, each
+	// carrying one of its cell counts in w, and the box's x and y corner in
+	// the atlas (regions pack in all three directions, 7cx).
+	vec4 IrradianceBox[48];
 	vec4 ProbeCount;              // x = how many rows are real
 	vec4 ProbePlacement[15];
 	vec4 ProbeSlot[15];
@@ -154,6 +155,12 @@ struct InstanceData
 	// z = which record of the frame's material buffer describes this
 	// instance's textures. Read only when the fragment stage is the bindless
 	// variant (ENGINE-NOTES 7al); zero otherwise.
+	//
+	// w = on the skinned pipeline, where the previous frame's bones start
+	// (pbr_skinned.rvshader); on every other pipeline, 1 when the object is
+	// static (MeshComponent::Static, ENGINE-NOTES 7cx) and 0 when it moves.
+	// One lane, two meanings that never meet: a skinned mesh is never static,
+	// and only the skinned stage has bones to find.
 	//
 	// Per instance rather than pushed per batch, because two characters sharing
 	// one mesh are one instanced draw and each is in its own pose -- and,

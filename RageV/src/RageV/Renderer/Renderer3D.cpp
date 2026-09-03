@@ -31,8 +31,8 @@ namespace RageV
 			Vec4 Position;    // xyz, w = 1 positional / 0 directional
 			Vec4 Direction;   // xyz forward axis
 			Vec4 Color;       // rgb, a = intensity
-			Vec4 Params;      // range, cos(inner), cos(outer), mobility (0 realtime, 1 half, 2 full)
-			Vec4 Shadow;      // kind, slot, far, texel scale
+			Vec4 Params;      // range, cos(inner), cos(outer), mobility (0 realtime, 1 half, 2 full, 3 + radius hybrid)
+			Vec4 Shadow;      // kind, slot (under rays: a moving object is in range, 7cx), far, texel scale
 		};
 		static_assert(sizeof(GpuLight) == 80, "Must match GpuLight in pbr.rvshader");
 
@@ -83,6 +83,10 @@ namespace RageV
 		// `ForceNoOpaque` -- the flag tells traversal to *ask*, and this tells
 		// the shader what to answer.
 		constexpr uint32_t kRayInstanceMasked = 4u;
+		// MeshComponent::Static (7cx): a hit on this instance takes the fully
+		// baked lights from the field, as the surface itself does on screen;
+		// a hit on a moving instance walks them live.
+		constexpr uint32_t kRayInstanceStatic = 8u;
 
 		// Mirrors the std140 SceneData block in pbr.rvshader.
 		struct SceneUniforms
@@ -185,7 +189,7 @@ namespace RageV
 			// The rows of the field's inverse rotation. Mirrored by hand in
 			// scene_block.glsl and pbr_fragment.glsl, as everything in this
 			// block is.
-			// **Every volume in the atlas, one box each.** Five rows apiece,
+			// **Every volume in the atlas, one box each.** Six rows apiece,
 			// laid out so a reader can reject a box on the first two and only
 			// pay for the rest once it has found the one it is standing in:
 			//
@@ -194,11 +198,14 @@ namespace RageV
 			//   2  axis X.xyz          | cells across
 			//   3  axis Y.xyz          | cells up
 			//   4  axis Z.xyz          | cells deep
+			//   5  x offset, y offset  | (spare, spare) -- the box's corner in
+			//                            the atlas, since regions pack in all
+			//                            three directions (7cx)
 			//
 			// The same shape ProbePlacement takes above and for the same
 			// reason: the selection is per fragment, so the table has to be
 			// somewhere a fragment can read cheaply.
-			Vec4 IrradianceBox[Renderer3D::kMaxIrradianceVolumes * 5]{};
+			Vec4 IrradianceBox[Renderer3D::kMaxIrradianceVolumes * 6]{};
 			Vec4 ProbeCount{ 0.0f };
 			Vec4 ProbePlacement[15]{};
 			Vec4 ProbeSlot[15]{};
@@ -293,6 +300,11 @@ namespace RageV
 			// batch into one instanced draw. Selecting per draw instead would
 			// mean the probe had to be part of the sort key, and a run would
 			// split every time the answer changed.
+			// z = the material record on the bindless path (EndScene writes it).
+			// w = the previous bones' base on the skinned pipeline; on every
+			//     other pipeline 1 for a static object (MeshComponent::Static,
+			//     7cx) and 0 for a moving one. Two meanings in one lane that
+			//     never meet: a skinned mesh is never static.
 			Vec4 Indices{ 0.0f };
 		};
 		static_assert(sizeof(InstanceData) == 256,
@@ -2006,9 +2018,11 @@ namespace RageV
 			Vec4 Rotation[3];
 		} params{};
 
-		// **The two atlas numbers ride in the unused lanes**: where this
-		// region's slices begin inside a tile, and how far apart one tile is
-		// from the next. Everything else about the box is the region's own.
+		// **The atlas numbers ride in the unused lanes**: where this region's
+		// slices begin inside a tile, how far apart one tile is from the next,
+		// and -- in the first two axes' spare w -- the region's x and y corner
+		// in the atlas (7cx). Everything else about the box is the region's
+		// own.
 		params.Centre = Vec4(region.Centre, (float)region.ZOffset);
 		params.Extents = Vec4(region.Extents, (float)volume->Depth());
 		params.Grid = Vec4((float)region.Width, (float)region.Height,
@@ -2021,6 +2035,8 @@ namespace RageV
 							feedback ? 1.0f : 0.0f);
 		for (int axis = 0; axis < 3; axis++)
 			params.Rotation[axis] = Vec4(region.Rotation[axis], 0.0f);
+		params.Rotation[0].w = (float)region.XOffset;
+		params.Rotation[1].w = (float)region.YOffset;
 
 
 		// **The writes, fenced in both directions**, and both directions matter.
@@ -2906,13 +2922,18 @@ namespace RageV
 			const float outer = light.Type == Light::LightType::Spot
 							  ? Math::Cos(Math::Radians(light.OuterCone)) : 1.0f;
 
-			// w carries LightMobility: 0 realtime, 1 half bake, 2 full bake.
-			// The fill shades its hits with the baked kinds only (a realtime
-			// light's bounce must not land in a file its toggles cannot rename),
-			// solves a full-baked light's direct light into the field, and the
-			// live loops skip full-baked lights wherever a field is bound.
-			entry.Params = { Math::Max(light.Range, 0.0001f), inner, outer,
-							 (float)(uint32_t)light.Mobility };
+			// w carries LightMobility: 0 realtime, 1 half bake, 2 full bake,
+			// and for a hybrid light 3 plus its half-bake radius in metres
+			// (BakedShare in pbr_fragment.glsl decodes it). The fill shades
+			// its hits with the baked kinds only (a realtime light's bounce
+			// must not land in a file its toggles cannot rename), solves a
+			// fully baked light's direct light into the field -- the far share
+			// of a hybrid one -- and the live loops on static surfaces light
+			// the rest.
+			const float mobility = light.Mobility == LightMobility::HybridFullBake
+								 ? 3.0f + Math::Max(light.HybridRadius, 0.0f)
+								 : (float)(uint32_t)light.Mobility;
+			entry.Params = { Math::Max(light.Range, 0.0001f), inner, outer, mobility };
 			entry.Shadow = Vec4(0.0f);
 
 			s_Data->LightScratch.push_back(entry);
@@ -3034,6 +3055,16 @@ namespace RageV
 				assigned.TexelScale,
 			};
 
+			// **Under rays the slot lane is free** -- a ray has no map -- and
+			// it carries whether a moving object stands inside this light's
+			// range this frame (LightRenderData::MovingInRange, 7cx): the one
+			// condition under which a static pixel traces toward a fully
+			// baked lamp at all. Under maps the lane is the slot, as ever.
+			// `Ordered` and `LightScratch` were filled in the same walk, so
+			// the same index names the same light in both.
+			if (s_Data->RayShadowsOn)
+				s_Data->LightScratch[slot].Shadow.y = s_Data->Ordered[slot].MovingInRange ? 1.0f : 0.0f;
+
 			if (assigned.Type == LocalShadow::Kind::Spot && assigned.Slot >= 0)
 				s_Data->Scene.SpotLookup[assigned.Slot] = assigned.LookupMatrix;
 		}
@@ -3119,7 +3150,7 @@ namespace RageV
 			s_Data->Scene.ProbeSlot[i] = s_Data->Probes[i].Slot;
 		}
 
-		// **Every volume's box, five rows apiece.** See IrradianceBox for the
+		// **Every volume's box, six rows apiece.** See IrradianceBox for the
 		// layout. The rows that take a world vector into a box's own axes are
 		// its rotation's columns read across -- sent rather than inverted in
 		// the shader, because an inverse per fragment for a matrix that
@@ -3129,12 +3160,13 @@ namespace RageV
 			for (uint32_t i = 0; i < volumes; i++)
 			{
 				const IrradianceVolume::Region& region = s_Data->IrradianceRegions[i];
-				Vec4* row = &s_Data->Scene.IrradianceBox[i * 5];
+				Vec4* row = &s_Data->Scene.IrradianceBox[i * 6];
 				row[0] = Vec4(region.Centre, (float)region.ZOffset);
 				row[1] = Vec4(region.Extents, region.Spacing);
 				row[2] = Vec4(region.Rotation[0], (float)region.Width);
 				row[3] = Vec4(region.Rotation[1], (float)region.Height);
 				row[4] = Vec4(region.Rotation[2], (float)region.Depth);
+				row[5] = Vec4((float)region.XOffset, (float)region.YOffset, 0.0f, 0.0f);
 			}
 
 			// The count, where a lone field's "is there one at all" flag used
@@ -3144,7 +3176,8 @@ namespace RageV
 			// direct-light tiles only in a scene that has them.
 			bool hasFullBake = false;
 			for (const LightRenderData& light : s_Data->Ordered)
-				hasFullBake = hasFullBake || light.Mobility == LightMobility::FullBake;
+				hasFullBake = hasFullBake || light.Mobility == LightMobility::FullBake
+										  || light.Mobility == LightMobility::HybridFullBake;
 			s_Data->Scene.IrradianceExtents = Vec4(hasFullBake ? 1.0f : 0.0f, 1.0f, 1.0f, (float)volumes);
 			// The atlas's own depth: the stride from one tile to the next, and
 			// the number every reader divides by to address a slice.
@@ -3807,6 +3840,8 @@ namespace RageV
 						row.Flags |= kRayInstanceMasked;
 						row.AlphaCutoff = caster.Params.AlphaCutoff;
 					}
+					if (caster.Static)
+						row.Flags |= kRayInstanceStatic;
 
 					row.MaterialIndex = it->second;
 					row.BaseColor = caster.Params.BaseColor;
@@ -4861,7 +4896,8 @@ namespace RageV
 	void Renderer3D::SetSceneInstance(uint32_t index, const Mat4& transform,
 									  const Mat4& previousTransform,
 									  const Ref<Material>& material,
-									  const MaterialParams& params, uint32_t probe)
+									  const MaterialParams& params, uint32_t probe,
+									  bool isStatic)
 	{
 		if (!s_Data || !s_Data->SceneActive || index >= s_Data->ReservedInstances)
 			return;
@@ -4882,7 +4918,7 @@ namespace RageV
 		const Ref<Material>& effective = material ? material : s_Data->DefaultMaterial;
 		const float record = s_Data->Bindless ? (float)RegisterMaterial(effective) : 0.0f;
 
-		instance.Indices = { 0.0f, (float)probe, record, 0.0f };
+		instance.Indices = { 0.0f, (float)probe, record, isStatic ? 1.0f : 0.0f };
 	}
 
 	void Renderer3D::DrawSceneIndirect(const GpuCull::View& view,
@@ -5333,7 +5369,7 @@ namespace RageV
 
 	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const Mat4& transform,
 							  const Ref<Material>& material, const MaterialParams& params,
-							  uint32_t probe,
+							  uint32_t probe, bool isStatic,
 							   const Mat4* previousTransform)
 	{
 		if (!s_Data || !s_Data->SceneActive || !mesh)
@@ -5365,7 +5401,7 @@ namespace RageV
 		instance.Surface = { params.Metallic, params.Roughness,
 							 params.Occlusion, params.NormalScale };
 		// No bones, and the probe the scene picked for this object.
-		instance.Indices = { 0.0f, (float)probe, 0.0f, 0.0f };
+		instance.Indices = { 0.0f, (float)probe, 0.0f, isStatic ? 1.0f : 0.0f };
 
 		{
 			const Vec3 eye = Vec3(s_Data->Scene.CameraPosition);
@@ -5512,7 +5548,7 @@ namespace RageV
 	}
 
 	void Renderer3D::DrawLayeredMesh(const Ref<Mesh>& mesh, const Mat4& transform,
-									 const Ref<LayeredMaterial>& layered, uint32_t probe,
+									 const Ref<LayeredMaterial>& layered, uint32_t probe, bool isStatic,
 									 uint32_t indexCount, const Mat4* previousTransform)
 	{
 		if (!s_Data || !s_Data->SceneActive || !mesh || !layered)
@@ -5549,7 +5585,7 @@ namespace RageV
 		instance.EmissiveColor = params.EmissiveColor;
 		instance.Surface = { params.Metallic, params.Roughness,
 							 params.Occlusion, params.NormalScale };
-		instance.Indices = { 0.0f, (float)probe, 0.0f, 0.0f };
+		instance.Indices = { 0.0f, (float)probe, 0.0f, isStatic ? 1.0f : 0.0f };
 
 		{
 			const Vec3 eye = Vec3(s_Data->Scene.CameraPosition);

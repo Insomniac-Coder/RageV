@@ -1942,6 +1942,7 @@ namespace RageV
 		m_HasBlended = false;
 		m_Emitters.clear();
 		m_CullObjectCount = 0;
+		m_MovingBounds.clear();
 
 		m_BlendMeshes.clear();
 		m_BlendSlots.clear();
@@ -2067,6 +2068,13 @@ namespace RageV
 			entry.Transform = &transform;
 			entry.Source = &mesh;
 			entry.Skinned = resolved->IsSkinned();
+			// The component's word, with the one rule it states applied here
+			// so nothing downstream has to know it: a skinned mesh is never
+			// static (7cx). Everything that moves is a box the lights are
+			// tested against in MarkMovingLights.
+			entry.Static = mesh.Static && !entry.Skinned;
+			if (!entry.Static)
+				m_MovingBounds.push_back(bounds);
 
 			// **And never a blended one.** The GPU path draws its table with the
 			// opaque pipeline in the opaque pass; a windscreen in it is a
@@ -2835,8 +2843,11 @@ namespace RageV
 				const MaterialParams params =
 					mesh.ResolveParams(material ? material->GetParams() : MaterialParams{});
 
+				// Static or moving (7cx): the instance's mask, and the bit a
+				// hit reads. A skinned caster is never static, whatever the
+				// component says -- the same rule RefreshDrawList applies.
 				RayShadows::AddInstance(resolved, transform.World, bones, material, params,
-										(uint64_t)item + 1);
+										(uint64_t)item + 1, mesh.Static && !resolved->IsSkinned());
 			}
 
 			// The terrain, every chunk, no frustum: a hill outside the view
@@ -2859,7 +2870,8 @@ namespace RageV
 				if (!material)
 					material = Renderer3D::GetDefaultMaterial();
 				RayShadows::AddInstance(mesh, transform.World, nullptr, material,
-										material ? material->GetParams() : MaterialParams{});
+										material ? material->GetParams() : MaterialParams{},
+										0, component.Static);
 			});
 
 			RayShadows::Build(*cmd);
@@ -2919,10 +2931,65 @@ namespace RageV
 			data.Type = light.Light.Type;
 			data.CastShadows = light.Light.CastShadows;
 			data.Mobility = light.Light.Mobility;
+			data.HybridRadius = light.Light.HybridRadius;
 
 			lights.push_back(data);
 		}
 		return lights;
+	}
+
+	void Scene::MarkMovingLights(LightList& lights)
+	{
+		// The moving meshes' boxes were gathered with the draw list. The
+		// terrains with the flag off join them here, from the component's own
+		// dimensions rather than a resolved asset: this runs on the render
+		// path and must not build anything to answer.
+		std::vector<DrawBounds> terrains;
+		auto terrainView = m_Registry.GetView<TransformComponent, TerrainComponent>();
+		for (auto& item : terrainView)
+		{
+			auto [transform, terrain] = terrainView.Get<TransformComponent, TerrainComponent>(item);
+			if (terrain.Static)
+				continue;
+			// The terrain's local box (see TerrainComponent): centred in X and
+			// Z, standing on its base in Y.
+			AABB local;
+			local.Min = Vec3(-terrain.Size * 0.5f, 0.0f, -terrain.Size * 0.5f);
+			local.Max = Vec3(terrain.Size * 0.5f, terrain.Height, terrain.Size * 0.5f);
+			DrawBounds box;
+			Frustum::TransformBounds(local, transform.World, box.Centre, box.Extents);
+			terrains.push_back(box);
+		}
+
+		// A light's range sphere against a world box: the nearest point of the
+		// box to the centre, and whether it is within range. A directional
+		// light has no range and reaches everything, so any moving object at
+		// all is inside it.
+		auto inRange = [](const LightRenderData& light, const DrawBounds& box)
+		{
+			if (light.Type == Light::LightType::Directional)
+				return true;
+			const Vec3 delta = light.Position - box.Centre;
+			const float dx = Math::Max(Math::Abs(delta.x) - box.Extents.x, 0.0f);
+			const float dy = Math::Max(Math::Abs(delta.y) - box.Extents.y, 0.0f);
+			const float dz = Math::Max(Math::Abs(delta.z) - box.Extents.z, 0.0f);
+			return dx * dx + dy * dy + dz * dz <= light.Range * light.Range;
+		};
+
+		for (LightRenderData& light : lights)
+		{
+			light.MovingInRange = false;
+			for (const DrawBounds& box : m_MovingBounds)
+			{
+				if (inRange(light, box))
+				{
+					light.MovingInRange = true;
+					break;
+				}
+			}
+			for (size_t i = 0; !light.MovingInRange && i < terrains.size(); i++)
+				light.MovingInRange = inRange(light, terrains[i]);
+		}
 	}
 
 	void Scene::UpdateVoxelGI(const Mat4& cameraTransform)
@@ -3566,7 +3633,11 @@ namespace RageV
 				RHI::Ref<Mesh> resolved = Assets::Manager::GetMesh(mesh.Mesh);
 				// Skinned meshes move; a fit that follows them renames the
 				// bake every animation frame. See the component's comment.
-				if (!resolved || resolved->IsSkinned())
+				// And since 7cx only what the author marked static: the bake
+				// holds static objects and nothing else, so the box that holds
+				// the bake fits them -- and a car driving out of the room can
+				// no longer rename it.
+				if (!resolved || resolved->IsSkinned() || !mesh.Static)
 					continue;
 
 				Vec3 meshCentre, meshExtents;
@@ -4147,6 +4218,13 @@ namespace RageV
 			// bake was solved with, and mixing its value would rename them all.
 			if (light.Mobility == LightMobility::FullBake)
 				mixUint(2u);
+			// A hybrid light mixes its radius too: the field holds the part of
+			// its light beyond it, so a different radius is a different bake.
+			if (light.Mobility == LightMobility::HybridFullBake)
+			{
+				mixUint(3u);
+				mixFloat(light.HybridRadius);
+			}
 		}
 
 		mixVec(m_Environment.AmbientColor);
@@ -4748,7 +4826,11 @@ namespace RageV
 									 : viewCamera.GetProjection());
 
 		// The lights, as the voxel grid's injection also collects them (7bc).
-		const LightList lights = CollectLights();
+		LightList lights = CollectLights();
+		// And which of them have a moving object inside their range this
+		// frame (7cx) -- per-frame state, stamped after the collection the
+		// lighting hash also reads, so it can never rename a bake.
+		MarkMovingLights(lights);
 
 		// What the scene reflects, resolved once: the same cube feeds the
 		// surfaces and the background, so a mirror cannot disagree with what is
@@ -4914,7 +4996,8 @@ namespace RageV
 
 					Renderer3D::SetSceneInstance(entry.CullIndex, entry.Transform->World,
 												 entry.Transform->PreviousWorld, material,
-												 params, ProbeSlotFor(m_DrawBounds[index].Centre));
+												 params, ProbeSlotFor(m_DrawBounds[index].Centre),
+												 entry.Static);
 				}
 
 				// The blended rows, at their own base.
@@ -4935,7 +5018,8 @@ namespace RageV
 					Renderer3D::SetSceneInstance(m_CullObjectCount + entry.BlendIndex,
 												 entry.Transform->World,
 												 entry.Transform->PreviousWorld, material,
-												 params, ProbeSlotFor(m_DrawBounds[index].Centre));
+												 params, ProbeSlotFor(m_DrawBounds[index].Centre),
+												 entry.Static);
 				}
 
 				if (gpuLit)
@@ -5049,7 +5133,7 @@ namespace RageV
 				else
 				{
 					Renderer3D::DrawMesh(entry.Resolved, world, material, params, probe,
-										 &entry.Transform->PreviousWorld);
+										 entry.Static, &entry.Transform->PreviousWorld);
 				}
 			}
 
@@ -5087,7 +5171,8 @@ namespace RageV
 						}
 
 						Renderer3D::DrawLayeredMesh(mesh, transform.World, layers,
-													ProbeSlotFor(centre), terrain.DrawIndexCount(chunk),
+													ProbeSlotFor(centre), component.Static,
+													terrain.DrawIndexCount(chunk),
 													&transform.PreviousWorld);
 					}
 				});

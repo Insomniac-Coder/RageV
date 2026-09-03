@@ -65,6 +65,7 @@ def _scene(name, script):
         "      Rotation: [0, 0, 0]",
         "      Scale: [1.4, 1.4, 1.4]",
         "    MeshComponent:",
+        "      Static: true",
         f"      Mesh: {base.PRIMITIVE_BASE + base.CUBE}",
         "      Material:",
         "        BaseColor: [0.85, 0.2, 0.2, 1]",

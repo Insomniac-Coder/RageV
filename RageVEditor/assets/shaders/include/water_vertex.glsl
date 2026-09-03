@@ -154,7 +154,8 @@ void main()
 	v_BaseColor     = instance.BaseColor;
 	v_EmissiveColor = instance.EmissiveColor;
 	v_Surface       = instance.Surface;
-	v_Probe         = instance.Indices.y;
+	// y is 0 whatever the instance says: water is always live (7cx).
+	v_Instance      = vec2(instance.Indices.y, 0.0);
 	v_MaterialIndex = instance.Indices.z;
 
 	gl_Position = u_Scene.ViewProjection * world;

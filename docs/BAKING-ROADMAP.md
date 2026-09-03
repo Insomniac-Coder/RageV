@@ -206,6 +206,13 @@ object table with fresh matrices every frame, so nothing downstream currently
 cares whether a thing moves — and the awkward case is already in the sample:
 the showroom car is rigid but script-moved.
 
+> **No longer true (2026-09-03).** `MeshComponent::Static` and
+> `TerrainComponent::Static` exist, default off; the bake sees static objects
+> only, static surfaces read fully baked lights from the field, moving ones
+> take them live and still shadow the static floor through a ray traced
+> against the moving objects alone. ENGINE-NOTES 7cx. The car is the awkward
+> case no more: it is simply not static.
+
 **Probe capture cannot see other probes.** `ProbeSlotFor` returns the sky while
 capturing, or two probes facing each other capture each other one frame deeper
 every frame. Any multi-bounce bake has to solve this properly (iterate to

@@ -71,10 +71,13 @@ namespace RageV
 		// grid, its own spacing and its own rotation, and gives up only the
 		// right to be its own texture.
 		//
-		// Packed along z *within each tile*: volume v's tile t occupies the
-		// slices [t * AtlasDepth + ZOffset, ... + Depth). The tile stride is
-		// therefore the atlas depth rather than a field's own, which is the
-		// one line every reader of this layout has to get right.
+		// Packed as boxes *within each tile*: volume v's tile t occupies the
+		// texels [XOffset, +Width) x [YOffset, +Height) x
+		// [t * AtlasDepth + ZOffset, +Depth). The tile stride is therefore the
+		// atlas depth rather than a field's own, which is the one line every
+		// reader of this layout has to get right -- and since 7cx the two
+		// other offsets are the second: a reader that adds only the z offset
+		// lands in the widest volume's cells.
 		struct Region
 		{
 			// The box in the world. Axes as columns, unit length.
@@ -87,7 +90,10 @@ namespace RageV
 			uint32_t Height = 0;
 			uint32_t Depth = 0;
 
-			// Where its slices begin inside a tile.
+			// Where its cells begin inside a tile: the box's corner in the
+			// atlas. All three are CreateAtlas's to fill, nobody else's.
+			uint32_t XOffset = 0;
+			uint32_t YOffset = 0;
 			uint32_t ZOffset = 0;
 
 			// Metres between cells, kept for the stamp and the inspector.

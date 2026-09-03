@@ -69,7 +69,7 @@ layout(location = 3) flat out vec4 v_BaseColor[];
 layout(location = 4) flat out vec4 v_EmissiveColor[];
 layout(location = 5) flat out vec4 v_Surface[];
 layout(location = 6) out vec4 v_ClipPos[];
-layout(location = 7) flat out float v_Probe[];
+layout(location = 7) flat out vec2 v_Instance[];
 layout(location = 8) out vec4 v_PrevClipPos[];
 layout(location = 9) flat out float v_MaterialIndex[];
 
@@ -138,7 +138,7 @@ void main()
 		v_BaseColor[tid]     = instance.BaseColor;
 		v_EmissiveColor[tid] = instance.EmissiveColor;
 		v_Surface[tid]       = instance.Surface;
-		v_Probe[tid]         = instance.Indices.y;
+		v_Instance[tid]      = vec2(instance.Indices.y, instance.Indices.w);
 		v_MaterialIndex[tid] = instance.Indices.z;
 
 		const vec4 clip = u_Scene.ViewProjection * world;

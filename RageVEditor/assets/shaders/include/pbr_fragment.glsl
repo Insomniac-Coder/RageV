@@ -209,7 +209,7 @@ layout(set = 0, binding = 0) uniform SceneData
 	// Five rows a volume, up to eight: centre|zOffset, extents|spacing, and
 	// the three rows that take a world direction into that box's own axes,
 	// each carrying one of its cell counts in w.
-	vec4 IrradianceBox[40];
+	vec4 IrradianceBox[48];
 	vec4 ProbeCount;              // x = how many rows are real
 	vec4 ProbePlacement[15];
 	vec4 ProbeSlot[15];
@@ -253,7 +253,9 @@ struct GpuLight
 	vec4 Direction;
 	// rgb colour, a intensity
 	vec4 Color;
-	// x range, y cos(inner cone), z cos(outer cone)
+	// x range, y cos(inner cone), z cos(outer cone), w mobility: 0 realtime,
+	// 1 half bake, 2 full bake, 3 plus the half-bake radius for a hybrid light
+	// (see BakedShare)
 	vec4 Params;
 	// x kind of shadow map (0 none), y slot, z far distance, w texel scale
 	vec4 Shadow;
@@ -263,6 +265,29 @@ layout(std430, set = 0, binding = 8) readonly buffer LightBlock
 {
 	GpuLight Lights[];
 } u_Lights;
+
+// **How much of a light the bake owns at a point** (ENGINE-NOTES 7cx, Hybrid
+// Full Bake): none of a realtime or half-baked light, all of a fully baked
+// one, and of a hybrid light -- Params.w is 3 plus its half-bake radius in
+// metres -- a smooth step from none within the radius of the lamp to all a
+// short band beyond it. The fill stores exactly this share and the live
+// loops light the rest, so the two sum to one at every distance: the bright
+// spot under a lamp and the glow it feeds stay live and exact, the far light
+// that is most of the cost is the field's. A hybrid directional light has no
+// distance to measure and is lit live, as Half bake.
+float BakedShare(GpuLight light, vec3 position)
+{
+	if (light.Params.w < 1.5)
+		return 0.0;
+	if (light.Params.w < 2.5)
+		return 1.0;
+	if (light.Position.w == 0.0)
+		return 0.0;
+	const float radius = light.Params.w - 3.0;
+	// A metre or two of blend, a tenth of the radius at most.
+	const float band = max(radius * 0.1, 1.0);
+	return smoothstep(radius - band, radius + band, distance(light.Position.xyz, position));
+}
 
 // The cluster grid: which lights reach which cell of the view frustum.
 //
@@ -383,6 +408,11 @@ const uint RAY_INSTANCE_EMITTER = 2u;
 // the shader what to answer. Anything without it is committed by the hardware
 // and never reaches the test.
 const uint RAY_INSTANCE_MASKED = 4u;
+
+// **This instance never moves** (MeshComponent::Static, ENGINE-NOTES 7cx): a
+// hit on it takes the fully baked lights from the field, as the surface
+// itself does on screen; a hit on a moving instance walks them live.
+const uint RAY_INSTANCE_STATIC = 8u;
 
 layout(std430, set = 0, binding = 15) readonly buffer RayInstanceBlock
 {
@@ -557,10 +587,15 @@ layout(location = 3) flat in vec4 v_BaseColor;
 layout(location = 4) flat in vec4 v_EmissiveColor;
 layout(location = 5) flat in vec4 v_Surface;
 layout(location = 6) in vec4 v_ClipPos;
-// Which cube of u_Environment and u_Irradiance. Flat and per instance: it is
-// constant across the object, and interpolating it would put fragments in the
-// middle of a triangle between two probes.
-layout(location = 7) flat in float v_Probe;
+// x: which cube of u_Environment and u_Irradiance. Flat and per instance: it
+// is constant across the object, and interpolating it would put fragments in
+// the middle of a triangle between two probes.
+// y: MeshComponent::Static -- 1 when this object never moves (ENGINE-NOTES
+// 7cx). A static surface reads the fully baked lights from the field and
+// skips them live; a moving one is lit live by them and reads no stored
+// direct light. The skinned and water vertex stages write 0 here whatever the
+// instance says: a pose moves, and the water stays live for the streak.
+layout(location = 7) flat in vec2 v_Instance;
 layout(location = 8) in vec4 v_PrevClipPos;
 // Which record in u_Materials this instance's material is. Read only by the
 // bindless variant; declared in both so the two stages agree.
@@ -925,7 +960,23 @@ void RayTraverse(rayQueryEXT query)
 
 #endif
 
-float TraceShadowFrom(vec3 worldPos, vec3 Ng, vec3 L, float tMax)
+// **Which world a ray sees** (ENGINE-NOTES 7cx). Every instance in the
+// structure carries exactly one of two mask bits -- RayShadows::kMaskStatic
+// or kMaskMoving, mirrored here and nowhere else -- and a ray's cull mask
+// chooses. The frame's rays see both: RV_RAY_MASK_SCENE is every bit. The
+// bake's solve sees the static half alone, because a moving object is not
+// baked -- its shadow must not be painted onto the floor it will drive off.
+// And a static pixel under a fully baked lamp traces toward it with
+// RV_RAY_MASK_MOVING alone, to find what the field could not know.
+#define RV_RAY_MASK_STATIC 0x01u
+#define RV_RAY_MASK_MOVING 0x02u
+#ifdef RV_IRRADIANCE_FILL
+#define RV_RAY_MASK_SCENE RV_RAY_MASK_STATIC
+#else
+#define RV_RAY_MASK_SCENE 0xFFu
+#endif
+
+float TraceShadowFromMasked(vec3 worldPos, vec3 Ng, vec3 L, float tMax, uint mask)
 {
 	if (u_Scene.ShadowParams.x <= 0.0)
 		return 1.0;
@@ -944,10 +995,17 @@ float TraceShadowFrom(vec3 worldPos, vec3 Ng, vec3 L, float tMax)
 	// hit, and nothing is committed now without passing the test.
 	rayQueryInitializeEXT(q, u_SceneAS,
 						  RV_RAY_BASE_FLAGS | gl_RayFlagsTerminateOnFirstHitEXT,
-						  0xFFu, worldPos + Ng * offset, 0.0, L, tMax);
+						  mask, worldPos + Ng * offset, 0.0, L, tMax);
 	RayTraverse(q);
 	return rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT
 		 ? 1.0 : 0.0;
+}
+
+// The shadow ray every caller traced before masks existed: the whole scene
+// under the frame, the static half under the solve.
+float TraceShadowFrom(vec3 worldPos, vec3 Ng, vec3 L, float tMax)
+{
+	return TraceShadowFromMasked(worldPos, Ng, L, tMax, RV_RAY_MASK_SCENE);
 }
 
 // **WR-15: a lamp has a size, so its shadow has an edge.**
@@ -1015,13 +1073,13 @@ float InterleavedGradientNoise(vec2 pixel)
 	return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
 }
 
-float TraceShadowSoftFrom(vec3 worldPos, vec3 Ng, vec3 L, float tMax,
-						  float sourceRadius, uint light)
+float TraceShadowSoftFromMasked(vec3 worldPos, vec3 Ng, vec3 L, float tMax,
+								float sourceRadius, uint light, uint mask)
 {
 	// No size, or a directional light -- whose tMax is a stand-in for infinity
 	// and whose radius in metres would mean nothing against it.
 	if (sourceRadius <= 0.0 || tMax >= 1.0e4)
-		return TraceShadowFrom(worldPos, Ng, L, tMax);
+		return TraceShadowFromMasked(worldPos, Ng, L, tMax, mask);
 
 	// The pixel's shift: one gradient-noise value per axis, the second read
 	// at an offset so the two are not the same pattern.
@@ -1057,8 +1115,15 @@ float TraceShadowSoftFrom(vec3 worldPos, vec3 Ng, vec3 L, float tMax,
 	// The sampled point is fractionally further than the centre; ending the
 	// ray at the centre distance would let the source's own far edge occlude
 	// it. sqrt is exact here and the term is one instruction.
-	return TraceShadowFrom(worldPos, Ng, normalize(target),
-						   sqrt(tMax * tMax + radius * radius));
+	return TraceShadowFromMasked(worldPos, Ng, normalize(target),
+								 sqrt(tMax * tMax + radius * radius), mask);
+}
+
+float TraceShadowSoftFrom(vec3 worldPos, vec3 Ng, vec3 L, float tMax,
+						  float sourceRadius, uint light)
+{
+	return TraceShadowSoftFromMasked(worldPos, Ng, L, tMax, sourceRadius, light,
+									 RV_RAY_MASK_SCENE);
 }
 
 // The surface being shaded: its own geometric normal. The tracing above takes
@@ -1514,35 +1579,23 @@ void DerivedLamp(vec3 rawC0, vec3 l1, vec3 axisX, vec3 axisY, vec3 axisZ, float 
 	coherentLight = max(rawC0 / 0.282095, vec3(0.0)) * coherence * edgeFade;
 }
 
-bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradiance,
-					  out float skyVisibility, out vec3 directLight,
-					  out vec3 directDirection, out vec3 directCoherent)
+// **Which volume covers this point, and how deep inside it the lookup lands**
+// -- the head of VolumeIrradiance, shared with IrradianceFieldWeight so that
+// the live loop's complement of the field's edge fade *is* the fade and never
+// an estimate of it (ENGINE-NOTES 7cx). `box` is the chosen volume's row in
+// u_Scene.IrradianceBox; `local` the lookup point in that box's [-1, 1] frame
+// after the half-cell step off the surface (and the further step off a buried
+// anchor, below); `edgeFade` what every stored quantity is scaled by;
+// `singleCell` whether the solve should read one cell rather than blend. False
+// where no volume covers the point.
+bool FieldLocate(vec3 position, vec3 normal, out int box, out vec3 local,
+				 out float edgeFade, out bool singleCell)
 {
-	irradiance = vec3(0.0);
-	directLight = vec3(0.0);
-	directDirection = vec3(0.0);
-	directCoherent = vec3(0.0);
-	const bool hasDirect = u_Scene.IrradianceExtents.x > 0.5;
+	box = -1;
+	local = vec3(0.0);
+	edgeFade = 0.0;
+	singleCell = false;
 
-	// **One, meaning unoccluded, until a cell says otherwise.** Every early
-	// return below is a fragment with no field over it, and the honest answer
-	// there is "do not darken anything" -- a scene with no volume authored
-	// must not lose its sky.
-	skyVisibility = 1.0;
-
-	// **Which volume is this fragment standing in?**
-	//
-	// A scene's volumes used to be merged into one box before anything got
-	// here, so this function had exactly one to read and needed no choosing.
-	// They are independent now -- own grid, own spacing, own rotation, packed
-	// side by side into one texture -- so the first job is picking one.
-	//
-	// **The deepest containment wins**, measured as the distance to the
-	// nearest face in cells rather than in metres: a fragment inside two
-	// overlapping volumes should read the one it is furthest *inside*, and
-	// comparing in metres would hand a coarse volume the argument simply for
-	// being large. It is also exactly the quantity the edge fade below wants,
-	// so it is computed once and used twice.
 	const int volumeCount = int(u_Scene.IrradianceExtents.w + 0.5);
 	if (volumeCount <= 0)
 		return false;               // no field in the scene
@@ -1552,11 +1605,11 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	vec3 chosenLocal = vec3(0.0);
 	for (int v = 0; v < volumeCount; v++)
 	{
-		const vec4 boxCentre = u_Scene.IrradianceBox[v * 5 + 0];
-		const vec4 boxExtents = u_Scene.IrradianceBox[v * 5 + 1];
-		const vec3 axisX = u_Scene.IrradianceBox[v * 5 + 2].xyz;
-		const vec3 axisY = u_Scene.IrradianceBox[v * 5 + 3].xyz;
-		const vec3 axisZ = u_Scene.IrradianceBox[v * 5 + 4].xyz;
+		const vec4 boxCentre = u_Scene.IrradianceBox[v * 6 + 0];
+		const vec4 boxExtents = u_Scene.IrradianceBox[v * 6 + 1];
+		const vec3 axisX = u_Scene.IrradianceBox[v * 6 + 2].xyz;
+		const vec3 axisY = u_Scene.IrradianceBox[v * 6 + 3].xyz;
+		const vec3 axisZ = u_Scene.IrradianceBox[v * 6 + 4].xyz;
 
 		const vec3 boxHalf = max(boxExtents.xyz, vec3(1.0e-3));
 		const vec3 d = position - boxCentre.xyz;
@@ -1567,9 +1620,9 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		if (any(greaterThan(abs(l), vec3(1.0))))
 			continue;               // outside this one
 
-		const vec3 boxGrid = max(vec3(u_Scene.IrradianceBox[v * 5 + 2].w,
-									  u_Scene.IrradianceBox[v * 5 + 3].w,
-									  u_Scene.IrradianceBox[v * 5 + 4].w) - 1.0,
+		const vec3 boxGrid = max(vec3(u_Scene.IrradianceBox[v * 6 + 2].w,
+									  u_Scene.IrradianceBox[v * 6 + 3].w,
+									  u_Scene.IrradianceBox[v * 6 + 4].w) - 1.0,
 								 vec3(1.0));
 		const vec3 inCells = (1.0 - abs(l)) * boxGrid * 0.5;
 		const float depth = min(inCells.x, min(inCells.y, inCells.z));
@@ -1584,7 +1637,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	if (chosen < 0)
 		return false;               // in none of them
 
-	const int box = chosen * 5;
+	box = chosen * 6;
 	const vec3 extents = max(u_Scene.IrradianceBox[box + 1].xyz, vec3(1.0e-3));
 
 	// **Half a cell along the normal, before anything else** -- the cheap half
@@ -1614,6 +1667,9 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	const ivec3 texels = textureSize(u_IrradianceField, 0);
 	const int tile = max(int(u_Scene.IrradianceCentre.w + 0.5), 1);
 	const int zbase = int(u_Scene.IrradianceBox[box + 0].w + 0.5);
+	// The box's corner in the atlas (7cx): regions pack side by side in x and
+	// y as well as along z, so every texel address starts here.
+	const ivec2 xybase = ivec2(u_Scene.IrradianceBox[box + 5].xy + 0.5);
 	const vec3 cells = vec3(u_Scene.IrradianceBox[box + 2].w,
 							u_Scene.IrradianceBox[box + 3].w,
 							u_Scene.IrradianceBox[box + 4].w);
@@ -1646,7 +1702,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	// and the refusal works again. It costs one fetch, in the case that was
 	// already the expensive one, and it blurs the read by a cell exactly
 	// where the nearest cell was rubble -- which had no detail to lose.
-	vec3 local = (placed + facing * (extents / grid)) / extents;
+	local = (placed + facing * (extents / grid)) / extents;
 	if (any(greaterThan(abs(local), vec3(1.0))))
 		return false;               // outside it
 
@@ -1673,7 +1729,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	// Scene::UpdateIrradianceVolumes -- so a surface *on* the authored
 	// boundary sits a full cell from the real edge and reads full strength.
 	// Set where the lookup lands on a cell nothing surveyed; see below.
-	bool singleCell = false;
+	singleCell = false;
 
 	// The anchor, and the step off a buried one described above. Done before
 	// the edge fade so the fade measures the sample actually taken.
@@ -1682,7 +1738,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		const ivec3 firstAnchor = clamp(ivec3(floor(firstBase + 0.5)),
 										ivec3(0), ivec3(grid));
 		const int firstMask = int(texelFetch(u_IrradianceField,
-											 firstAnchor + ivec3(0, 0, tile * RV_FIELD_VISIBILITY_TILE + zbase), 0).x + 0.5);
+											 firstAnchor + ivec3(xybase, tile * RV_FIELD_VISIBILITY_TILE + zbase), 0).x + 0.5);
 		if (firstMask == 0)
 		{
 			const vec3 stepped = (placed + facing * (extents / grid) * 3.0) / extents;
@@ -1719,9 +1775,84 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	}
 
 	const vec3 fromEdge = (1.0 - abs(local)) * grid * 0.5;
-	const float edgeFade = clamp(min(fromEdge.x, min(fromEdge.y, fromEdge.z)), 0.0, 1.0);
+	edgeFade = clamp(min(fromEdge.x, min(fromEdge.y, fromEdge.z)), 0.0, 1.0);
 	if (edgeFade <= 0.0)
 		return false;
+	return true;
+}
+
+// **The field's weight at a point, for the live loop's complement** (7cx): 0
+// where no volume covers it, the edge fade inside one -- exactly what
+// VolumeIrradiance scales its direct light by. So a fully baked lamp lit live
+// by (1 - weight) and read from the field by weight is one lamp counted once,
+// everywhere: deep inside a volume, outside every volume (the beach beyond the
+// deck's box, which used to get nothing), and across a volume's edge band.
+float IrradianceFieldWeight(vec3 position, vec3 normal)
+{
+	int box;
+	vec3 local;
+	float fade;
+	bool single;
+	return FieldLocate(position, normal, box, local, fade, single) ? fade : 0.0;
+}
+
+bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradiance,
+					  out float skyVisibility, out vec3 directLight,
+					  out vec3 directDirection, out vec3 directCoherent)
+{
+	irradiance = vec3(0.0);
+	directLight = vec3(0.0);
+	directDirection = vec3(0.0);
+	directCoherent = vec3(0.0);
+	const bool hasDirect = u_Scene.IrradianceExtents.x > 0.5;
+
+	// **One, meaning unoccluded, until a cell says otherwise.** Every early
+	// return below is a fragment with no field over it, and the honest answer
+	// there is "do not darken anything" -- a scene with no volume authored
+	// must not lose its sky.
+	skyVisibility = 1.0;
+
+	// **Which volume is this fragment standing in?**
+	//
+	// A scene's volumes used to be merged into one box before anything got
+	// here, so this function had exactly one to read and needed no choosing.
+	// They are independent now -- own grid, own spacing, own rotation, packed
+	// side by side into one texture -- so the first job is picking one.
+	//
+	// **The deepest containment wins**, measured as the distance to the
+	// nearest face in cells rather than in metres: a fragment inside two
+	// overlapping volumes should read the one it is furthest *inside*, and
+	// comparing in metres would hand a coarse volume the argument simply for
+	// being large. It is also exactly the quantity the edge fade below wants,
+	// so it is computed once and used twice.
+	int box;
+	vec3 local;
+	float edgeFade;
+	bool singleCell;
+	if (!FieldLocate(position, normal, box, local, edgeFade, singleCell))
+		return false;
+
+	// The chosen box's shape and frame again, from its rows -- cheap uniform
+	// reads, and the one place the two halves of the lookup could disagree if
+	// they were typed twice, which is why FieldLocate is the only place the
+	// choice is made.
+	const vec3 extents = max(u_Scene.IrradianceBox[box + 1].xyz, vec3(1.0e-3));
+	const ivec3 texels = textureSize(u_IrradianceField, 0);
+	const int tile = max(int(u_Scene.IrradianceCentre.w + 0.5), 1);
+	const int zbase = int(u_Scene.IrradianceBox[box + 0].w + 0.5);
+	// The box's corner in the atlas (7cx): regions pack side by side in x and
+	// y as well as along z, so every texel address starts here.
+	const ivec2 xybase = ivec2(u_Scene.IrradianceBox[box + 5].xy + 0.5);
+	const vec3 cells = vec3(u_Scene.IrradianceBox[box + 2].w,
+							u_Scene.IrradianceBox[box + 3].w,
+							u_Scene.IrradianceBox[box + 4].w);
+	const vec3 grid = max(cells - 1.0, vec3(1.0));
+	const vec3 axisX = u_Scene.IrradianceBox[box + 2].xyz;
+	const vec3 axisY = u_Scene.IrradianceBox[box + 3].xyz;
+	const vec3 axisZ = u_Scene.IrradianceBox[box + 4].xyz;
+	const vec3 delta = position - u_Scene.IrradianceBox[box + 0].xyz;
+	const vec3 placed = vec3(dot(axisX, delta), dot(axisY, delta), dot(axisZ, delta));
+	const vec3 facing = vec3(dot(axisX, normal), dot(axisY, normal), dot(axisZ, normal));
 
 	// **The eight cells around it, each asked whether it can see this surface
 	// at all.** This is where the shadow half of the bake is spent.
@@ -1754,7 +1885,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	// belongs to where the fragment *is*, and every corner is judged by it.
 	const ivec3 anchorCell = clamp(ivec3(floor(base + 0.5)), ivec3(0), last);
 	const int reachable = int(texelFetch(u_IrradianceField,
-										 anchorCell + ivec3(0, 0, tile * RV_FIELD_VISIBILITY_TILE + zbase), 0).x + 0.5);
+										 anchorCell + ivec3(xybase, tile * RV_FIELD_VISIBILITY_TILE + zbase), 0).x + 0.5);
 
 
 	// **Nothing in the way of any of the six, so nothing to weigh.** This is
@@ -1796,7 +1927,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		// filter samples in texture space, so the coordinate has to be scaled
 		// by the texture -- a volume narrower than the widest one would
 		// otherwise stretch its cells across the whole width.
-		const vec2 uv = uvw.xy / vec2(texels.xy);
+		const vec2 uv = (uvw.xy + vec2(xybase)) / vec2(texels.xy);
 		const float depth = float(texels.z);
 		float basis[9];
 		FieldBasis(facing, basis);
@@ -1869,7 +2000,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		for (int k = 0; k < RV_FIELD_COEFFICIENTS; k++)
 		{
 			const vec4 stored = texelFetch(u_IrradianceField,
-										   one + ivec3(0, 0, tile * k + zbase), 0);
+										   one + ivec3(xybase, tile * k + zbase), 0);
 			here += basis[k] * stored.rgb;
 			cubeSky += basis[k] * stored.a;
 		}
@@ -1881,7 +2012,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 			for (int k = 0; k < RV_FIELD_COEFFICIENTS; k++)
 			{
 				const vec3 c = texelFetch(u_IrradianceField,
-					one + ivec3(0, 0, tile * (RV_FIELD_DIRECT_TILE + k) + zbase), 0).rgb;
+					one + ivec3(xybase, tile * (RV_FIELD_DIRECT_TILE + k) + zbase), 0).rgb;
 				directHere += basis[k] * c;
 				const float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
 				if (k == 0) rawC0 = c;
@@ -1894,7 +2025,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		// sky, and a dead cell's sky evaluates to 1.0 there ("no data, do not
 		// darken"), so testing it would call every buried cell alive.
 		const bool alive = texelFetch(u_IrradianceField,
-								   one + ivec3(0, 0, tile * RV_FIELD_VISIBILITY_TILE + zbase), 0).y > 0.5;
+								   one + ivec3(xybase, tile * RV_FIELD_VISIBILITY_TILE + zbase), 0).y > 0.5;
 		if (!alive)
 			return false;   // buried there as well: nothing honest to report
 		irradiance = max(here, vec3(0.0)) * edgeFade;
@@ -1986,11 +2117,11 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		// aliveness flag, so the light's dead-cell skip keeps working while
 		// the alpha lanes mean sky for the hardware filter.
 		const bool alive = texelFetch(u_IrradianceField,
-						  index + ivec3(0, 0, tile * RV_FIELD_VISIBILITY_TILE + zbase), 0).y > 0.5;
+						  index + ivec3(xybase, tile * RV_FIELD_VISIBILITY_TILE + zbase), 0).y > 0.5;
 		for (int k = 0; k < RV_FIELD_COEFFICIENTS; k++)
 		{
 			const vec4 stored = texelFetch(u_IrradianceField,
-										   index + ivec3(0, 0, tile * k + zbase), 0);
+										   index + ivec3(xybase, tile * k + zbase), 0);
 			here += basis[k] * stored.rgb;
 			cubeSky += basis[k] * stored.a;
 		}
@@ -2003,7 +2134,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 			for (int k = 0; k < RV_FIELD_COEFFICIENTS; k++)
 			{
 				const vec3 c = texelFetch(u_IrradianceField,
-					index + ivec3(0, 0, tile * (RV_FIELD_DIRECT_TILE + k) + zbase), 0).rgb;
+					index + ivec3(xybase, tile * (RV_FIELD_DIRECT_TILE + k) + zbase), 0).rgb;
 				directHere += basis[k] * c;
 				const float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
 				if (k == 0) rawC0 = c;
@@ -2251,6 +2382,10 @@ struct TracedSurface
 	// light they saw through them. Both the sealed-room glow and the
 	// divider's bright edge were that.
 	bool Backface;
+	// MeshComponent::Static of the instance hit (RAY_INSTANCE_STATIC, 7cx):
+	// whether the fully baked lights are in the field for this surface, or
+	// were walked live into Direct.
+	bool Static;
 };
 
 // `reach` is how far the ray may travel, in world metres. A reflection wants
@@ -2270,6 +2405,7 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	surface.Emissive = vec3(0.0);
 	surface.IsEmitter = false;
 	surface.Backface = false;
+	surface.Static = false;
 
 	// Off the surface along its geometric normal, the shadow ray's offset,
 	// for the shadow ray's reason.
@@ -2278,7 +2414,7 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	float offset = 0.002 * (1.0 + min(slope, 4.0));
 
 	rayQueryEXT q;
-	rayQueryInitializeEXT(q, u_SceneAS, RV_RAY_BASE_FLAGS, 0xFFu,
+	rayQueryInitializeEXT(q, u_SceneAS, RV_RAY_BASE_FLAGS, RV_RAY_MASK_SCENE,
 						  origin + Ng * offset, 0.0, direction, reach);
 	RayTraverse(q);
 
@@ -2299,6 +2435,7 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	mat4x3 worldToObject = rayQueryGetIntersectionWorldToObjectEXT(q, true);
 
 	RayInstance hit = u_RayInstances.Instances[instance];
+	surface.Static = (hit.Flags & RAY_INSTANCE_STATIC) != 0u;
 	RayWords indices = RayWords(hit.IndexAddress);
 	RayFloats positions = RayFloats(hit.PositionAddress);
 	RayFloats attributes = RayFloats(hit.AttributeAddress);
@@ -2364,6 +2501,17 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	const bool hitBackface = dot(hitNormal, direction) > 0.0;
 	if (hitBackface)
 		hitNormal = -hitNormal;
+
+	// The field's weight at this hit (7cx): a static hit takes the fully
+	// baked lights from the field only where a volume covers it, live for
+	// the rest -- the beach in the water's mirror is lit by the lamps like
+	// the beach on screen. The solve never reads it: there every baked light
+	// is walked live, which is what fills the field.
+	float hitFieldWeight = 0.0;
+#ifndef RV_IRRADIANCE_FILL
+	if (surface.Static && u_Scene.IrradianceExtents.w > 0.0)
+		hitFieldWeight = IrradianceFieldWeight(hitPosition, hitNormal);
+#endif
 
 	// The material: the record, then the maps through the heap.
 	GpuMaterial material = u_Materials.Materials[hit.MaterialIndex];
@@ -2440,14 +2588,23 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	{
 #endif
 		GpuLight light = u_Lights.Lights[i];
+		float hitLiveShare = 1.0;
 #ifndef RV_IRRADIANCE_FILL
-		// A fully baked light's direct light is in the field this hit adds.
-		if (light.Params.w > 1.5 && u_Scene.IrradianceExtents.w > 0.0)
-			continue;
+		// A fully baked light's direct light is in the field this hit adds --
+		// for a static surface, where the field covers it (7cx). A moving
+		// surface, the car in the water's mirror, is not in the field's world
+		// and takes the light live here, as it does on screen; so does a
+		// static one outside every volume.
+		if (light.Params.w > 1.5 && u_Scene.IrradianceExtents.w > 0.0 && surface.Static)
+		{
+			hitLiveShare = 1.0 - hitFieldWeight * BakedShare(light, hitPosition);
+			if (hitLiveShare <= 0.0)
+				continue;
+		}
 #endif
 #ifdef RV_IRRADIANCE_FILL
 		// **The solve shades its hits without the realtime lights.**
-		// Params.w carries Light::IsBaked; a light the lighting hash skips
+		// Params.w carries Light::Mobility; a light the lighting hash skips
 		// must not put its bounce into a file its toggles cannot rename --
 		// that is the whole mobility contract. Every frame compile keeps the
 		// loop as it was: realtime forms light everything, always.
@@ -2577,7 +2734,8 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 										 sqrt(max(distance2, 1.0e-8)));
 			}
 		}
-		lit += diffuse / PI * lightColor * attenuation * max(dot(hitNormal, L), 0.0) * shadow;
+		lit += diffuse / PI * lightColor * attenuation * max(dot(hitNormal, L), 0.0) * shadow
+			 * hitLiveShare;
 	}
 
 	surface.Position = hitPosition;
@@ -2667,11 +2825,13 @@ vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
 			ambientLight += stored;
 	}
 #else
-	// **A reflection or refraction hit takes the fully baked lights' direct
-	// light from the field**, where the live walk above skipped them. Not
-	// in the solve: there the fully baked lights are walked live at hits,
-	// which is what puts their bounce into the field in the first place.
-	if (u_Scene.IrradianceExtents.x > 0.5)
+	// **A reflection or refraction hit on a static surface takes the fully
+	// baked lights' direct light from the field**, where the live walk above
+	// skipped them; a moving surface walked them live and reads nothing here
+	// (7cx). Not in the solve: there the fully baked lights are walked live
+	// at hits, which is what puts their bounce into the field in the first
+	// place.
+	if (u_Scene.IrradianceExtents.x > 0.5 && surface.Static)
 	{
 		vec3 hitBounce;
 		float hitSky;
@@ -3834,6 +3994,24 @@ void main()
 	vec3 waterSpecular = vec3(0.0);
 #endif
 
+	// MeshComponent::Static for this object (7cx) -- see v_Instance. A static
+	// surface leaves the fully baked lights to the field; a moving one takes
+	// every light live.
+	const bool surfaceStatic = v_Instance.y > 0.5;
+	// How much of this pixel the field answers for (7cx): 0 outside every
+	// volume, the edge fade inside one. The fully baked lamps are lit live
+	// for the rest -- a beach outside the deck's volume is lit by the lamps
+	// as any surface is -- and the two shares sum to one everywhere.
+	const float fieldWeight = surfaceStatic && u_Scene.IrradianceExtents.w > 0.0
+							? IrradianceFieldWeight(v_WorldPos, N) : 0.0;
+#ifdef RV_RAY_SHADOWS
+	// What the moving objects' shadows take out of the fully baked light on
+	// this static pixel, summed by the loop and applied where the field's own
+	// direct light is read, further down.
+	vec3 movingLossDiffuse = vec3(0.0);
+	vec3 movingLossSpecular = vec3(0.0);
+#endif
+
 	// Directional lights first, unconditionally: they have no position, so they
 	// reach every cell and binning them would put a copy in all 3456 of them.
 	// Everything after them is positional and comes from this fragment's cell.
@@ -3920,10 +4098,37 @@ void main()
 
 		GpuLight light = u_Lights.Lights[i];
 
-		// A fully baked light's direct light is in the field, read with the
-		// bounce; live only where no field is bound (Params.w: mobility).
-		if (light.Params.w > 1.5 && u_Scene.IrradianceExtents.w > 0.0)
-			continue;
+		// **A fully baked light on a static surface is in the field** (7cx),
+		// read with the bounce further down, and this loop leaves it alone --
+		// unless a moving object stands inside its range (Shadow.y, set per
+		// frame by the scene) and the light casts shadows at all. Then the
+		// field's answer is right except where that object blocks the lamp,
+		// and this iteration runs on to find out where: the term is computed
+		// as for any light, the shadow ray is traced against the moving
+		// objects alone, and what it finds blocked is *subtracted* below
+		// instead of added. Without traced shadows there is no ray to ask and
+		// the field's answer stands. A moving surface never enters this
+		// block: it is lit live by every light, this one included.
+		// The share of this light lit live here: all of it for a moving
+		// surface or a light that is not fully baked; for a fully baked light
+		// on a static surface, what the field does not cover -- one minus its
+		// weight, zero deep inside a volume and one outside every volume.
+		float liveShare = 1.0;
+		float fieldShare = 0.0;
+		bool subtractive = false;
+		if (light.Params.w > 1.5 && u_Scene.IrradianceExtents.w > 0.0 && surfaceStatic)
+		{
+			// The field's share of this light here: how much of it the bake
+			// owns at this distance (all of a fully baked lamp, the far part
+			// of a hybrid one) times how much of this pixel the field covers.
+			fieldShare = fieldWeight * BakedShare(light, v_WorldPos);
+			liveShare = 1.0 - fieldShare;
+#ifdef RV_RAY_SHADOWS
+			subtractive = fieldShare > 0.0 && light.Shadow.y > 0.5 && light.Shadow.x > 0.5;
+#endif
+			if (liveShare <= 0.0 && !subtractive)
+				continue;
+		}
 
 		vec3  lightColor = light.Color.rgb * light.Color.a;
 		float isPositional = light.Position.w;
@@ -4198,11 +4403,29 @@ void main()
 
 		float shadow = 1.0;
 #ifdef RV_RAY_SHADOWS
-		if (kind == 1)
+		// The moving objects alone, for the field's share (7cx): the static
+		// ones are already in the field's shadow. No thinning and no
+		// borrowing -- a ray toward a lamp with a car under it is the one ray
+		// this pass exists for, and its answer is about that car, not about
+		// the deck the far lamps share. A directional light reaches to
+		// infinity as ever. The live share takes the ordinary ray below like
+		// any light; both are traced only in a volume's edge band with a
+		// moving object at hand.
+		float shadowMoving = 1.0;
+		if (subtractive)
+		{
+			shadowMoving = kind == 1
+						 ? TraceShadowFromMasked(v_WorldPos, normalize(v_Normal), L, 1.0e4,
+												 RV_RAY_MASK_MOVING)
+						 : TraceShadowSoftFromMasked(v_WorldPos, normalize(v_Normal), L,
+													 length(light.Position.xyz - v_WorldPos),
+													 light.Direction.w, uint(i), RV_RAY_MASK_MOVING);
+		}
+		if (liveShare > 0.0 && kind == 1)
 		{
 			shadow = TraceShadow(v_WorldPos, L, 1.0e4);
 		}
-		else if (kind != 0)
+		else if (liveShare > 0.0 && kind != 0)
 		{
 			// WR-17: a far light's ray is traced by a fraction of the pixels
 			// that decreases with its distance (see ShadowRaySkip); a pixel
@@ -4251,7 +4474,21 @@ void main()
 		const float diffuseCosine = surface.Coat.w > 0.0
 			? WrapDiffuse(dot(N, L), surface.Coat.w) : NdotL;
 
-		Lo += (kD * albedo / PI * diffuseCosine + specular * NdotL) * radiance * shadow;
+#ifdef RV_RAY_SHADOWS
+		if (subtractive)
+		{
+			// What the moving object takes away from the field's share of a
+			// lamp the field has already paid in full. Held apart from Lo and
+			// clamped against the field's own direct light once that is
+			// read, further down.
+			movingLossDiffuse += kD * albedo / PI * diffuseCosine * radiance
+							   * (1.0 - shadowMoving) * fieldShare;
+			movingLossSpecular += specular * NdotL * radiance * (1.0 - shadowMoving) * fieldShare;
+		}
+#endif
+		// `liveShare` is exactly 1.0 for every light that is not a fully baked
+		// lamp on a static surface, so those shade to the bit they always did.
+		Lo += (kD * albedo / PI * diffuseCosine + specular * NdotL) * radiance * shadow * liveShare;
 #ifdef RV_WATER
 		waterSpecular += specular * radiance * NdotL * shadow;
 #endif
@@ -4281,7 +4518,7 @@ void main()
 	// +5.5 levels of red where a true second bounce is worth +2.2.
 
 	// **Blended between the probes that cover this fragment**, rather than
-	// taken wholly from the one the CPU chose for the object. v_Probe is still
+	// taken wholly from the one the CPU chose for the object. v_Instance.x is still
 	// what the emitter list and the traced bounce agree on for the object as a
 	// whole; here the surface asks for itself. Whatever the probes do not
 	// claim is the sky's, which is slot zero -- so the two fetches below are
@@ -4390,10 +4627,12 @@ void main()
 	// light has its own coefficients now and its own, unweighted, read.
 	vec3 bakedDirection = vec3(0.0);
 	vec3 bakedCoherent = vec3(0.0);
+	// The fully baked lights' stored direct light, kept in its own name: the
+	// moving objects' shadows below are clamped against it.
+	vec3 storedDirect = vec3(0.0);
 	if (bounceAnswered < 1.0 || u_Scene.IrradianceExtents.x > 0.5)
 	{
 		vec3 storedBounce;
-		vec3 storedDirect;
 		float fieldSky;
 		if (VolumeIrradiance(v_WorldPos, N, true, storedBounce, fieldSky, storedDirect,
 							 bakedDirection, bakedCoherent))
@@ -4403,18 +4642,31 @@ void main()
 				irradiance += storedBounce * (1.0 - bounceAnswered);
 				skyVisible = fieldSky;
 			}
-			irradiance += storedDirect;
+			// **Static surfaces only** (7cx): a moving object walked the fully
+			// baked lights live in the loop above, and reading their stored
+			// light as well would count each of them twice.
+			if (surfaceStatic)
+				irradiance += storedDirect;
+			else
+				storedDirect = vec3(0.0);
+		}
+		else
+		{
+			storedDirect = vec3(0.0);
 		}
 	}
 
+	vec3 bakedHighlight = vec3(0.0);
 #ifndef RV_WATER
 	// **The fully baked lamps' highlight**, from the dominant lamp the field
 	// recovers (DerivedLamp): one virtual light with that direction and
 	// that coherent irradiance, through the same lobe a live lamp gets.
 	// Diffuse from those lamps arrived through `irradiance` above; this is
 	// the specular half the field could not carry. Not on water, whose
-	// lamps stay live for the streak.
-	if (u_Scene.IrradianceExtents.x > 0.5 && dot(bakedCoherent, bakedCoherent) > 0.0)
+	// lamps stay live for the streak -- and not on a moving surface, whose
+	// lamps were live in the loop (7cx).
+	if (surfaceStatic && u_Scene.IrradianceExtents.x > 0.5
+		&& dot(bakedCoherent, bakedCoherent) > 0.0)
 	{
 		const float NdotLb = max(dot(N, bakedDirection), 0.0);
 		if (NdotLb > 0.0)
@@ -4423,8 +4675,9 @@ void main()
 			const float Db = DistributionGGX(N, Hb, shadingRoughness);
 			const float Gb = GeometrySmith(N, V, bakedDirection, shadingRoughness);
 			const vec3 Fb = FresnelSchlick(max(dot(Hb, V), 0.0), F0);
-			Lo += (Db * Gb * Fb / (4.0 * max(dot(N, V), 0.0) * NdotLb + 0.0001))
-				* bakedCoherent * NdotLb;
+			bakedHighlight = (Db * Gb * Fb / (4.0 * max(dot(N, V), 0.0) * NdotLb + 0.0001))
+						   * bakedCoherent * NdotLb;
+			Lo += bakedHighlight;
 		}
 	}
 #endif
@@ -4461,6 +4714,20 @@ void main()
 	// what it was before any of this existed.
 	vec3 ambient = kD * albedo *
 		   ((ambientLight + skyDiffuse) * skyVisible + irradiance) * occlusion;
+
+#ifdef RV_RAY_SHADOWS
+	// **The moving objects' shadows, taken out of the fully baked light**
+	// (7cx). The loop traced each fully baked lamp with a moving object in
+	// its range against those objects alone and summed the light they block;
+	// here that light leaves the picture. Clamped to what the field put in --
+	// the field is a cell's average and a pixel's live term can exceed it --
+	// so a shadow can darken to the floor's unlit colour and never below.
+	if (surfaceStatic)
+	{
+		ambient -= min(movingLossDiffuse, kD * albedo * storedDirect * occlusion);
+		Lo -= min(movingLossSpecular, bakedHighlight);
+	}
+#endif
 
 #ifndef RV_RAY_GI
 	// **What this pixel's colour owes to last frame's indirect light**
@@ -4567,7 +4834,7 @@ void main()
 		const uint quadLane = QuadTraceLane();
 		vec3 quadTraced = vec3(0.0);
 		if (mirror > 0.0 && QuadTraces(quadLane))
-			quadTraced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N), v_Probe);
+			quadTraced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N), v_Instance.x);
 		quadTraced = QuadShare(quadTraced, quadLane);
 #endif
 		if (mirror > 0.0)
@@ -4575,7 +4842,7 @@ void main()
 #ifdef RV_WATER
 			vec3 traced = quadTraced;
 #else
-			vec3 traced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N), v_Probe);
+			vec3 traced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N), v_Instance.x);
 #endif
 
 			// **Bound the ray by the probe it is replacing.**
@@ -4758,7 +5025,7 @@ void main()
 				const float through = length(behindHit.Position - v_WorldPos);
 				quadT = exp(-waterSigma * through) * (1.0 - foam);
 				vec3 behind = ShadeTraced(behindHit,
-										  ProbeIrradiance(behindHit.Normal, v_Probe));
+										  ProbeIrradiance(behindHit.Normal, v_Instance.x));
 				// The traced form knows exactly where the bottom is, so the
 				// caustic web lands on the real hit point.
 				behind *= 1.0 + WaterCaustics(behindHit.Position.xz, through,

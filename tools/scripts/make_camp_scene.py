@@ -644,6 +644,8 @@ def build(profiles, profile_paths, mat, prop, tex, curve):
         ("Material", mat["ground"]), ("Layer1", mat["scrub"]),
         ("Layer2", 0), ("Layer3", 0),
         ("TextureScale", 26), ("Collision", "true"),
+        # The ground is baked (7cx): it shadows and bounces in the field.
+        ("Static", "true"),
     ])
 
     # --- the fire ------------------------------------------------------------
@@ -941,7 +943,8 @@ def build(profiles, profile_paths, mat, prop, tex, curve):
     # scene that is alive, and the whole of the skinning story.
     s.entity("Fox", position=(4.15, ground_height(4.15, 1.95), 1.95),
              rotation=(0, math.radians(-148), 0), scale=(0.009, 0.009, 0.009))
-    s.mesh(MESH_FOX, MAT_FOX)
+    # Not static: a skinned mesh never is, and the file should say so too.
+    s.mesh(MESH_FOX, MAT_FOX, static=False)
     s.block("AnimatorComponent", [
         # **1.0 -- the clip at the rate it was authored at.** Slowing it read
         # as "calm" in a still and as "stuck" in motion, and the same
@@ -966,7 +969,8 @@ def build(profiles, profile_paths, mat, prop, tex, curve):
              # wider than the animal it names stops being a label and becomes
              # a sign the animal is standing next to.
              scale=(0.42, 0.158, 1.0))
-    s.mesh(QUAD, mat["nameplate"])
+    # Not static: `Billboard` turns it every frame.
+    s.mesh(QUAD, mat["nameplate"], static=False)
     s.managed_script("Billboard")
 
     # And the rabbits, which are what make the camp feel visited rather than

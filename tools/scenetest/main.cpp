@@ -210,6 +210,9 @@ namespace
 		mesh.Roughness = 0.3f;
 		mesh.OverrideOcclusion = true;
 		mesh.Occlusion = 0.9f;
+		// True, which is not the default (7cx): a field left at its default
+		// cannot tell a working round trip from a missing one.
+		mesh.Static = true;
 		scene->SetParent(child, root);
 
 		Entity grandchild = scene->CreateEntity("Grandchild");
@@ -253,6 +256,8 @@ namespace
 		Check(!scene->GetParent(root), "Root has no parent");
 		Check(scene->IsDescendantOf(grandchild, root), "Grandchild is a descendant of Root");
 		Check(scene->GetChildren(root).size() == 1, "Root has exactly one child");
+		Check(child.HasComponent<MeshComponent>() && child.GetComponent<MeshComponent>().Static,
+			  "Child's mesh is still static after the round trip");
 
 		// The world transform must compose through both levels. A hierarchy
 		// that serializes but does not compose is worse than none.
@@ -6676,6 +6681,212 @@ void main()
 		ShadowMap::Invalidate();
 		Check(!ShadowMap::HasCascades(),
 			  "and a scene where no light casts renders no cascades at all");
+	}
+
+	// The static/moving split (ENGINE-NOTES 7cx): the flag is described, so it
+	// is a checkbox and a key in the file; a skinned mesh never counts as
+	// static; and the scene tells each light whether a moving object stands
+	// inside its range this frame.
+	void CheckStaticFlag()
+	{
+		for (const char* component : { "MeshComponent", "TerrainComponent" })
+		{
+			bool described = false;
+			if (const ComponentDesc* desc = ComponentRegistry::Find(component))
+			{
+				for (const FieldDesc& field : desc->Fields)
+				{
+					if (std::string(field.Name) == "Static")
+						described = field.Type == FieldType::Bool;
+				}
+			}
+			Check(described, std::string(component) + " describes Static as a checkbox");
+		}
+
+		// A scene of three objects: a static cube at the origin, a moving one
+		// twenty metres along +X, and a moving terrain far along -Z. Three
+		// lights: a point light whose range reaches only the static cube, one
+		// whose range reaches the moving one, and a sun.
+		auto scene = std::make_shared<Scene>();
+		Entity fixed = scene->CreateEntity("Fixed");
+		fixed.AddComponent<MeshComponent>(PrimitiveType::Cube).Static = true;
+		Entity mover = scene->CreateEntity("Mover");
+		mover.AddComponent<MeshComponent>(PrimitiveType::Cube);
+		mover.GetComponent<TransformComponent>().Position = { 20.0f, 0.0f, 0.0f };
+		Entity ground = scene->CreateEntity("Ground");
+		auto& terrain = ground.AddComponent<TerrainComponent>();
+		terrain.Size = 10.0f;
+		terrain.Height = 2.0f;
+		ground.GetComponent<TransformComponent>().Position = { 0.0f, 0.0f, -100.0f };
+
+		Entity nearFixed = scene->CreateEntity("Near Fixed");
+		{
+			auto& light = nearFixed.AddComponent<LightComponent>().Light;
+			light.Type = Light::LightType::Point;
+			light.Range = 3.0f;
+			nearFixed.GetComponent<TransformComponent>().Position = { 0.0f, 2.0f, 0.0f };
+		}
+		Entity nearMover = scene->CreateEntity("Near Mover");
+		{
+			auto& light = nearMover.AddComponent<LightComponent>().Light;
+			light.Type = Light::LightType::Point;
+			light.Range = 3.0f;
+			nearMover.GetComponent<TransformComponent>().Position = { 20.0f, 2.0f, 0.0f };
+		}
+		Entity nearGround = scene->CreateEntity("Near Ground");
+		{
+			auto& light = nearGround.AddComponent<LightComponent>().Light;
+			light.Type = Light::LightType::Point;
+			light.Range = 3.0f;
+			// Inside the terrain's box, which the scene derives from the
+			// component's own dimensions and never from a resolved asset.
+			nearGround.GetComponent<TransformComponent>().Position = { 0.0f, 1.0f, -100.0f };
+		}
+		Entity sun = scene->CreateEntity("Sun");
+		sun.AddComponent<LightComponent>().Light.Type = Light::LightType::Directional;
+
+		// Saved and loaded: the flag survives by name, and its absence loads
+		// as the default.
+		SceneSerializer serializer(scene);
+		const std::string text = serializer.SerializeToString();
+		Check(text.find("Static: true") != std::string::npos,
+			  "a static mesh writes Static: true to the scene file");
+		auto reloaded = std::make_shared<Scene>();
+		SceneSerializer back(reloaded);
+		Check(back.DeserializeFromString(text), "and the scene loads again");
+		Entity fixedBack = reloaded->FindEntityByName("Fixed");
+		Entity moverBack = reloaded->FindEntityByName("Mover");
+		Entity groundBack = reloaded->FindEntityByName("Ground");
+		Check(fixedBack && fixedBack.GetComponent<MeshComponent>().Static,
+			  "with the static mesh still static");
+		Check(moverBack && !moverBack.GetComponent<MeshComponent>().Static,
+			  "the moving mesh still moving");
+		Check(groundBack && !groundBack.GetComponent<TerrainComponent>().Static,
+			  "and the terrain at its default, moving");
+
+		// The lights: only a range that reaches something moving is marked.
+		// The draw list needs the primitives, so this half needs a device.
+		if (!Renderer::HasDevice())
+			return;
+		scene->UpdateWorldTransforms();
+		scene->RefreshDrawList();
+
+		bool fixedStatic = false, moverStatic = true;
+		for (const Scene::DrawItem& item : scene->GetDrawItems())
+		{
+			if (item.Entity == (ECS::Entity)fixed) fixedStatic = item.Static;
+			if (item.Entity == (ECS::Entity)mover) moverStatic = item.Static;
+		}
+		Check(fixedStatic && !moverStatic, "the draw list carries each object's flag");
+
+		LightList lights = scene->CollectLights();
+		scene->MarkMovingLights(lights);
+		bool fixedLit = true, moverLit = false, groundLit = false, sunLit = false;
+		for (const LightRenderData& light : lights)
+		{
+			if (light.Type == Light::LightType::Directional) { sunLit = light.MovingInRange; continue; }
+			if (light.Position.z < -50.0f)      groundLit = light.MovingInRange;
+			else if (light.Position.x > 10.0f)  moverLit = light.MovingInRange;
+			else                                fixedLit = light.MovingInRange;
+		}
+		Check(!fixedLit, "a light that reaches only static objects has no moving object in range");
+		Check(moverLit, "a light that reaches a moving mesh has");
+		Check(groundLit, "so has one inside a moving terrain's box");
+		Check(sunLit, "and a directional light reaches every moving object");
+	}
+
+	// The irradiance atlas packs its volumes as boxes (7cx): none overlap, all
+	// fit, and a wide flat region beside tall thin ones no longer pads each of
+	// them to the other's cross-section.
+	void CheckAtlasPacking()
+	{
+		if (!Renderer::HasDevice())
+			return;
+		using Region = IrradianceVolume::Region;
+		auto make = [](uint32_t w, uint32_t h, uint32_t d)
+		{
+			Region r;
+			r.Width = w; r.Height = h; r.Depth = d;
+			return r;
+		};
+		// The bridge's shape: three deck volumes, two tower volumes, a bay, a
+		// headland and a shore.
+		std::vector<Region> regions = { make(9, 6, 185), make(9, 6, 185), make(9, 6, 185),
+										make(7, 30, 9), make(7, 30, 9),
+										make(89, 7, 89), make(42, 10, 63), make(34, 8, 34) };
+		auto atlas = IrradianceVolume::CreateAtlas(Renderer::GetDevice(), regions);
+		Check(atlas != nullptr, "an atlas of eight regions is created");
+		if (!atlas)
+			return;
+		const std::vector<Region>& laid = atlas->Regions();
+		Check(laid.size() == regions.size(), "and keeps every region, in the order given");
+		bool inside = true, order = true;
+		for (size_t i = 0; i < laid.size(); i++)
+		{
+			const Region& r = laid[i];
+			inside = inside && r.XOffset + r.Width <= atlas->Width()
+						  && r.YOffset + r.Height <= atlas->Height()
+						  && r.ZOffset + r.Depth <= atlas->Depth();
+			order = order && r.Width == regions[i].Width && r.Depth == regions[i].Depth;
+		}
+		Check(inside, "every region lies inside the atlas");
+		Check(order, "in the order it was given");
+		bool overlap = false;
+		for (size_t i = 0; i < laid.size(); i++)
+		{
+			for (size_t j = i + 1; j < laid.size(); j++)
+			{
+				const Region& a = laid[i];
+				const Region& b = laid[j];
+				const bool apart = a.XOffset >= b.XOffset + b.Width || a.XOffset + a.Width <= b.XOffset
+								|| a.YOffset >= b.YOffset + b.Height || a.YOffset + a.Height <= b.YOffset
+								|| a.ZOffset >= b.ZOffset + b.Depth || a.ZOffset + a.Depth <= b.ZOffset;
+				overlap = overlap || !apart;
+			}
+		}
+		Check(!overlap, "and no two regions share a texel");
+		// Stacked along z alone these would be 89 x 30 x 759 texels; packed
+		// they should come out under half of that.
+		const uint64_t stacked = 89ull * 30ull * 759ull;
+		Check(atlas->CellCount() * 2 < stacked,
+			  "the packed atlas is less than half the size of the same regions stacked along z");
+	}
+
+	// Hybrid Full Bake (7cx): the fourth mobility and its radius survive a save
+	// and a load by name, and the radius is a checkbox-gated slider.
+	void CheckHybridBake()
+	{
+		bool described = false;
+		if (const ComponentDesc* desc = ComponentRegistry::Find("LightComponent"))
+		{
+			for (const FieldDesc& field : desc->Fields)
+			{
+				if (std::string(field.Name) == "HybridRadius")
+					described = field.Type == FieldType::Float && field.Hint.VisibleIf != nullptr;
+			}
+		}
+		Check(described, "a light describes HybridRadius as a slider shown only for the hybrid mode");
+
+		auto scene = std::make_shared<Scene>();
+		Entity lamp = scene->CreateEntity("Lamp");
+		auto& light = lamp.AddComponent<LightComponent>().Light;
+		light.Type = Light::LightType::Spot;
+		light.Mobility = LightMobility::HybridFullBake;
+		light.HybridRadius = 17.5f;
+
+		SceneSerializer serializer(scene);
+		const std::string text = serializer.SerializeToString();
+		Check(text.find("Mobility: Hybrid Full Bake") != std::string::npos,
+			  "a hybrid light writes its mobility by name");
+		auto reloaded = std::make_shared<Scene>();
+		SceneSerializer back(reloaded);
+		Check(back.DeserializeFromString(text), "and the scene loads again");
+		Entity restored = reloaded->FindEntityByName("Lamp");
+		Check(restored && restored.GetComponent<LightComponent>().Light.Mobility
+								== LightMobility::HybridFullBake,
+			  "with the light still hybrid");
+		Check(restored && Math::Abs(restored.GetComponent<LightComponent>().Light.HybridRadius - 17.5f) < 1e-4f,
+			  "and its radius intact");
 	}
 
 	// Cascaded shadow maps.
@@ -16075,6 +16286,9 @@ int RunTests(int argc, char** argv)
 	CheckLutRecipe();
 	CheckCubeLut();
 	CheckShadowToggle();
+	CheckStaticFlag();
+	CheckHybridBake();
+	CheckAtlasPacking();
 	CheckShadowCascades();
 	CheckIrradiance();
 	CheckSamplerBudget();

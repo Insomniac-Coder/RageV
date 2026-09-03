@@ -13900,6 +13900,260 @@ Movable lights ship. The showroom's four lamps are flagged; verified by
 booting with the lamps on -- same field file, no fallback, beams over
 the baked room.
 
+### 7cx. Static and moving: the split the bake was missing
+
+**The owner's request, 2026-09-03, in their words:** *"add static flag per
+object, the ones marked as static get considered for baked lighting and the
+rest use the light as realtime source, default value of the flag = false."*
+The handoff had carried it as the next task since the fourth session:
+*"Everything except the car gets marked as static."*
+
+**What existed.** Lights had their three-way mobility (7cw: Realtime, Half
+bake, Full bake). Objects had nothing -- "static" in the renderer meant *not
+skinned* and nothing else (`BAKING-ROADMAP.md` said so in bold). Two things
+followed from that, both wrong in the same direction:
+
+- **A fully baked lamp was skipped live on every surface** a field covered,
+  so the car under it took the field's coarse light and cast no shadow from
+  it. Unreal's Static light and Unity's Baked light ship exactly that
+  compromise, and it was the reason the scene stayed at Half bake.
+- **The bake saw every object**, so the car's shadow was solved into the
+  showroom floor -- and stayed there when the car drove off. The fox was in
+  the camp's field too, in whatever pose the bake happened to catch.
+
+**The standard answer, and where this goes past it.** Every baking engine
+has the same bit -- Unity's Static checkbox, Unreal's Static mobility -- and
+uses it for the same two things: only static objects are baked (as occluders
+and as bounce surfaces), and only static surfaces read baked direct light.
+Moving objects are lit from the probes and cast no shadow from baked lights.
+That last part is the compromise this engine does not have to make: it
+traces. So a static pixel under a fully baked lamp can ask one more question
+-- *is a moving object between me and the lamp?* -- and take that light back
+out. Unity's Subtractive mode approximates the same idea with a fixed shadow
+colour; here the live term of the lamp is in hand, so the subtraction is
+exact up to the field's resolution.
+
+**The design, in one bit and three consequences.** `MeshComponent::Static`
+and `TerrainComponent::Static`, both `false` by default (the owner's call:
+a thing moves until an author says otherwise, because the bake is a promise
+about the world that the author makes). Water has no flag and is always
+live -- the lamps' streak on it is the point of the water. A skinned mesh is
+never static whatever the file says: a pose moves.
+
+1. **The bake sees static objects only.** Every instance in the frame's
+   acceleration structure carries one of two mask bits,
+   `RayShadows::kMaskStatic` or `kMaskMoving` (`AccelerationInstance::Mask`
+   was already in the RHI, always 0xFF). The fill's rays -- its shadow rays
+   per cell, its hemisphere rays through `TraceSurface` -- trace with
+   `RV_RAY_MASK_SCENE`, which is the static bit alone under
+   `RV_IRRADIANCE_FILL` and every bit otherwise. One structure, no second
+   build: the mask is a per-instance byte the hardware tests at the instance
+   node, so a ray that ignores the static half never descends into it.
+2. **A static surface reads the fully baked lights from the field**, as
+   before; **a moving surface takes them live**, shadows included, and does
+   not read their stored direct light or the derived highlight -- else each
+   lamp counts twice. The flag reaches the fragment stage in the instance
+   stream: `InstanceData.Indices.w`, which the skinned pipeline was already
+   using for its previous bones' base. Two meanings in one lane that never
+   meet, since a skinned mesh is never static and only the skinned stage
+   has bones -- chosen over a fifth vec4 because the instance record is 256
+   bytes, four cache lines exactly, and every pipeline's vertex fetch pays
+   for its size. The probe varying grew from a float to `vec2 v_Instance`
+   (probe, static) so no varying slot was added either. A traced hit reads
+   the same bit from its `RayInstance` (`RAY_INSTANCE_STATIC`), so the car
+   in the water's mirror is lit live and the bridge in it from the field.
+3. **A moving object's shadow still lands on the static floor from a fully
+   baked lamp.** In the lit loop a fully baked light on a static pixel is
+   left to the field -- unless `GpuLight.Shadow.y` says a moving object
+   stands inside its range this frame. Then the iteration runs on: the term
+   is computed as for any light, the shadow ray is traced with
+   `RV_RAY_MASK_MOVING` alone (no thinning, no borrowing -- this ray is about
+   the car, not the deck the far lamps share), and what it finds blocked is
+   summed into `movingLossDiffuse` / `movingLossSpecular` instead of added
+   to `Lo`. Where the field's own direct light is read, the loss is taken
+   out, clamped to what the field put in: the field is a cell's average and
+   a pixel's live term can exceed it, and a shadow may darken to the floor's
+   unlit colour and never below.
+
+**Where the per-frame bit comes from.** `Scene::RefreshDrawList` collects
+the world box of every object it does not consider static into
+`m_MovingBounds`; `Scene::MarkMovingLights` tests each light's range sphere
+against those boxes (and against the box of any terrain with the flag off,
+derived from the component's own dimensions so nothing is resolved on the
+render path) and stamps `LightRenderData::MovingInRange`. The renderer
+carries it in the slot lane of `GpuLight.Shadow`, which is unused under
+traced shadows -- a ray has no map -- and untouched under maps. It is set
+*after* `CollectLights`, whose result the lighting hash reads, and is
+deliberately not a hashed field: per-frame state must never rename a bake.
+On the bridge this is what keeps the cost honest: 191 lamps, and only the
+handful with a car under them ever trace toward it.
+
+**What the raster path gets.** OpenGL has no rays. There a moving surface
+is lit live by fully baked lights through the clustered loop and the 4+4
+shadow slots as any light, and a static surface reads the field -- but a
+moving object casts no shadow from a fully baked lamp onto it. That is
+Unity's Baked light exactly, and it is stated rather than approximated:
+sampling the spot and point maps on a static receiver would darken it twice,
+once by the field's baked visibility and once by the map's.
+
+**Auto Fit follows the flag.** `IrradianceVolumeComponent::AutoFit` fitted
+the box to every non-skinned mesh; it fits the static ones now. The bake
+holds static objects and nothing else, so the box that holds the bake fits
+them -- and a car driving out of the room can no longer rename it.
+
+**The default's price, paid once.** With the flag off by default and the
+bake seeing static objects only, every scene written before today would have
+baked an empty room. The owner chose to mark them now rather than add a
+"nothing marked means everything" rule to the engine (the two options were
+put to them; a hidden rule is a hidden rule). `tools/scripts/mark_static.py`
+is the one-time pass, kept because its rule is the rule a person would apply
+by hand, written down once: an object is moving when it or an ancestor
+carries a script, an animator, or a rigid body that is not Static, or when
+its root is in the per-scene exclusion table (the showroom's car, which
+nothing in the file says moves); everything else is static. 231,421 blocks
+across 112 scenes, idempotent, and what it left moving reads as a list of
+exactly the things that move: the fox and its label, the falling crates, the
+graph fixture's mover, the Knockdown barrel and crates, the car. The scene
+generators write the flag now too -- `make_demo_scene.Scene.mesh` defaults
+it on, since a generator *is* the author, and the fox and the billboard say
+`static=False` -- so regeneration and the pass agree.
+
+**Verification.** scenetest gained the flag's claims: it is described as a
+checkbox on both components, it round-trips by name and loads absent as
+false, the draw list carries it, a skinned mesh never counts, and a scene of
+one static cube, one moving cube and one moving terrain marks exactly the
+lights whose range reaches something moving (and the sun). 2465 checks
+green on Vulkan, 2418 on OpenGL, exit 0. The picture:
+`tools/scripts/check_static_split.py` bakes three copies of the showroom
+(lamps live; lamps fully baked with the car moving; the same with the car
+static) and diffs them -- the handoff entry has the numbers and what they
+mean.
+
+**The bridge found the defect the showroom could not** (later the same
+day, all 176 lamps set to Full bake). "The live loops skip a fully baked
+light wherever a field is bound" -- the Full bake rule as it landed in 7cw --
+tested whether the *scene* had a volume, not whether the *pixel* was inside
+one. The showroom's volume covers the room, so it never showed; the bridge's
+two volumes cover the deck and nothing else, so the beach, the headland and
+most of the towers were static surfaces outside every volume, skipped every
+fully baked lamp live and read nothing from the field: the Bluff camera's
+beach went from 14.5 levels lit to 11.0 and its diff against the live frame
+was 63% of the pixels over six levels. The fix is a weight, not a switch:
+`IrradianceFieldWeight(position, normal)` returns the field's own edge fade
+(the head of `VolumeIrradiance`, lifted into `FieldLocate` so both read the
+same answer) -- 0 outside every volume, 1 deep inside, the one-cell ramp
+between -- and a fully baked lamp on a static surface is lit live by one
+minus it while the field supplies the rest. The two shares sum to one at
+every pixel, including across a volume's edge band, and the moving-object
+loss is scaled by the field's share since that is the only share the field
+paid. Same at a traced hit. Bluff: 63% over six levels became 3.8%, the
+beach 14.3 against live's 14.5.
+
+**What a 5 m field cannot hold, measured on the Deck camera.** With the bug
+fixed the Deck camera still differs from live on 40% of its pixels: the
+lamp post directly under its head peaks at 167 levels baked against 208
+live, the pool under the lamp is dimmer and the deck between lamps brighter
+-- a 5 m cell averages the inverse-square hotspot with the dark between two
+posts, and no spherical-harmonics order brings a point 80 cm from a surface
+back from that. The bloom follows the hotspots, so a fully baked lamp
+post loses its halo (the emissive head keeps its own). That is the physics
+of storing direct light at metre resolution, and lightmap engines avoid it
+by baking direct light at centimetre texels; the way round it here is the
+owner's call and is written up in the handoff (a global near-live /
+far-baked distance per lamp is the recommendation).
+
+**Hybrid Full Bake -- the owner's answer to the 5 m limit** (2026-09-03,
+their design: *"show a slider that lets user decide till what radius do they
+want to do a Half Bake and the rest is going to be a full bake ... half bake
++ full bake combo"*, with the radius set to 2 m). A fourth `LightMobility`,
+`HybridFullBake`, with `Light::HybridRadius`: within the radius of the lamp
+the light is half baked -- lit live, bounce stored -- and beyond it fully
+baked. The split is a share, not a switch: `BakedShare(light, position)` in
+pbr_fragment.glsl is 0 inside the radius, 1 past a short band beyond it (a
+tenth of the radius, a metre at least) and a smooth step between. The fill
+stores exactly that share of the lamp's direct light at each cell, and the
+live loops on static surfaces light `1 - fieldWeight * BakedShare` of it,
+so the two sum to one at every distance and across every volume edge. The
+lamp reaches the shader as `GpuLight.Params.w = 3 + radius` -- one lane,
+decoded in one function, rather than a sixth vec4 on a record the hit walk
+reads 146 times per hit. The radius is in the lighting hash for hybrid
+lights (a different radius stores a different share, so it is a different
+bake). A hybrid directional light has no distance and is lit live, as Half
+bake. The inspector shows the radius slider only for the hybrid mode. The
+generalisation over the standard trick (Unity's Distance Shadowmask splits
+*shadows* by distance from the *camera*) is deliberate: measured from the
+lamp, the hotspot survives at every distance and a pixel pays live for only
+the two or three lamps beside it.
+
+**The bigger boxes.** The bridge had five volumes -- three along the deck at
+5 m, two around the towers at 9 m -- and nothing over the sea floor or the
+shores, which is where the water's refraction and reflection hits land and
+where the Headland, Cliff, Bluff and Lime Point cameras stand. Three more,
+authored from the light positions and the terrain (sea floor at -125 m,
+shores to 160 m): a bay box over the whole 2800 m terrain from -130 m to
++50 m at 16 m spacing, a headland box and a south-shore box at 12 m. The
+"deepest containment in cells wins" rule keeps the fine deck and tower
+boxes in charge where they overlap the bay, because the bay's top face is
+close to them in its own cells. Light on the sea floor and the shores comes
+from lamps sixty metres and more away and changes over tens of metres, so
+the coarse spacing is what it can carry; what it cannot carry is a pier's
+shadow on the sand, which blurs.
+
+**The atlas packs boxes now, not slices.** The first bake with the bay box
+in the scene wrote a 754 MB file and took seventeen minutes, against 50 MB
+and one minute before, and the reason was the atlas layout: every volume
+shares one 3D texture (one sampler -- OpenGL has thirty-two and terrain
+spends thirty-one), and the layout stacked the volumes along z with each
+padded to the widest and tallest volume's cross-section. A 2800 m bay box
+beside 44 m deck boxes padded each deck slice to 180 x 32 texels for its 9 x
+6 of cells: fifteen times the data. `IrradianceVolume::CreateAtlas` packs
+the regions as 3D boxes instead -- each takes the first corner, nearest the
+origin in z then y then x, where it fits without overlapping what is placed
+(the corner past the deepest box always does, so the search cannot fail),
+in order of volume so the big ones anchor the layout -- and every region
+carries an x and y offset beside its z offset. The bridge's eight regions,
+with the bay at 32 m, come out at 93 x 32 x 203 texels (90 MB a file, 7.6
+minutes to bake) where z-stacking gave 180 x 32 x 882 at 16 m (754 MB, 17
+minutes). Every reader adds the corner:
+`IrradianceBox` grew a sixth row for it, `FieldLocate` and `VolumeIrradiance`
+add `xybase` to every fetch and to the filtered coordinate, and the fill
+takes it in the spare `w` of its first two rotation rows. The order of the
+regions is preserved -- every reader indexes them by it -- and the packing
+is deterministic, so the stamp (the atlas size) still means one layout.
+A scenetest claim packs the bridge's shape and checks: inside, no overlap,
+order kept, under half the stacked size.
+
+**Traps paid for.**
+- GLSL `out` parameters are undefined on entry and copied back on return; a
+  caller that pre-zeroes one and relies on the zero when the callee returns
+  early is relying on nothing. `storedDirect` is re-zeroed on the miss path
+  explicitly.
+- **A frame-time gain has to be checked against a picture before it is
+  believed.** Full bake read as half the frame on every camera; the diff
+  showed the beach black, and the honest number was 4%. Fast because wrong
+  is the failure a benchmark cannot see. It happened a second time the same
+  evening: `BakedLighting::Read` refused the 92 MB packed atlas as "not
+  credible" (a 64 MB corruption guard written when no field was over 50 MB),
+  every run fell back to realtime with an *empty* field bound, the hybrid
+  lamps' far share read as nothing, and six benchmark passes measured a
+  scene with most of its lamp light missing. The chain scripts now fail a
+  benchmark whose log carries the fallback line, and the shot check already
+  did. The cap is a gigabyte.
+- **"Wherever a field is bound" is a scene-level test standing in for a
+  pixel-level one.** Any rule that switches a light between live and stored
+  has to be decided where the pixel is, and by the same fade the store
+  applies -- or the switch is a hole (outside the volume) or a seam (at its
+  edge).
+- The ray-shadow helpers took no mask, and the cheap change -- a global --
+  would have made the subtractive ray's mask leak into the next call. They
+  take a mask now (`TraceShadowFromMasked`, `TraceShadowSoftFromMasked`) and
+  the old names are wrappers over `RV_RAY_MASK_SCENE`, so every existing
+  call traces exactly what it traced.
+- A regex edit that consumes a trailing `\r` and puts back `\n` leaves a
+  CRLF file with three LF lines in it, which nothing shows until git does.
+  The exact-text replacement helper converts the line ending of the search
+  and the replacement to the file's own before matching.
+
 
 ---
 

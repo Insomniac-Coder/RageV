@@ -1,6 +1,13 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-02.
+**Read this first.** Updated 2026-09-03.
+
+**2026-09-03: the static / moving split, Hybrid Full Bake, the bigger
+boxes and the packed atlas are built, tested and applied, and sit in the
+working tree uncommitted** -- the owner commits. The evening's start-here
+is the first section below (the numbers), the morning's the second (the
+flag), and the fourth session's entry after them is still the map of
+everything else.
 
 **On `main` now, and pushed.** The 2026-09-02 session worked on `main` and
 pushed four commits to it, ending at **`bd7f813`**. The paragraph that used
@@ -13,6 +20,257 @@ trust this sentence.**
 (Pushes to `main` report "Changes must be made through a pull request" and
 succeed anyway — the branch is protected and the owner's account bypasses
 it. Expected, not an error, but worth knowing before it alarms someone.)
+
+## Start here — 2026-09-03, evening: the bridge's lamps baked, Hybrid Full Bake, bigger boxes, WR-16 prepared
+
+**Still on `main`, still uncommitted, tree at 246 changed files** (the
+morning's split plus everything below; the owner commits). Read the
+morning's entry after this one for the static / moving flag itself. This
+entry is the evening: the owner asked for every bridge lamp baked and the
+gain measured, and the measurement found three defects on the way to a
+number that holds.
+
+### The number, first
+
+The bridge scene as it now stands (176 lamps **Hybrid Full Bake at 2 m**,
+eight irradiance volumes, the packed atlas) against the scene as shipped
+this morning, three interleaved pairs of `bench_night.py`, 2560x1440,
+fields loaded and verified in every log:
+
+| camera | shipped ms | now ms | saved | fps before, after |
+|---|---|---|---|---|
+| Headland | 94.0 | 59.0 | 37% | 10.6, 16.9 |
+| Deck | 13.8 | 10.2 | 26% | 72.3, 98.0 |
+| Profile | 43.2 | 29.7 | 31% | 23.1, 33.6 |
+| Bluff | 79.6 | 41.0 | 48% | 12.6, 24.4 |
+| Pier | 95.3 | 50.2 | 47% | 10.5, 19.9 |
+| Cliff | 43.0 | 24.8 | 42% | 23.3, 40.4 |
+| Glitter | 77.8 | 46.3 | 41% | 12.8, 21.6 |
+| Lime Point | 94.8 | 54.1 | 43% | 10.5, 18.5 |
+
+542 → 315 ms over the eight, 42% off. The water pass drops too (Headland
+60 → 43 ms) because the water's reflection and refraction hits now read
+the field on the bridge, the sea floor and the shores. **Hybrid at 2 m
+against pure Full bake** (same boxes): 303 → 313 ms, +3%, per camera +2%
+to +5% -- the price of keeping the lamp heads live. Diffs, Hybrid against
+live: Profile 0.10 levels mean, Headland 0.48, Lime Point 0.69, Glitter
+0.70, Cliff 0.74, Pier 1.72, Deck 4.59, Bluff 9.60. Hybrid against Full:
+0.02–0.38 on the four cameras shot. Images in `build/static_split/
+bridge_hybrid/`; the crops `crop_deck_post_half_vs_hybrid.png` and
+`bluff_half_over_hybrid.png` are the two the owner was shown.
+
+### What the picture said each time, and what got fixed
+
+1. **All lamps Full bake read as half the frame on every camera. It was a
+   bug.** "The live loops skip a fully baked light wherever a field is
+   bound" tested whether the scene had a volume, not whether the pixel
+   was inside one; the beach, the headland and most of the towers were
+   outside the deck's boxes and simply lost their lamp light. Fast because
+   wrong. Fixed with a weight, not a switch: `IrradianceFieldWeight` is
+   the field's own edge fade (0 outside every volume), and a fully baked
+   lamp is lit live by one minus it. Bluff went from 63% of pixels over 6
+   levels to 3.8%. The honest Full bake gain was then **4%** -- the boxes
+   covered the deck only, and the frame is the water and the shores.
+2. **The bloom loss the owner saw is the 5 m field's resolution.** The
+   post under a lamp head peaks at 208 live and 167 baked; the bloom
+   follows the hotspot. The owner's answer: **Hybrid Full Bake** -- a
+   fourth mobility, half baked within `HybridRadius` of the lamp, fully
+   baked beyond, a slider on the light, 2 m by their call; and **bigger
+   boxes** so the shores and the sea floor are covered. ENGINE-NOTES 7cx
+   has both. The radius is the owner's trade-off dial; they said the diff
+   matters less now that it exists.
+3. **The bigger boxes made the field 754 MB a file.** The atlas stacked
+   every volume along z padded to the widest one's cross-section; the bay
+   box was 180 texels wide beside 9-wide deck boxes. `CreateAtlas` packs
+   volumes as 3D boxes now (first fit by z, y, x; deterministic; order
+   kept), every region carries an x/y corner (`IrradianceBox` row 5, the
+   fill's spare rotation lanes), and the same boxes with the bay at 32 m
+   are 90 MB a file, 7 minutes to bake instead of 17.
+4. **Then every benchmark pass silently fell back to realtime**, because
+   `BakedLighting::Read` refused the 90 MB file as "not credible" (a
+   64 MB corruption cap). Six passes measured a scene with most of its
+   lamp light missing and read as a win. The cap is a gigabyte; the chain
+   scripts now fail any benchmark whose log carries the fallback line.
+5. **scenetest crashed inside `Sample.dll`** after `Light` gained
+   `HybridRadius`: the native script module was stale against the header.
+   `cmake --build SampleProject/bin/module --config Release` -- the same
+   trap as 2026-08-25, now in the memory note with today's date.
+
+### The scene as it stands
+
+`GoldenGateDemo.rage`: 176 lamps `Mobility: Hybrid Full Bake`,
+`HybridRadius: 2` (the 14 flashing lights stay Realtime, the sun Half
+bake); three volumes added -- `Bay irradiance` (0,-40,0) [1400,90,1400]
+at 32 m, `Headland irradiance` (500,110,-1025) [250,60,375] at 12 m,
+`South shore irradiance` (60,75,1200) [200,45,200] at 12 m -- beside the
+five it had. Its bake is `baked/GoldenGateDemo/field_3217cd40954c3f78_*`
+(90 MB a file, untracked). The committed `field_6ef83b34f7c820f0_*` files
+are the shipped scene's Half bake with the *old* boxes and no longer match
+anything; delete them when committing. The variant files and the chain
+scripts are in the session's scratchpad, not the repo.
+
+**Known quality cost of the boxes, owner-accepted for now:** Bluff's
+beach reads flat and the pier's shadow on the sand is gone (9.6 levels
+mean) because 32 m cells cannot hold a 5 m shadow; a 5 m box over each
+shore a camera stands on (a few tens of thousands of cells each) is the
+fix if it is ever wanted.
+
+### WR-16, prepared
+
+`docs/RAY-BUDGET-DESIGN.md` §10: a solo review of the design against the
+code and today's frame (thirteen findings -- the baseline is now the
+Hybrid frame; the hit walk's remaining cost is reads of lamps that
+contribute nothing; the water surface is the frame; the validity lane
+already exists in TAA's moments; the RHI has no buffer readback; set 0
+has 19–21 free), the owner's two source documents read in the original
+against it, M0 laid out as seven commits, and **three decisions the owner
+owes before M0 starts** (A: the Hybrid scene is the baseline; B: M1 is the
+compact record plus a per-cell live-lamp bit; C: `RayBudget` stays the
+controller's mode dial).
+
+### Traps this evening paid for
+
+- **A frame-time gain is not a result until a picture agrees**, twice
+  over (items 1 and 4). The shot checks caught both; the benchmark alone
+  caught neither.
+- **A corruption guard sized to yesterday's files is a silent quality
+  cliff tomorrow.** Read the runtime log for "not credible" and "no bake
+  matches" after any bake grows.
+- **Detached measurement chains**: PowerShell `Start-Process` for anything
+  over ten minutes, a monitor on the log; and a monitor that counts lines
+  breaks when the log is truncated under it -- re-arm after the reset.
+- **Killing a process by a command-line substring kills the monitors whose
+  command line contains the substring.** Match the executable name.
+- Everything in the morning entry's list still applies.
+
+## Start here — 2026-09-03: the static / moving split is in
+
+**On `main`, not pushed, tree clean apart from this work.** The fourth
+session's entry below is still the map of everything else; this one is the
+task it named first — *"A Static / Moving flag per object"* — built, tested
+and applied to every scene. Design record: **ENGINE-NOTES 7cx**. The plain
+version:
+
+- **Every mesh and every terrain has a `Static` checkbox, off by default**
+  (owner's call: a thing moves until an author says otherwise). Water has no
+  checkbox and is always live; a skinned mesh is never static whatever the
+  box says.
+- **The bake sees static objects only.** They are its occluders and its
+  bounce surfaces. A moving object is in neither, so the car's shadow is no
+  longer painted onto the floor it drives off. (Mechanically: every instance
+  in the ray structure carries a static or a moving mask bit, and the solve's
+  rays see the static bit alone.)
+- **Static surfaces read fully baked lamps from the field and skip them
+  live**, as before. **Moving surfaces take those lamps live**, shadows
+  included, and do not read their stored light. Same rule at reflection and
+  refraction hits, so the car in the water's mirror is lit live too.
+- **A moving object still shadows the static floor from a fully baked lamp**
+  (Vulkan only): a static pixel under a lamp that has a moving object inside
+  its range traces one ray against the moving objects alone and subtracts
+  the light it finds blocked. Only such lamps pay — on the bridge, the few
+  over the car, never the 191. OpenGL has no rays, so there the shadow is
+  absent, which is what Unity's baked lights ship.
+
+### What the owner decided, in order
+
+1. Existing scenes are **marked now** rather than the engine growing a
+   "nothing marked means everything" rule. `tools/scripts/mark_static.py`
+   did it: 231,421 blocks in 112 scenes, one `Static: true` line
+   inserted under each block, nothing else touched, idempotent. Its rule —
+   moving when the entity or an ancestor has a script, an animator or a
+   non-Static rigid body, or is under an excluded root (the showroom's car)
+   — left exactly the things that move: the fox and its label, the falling
+   crates, the graph fixture's mover, the Knockdown barrel and crates, the
+   car. The generators write the flag too (`make_demo_scene.Scene.mesh`
+   defaults `static=True`; the fox and the billboard say `False`).
+2. Terrain gets the checkbox like a mesh (first "always static", then "can
+   be static or non static").
+
+### Verified
+
+- Release build, no new warnings. **scenetest 2465 green on Vulkan, 2418
+  on OpenGL, exit 0**, with new claims: `Static` is a checkbox on both
+  components, round-trips by name, loads absent as false, the draw list
+  carries it, a skinned mesh never counts, and `MarkMovingLights` marks
+  exactly the lights whose range reaches something moving.
+- **The picture**, `tools/scripts/check_static_split.py`: three copies of
+  the showroom baked from scratch and shot from the showroom camera —
+  `live` (lamps Half bake, everything live), `split` (lamps Full bake, car
+  moving), `carbaked` (lamps Full bake, car static too). Diff images are in
+  `build/static_split/` (x4 gain).
+
+| diff | mean (levels) | 99th percentile | pixels over 6 | over 24 |
+|---|---|---|---|---|
+| split vs live | 0.35 | 5.0 | 0.70% | 0.00% |
+| carbaked vs split | 0.51 | 15.0 | 2.11% | 0.50% |
+| carbaked vs live | 0.81 | 15.0 | 2.79% | 0.49% |
+
+Mean brightness (0-255, after tonemapping) of four regions of the 1280x720
+frame:
+
+| region | live | split | carbaked |
+|---|---|---|---|
+| floor under the car | 2.54 | 2.11 | 2.99 |
+| floor beside the car | 1.97 | 1.83 | 1.83 |
+| back wall | 3.15 | 3.19 | 3.25 |
+| car body | 33.49 | 33.46 | 27.58 |
+
+**What the pictures say.** `split` against `live` is the claim and it
+holds: the diff is black but for the floor's grout lines (the field's cells
+against per-pixel lamps) and thin outlines in the car's own mirror
+reflections (the reflected room is read from the field at static hits). The
+car body is identical to a hundredth of a level -- lit live in both -- and
+the floor under the car is shadowed in both. `carbaked` against `split`
+lights up the whole car (read from 0.25 m cells instead of lit live) and the
+floor around it: with the car in the bake its shadow comes out *weaker* than
+live (+0.45 levels under the car), because a field that coarse smears a
+shadow it cannot resolve. The split's floor reads a little darker than live
+everywhere (-0.14 beside the car, -0.43 under it): the field's direct light
+on this floor sits a few percent under the live lamps, and the subtraction
+is exact relative to the field, so it inherits that gap. Thinning was ruled
+out -- identical numbers with `--rt-optimisation=off`; Quality's thinning
+never engages at showroom distances. At two levels out of 255 none of this
+is visible; it is written down so nobody measures it twice.
+
+### What this changes for the demo scenes — READ BEFORE THE NEXT BAKE
+
+- **Every bake on disk predates the rule and still loads.** The lighting
+  hash names the file and the flag is not in it (deliberately: per-frame
+  state and geometry never renamed a bake). So the showroom's, the camp's
+  and the bridge's fields are stale in one specific way: they hold the car,
+  the fox and whatever else moves as occluders and bounce. Re-bake each
+  (`--bake=force --benchmark=N`, or the editor's Bake) when its lighting is
+  next touched; nothing is wrong until then except the ghost of a baked
+  shadow under anything that has moved.
+- **Auto Fit now fits the static meshes**, not every non-skinned mesh. A
+  volume whose scene marks nothing static falls back to its authored box.
+- **The bridge:** which lamps go Full bake is now purely a lighting call —
+  the car shot works either way, because the car is moving and takes every
+  lamp live. The lamps that go Full bake are the ones whose ~40 ms hit walk
+  (RAY-BUDGET-DESIGN §1) disappears at static hits.
+
+### Traps this session paid for
+
+- **GLSL `out` parameters are undefined on entry.** Pre-zeroing the caller's
+  variable buys nothing if the callee returns early; `storedDirect` is
+  re-zeroed on the miss path explicitly.
+- **Two lanes were reused rather than added**, both documented at both
+  definitions: `InstanceData.Indices.w` is the previous bones' base on the
+  skinned pipeline and the static flag everywhere else (the two never meet);
+  `GpuLight.Shadow.y` is the map slot under maps and "a moving object is in
+  range" under rays. The probe varying became `vec2 v_Instance` (probe,
+  static) so no varying slot was added either — the water pipeline was at 14
+  of the guaranteed 15.
+- **A regex edit that consumes a trailing `\r` and puts back `\n`** leaves a
+  CRLF file with LF lines in it and nothing shows it until git does. The
+  exact-text helper in the session's scratchpad converts both sides to the
+  file's own line ending first; four generators had to be re-normalised.
+- **Several of this repo's files are CRLF with a BOM** (every `.rage`),
+  several are LF (`pbr_fragment.glsl`, `Scene.h`, the manual). Check before
+  editing by hand.
+- **The Bash tool's command length has a ceiling.** A 15 KB heredoc was cut
+  mid-way and reported as an unmatched quote; the edit went into a script
+  file and ran from there.
 
 ## Start here — 2026-09-02, END OF THE FOURTH SESSION: where everything stands
 

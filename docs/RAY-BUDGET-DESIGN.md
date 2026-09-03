@@ -400,6 +400,14 @@ conservative), so the acceptance is a diff of zero.
 > stored in its own nine coefficients per cell and read at hits and on
 > screen (diffuse only; highlights are the open half). Whether the bridge
 > lamps take it is the owner's static/moving split, next.
+>
+> **The split exists (2026-09-03, ENGINE-NOTES 7cx):** `Static` per mesh
+> and per terrain, off by default; the bake sees static objects only, a
+> static surface reads fully baked lamps from the field, a moving one takes
+> them live, and a moving object's shadow is subtracted from the field's
+> light on static pixels through a ray against the moving objects alone --
+> only for lamps with a moving object inside their range. Which bridge
+> lamps go Full bake is now purely the owner's lighting call.
 
 **B. A world-space grid with per-cell CDF sampling** (3–4 days, the WR-10
 brief's original). Only if A leaves the walk expensive: 1–4 lights per hit
@@ -572,3 +580,191 @@ gone on the three cameras.
 - VRS and render scale (the candidates list in RENDERING-REVAMP) sit
   outside this system and compose with it; the allocator's tile map is a
   ready-made shading-rate image if VRS is ever taken.
+
+---
+
+## 10 · Review and preparation, 2026-09-03 (solo, after the static/moving split)
+
+**What changed under this plan today** (ENGINE-NOTES 7cx): every object has
+a `Static` flag and the bake sees static objects only; lights gained
+`HybridFullBake` (half baked within `HybridRadius` of the lamp, fully baked
+beyond) and the bridge's 176 lamps use it at 2 m; three more volumes cover
+the sea floor, the headland and the south shore; the atlas packs volumes
+as boxes; a fully baked lamp is lit live wherever the field does not cover
+the pixel. Measured, three interleaved pairs, fields loaded and verified:
+
+| camera | Half bake (shipped) ms | Hybrid ms | opaque pass | water pass |
+|---|---|---|---|---|
+| Headland | 94.0 | 59.0 | 32.1 → 14.5 | 60.0 → 42.7 |
+| Deck | 13.8 | 10.2 | 9.8 → 6.1 | 1.4 → 1.5 |
+| Profile | 43.2 | 29.7 | 8.9 → 5.6 | 32.8 → 22.6 |
+| Bluff | 79.6 | 41.0 | 36.1 → 13.0 | 41.3 → 26.0 |
+| Pier | 95.3 | 50.2 | 37.5 → 14.7 | 55.5 → 33.3 |
+| Cliff | 43.0 | 24.8 | 23.7 → 11.9 | 17.2 → 10.9 |
+| Glitter | 77.8 | 46.3 | 31.8 → 13.2 | 44.1 → 31.1 |
+| Lime Point | 94.8 | 54.1 | 39.7 → 15.0 | 53.0 → 37.0 |
+
+542 → 315 ms over the eight, 42% off. **Hybrid at 2 m against pure Full
+bake** (every lamp fully baked, same boxes, three interleaved pairs): 303
+→ 313 ms over the eight, +3%; per camera +2% (Headland, Profile, Bluff)
+to +5% (Glitter). That is the whole price of keeping the lamp heads live:
+the hybrid loop still reads every lamp's record to learn its radius, and
+the two or three lamps within 2 m of a pixel are traced. The radius
+slider walks up from there; each metre of radius buys back post and pool
+at a cost this table does not measure (the owner declined the 10 m
+point).
+
+### Findings, in the order they change the plan
+
+1. **§1 and every bar in §7 are stale.** The frame this plan budgets is
+   the Hybrid frame above, not Headland 114 / Quality 90. M1's "Headland
+   under 90 from 114" is already true for a different reason; the bars
+   have to be re-based on `bench_night.py --label wr16-before` taken on
+   the Hybrid scene, once, before any milestone starts.
+2. **§4.3.5 C exists and is applied, and it leaves a cost the doc did not
+   foresee.** At a static hit inside a volume every fully or hybrid baked
+   lamp is skipped -- but only after its 80-byte `GpuLight` has been read
+   to learn its mobility and radius. The hit walk's remaining cost is
+   therefore *reads of lamps that contribute nothing*. M1's compact
+   record should carry position, range², and the packed mobility/radius
+   (16 B), so a static hit rejects a lamp on one read; and the CPU can
+   mark each cluster cell with "a lamp is live here" (realtime, half
+   baked, or hybrid within its radius of the cell) so a static hit in a
+   fully baked cell walks nothing. That is the honest M1 now.
+3. **The water surface is the frame.** Headland: 42.7 of 59.0 ms is the
+   water pass, and the opaque static world is 14.5. The water is live by
+   the owner's rule (the lamps' streak), so it walks 146 lamps of Beckmann
+   and traces their shadow rays per pixel. §4.3.2 (quad rate, refraction
+   reach) and §4.3.3 (the shadow consumer: thinning, then ReSTIR) are
+   water items first; the opaque path is mostly off the table.
+4. **§2 is stale in one line:** traced hits walk the cluster cell when the
+   hit is in view (WR-10 A, `224b273`), not "every light, no cluster".
+5. **Bindings.** Set 0 uses 0–18 today (18 is the irradiance field); 19,
+   20 and 21 are free, so §6's allocation textures at 19/20 and a counter
+   SSBO at 21 fit, all under `RV_RAY_SHADOWS`. RENDERING-REVAMP's ground
+   rule "set 0's bindings are all spoken for" means the existing ones
+   cannot be repurposed, not that none are free.
+6. **The validity lane already exists.** TAA's second attachment writes
+   `o_Moments = vec4(frames, mean, meanSq, 0.0)`; its `.w` is a free lane
+   in a `TemporalHistory` attachment every temporal consumer can bind.
+   The shared validity of §5 can live there, written once by the TAA
+   resolve, no new target. With TAA off there is no history and nothing
+   reuses, which is §5's rule already.
+7. **Counters need a readback the RHI does not have.** `RHIDevice` reads
+   textures one-shot (stalling) and resolves timestamps through query
+   pools; there is no buffer readback. M0's first task is
+   `RHIDevice::ReadBuffer` with a per-frame-in-flight staging ring, read
+   one frame late the way timestamps are. `subgroupAdd` needs
+   `GL_KHR_shader_subgroup_arithmetic` beside the basic and quad
+   extensions the lit shader already requires.
+8. **Four launch sites carry every ray**, so four increments count them
+   all: `TraceShadowFromMasked` (every shadow ray; the mask says whether
+   it is the sun, a lamp, or a moving-only ray), `TraceSurface` (mirror,
+   refraction, GI, sky -- the caller knows which, so it passes a type),
+   `rtao_compute`, and the fill's shadow ray (bake time, not counted).
+9. **There is no `--debug-view` yet.** M0 adds the flag and one composite
+   that reads a per-pixel `R16UI` "rays this pixel" the lit shader writes
+   only under the flag.
+10. **Hybrid changes the allocator's "light count" input.** A tile's
+    importance (§4.2) should count the lamps that are *live* at its
+    pixels -- realtime, half baked, or hybrid within radius -- not the
+    lamps in the cell, or the allocator spends rays where the field has
+    already paid.
+11. **`HybridRadius` is authoring, not a preset lever**: it is per light
+    by the owner's design (the slider), and §5's "presets vs flags" table
+    should say so; the presets keep every other lever global.
+12. **The bake-versus-runtime rule holds** through today's changes: the
+    field weight and the baked share apply only where a field is bound,
+    and the fill reads no allocation.
+13. **A flag that changes nothing is not always broken.** `--rt-optimisation
+    =off` gave the same picture as Quality on the Deck and Bluff cameras
+    because Quality's thinning starts at 300 m; on a near camera the two
+    presets are the same frame.
+
+### The owner's two documents, read in the original against this design
+
+The design above was written from the revamp plan's reading of the
+owner's two documents (`dynamic_ray_budgeting_realtime_rt.md`, 25
+sections; `RT_Multi_Light_Shadow_Optimization_Debugging.md`, 35 sections;
+both in the owner's Downloads, neither in the repo). Read in full on
+2026-09-03, they agree with this design in shape and differ from it in
+four places worth stating, because two of the differences are the
+design's deliberate choices and two are omissions.
+
+- **Temporal variance as an importance input.** The first document's
+  core signal (§5, §11, §15: coverage x variance x complexity) is what
+  this design refuses in §3 and §4.2 ("inputs only"), on the 2026-08-28
+  evidence that variance -- an *output* of the rays -- made the loop
+  breathe at a hertz. The document itself asks for "temporal hysteresis"
+  and "quantized sample counts" (§15), which is exactly the dead band and
+  dwell of §4.2; so the honest position is: variance may return as an
+  input **only** behind that quantisation, slowly, as one factor among the
+  inputs -- and M2 should try it as an arm, with the sixty-second
+  transition count as the judge, rather than rule it out by memory.
+- **Spatial smoothing of the importance map** (§15's last bullet) is not
+  in §4.2. A tile whose importance jumps against its neighbours pops on
+  its own; a 3x3 smoothing of the tile weights before quantisation is
+  cheap and belongs in M2.
+- **The light-count sweep** (second document, Debug Pass B: 147 / 75 /
+  32 / 16 / 0 casting lights against RT time) is not in this design's
+  protocol; the fixed-budget sweep (Experiment 4) is, as M4's pre-check.
+  Both belong in M0's calibration: the light sweep says whether the
+  frame is light-count-bound or ray-bound, and it costs one hour with
+  `--shadow-rays=off` and a mobility edit.
+- **Debug views and the HUD** (second document §24, §31): this design
+  lists rays, lights, allocation and reservoirs. Add temporal confidence
+  (the validity lane) and importance, and put "lights per pixel avg /
+  max" and "temporal confidence %" beside the rays line in the HUD and
+  the benchmark report. All cheap once the counters exist.
+
+Where the documents and the design already agree, in plain words: a
+bounded per-pixel budget instead of per-light rules (both documents'
+central recommendation, this design's §4.3.3 B); stochastic selection by
+importance with the unbiased weight, never the top-N brightest (second
+document §14 warns against top-N for the same reason the Share shape
+lost here); separate budgets by ray type with lending between them
+(first document §16, §4.1 here); importance from screen coverage,
+material and light count rather than camera distance (both); profiling
+before optimising, a rays-per-pixel view first (both, and M0); terminate
+on first hit, instance masks, proxy geometry for far rays (second
+document §21-23; the masks are in since 7cx, the proxy BLAS is the
+RENDERING-REVAMP candidate). The second document's "shadow maps for
+static lights" (§20, §32 priority 8) is met differently: since 7cx a
+static lamp beyond its half-bake radius is *baked*, light and shadow, in
+the field -- cheaper than a map and exact where the field's cells are
+fine enough. And the first document's §20-25 -- baked GI does not mean
+no runtime rays -- is this scene exactly: the field carries the bounce
+and the far lamps, and the water's mirror, refraction and shadow rays
+are the runtime cost that remains.
+
+One caution the documents share and this scene should hear: their
+targets (RT shadows at 3-4 ms of a 16.7 ms frame) assume 1080p on a
+desktop part. Here, after the split and Hybrid Full Bake, Headland is
+59 ms at 2560x1440 on a laptop 5070 Ti and 43 of it is the water pass.
+The budget WR-16 has to hold is the water's.
+
+### M0, prepared
+
+In order, each a commit: (1) `RHIDevice::ReadBuffer` and its ring; (2) the
+counter SSBO at set 0 binding 21 and the four increments; (3) the
+"rays: shadow N, water N, GI N, AO N" line, "lights per pixel avg / max"
+and "temporal confidence %" in the benchmark report and the HUD; (4) the
+calibration runs on the Hybrid scene -- `--hit-lights=off`,
+`--shadow-rays=off`, `--ray-rate=1|2`, and the light-count sweep (147 /
+75 / 32 / 16 / 0 casting lamps) -- into `RenderSettings::RayCost[]` and
+the handoff; (5) the validity lane in `o_Moments.w`, written and not yet
+read; (6) `--debug-view=rays|lights|confidence|importance`; (7)
+`bench_night.py --label wr16-before` and the flicker protocol on the
+Hybrid scene. Accept as §7 M0 says, against the Hybrid baseline: counters
+within 5% of the isolation runs, bit-identical picture.
+
+### Decisions for the owner before M0 starts
+
+- **A.** The Hybrid scene (lamps at 2 m, the three new boxes) is the WR-16
+  baseline. Recommended.
+- **B.** M1's scope is the compact record *and* the per-cell live-lamp
+  bit (finding 2). Recommended; the bit is a CPU loop over cells the grid
+  already builds.
+- **C.** `RayBudget` Off / Absolute / Fractional stays as the controller's
+  mode dial, as §6 says, rather than folding into the RT optimisation
+  preset. Recommended, so a measurement can pin a target in ms.

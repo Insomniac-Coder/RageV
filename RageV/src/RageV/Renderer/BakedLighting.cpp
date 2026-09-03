@@ -476,9 +476,13 @@ namespace RageV
 
 		// Bounded before it is trusted: the size in the header decides an
 		// allocation, and a corrupt file must not be able to ask for a
-		// terabyte. Sixty-four megabytes is far past any field this engine can
-		// build and far short of anything that hurts.
-		constexpr uint64_t kSaneLimit = 64ull * 1024 * 1024;
+		// terabyte. This was sixty-four megabytes, "far past any field this
+		// engine can build" -- until the bridge's bay box (7cx): its packed
+		// atlas is 92 MB a file, every load was refused as not credible, and
+		// the frame fell back to realtime while the benchmark above it read
+		// as a win. The cap is a corruption guard, not a budget; a gigabyte
+		// is still far short of anything that hurts.
+		constexpr uint64_t kSaneLimit = 1024ull * 1024 * 1024;
 		if (header.PayloadBytes == 0 || header.PayloadBytes > kSaneLimit)
 		{
 			RV_CORE_WARN("Bake: {0} claims a {1} byte payload, which is not credible",

@@ -29,10 +29,12 @@ layout(location = 5) flat out vec4 v_Surface;
 // flip -- the two backends differ in where NDC lands on the framebuffer, not in
 // the NDC itself.
 layout(location = 6) out vec4 v_ClipPos;
-// Which cube of the probe arrays this object reflects, straight out of the
-// instance. Flat for the same reason the surface parameters are: it is one
-// value for the whole object.
-layout(location = 7) flat out float v_Probe;
+// x: which cube of the probe arrays this object reflects; y: whether the
+// object is static (MeshComponent::Static, from Indices.w) -- both straight
+// out of the instance, and flat for the same reason the surface parameters
+// are: one value for the whole object. The skinned and water stages write y
+// as 0: a pose moves, and the water stays live for the lamps' streak.
+layout(location = 7) flat out vec2 v_Instance;
 
 // Where this vertex was last frame, in clip space. The fragment differences
 // the two projections to get its motion vector.

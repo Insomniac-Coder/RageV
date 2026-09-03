@@ -36,6 +36,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [8, 1, 8]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916738
       Material: 15507046747463616226
   - EntityID: 7534124655049735590
@@ -46,6 +47,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.2, 4, 8]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material: 4878683790387378978
   - EntityID: 6735502776965778683
@@ -56,6 +58,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.2, 4, 8]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material: 4878683790387378978
   - EntityID: 9451474279982075784
@@ -66,6 +69,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [8, 4, 0.2]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material: 4878683790387378978
   - EntityID: 4499002560844416326
@@ -76,6 +80,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [8, 4, 0.2]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material: 4878683790387378978
   - EntityID: 16653388169543425440
@@ -86,6 +91,7 @@ Entities:
       Rotation: [3.14159, 0, 0]
       Scale: [8, 1, 8]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916738
       Material: 17232133096527464401
   - EntityID: 11800989497541133581
@@ -96,6 +102,7 @@ Entities:
       Rotation: [3.14159, 0, 0]
       Scale: [0.666667, 1, 0.666667]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916738
       Material: 389764140926764124
   - EntityID: 11800988398029505370
@@ -106,6 +113,7 @@ Entities:
       Rotation: [3.14159, 0, 0]
       Scale: [0.666667, 1, 0.666667]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916738
       Material: 389764140926764124
   - EntityID: 11800987298517877159
@@ -116,6 +124,7 @@ Entities:
       Rotation: [3.14159, 0, 0]
       Scale: [0.666667, 1, 0.666667]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916738
       Material: 389764140926764124
   - EntityID: 11800986199006248948
@@ -126,5 +135,6 @@ Entities:
       Rotation: [3.14159, 0, 0]
       Scale: [0.666667, 1, 0.666667]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916738
       Material: 389764140926764124

@@ -36,6 +36,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [3, 3, 3]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916737
       Material:
         BaseColor: [1, 1, 1, 1]

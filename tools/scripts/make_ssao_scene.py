@@ -77,6 +77,7 @@ def build_wall(profile, material):
         "      Rotation: [0, 0, 0]",
         "      Scale: [0.4, 3, 24]",
         "    MeshComponent:",
+        "      Static: true",
         f"      Mesh: {base.PRIMITIVE_BASE + base.CUBE}",
         f"      Material: {material}",
     ]

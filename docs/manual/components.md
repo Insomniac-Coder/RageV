@@ -103,6 +103,7 @@ colour stay one draw.
 |---|---|---|
 | `Mesh` | the Cube primitive | Which geometry to draw |
 | `Material` | invalid | Which material. Invalid means the renderer's shared default |
+| `Static` | `false` | The object never moves. Static objects are what the bake sees, and they read fully baked lights from the field instead of lighting them live; a moving object is lit live by every light, casts a live shadow, and is left out of the bake. Skinned meshes are always moving, whatever this says |
 | `OverrideBaseColor` | `false` | Use `BaseColor` instead of the material's |
 | `BaseColor` | white | Albedo tint, RGBA |
 | `OverrideEmissive` | `false` | Use `EmissiveColor` instead of the material's |
@@ -134,6 +135,7 @@ entity. See [Terrain](terrain.md).
 | `Layer3` | invalid | The fourth channel's material, likewise |
 | `TextureScale` | `4.0` | Metres per repeat of the layers' textures; each layer's own tiling multiplies on top |
 | `Collision` | `true` | A static height-field collider under the drawn surface. The terrain is its own collider: no RigidBody or Collider component is needed, and one on this entity is ignored |
+| `Static` | `false` | The same switch a mesh has: on, the bake sees the terrain and it reads fully baked lights from the field; off, it is lit live and left out of the bake |
 
 **Runtime state:**
 
@@ -162,6 +164,8 @@ See [Post processing](post-processing.md) for what a profile holds.
 | Field | Default | What it does |
 |---|---|---|
 | `Light` | directional | Type, colour, intensity, range and cone angles |
+| `Mobility` | `Half bake` | How much of the light the bake owns. `Realtime`: nothing, it can be switched by a script without touching any bake. `Half bake`: its bounce is baked, its direct light and shadows are live. `Full bake`: its direct light is in the field too, and static objects read it from there. `Hybrid Full Bake`: half baked within `HybridRadius` of the lamp, fully baked beyond |
+| `HybridRadius` | `2.0` | Hybrid Full Bake only. Metres from the lamp within which it is lit live, keeping the bright spot under it and the glow that spot makes. Changing it means re-baking |
 
 Directional, point and spot are all supported, and all cast shadows. Lighting
 is clustered forward, so there is **no light count cap**.

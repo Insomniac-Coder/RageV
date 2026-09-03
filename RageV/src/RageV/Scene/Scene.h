@@ -204,6 +204,11 @@ namespace RageV
 			// survives, so it writes depth and sorts with the opaque geometry,
 			// where glass does neither.
 			bool Masked = false;
+			// MeshComponent::Static, with the one rule the component states
+			// applied: a skinned mesh is never static. Read by the instance
+			// stream (InstanceData.Indices.w), the ray structure's masks and
+			// the moving-box list below.
+			bool Static = false;
 		};
 
 		static constexpr uint32_t kNoCullSlot = ~0u;
@@ -220,6 +225,12 @@ namespace RageV
 		// Every light in the scene as the renderer reads it -- what
 		// BeginScene and the voxel injection are both handed (7bc).
 		LightList CollectLights();
+
+		// Stamps LightRenderData::MovingInRange on this frame's lights from
+		// the moving boxes the last RefreshDrawList collected (7cx). Not part
+		// of CollectLights, whose result the lighting hash reads: this is
+		// per-frame state and must never be able to rename a bake.
+		void MarkMovingLights(LightList& lights);
 
 		// Advances every animator and rebuilds its pose.
 		//
@@ -904,6 +915,12 @@ namespace RageV
 		// is most of why rebuilding it every frame costs what it does.
 		std::vector<DrawBounds> m_DrawBounds;
 		std::vector<DrawItem> m_DrawItems;
+
+		// The world boxes of every object the bake does not own -- meshes
+		// with MeshComponent::Static off, skinned meshes, terrains with the
+		// flag off -- rebuilt with the draw list. What MarkMovingLights tests
+		// each light's range against.
+		std::vector<DrawBounds> m_MovingBounds;
 
 		// The same objects again, in the form the cull pass reads (roadmap
 		// 8.3), built in the same walk and uploaded at the end of it. Static

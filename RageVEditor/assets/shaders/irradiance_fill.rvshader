@@ -110,6 +110,9 @@ void main()
 	// and the distance between one tile and the next.
 	const int atlasBase = int(u_Fill.Centre.w + 0.5);
 	const int tileStride = int(u_Fill.Extents.w + 0.5);
+	// And the box's x and y corner in the atlas (7cx), in the first two axes'
+	// spare lanes: regions pack side by side, not only one behind the other.
+	const ivec2 atlasXY = ivec2(u_Fill.Rotation[0].w + 0.5, u_Fill.Rotation[1].w + 0.5);
 
 	const ivec3 grid = ivec3(u_Fill.Grid.xyz + 0.5);
 	const int rays = max(int(u_Fill.Grid.w + 0.5), 1);
@@ -305,7 +308,12 @@ void main()
 	for (int i = 0; i < u_Scene.LightCount; ++i)
 	{
 		const GpuLight light = u_Lights.Lights[i];
-		if (light.Params.w < 1.5)
+		// Which share of this light the bake owns at this cell (7cx): none of
+		// a realtime or half-baked light, all of a fully baked one, and of a
+		// hybrid light the part beyond its half-bake radius. The live loops
+		// light exactly the rest.
+		const float bakedShare = BakedShare(light, origin);
+		if (bakedShare <= 0.0)
 			continue;
 
 		vec3 L;
@@ -346,9 +354,11 @@ void main()
 		if (int(light.Shadow.x) != 0)
 		{
 			rayQueryEXT blocked;
+			// RV_RAY_MASK_SCENE is the static half alone under the solve
+			// (7cx): a moving object casts no shadow into the bake.
 			rayQueryInitializeEXT(blocked, u_SceneAS,
 								  RV_RAY_BASE_FLAGS | gl_RayFlagsTerminateOnFirstHitEXT,
-								  0xFFu, origin, 0.0, L, reach);
+								  RV_RAY_MASK_SCENE, origin, 0.0, L, reach);
 			RayTraverse(blocked);
 			if (rayQueryGetIntersectionTypeEXT(blocked, true) != gl_RayQueryCommittedIntersectionNoneEXT)
 				continue;
@@ -358,7 +368,7 @@ void main()
 		// normal incidence times the band convolution over pi times the
 		// basis at L -- irradiance over pi, the field's units, exact to
 		// second order.
-		const vec3 arriving = light.Color.rgb * light.Color.a * attenuation;
+		const vec3 arriving = light.Color.rgb * light.Color.a * attenuation * bakedShare;
 		const vec3 binL = vec3(dot(u_Fill.Rotation[0].xyz, L),
 							   dot(u_Fill.Rotation[1].xyz, L),
 							   dot(u_Fill.Rotation[2].xyz, L));
@@ -396,13 +406,13 @@ void main()
 		// decode read as "sees no sky". Aliveness moved to tile 6's .y.
 		// Sky visibility 1.0 from every direction, as a coefficient: the
 		// zeroth carries 1 / Y00 and the rest are zero.
-		imageStore(u_FillField, cell + ivec3(0, 0, atlasBase),
+		imageStore(u_FillField, cell + ivec3(atlasXY, atlasBase),
 				   vec4(0.0, 0.0, 0.0, 3.5449077));
 		for (int f = 1; f < RV_FIELD_VISIBILITY_TILE; f++)
-			imageStore(u_FillField, cell + ivec3(0, 0, tileStride * f + atlasBase),
+			imageStore(u_FillField, cell + ivec3(atlasXY, tileStride * f + atlasBase),
 					   vec4(0.0));
 		// And nothing visible from it, so no reader takes light from it either.
-		imageStore(u_FillField, cell + ivec3(0, 0, tileStride * RV_FIELD_VISIBILITY_TILE + atlasBase),
+		imageStore(u_FillField, cell + ivec3(atlasXY, tileStride * RV_FIELD_VISIBILITY_TILE + atlasBase),
 				   vec4(0.0));
 
 		return;
@@ -430,7 +440,7 @@ void main()
 	// exact.
 	for (int f = 0; f < 9; f++)
 	{
-		const ivec3 slot = cell + ivec3(0, 0, tileStride * f + atlasBase);
+		const ivec3 slot = cell + ivec3(atlasXY, tileStride * f + atlasBase);
 		// Monte Carlo weight 4*pi/N times the band's convolution over pi:
 		// 4/N times pi, 2pi/3, pi/4 -- the faces' 4/N carried the pi already.
 		const float bandScale = faceScale * PI * FieldBandOverPi(f);
@@ -469,7 +479,7 @@ void main()
 		// **The fully baked lights' direct light, in its own tiles**, so the
 		// screen can add it whole while it takes the bounce only where the
 		// gather fell short.
-		const ivec3 directSlot = cell + ivec3(0, 0, tileStride * (RV_FIELD_DIRECT_TILE + f) + atlasBase);
+		const ivec3 directSlot = cell + ivec3(atlasXY, tileStride * (RV_FIELD_DIRECT_TILE + f) + atlasBase);
 		imageStore(u_FillField, directSlot,
 				   mix(texelFetch(u_IrradianceField, directSlot, 0),
 					   vec4(direct[f], 0.0), blend));
@@ -520,7 +530,7 @@ void main()
 
 	// Written flat rather than blended: it is a fact about geometry, not an
 	// estimate that improves with rays, and a blended bitmask is not a bitmask.
-	imageStore(u_FillField, cell + ivec3(0, 0, tileStride * RV_FIELD_VISIBILITY_TILE + atlasBase),
+	imageStore(u_FillField, cell + ivec3(atlasXY, tileStride * RV_FIELD_VISIBILITY_TILE + atlasBase),
 			   vec4(neighbours, 1.0, 0.0, 0.0));
 
 }

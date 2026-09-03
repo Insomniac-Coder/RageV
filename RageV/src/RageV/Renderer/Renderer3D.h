@@ -306,7 +306,8 @@ namespace RageV
 		static void SetSceneInstance(uint32_t index, const Mat4& transform,
 									 const Mat4& previousTransform,
 									 const RHI::Ref<Material>& material,
-									 const MaterialParams& params, uint32_t probe);
+									 const MaterialParams& params, uint32_t probe,
+									 bool isStatic);
 
 		// Every static mesh the camera kept, in as many draws as the scene has
 		// distinct meshes, each one's instance count read out of the buffer
@@ -340,9 +341,14 @@ namespace RageV
 		// every other object using it, and reading from it would make overrides
 		// impossible. The scalars ride in the instance stream, so this costs a
 		// struct copy and no draw calls.
+		// `isStatic` is MeshComponent::Static as the scene resolved it (7cx).
+		// It rides in the instance stream too (InstanceData.Indices.w), for
+		// the same reason the probe does: two objects that differ in it are
+		// still one instanced draw, and the fragment reads it per pixel to
+		// decide whether the fully baked lights are in the field for it.
 		static void DrawMesh(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
 							 const RHI::Ref<Material>& material,
-							 const MaterialParams& params, uint32_t probe,
+							 const MaterialParams& params, uint32_t probe, bool isStatic,
 							 const Mat4* previousTransform = nullptr);
 
 		// A body of water: the same draw, through the pipeline whose vertex
@@ -423,7 +429,7 @@ namespace RageV
 		// ground (7ap); clamped to the mesh's count.
 		static void DrawLayeredMesh(const RHI::Ref<Mesh>& mesh, const Mat4& transform,
 									const RHI::Ref<LayeredMaterial>& layered, uint32_t probe,
-									uint32_t indexCount,
+									bool isStatic, uint32_t indexCount,
 									const Mat4* previousTransform = nullptr);
 
 		// Shared by every mesh that has no material of its own.

@@ -3,6 +3,8 @@
 
 #include "RageV/Core/Log.h"
 
+#include <algorithm>
+
 namespace RageV
 {
 	using namespace RageV::RHI;
@@ -55,18 +57,94 @@ namespace RageV
 		if (regions.empty())
 			return nullptr;
 
-		// The atlas is as wide and tall as the greediest region and as deep as
-		// all of them together. Regions differing in width waste the
-		// difference, which is the price of one sampler and is small beside
-		// what the gaps between volumes used to cost.
-		uint32_t width = 0, height = 0, depth = 0;
-		std::vector<Region> laid = regions;
-		for (Region& region : laid)
+		// **Boxes packed into a box, not slices stacked along z** (ENGINE-NOTES
+		// 7cx). The atlas is as wide and tall as the greediest region -- one
+		// texture, one sampler, and OpenGL's sampler budget is why -- and the
+		// regions are placed inside it as 3D boxes: each takes the first
+		// anchor, in order of depth then height then width, where it fits
+		// without overlapping anything already placed. Stacking every region
+		// along z alone padded each one to the widest and tallest region's
+		// cross-section: the bridge's 2800 m bay box beside its 44 m deck
+		// boxes came out fifteen times the size of its cells, 754 MB a file.
+		// Placed beside each other in x and y the same regions are 75 MB.
+		//
+		// Deterministic -- sorted by volume, then by the order given -- so the
+		// same regions always pack the same way and a stored file's stamp
+		// (the atlas size) means the same layout. The output keeps the given
+		// order: every reader indexes the regions by it.
+		uint32_t width = 0, height = 0;
+		for (const Region& region : regions)
 		{
-			region.ZOffset = depth;
 			width = Math::Max(width, region.Width);
 			height = Math::Max(height, region.Height);
-			depth += region.Depth;
+		}
+
+		std::vector<size_t> order(regions.size());
+		for (size_t i = 0; i < order.size(); i++)
+			order[i] = i;
+		std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b)
+		{
+			const uint64_t va = (uint64_t)regions[a].Width * regions[a].Height * regions[a].Depth;
+			const uint64_t vb = (uint64_t)regions[b].Width * regions[b].Height * regions[b].Depth;
+			return va > vb;
+		});
+
+		struct Placed { uint32_t X, Y, Z, W, H, D; };
+		std::vector<Placed> placed;
+		std::vector<Region> laid = regions;
+		uint32_t depth = 0;
+		for (size_t index : order)
+		{
+			Region& region = laid[index];
+			// The candidate corners: the origin, and the three faces beyond
+			// every placed box. Tried nearest the origin first, in z, then y,
+			// then x, so a region goes beside its neighbours before it goes
+			// behind them. The corner past the deepest box always fits, so
+			// the search cannot fail.
+			struct Corner { uint32_t X, Y, Z; };
+			std::vector<Corner> corners{ { 0, 0, 0 } };
+			for (const Placed& b : placed)
+			{
+				corners.push_back({ b.X + b.W, b.Y, b.Z });
+				corners.push_back({ b.X, b.Y + b.H, b.Z });
+				corners.push_back({ b.X, b.Y, b.Z + b.D });
+			}
+			std::sort(corners.begin(), corners.end(), [](const Corner& a, const Corner& b)
+			{
+				if (a.Z != b.Z) return a.Z < b.Z;
+				if (a.Y != b.Y) return a.Y < b.Y;
+				return a.X < b.X;
+			});
+
+			auto fits = [&](const Corner& c)
+			{
+				if (c.X + region.Width > width || c.Y + region.Height > height)
+					return false;
+				for (const Placed& b : placed)
+				{
+					const bool apart = c.X >= b.X + b.W || c.X + region.Width <= b.X
+									|| c.Y >= b.Y + b.H || c.Y + region.Height <= b.Y
+									|| c.Z >= b.Z + b.D || c.Z + region.Depth <= b.Z;
+					if (!apart)
+						return false;
+				}
+				return true;
+			};
+
+			Corner chosen{ 0, 0, depth };   // past everything: the fallback that always fits
+			for (const Corner& c : corners)
+			{
+				if (fits(c))
+				{
+					chosen = c;
+					break;
+				}
+			}
+			region.XOffset = chosen.X;
+			region.YOffset = chosen.Y;
+			region.ZOffset = chosen.Z;
+			placed.push_back({ chosen.X, chosen.Y, chosen.Z, region.Width, region.Height, region.Depth });
+			depth = Math::Max(depth, chosen.Z + region.Depth);
 		}
 
 		Ref<IrradianceVolume> volume = Create(device, width, height, depth);

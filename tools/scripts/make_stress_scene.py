@@ -51,6 +51,7 @@ def mesh(shape, base_color, metallic, roughness, indent):
     pad = " " * indent
     return (
         f"{pad}MeshComponent:\n"
+        f"{pad}  Static: true\n"
         f"{pad}  Mesh: {PRIMITIVE_BASE + shape}\n"
         f"{pad}  Material:\n"
         f"{pad}    BaseColor: {vec(base_color)}\n"

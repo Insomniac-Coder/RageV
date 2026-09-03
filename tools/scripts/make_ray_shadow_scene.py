@@ -43,6 +43,7 @@ def _box(next_id, tag, position, scale, base_rgb):
         "      Rotation: [0, 0, 0]",
         f"      Scale: {base.vec(scale)}",
         "    MeshComponent:",
+        "      Static: true",
         f"      Mesh: {base.PRIMITIVE_BASE + base.CUBE}",
         "      Material:",
         f"        BaseColor: {base.vec(list(base_rgb) + [1])}",

@@ -122,6 +122,7 @@ def build_fan(count, profile):
             f"      Rotation: {vec([0, 0, theta])}",
             "      Scale: [4.2, 0.06, 0.01]",
             "    MeshComponent:",
+            "      Static: true",
             f"      Mesh: {PRIMITIVE_BASE + CUBE}",
             "      Material:",
             "        BaseColor: [0, 0, 0, 1]",
@@ -200,6 +201,7 @@ def build(angle_degrees, profile):
     # the whole of it, and it is the same from every angle.
     out.append(
         "    MeshComponent:\n"
+        "      Static: true\n"
         f"      Mesh: {PRIMITIVE_BASE + CUBE}\n"
         "      Material:\n"
         "        BaseColor: [0, 0, 0, 1]\n"

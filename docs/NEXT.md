@@ -93,6 +93,21 @@ allocator, the consumers, ReSTIR on top (ReSTIR is no longer an item of
 its own) — with WR-10 first (M1), the allocator and controller next (M2,
 M3), ReSTIR DI as M4 behind the shadow interface.
 
+**2026-09-03:** the **static / moving split** shipped (ENGINE-NOTES 7cx,
+HANDOFF's start-here): a `Static` checkbox per mesh and per terrain, off by
+default; the bake sees static objects only; static surfaces read fully
+baked lamps from the field, moving surfaces take them live and still shadow
+the static floor from them. Every existing scene was marked by
+`tools/scripts/mark_static.py` (owner's call). **The same evening the
+bridge's 176 lamps went Hybrid Full Bake at 2 m** (a fourth mobility: half
+baked within a per-light radius, fully baked beyond) with three more boxes
+over the bay and the shores and a packed atlas: **542 → 315 ms over the
+eight cameras**, Hybrid costing 3% over pure Full bake. HANDOFF's evening
+entry has the table and the two fast-because-wrong traps it took to get an
+honest number. **Next is WR-16:** its review and M0 preparation are
+`RAY-BUDGET-DESIGN.md` §10, waiting on the owner's decisions A, B and C
+there.
+
 ## The order
 
 Ranked by value per hour, not by size. Numbers are engineering judgement.

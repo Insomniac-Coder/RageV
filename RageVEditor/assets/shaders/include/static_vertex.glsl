@@ -26,7 +26,7 @@ void main()
 	v_BaseColor     = instance.BaseColor;
 	v_EmissiveColor = instance.EmissiveColor;
 	v_Surface       = instance.Surface;
-	v_Probe         = instance.Indices.y;
+	v_Instance      = vec2(instance.Indices.y, instance.Indices.w);
 	v_MaterialIndex = instance.Indices.z;
 
 	gl_Position = u_Scene.ViewProjection * world;

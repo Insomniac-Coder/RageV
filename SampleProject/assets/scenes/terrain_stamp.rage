@@ -51,6 +51,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     TerrainComponent:
+      Static: true
       Terrain: 6419009199769354485
       Size: 64
       Height: 1

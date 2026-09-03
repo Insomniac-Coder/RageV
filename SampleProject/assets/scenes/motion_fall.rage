@@ -811,6 +811,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -826,6 +827,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -841,6 +843,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -856,6 +859,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -871,6 +875,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -886,6 +891,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -901,6 +907,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -916,6 +923,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -931,6 +939,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -946,6 +955,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -961,6 +971,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -976,6 +987,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -991,6 +1003,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -1006,6 +1019,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -1021,6 +1035,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -1036,6 +1051,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -1051,6 +1067,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -1066,6 +1083,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -1081,6 +1099,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -1096,6 +1115,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -1111,6 +1131,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -1126,6 +1147,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -1141,6 +1163,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -1156,6 +1179,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]
@@ -1171,6 +1195,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.05, 0.05, 0.05]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material:
         BaseColor: [0, 0, 0, 1]

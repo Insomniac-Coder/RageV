@@ -335,6 +335,35 @@ namespace RageV
 		// claimed a material that had never existed.
 		AssetHandle Material = AssetHandle::Invalid();
 
+		// **Whether this object stays where it is for the life of the scene**
+		// -- Unity's Static checkbox, Unreal's Static mobility, as one bit
+		// (ENGINE-NOTES 7cx). Off by default (owner, 2026-09-03): a thing is
+		// moving until an author says otherwise, because the bake is a
+		// promise about the world that the author makes, not one the engine
+		// can infer from a transform that happens not to have changed yet.
+		//
+		// What it decides, in both directions:
+		//
+		// - **The bake sees static objects only.** They are its occluders and
+		//   its bounce surfaces; a moving object is neither, so the car's
+		//   shadow is not painted onto the floor it will drive off. Rays under
+		//   the solve carry RayShadows::kMaskStatic and see nothing else.
+		// - **A static surface reads the fully baked lights from the field**
+		//   and skips them live -- the saving Full bake exists for. A moving
+		//   surface is lit live by the same lights, shadows included, and does
+		//   not read their stored direct light, so nothing is counted twice.
+		// - **A moving object's shadow still lands on the static floor** from
+		//   a fully baked lamp: a static pixel under such a lamp traces one
+		//   ray against the moving objects alone (kMaskMoving) and subtracts
+		//   the light that ray finds blocked. Only lamps with a moving object
+		//   inside their range pay for it (LightRenderData::MovingInRange).
+		//
+		// Skinned meshes are never static, whatever this says: a skin is a
+		// pose, and a pose moves. Water has no flag and is always live -- the
+		// lamps' streak on it is the point of the water. Terrain carries the
+		// same flag (TerrainComponent::Static) with the same default.
+		bool Static = false;
+
 		// Per-entity scalar overrides, applied on top of the material's own.
 		//
 		// These are free, and that is why they exist rather than forcing a
@@ -443,6 +472,12 @@ namespace RageV
 
 		// A static Jolt height field under the drawn surface, to the triangle.
 		bool Collision = true;
+
+		// See MeshComponent::Static: the same bit, the same default and the
+		// same three consequences. Off by default like every other object
+		// (owner, 2026-09-03), although a terrain rarely moves -- the author
+		// says what the bake may hold, the engine does not guess.
+		bool Static = false;
 
 		// --- runtime, not serialized ------------------------------------
 		// The chunk meshes built from the asset at these dimensions, cached

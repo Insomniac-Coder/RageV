@@ -50,6 +50,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     TerrainComponent:
+      Static: true
       Terrain: 15170848739604411501
       Material: 4166830874159429347
       Layer1: 17589339863833376696

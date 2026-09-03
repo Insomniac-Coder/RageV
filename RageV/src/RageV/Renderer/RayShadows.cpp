@@ -255,7 +255,7 @@ namespace RageV
 
 	void RayShadows::AddInstance(const Ref<Mesh>& mesh, const Mat4& world, const std::vector<Mat4>* bones,
 								 const Ref<Material>& material, const MaterialParams& params,
-								 uint64_t owner)
+								 uint64_t owner, bool isStatic)
 	{
 		if (!s_Data || !s_Data->Available || !mesh)
 			return;
@@ -269,11 +269,17 @@ namespace RageV
 		// nothing for the loop that tests them.
 		instance.ForceNoOpaque = material && material->GetBlendMode() == BlendMode::Masked;
 
+		// **One of two worlds** (kMaskStatic / kMaskMoving, 7cx): what lets
+		// the bake's solve see only what it bakes, and a static pixel's
+		// subtractive shadow ray see only what can move.
+		instance.Mask = isStatic ? kMaskStatic : kMaskMoving;
+
 		RayCaster record;
 		record.MeshRef = mesh;
 		record.MaterialRef = material;
 		record.Params = params;
 		record.Owner = owner;
+		record.Static = isStatic;
 
 		// A posed skinned caster: this frame's structure for a caster slot,
 		// refit in Build from the vertices the compute pass writes. Falls

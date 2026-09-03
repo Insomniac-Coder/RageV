@@ -159,6 +159,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [2, 1, 2]
     MeshComponent:
+      Static: true
       Mesh: {plane}
       Material: {tilt}
   - EntityID: 7741000000000000204
@@ -169,6 +170,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [2, 1, 2]
     MeshComponent:
+      Static: true
       Mesh: {plane}
       Material: {flat}
 """.format(plane=PLANE_MESH, tilt=H_TILT_RMAT, flat=H_FLAT_RMAT)

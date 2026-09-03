@@ -128,6 +128,7 @@ def _block(next_id, tag, position, scale, colour, rotation=(0, 0, 0)):
         f"      Rotation: {base.vec(rotation)}",
         f"      Scale: {base.vec(scale)}",
         "    MeshComponent:",
+        "      Static: true",
         f"      Mesh: {base.PRIMITIVE_BASE + base.CUBE}",
         "      Material:",
         f"        BaseColor: [{colour[0]:g}, {colour[1]:g}, {colour[2]:g}, 1]",

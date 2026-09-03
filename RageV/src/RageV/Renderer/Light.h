@@ -23,15 +23,28 @@ namespace RageV
 	// with things moving through it, and what every light was before. FullBake
 	// (Unreal's Static, Unity's Baked): its direct light is solved into the
 	// field as well, at the field's resolution and with its own shadow ray per
-	// cell, and the live loops skip it wherever a field is bound; a moving
-	// object under it takes the field's coarse light and casts no shadow from
-	// it. Serialised by name; `IsBaked: false` from older scenes loads as
-	// Realtime, absent loads as HalfBake.
+	// cell, and the live loops skip it on every *static* surface where a
+	// field is bound (MeshComponent::Static, ENGINE-NOTES 7cx). A moving
+	// object under it is lit live by it, shadows included, and its shadow
+	// still lands on the static floor through one ray traced against the
+	// moving objects alone. Serialised by name; `IsBaked: false` from older
+	// scenes loads as Realtime, absent loads as HalfBake.
+	//
+	// **HybridFullBake** (owner, 2026-09-03, after the bridge showed what a
+	// 5 m field does to a lamp post): Half bake within `HybridRadius` metres
+	// of the lamp, Full bake beyond. The bright spot under a lamp and the
+	// glow it feeds are live and exact; the far light -- most of the cost,
+	// since a deck pixel is in range of a hundred lamps and near two -- is
+	// the field's. The bake stores exactly the far share (a smooth step over
+	// a band about the radius) and the live loops light the rest, so the two
+	// sum to one at every distance. A hybrid directional light has no
+	// distance and is lit live, as Half bake.
 	enum class LightMobility : uint32_t
 	{
 		Realtime = 0,
 		HalfBake = 1,
 		FullBake = 2,
+		HybridFullBake = 3,
 	};
 
 	// Plain data. Every accessor this used to have was a bare assignment with
@@ -86,6 +99,12 @@ namespace RageV
 		// See LightMobility. HalfBake by default so every existing scene keeps
 		// its hash and its bakes.
 		LightMobility Mobility = LightMobility::HalfBake;
+
+		// HybridFullBake only: metres from the lamp within which it is half
+		// baked (lit live, bounce stored) and beyond which it is fully baked.
+		// Part of the lighting hash for a hybrid light, since the field holds
+		// a different share of the lamp for a different radius.
+		float HybridRadius = 2.0f;
 	};
 
 	// One emissive surface, as a rectangle a traced bounce can aim at.
@@ -189,8 +208,22 @@ namespace RageV
 		Light::LightType Type = Light::LightType::Directional;
 		bool CastShadows = false;
 		// See LightMobility: Realtime is skipped by the hash and the solve;
-		// FullBake is solved into the field and skipped by the live loops.
+		// FullBake is solved into the field and skipped by the live loops on
+		// static surfaces.
 		LightMobility Mobility = LightMobility::HalfBake;
+		// See Light::HybridRadius. Rides to the shader in GpuLight.Params.w
+		// as 3 plus the radius.
+		float HybridRadius = 2.0f;
+
+		// **Per frame, from the scene, and never hashed**: whether any moving
+		// object (MeshComponent::Static off, a skinned mesh, a terrain with
+		// the flag off) is inside this light's range this frame. A fully
+		// baked light with none has nothing a static pixel need trace toward
+		// -- the field already holds its light and its static shadows -- so
+		// the subtractive shadow ray is spent only where a car actually stands
+		// under a lamp. Scene::MarkMovingLights sets it; Renderer3D carries it
+		// to the shader in GpuLight.Shadow.y under traced shadows.
+		bool MovingInRange = false;
 	};
 
 	using LightList = std::vector<LightRenderData>;

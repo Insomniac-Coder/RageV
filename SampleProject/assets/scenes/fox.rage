@@ -51,6 +51,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [24, 1, 24]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916738
       Material: 0
   - EntityID: 7742000000000000004

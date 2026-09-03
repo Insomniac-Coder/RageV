@@ -86,7 +86,7 @@ namespace
 
 		const char* kLightTypeNames[] = { "Directional", "Point", "Spot" };
 		// In LightMobility order; serialised by these names.
-		const char* kLightMobilityNames[] = { "Realtime", "Half bake", "Full bake" };
+		const char* kLightMobilityNames[] = { "Realtime", "Half bake", "Full bake", "Hybrid Full Bake" };
 		// "Baked" was this list's first entry and meant "captured once at
 		// runtime"; it is read as Cached for files written before the rename.
 		const char* kProbeUpdateNames[] = { "Cached", "Realtime" };
@@ -265,6 +265,12 @@ namespace
 		bool IsPositional(const void* component)
 		{
 			return static_cast<const LightComponent*>(component)->Light.Type != Light::LightType::Directional;
+		}
+
+		bool IsHybridBake(const void* component)
+		{
+			return static_cast<const LightComponent*>(component)->Light.Mobility
+				== LightMobility::HybridFullBake;
 		}
 
 		bool IsRealtimeProbe(const void* component)
@@ -459,6 +465,17 @@ namespace
 					AssetRef(AssetType::Material,
 							 "Shared. The texture maps live here; leave it empty for the "
 							 "renderer's default.")),
+				// The static/moving split (ENGINE-NOTES 7cx): a checkbox, off
+				// by default. See MeshComponent::Static for what it decides.
+				Field<&MeshComponent::Static>("Static",
+					Tip("This object never moves. Static objects are what the bake "
+						"sees -- they shadow and bounce light in the baked field -- "
+						"and they read fully baked lights from the field instead of "
+						"lighting them live. Leave it off for anything that moves: a "
+						"moving object is lit live by every light, casts a live "
+						"shadow, and is left out of the bake so its shadow is not "
+						"painted where it used to stand. Skinned meshes are always "
+						"moving.")),
 
 				// The scalars, each behind its own switch. Ordinary reflected
 				// fields now -- the hook that used to write this by hand is
@@ -630,6 +647,10 @@ namespace
 						"triangle. The terrain is its own collider: no RigidBody or "
 						"Collider component is needed, and one on this entity is "
 						"ignored.")),
+				Field<&TerrainComponent::Static>("Static",
+					Tip("This terrain never moves. The same switch a mesh has: on, "
+						"the bake sees it and it reads fully baked lights from the "
+						"field; off, it is lit live and left out of the bake.")),
 			};
 
 			desc.OnChanged = [](void* component)
@@ -780,10 +801,24 @@ namespace
 							"shadows stay live. Right for a lit scene with things moving "
 							"through it; changing the light means re-baking.\n\n"
 							"Full bake: its direct light is solved into the field too, "
-							"with a shadow ray per cell, and the live loops skip it "
-							"wherever a field is bound. Cheapest at runtime; a moving "
-							"object under it is lit coarsely and casts no shadow from "
-							"it. Lit live where no field is bound."))),
+							"with a shadow ray per cell, and static objects read it "
+							"from there instead of lighting it live -- the cheapest "
+							"form at runtime. Moving objects are still lit live by it, "
+							"shadows included, and still shadow the static floor from "
+							"it. Lit live everywhere where no field is bound.\n\n"
+							"Hybrid Full Bake: Half bake within the radius below, Full "
+							"bake beyond it. The bright spot under the lamp, and the glow "
+							"it makes, stay live and exact; the far light, which is most "
+							"of the cost, comes from the field. Changing the radius means "
+							"re-baking."))),
+				Field<&LightComponent::Light, &Light::HybridRadius>("HybridRadius",
+					OnlyWhen(IsHybridBake, Named("Half bake radius",
+						Slider(1.0f, 200.0f,
+							   "Metres from the lamp within which it is half baked -- lit "
+							   "live, with its bright spot and its glow. Beyond this the "
+							   "field supplies its light. Two metres keeps a lamp post's top "
+							   "and its glow live (owner's default); the bake stores only "
+							   "what lies past it, so a new radius is a new bake.")))),
 			};
 			// Scenes from before the enum stored a bool. `IsBaked: false` was a
 			// realtime light; true, or absent, was what is now Half bake.

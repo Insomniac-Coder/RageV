@@ -36,5 +36,6 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.4, 3, 24]
     MeshComponent:
+      Static: true
       Mesh: 8241982477996916736
       Material: 1366338840295594633

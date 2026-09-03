@@ -199,7 +199,7 @@ class Scene:
         for key, value in rows:
             self.lines.append(f"      {key}: {value}")
 
-    def mesh(self, mesh, material, emissive=None):
+    def mesh(self, mesh, material, emissive=None, static=True):
         """A mesh and a material *asset*. Material 0 means the model's own.
 
         `emissive` writes the per-entity override rather than a second
@@ -207,23 +207,36 @@ class Scene:
         exactly what the override is for, and editing the asset instead would
         move both. It is also the form a script can reach -- an override that
         is off is not a value it can raise.
+
+        `static` is MeshComponent::Static (ENGINE-NOTES 7cx). The engine's
+        default is off -- a thing moves until an author says otherwise -- and
+        a generator *is* the author, so here the default is on: a generated
+        scene is furniture unless a call says `static=False` for the thing a
+        script or an animator moves.
         """
         fields = [("Mesh", mesh), ("Material", material)]
+        if static:
+            fields.append(("Static", "true"))
         if emissive is not None:
             fields += [("OverrideEmissive", "true"),
                        ("EmissiveColor", vec(*emissive, 1))]
         self.block("MeshComponent", fields)
 
-    def mesh_inline(self, mesh, base, metallic, roughness, emissive=None):
+    def mesh_inline(self, mesh, base, metallic, roughness, emissive=None,
+                    static=True):
         """A mesh whose material is written into the scene rather than shared.
 
         For the one-off. A `.rmat` is the right home for anything two objects
         use; inventing an asset for a single sphere is a file to keep track of
-        for no reuse.
+        for no reuse. `static` as in `mesh`.
         """
         self.lines += [
             "    MeshComponent:",
             f"      Mesh: {mesh}",
+        ]
+        if static:
+            self.lines.append("      Static: true")
+        self.lines += [
             "      Material:",
             f"        BaseColor: {vec(*base)}",
             f"        Emissive: {vec(*(emissive or (0, 0, 0, 1)))}",

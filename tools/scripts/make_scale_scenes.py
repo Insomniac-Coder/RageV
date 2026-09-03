@@ -45,6 +45,7 @@ def transform(position, rotation=(0.0, 0.0, 0.0), scale=(1.0, 1.0, 1.0)):
 
 def mesh(handle, colour, roughness=0.6):
     return f"""    MeshComponent:
+      Static: true
       Mesh: {handle}
       Material:
         BaseColor: [{colour[0]:.3f}, {colour[1]:.3f}, {colour[2]:.3f}, 1]

@@ -124,6 +124,7 @@ def build(count, spacing):
         # side, so nothing here depends on winding or on backface culling.
         out.append(
             "    MeshComponent:\n"
+            "      Static: true\n"
             f"      Mesh: {PRIMITIVE_BASE + CUBE}\n"
             "      Material:\n"
             f"        BaseColor: {vec([0.6, 0.35 + 0.002 * i, 0.3, 1])}\n"
