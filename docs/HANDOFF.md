@@ -79,6 +79,29 @@ ray to.
 | Glitter | 108.7 / 9.2 | 108.6 / 9.2 | 66.3 | 40.2 | 151 |
 | Lime Point | 131.7 / 7.6 | 132.4 / 7.6 | 82.7 | 47.5 | 142 |
 
+### The after-table, the scene at Quality (2026-09-02, end of the fourth session)
+
+The owner picked Quality (`RtOptimisation: Quality` in the project): shadow
+rays thin from 300 to 600 m with half kept at 450, and the refraction ray
+stops where the water has absorbed all but a 256th. Same protocol
+(`bench_night.py --label after-quality`, the project's own settings, no
+flags).
+
+| camera | before ms / fps | after ms / fps | change |
+|---|---|---|---|
+| Headland | 114.4 / 8.7 | 89.7 / 11.1 | −22% |
+| Deck | 14.8 / 67.4 | 13.8 / 72.6 | −7% |
+| Profile | 52.6 / 19.0 | 43.5 / 23.0 | −17% |
+| Bluff | 89.7 / 11.1 | 76.6 / 13.1 | −15% |
+| Pier | 100.4 / 10.0 | 89.6 / 11.2 | −11% |
+| Cliff | 47.0 / 21.3 | 41.1 / 24.3 | −13% |
+| Glitter | 108.7 / 9.2 | 73.7 / 13.6 | −32% |
+| Lime Point | 131.7 / 7.6 | 90.1 / 11.1 | −32% |
+
+Nothing the eye finds on any of them by the matrix's bar (the diff rows
+are in RENDERING-REVAMP WR-17 and WR-18). The cameras lowest to the water
+gain most: the refraction ray's reach is what they were paying for.
+
 Every frame is GPU bound and every pass but the two lit ones is under a
 millisecond. The water pass is the frame wherever the sea fills it, and
 the opaque pass is 38-48 ms on the cameras that see the towers and deck;
