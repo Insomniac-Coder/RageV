@@ -1485,11 +1485,43 @@ float FieldBandOverPi(int k)
 	return k == 0 ? 1.0 : (k < 4 ? 2.0 / 3.0 : 0.25);
 }
 
+// **The dominant lamp, recovered from the direct tiles' first band.** A
+// stored irradiance carries no highlight -- it is how much light arrives,
+// not the direction a glossy surface needs -- which is why a fully baked
+// showroom read its matte walls at 0.99 and its car's paint at 0.65. But
+// the coefficients do carry a direction: for one lamp the zeroth is
+// E * Y00 and the first three are (2/3) * E * 0.4886 * (y, z, x) of the
+// lamp's direction, so the first band's vector points at the lamp and its
+// length over the zeroth says how much of the light is one lamp's. Several
+// lamps average into one broader, weaker direction, which is the honest
+// answer for a highlight too. Unity's directional lightmaps and Source's
+// ambient cube plus one light are the same idea.
+void DerivedLamp(vec3 rawC0, vec3 l1, vec3 axisX, vec3 axisY, vec3 axisZ, float edgeFade,
+				 out vec3 direction, out vec3 coherentLight)
+{
+	direction = vec3(0.0);
+	coherentLight = vec3(0.0);
+	const float lumC0 = dot(rawC0, vec3(0.2126, 0.7152, 0.0722));
+	const float len = length(l1);
+	if (lumC0 <= 1.0e-6 || len <= 1.0e-6)
+		return;
+	// (2/3) * 0.488603: what the first band's length is for a single lamp.
+	const float coherence = clamp(len / (0.325735 * lumC0), 0.0, 1.0);
+	const vec3 inBox = l1 / len;
+	direction = normalize(axisX * inBox.x + axisY * inBox.y + axisZ * inBox.z);
+	// Irradiance at normal incidence, from the zeroth coefficient (E * Y00),
+	// scaled by how much of it points one way.
+	coherentLight = max(rawC0 / 0.282095, vec3(0.0)) * coherence * edgeFade;
+}
+
 bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradiance,
-					  out float skyVisibility, out vec3 directLight)
+					  out float skyVisibility, out vec3 directLight,
+					  out vec3 directDirection, out vec3 directCoherent)
 {
 	irradiance = vec3(0.0);
 	directLight = vec3(0.0);
+	directDirection = vec3(0.0);
+	directCoherent = vec3(0.0);
 	const bool hasDirect = u_Scene.IrradianceExtents.x > 0.5;
 
 	// **One, meaning unoccluded, until a cell says otherwise.** Every early
@@ -1782,11 +1814,21 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 			cubeSky += basis[k] * stored.a;
 		}
 		vec3 directHere = vec3(0.0);
+		vec3 rawC0 = vec3(0.0);
+		vec3 rawL1 = vec3(0.0);
 		if (hasDirect)
 		{
 			for (int k = 0; k < RV_FIELD_COEFFICIENTS; k++)
-				directHere += basis[k] * textureLod(u_IrradianceField,
+			{
+				const vec3 c = textureLod(u_IrradianceField,
 					vec3(uv, (uvw.z + float(tile * (RV_FIELD_DIRECT_TILE + k) + zbase)) / depth), 0.0).rgb;
+				directHere += basis[k] * c;
+				const float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+				if (k == 0) rawC0 = c;
+				else if (k == 1) rawL1.y = lum;
+				else if (k == 2) rawL1.z = lum;
+				else if (k == 3) rawL1.x = lum;
+			}
 		}
 		// **Divided by the filtered alive fraction.** A buried cell holds
 		// zero light, and the hardware filter blends it in by distance like
@@ -1801,10 +1843,13 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 				vec3(uv, (uvw.z + float(tile * RV_FIELD_VISIBILITY_TILE + zbase)) / depth), 0.0).y;
 		irradiance /= max(aliveWeight, 0.125);
 		directHere /= max(aliveWeight, 0.125);
+		rawC0 /= max(aliveWeight, 0.125);
+		rawL1 /= max(aliveWeight, 0.125);
 		// Second-order harmonics can ring a little below zero on the far
 		// side of a lamp; the clamps are the whole of the correction.
 		irradiance = max(irradiance, vec3(0.0)) * edgeFade;
 		directLight = max(directHere, vec3(0.0)) * edgeFade;
+		DerivedLamp(rawC0, rawL1, axisX, axisY, axisZ, edgeFade, directDirection, directCoherent);
 		skyVisibility = clamp(cubeSky, 0.0, 1.0);
 		return true;
 	}
@@ -1829,11 +1874,21 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 			cubeSky += basis[k] * stored.a;
 		}
 		vec3 directHere = vec3(0.0);
+		vec3 rawC0 = vec3(0.0);
+		vec3 rawL1 = vec3(0.0);
 		if (hasDirect)
 		{
 			for (int k = 0; k < RV_FIELD_COEFFICIENTS; k++)
-				directHere += basis[k] * texelFetch(u_IrradianceField,
+			{
+				const vec3 c = texelFetch(u_IrradianceField,
 					one + ivec3(0, 0, tile * (RV_FIELD_DIRECT_TILE + k) + zbase), 0).rgb;
+				directHere += basis[k] * c;
+				const float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+				if (k == 0) rawC0 = c;
+				else if (k == 1) rawL1.y = lum;
+				else if (k == 2) rawL1.z = lum;
+				else if (k == 3) rawL1.x = lum;
+			}
 		}
 		// Aliveness from the visibility tile's .y -- the alpha lanes carry
 		// sky, and a dead cell's sky evaluates to 1.0 there ("no data, do not
@@ -1844,12 +1899,15 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 			return false;   // buried there as well: nothing honest to report
 		irradiance = max(here, vec3(0.0)) * edgeFade;
 		directLight = max(directHere, vec3(0.0)) * edgeFade;
+		DerivedLamp(rawC0, rawL1, axisX, axisY, axisZ, edgeFade, directDirection, directCoherent);
 		skyVisibility = clamp(cubeSky, 0.0, 1.0);
 		return true;
 	}
 
 	vec3 accumulated = vec3(0.0);
 	vec3 directAccum = vec3(0.0);
+	vec3 rawC0Accum = vec3(0.0);
+	vec3 rawL1Accum = vec3(0.0);
 	float total = 0.0;
 	// **Accumulated out here, not per corner, and divided by the same total.**
 	// The light beside it is a weighted mean -- summed against `total` and
@@ -1938,11 +1996,21 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		}
 		cubeSky = clamp(cubeSky, 0.0, 1.0);
 		vec3 directHere = vec3(0.0);
+		vec3 rawC0 = vec3(0.0);
+		vec3 rawL1 = vec3(0.0);
 		if (hasDirect && alive)
 		{
 			for (int k = 0; k < RV_FIELD_COEFFICIENTS; k++)
-				directHere += basis[k] * texelFetch(u_IrradianceField,
+			{
+				const vec3 c = texelFetch(u_IrradianceField,
 					index + ivec3(0, 0, tile * (RV_FIELD_DIRECT_TILE + k) + zbase), 0).rgb;
+				directHere += basis[k] * c;
+				const float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+				if (k == 0) rawC0 = c;
+				else if (k == 1) rawL1.y = lum;
+				else if (k == 2) rawL1.z = lum;
+				else if (k == 3) rawL1.x = lum;
+			}
 		}
 
 		// **A dead cell is skipped, not averaged in.** It holds zero because it
@@ -1960,6 +2028,8 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 
 		accumulated += here * weight;
 		directAccum += directHere * weight;
+		rawC0Accum += rawC0 * weight;
+		rawL1Accum += rawL1 * weight;
 		total += weight;
 	}
 
@@ -1969,6 +2039,8 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 
 	irradiance = max(accumulated / total, vec3(0.0)) * edgeFade;
 	directLight = max(directAccum / total, vec3(0.0)) * edgeFade;
+	DerivedLamp(rawC0Accum / total, rawL1Accum / total, axisX, axisY, axisZ, edgeFade,
+				directDirection, directCoherent);
 	skyVisibility = skyTotal > 0.0 ? clamp(cubeAccum / skyTotal, 0.0, 1.0) : 1.0;
 	return true;
 }
@@ -2588,7 +2660,10 @@ vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
 		// lit pass applies it once, at the end, which is where it belongs.
 		float solveSky;
 		vec3 solveDirect;
-		if (VolumeIrradiance(surface.Position, surface.Normal, true, stored, solveSky, solveDirect))
+		vec3 solveDirection;
+		vec3 solveCoherent;
+		if (VolumeIrradiance(surface.Position, surface.Normal, true, stored, solveSky, solveDirect,
+							 solveDirection, solveCoherent))
 			ambientLight += stored;
 	}
 #else
@@ -2601,7 +2676,10 @@ vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
 		vec3 hitBounce;
 		float hitSky;
 		vec3 hitDirect;
-		if (VolumeIrradiance(surface.Position, surface.Normal, true, hitBounce, hitSky, hitDirect))
+		vec3 hitDirection;
+		vec3 hitCoherent;
+		if (VolumeIrradiance(surface.Position, surface.Normal, true, hitBounce, hitSky, hitDirect,
+							 hitDirection, hitCoherent))
 			ambientLight += hitDirect;
 	}
 #endif
@@ -4310,12 +4388,15 @@ void main()
 	// with it wherever the gather was confident, which is nearly everywhere:
 	// the showroom read 0.68 of its live twin, walls at half. The direct
 	// light has its own coefficients now and its own, unweighted, read.
+	vec3 bakedDirection = vec3(0.0);
+	vec3 bakedCoherent = vec3(0.0);
 	if (bounceAnswered < 1.0 || u_Scene.IrradianceExtents.x > 0.5)
 	{
 		vec3 storedBounce;
 		vec3 storedDirect;
 		float fieldSky;
-		if (VolumeIrradiance(v_WorldPos, N, true, storedBounce, fieldSky, storedDirect))
+		if (VolumeIrradiance(v_WorldPos, N, true, storedBounce, fieldSky, storedDirect,
+							 bakedDirection, bakedCoherent))
 		{
 			if (bounceAnswered < 1.0)
 			{
@@ -4325,6 +4406,28 @@ void main()
 			irradiance += storedDirect;
 		}
 	}
+
+#ifndef RV_WATER
+	// **The fully baked lamps' highlight**, from the dominant lamp the field
+	// recovers (DerivedLamp): one virtual light with that direction and
+	// that coherent irradiance, through the same lobe a live lamp gets.
+	// Diffuse from those lamps arrived through `irradiance` above; this is
+	// the specular half the field could not carry. Not on water, whose
+	// lamps stay live for the streak.
+	if (u_Scene.IrradianceExtents.x > 0.5 && dot(bakedCoherent, bakedCoherent) > 0.0)
+	{
+		const float NdotLb = max(dot(N, bakedDirection), 0.0);
+		if (NdotLb > 0.0)
+		{
+			const vec3 Hb = normalize(V + bakedDirection);
+			const float Db = DistributionGGX(N, Hb, shadingRoughness);
+			const float Gb = GeometrySmith(N, V, bakedDirection, shadingRoughness);
+			const vec3 Fb = FresnelSchlick(max(dot(Hb, V), 0.0), F0);
+			Lo += (Db * Gb * Fb / (4.0 * max(dot(N, V), 0.0) * NdotLb + 0.0001))
+				* bakedCoherent * NdotLb;
+		}
+	}
+#endif
 
 #ifdef RV_RAY_SKY
 	// **Traced, and it REPLACES the volume's number rather than joining it.**

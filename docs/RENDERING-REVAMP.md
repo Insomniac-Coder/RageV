@@ -1031,7 +1031,26 @@ analytic light contributes.
 > showroom's key light can stay live while the panels bake), or derive a
 > dominant direction and strength from the direct tiles' first-order
 > band and evaluate the specular lobe from it (Unity's directional-mode
-> trick; half a day). The
+> trick; half a day).
+>
+> **The derived highlight, built the same night (owner: "do the derived
+> highlight").** `DerivedLamp` in `pbr_fragment.glsl`: the direct tiles'
+> zeroth coefficient is `E * Y00` and the first band is
+> `(2/3) * E * 0.4886 * (y, z, x)` of the lamp's direction, so the band's
+> vector points at the dominant lamp and its length over the zeroth says
+> how much of the light is one lamp's (`coherence`, 1 for a single lamp);
+> the reader returns that direction (world space, through the box axes)
+> and the coherent irradiance, and the lit shader runs the ordinary GGX
+> lobe with them as one virtual light, added to `Lo`. Read-side only: no
+> new storage, no re-bake. Not on water, whose lamps stay live. **Result,
+> the showroom full against half: overall 0.99 (from 0.68 this morning and
+> 0.90 with the direct tiles alone); walls 1.04, ceiling 0.99, back wall
+> 0.96, car paint 0.86 (from 0.65), floor 1.17 (from 0.32); pixels moved
+> over 6 levels 2.4% (from 29%).** The residuals are what one averaged
+> direction is: the floor under several panels gets one broader highlight
+> that over-adds a little, the car's paint a slightly softer one.
+> `coherent` is a reserved word in GLSL (a memory qualifier), which cost
+> one broken build. The
 > generators write `Mobility: Realtime`; the four committed scenes were
 > rewritten by a textual replacement of their `IsBaked: false` lines and
 > nothing else.
