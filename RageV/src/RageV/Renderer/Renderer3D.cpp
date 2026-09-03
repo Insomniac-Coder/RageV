@@ -3140,7 +3140,12 @@ namespace RageV
 			// The count, where a lone field's "is there one at all" flag used
 			// to sit -- zero still means every reader falls back to the flat
 			// ambient, which is what kept this compatible.
-			s_Data->Scene.IrradianceExtents = Vec4(1.0f, 1.0f, 1.0f, (float)volumes);
+			// x: whether any light is fully baked, so the readers fetch the
+			// direct-light tiles only in a scene that has them.
+			bool hasFullBake = false;
+			for (const LightRenderData& light : s_Data->Ordered)
+				hasFullBake = hasFullBake || light.Mobility == LightMobility::FullBake;
+			s_Data->Scene.IrradianceExtents = Vec4(hasFullBake ? 1.0f : 0.0f, 1.0f, 1.0f, (float)volumes);
 			// The atlas's own depth: the stride from one tile to the next, and
 			// the number every reader divides by to address a slice.
 			s_Data->Scene.IrradianceCentre =

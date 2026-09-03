@@ -1008,13 +1008,30 @@ analytic light contributes.
 > is read with weight zero, which is correct for bounce light and discards
 > a fully baked lamp's direct light along with it. What reaches the pixel
 > is that lamp's light after one bounce off other surfaces: walls at half,
-> floor at a fifth. **So Full bake today stores a lamp's direct light and
-> does not read it back at the pixel.** The fix is specified, not built:
-> nine more coefficients per cell for direct light alone (`kTiles` 19,
-> about twice the field's memory), evaluated at the pixel unconditionally
-> and at reflection hits, never mixed with the bounce; a `HasFullBake`
-> lane so scenes without such a light pay no extra fetch. Parked by the
-> owner's decision that the scene will not use Full bake. The
+> floor at a fifth.
+>
+> **Built the same night, owner's call ("if it closes the gap I will use
+> bake"): nine more coefficients per cell for direct light alone.**
+> `kTiles` 19 — tiles 0-8 bounce (+ sky in alpha), 9-17 direct, 18
+> visibility; the fill writes the fully baked lights' direct light into
+> its own tiles; `VolumeIrradiance` returns it as a third output, read on
+> screen unconditionally (`irradiance += storedDirect`, outside the
+> bounce's confidence weight) and at reflection and refraction hits (not
+> in the solve, where those lights are walked live so their bounce lands
+> in the field); `IrradianceExtents.x` says whether any light is fully
+> baked, so a scene without one pays no extra fetch. Every field re-baked.
+>
+> **Measured, the showroom again:** overall 0.90 of the live frame, from
+> 0.68. Matte walls 0.99, ceiling by the fixture 0.95, back wall 0.93 —
+> the diffuse gap is closed. The glossy car reads 0.65 and the floor 0.32:
+> those are the lamps' *highlights*, which a stored irradiance field does
+> not carry, the same limit every engine's baked lights have. Two ways to
+> get highlights from a fully baked lamp, neither built: keep the lights
+> that matter for gloss half-baked (the split is per light, so the
+> showroom's key light can stay live while the panels bake), or derive a
+> dominant direction and strength from the direct tiles' first-order
+> band and evaluate the specular lobe from it (Unity's directional-mode
+> trick; half a day). The
 > generators write `Mobility: Realtime`; the four committed scenes were
 > rewritten by a textual replacement of their `IsBaked: false` lines and
 > nothing else.

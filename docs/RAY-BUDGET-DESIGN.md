@@ -395,8 +395,11 @@ conservative), so the acceptance is a diff of zero.
 > ~146 in-range lamps' 80-byte reads. The compact-record half of A (64 B,
 > then 32 B at half precision) is the part that addresses it and was not
 > yet built; the per-cell live summary (an ambient cube per cluster cell,
-> rebuilt each frame, read at hits) is the other live route. C is closed by
-> the owner: the lamps stay Half bake.
+> rebuilt each frame, read at hits) is the other live route. **C exists
+> now as the Full bake mobility**: a fully baked light's direct light is
+> stored in its own nine coefficients per cell and read at hits and on
+> screen (diffuse only; highlights are the open half). Whether the bridge
+> lamps take it is the owner's static/moving split, next.
 
 **B. A world-space grid with per-cell CDF sampling** (3–4 days, the WR-10
 brief's original). Only if A leaves the walk expensive: 1–4 lights per hit

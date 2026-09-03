@@ -1459,7 +1459,11 @@ float SkyFromAlpha(float stored)
 // three fetches to nine, and could not hold which way a single lamp came
 // from. Tile 9 carries the neighbour-visibility bits and the alive flag.
 #define RV_FIELD_COEFFICIENTS 9
-#define RV_FIELD_VISIBILITY_TILE 9
+// Tiles 9-17: the fully baked lights' direct light, its own nine
+// coefficients, read only where u_Scene.IrradianceExtents.x says a scene
+// has such a light.
+#define RV_FIELD_DIRECT_TILE 9
+#define RV_FIELD_VISIBILITY_TILE 18
 
 void FieldBasis(vec3 d, out float y[9])
 {
@@ -1482,9 +1486,11 @@ float FieldBandOverPi(int k)
 }
 
 bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradiance,
-					  out float skyVisibility)
+					  out float skyVisibility, out vec3 directLight)
 {
 	irradiance = vec3(0.0);
+	directLight = vec3(0.0);
+	const bool hasDirect = u_Scene.IrradianceExtents.x > 0.5;
 
 	// **One, meaning unoccluded, until a cell says otherwise.** Every early
 	// return below is a fragment with no field over it, and the honest answer
@@ -1775,6 +1781,13 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 			irradiance += basis[k] * stored.rgb;
 			cubeSky += basis[k] * stored.a;
 		}
+		vec3 directHere = vec3(0.0);
+		if (hasDirect)
+		{
+			for (int k = 0; k < RV_FIELD_COEFFICIENTS; k++)
+				directHere += basis[k] * textureLod(u_IrradianceField,
+					vec3(uv, (uvw.z + float(tile * (RV_FIELD_DIRECT_TILE + k) + zbase)) / depth), 0.0).rgb;
+		}
 		// **Divided by the filtered alive fraction.** A buried cell holds
 		// zero light, and the hardware filter blends it in by distance like
 		// any other -- so a surface against a wall or floor, half of whose
@@ -1787,9 +1800,11 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		const float aliveWeight = textureLod(u_IrradianceField,
 				vec3(uv, (uvw.z + float(tile * RV_FIELD_VISIBILITY_TILE + zbase)) / depth), 0.0).y;
 		irradiance /= max(aliveWeight, 0.125);
+		directHere /= max(aliveWeight, 0.125);
 		// Second-order harmonics can ring a little below zero on the far
 		// side of a lamp; the clamps are the whole of the correction.
 		irradiance = max(irradiance, vec3(0.0)) * edgeFade;
+		directLight = max(directHere, vec3(0.0)) * edgeFade;
 		skyVisibility = clamp(cubeSky, 0.0, 1.0);
 		return true;
 	}
@@ -1813,6 +1828,13 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 			here += basis[k] * stored.rgb;
 			cubeSky += basis[k] * stored.a;
 		}
+		vec3 directHere = vec3(0.0);
+		if (hasDirect)
+		{
+			for (int k = 0; k < RV_FIELD_COEFFICIENTS; k++)
+				directHere += basis[k] * texelFetch(u_IrradianceField,
+					one + ivec3(0, 0, tile * (RV_FIELD_DIRECT_TILE + k) + zbase), 0).rgb;
+		}
 		// Aliveness from the visibility tile's .y -- the alpha lanes carry
 		// sky, and a dead cell's sky evaluates to 1.0 there ("no data, do not
 		// darken"), so testing it would call every buried cell alive.
@@ -1821,12 +1843,13 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		if (!alive)
 			return false;   // buried there as well: nothing honest to report
 		irradiance = max(here, vec3(0.0)) * edgeFade;
-		// Already an average: the three square weights sum to one.
+		directLight = max(directHere, vec3(0.0)) * edgeFade;
 		skyVisibility = clamp(cubeSky, 0.0, 1.0);
 		return true;
 	}
 
 	vec3 accumulated = vec3(0.0);
+	vec3 directAccum = vec3(0.0);
 	float total = 0.0;
 	// **Accumulated out here, not per corner, and divided by the same total.**
 	// The light beside it is a weighted mean -- summed against `total` and
@@ -1914,6 +1937,13 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 			cubeSky += basis[k] * stored.a;
 		}
 		cubeSky = clamp(cubeSky, 0.0, 1.0);
+		vec3 directHere = vec3(0.0);
+		if (hasDirect && alive)
+		{
+			for (int k = 0; k < RV_FIELD_COEFFICIENTS; k++)
+				directHere += basis[k] * texelFetch(u_IrradianceField,
+					index + ivec3(0, 0, tile * (RV_FIELD_DIRECT_TILE + k) + zbase), 0).rgb;
+		}
 
 		// **A dead cell is skipped, not averaged in.** It holds zero because it
 		// is buried in geometry, and blending that zero is the difference
@@ -1929,6 +1959,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 			continue;
 
 		accumulated += here * weight;
+		directAccum += directHere * weight;
 		total += weight;
 	}
 
@@ -1937,6 +1968,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		return false;
 
 	irradiance = max(accumulated / total, vec3(0.0)) * edgeFade;
+	directLight = max(directAccum / total, vec3(0.0)) * edgeFade;
 	skyVisibility = skyTotal > 0.0 ? clamp(cubeAccum / skyTotal, 0.0, 1.0) : 1.0;
 	return true;
 }
@@ -2555,8 +2587,22 @@ vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
 		// would occlude the sky twice over by the time the sweeps converge. The
 		// lit pass applies it once, at the end, which is where it belongs.
 		float solveSky;
-		if (VolumeIrradiance(surface.Position, surface.Normal, true, stored, solveSky))
+		vec3 solveDirect;
+		if (VolumeIrradiance(surface.Position, surface.Normal, true, stored, solveSky, solveDirect))
 			ambientLight += stored;
+	}
+#else
+	// **A reflection or refraction hit takes the fully baked lights' direct
+	// light from the field**, where the live walk above skipped them. Not
+	// in the solve: there the fully baked lights are walked live at hits,
+	// which is what puts their bounce into the field in the first place.
+	if (u_Scene.IrradianceExtents.x > 0.5)
+	{
+		vec3 hitBounce;
+		float hitSky;
+		vec3 hitDirect;
+		if (VolumeIrradiance(surface.Position, surface.Normal, true, hitBounce, hitSky, hitDirect))
+			ambientLight += hitDirect;
 	}
 #endif
 	return surface.Direct + surface.Diffuse * (ambientLight + arriving) + surface.Emissive;
@@ -4257,11 +4303,27 @@ void main()
 	// sky fraction applies to every fragment over a volume however its bounce
 	// was found.
 	float skyVisible = 1.0;
-	if (bounceAnswered < 1.0)
+	// **The bounce only where the gather fell short; the fully baked lights'
+	// direct light always.** The field used to be read only as the bounce's
+	// fallback, weighted by one minus the gather's confidence -- right for
+	// bounce light, and it threw a fully baked lamp's direct light away
+	// with it wherever the gather was confident, which is nearly everywhere:
+	// the showroom read 0.68 of its live twin, walls at half. The direct
+	// light has its own coefficients now and its own, unweighted, read.
+	if (bounceAnswered < 1.0 || u_Scene.IrradianceExtents.x > 0.5)
 	{
 		vec3 storedBounce;
-		if (VolumeIrradiance(v_WorldPos, N, true, storedBounce, skyVisible))
-			irradiance += storedBounce * (1.0 - bounceAnswered);
+		vec3 storedDirect;
+		float fieldSky;
+		if (VolumeIrradiance(v_WorldPos, N, true, storedBounce, fieldSky, storedDirect))
+		{
+			if (bounceAnswered < 1.0)
+			{
+				irradiance += storedBounce * (1.0 - bounceAnswered);
+				skyVisible = fieldSky;
+			}
+			irradiance += storedDirect;
+		}
 	}
 
 #ifdef RV_RAY_SKY

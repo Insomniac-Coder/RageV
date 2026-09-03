@@ -398,7 +398,7 @@ void main()
 		// zeroth carries 1 / Y00 and the rest are zero.
 		imageStore(u_FillField, cell + ivec3(0, 0, atlasBase),
 				   vec4(0.0, 0.0, 0.0, 3.5449077));
-		for (int f = 1; f < 9; f++)
+		for (int f = 1; f < RV_FIELD_VISIBILITY_TILE; f++)
 			imageStore(u_FillField, cell + ivec3(0, 0, tileStride * f + atlasBase),
 					   vec4(0.0));
 		// And nothing visible from it, so no reader takes light from it either.
@@ -464,7 +464,15 @@ void main()
 		const float faceVisible = faceSky[f] * bandScale;
 		imageStore(u_FillField, slot,
 				   mix(texelFetch(u_IrradianceField, slot, 0),
-					   vec4(face[f] * bandScale + direct[f], faceVisible), blend));
+					   vec4(face[f] * bandScale, faceVisible), blend));
+
+		// **The fully baked lights' direct light, in its own tiles**, so the
+		// screen can add it whole while it takes the bounce only where the
+		// gather fell short.
+		const ivec3 directSlot = cell + ivec3(0, 0, tileStride * (RV_FIELD_DIRECT_TILE + f) + atlasBase);
+		imageStore(u_FillField, directSlot,
+				   mix(texelFetch(u_IrradianceField, directSlot, 0),
+					   vec4(direct[f], 0.0), blend));
 	}
 
 	// **Whether this cell can see the six cells next to it.**

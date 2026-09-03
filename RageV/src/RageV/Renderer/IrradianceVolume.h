@@ -141,7 +141,16 @@ namespace RageV
 		// direction within a few percent. A stored bake with seven tiles fails
 		// the stamp's tile count and is solved again; the probe cubes are
 		// untouched, so no version bump.
-		static constexpr uint32_t kTiles = 10;
+		// **Nineteen since later the same day: nine more for the fully baked
+		// lights' direct light, kept apart from the bounce.** On screen the
+		// field is the bounce's fallback, weighted by one minus the gather's
+		// confidence -- right for bounce light, and it discarded a fully
+		// baked lamp's direct light along with it (the showroom read 0.68 of
+		// its live twin). Direct light now has its own coefficients, read at
+		// the pixel unconditionally and at reflection hits, never mixed with
+		// the bounce. Tiles 0-8 bounce (+ sky in alpha), 9-17 direct, 18
+		// visibility and the alive flag.
+		static constexpr uint32_t kTiles = 19;
 
 		uint32_t Width() const { return m_Width; }
 		uint32_t Height() const { return m_Height; }
