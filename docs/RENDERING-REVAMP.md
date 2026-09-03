@@ -948,7 +948,13 @@ analytic light contributes.
 > on-screen cluster at the hit (exact, 1–2 days, first); B, the world grid
 > with CDF sampling below (only if A leaves the walk expensive); C, a
 > direct-light field for the baked lights (this scene's big win and a
-> quality gain). Build from the design document, not from this brief.
+> quality gain). **The light mobility enum the owner asked for on
+> 2026-09-02 — Realtime / Half bake / Full bake, replacing `IsBaked` — is
+> part of C, not a task of its own:** it is the setting that says which
+> lights the bake stores direct light for and where it is read (Half bake:
+> at traced hits only, the screen stays live; Full bake: on screen too).
+> The scene's lamps stay Half bake — the car shot needs live lamps. Build
+> from the design document, not from this brief.
 
 **Goal.** GI hit shading currently walks every light
 (`for (i < u_Scene.LightCount)` in `pbr_fragment.glsl`'s traced-hit path —

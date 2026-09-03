@@ -395,7 +395,10 @@ sampled by the cell's `power / d²` CDF with `1/pdf` weights. Adds noise to
 the reflection of the bridge that TAA must eat; judged on the moving scene.
 
 **C. A direct-light field for the baked lights** (2–3 days, this scene's
-big win, and a quality gain). The solve already stores the bounce; store
+big win, and a quality gain; **the light mobility enum — Realtime / Half
+bake / Full bake, replacing `IsBaked` — is this option's setting, not a
+separate task**: Half bake stores direct light for hits only, Full bake
+for the screen too; the scene stays Half bake for the car shot). The solve already stores the bounce; store
 the *direct* irradiance of every baked light too (a second field, or two
 more channels), and let `ShadeTraced` add that field and walk only the
 realtime lights (four marine lights and the beacons here). One 3D fetch
