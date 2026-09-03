@@ -1,9 +1,2498 @@
-# WR-16 · One ray budget: the controller, the allocator, the consumers, and ReSTIR on top
+# WR-16 · The ray budget: one system, one document
 
-**This is WR-16.** ReSTIR is no longer an item of its own; it is one implementation inside this system (section 4.3.3), and the item's number now names the whole.
+**This is WR-16**, the combined ray budgeting system: the controller, the
+allocator, the consumers, and ReSTIR on top. On 2026-09-03 the owner asked
+for the three documents behind it to become one, because *"it's going to be
+a big system with sub systems anyways."* So:
+
+- **Part I** is the owner's first document, *Dynamic Ray Budgeting for
+  Real-Time Ray-Traced Game Engines*, verbatim: the principles -- a fixed
+  global budget, screen-space importance, adaptive sampling, temporal
+  reconstruction, budgets by ray type, profiling before optimising.
+- **Part II** is the owner's second document, *RT Multi-Light Shadowing --
+  Optimization & Debugging Guide*, verbatim: the many-lights case this scene
+  is, the diagnostics, the bounded per-pixel shadow budget, the experiments
+  and the debug views.
+- **Part III** is the engine design written from them on 2026-09-02:
+  what exists by name, the architecture, the cooperation contract, the
+  interfaces, the milestones, the traps.
+- **Part IV** is the review of Part III against the code and against Parts
+  I and II after the static / moving split and Hybrid Full Bake landed
+  (2026-09-03), the owner's decisions, and the sequence as it will be built.
+
+Read Part IV first if you are picking this up: it carries the decisions and
+the order. Read Part III to build. Read Parts I and II when a choice in
+Part III needs its reason. The section numbers inside each part are the
+originals, so a reference like "Part III §4.3.3" still lands.
+
+`docs/RENDERING-REVAMP.md` (WR-10, WR-16, WR-17, WR-18 are the items this
+system absorbs) is the plan this sits beside; its "Ground rules for every
+work item" bind here.
+
+---
+
+# Part I · Dynamic Ray Budgeting for Real-Time Ray-Traced Game Engines (owner, 2026-09)
+
+### Dynamic Ray Budgeting for Real-Time Ray-Traced Game Engines
+
+#### Technical Design & Analysis Report
+
+##### Executive Summary
+
+A common observation in real-time ray-traced rendering is that GPU frame
+time increases when the camera moves very close to an object. It is
+sometimes explained as "more rays are focusing on a smaller target."
+That explanation is incomplete.
+
+In a conventional raster-resolution ray tracer, the number of primary
+camera rays is normally determined by the number of pixels, not by the
+physical size of the object being viewed. Moving closer to an object
+does not inherently increase the number of primary rays.
+
+Performance can nevertheless degrade because close-up views can change
+the amount and complexity of ray-tracing work. Rays may hit geometry
+more frequently, traverse more complex geometry, invoke expensive hit
+shaders, encounter alpha-tested or transparent surfaces, or spawn
+additional reflection, shadow, and global-illumination rays.
+
+A robust solution is therefore not simply to reduce rays based on camera
+distance. A better architecture is to use **adaptive ray sampling with a
+screen-space importance map and a controlled global ray budget**. Rays
+are allocated preferentially to pixels or regions where additional
+samples provide the most visible benefit, while temporal and spatial
+reconstruction fills in information that was not traced during the
+current frame.
+
+------------------------------------------------------------------------
+
+### 1. The Problem
+
+Consider a real-time renderer with a pipeline resembling:
+
+``` text
+Camera
+  |
+  v
+Primary ray generation
+  |
+  v
+BVH traversal
+  |
+  v
+Hit shader
+  |
+  +----> Shadow rays
+  |
+  +----> Reflection rays
+  |
+  +----> GI rays
+  |
+  v
+Denoising / reconstruction
+  |
+  v
+Final image
+```
+
+At 1920×1080, the renderer has approximately 2.07 million pixels.
+
+With one primary ray per pixel, that already represents approximately:
+
+``` text
+2.07 million primary rays / frame
+```
+
+If every primary ray produces several secondary rays, the total ray
+workload can become much larger.
+
+The important question is therefore:
+
+> What part of the ray-tracing workload actually increases when the
+> camera approaches an object?
+
+That should be measured before changing the ray-generation strategy.
+
+------------------------------------------------------------------------
+
+### 2. Does Getting Closer Actually Create More Rays?
+
+#### 2.1 Primary rays
+
+For a conventional one-ray-per-pixel renderer:
+
+``` text
+Primary ray count ≈ number of shaded pixels
+```
+
+The camera moving from 10 meters away to 1 meter away does not, by
+itself, change this number.
+
+The same 1920×1080 image still contains approximately 2.07 million
+pixels.
+
+Therefore:
+
+> "The rays are focusing on a smaller target" is not, by itself, a
+> sufficient explanation for a primary-ray performance drop.
+
+#### 2.2 What can change
+
+The cost associated with those rays can change substantially.
+
+Possible causes include:
+
+-   More primary rays actually hitting geometry.
+-   More BVH traversal work.
+-   More intersections with complex geometry.
+-   More expensive closest-hit or any-hit shaders.
+-   Alpha-tested foliage or materials.
+-   Transparent or transmissive surfaces.
+-   More reflection rays.
+-   More GI rays.
+-   More shadow rays.
+-   More recursive ray paths.
+-   Higher shader divergence.
+-   Displacement or microgeometry.
+-   Acceleration-structure inefficiencies.
+-   Adaptive sampling increasing samples in difficult regions.
+
+The first diagnostic step should therefore be GPU profiling.
+
+------------------------------------------------------------------------
+
+### 3. Recommended Profiling Strategy
+
+Measure the renderer while gradually moving the camera toward the
+object.
+
+Useful counters include:
+
+  Metric                 What it can reveal
+  ---------------------- -----------------------------------------------
+  Primary rays/frame     Whether primary ray count actually changes
+  Secondary rays/frame   Whether materials/lighting generate more work
+  BVH traversal time     Geometry/acceleration-structure cost
+  Intersection count     Geometric complexity
+  Any-hit invocations    Alpha/transparency cost
+  Closest-hit time       Material/shader complexity
+  Ray-generation time    Ray dispatch and generation overhead
+  Denoiser time          Reconstruction cost
+  Total RT GPU time      Overall impact
+
+A useful visualization is a **rays-per-pixel heatmap**.
+
+Other useful heatmaps include:
+
+``` text
+BVH traversal steps / pixel
+Secondary rays / pixel
+Shader time / pixel
+Ray hit distance
+Temporal variance
+```
+
+These visualizations can reveal whether the performance problem is
+spatially concentrated around the object.
+
+------------------------------------------------------------------------
+
+### 4. Adaptive Ray Sampling
+
+Once the expensive regions are identified, ray count can be dynamically
+allocated.
+
+Instead of:
+
+``` text
+Every pixel -> same ray budget
+```
+
+use:
+
+``` text
+                    +--> easy pixel     -> 1 sample
+Pixel importance --+
+                    +--> difficult      -> 2-8 samples
+                    |
+                    +--> very difficult -> 8-32 samples
+```
+
+The exact numbers depend on the renderer and target hardware.
+
+The important concept is:
+
+> Spend the ray budget where additional samples produce the largest
+> improvement in image quality.
+
+------------------------------------------------------------------------
+
+### 5. Screen-Space Importance
+
+Distance from the camera is generally a poor standalone metric.
+
+Consider two objects:
+
+``` text
+Object A:
+Very close to camera
+Occupies 60% of the screen
+
+Object B:
+Moderately distant
+Occupies 2% of the screen
+```
+
+Object A is likely to dominate the image, while Object B may have little
+visual impact.
+
+A better input is therefore **screen-space importance**.
+
+Possible factors include:
+
+``` text
+Screen coverage
+×
+Image-space variance
+×
+Material complexity
+×
+Lighting complexity
+×
+Reflection/GI importance
+```
+
+A simplified importance value could be:
+
+``` cpp
+float importance =
+    screenCoverage *
+    temporalVariance *
+    shadingComplexity;
+```
+
+The renderer can then map importance to a ray budget.
+
+------------------------------------------------------------------------
+
+### 6. Screen-Space Adaptive Sampling
+
+A simple implementation can divide the image into tiles.
+
+For example:
+
+``` text
++----+----+----+----+
+| 1  | 1  | 4  | 2  |
++----+----+----+----+
+| 1  | 2  | 8  | 4  |
++----+----+----+----+
+| 1  | 1  | 4  | 2  |
++----+----+----+----+
+```
+
+The numbers represent relative ray budgets.
+
+Areas with:
+
+-   high temporal variance,
+-   reflections,
+-   glossy materials,
+-   difficult GI,
+-   shadow boundaries,
+-   fine geometry,
+
+can receive more samples.
+
+Stable regions can receive fewer.
+
+------------------------------------------------------------------------
+
+### 7. Stochastic / Checkerboard Sampling
+
+Another useful technique is to avoid tracing every pixel every frame.
+
+For example:
+
+##### Frame N
+
+``` text
+X . X . X .
+. X . X . X
+X . X . X .
+. X . X . X
+```
+
+##### Frame N+1
+
+``` text
+. X . X . X
+X . X . X .
+. X . X . X
+X . X . X .
+```
+
+The missing samples can be reconstructed using:
+
+-   Temporal accumulation
+-   Motion vectors
+-   Spatial filtering
+-   History buffers
+-   Variance-guided denoising
+
+This can significantly reduce per-frame ray count while maintaining
+acceptable visual quality.
+
+------------------------------------------------------------------------
+
+### 8. Temporal Reconstruction
+
+Adaptive sampling becomes substantially more useful when combined with
+temporal accumulation.
+
+Conceptually:
+
+``` text
+Current frame
+      |
+      v
+Sparse ray samples
+      |
+      +----> Motion vectors
+      |
+      +----> Previous-frame history
+      |
+      v
+Temporal reconstruction
+      |
+      v
+Spatial / variance-aware denoising
+      |
+      v
+Final image
+```
+
+Instead of requiring every pixel to receive a complete ray solution
+every frame, information can be accumulated over multiple frames.
+
+This is particularly effective for:
+
+-   Diffuse GI
+-   Reflections
+-   Soft shadows
+-   Ambient occlusion
+-   Low-frequency lighting
+
+However, temporal techniques need careful handling of:
+
+-   Camera motion
+-   Object motion
+-   Disocclusion
+-   History rejection
+-   Ghosting
+-   Rapid lighting changes
+
+------------------------------------------------------------------------
+
+### 9. A Global Ray Budget
+
+A particularly attractive architecture for a real-time engine is to
+establish a maximum ray budget per frame.
+
+For example:
+
+``` text
+GPU ray budget:
+10 million rays/frame
+```
+
+An importance system then distributes that budget:
+
+``` text
+                 10M ray budget
+                       |
+                Importance map
+                       |
+       +---------------+---------------+
+       |               |               |
+       v               v               v
+   Region A         Region B        Region C
+   1.0M rays       6.0M rays        3.0M rays
+```
+
+This approach prevents an unexpectedly expensive view from consuming an
+unlimited amount of GPU time.
+
+The renderer can instead degrade gracefully:
+
+``` text
+High workload
+     |
+     v
+Reduce samples
+     |
+     v
+Increase reliance on reconstruction
+     |
+     v
+Maintain target frame time
+```
+
+This is generally preferable to allowing ray count to grow without
+bounds.
+
+------------------------------------------------------------------------
+
+### 10. Distance-Based Sampling
+
+Distance can still be used as one signal, but it should not be the sole
+control mechanism.
+
+For example:
+
+``` cpp
+float distanceFactor =
+    saturate(distance / maxDistance);
+```
+
+could influence the ray budget.
+
+However, distance alone can produce undesirable behavior.
+
+For example, an enormous distant object may occupy most of the screen,
+while a small nearby object occupies only a few pixels.
+
+Therefore:
+
+``` text
+Distance
++
+Screen coverage
++
+Temporal variance
++
+Shading complexity
++
+Material properties
+```
+
+is a much better basis for dynamic allocation.
+
+------------------------------------------------------------------------
+
+### 11. Importance Based on Image Variance
+
+One of the most useful signals is temporal variance.
+
+If a pixel's result changes significantly from frame to frame,
+additional samples may be valuable.
+
+For example:
+
+``` cpp
+float variance = EstimateTemporalVariance(pixel);
+
+if (variance > threshold)
+    IncreaseRayBudget(pixel);
+else
+    DecreaseRayBudget(pixel);
+```
+
+This naturally directs rays toward noisy regions.
+
+Examples:
+
+-   Glossy reflection → high variance
+-   Shadow boundary → potentially high variance
+-   Stable diffuse wall → low variance
+-   Flat sky → very low variance
+
+This is often more useful than simply identifying the object being
+looked at.
+
+------------------------------------------------------------------------
+
+### 12. Material-Aware Ray Allocation
+
+The renderer can also classify surfaces.
+
+Example:
+
+``` text
+Diffuse opaque surface
+    -> low ray budget
+
+Rough diffuse + GI
+    -> moderate budget
+
+Glossy reflection
+    -> high budget
+
+Mirror reflection
+    -> potentially high budget
+
+Transparent surface
+    -> potentially very high budget
+```
+
+This can prevent expensive secondary-ray paths from consuming
+disproportionate resources.
+
+------------------------------------------------------------------------
+
+### 13. Secondary Rays Are Especially Important
+
+If the observed performance drop occurs only when approaching an object,
+investigate secondary rays carefully.
+
+A material might do something similar to:
+
+``` cpp
+if (material.isReflective)
+    TraceReflectionRay();
+
+if (material.needsGI)
+    TraceGIRay();
+
+if (material.needsShadow)
+    TraceShadowRay();
+```
+
+One primary ray could therefore result in:
+
+``` text
+1 primary
++ 1 reflection
++ 1 GI
++ 1 shadow
+= 4 rays
+```
+
+Recursive reflections or GI can multiply this further.
+
+A close-up view of a reflective object could therefore become
+substantially more expensive even though the primary-ray count is
+unchanged.
+
+------------------------------------------------------------------------
+
+### 14. Suggested Engine Architecture
+
+A practical architecture would be:
+
+``` text
+                 Camera
+                   |
+                   v
+          G-buffer / visibility
+                   |
+                   v
+           Importance analysis
+                   |
+                   v
+           Ray budget allocator
+                   |
+          +--------+--------+
+          |                 |
+          v                 v
+      Low priority      High priority
+       regions            regions
+          |                 |
+          +--------+--------+
+                   |
+                   v
+             Ray tracing
+                   |
+                   v
+          Temporal history
+                   |
+                   v
+       Variance-aware denoising
+                   |
+                   v
+              Final image
+```
+
+The allocator should operate under a fixed frame-time or ray-count
+target.
+
+------------------------------------------------------------------------
+
+### 15. Example Ray-Budget Algorithm
+
+A simplified algorithm could be:
+
+``` cpp
+for each tile in screen
+{
+    float importance =
+        tile.screenCoverage *
+        tile.temporalVariance *
+        tile.shadingComplexity;
+
+    tile.weight = max(importance, minimumWeight);
+}
+
+NormalizeTileWeights();
+
+for each tile in screen
+{
+    tile.rayBudget =
+        globalRayBudget *
+        tile.weight /
+        totalWeight;
+}
+```
+
+The actual production implementation would likely include:
+
+-   Minimum and maximum samples per tile
+-   Quantized sample counts
+-   Temporal hysteresis
+-   History validity
+-   Per-ray-type budgets
+-   GPU-driven dispatch
+-   Spatial smoothing of importance values
+
+------------------------------------------------------------------------
+
+### 16. Separate Budgets by Ray Type
+
+Instead of one global budget, consider separate budgets:
+
+``` text
+Primary rays
+Shadow rays
+Diffuse GI rays
+Reflection rays
+Refraction rays
+```
+
+For example:
+
+``` text
+Primary:     2.0M
+Shadow:      2.0M
+GI:          4.0M
+Reflection:  2.0M
+------------------
+Total:      10.0M
+```
+
+This prevents one feature from consuming the entire RT budget.
+
+It also allows dynamic prioritization.
+
+For example:
+
+``` text
+If reflections become expensive:
+    Reduce GI samples
+    Keep reflection quality
+```
+
+rather than reducing everything uniformly.
+
+------------------------------------------------------------------------
+
+### 17. Profiling Before Optimization
+
+Before implementing adaptive sampling, the recommended workflow is:
+
+##### Step 1 --- Establish baseline
+
+Record:
+
+``` text
+Frame time
+RT time
+Ray count
+Secondary-ray count
+BVH traversal
+Hit shader time
+```
+
+##### Step 2 --- Move camera toward the object
+
+Record the same metrics at several distances.
+
+##### Step 3 --- Determine what changes
+
+If:
+
+``` text
+Ray count increases
+```
+
+investigate ray spawning/adaptive sampling.
+
+If:
+
+``` text
+Ray count stays constant
+BVH time increases
+```
+
+investigate geometry and acceleration structures.
+
+If:
+
+``` text
+Ray count stays constant
+Hit-shader time increases
+```
+
+investigate material/shader complexity.
+
+If:
+
+``` text
+Secondary rays increase
+```
+
+investigate reflections, GI, shadows, and recursion.
+
+##### Step 4 --- Only then introduce adaptive sampling
+
+This prevents solving the wrong problem.
+
+------------------------------------------------------------------------
+
+### 18. Recommended Approach
+
+For a custom game engine, a good progression is:
+
+``` text
+1. GPU profiling
+        ↓
+2. Visualize rays/pixel
+        ↓
+3. Measure secondary-ray cost
+        ↓
+4. Add temporal variance estimation
+        ↓
+5. Add screen-space importance
+        ↓
+6. Introduce adaptive sampling
+        ↓
+7. Add temporal reconstruction
+        ↓
+8. Add a global ray budget
+        ↓
+9. Separate budgets by ray type
+```
+
+This gives progressively finer control without requiring the entire
+renderer to become adaptive immediately.
+
+------------------------------------------------------------------------
+
+### 19. Key Takeaways
+
+##### The original explanation is incomplete
+
+Getting closer to an object does **not inherently cause primary rays to
+concentrate and multiply**. Primary ray count is normally tied to image
+resolution.
+
+##### The real issue may be ray complexity
+
+Close-up views can increase:
+
+-   Geometry traversal
+-   Intersection work
+-   Hit-shader cost
+-   Secondary rays
+-   Reflection/GI cost
+-   Transparency/alpha testing
+-   Shader divergence
+
+##### Dynamic ray counts are absolutely possible
+
+The most effective implementation is generally:
+
+> **Adaptive screen-space ray sampling controlled by a fixed global ray
+> budget.**
+
+Use:
+
+``` text
+Screen coverage
++
+Temporal variance
++
+Material complexity
++
+Lighting complexity
++
+Ray type importance
+```
+
+rather than relying solely on camera distance.
+
+##### The ideal architecture
+
+``` text
+Fixed GPU budget
+       ↓
+Importance estimation
+       ↓
+Adaptive ray allocation
+       ↓
+Sparse ray tracing
+       ↓
+Temporal + spatial reconstruction
+       ↓
+Stable image quality
+```
+
+This allows the engine to spend expensive ray-tracing work where the
+player is most likely to notice it while maintaining a predictable GPU
+workload.
+
+------------------------------------------------------------------------
+
+#### Final Recommendation
+
+If this is your own engine, the first thing I would implement is **a
+debug visualization showing the number of primary and secondary rays
+generated per pixel**.
+
+That single visualization can answer a large part of the original
+question.
+
+If the ray count remains approximately constant as you approach the
+object, then the "rays focusing on a small target" hypothesis is
+probably wrong, and you should investigate **BVH traversal, intersection
+counts, hit shaders, and secondary-ray generation**.
+
+If ray density genuinely increases in the close-up case, then an
+**adaptive ray allocator driven by screen-space importance and temporal
+variance** is a strong solution.
+
+The long-term design I would favor is a **fixed per-frame RT budget +
+adaptive sampling + temporal reconstruction**, rather than a simple
+distance-based ray-count reduction.
+
+---
+
+### 20. Important Distinction: Baked Ray-Traced GI
+
+The fact that the performance problem also occurs with **baked ray-traced GI** changes the diagnosis.
+
+"Baked RT GI" can describe several different runtime architectures, and whether adaptive ray sampling helps depends on what remains active at runtime.
+
+#### 20.1 Fully baked lightmap-style GI
+
+A possible pipeline is:
+
+```text
+Offline:
+Scene → Ray-traced GI bake → Lightmaps / irradiance data
+
+Runtime:
+Camera → Rasterization → Sample baked GI → Final lighting
+```
+
+In this architecture, there are **no runtime GI rays**. Moving closer to an object should therefore not increase the number of GI rays, because GI has already been computed.
+
+If performance still drops, adaptive GI ray sampling will not solve the underlying problem. Investigate geometry/LOD changes, rasterization cost, material/shader complexity, texture bandwidth, overdraw, shadow rendering, visibility/culling, remaining ray-traced effects, and BVH updates caused by changing geometry/LOD.
+
+#### 20.2 Baked GI represented by probes or irradiance volumes
+
+Another architecture is:
+
+```text
+Offline:
+Scene → Ray-traced GI bake → Irradiance probes / volume
+
+Runtime:
+Pixel → Locate/interpolate probes → Sample baked irradiance → Lighting
+```
+
+Again, there may be no per-pixel GI rays. If probes are periodically updated or reconstructed, however, the expensive operation may be **probe updates**, rather than camera rays. In that case, adaptive probe update rates or probe budgets are more appropriate than reducing primary camera rays.
+
+#### 20.3 Baked data combined with runtime ray tracing
+
+A hybrid renderer may use baked GI as a low-cost lighting foundation while still tracing rays at runtime:
+
+```text
+Baked GI → Base indirect light
+                 +
+                 Runtime ray tracing
+                 ↓
+        Shadows / Reflections / AO
+                 ↓
+             Final image
+```
+
+Here, adaptive ray allocation can still be useful because runtime RT effects continue to consume GPU resources.
+
+### 21. Diagnostic Test for Baked RT GI
+
+Because the performance problem exists even with baked RT GI, perform an A/B test:
+
+```text
+Test 1: Baked GI + all runtime RT effects OFF
+Test 2: Baked GI + RT shadows
+Test 3: Baked GI + RT reflections
+Test 4: Baked GI + runtime RT GI, if applicable
+```
+
+Record GPU frame time, CPU frame time, RT time, primary rays, secondary rays, BVH traversal, triangle/intersection count, hit-shader time, draw calls, triangle count, and texture bandwidth.
+
+If the slowdown remains almost identical with all RT effects disabled, the problem is likely outside the ray-tracing workload.
+
+### 22. LOD Is Especially Important
+
+A very common explanation for a distance-dependent performance drop is LOD switching:
+
+```text
+Far → LOD 2 → Medium → LOD 1 → Close → LOD 0
+```
+
+The close LOD can contain dramatically more geometry. This can affect both conventional rendering and ray tracing.
+
+For example:
+
+```text
+LOD 2 → 20k triangles
+LOD 1 → 100k triangles
+LOD 0 → 1M triangles
+```
+
+If the engine also rebuilds or updates the ray-tracing acceleration structure when LOD changes, the cost can be even larger.
+
+Temporarily **lock the object's LOD** while testing. If the FPS drop largely disappears, the issue may be LOD/geometry rather than ray concentration.
+
+### 23. Recommended Diagnostic Matrix
+
+| Test | RT | GI | LOD | Purpose |
+|---|---|---|---|---|
+| A | Off | Baked | Normal | Establish non-RT baseline |
+| B | On | Baked | Normal | Determine RT contribution |
+| C | On | Baked | Locked | Determine LOD contribution |
+| D | Off | Baked | Locked | Isolate conventional rendering |
+| E | On | Runtime RT GI | Locked | Measure dynamic GI |
+| F | On | Baked | Normal | Production configuration |
+
+Compare GPU frame time as the camera approaches the object. This separates RT cost, LOD cost, geometry cost, baked-GI lookup cost, and material cost.
+
+### 24. Updated Recommendation
+
+Because the problem also appears with baked RT GI, the recommended order of investigation is now:
+
+```text
+1. Disable all runtime RT effects
+        ↓
+2. Move toward the object
+        ↓
+3. Lock the object's LOD
+        ↓
+4. Compare GPU frame time
+        ↓
+5. Measure triangle count
+        ↓
+6. Measure BVH traversal / RT time
+        ↓
+7. Measure primary and secondary rays
+        ↓
+8. Identify the subsystem responsible
+        ↓
+9. Apply adaptive ray allocation only if
+   runtime ray workload is actually responsible
+```
+
+Adaptive ray budgeting remains a valuable optimization, but it should be applied to the **actual runtime ray workload** rather than assumed to be the solution.
+
+### 25. Bottom Line for Baked RT GI
+
+The critical distinction is:
+
+> **Baking GI with ray tracing does not necessarily mean that runtime ray tracing is absent.**
+
+If the baked result is simply sampled at runtime, adaptive GI ray sampling cannot improve the baked GI lookup itself.
+
+If runtime rays are still used for dynamic effects or to evaluate/update the baked representation, adaptive sampling can help.
+
+Given the specific symptom—**FPS decreases as the camera gets closer even when using baked RT GI**—the most valuable first experiment is:
+
+```text
+Baked RT GI
++
+ALL runtime ray tracing disabled
++
+LOD locked
+```
+
+Then move the camera toward the object. If performance still falls, the cause is almost certainly elsewhere in the rendering pipeline. If performance remains stable until runtime RT is enabled, profiling the ray count, BVH traversal, secondary rays, and hit shaders becomes the next step.
+
+---
+
+# Part II · RT Multi-Light Shadowing — Optimization & Debugging Guide (owner, 2026-09)
+
+### RT Multi-Light Shadowing — Optimization & Debugging Guide
+
+#### 1. Purpose
+
+This document defines a profiling, debugging, and optimization strategy for a real-time ray-traced renderer experiencing high frame times with many shadow-casting lights.
+
+##### Current stress case
+
+- Total scene lights: **191**
+- RT shadow-casting lights: **147**
+- Observed frame time: **~90 ms/frame**
+- Approximate frame rate: **~11.1 FPS**
+- Renderer supports rasterization and ray tracing
+- Current optimization: **ray count per pixel/light decreases with distance or falloff**
+
+The primary goal is to determine whether the 90 ms frame is caused by:
+
+1. Excessive RT shadow ray count
+2. Excessive lights evaluated per pixel
+3. Ray traversal / BVH cost
+4. Poor ray coherence
+5. Excessive shadow-ray dispatch overhead
+6. RT shader execution cost
+7. Denoising / temporal reconstruction
+8. Light clustering/culling overhead
+9. A secondary GPU bottleneck unrelated to RT shadows
+
+---
+
+### 2. Core Principle
+
+The number of lights in a scene is **not** the same as the number of lights that should generate RT work.
+
+A useful architecture is:
+
+```text
+                    Scene Lights
+                         |
+                         v
+                Frustum / Distance
+                     Culling
+                         |
+                         v
+                 Cluster / Tile
+                     Culling
+                         |
+                         v
+                Relevant Lights
+                         |
+                         v
+                 Importance Score
+                         |
+                         v
+             Global RT Shadow Budget
+                         |
+                         v
+               Light Sampling
+                         |
+                         v
+                  RT Shadows
+                         |
+                         v
+              Temporal / Spatial
+                 Reconstruction
+```
+
+The renderer should avoid allowing:
+
+```text
+pixels × lights × rays-per-light
+```
+
+to grow without a hard upper bound.
+
+Instead, establish a bounded **per-pixel or per-cluster RT shadow budget**.
+
+---
+
+### 3. First Diagnostic: Establish the Actual Ray Workload
+
+Before changing the algorithm, instrument the renderer.
+
+At minimum record:
+
+```text
+Frame Time
+RT Shadow Time
+RT GI Time
+RT Reflection Time
+RT Denoiser Time
+
+Total RT Shadow Rays
+Average Shadow Rays / Pixel
+Maximum Shadow Rays / Pixel
+Visible Shadow Lights
+Average Lights / Pixel
+Maximum Lights / Pixel
+
+Primary Ray Traversal Time
+Any-Hit Time
+Closest-Hit Time
+Miss Time
+```
+
+##### Critical metric
+
+The most important number is:
+
+```text
+Actual shadow rays dispatched per frame
+```
+
+Do not infer this from the number of lights.
+
+For example:
+
+```text
+1920 × 1080 = 2.07M pixels
+
+147 lights × 2 rays/light/pixel
+≈ 610M potential shadow rays
+```
+
+Even if only a fraction survive culling, the workload can become enormous.
+
+---
+
+### 4. Debug Pass A — Disable RT Shadows
+
+Run the exact same scene with RT shadows disabled.
+
+Record:
+
+```text
+Baseline:
+RT shadows OFF = X ms
+
+RT shadows ON  = 90 ms
+
+RT shadow cost = 90 - X ms
+```
+
+This immediately determines whether RT shadows are responsible for most of the problem.
+
+If the difference is small, stop optimizing the light-ray allocation system and profile another subsystem.
+
+---
+
+### 5. Debug Pass B — Reduce Light Count
+
+Create controlled test configurations:
+
+| Test | Total Lights | RT Shadow Lights |
+|---|---:|---:|
+| A | 191 | 147 |
+| B | 191 | 75 |
+| C | 191 | 32 |
+| D | 191 | 16 |
+| E | 191 | 0 |
+
+Plot:
+
+```text
+RT shadow time
+      ^
+      |
+      |          *
+      |       *
+      |    *
+      | *
+      +-------------------->
+              RT lights
+```
+
+##### Interpretation
+
+If frame time scales approximately linearly with RT light count:
+
+```text
+RT lights ↑
+    |
+    v
+RT rays ↑
+    |
+    v
+Frame time ↑
+```
+
+then multi-light RT shadows are likely the dominant issue.
+
+If frame time barely changes, the bottleneck is probably elsewhere.
+
+---
+
+### 6. Debug Pass C — Fixed Ray Budget
+
+Disable the current falloff and test fixed budgets.
+
+Example:
+
+```text
+1 ray / pixel
+2 rays / pixel
+4 rays / pixel
+8 rays / pixel
+16 rays / pixel
+32 rays / pixel
+```
+
+Measure:
+
+```text
+RT time
+Total frame time
+Image quality
+Shadow noise
+```
+
+This produces the renderer's actual ray-cost curve.
+
+Example:
+
+```text
+Rays/pixel     RT ms
+---------------------
+1               8
+2              12
+4              19
+8              33
+16             57
+32            102
+```
+
+The shape of this curve is much more valuable than guessing an appropriate ray count.
+
+---
+
+### 7. Debug Pass D — Visualize Ray Density
+
+Create a debug visualization where pixel intensity represents:
+
+```text
+number of RT shadow rays dispatched
+```
+
+Suggested categories:
+
+```text
+0
+1
+2
+4
+8
+16
+32+
+```
+
+Also create:
+
+```text
+Lights contributing to pixel
+```
+
+and:
+
+```text
+RT shadow rays per light
+```
+
+These visualizations will immediately reveal whether a small object is causing a large concentration of rays.
+
+---
+
+### 8. Ray Concentration Debugging
+
+One important failure mode is:
+
+```text
+Camera moves closer to object
+             |
+             v
+Object covers more pixels
+             |
+             v
+More lights become relevant
+             |
+             v
+More RT shadow rays
+             |
+             v
+GPU traversal explodes
+```
+
+Track ray density as the camera approaches an object.
+
+Record:
+
+```text
+Camera distance
+Object screen coverage
+Relevant lights
+Shadow rays/pixel
+Total shadow rays
+RT traversal time
+Frame time
+```
+
+If these values rise sharply together, the problem is **ray concentration**, not simply the number of lights.
+
+---
+
+### 9. Replace Per-Light Ray Budgets with a Global Budget
+
+A distance falloff such as:
+
+```cpp
+rays = f(distance);
+```
+
+is useful but insufficient.
+
+A better model is:
+
+```text
+Pixel
+ |
+ +-- Light A -> importance 0.80
+ +-- Light B -> importance 0.35
+ +-- Light C -> importance 0.12
+ +-- Light D -> importance 0.03
+ ...
+ |
+ v
+Global budget = 8 rays
+```
+
+The 8 rays are allocated according to importance.
+
+This guarantees:
+
+```text
+maximum RT shadow rays per pixel <= budget
+```
+
+regardless of how many lights exist.
+
+---
+
+### 10. Light Importance
+
+A useful initial importance metric is:
+
+```text
+Importance =
+    Light Contribution
+  × Geometric Relevance
+  × Angular Relevance
+  × Screen-Space Relevance
+  × Distance Falloff
+```
+
+Possible components:
+
+```text
+Light intensity
+Inverse-square attenuation
+NdotL
+Light solid angle
+Shadow receiver distance
+Projected light size
+Previous-frame contribution
+Temporal stability
+```
+
+Do not rely on distance alone.
+
+A nearby light that contributes almost nothing should not automatically receive the largest ray budget.
+
+---
+
+### 11. Light Contribution Culling
+
+Before RT shadow tracing, reject lights that cannot meaningfully affect the pixel/cluster.
+
+Possible tests:
+
+##### Distance
+
+```text
+distance > effective light radius
+    -> reject
+```
+
+##### Back-facing
+
+```text
+NdotL <= 0
+    -> reject
+```
+
+##### Intensity threshold
+
+```text
+estimated contribution < threshold
+    -> reject
+```
+
+##### Cluster bounds
+
+```text
+light volume does not intersect cluster
+    -> reject
+```
+
+##### Shadow relevance
+
+If a light contributes only a negligible amount to the final pixel, approximate it without an RT query.
+
+---
+
+### 12. Clustered Light Culling
+
+Use clustered or tiled light lists.
+
+Example:
+
+```text
+Screen
++-----------------------+
+| Cluster | Cluster | C |
+|---------+---------+---|
+| Cluster | Cluster | C |
+|---------+---------+---|
+| Cluster | Cluster | C |
++-----------------------+
+```
+
+Each cluster stores only lights potentially affecting it.
+
+Instead of:
+
+```text
+every pixel × 147 lights
+```
+
+the renderer becomes:
+
+```text
+pixel × lights in its cluster
+```
+
+For example:
+
+```text
+147 scene lights
+       |
+       v
+Cluster culling
+       |
+       v
+18 relevant lights
+       |
+       v
+Importance selection
+       |
+       v
+8 RT samples
+```
+
+---
+
+### 13. Per-Cluster Light Budget
+
+A further optimization is to establish a maximum number of RT-relevant lights per cluster.
+
+Example:
+
+```text
+MAX_RT_LIGHTS_PER_CLUSTER = 32
+```
+
+If a cluster contains 70 lights:
+
+```text
+70 candidate lights
+       |
+       v
+importance ranking
+       |
+       v
+top 32
+```
+
+Then the per-pixel ray budget is allocated among those.
+
+This protects the renderer from pathological scenes.
+
+---
+
+### 14. Stochastic Light Selection
+
+Do not always choose only the brightest N lights.
+
+That can introduce systematic bias.
+
+Instead, sample lights according to probability:
+
+```text
+P(light_i) =
+    importance_i /
+    sum(all_importance)
+```
+
+Then use an unbiased estimator:
+
+```text
+contribution =
+    sampledContribution / P(light_i)
+```
+
+This allows many lights to contribute over multiple frames while tracing only a small number of RT shadow rays per frame.
+
+---
+
+### 15. Temporal Accumulation
+
+If the renderer already has temporal reconstruction, reuse previous shadow information.
+
+Example:
+
+```text
+Frame N:
+Light A sampled
+
+Frame N+1:
+Light B sampled
+
+Frame N+2:
+Light C sampled
+
+Frame N+3:
+Light A sampled again
+```
+
+The temporal accumulator reconstructs the aggregate result.
+
+This changes the problem from:
+
+```text
+evaluate every important light every frame
+```
+
+to:
+
+```text
+evaluate a subset every frame
++
+reuse history
+```
+
+---
+
+### 16. Adaptive Ray Budget
+
+Use a minimum and maximum budget.
+
+Example:
+
+```text
+MIN_SHADOW_RAYS = 1
+MAX_SHADOW_RAYS = 8
+```
+
+Then calculate:
+
+```text
+budget = lerp(
+    MIN_SHADOW_RAYS,
+    MAX_SHADOW_RAYS,
+    importance
+)
+```
+
+Clamp aggressively.
+
+For example:
+
+```text
+0 importance → 0 rays
+low           → 1 ray
+medium        → 2–4 rays
+high          → 4–8 rays
+critical      → 8 rays
+```
+
+The exact values should be determined experimentally.
+
+---
+
+### 17. Screen-Space Adaptive Budget
+
+Distance alone does not represent visual importance.
+
+Consider:
+
+```text
+Object A:
+very close
+small projected area
+
+Object B:
+far away
+huge projected area
+```
+
+Object B may require more accurate shadows.
+
+Useful signals include:
+
+```text
+Projected area
+Shadow edge proximity
+Luminance
+Motion
+Temporal variance
+Material roughness
+Light contribution
+```
+
+Increase rays where the image is changing or noisy.
+
+---
+
+### 18. Shadow Edge Detection
+
+Shadow interiors generally need fewer samples than shadow boundaries.
+
+Approximate:
+
+```text
+stable shadow interior
+    -> 1 sample
+
+stable lit region
+    -> 0–1 samples
+
+shadow boundary
+    -> 4–8 samples
+
+highly variable boundary
+    -> 8+ samples
+```
+
+A useful adaptive signal is temporal variance:
+
+```text
+high variance
+    -> increase samples
+
+low variance
+    -> decrease samples
+```
+
+This can significantly reduce unnecessary RT work.
+
+---
+
+### 19. Separate Direct Lighting from Shadow Visibility
+
+Avoid doing expensive RT work if the final lighting contribution is already negligible.
+
+Conceptually:
+
+```text
+Direct lighting estimate
+        |
+        v
+Is contribution important?
+       / \
+     no   yes
+     |      |
+ cheap     RT shadow
+ estimate    |
+             v
+          lighting
+```
+
+The RT shadow query should be treated as a refinement of visibility, not automatically as the first step for every light.
+
+---
+
+### 20. Consider Shadow Maps for Suitable Lights
+
+Not every shadow-casting light needs RT shadows.
+
+A hybrid renderer can classify lights:
+
+```text
+                    Lights
+                       |
+             +---------+---------+
+             |                   |
+         RT suitable         Raster suitable
+             |                   |
+       RT shadow            Shadow map
+```
+
+RT is particularly valuable for:
+
+- dynamic geometry
+- difficult light types
+- contact shadows
+- complex occlusion
+- situations where shadow maps have unacceptable artifacts
+
+Stable large-area or distant lights may be cheaper using raster techniques.
+
+---
+
+### 21. RT Traversal Optimization
+
+If profiling shows that most RT time is traversal rather than shader execution, investigate:
+
+##### TLAS
+
+- Instance count
+- Rebuild frequency
+- Update frequency
+- Compaction
+- Instance masks
+
+##### BLAS
+
+- Triangle count
+- Build quality
+- Refit vs rebuild
+- Geometry segmentation
+
+##### Ray flags
+
+Use the cheapest appropriate flags.
+
+For shadow rays, consider configurations that avoid unnecessary closest-hit work.
+
+Conceptually:
+
+```text
+Shadow ray
+   |
+   +-- Need closest hit? NO
+   |
+   +-- Need any occluder? YES
+   |
+   v
+Terminate on first valid hit
+```
+
+This is generally much cheaper than calculating full intersection information.
+
+---
+
+### 22. Use Ray Flags and Masks Aggressively
+
+For shadow rays:
+
+```text
+Ray mask
+   |
+   v
+Ignore geometry that cannot cast relevant shadows
+```
+
+Examples:
+
+```text
+shadow-only geometry
+transparent exclusions
+VFX exclusions
+LOD exclusions
+editor/debug geometry exclusions
+```
+
+Do not allow every ray to traverse every object if the renderer does not require it.
+
+---
+
+### 23. LOD for RT Shadows
+
+RT geometry does not necessarily need the same geometry used for rasterization.
+
+Use:
+
+```text
+Raster LOD
+      |
+      +---- LOD 0
+      +---- LOD 1
+      +---- LOD 2
+      +---- LOD 3
+
+RT Shadow LOD
+      |
+      +---- simplified proxy
+      +---- simplified proxy
+      +---- simplified proxy
+```
+
+For distant shadow casters, simplified BLAS geometry can drastically reduce traversal cost and memory pressure.
+
+---
+
+### 24. Debug Modes to Implement
+
+Add renderer debug views for:
+
+##### Light count
+
+```text
+Lights / pixel
+```
+
+##### RT light count
+
+```text
+RT lights / pixel
+```
+
+##### Ray count
+
+```text
+RT shadow rays / pixel
+```
+
+##### Ray cost
+
+```text
+RT traversal time / pixel
+```
+
+##### Importance
+
+```text
+Light importance
+```
+
+##### Selected lights
+
+```text
+Which lights were sampled
+```
+
+##### Temporal confidence
+
+```text
+0 = no history
+1 = fully trusted history
+```
+
+##### Variance
+
+```text
+Shadow variance
+```
+
+These should be available independently.
+
+---
+
+### 25. GPU Counters / Profiling
+
+Capture GPU timestamps around:
+
+```text
+Shadow ray generation
+Ray tracing dispatch
+Closest-hit / any-hit
+Miss
+Denoising
+Temporal reconstruction
+```
+
+Where available, inspect:
+
+```text
+RT core utilization
+SM utilization
+Memory bandwidth
+L2 cache
+VRAM bandwidth
+Occupancy
+Wave occupancy
+Divergence
+```
+
+A high RT-core utilization with low shader utilization points toward traversal.
+
+High shader utilization indicates the RT shader itself may be expensive.
+
+High memory pressure can indicate poor acceleration-structure or texture access behavior.
+
+---
+
+### 26. Controlled Experiments
+
+Run these experiments one at a time.
+
+#### Experiment 1 — RT OFF
+
+```text
+RT shadows = OFF
+```
+
+Purpose:
+
+Determine total RT-shadow cost.
+
+---
+
+#### Experiment 2 — One RT light
+
+```text
+147 → 1
+```
+
+Purpose:
+
+Determine base cost per light.
+
+---
+
+#### Experiment 3 — Fixed one ray
+
+```text
+1 ray / pixel
+```
+
+Purpose:
+
+Determine minimum viable traversal cost.
+
+---
+
+#### Experiment 4 — Fixed budgets
+
+```text
+1
+2
+4
+8
+16
+```
+
+Purpose:
+
+Build ray-cost curve.
+
+---
+
+#### Experiment 5 — No culling
+
+Compare:
+
+```text
+all lights
+```
+
+against:
+
+```text
+clustered lights
+```
+
+Purpose:
+
+Measure light-culling benefit.
+
+---
+
+#### Experiment 6 — Global budget
+
+Compare:
+
+```text
+per-light falloff
+```
+
+against:
+
+```text
+global per-pixel budget
+```
+
+Purpose:
+
+Determine whether ray concentration is responsible.
+
+---
+
+#### Experiment 7 — Temporal reuse
+
+Compare:
+
+```text
+no temporal reuse
+```
+
+against:
+
+```text
+temporal reuse
+```
+
+Purpose:
+
+Determine how much ray reduction is possible without visible degradation.
+
+---
+
+### 27. Recommended Initial Configuration
+
+For a first implementation, use:
+
+```text
+Maximum RT shadow rays / pixel: 8
+Minimum useful rays / pixel:     1
+
+Maximum RT lights / cluster:     32
+
+Importance threshold:            configurable
+Temporal accumulation:            ON
+Variance-guided sampling:        ON
+Clustered light culling:         ON
+Distance culling:                ON
+NdotL culling:                   ON
+
+RT shadow geometry LOD:           ON
+```
+
+These are **starting values, not final tuning values**.
+
+Benchmark at:
+
+```text
+1 ray
+2 rays
+4 rays
+8 rays
+```
+
+before increasing the maximum.
+
+---
+
+### 28. Target Performance
+
+Do not immediately target a specific ray count.
+
+Instead establish a frame-time budget.
+
+For example, if your target is 60 FPS:
+
+```text
+Total frame budget ≈ 16.67 ms
+```
+
+If RT shadows are allocated:
+
+```text
+RT shadow budget ≈ 2–4 ms
+```
+
+then everything else must fit into the remaining budget.
+
+A practical target table might be:
+
+| Metric | Initial target |
+|---|---:|
+| Total frame | ≤ 16.67 ms |
+| RT shadows | ≤ 3–4 ms |
+| RT shadow rays/pixel | ≤ 1–8 |
+| RT lights/pixel | ideally < 16–32 |
+| Maximum rays/pixel | hard capped |
+| Temporal history | > 0 where stable |
+
+Exact budgets should be adapted to the target hardware and resolution.
+
+---
+
+### 29. Resolution Scaling
+
+Always test multiple resolutions.
+
+Example:
+
+```text
+1280×720
+1920×1080
+2560×1440
+3840×2160
+```
+
+If RT shadow time scales roughly with pixel count:
+
+```text
+resolution ↑
+     |
+     v
+pixels ↑
+     |
+     v
+rays ↑
+     |
+     v
+RT time ↑
+```
+
+the workload is primarily pixel/ray limited.
+
+If RT time barely changes with resolution, investigate:
+
+- light-list processing
+- acceleration structures
+- dispatch overhead
+- CPU submission
+- fixed-cost shader work
+
+---
+
+### 30. Acceptance Tests
+
+An optimization should not be accepted solely because it increases FPS.
+
+Every optimization should record:
+
+```text
+Frame time
+RT time
+Ray count
+Image error
+Shadow noise
+Temporal stability
+GPU memory
+```
+
+Compare against a reference image.
+
+Useful image metrics:
+
+```text
+MSE
+PSNR
+SSIM
+perceptual difference
+```
+
+For shadows, also inspect:
+
+```text
+contact shadows
+thin geometry
+small occluders
+shadow edges
+moving objects
+rapid camera movement
+light movement
+```
+
+---
+
+### 31. Recommended Debug HUD
+
+A useful in-game HUD:
+
+```text
+================ RT DEBUG ================
+
+Frame                 90.0 ms
+FPS                   11.1
+
+RT Shadows            61.4 ms
+RT GI                  8.2 ms
+RT Reflections         2.1 ms
+Denoiser               4.8 ms
+
+Scene Lights            191
+RT Shadow Lights        147
+
+Visible RT Lights       103
+Avg Lights / Pixel       18
+Max Lights / Pixel       47
+
+Shadow Rays             420 M
+Avg Rays / Pixel          4.2
+Max Rays / Pixel         8
+
+RT Traversal            47.2 ms
+RT Shader                8.1 ms
+
+Temporal Confidence      82%
+===========================================
+```
+
+This makes regressions immediately visible.
+
+---
+
+### 32. Priority Order
+
+Implement optimizations in this order:
+
+##### Priority 1 — Measure
+
+Do not optimize before knowing:
+
+```text
+RT shadow ms
+ray count
+lights/pixel
+traversal cost
+```
+
+##### Priority 2 — Hard ray budget
+
+Guarantee:
+
+```text
+rays/pixel <= MAX
+```
+
+##### Priority 3 — Light culling
+
+Implement:
+
+```text
+frustum
+distance
+cluster
+NdotL
+contribution
+```
+
+##### Priority 4 — Importance sampling
+
+Allocate the limited budget to important lights.
+
+##### Priority 5 — Temporal reuse
+
+Recover quality without increasing ray count.
+
+##### Priority 6 — Variance-guided sampling
+
+Spend rays where the image needs them.
+
+##### Priority 7 — RT geometry optimization
+
+Use:
+
+```text
+RT LOD
+ray masks
+optimized BLAS/TLAS
+shadow-specific geometry
+```
+
+##### Priority 8 — Hybrid shadows
+
+Allow suitable lights to use raster shadow maps instead of RT.
+
+---
+
+### 33. Key Architectural Change
+
+The most important change recommended by this document is:
+
+##### Current model
+
+```text
+For every light:
+    determine rays
+    trace rays
+```
+
+##### Recommended model
+
+```text
+For every pixel/cluster:
+
+    1. Find relevant lights
+    2. Estimate importance
+    3. Establish global ray budget
+    4. Select/sample lights
+    5. Trace bounded number of shadow rays
+    6. Reconstruct temporally
+    7. Increase samples only where variance requires it
+```
+
+This changes complexity from an uncontrolled:
+
+```text
+O(pixels × lights × rays)
+```
+
+workload toward a bounded:
+
+```text
+O(pixels × ray_budget)
+```
+
+with light selection/culling performed before the RT workload.
+
+---
+
+### 34. Final Recommendation for the 90 ms Case
+
+Do **not** start by reducing the 191 lights.
+
+First determine:
+
+```text
+How many actual RT shadow rays are being traced?
+```
+
+Then run:
+
+```text
+RT OFF
+1 light
+8 lights
+32 lights
+64 lights
+147 lights
+```
+
+and separately:
+
+```text
+1 ray/pixel
+2 rays/pixel
+4 rays/pixel
+8 rays/pixel
+16 rays/pixel
+```
+
+If 90 ms collapses when the ray budget is reduced, implement the **global per-pixel ray budget + importance sampling** system.
+
+If ray count is already low but traversal remains expensive, move the investigation toward:
+
+```text
+TLAS/BLAS
+RT geometry LOD
+ray masks
+ray flags
+BVH quality
+geometry complexity
+ray coherence
+```
+
+If RT shadows account for only a small portion of the 90 ms, stop optimizing the light system and profile the actual dominant pass.
+
+---
+
+### 35. Suggested Development Milestone
+
+##### Milestone 1
+
+Instrumentation:
+
+- GPU timestamps
+- total ray counter
+- rays/pixel visualization
+- lights/pixel visualization
+- RT light count HUD
+
+##### Milestone 2
+
+Culling:
+
+- distance
+- NdotL
+- contribution
+- clustered lights
+
+##### Milestone 3
+
+Bounded workload:
+
+- global rays/pixel budget
+- per-cluster light budget
+- importance ranking
+
+##### Milestone 4
+
+Quality recovery:
+
+- stochastic light selection
+- temporal accumulation
+- variance-guided sampling
+
+##### Milestone 5
+
+Traversal optimization:
+
+- RT LOD
+- ray masks
+- optimized BLAS/TLAS
+- shadow-specific geometry
+
+##### Milestone 6
+
+Hybrid rendering:
+
+- RT for important lights
+- raster shadows for suitable lights
+- configurable quality tiers
+
+---
+
+### Conclusion
+
+**191 lights is not inherently excessive. 147 RT shadow-casting lights, however, is a workload that requires strict control over the number of rays actually traced.**
+
+The first objective should therefore be to turn the renderer into a **bounded-work system**:
+
+```text
+Many lights
+    ↓
+Cull
+    ↓
+Rank
+    ↓
+Bound ray budget
+    ↓
+Sample
+    ↓
+Trace
+    ↓
+Temporally reconstruct
+```
+
+The renderer should never allow the number of lights in a scene to implicitly determine an unbounded number of RT rays.
+
+For the current **90 ms/frame** case, the highest-value diagnostic is to correlate:
+
+```text
+RT shadow ms
+        ↕
+total shadow rays
+        ↕
+rays/pixel
+        ↕
+lights/pixel
+        ↕
+camera distance / object screen coverage
+```
+
+That correlation will identify whether the fundamental problem is **light count, ray concentration, traversal cost, or shader cost**.
+
+---
+
+# Part III · The engine design (2026-09-02)
 
 **Status:** design, owner-commissioned 2026-09-02. Written for agents to
-build from cold; every claim that is a number was measured this session on
+build from cold; every claim that is a number was measured that session on
 the night scene (`SampleProject`, `GoldenGateDemo.rage`, 2560x1440, RTX
 5070 Ti laptop, Vulkan) and the protocol that produced it is named.
 **Owner's brief, verbatim:** "we should build and come up with a combined,
@@ -12,13 +2501,14 @@ now since these systems exist as pieces they might end up fighting or not
 cooperating well … general ray budgeting and light ray budgeting system can
 be combined with restir on top."
 
-The plan this sits beside is `docs/RENDERING-REVAMP.md` (WR-10, WR-16,
-WR-17, WR-18 are the items this design absorbs). Read that document's
-"Ground rules for every work item" first; every rule there binds here.
+> **Read with Part IV's decisions (2026-09-03):** the baseline is the Hybrid
+> frame, not the 114 ms one in §1; the controller's target is the total
+> ray-traced time set by the RT optimisation preset and the Off / Absolute /
+> Fractional dial of §4.1 and §6 is retired; the water's rays are in the
+> budget; and the milestones of §7 run in the order Part IV gives, with the
+> pre-check before the route is chosen.
 
----
-
-## 0 · The short version
+### 0 · The short version
 
 Today three things decide how many rays a pixel gets, and none of them
 knows about the others:
@@ -66,7 +2556,7 @@ measured against a frame it changes.
 
 ---
 
-## 1 · Where the frame goes, measured
+### 1 · Where the frame goes, measured
 
 Headland camera, untouched settings, 114.0 ms. Numbers from this session;
 the shares come from isolation runs and overlap, so they sum past 100.
@@ -88,7 +2578,7 @@ in eight of them kept half their time (WR-17's floor arm).
 
 ---
 
-## 2 · What exists, by name
+### 2 · What exists, by name
 
 Read these before writing a line; the design reuses all of them.
 
@@ -163,7 +2653,7 @@ lighting hash keys on the baked lights' parameters (`Scene::FieldBakePath`).
 
 ---
 
-## 3 · Goals and non-goals
+### 3 · Goals and non-goals
 
 **Goals.**
 1. One place decides every ray count and every light read per pixel or
@@ -189,7 +2679,7 @@ frame (the 2026-08-28 lesson). Per-light dials.
 
 ---
 
-## 4 · Architecture
+### 4 · Architecture
 
 ```
                  target (preset / Absolute ms / Fractional)
@@ -212,7 +2702,7 @@ frame (the 2026-08-28 lesson). Per-light dials.
                             (TAA: frame; gi_denoise: bounce; ReSTIR: samples; nobody blends twice)
 ```
 
-### 4.1 The controller: pressure per ray type
+#### 4.1 The controller: pressure per ray type
 
 Keep `UpdateRayBudget`'s discipline — settle frames, cooldown, the
 asymmetric dead band, the fixed-point Fractional — and change what it
@@ -252,7 +2742,7 @@ two others.
 **What it must not do:** read image variance (an output), change more than
 one type per cooldown, or move while `s_RayBudgetSamples < kSettleFrames`.
 
-### 4.2 The allocator: importance to allocations, per tile
+#### 4.2 The allocator: importance to allocations, per tile
 
 Keep the pipeline (`importance_tiles` → `tile_reduce` → `tile_budget`) and
 widen it from two lanes to two RGBA16F textures (eight lanes), Vulkan-only,
@@ -293,24 +2783,24 @@ counted (§7).
 water's quad rate must be uniform per 2x2, and it is uniform per 16x16
 tile by construction; a wave never straddles two allocations.
 
-### 4.3 The consumers
+#### 4.3 The consumers
 
 Each consumer reads its lane and applies one rule. None reads frame time,
 none re-decides.
 
-#### 4.3.1 AO and GI — as today
+##### 4.3.1 AO and GI — as today
 `rtao_compute` and `rtgi_trace` already read per-tile counts. The
 resolution rung (`RayDetailIsFullRes`) stays a preset choice, not a
 per-tile one; the memory says Medium's half resolution was indistinguishable
 at 12x on the showroom, so Quality may keep High and the others Medium.
 
-#### 4.3.2 Water rays — WR-18, per tile
+##### 4.3.2 Water rays — WR-18, per tile
 `QuadTraceLane` reads `A.b` for its tile instead of `RayRates.x`. The
 refraction reach is physics, not budget: it stays `-ln(1/256) / sigma_min`
 on every preset but Off. The quad walk under TAA and the hold without it
 are unchanged.
 
-#### 4.3.3 Shadow rays — one interface, two implementations
+##### 4.3.3 Shadow rays — one interface, two implementations
 
 **Interface.** For a pixel with a cell list of `n` lights and a per-tile
 allocation (`f_max`, `N_s`), the consumer returns a visibility estimate
@@ -360,7 +2850,7 @@ deck from the sky, but four rays to the four lamps that matter most, kept
 and refined over frames, can. That is the whole bet of M4, and §7's
 pre-check measures it before three weeks are spent.
 
-#### 4.3.4 The steel's mirror rays — later
+##### 4.3.4 The steel's mirror rays — later
 The opaque lit shader traces a mirror ray per pixel at roughness under the
 gloss window (the whole bridge at 0.27). Quad sharing is not safe there
 yet: a quad can hold a lane the thin-member fade discarded, and a broadcast
@@ -370,7 +2860,7 @@ discarded lane still participates in quad ops, or the separate half-res
 reflection pass once the normal buffer is 16-bit. Either way the rate comes
 from lane `B.g`.
 
-#### 4.3.5 Hit shading — WR-10, the largest item, not a ray count
+##### 4.3.5 Hit shading — WR-10, the largest item, not a ray count
 
 The 40 ms is 191 x 80-byte reads per hit plus one range test each. Three
 options, ordered by generality; do A first, it is exact and quick, then
@@ -431,7 +2921,7 @@ stay live.
 
 ---
 
-## 5 · The cooperation contract — the owner's worry, answered rule by rule
+### 5 · The cooperation contract — the owner's worry, answered rule by rule
 
 | pair | how they fight today | rule |
 |---|---|---|
@@ -449,7 +2939,7 @@ stay live.
 
 ---
 
-## 6 · Interfaces
+### 6 · Interfaces
 
 **Scene UBO** (three mirrors: `scene_block.glsl`, `pbr_fragment.glsl`,
 `Renderer3D.cpp`): the existing `ShadowRayFade` and `RayRates` rows become
@@ -485,7 +2975,7 @@ document): rays per pixel, lights per pixel, allocation per tile, ReSTIR
 
 ---
 
-## 7 · Milestones, each with its acceptance test
+### 7 · Milestones, each with its acceptance test
 
 Every milestone is independently shippable and revertible, ends with
 `scenetest` green on both backends, and is measured by the same three
@@ -540,7 +3030,7 @@ gone on the three cameras.
 
 ---
 
-## 8 · Traps, all paid for this session — read before touching anything
+### 8 · Traps, all paid for this session — read before touching anything
 
 - **Counting a skipped ray as lit restores a group's shadow**: a hundred
   negligible lamps behind one slab are not negligible (70 levels on the
@@ -569,7 +3059,7 @@ gone on the three cameras.
 
 ---
 
-## 9 · What this document does not decide
+### 9 · What this document does not decide
 
 - Whether Balanced ships with thinning or ReSTIR: M4's numbers decide.
 - The preset's per-type shares: start at shadows 40 / water 35 / GI 15 /
@@ -583,7 +3073,11 @@ gone on the three cameras.
 
 ---
 
-## 10 · Review and preparation, 2026-09-03 (solo, after the static/moving split)
+---
+
+# Part IV · Review, decisions and the sequence (2026-09-03)
+
+### 10 · Review and preparation, 2026-09-03 (solo, after the static/moving split)
 
 **What changed under this plan today** (ENGINE-NOTES 7cx): every object has
 a `Static` flag and the bake sees static objects only; lights gained
@@ -614,7 +3108,7 @@ slider walks up from there; each metre of radius buys back post and pool
 at a cost this table does not measure (the owner declined the 10 m
 point).
 
-### Findings, in the order they change the plan
+#### Findings, in the order they change the plan
 
 1. **§1 and every bar in §7 are stale.** The frame this plan budgets is
    the Hybrid frame above, not Headland 114 / Quality 90. M1's "Headland
@@ -681,7 +3175,7 @@ point).
     because Quality's thinning starts at 300 m; on a near camera the two
     presets are the same frame.
 
-### The owner's two documents, read in the original against this design
+#### The owner's two documents, read in the original against this design
 
 The design above was written from the revamp plan's reading of the
 owner's two documents (`dynamic_ray_budgeting_realtime_rt.md`, 25
@@ -743,7 +3237,7 @@ desktop part. Here, after the split and Hybrid Full Bake, Headland is
 59 ms at 2560x1440 on a laptop 5070 Ti and 43 of it is the water pass.
 The budget WR-16 has to hold is the water's.
 
-### M0, prepared
+#### M0, prepared
 
 In order, each a commit: (1) `RHIDevice::ReadBuffer` and its ring; (2) the
 counter SSBO at set 0 binding 21 and the four increments; (3) the
@@ -758,13 +3252,44 @@ read; (6) `--debug-view=rays|lights|confidence|importance`; (7)
 Hybrid scene. Accept as §7 M0 says, against the Hybrid baseline: counters
 within 5% of the isolation runs, bit-identical picture.
 
-### Decisions for the owner before M0 starts
+#### Decided by the owner, 2026-09-03
 
-- **A.** The Hybrid scene (lamps at 2 m, the three new boxes) is the WR-16
-  baseline. Recommended.
-- **B.** M1's scope is the compact record *and* the per-cell live-lamp
-  bit (finding 2). Recommended; the bit is a CPU loop over cells the grid
-  already builds.
-- **C.** `RayBudget` Off / Absolute / Fractional stays as the controller's
-  mode dial, as §6 says, rather than folding into the RT optimisation
-  preset. Recommended, so a measurement can pin a target in ms.
+- **A. The baseline is the bridge as it stands**: 176 lamps Hybrid Full
+  Bake at 2 m, eight volumes, the packed atlas (the table at the top of
+  this part). Every WR-16 number is measured against it.
+- **B. At a traced hit a fully baked lamp costs nothing.** Today it still
+  costs an 80-byte read to learn it can be skipped. The compact record and
+  the per-cell live-lamp bit (finding 2) are both in scope.
+- **C. The controller's target is the time of all ray-traced work**, and
+  its aim is to bring the whole frame down with no visible change or as
+  little as the preset allows. The target comes from the RT optimisation
+  preset; there is no separate Off / Absolute / Fractional dial any more
+  -- `RenderSettings::RayBudget`, `RayBudgetMs` and `RayBudgetFraction` are
+  retired when the controller lands, and `--ray-budget=<ms>` stays as the
+  measurement override only. (Part III §4.1 and §6 are read with this
+  amendment.)
+- **D. The water's rays are inside the budget**: its mirror and refraction
+  rate, its refraction reach, and its shadow rays -- the water surface
+  stays live by the standing rule, and it is where most of the frame's rays
+  are, so the budget's balancing and its caching of past answers apply
+  there first. Milestone 4's shadow sampling may run on the water.
+- **E. The order, decided:** counters first; then the one-day pre-check --
+  a fixed 1, 2, 4 and 8 shadow rays per pixel spread by importance over
+  the pixel's lamps, on the water and the deck, under no AA, MSAA and TAA,
+  diffed against the baseline -- and *then* the choice between the
+  allocator-and-controller route and the ReSTIR route, with the numbers in
+  hand. The cheap light walk (B) is independent and can run beside either.
+  The reasoning is in the handoff's WR-16 note: the allocator and the
+  controller can spread rays and lower counts, but only sampling can take
+  a water pixel from 146 shadow rays to a few, and the pre-check says in a
+  day whether that holds on this scene before three weeks go into it.
+
+#### The sequence, as it will be built
+
+| step | what | days | accept |
+|---|---|---|---|
+| S0 | instrumentation: `RHIDevice::ReadBuffer`, the counter SSBO at set 0 binding 21, the four increments, the rays / lights-per-pixel / confidence lines in the report and the HUD, the calibration runs (`--hit-lights=off`, `--shadow-rays=off`, `--ray-rate`, the light-count sweep), the validity lane in `o_Moments.w`, `--debug-view=rays|lights|confidence|importance`, `bench_night.py --label wr16-before` | 1–2 | counters within 5% of the isolation runs; bit-identical picture |
+| S1 | the pre-check: fixed 1 / 2 / 4 / 8 shadow rays per pixel by importance, no reuse, three AA modes, three cameras, diff images and the flicker count | 1 | a written verdict: which per-pixel budget holds the water and the deck, and therefore which route is taken |
+| S2 | the hit walk: 16-byte light records at hits and the per-cell live-lamp bit; independent of S1's verdict | 1–2 | diff of zero; the water pass's hit share measured before and after |
+| S3 | the route S1 chose -- Part III §7 M2+M3 (allocator widened, controller with per-type pressure under the preset's target) or M4 (ReSTIR DI behind the shadow interface, with M2's per-tile lanes it needs) -- with Part III's acceptance tests, against the S0 baseline | as §7 | as §7 |
+| S4 | the other route only if S3 leaves the frame over the preset's target | as §7 | as §7 |

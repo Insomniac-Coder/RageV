@@ -104,9 +104,10 @@ baked within a per-light radius, fully baked beyond) with three more boxes
 over the bay and the shores and a packed atlas: **542 → 315 ms over the
 eight cameras**, Hybrid costing 3% over pure Full bake. HANDOFF's evening
 entry has the table and the two fast-because-wrong traps it took to get an
-honest number. **Next is WR-16:** its review and M0 preparation are
-`RAY-BUDGET-DESIGN.md` §10, waiting on the owner's decisions A, B and C
-there.
+honest number. **Next is WR-16, decided and sequenced:**
+`RAY-BUDGET-DESIGN.md` is one document in four parts now; Part IV has the
+review, the owner's decisions and the order -- counters, then the one-day
+fixed-budget pre-check on the water, then the route. Start at S0.
 
 ## The order
 

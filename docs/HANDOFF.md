@@ -117,18 +117,24 @@ mean) because 32 m cells cannot hold a 5 m shadow; a 5 m box over each
 shore a camera stands on (a few tens of thousands of cells each) is the
 fix if it is ever wanted.
 
-### WR-16, prepared
+### WR-16, prepared and decided
 
-`docs/RAY-BUDGET-DESIGN.md` §10: a solo review of the design against the
-code and today's frame (thirteen findings -- the baseline is now the
-Hybrid frame; the hit walk's remaining cost is reads of lamps that
-contribute nothing; the water surface is the frame; the validity lane
-already exists in TAA's moments; the RHI has no buffer readback; set 0
-has 19–21 free), the owner's two source documents read in the original
-against it, M0 laid out as seven commits, and **three decisions the owner
-owes before M0 starts** (A: the Hybrid scene is the baseline; B: M1 is the
-compact record plus a per-cell live-lamp bit; C: `RayBudget` stays the
-controller's mode dial).
+`docs/RAY-BUDGET-DESIGN.md` is now **one document in four parts** (owner's
+call): the owner's two source documents verbatim (Parts I and II, from
+their Downloads -- they were never in the repo), the engine design of
+2026-09-02 (Part III), and Part IV -- the solo review against the code and
+today's frame (thirteen findings), the owner's decisions and the sequence.
+**Decided:** the Hybrid bridge is the baseline; a fully baked lamp costs
+nothing at a hit (compact record and per-cell live-lamp bit); the
+controller targets the total ray-traced time under the RT optimisation
+preset and the Off / Absolute / Fractional dial is retired; the water's
+rays are inside the budget; and the order is **counters (S0) → the one-day
+fixed-budget pre-check on the water (S1) → choose the route** --
+allocator-and-controller or ReSTIR -- with the cheap hit walk (S2)
+independent. The reasoning the owner asked for: the allocator and the
+controller can spread rays and lower counts, but only sampling takes a
+water pixel from 146 shadow rays to a few, and the pre-check says in a day
+whether that holds here before three weeks are spent. Start at S0.
 
 ### Traps this evening paid for
 
