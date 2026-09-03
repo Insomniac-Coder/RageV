@@ -17,6 +17,7 @@ Project:
     RayTracedGlobalIllumination: High
     RayTracedWaterRefraction: true
     RayTracedGiSource: Baked
+    RtOptimisation: Quality
     RayBudget: Fractional
     RayBudgetMs: 4
     RayBudgetFraction: 0.4
