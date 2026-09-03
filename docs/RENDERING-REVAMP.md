@@ -215,6 +215,7 @@ feature is wanted on both backends and the GL path needs its own mechanism
 | WR-15 | ~~Soft shadows from dense point-light arrays~~ ✅ **judged good by the owner 2026-09-02**; sampling rebuilt the same day so it no longer needs TAA to integrate it (see the item) | VK-only | +2.3 ms measured | done | WR-8 helps |
 | WR-16 | ReSTIR DI: reservoir light sampling for the 128-lamp direct lighting | VK-only | target: replace ~15 ms of shadow tracing with ~1 ray/px | 2–3 wk | WR-10 complements |
 | WR-17 | Shadow rays thin with distance (+ a light cutoff), shipped as the **RT optimisation** preset: Off / Quality / Balanced / Performance — ✅ **built, measured and preset 2026-09-02; the project still at Off** | VK-only | measured on Headland: 114 → 100 / 96 / 50 ms (table in the item) | done | — |
+| WR-18 | The water's rays: one mirror + refraction ray per 2x2 quad, and the refraction ray stops where the water has absorbed all but a 256th — two preset columns — ✅ **built and measured 2026-09-02** | VK-only | measured: reach −13/−3/−20 ms lossless; quads −12/−16/−13 ms with a 2x2 diff; Quality now 90/90/73 | done | rides the WR-17 preset |
 
 **Done so far: WR-0, WR-1, WR-2, WR-3, WR-4, WR-13, WR-15, and WR-5's lamp
 sprites.** The order that remains starts at WR-5's bloom audit and WR-6.
@@ -1651,6 +1652,90 @@ first landing). The share pre-loop duplicates the loop's falloff
 arithmetic on purpose, so the loop's own bits stay what they were. The
 scene block grew a row (`ShadowRayFade`, appended) in all three mirrors.
 `--frame-time=0` is the wall clock: pin with 0.000001 for the stills.
+
+---
+
+## WR-18 · The water's rays: one per quad, and a refraction ray that stops where the water has absorbed the answer — ✅ **built and measured 2026-09-02 (fourth session, late); in the presets**
+
+**Owner-set, from the candidates list:** "implement both right now" — the
+refraction ray that does not look where nothing can come back, and
+reflections at half size. Two render-settings columns on the RT
+optimisation preset (`RayRate`, `RefractionFloor` in
+`RayOptimisationPresetFor`), two measurement flags (`--ray-rate=1|2`,
+`--refraction-floor=<t>`), one scene-block row (`RayRates`, appended,
+three mirrors).
+
+**Why not a half-resolution reflection pass.** Two reasons, both
+measured or structural. The reverted pass of 2026-08-27 read the normal
+back from the screen buffer, which stores it in 8 bits per channel
+(`kNormalFormat`), and reflecting doubles that error: never bit-identical,
+and on grazing water the direction error is metres at the bridge. And the
+water's normal — waves plus the detail map — exists only inside the water
+shader; no pass can be handed it without a new buffer. The GI and AO
+half-res paths get away with a denoiser because they are soft; a mirror is
+not.
+
+**Mechanism 1 — one ray per 2x2 quad, inside the water shader.**
+`QuadTraceLane` / `QuadTraces` / `QuadShare` (`GL_KHR_shader_subgroup_quad`,
+SPIR-V 1.5 target): one lane of each quad casts the mirror ray and the
+refraction ray, the other three take the answer through a quad broadcast
+— half size in each direction with the exact normal and no buffer. Under
+TAA the tracing lane walks the four positions frame by frame so a still
+quad fills back in; without a temporal filter it holds at lane 0 so the
+picture stays put (WR-15's rule). Water only: an opaque quad can hold a
+discarded lane (the thin-member fade) and a broadcast from a dead lane is
+undefined; the steel's mirror rays stay per pixel. Every lane reaches the
+broadcast (it sits outside the `mirror > 0` test) because a quad op inside
+a branch some lanes skip is undefined.
+
+**Mechanism 2 — the refraction ray's reach.** It looked 300 m. The
+water's transmittance is `exp(-sigma * distance)`, so past
+`-ln(floor) / sigma_min` the bottom, however lit, returns under `floor`
+of its light: a 256th at the presets' value, 51 m in this bay
+(GradientDepth 12 → sigma_min 0.108/m). The ray stops there, cheap whether
+it hits or misses, and the open channel — where every ray used to travel
+300 m to find nothing — is where the frame was paying. Off keeps 300 m.
+
+**Presets:** Off 1 / none; Quality 1 / 256th; Balanced 2 / 256th;
+Performance 2 / 256th.
+
+**Results (2026-09-02, 150 frames per cell at 2560x1440; ms, then the
+percentage of pixels moved by more than 2 and more than 6 levels against
+the untouched still).**
+
+| variant | Headland | Pier | Glitter |
+|---|---|---|---|
+| off | 114.0 / ref | 100.3 / ref | 107.3 / ref |
+| refraction reach 1/256 alone | 101.4 / 0.00 / 0.00 | 97.3 / 0.00 / 0.00 | 87.3 / 0.00 / 0.00 |
+| quad rays alone | 102.5 / 1.74 / 0.51 | 84.1 / 1.57 / 0.23 | 94.2 / 4.87 / 0.74 |
+| both | 93.6 / 1.74 / 0.51 | 81.7 / 1.57 / 0.23 | 81.1 / 4.87 / 0.74 |
+| **preset Quality** (thin 300/600 + reach) | **90.2 / 0.32 / 0.01** | **89.8 / 0.59 / 0.03** | **73.4 / 1.93 / 0.41** |
+| preset Balanced (thin 150/300 floor 1/8 + quads + reach) | 74.4 / 4.86 / 1.97 | 69.8 / 5.64 / 1.90 | 59.2 / 7.11 / 1.73 |
+| preset Performance (cutoff 300 + quads + reach) | 42.1 / 7.39 / 3.60 | 48.0 / 16.09 / 5.01 | 30.7 / 13.87 / 5.00 |
+
+What it says. (1) **The refraction reach is a null on every camera** —
+0.00% moved, maximum 2, 7 and 6 levels — and worth 13, 3 and 20 ms: the
+open channel's rays were the cost, and Glitter, lowest to the water, gains
+most. It is in every preset including Quality. (2) **The quad rays give
+back a quarter of the water's ray time, not three quarters**: the three
+idle lanes wait for the one that traces (SIMD lockstep), so a 4x cut in
+rays is a 1.2–1.3x cut in time — 12, 16 and 13 ms. Their diff is the 2x2
+sharing on the sharp parts of the reflection, 1.6–4.9% over 2 levels,
+under 1% over 6; Balanced and Performance take them, Quality does not.
+(3) **Quality is now 90 / 90 / 73 ms** against 114 / 100 / 107 with the
+same diff it had — the lossless preset gained ten to twenty milliseconds.
+(4) Performance is 42 ms on the hero camera, 2.7x the untouched frame.
+
+**And the measurement that reorders the roadmap.** `--hit-lights=off`
+(RayRates.z; a measurement flag, the picture is wrong on purpose) skips
+the 191-light walk at every traced hit. Headland 114.2 → 74.4 ms (water
+pass 74.8 → 39.8, opaque 37.4 → 32.5), Pier 100.4 → 57.6, Glitter 107.3
+→ 68.3. **The light walk at reflection and refraction hits is about
+40 ms — a third of the frame, more than the shadow rays were — and it is
+a light-*read* cost, not a ray cost**: every hit reads all 191 light
+records (80 bytes each, 15 KB a hit) with one range test each, and under
+the bridge nearly every lamp is in range. WR-10 is the largest item on the
+list by a wide margin; its design is in the ray-budget design document.
 
 ---
 

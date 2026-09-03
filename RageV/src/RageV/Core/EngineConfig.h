@@ -77,6 +77,13 @@
 //                           positional light reaches past this many metres
 //   --rt-optimisation=off|quality|balanced|performance  override the project's
 //                           RT optimisation preset (WR-17) for one run
+//   --ray-rate=1|2          the water's mirror and refraction rays per pixel
+//                           (WR-18): 1 every pixel, 2 one lane per 2x2 quad
+//   --refraction-floor=<t>  the transmittance under which the water's
+//                           refraction ray stops looking (WR-18); 0 = 300 m
+//   --hit-lights=on|off     measurement only: off skips the light walk at
+//                           every traced hit, so the ray's cost and the
+//                           walk's can be told apart (WR-10)
 
 #include "RageV/Renderer/RHI/RHITypes.h"
 #include "RageV/Renderer/RenderSettings.h"
@@ -249,6 +256,14 @@ namespace RageV
 		// editing the project. The two overrides above still win over it.
 		bool  HasRayOptimisationOverride = false;
 		int   RayOptimisationOverride = 0;
+		// --ray-rate=1|2 and --refraction-floor=<t>: WR-18's two preset columns,
+		// overridden for one run so each can be measured on its own.
+		bool  HasRayRateOverride = false;
+		float RayRateOverride = 1.0f;
+		bool  HasRefractionFloorOverride = false;
+		float RefractionFloorOverride = 0.0f;
+		// --hit-lights=off: a measurement, the traced hit's light walk skipped.
+		bool  HitLights = true;
 
 		// **--gi-source=baked|realtime.** Which form of indirect light to use,
 		// stated rather than inferred. Without it the only lever is whether a

@@ -375,6 +375,36 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "hit-lights" || key == "hitlights")
+			return ParseBool(value, config.HitLights);
+
+		if (key == "ray-rate" || key == "rayrate")
+		{
+			config.HasRayRateOverride = true;
+			config.RayRateOverride = value == "2" ? 2.0f : 1.0f;
+			if (value != "1" && value != "2")
+			{
+				RV_CORE_WARN("ray-rate expects 1 or 2; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
+		if (key == "refraction-floor" || key == "refractionfloor")
+		{
+			try
+			{
+				config.RefractionFloorOverride = Math::Clamp(std::stof(value), 0.0f, 1.0f);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("refraction-floor expects a number in [0, 1]; got '{0}'", value);
+				return false;
+			}
+			config.HasRefractionFloorOverride = true;
+			return true;
+		}
+
 		if (key == "rt-optimisation" || key == "rt-optimization" || key == "rtopt")
 		{
 			static const char* const kLevels[] = { "off", "quality", "balanced", "performance" };

@@ -115,6 +115,8 @@ layout(set = 0, binding = 0) uniform SceneData
 	// declared here because this block is mirrored by hand and OpenGL links
 	// both stages into one program. x = shape, y = start, z = end, w = share.
 	vec4 ShadowRayFade;
+	// WR-18: the water's ray rate and reach; read by the fragment stage.
+	vec4 RayRates;
 } u_Scene;
 
 // Per instance, indexed by the draw's instance number.

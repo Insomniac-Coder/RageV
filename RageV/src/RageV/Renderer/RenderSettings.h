@@ -169,16 +169,22 @@ namespace RageV
 		float End;      // metres, thinning reaches the floor
 		float Floor;    // fraction of far rays still traced past the end
 		float Cutoff;   // metres past which no positional light reaches; 0 = none
+		// WR-18, the water's rays: 1 = every pixel traces its mirror and
+		// refraction rays, 2 = one lane per 2x2 quad traces and the quad shares.
+		float RayRate;
+		// WR-18: the transmittance under which the refraction ray stops looking;
+		// 0 = the 300 m it always had. A 256th is invisible by construction.
+		float RefractionFloor;
 	};
 
 	constexpr RayOptimisationPreset RayOptimisationPresetFor(RayOptimisation level)
 	{
 		switch (level)
 		{
-			case RayOptimisation::Quality:     return { ShadowRayFalloff::Linear, 300.0f, 600.0f, 0.0f,   0.0f };
-			case RayOptimisation::Balanced:    return { ShadowRayFalloff::Linear, 150.0f, 300.0f, 0.125f, 0.0f };
-			case RayOptimisation::Performance: return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   300.0f };
-			default:                           return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   0.0f };
+			case RayOptimisation::Quality:     return { ShadowRayFalloff::Linear, 300.0f, 600.0f, 0.0f,   0.0f,   1.0f, 1.0f / 256.0f };
+			case RayOptimisation::Balanced:    return { ShadowRayFalloff::Linear, 150.0f, 300.0f, 0.125f, 0.0f,   2.0f, 1.0f / 256.0f };
+			case RayOptimisation::Performance: return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   300.0f, 2.0f, 1.0f / 256.0f };
+			default:                           return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   0.0f,   1.0f, 0.0f };
 		}
 	}
 

@@ -208,6 +208,9 @@ namespace RageV
 			// offset above is unchanged; mirrored in scene_block.glsl and
 			// pbr_fragment.glsl.
 			Vec4 ShadowRayFade{};
+			// WR-18: x = the water's ray rate (1 every pixel, 2 one per 2x2 quad),
+			// y = the transmittance under which its refraction ray stops looking.
+			Vec4 RayRates{ 1.0f, 0.0f, 0.0f, 0.0f };
 		};
 
 		// Where a batch starts in the instance buffer. The model matrix used to
@@ -2950,6 +2953,13 @@ namespace RageV
 				? Vec4((float)config.ShadowRayShapeOverride, config.ShadowRayStartOverride,
 					   config.ShadowRayEndOverride, config.ShadowRayShareOverride)
 				: Vec4((float)(uint32_t)preset.Shape, preset.Start, preset.End, preset.Floor);
+			// WR-18: the water's ray rate and refraction reach, the preset's or
+			// the run's.
+			s_Data->Scene.RayRates = Vec4(
+				config.HasRayRateOverride ? config.RayRateOverride : preset.RayRate,
+				config.HasRefractionFloorOverride ? config.RefractionFloorOverride
+												  : preset.RefractionFloor,
+				config.HitLights ? 0.0f : 1.0f, 0.0f);
 		}
 
 		const uint32_t cascadeCount = ShadowMap::HasCascades() ? ShadowMap::GetCascadeCount() : 0;

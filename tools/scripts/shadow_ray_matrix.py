@@ -95,16 +95,25 @@ VARIANTS = [
     ("linear-300+local32", "linear,150,300,0.03125", 0),
     ("linear-600+local",   "linear,300,600,0",       0),
     ("linear-300+local8+cut-450", "linear,150,300,0.125", 450),
+    # WR-18: the water's rays. A fourth element carries further flags.
+    ("refraction-256", "off", 0, ["--refraction-floor=0.00390625"]),
+    ("rate2",          "off", 0, ["--ray-rate=2"]),
+    ("rate2+refraction-256", "off", 0, ["--ray-rate=2", "--refraction-floor=0.00390625"]),
+    ("quality",     "off", 0, ["--rt-optimisation=quality"]),
+    ("balanced",    "off", 0, ["--rt-optimisation=balanced"]),
+    ("performance", "off", 0, ["--rt-optimisation=performance"]),
 ]
 
 
-def base_command(camera_flag, width, height, shadow_rays, cutoff):
+def base_command(camera_flag, width, height, shadow_rays, cutoff, extra=()):
+    # A preset row leaves the two overrides out, or they would win over it.
+    overrides = [] if any(f.startswith("--rt-optimisation") for f in extra) else [
+        f"--shadow-rays={shadow_rays}", f"--light-cutoff={cutoff}"]
     return [str(RUNTIME), f"--project={ROOT / 'SampleProject'}",
             "--scene=scenes/GoldenGateDemo.rage", "--rhi=vulkan",
             "--render-defaults=off", "--vsync=off",
             f"--width={width}", f"--height={height}",
-            f"--camera={camera_flag}", f"--shadow-rays={shadow_rays}",
-            f"--light-cutoff={cutoff}"]
+            f"--camera={camera_flag}"] + overrides + list(extra)
 
 
 def run(command):
@@ -113,8 +122,8 @@ def run(command):
     return proc.returncode, proc.stdout + "\n--- stderr ---\n" + proc.stderr
 
 
-def benchmark(camera_flag, shadow_rays, cutoff, frames, width, height):
-    code, out = run(base_command(camera_flag, width, height, shadow_rays, cutoff)
+def benchmark(camera_flag, shadow_rays, cutoff, frames, width, height, extra=()):
+    code, out = run(base_command(camera_flag, width, height, shadow_rays, cutoff, extra)
                     + [f"--benchmark={frames}"])
     match = re.search(r"frame\s+mean\s+([0-9.]+) ms.*?\(([0-9.]+) FPS\)", out)
     water = re.search(r"scene/Transparent\s+[0-9.]+\s+([0-9.]+)", out)
@@ -128,8 +137,8 @@ def benchmark(camera_flag, shadow_rays, cutoff, frames, width, height):
     }, out
 
 
-def still(camera_flag, shadow_rays, cutoff, path, width, height, frame):
-    code, out = run(base_command(camera_flag, width, height, shadow_rays, cutoff)
+def still(camera_flag, shadow_rays, cutoff, path, width, height, frame, extra=()):
+    code, out = run(base_command(camera_flag, width, height, shadow_rays, cutoff, extra)
                     + ["--frame-time=0.000001", f"--screenshot-frame={frame}",
                        f"--screenshot={path}"])
     return code, out
@@ -168,7 +177,7 @@ def report(results, cameras, variants):
     head = "| variant | " + " | ".join(f"{c}: ms / >2 lvl % / >6 lvl %" for c in cameras) + " |"
     lines.append(head)
     lines.append("|" + "---|" * (head.count("|") - 1))
-    for name, _, _ in variants:
+    for name, *_ in variants:
         cells = []
         for camera in cameras:
             r = results.get(f"{name}/{camera}")
@@ -213,16 +222,17 @@ def main():
     results_path = out / "results.json"
     results = json.load(open(results_path, encoding="utf-8")) if results_path.exists() else {}
 
-    for name, value, cutoff in variants:
+    for name, value, cutoff, *rest in variants:
+        extra = rest[0] if rest else ()
         for camera in cameras:
             key = f"{name}/{camera}"
             started = time.time()
             bench, log = benchmark(CAMERAS[camera], value, cutoff, args.frames, args.width,
-                                   args.height)
+                                   args.height, extra)
             (out / f"{name}_{camera}_bench.log").write_text(log, encoding="utf-8")
             png = out / f"{name}_{camera}.png"
             code, log = still(CAMERAS[camera], value, cutoff, png, args.width, args.height,
-                              args.still_frame)
+                              args.still_frame, extra)
             (out / f"{name}_{camera}_still.log").write_text(log, encoding="utf-8")
             entry = {"bench": bench, "still_exit": code}
             reference = out / f"off_{camera}.png"

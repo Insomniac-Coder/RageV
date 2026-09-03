@@ -224,6 +224,16 @@ layout(set = 0, binding = 0) uniform SceneData
 	// Render settings, so one dial drives every light. Appended; mirrored
 	// by hand in scene_block.glsl and Renderer3D.cpp.
 	vec4 ShadowRayFade;
+
+	// **WR-18: the water's ray rate and reach.** x = 1 when every water pixel
+	// traces its own mirror and refraction rays, 2 when one lane of each 2x2
+	// quad traces and the other three take its answer (half size in each
+	// direction, inside the shader that has the exact normal). y = the
+	// transmittance under which the refraction ray stops looking (0 = the
+	// 300 m it always had). z = 1 skips the traced hit's light walk (a
+	// measurement flag, --hit-lights=off). w unused. Appended; mirrored in scene_block.glsl
+	// and Renderer3D.cpp.
+	vec4 RayRates;
 } u_Scene;
 
 // Every light in the scene, however many that is.
@@ -2238,7 +2248,12 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	// has no cluster -- and a shadow ray for the sun alone.
 	vec3 diffuse = albedo * (1.0 - metallic);
 	vec3 lit = vec3(0.0);
-	for (int i = 0; i < u_Scene.LightCount; ++i)
+	// **A measurement, not a feature: `--hit-lights=off` (RayRates.z) skips
+	// this walk**, so the ray's own cost and the walk's can be told apart
+	// before WR-10 decides what to build. Uniform, so the loop is not
+	// compiled out; the picture with it off is wrong on purpose.
+	const int hitLightCount = u_Scene.RayRates.z > 0.5 ? 0 : u_Scene.LightCount;
+	for (int i = 0; i < hitLightCount; ++i)
 	{
 		GpuLight light = u_Lights.Lights[i];
 #ifdef RV_IRRADIANCE_FILL
@@ -3153,6 +3168,52 @@ Surface SampleSurface(vec3 Ngeo, vec3 V)
 }
 
 #endif   // RV_LAYERED
+
+#if defined(RV_WATER) && (defined(RV_RAY_REFLECTIONS) || defined(RV_RAY_REFRACTION))
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_quad : require
+
+// **WR-18: one ray per 2x2 quad on the water.** The mirror ray and the
+// refraction ray were the second and third largest items in the night frame
+// (about 15 and 33 ms of 114 at 1440p on Headland), and each is cast per
+// pixel from inside this shader because the water's normal -- waves plus the
+// detail map -- exists nowhere else, so a half-resolution pass cannot be
+// handed it. This is half size in each direction without a pass: one lane
+// of each quad traces, and the other three take its radiance through a quad
+// broadcast, with the exact normal and none of the precision the screen
+// buffer would lose. Under TAA the tracing lane walks the four positions
+// frame by frame, so a still quad fills back in over four frames; without a
+// temporal filter it holds at lane 0 and the picture stays put. Water only:
+// an opaque quad may hold a discarded lane (the thin-member fade), and a
+// broadcast from a dead lane is undefined.
+uint QuadTraceLane()
+{
+	if (u_Scene.RayRates.x < 1.5)
+		return 4u;   // every lane traces its own
+	return any(notEqual(u_Scene.Jitter, vec4(0.0)))
+		 ? (uint(u_Scene.GlobalIllumination.y) & 3u)
+		 : 0u;
+}
+
+bool QuadTraces(uint lane)
+{
+	return lane == 4u || (gl_SubgroupInvocationID & 3u) == lane;
+}
+
+// Every lane of the quad must reach this call: a quad broadcast from inside
+// a branch some lanes skipped is undefined.
+vec3 QuadShare(vec3 mine, uint lane)
+{
+	switch (lane)
+	{
+		case 0u: return subgroupQuadBroadcast(mine, 0u);
+		case 1u: return subgroupQuadBroadcast(mine, 1u);
+		case 2u: return subgroupQuadBroadcast(mine, 2u);
+		case 3u: return subgroupQuadBroadcast(mine, 3u);
+		default: return mine;
+	}
+}
+#endif
 
 void main()
 {
@@ -4244,9 +4305,23 @@ void main()
 		if (gloss.y <= 0.0)
 			gloss = vec2(0.25, 0.6);
 		float mirror = 1.0 - smoothstep(gloss.x, gloss.y, roughness);
+#ifdef RV_WATER
+		// WR-18: one lane of the quad traces, all four share (see QuadShare).
+		// The share runs for every lane, outside the mirror test, because a
+		// quad op inside a branch some lanes skip is undefined.
+		const uint quadLane = QuadTraceLane();
+		vec3 quadTraced = vec3(0.0);
+		if (mirror > 0.0 && QuadTraces(quadLane))
+			quadTraced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N), v_Probe);
+		quadTraced = QuadShare(quadTraced, quadLane);
+#endif
 		if (mirror > 0.0)
 		{
+#ifdef RV_WATER
+			vec3 traced = quadTraced;
+#else
 			vec3 traced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N), v_Probe);
+#endif
 
 			// **Bound the ray by the probe it is replacing.**
 			//
@@ -4398,27 +4473,54 @@ void main()
 		// A miss is open sea with no bottom in reach: transmittance zero, the
 		// lit colour answers, which is what a bottomless bay looks like.
 		const vec3 refractedDir = refract(-waterView, N, 0.7519);
-		if (dot(refractedDir, refractedDir) > 1.0e-6)
+
+		// **WR-18: how far the refracted ray looks.** It looked 300 m, and
+		// the water had absorbed the answer long before that: transmittance
+		// is exp(-sigma * distance), so past -ln(floor) / sigma_min the
+		// bottom, however lit, returns under `floor` of its light -- a 256th
+		// at the presets' value, 51 m in this bay. A ray that stops there is
+		// cheap whether it hits or misses, and the open channel, where every
+		// ray used to travel the full 300 m to find nothing, is where the
+		// frame was paying. Anything beyond could not show, by construction.
+		float reach = 300.0;
+		if (u_Scene.RayRates.y > 0.0)
 		{
-			TracedSurface behindHit = TraceSurface(v_WorldPos, -N, refractedDir, 300.0);
-			vec3 waterT = vec3(0.0);
-			vec3 behind = vec3(0.0);
+			const float sigmaMin = min(waterSigma.r, min(waterSigma.g, waterSigma.b));
+			reach = min(reach, -log(u_Scene.RayRates.y) / max(sigmaMin, 1.0e-4));
+		}
+
+		// WR-18: one lane of the quad traces the refraction, all four share.
+		// Two broadcasts -- the lit bottom already attenuated, and the
+		// transmittance itself, which the mix below needs on its own.
+		const uint refractLane = QuadTraceLane();
+		vec3 quadBehind = vec3(0.0);
+		vec3 quadT = vec3(0.0);
+		if (dot(refractedDir, refractedDir) > 1.0e-6 && QuadTraces(refractLane))
+		{
+			TracedSurface behindHit = TraceSurface(v_WorldPos, -N, refractedDir, reach);
 			if (!behindHit.Missed)
 			{
 				const float through = length(behindHit.Position - v_WorldPos);
-				waterT = exp(-waterSigma * through) * (1.0 - foam);
-				behind = ShadeTraced(behindHit,
-									 ProbeIrradiance(behindHit.Normal, v_Probe));
+				quadT = exp(-waterSigma * through) * (1.0 - foam);
+				vec3 behind = ShadeTraced(behindHit,
+										  ProbeIrradiance(behindHit.Normal, v_Probe));
 				// The traced form knows exactly where the bottom is, so the
 				// caustic web lands on the real hit point.
 				behind *= 1.0 + WaterCaustics(behindHit.Position.xz, through,
 											  waterGradient, waterWind, waterTime);
+				quadBehind = behind * quadT;
 			}
+		}
+		quadBehind = QuadShare(quadBehind, refractLane);
+		quadT = QuadShare(quadT, refractLane);
+
+		if (dot(refractedDir, refractedDir) > 1.0e-6)
+		{
 			// Only the *scattered* light gives way to the refracted scene:
 			// the glitter is surface reflection and never entered the water,
 			// so it rides over clear and murky alike.
 			const vec3 scatter = max(transmitted - waterSpecular, vec3(0.0));
-			transmitted = behind * waterT + scatter * (1.0 - waterT) + waterSpecular;
+			transmitted = quadBehind + scatter * (1.0 - quadT) + waterSpecular;
 			alpha = 1.0;
 		}
 #else
