@@ -1,4 +1,6 @@
-# One ray budget: the controller, the allocator, the consumers, and ReSTIR on top
+# WR-16 · One ray budget: the controller, the allocator, the consumers, and ReSTIR on top
+
+**This is WR-16.** ReSTIR is no longer an item of its own; it is one implementation inside this system (section 4.3.3), and the item's number now names the whole.
 
 **Status:** design, owner-commissioned 2026-09-02. Written for agents to
 build from cold; every claim that is a number was measured this session on

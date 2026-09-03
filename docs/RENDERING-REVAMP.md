@@ -213,7 +213,7 @@ feature is wanted on both backends and the GL path needs its own mechanism
 | WR-13 | ~~Specular antialiasing (Tokuyoshi–Kaplanyan)~~ ✅ **judged good by the owner 2026-09-02**; the flicker itself is measured per AA mode in the item — WR-15's sampling was the non-TAA half (fixed), the lamp lenses went to WR-5's sprites, the sub-pixel members the owner keeps are what remains under TAA | BOTH | few ALU/lit px | done | — |
 | WR-14 | Water foam at night | BOTH | ~0 | 0.5–1 d | WR-1, WR-4 |
 | WR-15 | ~~Soft shadows from dense point-light arrays~~ ✅ **judged good by the owner 2026-09-02**; sampling rebuilt the same day so it no longer needs TAA to integrate it (see the item) | VK-only | +2.3 ms measured | done | WR-8 helps |
-| WR-16 | ReSTIR DI: reservoir light sampling for the 128-lamp direct lighting | VK-only | target: replace ~15 ms of shadow tracing with ~1 ray/px | 2–3 wk | WR-10 complements |
+| WR-16 | **The one ray budget** — controller, allocator, consumers, ReSTIR on top; the design is `docs/RAY-BUDGET-DESIGN.md`; ReSTIR DI is its milestone 4, WR-10 its milestone 1 | VK-only | measured targets per milestone in the design | 5 milestones, ~5 wk | absorbs WR-10, WR-17, WR-18 |
 | WR-17 | Shadow rays thin with distance (+ a light cutoff), shipped as the **RT optimisation** preset: Off / Quality / Balanced / Performance — ✅ **built, measured and preset 2026-09-02; the project still at Off** | VK-only | measured on Headland: 114 → 100 / 96 / 50 ms (table in the item) | done | — |
 | WR-18 | The water's rays: one mirror + refraction ray per 2x2 quad, and the refraction ray stops where the water has absorbed all but a 256th — two preset columns — ✅ **built and measured 2026-09-02** | VK-only | measured: reach −13/−3/−20 ms lossless; quads −12/−16/−13 ms with a 2x2 diff; Quality now 90/90/73 | done | rides the WR-17 preset |
 
@@ -1351,11 +1351,12 @@ shadows changes the picture's whole night character, not just one artifact.
 
 ---
 
-## WR-16 · ReSTIR DI for the lamp array
+## WR-16 · The one ray budget (ReSTIR DI inside it) — the design is `docs/RAY-BUDGET-DESIGN.md`
 
-> **2026-09-02: this item is now milestone M4 of `docs/RAY-BUDGET-DESIGN.md`**
-> — ReSTIR DI as the second implementation behind the shadow-ray consumer's
-> interface, with WR-17's thinning as the first, the pre-check (a fixed
+> **2026-09-02, owner: "make that WR-16, because now ReSTIR is not alone
+> anymore."** WR-16 is the whole combined system, designed in
+> `docs/RAY-BUDGET-DESIGN.md`; the ReSTIR DI brief below is milestone M4 of it
+> — the second implementation behind the shadow-ray consumer's interface, with WR-17's thinning as the first, the pre-check (a fixed
 > 1/2/4/8-ray budget under the three AA modes) before the reservoirs, and
 > the reconstruction contract that keeps its history from fighting TAA and
 > the GI denoiser. The design below stays as the reference; build from the
