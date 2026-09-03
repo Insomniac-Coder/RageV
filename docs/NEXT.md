@@ -84,6 +84,14 @@ render scale with temporal upsample, reflections out of the fragment
 shader at half res, and the GPU-LOD design doc's one fit — a proxy BLAS
 for far shadow rays through the instance masks the TLAS already carries.
 
+**Late on 2026-09-02:** WR-18 built and measured (the water's rays: quads
+and the refraction reach; Quality now 90 / 90 / 73 ms). Then the
+measurement that reorders everything: the light walk at traced hits is
+~40 ms, a third of the frame. **The single ordered plan for the ray side
+is now `docs/RAY-BUDGET-DESIGN.md`** — one controller, one allocator, the
+consumers, ReSTIR on top — with WR-10 first (M1), the allocator and
+controller next (M2, M3), ReSTIR DI as M4 behind the shadow interface.
+
 ## The order
 
 Ranked by value per hour, not by size. Numbers are engineering judgement.

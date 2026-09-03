@@ -941,6 +941,15 @@ analytic light contributes.
 
 ## WR-10 · World-space light grid + stochastic light sampling at RT hits
 
+> **2026-09-02, superseded in part by `docs/RAY-BUDGET-DESIGN.md` §4.3.5.**
+> Measured with `--hit-lights=off`: the walk at hits is ~40 ms of the 114 ms
+> Headland frame, a light-*read* cost (191 x 80-byte records per hit). The
+> design document orders the options: A, compact cull records plus the
+> on-screen cluster at the hit (exact, 1–2 days, first); B, the world grid
+> with CDF sampling below (only if A leaves the walk expensive); C, a
+> direct-light field for the baked lights (this scene's big win and a
+> quality gain). Build from the design document, not from this brief.
+
 **Goal.** GI hit shading currently walks every light
 (`for (i < u_Scene.LightCount)` in `pbr_fragment.glsl`'s traced-hit path —
 grep `ShadeTraced`); at 20 lights that is ~45% of the frame's flat RTGI
@@ -1343,6 +1352,14 @@ shadows changes the picture's whole night character, not just one artifact.
 ---
 
 ## WR-16 · ReSTIR DI for the lamp array
+
+> **2026-09-02: this item is now milestone M4 of `docs/RAY-BUDGET-DESIGN.md`**
+> — ReSTIR DI as the second implementation behind the shadow-ray consumer's
+> interface, with WR-17's thinning as the first, the pre-check (a fixed
+> 1/2/4/8-ray budget under the three AA modes) before the reservoirs, and
+> the reconstruction contract that keeps its history from fighting TAA and
+> the GI denoiser. The design below stays as the reference; build from the
+> design document.
 
 **Owner-set 2026-09-02.** This plan originally deferred ReSTIR (see the
 rejected list below, which is now amended rather than deleted — the reasoning

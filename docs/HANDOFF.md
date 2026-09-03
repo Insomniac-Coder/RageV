@@ -166,8 +166,12 @@ the commit (numbers at the end of WR-17). **The project ships at Off.**
    Headland and Pier (`check_glint_flicker.py`). The dither is fixed per
    pixel and walks only under TAA by construction, which is the claim to
    measure.
-4. Then WR-10 (the traced-hit light walk: reflections and refraction
-   shade every hit against all 191 lights, no clusters) and WR-16.
+4. Then the ray side in the order `docs/RAY-BUDGET-DESIGN.md` gives: M0
+   instrumentation, **M1 WR-10 option A** (the hit walk is ~40 ms, a third
+   of the frame — measured with `--hit-lights=off`), M2 the allocator, M3
+   the controller, M4 ReSTIR DI behind the shadow interface, M5 the
+   direct-light field if M1's leftover asks for it. WR-18 (the water's
+   rays) is in and in the presets; Quality is 90 / 90 / 73 ms.
 
 ### Traps this session paid for
 
