@@ -133,7 +133,15 @@ namespace RageV
 		// visibility instead, where the hardware filter is free to blend it.
 		// The readers divide the texture's depth by this to find a field's own
 		// depth, so changing it changes both ends at once.
-		static constexpr uint32_t kTiles = 7;
+		// **Ten since 2026-09-02: nine spherical-harmonic tiles and the
+		// visibility tile.** Six axis faces before -- an ambient cube, which
+		// reads a broad bounce faithfully and a single lamp at cos² weights:
+		// 1.0 on axis, 0.71 at 45 degrees, measured as a full-baked showroom
+		// 30% darker than its live twin. Second-order harmonics hold a lamp's
+		// direction within a few percent. A stored bake with seven tiles fails
+		// the stamp's tile count and is solved again; the probe cubes are
+		// untouched, so no version bump.
+		static constexpr uint32_t kTiles = 10;
 
 		uint32_t Width() const { return m_Width; }
 		uint32_t Height() const { return m_Height; }

@@ -1451,6 +1451,36 @@ float SkyFromAlpha(float stored)
 	return clamp(stored, 0.0, 1.0);
 }
 
+// **The field's basis: real spherical harmonics to second order, nine
+// coefficients, in the volume's own frame.** A cell stores, per
+// coefficient, the bounce's irradiance over pi in rgb and the sky's
+// cosine-weighted visibility in alpha; a reader evaluates both with the
+// surface normal in one weighted sum. The ambient cube this replaced was
+// three fetches to nine, and could not hold which way a single lamp came
+// from. Tile 9 carries the neighbour-visibility bits and the alive flag.
+#define RV_FIELD_COEFFICIENTS 9
+#define RV_FIELD_VISIBILITY_TILE 9
+
+void FieldBasis(vec3 d, out float y[9])
+{
+	y[0] = 0.282095;
+	y[1] = 0.488603 * d.y;
+	y[2] = 0.488603 * d.z;
+	y[3] = 0.488603 * d.x;
+	y[4] = 1.092548 * d.x * d.y;
+	y[5] = 1.092548 * d.y * d.z;
+	y[6] = 0.315392 * (3.0 * d.z * d.z - 1.0);
+	y[7] = 1.092548 * d.x * d.z;
+	y[8] = 0.546274 * (d.x * d.x - d.y * d.y);
+}
+
+// The cosine lobe's convolution per band, over pi: what turns a radiance
+// coefficient into an irradiance-over-pi one (Ramamoorthi and Hanrahan).
+float FieldBandOverPi(int k)
+{
+	return k == 0 ? 1.0 : (k < 4 ? 2.0 / 3.0 : 0.25);
+}
+
 bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradiance,
 					  out float skyVisibility)
 {
@@ -1614,7 +1644,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		const ivec3 firstAnchor = clamp(ivec3(floor(firstBase + 0.5)),
 										ivec3(0), ivec3(grid));
 		const int firstMask = int(texelFetch(u_IrradianceField,
-											 firstAnchor + ivec3(0, 0, tile * 6 + zbase), 0).x + 0.5);
+											 firstAnchor + ivec3(0, 0, tile * RV_FIELD_VISIBILITY_TILE + zbase), 0).x + 0.5);
 		if (firstMask == 0)
 		{
 			const vec3 stepped = (placed + facing * (extents / grid) * 3.0) / extents;
@@ -1686,7 +1716,7 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 	// belongs to where the fragment *is*, and every corner is judged by it.
 	const ivec3 anchorCell = clamp(ivec3(floor(base + 0.5)), ivec3(0), last);
 	const int reachable = int(texelFetch(u_IrradianceField,
-										 anchorCell + ivec3(0, 0, tile * 6 + zbase), 0).x + 0.5);
+										 anchorCell + ivec3(0, 0, tile * RV_FIELD_VISIBILITY_TILE + zbase), 0).x + 0.5);
 
 
 	// **Nothing in the way of any of the six, so nothing to weigh.** This is
@@ -1730,30 +1760,42 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		// otherwise stretch its cells across the whole width.
 		const vec2 uv = uvw.xy / vec2(texels.xy);
 		const float depth = float(texels.z);
-		const vec3 square = facing * facing;
+		float basis[9];
+		FieldBasis(facing, basis);
 
+		// Nine hardware-filtered fetches, one per coefficient; the sky's
+		// visibility rides in the alpha of each. Both are linear in the
+		// stored values, so the filter and the evaluation commute.
 		irradiance = vec3(0.0);
 		float cubeSky = 0.0;
-		for (int axis = 0; axis < 3; axis++)
+		for (int k = 0; k < RV_FIELD_COEFFICIENTS; k++)
 		{
-			const int slot = axis * 2 + (facing[axis] >= 0.0 ? 0 : 1);
 			const vec4 stored = textureLod(u_IrradianceField,
-					vec3(uv, (uvw.z + float(tile * slot + zbase)) / depth), 0.0);
-			irradiance += square[axis] * stored.rgb;
-			// **The ambient cube of sky rides in the same fetch.** A face's alpha
-			// is the visibility for a surface pointing that way, and the three
-			// square weights sum to one for a unit normal -- so this is a convex
-			// combination: it cannot leave [0,1], cannot ring, and reconstructs a
-			// constant field to that constant from any blend of any cells. No
-			// extra texture read and nothing blended that is not linear.
-			cubeSky += square[axis] * SkyFromAlpha(stored.a);
+					vec3(uv, (uvw.z + float(tile * k + zbase)) / depth), 0.0);
+			irradiance += basis[k] * stored.rgb;
+			cubeSky += basis[k] * stored.a;
 		}
+		// **Divided by the filtered alive fraction.** A buried cell holds
+		// zero light, and the hardware filter blends it in by distance like
+		// any other -- so a surface against a wall or floor, half of whose
+		// eight neighbours are inside the geometry, read half its light.
+		// The alive flag filtered the same way is the weight those zeros
+		// took; dividing by it leaves the mean of the live cells alone. For
+		// the bounce this was a loss too small to see; with direct light in
+		// the field it halved the showroom's walls. Sky is left as it is: a
+		// buried cell stores "fully open" there on purpose.
+		const float aliveWeight = textureLod(u_IrradianceField,
+				vec3(uv, (uvw.z + float(tile * RV_FIELD_VISIBILITY_TILE + zbase)) / depth), 0.0).y;
+		irradiance /= max(aliveWeight, 0.125);
+		// Second-order harmonics can ring a little below zero on the far
+		// side of a lamp; the clamps are the whole of the correction.
 		irradiance = max(irradiance, vec3(0.0)) * edgeFade;
-		skyVisibility = cubeSky;
+		skyVisibility = clamp(cubeSky, 0.0, 1.0);
 		return true;
 	}
 
-	const vec3 square = facing * facing;
+	float basis[9];
+	FieldBasis(facing, basis);
 
 	// **One cell, unblended** -- the solve's answer where the lookup landed on
 	// a buried anchor. See the note at the step above: interpolation is the
@@ -1764,19 +1806,18 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 		const ivec3 one = clamp(ivec3(floor(base + 0.5)), ivec3(0), last);
 		float cubeSky = 0.0;
 		vec3 here = vec3(0.0);
-		for (int axis = 0; axis < 3; axis++)
+		for (int k = 0; k < RV_FIELD_COEFFICIENTS; k++)
 		{
-			const int slot = axis * 2 + (facing[axis] >= 0.0 ? 0 : 1);
 			const vec4 stored = texelFetch(u_IrradianceField,
-										   one + ivec3(0, 0, tile * slot + zbase), 0);
-			here += square[axis] * stored.rgb;
-			cubeSky += square[axis] * SkyFromAlpha(stored.a);
+										   one + ivec3(0, 0, tile * k + zbase), 0);
+			here += basis[k] * stored.rgb;
+			cubeSky += basis[k] * stored.a;
 		}
-		// Aliveness from tile 6's .y -- the alpha lane carries sky now, and a
-		// dead cell's alpha is deliberately 1.0 there, so testing it would call
-		// every buried cell alive and let its black light back into the blend.
+		// Aliveness from the visibility tile's .y -- the alpha lanes carry
+		// sky, and a dead cell's sky evaluates to 1.0 there ("no data, do not
+		// darken"), so testing it would call every buried cell alive.
 		const bool alive = texelFetch(u_IrradianceField,
-								   one + ivec3(0, 0, tile * 6 + zbase), 0).y > 0.5;
+								   one + ivec3(0, 0, tile * RV_FIELD_VISIBILITY_TILE + zbase), 0).y > 0.5;
 		if (!alive)
 			return false;   // buried there as well: nothing honest to report
 		irradiance = max(here, vec3(0.0)) * edgeFade;
@@ -1857,22 +1898,22 @@ bool VolumeIrradiance(vec3 position, vec3 normal, bool shadowed, out vec3 irradi
 				continue;
 		}
 
-		// The three faces this normal faces, from this cell.
+		// The nine coefficients of this cell, evaluated for this normal.
 		float cubeSky = 0.0;
 		vec3 here = vec3(0.0);
-		// One extra fetch per corner, and it buys the fix: tile 6's .y is
-		// the aliveness flag now, so the light's dead-cell skip keeps
-		// working while the alpha lane means sky for the hardware filter.
+		// One extra fetch per corner: the visibility tile's .y is the
+		// aliveness flag, so the light's dead-cell skip keeps working while
+		// the alpha lanes mean sky for the hardware filter.
 		const bool alive = texelFetch(u_IrradianceField,
-						  index + ivec3(0, 0, tile * 6 + zbase), 0).y > 0.5;
-		for (int axis = 0; axis < 3; axis++)
+						  index + ivec3(0, 0, tile * RV_FIELD_VISIBILITY_TILE + zbase), 0).y > 0.5;
+		for (int k = 0; k < RV_FIELD_COEFFICIENTS; k++)
 		{
-			const int slot = axis * 2 + (facing[axis] >= 0.0 ? 0 : 1);
 			const vec4 stored = texelFetch(u_IrradianceField,
-										   index + ivec3(0, 0, tile * slot + zbase), 0);
-			here += square[axis] * stored.rgb;
-			cubeSky += square[axis] * SkyFromAlpha(stored.a);
+										   index + ivec3(0, 0, tile * k + zbase), 0);
+			here += basis[k] * stored.rgb;
+			cubeSky += basis[k] * stored.a;
 		}
+		cubeSky = clamp(cubeSky, 0.0, 1.0);
 
 		// **A dead cell is skipped, not averaged in.** It holds zero because it
 		// is buried in geometry, and blending that zero is the difference

@@ -988,14 +988,33 @@ analytic light contributes.
 > over pi), added after the Monte Carlo normalisation. Verified on
 > `showroom_fullbake.rage` (a copy with its sixteen half-baked lights set to
 > Full bake, baked with `--bake=force`) against the live showroom: the
-> full-baked frame reads 0.70 of the live one, uniformly (thirds 0.69 /
-> 0.70 / 0.69, GiIntensity 1). **That is the field's encoding, not the
-> term:** the six-face ambient cube reconstructs a single lamp's direction
-> at cos² weights, 1.0 on axis and 0.71 at 45°, and the bounce it was built
-> for is broad enough not to care. So Full bake in this engine is coarse in
-> *direction* as well as in space; a true full bake wants lightmaps or a
-> directional probe encoding (SH2 or a lobe basis) — not built, not asked
-> for. The
+> full-baked frame reads 0.68 of the live one — matte walls 0.51, the
+> glossy floor 0.18, the ceiling by the fixture 0.77.
+>
+> **Three hypotheses were built and measured before the cause was read in
+> the code, and all three were beside the point.** The field's six-face
+> storage became second-order spherical harmonics (`kTiles` 7 → 10,
+> `FieldBasis`, every field re-baked): 0.67, unchanged. The bake's direct
+> term was made to honour a light's shadow flag (the showroom's panels sit
+> inside their housings with shadows off): unchanged. The fast reader was
+> made to divide by the filtered alive fraction so buried cells stop
+> blending zeros in: unchanged. All three are kept — they are right, and
+> the harmonics are a better bounce — but none was the loss.
+>
+> **The loss is how the screen uses the field.** `pbr_fragment.glsl`:
+> `if (bounceAnswered < 1.0) irradiance += storedBounce * (1.0 -
+> bounceAnswered);` — on screen the field is only the *fallback* for the
+> bounce; where the GI gather is confident, nearly everywhere, the field
+> is read with weight zero, which is correct for bounce light and discards
+> a fully baked lamp's direct light along with it. What reaches the pixel
+> is that lamp's light after one bounce off other surfaces: walls at half,
+> floor at a fifth. **So Full bake today stores a lamp's direct light and
+> does not read it back at the pixel.** The fix is specified, not built:
+> nine more coefficients per cell for direct light alone (`kTiles` 19,
+> about twice the field's memory), evaluated at the pixel unconditionally
+> and at reflection hits, never mixed with the bounce; a `HasFullBake`
+> lane so scenes without such a light pay no extra fetch. Parked by the
+> owner's decision that the scene will not use Full bake. The
 > generators write `Mobility: Realtime`; the four committed scenes were
 > rewritten by a textual replacement of their `IsBaked: false` lines and
 > nothing else.

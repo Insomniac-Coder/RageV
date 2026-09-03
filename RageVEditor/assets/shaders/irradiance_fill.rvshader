@@ -163,8 +163,13 @@ void main()
 	// wall" to "facing the room" is two separate numbers rather than two ends
 	// of one lobe. Three of the six answer any given normal, so a reader still
 	// spends three fetches; it is the storage that grows, not the lookup.
-	vec3 face[6];
-	for (int f = 0; f < 6; f++)
+	// **Nine spherical-harmonic coefficients, not six faces** (2026-09-02):
+	// every ray adds its radiance times the basis at its direction, and the
+	// band convolution at the end turns the radiance coefficients into
+	// irradiance over pi -- the same units the faces held, so no reader
+	// changed its arithmetic, only its basis. See FieldBasis.
+	vec3 face[9];
+	for (int f = 0; f < 9; f++)
 		face[f] = vec3(0.0);
 
 	// **How often this cell found itself looking at the back of a surface**,
@@ -189,8 +194,8 @@ void main()
 	// Cosine-weighted at write time, so the reader does a weighted sum of
 	// three faces and no reconstruction: it cannot ring and cannot leave the
 	// range, because a convex combination of numbers in [0,1] is in [0,1].
-	float faceSky[6];
-	for (int f = 0; f < 6; f++)
+	float faceSky[9];
+	for (int f = 0; f < 9; f++)
 		faceSky[f] = 0.0;
 
 
@@ -241,12 +246,10 @@ void main()
 			const vec3 skyBin = vec3(dot(u_Fill.Rotation[0].xyz, direction),
 										 dot(u_Fill.Rotation[1].xyz, direction),
 										 dot(u_Fill.Rotation[2].xyz, direction));
-			for (int axis = 0; axis < 3; axis++)
-			{
-				const float along = skyBin[axis];
-				if (along > 0.0) faceSky[axis * 2] += along;
-				else             faceSky[axis * 2 + 1] += -along;
-			}
+			float basis[9];
+			FieldBasis(skyBin, basis);
+			for (int k = 0; k < 9; k++)
+				faceSky[k] += basis[k];
 			continue;
 		}
 
@@ -279,17 +282,12 @@ void main()
 									   dot(u_Fill.Rotation[1].xyz, direction),
 									   dot(u_Fill.Rotation[2].xyz, direction));
 
-		// Each face takes what arrives on its side, weighted by how squarely.
-		// This is the cosine integral that face's surface would do, done once
-		// here so a reader never has to.
-		for (int axis = 0; axis < 3; axis++)
-		{
-			const float along = binDirection[axis];
-			if (along > 0.0)
-				face[axis * 2] += radiance * along;
-			else
-				face[axis * 2 + 1] += radiance * (-along);
-		}
+		// Project the radiance onto the basis; the cosine integral each
+		// face used to do becomes the band convolution applied once below.
+		float basis[9];
+		FieldBasis(binDirection, basis);
+		for (int k = 0; k < 9; k++)
+			face[k] += radiance * basis[k];
 	}
 
 	// **A fully baked light's direct light lives in the field.** For every
@@ -301,8 +299,8 @@ void main()
 	// live loops skip these lights wherever a field is bound, which is what
 	// makes it a bake rather than a double count. Added after the 4/N
 	// normalisation below: it is an exact term, not a Monte Carlo estimate.
-	vec3 direct[6];
-	for (int f = 0; f < 6; f++)
+	vec3 direct[9];
+	for (int f = 0; f < 9; f++)
 		direct[f] = vec3(0.0);
 	for (int i = 0; i < u_Scene.LightCount; ++i)
 	{
@@ -339,26 +337,35 @@ void main()
 		if (attenuation <= 0.0)
 			continue;
 
-		rayQueryEXT blocked;
-		rayQueryInitializeEXT(blocked, u_SceneAS,
-							  RV_RAY_BASE_FLAGS | gl_RayFlagsTerminateOnFirstHitEXT,
-							  0xFFu, origin, 0.0, L, reach);
-		RayTraverse(blocked);
-		if (rayQueryGetIntersectionTypeEXT(blocked, true) != gl_RayQueryCommittedIntersectionNoneEXT)
-			continue;
+		// **Only a light that casts shadows is asked whether it is blocked**
+		// -- Shadow.x is its shadow kind, 0 for none -- exactly as the live
+		// path decides. The first landing traced for every light, and the
+		// showroom's panel lights, which sit inside their fixture meshes with
+		// shadows off, were blocked by their own housings: the walls read
+		// half the live frame.
+		if (int(light.Shadow.x) != 0)
+		{
+			rayQueryEXT blocked;
+			rayQueryInitializeEXT(blocked, u_SceneAS,
+								  RV_RAY_BASE_FLAGS | gl_RayFlagsTerminateOnFirstHitEXT,
+								  0xFFu, origin, 0.0, L, reach);
+			RayTraverse(blocked);
+			if (rayQueryGetIntersectionTypeEXT(blocked, true) != gl_RayQueryCommittedIntersectionNoneEXT)
+				continue;
+		}
 
-		// Irradiance over pi per unit cosine, the face's own units.
-		const vec3 arriving = light.Color.rgb * light.Color.a * attenuation / PI;
+		// The clamped cosine lobe about L, as coefficients: irradiance at
+		// normal incidence times the band convolution over pi times the
+		// basis at L -- irradiance over pi, the field's units, exact to
+		// second order.
+		const vec3 arriving = light.Color.rgb * light.Color.a * attenuation;
 		const vec3 binL = vec3(dot(u_Fill.Rotation[0].xyz, L),
 							   dot(u_Fill.Rotation[1].xyz, L),
 							   dot(u_Fill.Rotation[2].xyz, L));
-		for (int axis = 0; axis < 3; axis++)
-		{
-			if (binL[axis] > 0.0)
-				direct[axis * 2] += arriving * binL[axis];
-			else
-				direct[axis * 2 + 1] += arriving * (-binL[axis]);
-		}
+		float basis[9];
+		FieldBasis(binL, basis);
+		for (int k = 0; k < 9; k++)
+			direct[k] += arriving * FieldBandOverPi(k) * basis[k];
 	}
 
 	// How much of this pass to keep against what the field already holds.
@@ -387,11 +394,15 @@ void main()
 		// the floor black: the fast path's hardware filter blended a dead
 		// cell's 0 into a live cell's 1 and landed at 0.5, which the packed
 		// decode read as "sees no sky". Aliveness moved to tile 6's .y.
-		for (int f = 0; f < 6; f++)
+		// Sky visibility 1.0 from every direction, as a coefficient: the
+		// zeroth carries 1 / Y00 and the rest are zero.
+		imageStore(u_FillField, cell + ivec3(0, 0, atlasBase),
+				   vec4(0.0, 0.0, 0.0, 3.5449077));
+		for (int f = 1; f < 9; f++)
 			imageStore(u_FillField, cell + ivec3(0, 0, tileStride * f + atlasBase),
-					   vec4(0.0, 0.0, 0.0, 1.0));
+					   vec4(0.0));
 		// And nothing visible from it, so no reader takes light from it either.
-		imageStore(u_FillField, cell + ivec3(0, 0, tileStride * 6 + atlasBase),
+		imageStore(u_FillField, cell + ivec3(0, 0, tileStride * RV_FIELD_VISIBILITY_TILE + atlasBase),
 				   vec4(0.0));
 
 		return;
@@ -417,9 +428,12 @@ void main()
 	// swap is a sweep further back than the one being blended with. The
 	// sampler and the image share a layout texel for texel, so the fetch is
 	// exact.
-	for (int f = 0; f < 6; f++)
+	for (int f = 0; f < 9; f++)
 	{
 		const ivec3 slot = cell + ivec3(0, 0, tileStride * f + atlasBase);
+		// Monte Carlo weight 4*pi/N times the band's convolution over pi:
+		// 4/N times pi, 2pi/3, pi/4 -- the faces' 4/N carried the pi already.
+		const float bandScale = faceScale * PI * FieldBandOverPi(f);
 		// **The alpha says the cell is worth reading**, and it rides along free
 		// in a lane the faces do not use. A cell zeroed for being inside
 		// geometry reads zero there, and a reader that blends it in anyway
@@ -445,10 +459,12 @@ void main()
 		// in, and a two-sweep average of a static quantity is noisier than it
 		// need be only if sweeps are scarce. Bake time is free here, so the
 		// sweeps are not.
-		const float faceVisible = clamp(faceSky[f] * faceScale, 0.0, 1.0);
+		// A coefficient, not a fraction: no clamp here, the reader clamps
+		// the evaluated visibility.
+		const float faceVisible = faceSky[f] * bandScale;
 		imageStore(u_FillField, slot,
 				   mix(texelFetch(u_IrradianceField, slot, 0),
-					   vec4(face[f] * faceScale + direct[f], faceVisible), blend));
+					   vec4(face[f] * bandScale + direct[f], faceVisible), blend));
 	}
 
 	// **Whether this cell can see the six cells next to it.**
@@ -496,7 +512,7 @@ void main()
 
 	// Written flat rather than blended: it is a fact about geometry, not an
 	// estimate that improves with rays, and a blended bitmask is not a bitmask.
-	imageStore(u_FillField, cell + ivec3(0, 0, tileStride * 6 + atlasBase),
+	imageStore(u_FillField, cell + ivec3(0, 0, tileStride * RV_FIELD_VISIBILITY_TILE + atlasBase),
 			   vec4(neighbours, 1.0, 0.0, 0.0));
 
 }
