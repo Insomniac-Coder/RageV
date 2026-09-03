@@ -14,6 +14,99 @@ trust this sentence.**
 succeed anyway — the branch is protected and the owner's account bypasses
 it. Expected, not an error, but worth knowing before it alarms someone.)
 
+## Start here — 2026-09-02, END OF THE FOURTH SESSION: where everything stands
+
+**Sixteen local commits on `main` from `b35c82e` to `ee1de90`, none pushed,
+tree clean, scenetest green on both backends at every commit that touched
+code.** Read this section, then `docs/RENDERING-REVAMP.md` items WR-10,
+WR-17, WR-18 and the "Frame-time candidates" section, then
+`docs/RAY-BUDGET-DESIGN.md` (which is WR-16). The owner was confused by
+item labels all day: **explain in plain words first, labels second, and
+never split one instruction into two labels without saying so.**
+
+### What is in, in the order it landed
+
+1. **The baseline** (`0579352`): `tools/scripts/bench_night.py`, eight
+   cameras at 2560x1440. Headland 114 ms. The table is in the agenda
+   section below.
+2. **WR-17, the owner's far-lamp rule** (`b3faaa9`, `ef90573`): shadow rays
+   thin with a lamp's distance, a skipped ray borrows its neighbour's
+   visibility, a floor keeps far lamps sampled, a light cutoff. Shipped as
+   one setting, `RenderSettings::RtOptimisation`: Off / Quality / Balanced
+   / Performance, numbers in `RayOptimisationPresetFor`. The falloff matrix
+   (`tools/scripts/shadow_ray_matrix.py`, four arms) is written up in WR-17.
+3. **WR-18, the water's rays** (`5b7b153`): one mirror and refraction ray
+   per 2x2 quad on the water (quad broadcast, exact normal, no pass), and
+   the refraction ray stops where the water has absorbed all but a 256th.
+   In the presets.
+4. **The scene ships at Quality** (`8ccee6a`, `0892972`): 7 to 32 percent
+   off on the eight cameras, nothing visible changed (table below).
+5. **The measurement that reorders the roadmap**: `--hit-lights=off` shows
+   the 191-light walk at every reflection and refraction hit is ~40 ms of
+   the frame, a memory cost. **WR-10 option A** (the hit walks its cluster
+   cell's list) is in (`224b273`) and is exact and a null: the cost is the
+   lamps genuinely in range. What is left for WR-10 with every lamp live
+   is in the plan (compact records; a per-cell summary rebuilt each frame).
+6. **Light mobility** (`224b273`): `LightMobility` Realtime / Half bake /
+   Full bake replaces `IsBaked` everywhere; old scenes load; the hash mixes
+   it only for Full bake. The scene's lamps are Half bake.
+7. **The irradiance field is spherical harmonics with separate direct
+   light** (`56a171f`, `f6dd7ae`): `IrradianceVolume::kTiles = 19` —
+   tiles 0-8 bounce (+ sky in alpha), 9-17 the fully baked lights' direct
+   light, 18 visibility and alive. `FieldBasis`, `DerivedLamp`,
+   `VolumeIrradiance` with five outputs. Every field re-baked; a stored
+   field with another tile count fails the stamp and is solved again.
+8. **Full bake works** (`f6dd7ae`, `ee1de90`): a fully baked light's direct
+   light is read at the pixel unconditionally and at hits, and its
+   highlight is derived from the stored direction. Showroom, all sixteen
+   lights fully baked against live: 0.99 overall, walls 1.04, car 0.86,
+   floor 1.17, 2.4% of pixels moved over 6 levels (29% this morning).
+9. **WR-16 is the combined ray budget** (`60b0a9f`, `c4e2569`):
+   `docs/RAY-BUDGET-DESIGN.md`, controller + allocator + consumers + ReSTIR
+   inside; five milestones with acceptance tests; not built.
+
+### What the owner wants next, in their words
+
+- **A Static / Moving flag per object.** "Everything except the car gets
+  marked as static." Static surfaces read the fully baked lights from the
+  field and skip them live; a moving object is lit live by the same lights
+  and casts a live shadow from the few nearest (the engine has 4+4 shadow
+  slots). The water stays live for the streak. This is the shadowmask /
+  stationary split; the design document §4 describes it. Then decide which
+  bridge lamps go Full bake — the owner's call, the car shot needs live
+  lamps on the car and the water.
+- After that: the eight-camera after-table per preset, the flicker protocol
+  for the shipped preset under all three AA modes, then the design
+  document's milestones (M0 instrumentation, M1 WR-10, M2 allocator, M3
+  controller, M4 ReSTIR DI with its one-day pre-check first).
+
+### Loose ends, small
+
+- `SampleProject/assets/baked/irradiance_field/` still holds the old
+  ten-tile bake: its solve did not finish in 8000 frames twice (the second
+  attempt was killed by mistake). It falls back to the runtime solve with
+  one log line; re-bake with `--bake=force --benchmark=30000`.
+- Several fixtures baked under new hash names; their old files sit beside
+  them (they were stale before today). Harmless, worth a cleanup commit.
+- The `showroom_fullbake` test scene is deleted; recreate with
+  `fullbake_test.py` in the session's scratchpad if the comparison is
+  needed again (a copy of `showroom.rage` with `Mobility: Full bake` on
+  its sixteen lights).
+
+### Traps this session paid for
+
+- `coherent` is a reserved word in GLSL (a memory qualifier).
+- Stopping a background `bash` loop with TaskStop does not stop the
+  runtime it spawned; a build then fails on the locked executable. Kill
+  `RageVRuntime.exe` and the loop's `bash.exe` before building.
+- Never build while a bake or benchmark chain runs: the build restages
+  every executable's shaders under it.
+- Three hypotheses for Full bake's darkness were built and measured before
+  the consuming code was read; all three were beside the point. Read the
+  path the light takes to the pixel first.
+- `-- -m`, not `-- /m`; absolute paths for detached builds; `--frame-time`
+  pinned with `0.000001`.
+
 ## Next session's agenda, set by the owner 2026-09-02
 
 **First, a proper benchmark of the night scene at 2560x1440 from several
