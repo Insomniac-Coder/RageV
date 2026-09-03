@@ -527,7 +527,7 @@ Entities:
       InnerCone: 15
       OuterCone: 30
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 17043282302990482894
     TagComponent:
       Tag: Headlamp Beam Right
@@ -543,7 +543,7 @@ Entities:
       InnerCone: 15
       OuterCone: 30
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 16933430478517993665
     TagComponent:
       Tag: Tail Glow Left
@@ -559,7 +559,7 @@ Entities:
       InnerCone: 22
       OuterCone: 46
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 11454287864178063394
     TagComponent:
       Tag: Tail Glow Right
@@ -575,7 +575,7 @@ Entities:
       InnerCone: 22
       OuterCone: 46
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 14459092172172403445
     TagComponent:
       Tag: Bay Floor

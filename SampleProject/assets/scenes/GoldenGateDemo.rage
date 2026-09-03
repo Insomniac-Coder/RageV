@@ -3021,7 +3021,7 @@ Entities:
       InnerCone: 55
       OuterCone: 78
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 3839767535078750728
     TagComponent:
       Tag: Nav white 1
@@ -3038,7 +3038,7 @@ Entities:
       InnerCone: 55
       OuterCone: 78
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 3839770833613635361
     TagComponent:
       Tag: Nav white 2
@@ -3055,7 +3055,7 @@ Entities:
       InnerCone: 55
       OuterCone: 78
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 1691562811892756832
     TagComponent:
       Tag: Nav green 3
@@ -3072,7 +3072,7 @@ Entities:
       InnerCone: 55
       OuterCone: 78
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 3839773032636891783
     TagComponent:
       Tag: Nav white 4
@@ -3089,7 +3089,7 @@ Entities:
       InnerCone: 55
       OuterCone: 78
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 3839771933125263572
     TagComponent:
       Tag: Nav white 5
@@ -3106,7 +3106,7 @@ Entities:
       InnerCone: 55
       OuterCone: 78
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 3839775231660148205
     TagComponent:
       Tag: Nav white 6
@@ -3123,7 +3123,7 @@ Entities:
       InnerCone: 55
       OuterCone: 78
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 1691567209939269676
     TagComponent:
       Tag: Nav green 7
@@ -3140,7 +3140,7 @@ Entities:
       InnerCone: 55
       OuterCone: 78
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 17827459776320477794
     TagComponent:
       Tag: Tower beacon 0
@@ -3155,7 +3155,7 @@ Entities:
       Range: 400
       SourceRadius: 0.3
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
     ManagedScriptComponent:
       Script: Beacon
       Fields:
@@ -3177,7 +3177,7 @@ Entities:
       Range: 400
       SourceRadius: 0.3
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
     ManagedScriptComponent:
       Script: Beacon
       Fields:
@@ -3199,7 +3199,7 @@ Entities:
       Range: 130
       SourceRadius: 0.4
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 1471242376270014244
     TagComponent:
       Tag: Marine light 1
@@ -3214,7 +3214,7 @@ Entities:
       Range: 130
       SourceRadius: 0.4
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 1471245674804898877
     TagComponent:
       Tag: Marine light 2
@@ -3229,7 +3229,7 @@ Entities:
       Range: 130
       SourceRadius: 0.4
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 1471244575293270666
     TagComponent:
       Tag: Marine light 3
@@ -3244,7 +3244,7 @@ Entities:
       Range: 130
       SourceRadius: 0.4
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 15269762335764735707
     TagComponent:
       Tag: Seabed

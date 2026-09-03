@@ -919,7 +919,7 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
             # the water, and it stops well before the steel above and behind.
             ("InnerCone", 55), ("OuterCone", 78),
             ("CastShadows", "false"),
-            ("IsBaked", "false"),
+            ("Mobility", "Realtime"),
         ])
 
     # --- the tower-top beacons ----------------------------------------------
@@ -937,7 +937,7 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
     # SampleProject/Scripts) or the component resolves to nothing at all.
     #
     # **Not baked, and it must not be**: a light whose intensity moves is not
-    # one a solve can pre-integrate, and leaving IsBaked on would put a
+    # one a solve can pre-integrate, and leaving it half baked would put a
     # flashing source into a stored file -- the frame may guess, a store may
     # not.
     for index, z in enumerate((-bridge.HALF_SPAN, bridge.HALF_SPAN)):
@@ -950,7 +950,7 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
             ("Range", 400),
             ("SourceRadius", 0.3),
             ("CastShadows", "false"),
-            ("IsBaked", "false"),
+            ("Mobility", "Realtime"),
         ])
         # **`managed_script`, not `script`.** The latter writes a
         # NativeScriptComponent, which names something the C++ module
@@ -997,7 +997,7 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
             ("Range", 130),
             ("SourceRadius", 0.4),
             ("CastShadows", "false"),
-            ("IsBaked", "false"),
+            ("Mobility", "Realtime"),
         ])
 
     # --- the floor of the strait --------------------------------------------

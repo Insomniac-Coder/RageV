@@ -865,7 +865,7 @@ def build(profile, mat, subject=None):
     # its own pool, which is a detail nobody looks for, at the price of the
     # shadow that holds the whole picture together.
     #
-    # **`IsBaked: false` on every one of them**, which is not a detail: a baked
+    # **`Mobility: Realtime` on every one of them**, which is not a detail: a baked
     # field is keyed on the scene's lighting, so a light the viewer can switch
     # would invalidate the bake the moment it was pressed and drop the whole
     # room onto the realtime solve -- which is where the owner found the frame
@@ -877,7 +877,7 @@ def build(profile, mat, subject=None):
             ("Type", kind), ("Color", colour), ("Intensity", 0),
             ("Range", reach), ("InnerCone", inner), ("OuterCone", outer),
             ("CastShadows", "false"),
-            ("IsBaked", "false"),
+            ("Mobility", "Realtime"),
         ])
 
     # --- the service bay ----------------------------------------------------

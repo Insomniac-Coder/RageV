@@ -2918,7 +2918,7 @@ namespace RageV
 			data.SourceRadius = light.Light.SourceRadius;
 			data.Type = light.Light.Type;
 			data.CastShadows = light.Light.CastShadows;
-			data.IsBaked = light.Light.IsBaked;
+			data.Mobility = light.Light.Mobility;
 
 			lights.push_back(data);
 		}
@@ -4126,7 +4126,7 @@ namespace RageV
 			// reading the same .rvfield instead of demanding a bake per
 			// combination of switches. Skipped wholesale: a light the solve
 			// cannot see must not be able to rename the file either.
-			if (!light.IsBaked)
+			if (light.Mobility == LightMobility::Realtime)
 				continue;
 
 			mixVec(light.Position);
@@ -4143,6 +4143,10 @@ namespace RageV
 				mixFloat(light.SourceRadius);
 			mixUint((uint64_t)light.Type);
 			mixUint(light.CastShadows ? 1u : 0u);
+			// Only when fully baked: a half-baked light is what every stored
+			// bake was solved with, and mixing its value would rename them all.
+			if (light.Mobility == LightMobility::FullBake)
+				mixUint(2u);
 		}
 
 		mixVec(m_Environment.AmbientColor);

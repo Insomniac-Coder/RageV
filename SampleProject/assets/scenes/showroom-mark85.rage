@@ -527,7 +527,7 @@ Entities:
       InnerCone: 30
       OuterCone: 60
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 14761169026656201780
     TagComponent:
       Tag: Repulsor Left
@@ -543,7 +543,7 @@ Entities:
       InnerCone: 18
       OuterCone: 52
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 700943263429700161
     TagComponent:
       Tag: Repulsor Right
@@ -559,7 +559,7 @@ Entities:
       InnerCone: 18
       OuterCone: 52
       CastShadows: false
-      IsBaked: false
+      Mobility: Realtime
   - EntityID: 14459092172172403445
     TagComponent:
       Tag: Bay Floor

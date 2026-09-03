@@ -955,6 +955,50 @@ analytic light contributes.
 > at traced hits only, the screen stays live; Full bake: on screen too).
 > The scene's lamps stay Half bake — the car shot needs live lamps. Build
 > from the design document, not from this brief.
+>
+> **Built and measured 2026-09-02, late: option A is a null on this scene.**
+> `ShadeTraced` now projects the hit and, inside the frustum, walks the
+> cluster cell's list instead of every light (`pbr_fragment.glsl`, guarded
+> `#ifndef RV_TRACE_ONLY`; the GI set does not bind the cell buffers).
+> Headland: Off 115.0 ms against 114.4 before, Quality 88.1 against 89.7 —
+> inside the drift. The old walk already skipped an out-of-range light on
+> one dot product, so the list removed only that; the 40 ms is the ~146
+> lamps genuinely in range under the bridge, and it is memory: each hit
+> reads 146 x 80-byte light records (the buffer is 15 KB, L2-resident, but
+> 7.4 M hits a frame read 11.7 KB each). The list stays — exact, and it
+> bounds the loop for a scene with many short-range lights — but it is not
+> the fix. **What is left, with every lamp live:** (1) shrink the record the
+> hit reads — the walk needs position, cone axis, colour, range and cones,
+> 64 B, and half of those lanes at half precision (a 32-B record halves
+> the traffic; exact to the last bit of a half); (2) a per-cell summary of
+> the lamps' light, rebuilt every frame from the cluster grid's own cells
+> (3456 cells x 146 lights, trivial), read by the hit as an ambient cube
+> instead of walked — coarse within a cell, live, no bake; the diff decides
+> where it is admissible. Option C (the bake) is off the table by the
+> owner's decision: the lamps stay Half bake for the car shot.
+>
+> **The light mobility setting landed with it:** `LightMobility`
+> (Realtime / Half bake / Full bake) replaces `IsBaked` on `Light` and
+> `LightRenderData`; the registry serialises it by name and loads the old
+> bool (`IsBaked: false` → Realtime, absent → Half bake); the lighting hash
+> mixes it only for Full bake so no stored bake is renamed; `GpuLight
+> Params.w` carries 0/1/2; the live loops skip a full-baked light wherever a
+> field is bound; the fill solves a full-baked light's direct irradiance at
+> every cell with one ray to the light, in the faces' own units (irradiance
+> over pi), added after the Monte Carlo normalisation. Verified on
+> `showroom_fullbake.rage` (a copy with its sixteen half-baked lights set to
+> Full bake, baked with `--bake=force`) against the live showroom: the
+> full-baked frame reads 0.70 of the live one, uniformly (thirds 0.69 /
+> 0.70 / 0.69, GiIntensity 1). **That is the field's encoding, not the
+> term:** the six-face ambient cube reconstructs a single lamp's direction
+> at cos² weights, 1.0 on axis and 0.71 at 45°, and the bounce it was built
+> for is broad enough not to care. So Full bake in this engine is coarse in
+> *direction* as well as in space; a true full bake wants lightmaps or a
+> directional probe encoding (SH2 or a lobe basis) — not built, not asked
+> for. The
+> generators write `Mobility: Realtime`; the four committed scenes were
+> rewritten by a textual replacement of their `IsBaked: false` lines and
+> nothing else.
 
 **Goal.** GI hit shading currently walks every light
 (`for (i < u_Scene.LightCount)` in `pbr_fragment.glsl`'s traced-hit path —

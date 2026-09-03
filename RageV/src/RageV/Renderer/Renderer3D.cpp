@@ -31,7 +31,7 @@ namespace RageV
 			Vec4 Position;    // xyz, w = 1 positional / 0 directional
 			Vec4 Direction;   // xyz forward axis
 			Vec4 Color;       // rgb, a = intensity
-			Vec4 Params;      // range, cos(inner), cos(outer), IsBaked
+			Vec4 Params;      // range, cos(inner), cos(outer), mobility (0 realtime, 1 half, 2 full)
 			Vec4 Shadow;      // kind, slot, far, texel scale
 		};
 		static_assert(sizeof(GpuLight) == 80, "Must match GpuLight in pbr.rvshader");
@@ -2906,11 +2906,13 @@ namespace RageV
 			const float outer = light.Type == Light::LightType::Spot
 							  ? Math::Cos(Math::Radians(light.OuterCone)) : 1.0f;
 
-			// w carries Light::IsBaked, read only by the irradiance fill: the
-			// solve must shade its hits without the realtime lights, or their
-			// bounce would be stored into files their toggles cannot rename.
+			// w carries LightMobility: 0 realtime, 1 half bake, 2 full bake.
+			// The fill shades its hits with the baked kinds only (a realtime
+			// light's bounce must not land in a file its toggles cannot rename),
+			// solves a full-baked light's direct light into the field, and the
+			// live loops skip full-baked lights wherever a field is bound.
 			entry.Params = { Math::Max(light.Range, 0.0001f), inner, outer,
-							 light.IsBaked ? 1.0f : 0.0f };
+							 (float)(uint32_t)light.Mobility };
 			entry.Shadow = Vec4(0.0f);
 
 			s_Data->LightScratch.push_back(entry);

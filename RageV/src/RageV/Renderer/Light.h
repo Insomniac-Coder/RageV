@@ -14,6 +14,26 @@ namespace RageV
 
 	typedef Vec3 color;
 
+	// **How much of a light the bake owns** -- the mobility split every baking
+	// engine carries, as three values rather than the bool it replaced
+	// (owner, 2026-09-02). Realtime: nothing baked; the light renders live and
+	// the lighting hash skips it, so a script can switch it without renaming a
+	// file. HalfBake (Unreal's Stationary, Unity's Mixed): its bounce is in
+	// the bake, its direct light and shadows stay live -- right for a scene
+	// with things moving through it, and what every light was before. FullBake
+	// (Unreal's Static, Unity's Baked): its direct light is solved into the
+	// field as well, at the field's resolution and with its own shadow ray per
+	// cell, and the live loops skip it wherever a field is bound; a moving
+	// object under it takes the field's coarse light and casts no shadow from
+	// it. Serialised by name; `IsBaked: false` from older scenes loads as
+	// Realtime, absent loads as HalfBake.
+	enum class LightMobility : uint32_t
+	{
+		Realtime = 0,
+		HalfBake = 1,
+		FullBake = 2,
+	};
+
 	// Plain data. Every accessor this used to have was a bare assignment with
 	// no invariant to protect, and private members cannot be described to the
 	// component registry -- so the encapsulation bought nothing and blocked the
@@ -63,18 +83,9 @@ namespace RageV
 		// for a light that, in almost every scene, is a fill.
 		bool CastShadows = true;
 
-		// **Whether this light is part of the baked lighting** -- the
-		// mobility split every baking engine carries (Unity's Baked/Realtime
-		// modes, Unreal's Static/Movable). On, the light contributes to the
-		// solve and any change to it names a different bake. Off, the light
-		// is a realtime light: it renders direct light and shadows exactly
-		// as before, but the lighting hash skips it entirely -- so a script
-		// can flip it on and off without invalidating a single file -- and
-		// the solve does not see it, so its own bounce is simply absent from
-		// baked GI, which for a headlight or a flashlight nobody has ever
-		// noticed. On by default so every existing scene keeps its hash and
-		// its bakes.
-		bool IsBaked = true;
+		// See LightMobility. HalfBake by default so every existing scene keeps
+		// its hash and its bakes.
+		LightMobility Mobility = LightMobility::HalfBake;
 	};
 
 	// One emissive surface, as a rectangle a traced bounce can aim at.
@@ -177,9 +188,9 @@ namespace RageV
 		float SourceRadius = 0.0f;
 		Light::LightType Type = Light::LightType::Directional;
 		bool CastShadows = false;
-		// See Light::IsBaked: hashed into the lighting only when set, and the
-		// solve shades hits with this light only when set.
-		bool IsBaked = true;
+		// See LightMobility: Realtime is skipped by the hash and the solve;
+		// FullBake is solved into the field and skipped by the live loops.
+		LightMobility Mobility = LightMobility::HalfBake;
 	};
 
 	using LightList = std::vector<LightRenderData>;

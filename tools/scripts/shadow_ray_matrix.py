@@ -102,6 +102,10 @@ VARIANTS = [
     ("quality",     "off", 0, ["--rt-optimisation=quality"]),
     ("balanced",    "off", 0, ["--rt-optimisation=balanced"]),
     ("performance", "off", 0, ["--rt-optimisation=performance"]),
+    # WR-10: the traced hit walks its cluster's list. Diffed against the
+    # pre-WR-10 `off` still, so a null here is the exactness proof.
+    ("off-wr10",     "off", 0, ["--rt-optimisation=off"]),
+    ("quality-wr10", "off", 0, ["--rt-optimisation=quality"]),
 ]
 
 

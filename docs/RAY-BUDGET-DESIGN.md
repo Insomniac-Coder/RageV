@@ -389,6 +389,15 @@ memory-bound part, measured by `--hit-lights=off` against the new walk.
 Bit-identical where every in-range light is in the cell (the grid is
 conservative), so the acceptance is a diff of zero.
 
+> **Measured 2026-09-02, late: A is a null on the night scene** (Headland
+> Off 115.0 vs 114.4, Quality 88.1 vs 89.7). The old walk's range test
+> already cost one dot product per out-of-range light; the 40 ms is the
+> ~146 in-range lamps' 80-byte reads. The compact-record half of A (64 B,
+> then 32 B at half precision) is the part that addresses it and was not
+> yet built; the per-cell live summary (an ambient cube per cluster cell,
+> rebuilt each frame, read at hits) is the other live route. C is closed by
+> the owner: the lamps stay Half bake.
+
 **B. A world-space grid with per-cell CDF sampling** (3–4 days, the WR-10
 brief's original). Only if A leaves the walk expensive: 1–4 lights per hit
 sampled by the cell's `power / d²` CDF with `1/pdf` weights. Adds noise to

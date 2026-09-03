@@ -85,6 +85,8 @@ namespace
 		bool s_Initialised = false;
 
 		const char* kLightTypeNames[] = { "Directional", "Point", "Spot" };
+		// In LightMobility order; serialised by these names.
+		const char* kLightMobilityNames[] = { "Realtime", "Half bake", "Full bake" };
 		// "Baked" was this list's first entry and meant "captured once at
 		// runtime"; it is read as Cached for files written before the rename.
 		const char* kProbeUpdateNames[] = { "Cached", "Realtime" };
@@ -766,15 +768,32 @@ namespace
 							   "costs scene renders: a directional light four, a spot one, "
 							   "a point six. Only the first directional light to ask gets "
 							   "cascades; four spot and four point lights cast at once." }),
-				Field<&LightComponent::Light, &Light::IsBaked>("IsBaked",
-					Named("Is Baked",
-						Tip("Whether this light is part of the baked lighting. On, it "
-							"contributes to bakes and changing it means re-baking. Off, "
-							"it is a realtime light: direct light and shadows render as "
-							"always, scripts can switch it freely without invalidating "
-							"any bake, and its own bounce is simply absent from baked "
-							"GI -- the right setting for headlights, flashlights and "
-							"anything that toggles at runtime."))),
+				Field<&LightComponent::Light, &Light::Mobility>("Mobility",
+					Named("Mobility",
+						Enum(kLightMobilityNames,
+							"How much of this light the bake owns.\n\n"
+							"Realtime: nothing. Direct light and shadows render live, "
+							"scripts can switch it freely without invalidating any bake, "
+							"and its bounce is absent from baked GI -- headlights, "
+							"flashlights, anything that toggles.\n\n"
+							"Half bake: its bounce is in the bake, its direct light and "
+							"shadows stay live. Right for a lit scene with things moving "
+							"through it; changing the light means re-baking.\n\n"
+							"Full bake: its direct light is solved into the field too, "
+							"with a shadow ray per cell, and the live loops skip it "
+							"wherever a field is bound. Cheapest at runtime; a moving "
+							"object under it is lit coarsely and casts no shadow from "
+							"it. Lit live where no field is bound."))),
+			};
+			// Scenes from before the enum stored a bool. `IsBaked: false` was a
+			// realtime light; true, or absent, was what is now Half bake.
+			desc.DeserializeExtra = [](const YAML::Node& node, void* component)
+			{
+				if (node["Mobility"])
+					return;
+				if (const YAML::Node baked = node["IsBaked"])
+					static_cast<LightComponent*>(component)->Light.Mobility =
+						baked.as<bool>() ? LightMobility::HalfBake : LightMobility::Realtime;
 			};
 			Bind<LightComponent>(desc);
 			s_Components.push_back(std::move(desc));

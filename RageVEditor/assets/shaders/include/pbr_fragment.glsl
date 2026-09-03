@@ -2253,9 +2253,53 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	// before WR-10 decides what to build. Uniform, so the loop is not
 	// compiled out; the picture with it off is wrong on purpose.
 	const int hitLightCount = u_Scene.RayRates.z > 0.5 ? 0 : u_Scene.LightCount;
+#ifndef RV_TRACE_ONLY
+	// **WR-10: the hit takes the cluster it falls in.** The cluster grid is
+	// cut through the camera's view, and this loop assumed a hit had no
+	// cluster because a hit is not on screen -- but nearly every hit is
+	// *inside the view*: the reflected bridge, the seabed under the water.
+	// So project the hit, and if it lands inside the frustum, walk that
+	// cell's list instead of every light in the scene. A hit outside the
+	// view walks every light as before. Exact where a cell holds every light
+	// in range of it, which the CPU's binning guarantees. Measured before
+	// this: the whole-scene walk was ~40 ms of a 114 ms frame at 1440p.
+	const int hitDirectional = int(u_Scene.ClusterGrid.w);
+	uint hitCellOffset = 0u;
+	int hitCellCount = -1;   // -1: no cell, every light
+	{
+		const vec4 clip = u_Scene.ViewProjection * vec4(hitPosition, 1.0);
+		const float viewDepth = dot(hitPosition - u_Scene.CameraPosition.xyz,
+									u_Scene.CameraForward.xyz);
+		if (clip.w > 0.0 && abs(clip.x) <= clip.w && abs(clip.y) <= clip.w
+			&& viewDepth > u_Scene.ClusterDepth.x && viewDepth < u_Scene.ClusterDepth.y)
+		{
+			const vec2 unit = clamp(clip.xy / clip.w * 0.5 + 0.5, vec2(0.0), vec2(0.9999));
+			const uvec2 tile = uvec2(unit * u_Scene.ClusterGrid.xy);
+			const float slice = log(viewDepth) * u_Scene.ClusterDepth.z + u_Scene.ClusterDepth.w;
+			const uint z = uint(clamp(slice, 0.0, u_Scene.ClusterGrid.z - 1.0));
+			const uint cell = (z * uint(u_Scene.ClusterGrid.y) + tile.y)
+							* uint(u_Scene.ClusterGrid.x) + tile.x;
+			hitCellOffset = u_Cells.Cells[cell].Offset;
+			hitCellCount = int(u_Cells.Cells[cell].Count);
+		}
+	}
+	const int hitTotal = hitLightCount == 0 ? 0
+					   : (hitCellCount < 0 ? hitLightCount : hitDirectional + hitCellCount);
+	for (int entry = 0; entry < hitTotal; ++entry)
+	{
+		const int i = hitCellCount < 0 ? entry
+					: (entry < hitDirectional ? entry
+					   : int(u_CellIndices.Indices[hitCellOffset + uint(entry - hitDirectional)]));
+#else
 	for (int i = 0; i < hitLightCount; ++i)
 	{
+#endif
 		GpuLight light = u_Lights.Lights[i];
+#ifndef RV_IRRADIANCE_FILL
+		// A fully baked light's direct light is in the field this hit adds.
+		if (light.Params.w > 1.5 && u_Scene.IrradianceExtents.w > 0.0)
+			continue;
+#endif
 #ifdef RV_IRRADIANCE_FILL
 		// **The solve shades its hits without the realtime lights.**
 		// Params.w carries Light::IsBaked; a light the lighting hash skips
@@ -3710,6 +3754,11 @@ void main()
 			  : int(u_CellIndices.Indices[cellOffset + uint(entry - directionalCount)]);
 
 		GpuLight light = u_Lights.Lights[i];
+
+		// A fully baked light's direct light is in the field, read with the
+		// bounce; live only where no field is bound (Params.w: mobility).
+		if (light.Params.w > 1.5 && u_Scene.IrradianceExtents.w > 0.0)
+			continue;
 
 		vec3  lightColor = light.Color.rgb * light.Color.a;
 		float isPositional = light.Position.w;
