@@ -3,11 +3,13 @@
 **Read this first.** Updated 2026-09-03.
 
 **2026-09-03: the static / moving split, Hybrid Full Bake, the bigger
-boxes and the packed atlas are built, tested and applied, and sit in the
-working tree uncommitted** -- the owner commits. The evening's start-here
-is the first section below (the numbers), the morning's the second (the
-flag), and the fourth session's entry after them is still the map of
-everything else.
+boxes and the packed atlas are built, tested, applied, committed and
+pushed** -- `f9aa11e` (the engine, every scene marked, the docs) and
+`c4d1edf` (the bridge's lamps and boxes, its bake, the generator), on the
+owner's word, the second push not done by the owner's own hand. The
+evening's start-here is the first section below (the numbers), the
+morning's the second (the flag), and the fourth session's entry after them
+is still the map of everything else.
 
 **On `main` now, and pushed.** The 2026-09-02 session worked on `main` and
 pushed four commits to it, ending at **`bd7f813`**. The paragraph that used
@@ -23,8 +25,8 @@ it. Expected, not an error, but worth knowing before it alarms someone.)
 
 ## Start here — 2026-09-03, evening: the bridge's lamps baked, Hybrid Full Bake, bigger boxes, WR-16 prepared
 
-**Still on `main`, still uncommitted, tree at 246 changed files** (the
-morning's split plus everything below; the owner commits). Read the
+**On `main`, committed as `f9aa11e` and `c4d1edf` and pushed** (the
+morning's split plus everything below). Read the
 morning's entry after this one for the static / moving flag itself. This
 entry is the evening: the owner asked for every bridge lamp baked and the
 gain measured, and the measurement found three defects on the way to a
@@ -145,8 +147,8 @@ controller's mode dial).
 
 ## Start here — 2026-09-03: the static / moving split is in
 
-**On `main`, not pushed, tree clean apart from this work.** The fourth
-session's entry below is still the map of everything else; this one is the
+**On `main`, committed in `f9aa11e` with the evening's work and pushed.**
+The fourth session's entry below is still the map of everything else; this one is the
 task it named first — *"A Static / Moving flag per object"* — built, tested
 and applied to every scene. Design record: **ENGINE-NOTES 7cx**. The plain
 version:
