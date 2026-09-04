@@ -61,6 +61,8 @@ namespace RageV::Vk
 		void RequestCapture(CaptureCallback callback) override;
 		bool ReadTexture(const RHI::Ref<RHI::RHITexture>& texture,
 						 std::vector<uint8_t>& out) override;
+		bool ReadBuffer(const RHI::Ref<RHI::RHIBuffer>& buffer, uint64_t offset, uint64_t size,
+						std::vector<uint8_t>& out) override;
 		void RequestTextureCapture(const RHI::Ref<RHI::RHITexture>& texture,
 								   CaptureCallback callback) override;
 		void CaptureSwapchainImage();
@@ -174,6 +176,11 @@ namespace RageV::Vk
 		// it for this frame. Must run after the fence wait and after the
 		// command buffer has begun -- vkCmdResetQueryPool is a command.
 		void RecycleTimestampPool(VkCommandBuffer cmd);
+		// Records this frame's armed buffer readbacks (ReadBuffer) as copies
+		// into the frame slot's staging buffer: one barrier, then the copies.
+		// The last thing recorded before the command buffer ends, so every
+		// pass's writes are behind it.
+		void RecordReadbacks(VkCommandBuffer cmd);
 		void CreateSwapchain();
 		void DestroySwapchain();
 		// The views and depth buffer only, leaving the swapchain and its
@@ -282,6 +289,37 @@ namespace RageV::Vk
 		std::vector<uint64_t> m_TimestampScratch;
 		double m_TimestampPeriodNs = 1.0;
 		bool m_TimestampsSupported = false;
+
+		// **Buffer readback, one frame late** (RHIDevice::ReadBuffer, WR-16
+		// S0). One staging buffer per frame in flight, host-visible and
+		// mapped for random reads, grown to what a frame asks for and never
+		// shrunk. A request holds its source buffer alive until the copy is
+		// read, for the capture path's reason: a buffer the caller drops
+		// between arming and copying would otherwise be copied from after
+		// its destruction.
+		struct ReadbackRequest
+		{
+			RHI::Ref<RHI::RHIBuffer> Source;
+			uint64_t Offset = 0;
+			uint64_t Size = 0;
+			uint64_t StagingOffset = 0;
+		};
+		struct ReadbackSlot
+		{
+			VkBuffer      Staging = VK_NULL_HANDLE;
+			VmaAllocation Allocation = VK_NULL_HANDLE;
+			void*         Mapped = nullptr;
+			uint64_t      Capacity = 0;
+			// Armed by ReadBuffer this frame; recorded as copies at EndFrame.
+			std::vector<ReadbackRequest> Armed;
+			uint64_t ArmedBytes = 0;
+			// What the last EndFrame through this slot copied, which is what
+			// ReadBuffer answers with the next time the slot comes round.
+			std::vector<ReadbackRequest> Recorded;
+		};
+		std::vector<ReadbackSlot> m_Readback;
+		bool EnsureReadbackCapacity(ReadbackSlot& slot, uint64_t bytes);
+		void DestroyReadbackSlots();
 		// Whether the wideLines feature was there to enable; pipelines clamp
 		// their line width to 1.0 without it rather than tripping validation.
 		bool m_WideLinesSupported = false;

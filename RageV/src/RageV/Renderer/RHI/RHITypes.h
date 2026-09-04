@@ -570,6 +570,13 @@ namespace RageV::RHI
 		ComputeRead,
 		// Read by a graphics shader -- vertex or fragment, storage or uniform.
 		ShaderRead,
+		// Written by any shader that shades -- vertex, fragment or compute --
+		// through a storage buffer: the ray counters a fragment adds to with
+		// an atomic (WR-16 S0). Wider than ComputeWrite on purpose. The write
+		// can come from any stage, and a barrier that named the one stage
+		// doing it today would stop covering the next; the cost of the wider
+		// mask is nothing on a buffer this size.
+		ShaderWrite,
 		// Fetched as vertex or index data by the fixed-function input stage.
 		VertexInput,
 		// Read as the arguments of an indirect draw or dispatch.

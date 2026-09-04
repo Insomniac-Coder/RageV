@@ -56,6 +56,8 @@ namespace RageV::Vk
 		void BuildBottomLevelAS(const RHI::Ref<RHI::RHIAccelerationStructure>& blas) override;
 		void BufferBarrier(const RHI::Ref<RHI::RHIBuffer>& buffer,
 						   RHI::BufferSync from, RHI::BufferSync to) override;
+		void FillBuffer(const RHI::Ref<RHI::RHIBuffer>& buffer, uint64_t offset, uint64_t size,
+						uint32_t value) override;
 		void TextureBarrier(const RHI::Ref<RHI::RHITexture>& texture,
 							RHI::TextureSync from, RHI::TextureSync to) override;
 

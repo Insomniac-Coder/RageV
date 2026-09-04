@@ -127,6 +127,33 @@ namespace RageV::RHI
 		// False if the device cannot do it, leaving `out` untouched.
 		virtual bool ReadTexture(const Ref<RHITexture>& texture,
 								 std::vector<uint8_t>& out) = 0;
+
+		// **Reads a buffer back one frame late, the way the timestamps come
+		// back.** Neither of the two readbacks above fits a number the GPU
+		// produces every frame: the capture is a one-shot diagnostic and
+		// ReadTexture stalls, and a counter that is read every frame cannot
+		// afford either. So this one copies `size` bytes of `buffer` from
+		// `offset` at EndFrame -- after every pass has run -- into a staging
+		// slot the device keeps per frame in flight, and hands the bytes back
+		// the next time that slot comes round, after its fence, when they
+		// cost nothing to read.
+		//
+		// Call it once a frame, between BeginFrame and EndFrame. It does two
+		// things in one call: returns what the slot holds, and arms this
+		// frame's copy. True when `out` is a completed frame's copy of this
+		// same range; false the first time each slot comes round, and after
+		// a frame the slot skipped (a minimised window), because then there
+		// is nothing honest to hand back. The buffer needs
+		// BufferUsage::TransferSrc. WR-16 S0's ray counters are what it
+		// exists for (ENGINE-NOTES 7cy).
+		//
+		// The default is OpenGL's answer: false, and nothing copied.
+		virtual bool ReadBuffer(const Ref<RHIBuffer>& buffer, uint64_t offset, uint64_t size,
+								std::vector<uint8_t>& out)
+		{
+			(void)buffer; (void)offset; (void)size; (void)out;
+			return false;
+		}
 		virtual void OnResize(uint32_t width, uint32_t height) = 0;
 		virtual void SetVSync(bool enabled) = 0;
 

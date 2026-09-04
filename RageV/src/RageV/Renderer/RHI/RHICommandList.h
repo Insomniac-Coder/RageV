@@ -169,6 +169,16 @@ namespace RageV::RHI
 		virtual void BufferBarrier(const Ref<RHIBuffer>& buffer,
 								   BufferSync from, BufferSync to) = 0;
 
+		// Writes `value` over `size` bytes of `buffer` from `offset`, as a
+		// transfer. The zero a per-frame counter needs before the shaders add
+		// to it (WR-16 S0): a CPU Upload into device memory would stage and
+		// stall, and a compute pass to write sixteen zeros is a pass. Offset
+		// and size are multiples of four. Must be recorded outside a render
+		// pass, and ordered against the shaders that touch the buffer with
+		// BufferBarrier -- TransferWrite to ShaderWrite for a counter.
+		virtual void FillBuffer(const Ref<RHIBuffer>& buffer, uint64_t offset, uint64_t size,
+								uint32_t value) = 0;
+
 		// The same, for a texture a shader writes through a storage image
 		// (ENGINE-NOTES 7bc): everything recorded before this that used it as
 		// `from` completes before anything recorded after uses it as `to`. A

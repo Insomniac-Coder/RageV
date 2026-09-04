@@ -1541,6 +1541,21 @@ namespace RageV::GL
 					  | GL_BUFFER_UPDATE_BARRIER_BIT);
 	}
 
+	void OpenGLCommandListRHI::FillBuffer(const Ref<RHIBuffer>& buffer, uint64_t offset,
+										  uint64_t size, uint32_t value)
+	{
+		if (!buffer || size == 0)
+			return;
+
+		// One word, repeated: the same contract as vkCmdFillBuffer, so a
+		// counter zeroed on one backend is zeroed the same way on the other.
+		// Issued now -- GL has no recording -- which is already in order with
+		// everything before it.
+		auto glBuffer = std::static_pointer_cast<OpenGLBufferRHI>(buffer);
+		glClearNamedBufferSubData(glBuffer->GetHandle(), GL_R32UI, (GLintptr)offset,
+								  (GLsizeiptr)size, GL_RED_INTEGER, GL_UNSIGNED_INT, &value);
+	}
+
 	void OpenGLCommandListRHI::WriteTimestamp(uint32_t slot)
 	{
 		m_Device.RecordTimestamp(slot);

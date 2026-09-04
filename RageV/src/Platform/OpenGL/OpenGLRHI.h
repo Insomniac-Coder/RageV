@@ -283,6 +283,8 @@ namespace RageV::GL
 							 const AccelerationInstance* instances, uint32_t count) override;
 		void BuildBottomLevelAS(const Ref<RHIAccelerationStructure>& blas) override;
 		void BufferBarrier(const Ref<RHIBuffer>& buffer, BufferSync from, BufferSync to) override;
+		void FillBuffer(const Ref<RHIBuffer>& buffer, uint64_t offset, uint64_t size,
+						uint32_t value) override;
 		void TextureBarrier(const Ref<RHITexture>& texture, TextureSync from, TextureSync to) override;
 
 		void WriteTimestamp(uint32_t slot) override;

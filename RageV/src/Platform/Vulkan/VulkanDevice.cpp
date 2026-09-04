@@ -160,6 +160,18 @@ namespace RageV::Vk
 		if (m_Device)
 			vkDeviceWaitIdle(m_Device);
 
+		// The readback ring holds the buffers it was asked to copy
+		// (ReadbackRequest::Source), and a buffer whose last reference is
+		// here would otherwise be destroyed after the device -- its deleter
+		// pushed to a queue nothing flushes again. Dropped first, so the
+		// flush below takes them with everything else; the staging buffers
+		// themselves go later, before the allocator.
+		for (ReadbackSlot& slot : m_Readback)
+		{
+			slot.Armed.clear();
+			slot.Recorded.clear();
+		}
+
 		// Anything queued for deferred destruction is safe to run now.
 		if (m_Deletion)
 			m_Deletion->FlushAll();
@@ -189,6 +201,9 @@ namespace RageV::Vk
 		for (VkQueryPool pool : m_TimestampPools)
 			vkDestroyQueryPool(m_Device, pool, nullptr);
 		m_TimestampPools.clear();
+		// After the wait-idle at the top: no copy into these is still running.
+		// Before the allocator goes, because they are its allocations.
+		DestroyReadbackSlots();
 		if (m_ImmediateFence) vkDestroyFence(m_Device, m_ImmediateFence, nullptr);
 		if (m_ImmediatePool)  vkDestroyCommandPool(m_Device, m_ImmediatePool, nullptr);
 		if (m_Allocator)      vmaDestroyAllocator(m_Allocator);
@@ -967,6 +982,192 @@ namespace RageV::Vk
 		m_TimestampPoolUsed[m_FrameIndex] = 1;
 	}
 
+	// --- buffer readback, one frame late (RHIDevice::ReadBuffer) ------------
+
+	bool VulkanDevice::EnsureReadbackCapacity(ReadbackSlot& slot, uint64_t bytes)
+	{
+		if (slot.Capacity >= bytes && slot.Staging != VK_NULL_HANDLE)
+			return true;
+
+		// The old staging buffer's last use was a copy recorded the previous
+		// time this slot came round, and this slot's fence has been waited on
+		// since -- and its last *read* was the ReadBuffer call earlier this
+		// frame. Nothing refers to it any more, so it goes now rather than
+		// through the deferred queue.
+		if (slot.Staging != VK_NULL_HANDLE)
+			vmaDestroyBuffer(m_Allocator, slot.Staging, slot.Allocation);
+		slot.Staging = VK_NULL_HANDLE;
+		slot.Allocation = VK_NULL_HANDLE;
+		slot.Mapped = nullptr;
+		slot.Capacity = 0;
+
+		// Grown in steps, so a frame that asks for a few bytes more than the
+		// last does not reallocate every time.
+		const uint64_t capacity = std::max<uint64_t>(bytes, 4096) + 4095 & ~uint64_t(4095);
+
+		VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+		bufferInfo.size = capacity;
+		bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		// Random host access, not sequential-write: this buffer is read by
+		// the host, and the write-combined memory the per-frame streams use
+		// is the wrong memory for that.
+		VmaAllocationCreateInfo allocInfo{};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+						  VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+		VmaAllocationInfo allocationInfo{};
+		const VkResult result = vmaCreateBuffer(m_Allocator, &bufferInfo, &allocInfo,
+												&slot.Staging, &slot.Allocation, &allocationInfo);
+		if (result != VK_SUCCESS || !allocationInfo.pMappedData)
+		{
+			RV_CORE_ERROR("ReadBuffer: could not allocate a {0}-byte staging buffer ({1}); "
+						  "this frame's readbacks are dropped", capacity, ResultToString(result));
+			if (slot.Staging != VK_NULL_HANDLE)
+				vmaDestroyBuffer(m_Allocator, slot.Staging, slot.Allocation);
+			slot.Staging = VK_NULL_HANDLE;
+			slot.Allocation = VK_NULL_HANDLE;
+			return false;
+		}
+
+		slot.Mapped = allocationInfo.pMappedData;
+		slot.Capacity = capacity;
+		SetDebugName((uint64_t)slot.Staging, VK_OBJECT_TYPE_BUFFER, "readback staging");
+		return true;
+	}
+
+	void VulkanDevice::DestroyReadbackSlots()
+	{
+		for (ReadbackSlot& slot : m_Readback)
+		{
+			if (slot.Staging != VK_NULL_HANDLE)
+				vmaDestroyBuffer(m_Allocator, slot.Staging, slot.Allocation);
+			slot.Staging = VK_NULL_HANDLE;
+			slot.Allocation = VK_NULL_HANDLE;
+			slot.Mapped = nullptr;
+			slot.Capacity = 0;
+			slot.Armed.clear();
+			slot.Recorded.clear();
+		}
+		m_Readback.clear();
+	}
+
+	bool VulkanDevice::ReadBuffer(const RHI::Ref<RHI::RHIBuffer>& buffer, uint64_t offset,
+								  uint64_t size, std::vector<uint8_t>& out)
+	{
+		// Between BeginFrame and EndFrame only: the arm lands in this frame's
+		// command buffer, and outside a frame there is none to land in.
+		if (!buffer || size == 0 || !m_FrameActive)
+			return false;
+		if (offset + size > buffer->GetSize())
+		{
+			RV_CORE_ERROR("ReadBuffer: {0} bytes at {1} is past the end of a {2}-byte buffer",
+						  size, offset, buffer->GetSize());
+			return false;
+		}
+
+		if (m_Readback.size() != m_FramesInFlight)
+			m_Readback.resize(m_FramesInFlight);
+		ReadbackSlot& slot = m_Readback[m_FrameIndex];
+
+		// What this slot copied the last time round. The same buffer, offset
+		// and size, or nothing: a caller that changes its request gets a
+		// false and a fresh start, never a different range's bytes.
+		bool answered = false;
+		for (const ReadbackRequest& request : slot.Recorded)
+		{
+			if (request.Source.get() != buffer.get() || request.Offset != offset
+				|| request.Size != size)
+				continue;
+			if (slot.Mapped == nullptr || request.StagingOffset + size > slot.Capacity)
+				break;
+
+			// The fence for this slot was waited on in BeginFrame, so the
+			// copy has landed; the invalidate is for memory that is not
+			// host-coherent and costs nothing where it is.
+			vmaInvalidateAllocation(m_Allocator, slot.Allocation, request.StagingOffset, size);
+			out.resize((size_t)size);
+			memcpy(out.data(), (const uint8_t*)slot.Mapped + request.StagingOffset, (size_t)size);
+			answered = true;
+			break;
+		}
+
+		// Arm this frame's copy. Offsets kept word-aligned, which every
+		// caller's sizes already are and a copy does not mind either way.
+		const uint64_t stagingOffset = (slot.ArmedBytes + 3) & ~uint64_t(3);
+		slot.Armed.push_back({ buffer, offset, size, stagingOffset });
+		slot.ArmedBytes = stagingOffset + size;
+		return answered;
+	}
+
+	void VulkanDevice::RecordReadbacks(VkCommandBuffer cmd)
+	{
+		if (m_FrameIndex >= m_Readback.size())
+			return;
+		ReadbackSlot& slot = m_Readback[m_FrameIndex];
+
+		// Whatever was recorded last time round has been answered by now (or
+		// nobody asked), and a slot that armed nothing this frame must not
+		// keep answering with an older frame's bytes.
+		slot.Recorded.clear();
+		if (slot.Armed.empty())
+			return;
+
+		if (!EnsureReadbackCapacity(slot, slot.ArmedBytes))
+		{
+			slot.Armed.clear();
+			slot.ArmedBytes = 0;
+			return;
+		}
+
+		// Everything the frame wrote, from any stage, before the copies read
+		// it. One barrier for all of them: the sources are a handful of small
+		// buffers and a memory barrier is cheaper than one buffer barrier
+		// each.
+		VkMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+		barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+		barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+		barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+
+		VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+		dependency.memoryBarrierCount = 1;
+		dependency.pMemoryBarriers = &barrier;
+		vkCmdPipelineBarrier2(cmd, &dependency);
+
+		for (const ReadbackRequest& request : slot.Armed)
+		{
+			VkBufferCopy region{};
+			region.srcOffset = request.Offset;
+			region.dstOffset = request.StagingOffset;
+			region.size = request.Size;
+			vkCmdCopyBuffer(cmd, static_cast<VulkanBuffer*>(request.Source.get())->GetHandle(),
+							slot.Staging, 1, &region);
+		}
+
+		// And the copies before anything that writes the sources next -- the
+		// next frame's fill of the same buffer, in the other slot, which the
+		// fence does not order against this one. A barrier's scope reaches
+		// into later submissions on the same queue, so this closes the
+		// write-after-read for a caller that reads one buffer every frame
+		// as well as for one that keeps a buffer per slot.
+		VkMemoryBarrier2 after{ VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+		after.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+		after.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+		after.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		after.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+		VkDependencyInfo afterDependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+		afterDependency.memoryBarrierCount = 1;
+		afterDependency.pMemoryBarriers = &after;
+		vkCmdPipelineBarrier2(cmd, &afterDependency);
+
+		slot.Recorded = std::move(slot.Armed);
+		slot.Armed.clear();
+		slot.ArmedBytes = 0;
+	}
+
 	VkFormat VulkanDevice::SelectDepthFormat() const
 	{
 		// D32_SFLOAT_S8_UINT first: stencil is wanted later for masking, and
@@ -1353,6 +1554,16 @@ namespace RageV::Vk
 		// After Begin, because resetting a query pool is a recorded command.
 		RecycleTimestampPool(frame.CommandBuffer);
 
+		// A frame this slot skipped -- an early return above, no EndFrame --
+		// may have armed readbacks nobody copied. They are dropped here rather
+		// than copied late: what a caller asked for was that frame's bytes,
+		// and this frame's are a different answer.
+		if (m_FrameIndex < m_Readback.size())
+		{
+			m_Readback[m_FrameIndex].Armed.clear();
+			m_Readback[m_FrameIndex].ArmedBytes = 0;
+		}
+
 		m_FrameActive = true;
 		// From here until EndFrame, a destroyed resource may already be in
 		// this frame's command buffer, and the queue slots it accordingly.
@@ -1367,6 +1578,9 @@ namespace RageV::Vk
 			return;
 
 		FrameContext& frame = m_Frames[m_FrameIndex];
+		// Last into the command buffer, so every pass's writes precede the
+		// copies; the barrier inside is what makes them visible to the copy.
+		RecordReadbacks(frame.CommandBuffer);
 		m_CommandList->End();
 		m_FrameActive = false;
 		m_Deletion->InFrame = false;

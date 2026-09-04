@@ -503,6 +503,16 @@ namespace RageV::Vk
 						  | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
 					access = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT;
 					break;
+				case RHI::BufferSync::ShaderWrite:
+					// Every stage that shades, and both directions of access:
+					// an atomic reads and writes, and the counter it lands in
+					// is touched by the lit fragment, the occlusion pass and
+					// the temporal resolve in one frame.
+					stage = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT
+						  | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+						  | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+					access = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+					break;
 				case RHI::BufferSync::VertexInput:
 					stage = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
 					access = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT;
@@ -568,6 +578,19 @@ namespace RageV::Vk
 
 		vkCmdPipelineBarrier(m_CommandBuffer, sourceStage, destinationStage, 0,
 							 0, nullptr, 1, &barrier, 0, nullptr);
+	}
+
+	void VulkanCommandList::FillBuffer(const RHI::Ref<RHI::RHIBuffer>& buffer, uint64_t offset,
+									   uint64_t size, uint32_t value)
+	{
+		if (!buffer || size == 0)
+			return;
+		RV_CORE_ASSERT(!m_InRenderPass, "FillBuffer must be recorded outside a render pass");
+		RV_CORE_ASSERT((offset % 4) == 0 && (size % 4) == 0,
+					   "FillBuffer works in whole words: offset and size are multiples of four");
+
+		auto vulkanBuffer = std::static_pointer_cast<VulkanBuffer>(buffer);
+		vkCmdFillBuffer(m_CommandBuffer, vulkanBuffer->GetHandle(), offset, size, value);
 	}
 
 	void VulkanCommandList::TextureBarrier(const RHI::Ref<RHI::RHITexture>& texture,
