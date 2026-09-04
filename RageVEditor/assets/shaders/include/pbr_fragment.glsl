@@ -2792,6 +2792,11 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	// before WR-10 decides what to build. Uniform, so the loop is not
 	// compiled out; the picture with it off is wrong on purpose.
 	const int hitLightCount = u_Scene.RayRates.z > 0.5 ? 0 : u_Scene.LightCount;
+	// WR-16 S4's sizing, as on screen: at most N positional lamps are read in
+	// full and shaded at this hit. Read from RayRates.w's high bits here too,
+	// so one flag covers both halves of the lamp cost.
+	const int hitShadeLimit = int(u_Scene.RayRates.w + 0.5) / 256 - 1;
+	int hitShaded = 0;
 #ifndef RV_TRACE_ONLY
 	// **WR-10: the hit takes the cluster it falls in.** The cluster grid is
 	// cut through the camera's view, and this loop assumed a hit had no
@@ -2852,6 +2857,12 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 		if (LightCullRejects(uint(i), hitPosition, surface.Static && hitFieldWeight >= 1.0, false))
 			continue;
 #endif
+		if (hitShadeLimit >= 0 && i >= int(u_Scene.ClusterGrid.w))
+		{
+			if (hitShaded >= hitShadeLimit)
+				continue;
+			++hitShaded;
+		}
 		GpuLight light = u_Lights.Lights[i];
 		float hitLiveShare = 1.0;
 #ifndef RV_IRRADIANCE_FILL
@@ -4401,7 +4412,7 @@ void main()
 	// samples the streak's lamps as if they were dim.
 	const int budgetCode = int(u_Scene.RayRates.w + 0.5);
 	const int shadowBudget = clamp(budgetCode & 15, 0, 8);
-	const bool budgetFullTarget = budgetCode >= 16;
+	const bool budgetFullTarget = (budgetCode & 16) != 0;
 	uint  budgetIndex[8];
 	vec3  budgetTerm[8];
 #ifdef RV_WATER
@@ -4436,6 +4447,17 @@ void main()
 	}
 #endif
 
+	// **WR-16 S4's sizing** (`--shade-lights=N`, RayRates.w bits 8 and up,
+	// N + 1 so zero is off). A measurement with no feature behind it: the
+	// pixel walks every lamp's sixteen-byte cull record as it does today --
+	// what S4's sampler would pay to score its candidates -- and shades only
+	// the first N lamps that pass it. `--casting-lights` cuts the ray and
+	// leaves the shading; this cuts the shading, which after S2 is the half
+	// the water still pays in full. The lamps past N are simply absent, so
+	// the picture is wrong on purpose and the frame time is the bound.
+	const int shadeLimit = int(u_Scene.RayRates.w + 0.5) / 256 - 1;
+	int shadedLights = 0;
+
 	// `entry`, not `slot`: the loop body already has a `slot`, which is the
 	// shadow map this light was given.
 	for (int entry = 0; entry < total; ++entry)
@@ -4451,6 +4473,15 @@ void main()
 		if (LightCullRejects(uint(i), v_WorldPos, cullInsideField, true))
 			continue;
 #endif
+		// The sizing flag's cap (above): directional lights are never capped
+		// -- there are one or two of them and they are the sun -- so this
+		// counts positional lamps alone, in the cell list's order.
+		if (shadeLimit >= 0 && i >= directionalCount)
+		{
+			if (shadedLights >= shadeLimit)
+				continue;
+			++shadedLights;
+		}
 		GpuLight light = u_Lights.Lights[i];
 
 		// **A fully baked light on a static surface is in the field** (7cx),

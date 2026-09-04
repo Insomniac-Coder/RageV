@@ -392,6 +392,20 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "shade-lights" || key == "shadelights")
+		{
+			try
+			{
+				config.ShadeLights = Math::Clamp(std::stoi(value), 0, 255);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("shade-lights expects a whole number from 0 to 255; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
 		if (key == "shadow-budget" || key == "shadowbudget")
 		{
 			// K, optionally followed by ",full" for the full-term target.

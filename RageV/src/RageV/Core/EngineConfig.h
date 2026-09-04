@@ -87,6 +87,13 @@
 //   --casting-lights=N      measurement only: under rays, only the first N
 //                           positional lights keep a shadow ray; the rest
 //                           light without one (WR-16 S0's light-count sweep)
+//   --shade-lights=N        measurement only (WR-16 S4's sizing): a fragment
+//                           or a traced hit shades at most N positional
+//                           lamps and skips the rest where the eighty-byte
+//                           read begins -- the cheap sixteen-byte walk stays,
+//                           as a sampler's would. The picture is wrong on
+//                           purpose; the frame time bounds what choosing a
+//                           few lamps per pixel can win.
 //   --shadow-budget=K[,full] measurement only (WR-16 S1): each pixel traces
 //                           K shadow rays in all, to K lamps chosen by
 //                           importance from its cluster list, and takes the
@@ -295,6 +302,25 @@ namespace RageV
 		// irradiance -- the S4 design question the water's glitter forces.
 		int   ShadowBudget = 0;
 		bool  ShadowBudgetFullTarget = false;
+
+		// --shade-lights=N: a measurement (WR-16 S4's sizing, 2026-09-04).
+		// A fragment or a traced hit walks every lamp's sixteen-byte cull
+		// record as it does today -- as S4's sampler would, to score
+		// candidates -- but only the first N lamps past that record are read
+		// in full and shaded at all; the rest cost nothing, ray included.
+		//
+		// **Why this and not --casting-lights.** That flag removes the shadow
+		// ray and leaves the shading, which is the half the calibration found
+		// bigger: 77 to 125 lamps evaluated per fragment. S2 made the static
+		// pixels cheap by leaving fully baked lamps to the field, but the
+		// water is live by the standing rule and still shades every lamp that
+		// reaches it. This flag bounds what S4's "shade only the survivors"
+		// can win, which nothing shipped can show. The picture is wrong on
+		// purpose (the lamps past N are simply absent).
+		//
+		// Negative -- the default -- shades every lamp. Carried to the shader
+		// in RayRates.w's bits 8 and up, as N + 1 so that zero means off.
+		int   ShadeLights = -1;
 
 		// **--debug-view=<what>** (WR-16 S0): the frame replaced by a heat map
 		// of one number per pixel, read from the counts the lit shaders write

@@ -3768,3 +3768,155 @@ pass on every camera within a few milliseconds of what it was and the
 opaque pass roughly halved everywhere. The rays columns are unchanged to
 the decimal, which is the exactness the pictures already said: S2 removed
 reads, not rays.
+
+#### S4's shape, laid out and decided (2026-09-04, evening)
+
+The handoff's instruction was to lay S4 out before building it, and this is
+what was laid out and what the owner decided. Four questions, four answers.
+
+**Where S4 starts: with a measurement, half a day.** The split every plan
+here quotes -- the lamps' rays 20-30% of the frame, the hit walk 13-22%, the
+rest the shading of 77 to 125 lamps a fragment -- is S0's, taken *before* S2.
+S2 then took 20 / 28 / 32% off the three cameras, nearly all of it from
+static pixels, and left the water paying in full: it moves, so it is lit
+live, and every patch of it still shades every lamp that reaches it. What is
+left of each lever after that is not known, and three weeks is a long time to
+spend on a share nobody has measured since the ground moved.
+
+Nothing shipped could show it. `--casting-lights=0` removes the lamps' rays
+and leaves the shading; `--shadow-budget=K` cuts the rays and *still shades
+every lamp* (S1 says so in its own text, which is why its frame times were an
+upper bound). So the sizing needed one new measurement flag:
+
+> **`--shade-lights=N`** (RayRates.w bits 8 and up, N + 1 so zero is off): a
+> fragment or a traced hit walks every lamp's sixteen-byte cull record as it
+> does today -- which is what S4's sampler will pay to score its candidates --
+> and only the first N lamps past that record are read in full and shaded, ray
+> included. The lamps beyond N are simply absent, so the picture is wrong on
+> purpose and the frame time is a bound, not a quality claim. It caps the
+> traced-hit walk by the same number, so one flag covers both halves of the
+> lamp cost.
+
+The arms subtract: `base - no-rays` is the lamps' ray time; `base - shade-4`
+is the whole lamp lever, rays and shading together, which is S4's ceiling;
+`no-rays - shade-4-no-rays` is the shading lever alone, the number no shipped
+flag can produce. `tools/scripts/water_cost_split.py` runs them interleaved
+(every arm once per pass, passes repeated, the median printed) because this
+laptop's GPU drifts a millisecond over a session and walks one way.
+
+**The target: build both and let the matrix decide.** S1 measured the cheap
+target (unshadowed irradiance) as *unusable on water* -- a glitter lamp's
+specular is about a hundred times its irradiance, so a target that cannot see
+the highlight samples the streak's lamps as if they were dim, and the water
+comes out darker at every K. The full target is what held. But the full term
+for a hundred and forty candidates is the cost S4 exists to remove, so the
+production sampler cannot simply use it. Two shapes answer that:
+
+- **two-stage**: a cheap target shortlists 16 candidates from the cell, the
+  full unshadowed term (BRDF included) runs on those 16 alone, K = 4 survive
+  and get rays. Affordable because 16 is not 140.
+- **one cheap target with the highlight in it**: an analytic guess at the
+  specular peak (a Beckmann lobe's peak value times the irradiance) scored
+  over every candidate, no second stage. Cheaper per candidate; the guess is
+  unproven on wavy water, where the lobe is the picture.
+
+Both go behind one flag and through S1's own matrix -- the same cameras, the
+same diffs, the same flicker protocol. The owner's call: measure, do not
+judge.
+
+**The reuse: take the deferred step now.** ReSTIR's spatial half needs a
+pixel to read its neighbours' chosen lamps, and the water is shaded in one
+forward pass with the ray query inside the fragment shader -- a fragment can
+look at its own past there, but not sideways. So the water's lamp light moves
+into its own stage: the water pass writes the surface and the reservoirs, a
+compute pass reuses across neighbours, shades the survivors and traces their
+rays, and the result composites back. This is the bigger of the two roads and
+was taken deliberately, with two reasons beside the quality: **S5 already
+needs the water's normal in a sixteen-bit buffer** (today's surface target is
+`R8G8B8A8_UNORM`, too coarse for the history's normal test as well), and the
+reconstruction stage of decision F needs a place to live that is not a
+fragment shader's registers -- where S1's eight reservoirs already spilled.
+
+**Solo.** No agents, by the owner's standing rule.
+
+**The build order that follows.** The world-space lamp grid first (2-3 days,
+exact, a diff of zero for its acceptance, and it is the candidate source
+everything after it reads -- on screen, at hits, and behind the camera); then
+the sampler with both targets behind a flag; then the deferred stage with
+temporal and spatial reuse; then the reconstruction. Each is a stop point
+with its own measurement.
+
+#### S4's sizing, measured (2026-09-04, evening)
+
+`tools/scripts/water_cost_split.py`, three cameras, six arms, three
+interleaved passes of 150 frames at 2560x1440, the project's own settings.
+The table prints the median arm; the levers below it are **per-pass
+differences** -- arm minus arm inside one pass, then the median of the three
+-- because Headland's base drifted 51.9 to 58.4 ms over the hour as the GPU
+warmed, and only a difference taken inside a pass is safe from that.
+
+| camera | base | no lamp rays | shade 4 | shade 8 | shade 4, no rays | no hit walk |
+|---|---|---|---|---|---|---|
+| Headland | 54.0 (water 41.1) | 36.8 | 28.5 | 30.7 | 26.3 | 51.2 |
+| Pier | 43.4 (water 31.9) | 31.3 | 24.0 | 25.7 | 22.0 | 38.5 |
+| Glitter | 38.7 (water 28.3) | 27.1 | 22.9 | 24.8 | 21.8 | 36.6 |
+
+The levers, per-pass differences, with the share of the frame and the share
+of the delta that lands in the water pass:
+
+| lever | Headland | Pier | Glitter |
+|---|---|---|---|
+| the lamps' shadow rays (`base - no-rays`) | 17.2 ms, 32% | 11.9 ms, 27% | 12.5 ms, 32% |
+| **the whole lamp lever at K = 4** (`base - shade-4`) | **25.5 ms, 47%** | **19.7 ms, 45%** | **17.0 ms, 44%** |
+| the same at K = 8 | 23.3 ms, 43% | 17.5 ms, 40% | 13.9 ms, 36% |
+| the shading alone (`no-rays - shade-4-no-rays`) | 9.3 ms | 9.3 ms | 5.5 ms |
+| what four rays a pixel cost | 1.8 ms | 1.9 ms | 1.2 ms |
+| K = 8 over K = 4 | 2.2 ms | 1.4 ms | 2.4 ms |
+| the light walk at traced hits (`--hit-lights=off`) | 2.8 ms | 4.8 ms | 1.6 ms |
+
+Every millisecond of the lamp lever is in the water pass (the water column
+of each difference equals the frame column to a decimal), and the opaque
+pass does not move under any arm -- 10.6 to 11.6 ms on Headland whatever is
+switched off. S2 finished the opaque pass; what is left is the sea.
+
+**What this says, in order of how much it changes the plan.**
+
+1. **S4's ceiling is 44 to 47% of the frame** -- 25.5, 19.7 and 17.0 ms.
+   Larger than the plan assumed, and it is one step, not five.
+2. **The rays are now the bigger half, not the shading.** S0's calibration
+   found the frame light-bound more than ray-bound: the lamps' rays 20-30%,
+   the hit walk 13-22%, and the rest the shading of 77 to 125 lamps a
+   fragment. That was measured before S2, and S2 spent the shading half on
+   the static pixels -- the deck, the towers, the cliffs -- which is why it
+   took a fifth to a third off these cameras. On what remains, the water,
+   the split is rays 27-32% against the extra lamps' shading 14-21%. **The
+   earlier sentence is not withdrawn -- it was true of the frame it
+   described -- but it must not be carried forward as a reason to spend the
+   shading lever first.** Choosing the lamps is what spends both, which is
+   why K's design (the target) matters more than either share.
+3. **Four rays a pixel cost under two milliseconds** -- 1.8, 1.9 and 1.2 --
+   against the 11.9 to 17.2 the lamps' rays cost today. The ray half of S4
+   is nearly free once the choice is made; the choice is the whole cost.
+4. **K = 8 costs about two milliseconds over K = 4** on every camera. S1's
+   verdict was K = 4 with a target that knows the specular, with Pier's
+   1.14% residual left for S4's reuse to close. This says the fallback is
+   cheap: if the reuse does not close Pier, K = 8 halves the residual
+   (S1: 1.14% to 0.50%) for 1.4 ms there. **K should be a setting with 4 as
+   its default, not a constant.**
+5. **The light walk at traced hits is now small** -- 2.8, 4.8 and 1.6 ms,
+   and Glitter's reads inside the drift (1.6, 4.2, -1.1 across the passes).
+   The world-space lamp grid's *own* payoff is Pier's 3 to 5 ms. It remains
+   the mechanism the sampler needs off screen and behind the camera, as the
+   S2 diagnosis said, but it is not where the milliseconds are, and the
+   order inside S4 should be decided knowing that.
+6. **The sun's rays are a floor S4 does not touch**: 5.9, 6.4 and 4.8 M
+   shadow rays remain with every lamp's ray removed -- one per lit fragment
+   and one per traced hit.
+
+**What the numbers do not say.** `--shade-lights=N` walks the sixteen-byte
+record and then shades the first N lamps past it; it never *scores* the
+candidates, so it pays nothing for the choice. The real sampler pays a cheap
+target per candidate plus the reservoir machinery, and that cost sits between
+`shade-4` and `base`. So 28.5 / 24.0 / 22.9 ms is S4's floor, not its
+forecast, and the first thing the sampler must be measured for is what its
+scoring costs per candidate.

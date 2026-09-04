@@ -3160,7 +3160,11 @@ namespace RageV
 				config.HasRefractionFloorOverride ? config.RefractionFloorOverride
 												  : preset.RefractionFloor,
 				config.HitLights ? 0.0f : 1.0f,
-				(float)(config.ShadowBudget + (config.ShadowBudgetFullTarget ? 16 : 0)));
+				// .w again: S1's budget in the low five bits, and above them
+				// S4's sizing flag --shade-lights=N as N + 1 (zero is off).
+				// Both are whole numbers well inside a float's exact range.
+				(float)(config.ShadowBudget + (config.ShadowBudgetFullTarget ? 16 : 0)
+						+ (config.ShadeLights >= 0 ? 256 * (config.ShadeLights + 1) : 0)));
 		}
 
 		const uint32_t cascadeCount = ShadowMap::HasCascades() ? ShadowMap::GetCascadeCount() : 0;
