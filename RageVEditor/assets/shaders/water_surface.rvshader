@@ -1,0 +1,41 @@
+// The sea's surface, written to two attachments so its lamps can be shaded
+// somewhere else (WR-16 S4b).
+//
+// **Why this exists at all.** Water is drawn as a transparent surface -- the
+// weighted accumulation and revealage pair -- so unlike every opaque surface
+// it writes no normal, no roughness and no velocity. A pass that wants to
+// choose and shade the sea's lamps in one place therefore has nothing to
+// read: there is no G-buffer for the sea. This pass makes one, and only for
+// water.
+//
+// **It is the same shader, stopped early.** The fragment stage is
+// pbr_fragment.glsl compiled with RV_WATER, RV_TRANSPARENT and
+// RV_WATER_SURFACE: every define the real water pass uses, so every branch
+// above the cut behaves identically -- the same Gerstner waves, the same
+// detail normals, the same footprint roughness, the same foam and the same
+// depth-gradient colour -- and then it returns as soon as the surface is
+// final. Exactness by construction rather than by care: there is no second
+// copy of the surface derivation to drift.
+//
+// The vertex stage is water.rvshader's, unchanged and for its reasons; see
+// that file for why RV_WATER has to be defined before the scene block.
+#type vertex
+#version 450 core
+
+#define RV_WATER
+
+#include "include/scene_vertex.glsl"
+#include "include/water_params.glsl"
+#include "include/water_waves.glsl"
+#include "include/water_vertex.glsl"
+
+#type fragment
+// 460 like the others: the shading below the cut still compiles, and it
+// carries the ray-query keywords even though this variant never reaches them.
+#version 460 core
+
+#define RV_WATER
+#define RV_TRANSPARENT
+#define RV_WATER_SURFACE
+
+#include "include/pbr_fragment.glsl"

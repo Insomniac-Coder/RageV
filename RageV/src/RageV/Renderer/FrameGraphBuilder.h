@@ -41,6 +41,12 @@ namespace RageV
 		// Whatever draws here must write two outputs and use the weighted
 		// blend presets; see ParticleRenderer for the shape of it.
 		std::function<void(RGPassContext&)> DrawTransparent;
+		// WR-16 S4b: the sea drawn once before the transparent pass, into the
+		// two attachments that describe its surface, so the pass that chooses
+		// and shades its lamps has a normal and a roughness to read. Water is
+		// transparent and writes neither on its own. Null leaves the walk in
+		// the water pass, which is the shape before this existed.
+		std::function<void(RGPassContext&)> DrawWaterSurface;
 
 		// Composites the two attachments above back over the scene. Given the
 		// accumulation and revealage textures, in that order.

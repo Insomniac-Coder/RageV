@@ -535,6 +535,10 @@ namespace RageV
 			// floor, which is the thing this exists to stop being.
 			Ref<RHIShader>   WaterShader;
 			Ref<RHIPipeline> WaterPipeline;
+			// WR-16 S4b: the same shader stopped at the surface, drawn into
+			// the two attachments the lamp pass reads. Null where water is.
+			Ref<RHIShader>   WaterSurfaceShader;
+			Ref<RHIPipeline> WaterSurfacePipeline;
 
 			// **The same lit shader with the cutout test compiled in**, for
 			// alpha-tested materials. A separate variant and not a uniform
@@ -855,6 +859,11 @@ namespace RageV
 				// recorded bind invalidates the command buffer.
 				std::vector<Ref<RHIResourceSet>> WaterSets;
 				uint32_t WaterSetCursor = 0;
+				// The surface pass's own pool: a resource set belongs to the
+				// pipeline layout it was made from, and the two pipelines are
+				// different objects even where their layouts agree.
+				std::vector<Ref<RHIResourceSet>> WaterSurfaceSets;
+				uint32_t WaterSurfaceSetCursor = 0;
 				// And the transparent pipeline's *GPU-driven* set: the same
 				// instance table read through the indices the blended cull
 				// wrote instead of the ones the sort produced. One binding
@@ -1133,6 +1142,7 @@ namespace RageV
 			// The sets are kept, the claim on them is not.
 			slot.MeshletCursor = 0;
 			slot.WaterSetCursor = 0;
+			slot.WaterSurfaceSetCursor = 0;
 
 			return slot;
 		}
@@ -1612,6 +1622,22 @@ namespace RageV
 				RV_CORE_ERROR("Renderer3D: water.rvshader did not compile; bodies of "
 							  "water will not be drawn");
 				s_Data->WaterShader = nullptr;
+			}
+
+			// WR-16 S4b: the same shader again, stopped as soon as the surface
+			// is final, for the pass that shades the sea's lamps. Compiled
+			// with the identical define set so every branch above the cut is
+			// the one the real pass takes.
+			if (auto surface = ShaderCompiler::CompileFromFile(
+					"assets/shaders/water_surface.rvshader", blended))
+			{
+				s_Data->WaterSurfaceShader = s_Data->Device->CreateShader(*surface);
+			}
+			else
+			{
+				RV_CORE_ERROR("Renderer3D: water_surface.rvshader did not compile; the "
+							  "sea's lamps keep the walk in the water pass");
+				s_Data->WaterSurfaceShader = nullptr;
 			}
 		}
 
@@ -2768,11 +2794,37 @@ namespace RageV
 			{
 				s_Data->WaterPipeline = nullptr;
 			}
+
+			// The surface twin (WR-16 S4b). **Everything about how it
+			// rasterises is the water pipeline's** -- the same two-sidedness
+			// for the same reason, the same depth test against the opaque
+			// scene, the same sample count -- and three things differ, each
+			// because it writes a description rather than a colour: two float
+			// attachments instead of accumulation and revealage, no blending
+			// (a surface is not a sum), and no depth write, because writing
+			// here would make the water pass's own fragments fail the equal
+			// test afterwards.
+			if (s_Data->WaterSurfaceShader)
+			{
+				GraphicsPipelineDesc surface = blended;
+				surface.Name = "Renderer3D.water.surface";
+				surface.Shader = s_Data->WaterSurfaceShader;
+				surface.ColorFormats = { Format::R16G16B16A16_SFLOAT,
+										 Format::R16G16B16A16_SFLOAT };
+				surface.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque };
+				surface.DepthStencil.DepthWriteEnable = false;
+				s_Data->WaterSurfacePipeline = s_Data->Device->CreatePipeline(surface);
+			}
+			else
+			{
+				s_Data->WaterSurfacePipeline = nullptr;
+			}
 		}
 		else
 		{
 			s_Data->TransparentPipeline = nullptr;
 			s_Data->WaterPipeline = nullptr;
+			s_Data->WaterSurfacePipeline = nullptr;
 		}
 
 		// The traced bounce: a fullscreen triangle with no depth of its own and
@@ -2833,6 +2885,8 @@ namespace RageV
 				slot.TransparentGpuSet.reset();
 				slot.WaterSets.clear();
 				slot.WaterSetCursor = 0;
+				slot.WaterSurfaceSets.clear();
+				slot.WaterSurfaceSetCursor = 0;
 			}
 		}
 	}
@@ -4747,7 +4801,24 @@ namespace RageV
 	// pipeline, which would read joint indices as texture coordinates.
 	void Renderer3D::FlushTransparent()
 	{
+		FlushBlended(false);
+	}
+
+	// **The same list, drawn earlier and only where it is water** (WR-16 S4b).
+	// The pass this serves writes the sea's surface for the one that shades
+	// its lamps, so it wants the water runs and nothing else -- and it must
+	// leave the pending list alone, because the real transparent pass is
+	// still to come and draws the very same runs.
+	void Renderer3D::FlushWaterSurface()
+	{
+		FlushBlended(true);
+	}
+
+	void Renderer3D::FlushBlended(bool surfaceOnly)
+	{
 		if (!s_Data || !HasTransparent())
+			return;
+		if (surfaceOnly && !s_Data->WaterSurfacePipeline)
 			return;
 
 		// Armed but undrawable: drop the recorded view rather than keep it.
@@ -4773,8 +4844,11 @@ namespace RageV
 		// requirement -- but the table holds the surfaces and the CPU list
 		// holds what could not go in one, and surfaces first is the same order
 		// the frame graph's hook puts meshes before particles for.
-		if (s_Data->TransparentView.IsValid() && !s_Data->TransparentSlots.empty()
-			&& slot.TransparentGpuSet)
+		// Never in the surface pass: the table holds blended *surfaces* from
+		// the cull, and a body of water reaches this list through
+		// DrawWaterMesh, never through the table.
+		if (!surfaceOnly && s_Data->TransparentView.IsValid()
+			&& !s_Data->TransparentSlots.empty() && slot.TransparentGpuSet)
 		{
 			cmd->BindPipeline(s_Data->TransparentPipeline);
 			cmd->BindResourceSet(0, slot.TransparentGpuSet);
@@ -4832,6 +4906,13 @@ namespace RageV
 
 			const bool isWater = first.Kind == DrawKind::Water;
 
+			// The surface pass draws the sea and nothing else.
+			if (surfaceOnly && !isWater)
+			{
+				start = end;
+				continue;
+			}
+
 			if (first.Kind != DrawKind::Static && !isWater)
 			{
 				// The skip the contract above promises, now actually said:
@@ -4851,7 +4932,8 @@ namespace RageV
 			}
 
 			const Ref<RHIPipeline>& pipeline =
-				isWater ? s_Data->WaterPipeline : s_Data->TransparentPipeline;
+				surfaceOnly ? s_Data->WaterSurfacePipeline
+							: (isWater ? s_Data->WaterPipeline : s_Data->TransparentPipeline);
 			if (!pipeline)
 			{
 				start = end;
@@ -4907,11 +4989,15 @@ namespace RageV
 					s_Data->WaterWrapSampler = s_Data->Device->CreateSampler(wrap);
 				}
 
-				if (slot.WaterSetCursor >= (uint32_t)slot.WaterSets.size())
-					slot.WaterSets.push_back(
-						s_Data->Device->CreateResourceSet(s_Data->WaterPipeline, 3));
-				const Ref<RHIResourceSet>& waterSet =
-					slot.WaterSets[slot.WaterSetCursor++];
+				// A set belongs to the pipeline it was made from, so the two
+				// passes keep their own pools even though the layouts agree.
+				std::vector<Ref<RHIResourceSet>>& pool =
+					surfaceOnly ? slot.WaterSurfaceSets : slot.WaterSets;
+				uint32_t& cursor =
+					surfaceOnly ? slot.WaterSurfaceSetCursor : slot.WaterSetCursor;
+				if (cursor >= (uint32_t)pool.size())
+					pool.push_back(s_Data->Device->CreateResourceSet(pipeline, 3));
+				const Ref<RHIResourceSet>& waterSet = pool[cursor++];
 
 				const bool backdrop = s_Data->WaterBackdropColor
 								   && s_Data->WaterBackdropDepth;
@@ -4966,11 +5052,17 @@ namespace RageV
 			start = end;
 		}
 
-		s_Data->Pending.clear();
-		s_Data->Instances.clear();
-		s_Data->TransparentBegin = 0;
-		s_Data->TransparentView = {};
-		s_Data->TransparentSlots.clear();
+		// **Only the real pass clears.** The surface pass draws the same runs
+		// a moment earlier; emptying the list there would leave the sea
+		// undrawn in the frame it described.
+		if (!surfaceOnly)
+		{
+			s_Data->Pending.clear();
+			s_Data->Instances.clear();
+			s_Data->TransparentBegin = 0;
+			s_Data->TransparentView = {};
+			s_Data->TransparentSlots.clear();
+		}
 	}
 
 	void Renderer3D::BeginShadow(const Mat4& viewProjection)

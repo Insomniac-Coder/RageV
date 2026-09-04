@@ -218,6 +218,11 @@ namespace RageV
 
 		static bool HasTransparent();
 		static void FlushTransparent();
+		// WR-16 S4b: the water runs of the same list, drawn earlier into the
+		// two attachments that describe the sea's surface, so the pass that
+		// chooses and shades its lamps has something to read. Leaves the list
+		// standing for FlushTransparent.
+		static void FlushWaterSurface();
 
 		// Resets the per-frame scene-slot pool. Called by Renderer::BeginFrame.
 		static void BeginFrame();
@@ -599,5 +604,8 @@ namespace RageV
 	private:
 		static void EnsurePipeline();
 		static bool CompileLitShaders();
+		// The blended list, drawn either as the transparent pass or as the
+		// water surface pass before it (WR-16 S4b).
+		static void FlushBlended(bool surfaceOnly);
 	};
 }

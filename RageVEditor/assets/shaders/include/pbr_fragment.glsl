@@ -873,7 +873,17 @@ layout(set = 3, binding = 3) uniform sampler2D u_WaterDetailNormal;
 layout(set = 3, binding = 4) uniform sampler2D u_WaterFoamPattern;
 #endif
 
-#ifdef RV_TRANSPARENT
+#if defined(RV_WATER_SURFACE)
+
+// **WR-16 S4b: the sea's surface, written once so its lamps can be shaded
+// somewhere else.** Tested before RV_TRANSPARENT, not after: this variant
+// compiles with that define too -- it must, so every branch above the cut
+// is the one the real water pass takes -- and an #elif after it would
+// never be reached.
+layout(location = 0) out vec4 o_SurfaceWater;    // octahedral N, roughness, wind angle
+layout(location = 1) out vec4 o_MaterialWater;   // albedo rgb, the specular dial
+
+#elif defined(RV_TRANSPARENT)
 
 // **The transparent variant writes two targets and nothing else.** The pass it
 // is drawn in binds attachments 1 and 2 of the scene target -- accumulation and
@@ -887,6 +897,7 @@ layout(set = 3, binding = 4) uniform sampler2D u_WaterFoamPattern;
 // denoiser's sample. Glass is drawn, composited, and not otherwise known about.
 layout(location = 0) out vec4 o_Accumulate;
 layout(location = 1) out float o_Revealage;
+
 
 #else
 
@@ -4258,6 +4269,18 @@ void main()
 	// specular for a dielectric, the albedo for a metal.
 	vec3 F0 = mix(vec3(0.08 * clamp(surface.Specular, 0.0, 1.0)), albedo, metallic);
 
+#ifdef RV_WATER_SURFACE
+	// **The cut.** Everything above is the surface: the wave normal with its
+	// detail ripples, the roughness the footprint block widened with distance,
+	// the foam, and the colour the depth gradient chose. Everything below is
+	// the lighting, which under this variant happens in the pass that reads
+	// these two attachments. The wind angle rides along because the water's
+	// lobe is anisotropic about it and the reader has no vertex to ask.
+	o_SurfaceWater = vec4(OctEncode(N), shadingRoughness, v_WaterDeep.w);
+	o_MaterialWater = vec4(albedo, clamp(surface.Specular, 0.0, 1.0));
+	return;
+#endif
+
 	vec3 Lo = vec3(0.0);
 
 #ifdef RV_WATER
@@ -5812,8 +5835,13 @@ void main()
 	float viewDepth = length(v_WorldPos - u_Scene.CameraPosition.xyz);
 	float weight = coverage * clamp(kUnitWeightDistance / max(viewDepth, 1e-3), 1e-2, 3e3);
 
+#ifndef RV_WATER_SURFACE
+	// Not in the surface variant, which returned at the cut and declares
+	// two attachments of its own: unreachable code is still compiled, and
+	// an undeclared output is a compile error rather than dead weight.
 	o_Accumulate = vec4(transmitted * alpha + reflected, coverage) * weight;
 	o_Revealage = coverage;
+#endif
 
 #else
 

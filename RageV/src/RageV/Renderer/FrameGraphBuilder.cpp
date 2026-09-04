@@ -478,6 +478,28 @@ namespace RageV
 		const uint32_t indirectIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
 		sceneDesc.ExtraColors.push_back(kIndirectFormat);
 
+		// **The sea's surface** (WR-16 S4b): the octahedral normal, the
+		// roughness the footprint block chose and the wind angle in one
+		// attachment; the colour and the specular dial in the other. Water is
+		// drawn as a transparent surface, so it writes neither the normal
+		// attachment above nor a velocity, and the pass that chooses and
+		// shades its lamps in one place would otherwise have nothing to read.
+		//
+		// **Appended last, and only where the transparent pass exists**, which
+		// is the only place water is drawn. Appending keeps every index above
+		// exactly what it was -- the lesson the indirect attachment's own
+		// comment records -- and no pipeline but the surface pass's names
+		// them, so no other renderer has to learn a new count.
+		uint32_t waterSurfaceIndex = 0;
+		uint32_t waterMaterialIndex = 0;
+		if (wantTransparent && desc.DrawWaterSurface)
+		{
+			waterSurfaceIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
+			sceneDesc.ExtraColors.push_back(Format::R16G16B16A16_SFLOAT);
+			waterMaterialIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
+			sceneDesc.ExtraColors.push_back(Format::R16G16B16A16_SFLOAT);
+		}
+
 		const RGResource sceneHDR = graph.CreateTarget(sceneDesc);
 
 		// The sub-pixel offset this frame is drawn with, in the scene target's
@@ -984,6 +1006,39 @@ namespace RageV
 												   nearClip, farClip,
 												   Format::R16G16B16A16_SFLOAT,
 												   Format::R32_SFLOAT);
+					});
+			}
+
+			// --- the sea's surface, before anything shades it ------------------
+			//
+			// The same water, the same waves, the same shader stopped as soon
+			// as the surface is final. After the backdrop copy, because the
+			// colour gradient reads the depth behind the water to know how deep
+			// it is; before the transparent pass, because the pass that shades
+			// the sea's lamps sits between the two.
+			if (waterSurfaceIndex != 0)
+			{
+				graph.AddPass("WaterSurface",
+					[&](RGPassBuilder& builder)
+					{
+						builder.WriteAttachments(sceneHDR,
+							{ { waterSurfaceIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
+							  { waterMaterialIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
+						// The opaque scene's depth, tested and not written:
+						// water behind the pier writes no surface, and the
+						// transparent pass's own fragments must still pass
+						// their depth test after this one has run.
+						builder.PreserveDepth();
+						if (waterBackdrop != kRGInvalid)
+							builder.Sample(waterBackdrop);
+					},
+					[draw = desc.DrawWaterSurface, waterBackdrop](RGPassContext& context)
+					{
+						if (waterBackdrop != kRGInvalid)
+							Renderer3D::SetWaterBackdrop(context.Color(waterBackdrop, 0),
+														 context.Color(waterBackdrop, 1));
+						draw(context);
+						Renderer3D::SetWaterBackdrop(nullptr, nullptr);
 					});
 			}
 

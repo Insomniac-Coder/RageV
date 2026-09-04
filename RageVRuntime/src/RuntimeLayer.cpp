@@ -349,6 +349,12 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 		{
 			ParticleRenderer::ResolveWeighted(accumulate, revealage);
 		};
+		// WR-16 S4b: the sea's surface, drawn before the pass that shades its
+		// lamps. The water runs of the same list, and the list stands.
+		frame.DrawWaterSurface = [](RGPassContext&)
+		{
+			Renderer3D::FlushWaterSurface();
+		};
 	}
 
 	// The water's two extras, on the transparent block's own terms: only

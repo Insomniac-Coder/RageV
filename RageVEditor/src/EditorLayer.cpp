@@ -719,6 +719,12 @@ void EditorLayer::OnUpdate(Timestep ts)
 				Renderer3D::FlushTransparent();
 				ParticleRenderer::FlushWeighted();
 			};
+		// WR-16 S4b: the sea's surface, drawn before the pass that shades
+		// its lamps. The water runs of the same list, and the list stands.
+		scene.DrawWaterSurface = [](RGPassContext&)
+		{
+			Renderer3D::FlushWaterSurface();
+		};
 		scene.ResolveTransparent = [](RGPassContext&, const RHI::Ref<RHI::RHITexture>& accumulate,
 									  const RHI::Ref<RHI::RHITexture>& revealage)
 		{
@@ -826,6 +832,10 @@ void EditorLayer::OnUpdate(Timestep ts)
 				// can do before the unsorted half arrives.
 				Renderer3D::FlushTransparent();
 				ParticleRenderer::FlushWeighted();
+			};
+			game.DrawWaterSurface = [](RGPassContext&)
+			{
+				Renderer3D::FlushWaterSurface();
 			};
 			game.ResolveTransparent = [](RGPassContext&, const RHI::Ref<RHI::RHITexture>& accumulate,
 										 const RHI::Ref<RHI::RHITexture>& revealage)
