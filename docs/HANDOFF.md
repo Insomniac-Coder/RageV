@@ -26,8 +26,25 @@ from static pixels on screen that had been reading and dropping a hundred
 lamps a frame. **Where to start cold: WR-16 step S4** as Part IV's "S1,
 measured" defines it -- a few lamps per pixel chosen by a target that
 includes the specular, shaded alone, the choice reused across frames and
-neighbours, the result reconstructed -- then S3, then S5. Explain the step
-before acting on it; the owner asked for the reasoning first, every time.
+neighbours, the result reconstructed -- **plus the world-space lamp grid
+decided after S2** (cubes over the scene with each cube's lamps and live
+sublist, built once from the lamps' positions, the candidate source for
+every hit and pixel whether or not the point is in the picture; the S4
+row in Part IV's re-sequenced table). Then S3, then S5.
+
+**The session ended here on 2026-09-04, paused at the owner's request
+(credit limit) with the context cleared.** Eleven commits on `main`, none
+pushed; the scene meta file is the one uncommitted change (the runtime
+rewrote its source hash on load; the owner decides). The pre-S2 runtime
+is kept at `build/bin/Release/RageVRuntime_preS2` for A/B. **Before
+building S4, lay out its shape for the owner and discuss it** -- it is
+the most complex step, and the owner asked for the reasoning first, every
+time. Two side-view drawings that finally explained S2's leftover cost
+to the owner are `build/pier_hits2.svg` and `build/two_grids.svg`; when
+explaining, start from the physical picture (stand on the pier; the water
+bends your line of sight; the sand you see is below the frame) and only
+then the engine consequence, one step at a time, and never lead with an
+engine noun.
 
 ## Start here -- 2026-09-04: WR-16 S0, the rays counted where they are cast
 
@@ -176,8 +193,12 @@ edge band, as first written and withdrawn (the boxes are 28 m tall at 5 m
 cells): Pier's refraction hits inside the cluster grid walk 1.5 lamps, but
 half of them land on seabed below the bottom edge of the frame, outside
 the grid, and a hit with no cell walks every light's sixteen-byte record.
-A guard band on the grid, or a world-space grid for hits, is the remedy --
-a day's work, not a scene edit. Nothing in the scene was changed.
+The remedy is the world-space lamp grid, now written into S4's definition
+(Part IV, the re-sequenced table): cubes over the scene with the lamps
+that reach each, built once, serving every hit and every sampler whether
+the point is in the picture or not. A guard band of extra rows was
+considered and dropped (it would still miss mirror hits behind the
+camera). Nothing in the scene was changed.
 Two forms tried and dropped on the way: a per-cell count alone (never zero
 under the deck) and a reordered single list (it would have changed which
 thinned lamp WR-17's borrow takes its visibility from). The pre-S2 runtime

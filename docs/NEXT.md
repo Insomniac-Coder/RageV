@@ -143,7 +143,10 @@ Glitter, Pier needs S4's reuse, no lamp group is structurally missing at
 (ENGINE-NOTES 7cz): the sixteen-byte cull record and the live sublist per
 cell -- bit-identical, and 20 / 28 / 32% off Headland, Pier and Glitter,
 two thirds of it the opaque pass's static pixels. **Next is S4** as S1
-defines it, then S3, then S5.
+defines it, now with a world-space lamp grid (cubes over the scene, built
+once from the lamps' positions, the candidate source for every hit and
+pixel; S2 found half of Pier's refraction hits below the frame with no
+list), then S3, then S5.
 
 ## The order
 
