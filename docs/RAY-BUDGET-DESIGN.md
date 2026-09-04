@@ -3721,15 +3721,25 @@ named -- lamps *evaluated* per fragment -- and it cost no ray and no
 pixel. The water, live by the standing rule, still walks its full list;
 that is S4's.
 
-**What is left of the hit walk, and why.** Pier's hits still average 103
-lamps: the reflections of the deck's underside land in the edge band of
-the deck's 5 m volumes, where the field's weight is under one and the full
-loop decides, as it must. A volume that reaches a cell further below the
-deck would move those hits inside; that is an authoring change and the
-owner's call, and S4's reuse spends less on them either way. Headland's
-remaining 5 ms is 17.7 lamps per hit over 1.6 million hits -- the
-flashing lights and the marine lights are realtime and live everywhere,
-and the hybrid lamps near the tower's base are live within their radius.
+**What is left of the hit walk, and why** (diagnosed after the tables,
+with three staged shader variants counting per hit; the first account
+written here -- the deck's underside in the edge band of its volumes --
+was wrong and is withdrawn: the deck boxes are 28 m tall at 5 m cells and
+both faces of the deck sit well inside). Pier's refraction hits are 100%
+static and 100% at the field's weight of one, and the ones inside the
+cluster grid walk **1.5 lamps** on average -- the sublist does its job.
+But **half of them land on seabed below the bottom edge of the frame,
+outside the grid**, and a hit with no cell walks every light in the
+scene: 191 sixteen-byte records with the class test each, which is what
+the counters report as "lamps per hit" (the length of the list, not the
+eighty-byte reads). What that costs, from `--hit-lights=off`, is about
+4.7 ms at Pier in all: the sun's shadow ray at every one of 3 million hits
+(about 2 ms at the calibrated cost), the out-of-grid record walks (about
+2 ms), and the shading of the few live lamps. The remedy for the
+out-of-grid half is a list for hits the grid does not cover -- a guard
+band on the grid, or the world-space grid WR-10 B described -- a day's
+work and S4's or S5's business, not a scene edit. Headland's remaining
+5 ms has the same shape at 1.6 million hits.
 
 **The eight-camera table after S2** (`bench_night.py --label after-s2`,
 the same protocol as `wr16-before`, taken the same afternoon on a GPU that

@@ -171,9 +171,13 @@ Interleaved at 1440p: **Headland 67.1 to 54.0 ms, Pier 58.2 to 42.2,
 Glitter 55.5 to 37.8** -- two thirds of it the opaque pass, where every
 static pixel had been reading and dropping 77 to 125 lamps a frame. Lamps
 walked per fragment 77 / 116 / 125 to 35 / 50 / 63. What is left of the
-hit walk is about 5 ms on Headland and Pier; Pier's hits reflect into the
-edge band of the deck's 5 m volumes, where the field's weight is under
-one and the full loop must decide -- a deeper volume is the owner's call.
+hit walk is about 5 ms on Headland and Pier. **Not** the deck volumes'
+edge band, as first written and withdrawn (the boxes are 28 m tall at 5 m
+cells): Pier's refraction hits inside the cluster grid walk 1.5 lamps, but
+half of them land on seabed below the bottom edge of the frame, outside
+the grid, and a hit with no cell walks every light's sixteen-byte record.
+A guard band on the grid, or a world-space grid for hits, is the remedy --
+a day's work, not a scene edit. Nothing in the scene was changed.
 Two forms tried and dropped on the way: a per-cell count alone (never zero
 under the deck) and a reordered single list (it would have changed which
 thinned lamp WR-17's borrow takes its visibility from). The pre-S2 runtime

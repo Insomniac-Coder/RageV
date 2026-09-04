@@ -14359,11 +14359,16 @@ static pixel on the deck, the towers, the cliffs and the shores had been
 reading and dropping 77 to 125 lamps a frame to learn what the field
 already held. Lamps walked per fragment fell from 77 / 116 / 125 to 35 /
 50 / 63; per hit from 84 / 156 / 135 to 18 / 103 / 25. The hit walk left:
-about 5 ms on Headland and Pier, nothing on Glitter. Pier's hits still
-average 103 lamps because the deck's underside reflects into the edge band
-of the deck's 5 m volumes, where the weight is under one and the full loop
-decides as it must -- a deeper volume is an authoring change and the
-owner's call. This is the first spend of the lever the calibration named,
+about 5 ms on Headland and Pier, nothing on Glitter. Pier's "103 lamps
+per hit" is the list's length, not the reads: its refraction hits are all
+static at the field's weight of one and the ones inside the cluster grid
+walk 1.5 lamps, but half of them land on seabed below the bottom edge of
+the frame, outside the grid, and a hit with no cell walks every light's
+record. (A first account blamed the deck volumes' edge band; the boxes are
+28 m tall at 5 m cells and it was wrong. Three staged shader variants
+counting per hit settled it.) The remedy is a list for hits the grid does
+not cover, a guard band or the world-space grid of WR-10 B -- a day, not a
+scene edit. This is the first spend of the lever the calibration named,
 lamps *evaluated* per fragment, at no ray and no pixel; the water, live by
 the standing rule, still walks its full list, and that is S4's.
 
