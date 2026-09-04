@@ -62,7 +62,11 @@
 // loop stays empty, and a cutout shadows as its sheet exactly as it did
 // before any of this. Saying so with the ray flag rather than with a `return
 // true` keeps that variant paying nothing for a test it cannot run.
-#if defined(RV_RAY_REFLECTIONS) || defined(RV_RAY_GI) || defined(RV_RAY_REFRACTION)
+// RV_RAY_CUTOUT_TEST is how a pass that traces no reflections of its own
+// still asks for the test: the sea's lamp pass casts shadow rays under the
+// bridge's masked thin members and must see through them exactly as the
+// water pass does.
+#if defined(RV_RAY_REFLECTIONS) || defined(RV_RAY_GI) || defined(RV_RAY_REFRACTION) || defined(RV_RAY_CUTOUT_TEST)
 #define RV_RAY_BASE_FLAGS 0u
 
 bool RayCandidateIsThere(rayQueryEXT query)

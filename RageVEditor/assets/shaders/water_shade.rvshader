@@ -1,0 +1,272 @@
+// WR-16 S4b, the second of the sea's two lamp passes: the neighbours, then
+// the light.
+//
+// Every pixel has finished choosing by the time this runs, so here a pixel
+// may ask the ones around it what they kept -- the whole reason this is a
+// pass of its own. Their choices are merged into its own in its own terms (a
+// neighbour's lamp is re-scored here before it is believed), the survivors
+// are shaded in full, one shadow ray each is traced, and the answer goes out
+// as two pictures: the part of the lamp light that scatters into the water,
+// and the part that glints off its surface. The water pass keeps those two
+// apart -- the glitter reflected before the light ever entered the sea, so
+// it must not be dimmed by what the sea absorbs.
+//
+// **The shading here is the water pass's, and the two must agree.** That is
+// what shading the sea's lamps somewhere else costs. It is paid down where
+// it can be: the lobe and its masking come from the shared include, the
+// shadow ray is literally the lit shader's own function -- cutout test
+// inside traversal and all, which the bridge's masked thin members need --
+// and what is left is the sized lamp's closest-point half vector and the
+// widening, copied in the order the lit shader does them.
+#type vertex
+#version 460 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 460 core
+
+#define RV_TRACE_ONLY
+#include "include/pbr_fragment.glsl"
+#include "include/water_lobe.glsl"
+#include "include/water_lamps.glsl"
+
+layout(location = 0) in vec2 v_UV;
+
+layout(location = 0) out vec4 o_LampDiffuse;
+layout(location = 1) out vec4 o_LampSpecular;
+
+// One lamp, shaded in full, in the order the lit shader does it: the sized
+// source's closest point for the half vector, the widening its angular size
+// adds to the slope, then the streak frame it turns the lobe into.
+void ShadeLamp(WaterPoint p, uint index, out vec3 diffuse, out vec3 specular,
+			   out vec3 L, out float toward)
+{
+	diffuse = vec3(0.0);
+	specular = vec3(0.0);
+	L = vec3(0.0, 1.0, 0.0);
+	toward = 0.0;
+
+	const GpuLight light = u_Lights.Lights[index];
+	const vec3 toLight = light.Position.xyz - p.Position;
+	const float distance2 = dot(toLight, toLight);
+	toward = sqrt(max(distance2, 1.0e-8));
+	L = toLight / toward;
+
+	const float range = max(light.Params.x, 0.0001);
+	const float t = distance2 / (range * range);
+	const float ratio = clamp(1.0 - t * t, 0.0, 1.0);
+	float attenuation = (ratio * ratio) / max(distance2, 0.0001);
+	if (light.Params.z < light.Params.y)
+	{
+		const float theta = dot(L, -light.Direction.xyz);
+		attenuation *= clamp((theta - light.Params.z)
+							 / max(light.Params.y - light.Params.z, 0.0001), 0.0, 1.0);
+	}
+	const float NdotL = max(dot(p.N, L), 0.0);
+	if (attenuation <= 0.0 || NdotL <= 0.0)
+	{
+		toward = 0.0;
+		return;
+	}
+
+	const vec3 radiance = light.Color.rgb * light.Color.a * attenuation;
+	const vec3 N = p.N;
+	const vec3 V = p.V;
+	const float NdotV = max(dot(N, V), 0.0);
+
+	// The half vector a sized source deserves: the point on the sphere
+	// closest to the mirror direction, not its centre.
+	vec3 H = normalize(V + L);
+	float specRoughness = p.Roughness;
+	float specScale = 1.0;
+	const float radius = light.Direction.w;
+	if (radius > 0.0)
+	{
+		const vec3 R = reflect(-V, N);
+		const vec3 centreToRay = dot(toLight, R) * R - toLight;
+		const vec3 closest = toLight + centreToRay *
+			clamp(radius * inversesqrt(max(dot(centreToRay, centreToRay), 1.0e-8)), 0.0, 1.0);
+		H = normalize(V + normalize(closest));
+
+		// Water's roughness is the RMS slope itself, so the angular radius
+		// adds to it directly.
+		const float angular = radius * inversesqrt(max(distance2, 1.0e-8));
+		const float widened = min(specRoughness + 0.5 * angular, 1.0);
+		specScale = (specRoughness * specRoughness) / max(widened * widened, 1.0e-12);
+		specRoughness = widened;
+	}
+
+	const vec3 windDir = vec3(cos(p.Wind), 0.0, sin(p.Wind));
+	const vec3 windT = normalize(windDir - N * dot(windDir, N));
+	const vec3 windB = cross(N, windT);
+
+	float NDF;
+	float G;
+	vec3 Tv = V - N * dot(V, N);
+	const float tv2 = dot(Tv, Tv);
+	if (radius > 0.0 && tv2 > 1.0e-6)
+	{
+		Tv *= inversesqrt(tv2);
+		const vec3 Bv = cross(N, Tv);
+		const float ax0 = max(specRoughness * 1.16, 0.02);
+		const float ay0 = max(specRoughness * 0.86, 0.02);
+		const float angular = radius * inversesqrt(max(distance2, 1.0e-8));
+		const float axS = min(ax0 * 3.0 + 4.0 * angular, 1.0);
+		const float ayS = min(ay0 + 0.5 * angular, 1.0);
+		specScale = sqrt((ax0 * ay0) / (axS * ayS));
+		NDF = WaterBeckmannDX(H, N, Tv, Bv, axS, ayS);
+		G   = WaterBeckmannG1X(V, N, Tv, Bv, ax0, ay0)
+			* WaterBeckmannG1X(L, N, Tv, Bv, ax0, ay0);
+	}
+	else
+	{
+		NDF = WaterBeckmannD(H, N, windT, windB, specRoughness);
+		G   = WaterBeckmannG1(V, N, windT, windB, specRoughness)
+			* WaterBeckmannG1(L, N, windT, windB, specRoughness);
+	}
+
+	const float f0 = 0.08 * clamp(p.Specular, 0.0, 1.0);
+	const float VdotH = max(dot(H, V), 0.0);
+	const vec3 F = vec3(f0 + (1.0 - f0) * pow(1.0 - VdotH, 5.0));
+	const vec3 spec = (NDF * G * F * specScale) / (4.0 * NdotV * NdotL + 0.0001);
+	const vec3 kD = vec3(1.0) - F;
+
+	diffuse = kD * p.Albedo / PI * NdotL * radiance;
+	specular = spec * NdotL * radiance;
+}
+
+void main()
+{
+	o_LampDiffuse = vec4(0.0);
+	o_LampSpecular = vec4(0.0);
+
+	const WaterPoint p = FetchWaterPoint(v_UV);
+	const int K = LampBudget();
+	if (!p.Valid || K == 0)
+		return;
+
+	const uvec4 mineIndex = textureLod(u_ReservoirIndex, v_UV, 0.0);
+	const uvec4 mineWeight = textureLod(u_ReservoirWeight, v_UV, 0.0);
+
+	uint  index[4];
+	uint  frames[4];
+	float weight[4];
+	float target[4];
+	for (int r = 0; r < 4; ++r)
+	{
+		const Reservoir mine = UnpackReservoir(mineIndex, mineWeight, uint(r));
+		index[r] = mine.Index;
+		frames[r] = mine.M;
+		weight[r] = mine.W;
+		target[r] = 0.0;
+		if (mine.M > 0u && mine.W > 0.0)
+		{
+			vec3 L;
+			float NdotL;
+			target[r] = ScoreLamp(p, mine.Index, L, NdotL);
+			if (NdotL <= 0.0)
+			{
+				frames[r] = 0u;
+				weight[r] = 0.0;
+			}
+		}
+	}
+
+	// **The neighbours.** Three of them, on a ring turned by this pixel's own
+	// angle so the pattern does not line up across the frame. One standing on
+	// a different piece of sea -- across the pier's edge, or a wave away -- is
+	// dropped rather than blended, on the distance between the two surfaces,
+	// with the slack growing with distance because a far pixel covers metres.
+	const uvec2 px = uvec2(gl_FragCoord.xy);
+	const uint cap = uint(max(u_Lamps.History.y, 1.0));
+	const vec2 texel = 1.0 / vec2(textureSize(u_WaterPositionIn, 0));
+	const uint salt = LampFrameSalt();
+	const float turn = LampRandom(px.x ^ (px.y << 16u) ^ salt ^ 0x9E3779B9u) * 6.28318530718;
+	const float away = length(p.Position - u_Scene.CameraPosition.xyz);
+	const float slack = max(1.0, away * 0.02);
+	for (int s = 0; s < 3; ++s)
+	{
+		const float angle = turn + float(s) * 2.09439510239;
+		const vec2 uv = v_UV + vec2(cos(angle), sin(angle)) * 12.0 * texel;
+		if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))))
+			continue;
+
+		const vec4 theirPosition = textureLod(u_WaterPositionIn, uv, 0.0);
+		if (theirPosition.w <= 0.5)
+			continue;
+		if (distance(theirPosition.xyz, p.Position) > slack)
+			continue;
+
+		const uvec4 theirIndex = textureLod(u_ReservoirIndex, uv, 0.0);
+		const uvec4 theirWeight = textureLod(u_ReservoirWeight, uv, 0.0);
+		for (int r = 0; r < K; ++r)
+		{
+			const Reservoir theirs = UnpackReservoir(theirIndex, theirWeight, uint(r));
+			if (theirs.M == 0u || theirs.W <= 0.0)
+				continue;
+			if (LampOutOfRange(theirs.Index, p.Position))
+				continue;
+
+			vec3 L;
+			float NdotL;
+			const float here = ScoreLamp(p, theirs.Index, L, NdotL);
+			if (NdotL <= 0.0 || here <= 0.0)
+				continue;
+
+			const float mineSum = target[r] > 0.0
+								? target[r] * weight[r] * float(frames[r]) : 0.0;
+			const float theirSum = here * theirs.W * float(theirs.M);
+			const float sum = mineSum + theirSum;
+			if (sum <= 0.0)
+				continue;
+
+			uint keptIndex = index[r];
+			float keptTarget = target[r];
+			if (LampRandom(px.x ^ (px.y << 16u) ^ (uint(r) << 24u)
+						   ^ (uint(s) << 8u) ^ salt ^ 0x85EBCA6Bu) < theirSum / sum)
+			{
+				keptIndex = theirs.Index;
+				keptTarget = here;
+			}
+			const uint merged = min(frames[r] + theirs.M, cap);
+			index[r] = keptIndex;
+			frames[r] = merged;
+			target[r] = keptTarget;
+			weight[r] = keptTarget > 0.0 ? sum / (float(merged) * keptTarget) : 0.0;
+		}
+	}
+
+	// **The survivors, shaded and traced.** One ray each, always: choosing
+	// which lamps deserve a ray is what all of this was for.
+	vec3 diffuse = vec3(0.0);
+	vec3 specular = vec3(0.0);
+	for (int r = 0; r < K; ++r)
+	{
+		if (frames[r] == 0u || weight[r] <= 0.0)
+			continue;
+
+		vec3 lampDiffuse, lampSpecular, L;
+		float toward;
+		ShadeLamp(p, index[r], lampDiffuse, lampSpecular, L, toward);
+		if (toward <= 0.0)
+			continue;
+
+		const float visible = TraceShadowSoftFromMasked(
+			p.Position, p.N, L, toward, u_Lights.Lights[index[r]].Direction.w,
+			index[r], RV_RAY_MASK_SCENE);
+
+		const float scale = visible * weight[r] / float(K);
+		diffuse += lampDiffuse * scale;
+		specular += lampSpecular * scale;
+	}
+
+	o_LampDiffuse = vec4(diffuse, 1.0);
+	o_LampSpecular = vec4(specular, 1.0);
+}

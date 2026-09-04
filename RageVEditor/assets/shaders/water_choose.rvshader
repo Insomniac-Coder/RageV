@@ -1,0 +1,172 @@
+// WR-16 S4b, the first of the sea's two lamp passes: which four lamps.
+//
+// For every pixel the sea covers, this scores the lamps that reach it, keeps
+// four by weighted reservoir sampling, and folds in the four this pixel kept
+// last frame. It writes the choices down and nothing else -- no shading, no
+// rays. The pass after it reads what the *neighbours* chose, which is why
+// the two are separate: every pixel has to have finished choosing before any
+// pixel can ask its neighbour.
+//
+// The estimate is S1's and S4a's, unchanged: a lamp is kept with a chance
+// proportional to what it looks worth, and its light is divided by that
+// chance, so four stand for all of them.
+//
+// It borrows rather than copies, the way rtgi_trace does: RV_TRACE_ONLY
+// drops the lit shader's vertex stage, its varyings and its outputs, and
+// keeps set 0 -- the lights, the cluster lists, the cull records. What this
+// file adds is a main and the sea's own set 3.
+#type vertex
+#version 460 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 460 core
+
+#define RV_TRACE_ONLY
+#include "include/pbr_fragment.glsl"
+// The sea's lobe, which the lit shader includes only when it is compiled for
+// water. This pass is not, so it takes the file directly.
+#include "include/water_lobe.glsl"
+#include "include/water_lamps.glsl"
+
+layout(location = 0) in vec2 v_UV;
+
+layout(location = 0) out uvec4 o_ReservoirIndex;
+layout(location = 1) out uvec4 o_ReservoirWeight;
+
+void main()
+{
+	uint  index[4] = uint[4](0u, 0u, 0u, 0u);
+	uint  frames[4] = uint[4](0u, 0u, 0u, 0u);
+	float weight[4] = float[4](0.0, 0.0, 0.0, 0.0);   // what the term is multiplied by
+	float target[4] = float[4](0.0, 0.0, 0.0, 0.0);   // the score of the lamp held
+
+	const WaterPoint p = FetchWaterPoint(v_UV);
+	const int K = LampBudget();
+	if (p.Valid && K > 0)
+	{
+		const uvec2 px = uvec2(gl_FragCoord.xy);
+		const uint salt = LampFrameSalt();
+		uint seed[4];
+		for (int r = 0; r < 4; ++r)
+			seed[r] = LampHash(px.x ^ (px.y << 16u) ^ (uint(r) << 28u) ^ salt ^ 0x2545F491u);
+
+		// One sweep of the cell's list: every lamp offers itself to each of
+		// the four reservoirs, and each keeps one with the chance its score
+		// deserves.
+		const uint cell = WaterClusterCell(p.Position, v_UV);
+		const uint offset = u_Cells.Cells[cell].Offset;
+		const uint count = u_Cells.Cells[cell].Count;
+		const int directional = int(u_Scene.ClusterGrid.w);
+
+		float total = 0.0;
+		for (uint e = 0u; e < count; ++e)
+		{
+			const uint i = u_CellIndices.Indices[offset + e];
+			if (int(i) < directional)
+				continue;                       // the sun is not a candidate here
+			if (LampOutOfRange(i, p.Position))
+				continue;
+
+			vec3 L;
+			float NdotL;
+			const float score = ScoreLamp(p, i, L, NdotL);
+			if (NdotL <= 0.0)
+				continue;
+
+			total += score;
+			const float accept = score / total;
+			for (int r = 0; r < K; ++r)
+			{
+				if (LampRandom(seed[r] ^ (i * 0x9E3779B9u)) < accept)
+				{
+					index[r] = i;
+					target[r] = score;
+				}
+			}
+		}
+
+		// One over the chance this lamp had of being kept: the cell's whole
+		// weight over its own. One sweep stands behind it, so the confidence
+		// is a single frame.
+		for (int r = 0; r < K; ++r)
+		{
+			if (target[r] > 0.0)
+			{
+				weight[r] = total / target[r];
+				frames[r] = 1u;
+			}
+		}
+
+		// **Last frame's four, folded in.** A remembered lamp that no longer
+		// reaches this point is dropped rather than blended, and the
+		// confidence is capped, so a history cannot outvote the present for
+		// ever.
+		if (u_Lamps.History.x > 0.5)
+		{
+			const vec4 clip = u_Lamps.PreviousViewProjection * vec4(p.Position, 1.0);
+			if (clip.w > 0.0)
+			{
+				const vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+				if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0))))
+				{
+					const uvec4 pastIndex = textureLod(u_ReservoirIndex, uv, 0.0);
+					const uvec4 pastWeight = textureLod(u_ReservoirWeight, uv, 0.0);
+					const uint cap = uint(max(u_Lamps.History.y, 1.0));
+					for (int r = 0; r < K; ++r)
+					{
+						const Reservoir past = UnpackReservoir(pastIndex, pastWeight, uint(r));
+						if (past.M == 0u || past.W <= 0.0)
+							continue;
+						if (LampOutOfRange(past.Index, p.Position))
+							continue;
+
+						vec3 L;
+						float NdotL;
+						const float here = ScoreLamp(p, past.Index, L, NdotL);
+						if (NdotL <= 0.0 || here <= 0.0)
+							continue;
+
+						// The two merged in this pixel's own terms: each side
+						// brings its score here, times what it carried, times
+						// its confidence.
+						const uint theirFrames = min(past.M, cap);
+						const float mine = target[r] > 0.0 ? total : 0.0;
+						const float theirs = here * past.W * float(theirFrames);
+						const float sum = mine + theirs;
+						if (sum <= 0.0)
+							continue;
+
+						uint keptIndex = index[r];
+						float keptTarget = target[r];
+						if (LampRandom(seed[r] ^ 0x68E31DA4u) < theirs / sum)
+						{
+							keptIndex = past.Index;
+							keptTarget = here;
+						}
+						// Capped once and used for both: a weight computed
+						// against a count the store then clamps would drift a
+						// little further every frame.
+						const uint merged = min(frames[r] + theirFrames, cap);
+						index[r] = keptIndex;
+						frames[r] = merged;
+						target[r] = keptTarget;
+						weight[r] = keptTarget > 0.0
+								  ? sum / (float(merged) * keptTarget) : 0.0;
+					}
+				}
+			}
+		}
+	}
+
+	o_ReservoirIndex = PackReservoirIndices(index, frames);
+	o_ReservoirWeight = uvec4(floatBitsToUint(weight[0]), floatBitsToUint(weight[1]),
+							  floatBitsToUint(weight[2]), floatBitsToUint(weight[3]));
+}
