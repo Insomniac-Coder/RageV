@@ -191,7 +191,8 @@ void main()
 	const float turn = LampRandom(px.x ^ (px.y << 16u) ^ salt ^ 0x9E3779B9u) * 6.28318530718;
 	const float away = length(p.Position - u_Scene.CameraPosition.xyz);
 	const float slack = max(1.0, away * 0.02);
-	for (int s = 0; s < 3; ++s)
+	const int neighbours = u_Lamps.History.z > 0.5 ? 3 : 0;
+	for (int s = 0; s < neighbours; ++s)
 	{
 		const float angle = turn + float(s) * 2.09439510239;
 		const vec2 uv = v_UV + vec2(cos(angle), sin(angle)) * 12.0 * texel;
@@ -222,7 +223,7 @@ void main()
 
 			const float mineSum = target[r] > 0.0
 								? target[r] * weight[r] * float(frames[r]) : 0.0;
-			const float theirSum = here * theirs.W * float(theirs.M);
+			const float theirSum = here * theirs.W * float(min(theirs.M, cap));
 			const float sum = mineSum + theirSum;
 			if (sum <= 0.0)
 				continue;
@@ -235,7 +236,9 @@ void main()
 				keptIndex = theirs.Index;
 				keptTarget = here;
 			}
-			const uint merged = min(frames[r] + theirs.M, cap);
+			// The neighbour's confidence, capped on the way in; the sum is
+			// not capped, for the reason the choose pass records.
+			const uint merged = frames[r] + min(theirs.M, cap);
 			index[r] = keptIndex;
 			frames[r] = merged;
 			target[r] = keptTarget;

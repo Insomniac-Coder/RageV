@@ -65,6 +65,8 @@ private:
 	RageV::TemporalHistory m_RayBudget;
 	// Ray-traced occlusion's accumulation. See FrameDesc::Occlusion.
 	RageV::TemporalHistory m_Occlusion;
+	// WR-16 S4b: the sea's four choices a pixel, kept from frame to frame.
+	RageV::TemporalHistory m_WaterChoices;
 
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_Target;
 

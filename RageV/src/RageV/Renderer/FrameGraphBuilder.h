@@ -47,6 +47,12 @@ namespace RageV
 		// transparent and writes neither on its own. Null leaves the walk in
 		// the water pass, which is the shape before this existed.
 		std::function<void(RGPassContext&)> DrawWaterSurface;
+		// WR-16 S4b: where the sea's four choices a pixel are kept from one
+		// frame to the next. A pair, ping-ponged, like every other history
+		// here -- this frame's choices are written while last frame's are
+		// read. Null leaves the lamp passes out and the walk in the water
+		// shader.
+		TemporalHistory* WaterReservoirs = nullptr;
 
 		// Composites the two attachments above back over the scene. Given the
 		// accumulation and revealage textures, in that order.

@@ -339,6 +339,19 @@ namespace RageV
 		// in RayRates.w's bits 16-19 and 20-21.
 		int   LightSampling = 0;
 		int   LightSamplingTarget = 1;
+		// --water-lamp-pass=on|off (WR-16 S4b): whether the sea's lamps are
+		// chosen and shaded in their own two passes, or by the sampler inside
+		// the water shader. The same estimate either way -- the passes add the
+		// neighbours' choices to it, which a fragment cannot reach -- so the
+		// two arms are what says what that reuse is worth. On by default
+		// wherever --light-sampling asks for lamps at all.
+		bool  WaterLampPass = true;
+		// --water-lamp-reuse=on|off: whether the lamp passes keep the choice
+		// across frames and read the neighbours', or start from this pixel's
+		// own sweep every frame. Off is the same estimate the sampler inside
+		// the water shader makes, which is what makes the pair an A/B of the
+		// reuse alone.
+		bool  WaterLampReuse = true;
 
 		// **--debug-view=<what>** (WR-16 S0): the frame replaced by a heat map
 		// of one number per pixel, read from the counts the lit shaders write

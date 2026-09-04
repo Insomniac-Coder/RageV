@@ -539,6 +539,18 @@ namespace RageV
 			// the two attachments the lamp pass reads. Null where water is.
 			Ref<RHIShader>   WaterSurfaceShader;
 			Ref<RHIPipeline> WaterSurfacePipeline;
+			// WR-16 S4b's two lamp passes: which four lamps, then the
+			// neighbours and the light. Both borrow the traced bounce's set 0,
+			// so both are compiled under the same defines and one set serves
+			// them.
+			Ref<RHIShader>   WaterChooseShader;
+			Ref<RHIPipeline> WaterChoosePipeline;
+			Ref<RHIShader>   WaterShadeShader;
+			Ref<RHIPipeline> WaterShadePipeline;
+			// The two pictures the second pass writes, handed to the water
+			// pass the way the backdrop is.
+			Ref<RHITexture>  WaterLampDiffuse;
+			Ref<RHITexture>  WaterLampSpecular;
 
 			// **The same lit shader with the cutout test compiled in**, for
 			// alpha-tested materials. A separate variant and not a uniform
@@ -864,6 +876,11 @@ namespace RageV
 				// different objects even where their layouts agree.
 				std::vector<Ref<RHIResourceSet>> WaterSurfaceSets;
 				uint32_t WaterSurfaceSetCursor = 0;
+				// The lamp passes' scene set, and one input set each. The two
+				// shaders reflect the same set 0, so one of those is enough.
+				Ref<RHIResourceSet> LampSet;
+				Ref<RHIResourceSet> LampChooseInputs;
+				Ref<RHIResourceSet> LampShadeInputs;
 				// And the transparent pipeline's *GPU-driven* set: the same
 				// instance table read through the indices the blended cull
 				// wrote instead of the ones the sort produced. One binding
@@ -1408,6 +1425,28 @@ namespace RageV
 			if (s_Data->RayReflectionsOn)
 				traceDefines.push_back("RV_RAY_REFLECTIONS");
 			traceDefines.push_back("RV_RAY_GI");
+
+			// WR-16 S4b's two lamp passes, under exactly these defines: they
+			// include the same header, so their set 0 is the bounce's shape and
+			// their shadow ray is the lit shader's own -- cutout test inside
+			// traversal included, which the bridge's masked thin members need.
+			for (int pass = 0; pass < 2; ++pass)
+			{
+				const char* file = pass == 0 ? "assets/shaders/water_choose.rvshader"
+											 : "assets/shaders/water_shade.rvshader";
+				Ref<RHIShader>& target = pass == 0 ? s_Data->WaterChooseShader
+												   : s_Data->WaterShadeShader;
+				target = nullptr;
+				if (auto lamp = ShaderCompiler::CompileFromFile(file, traceDefines))
+				{
+					target = s_Data->Device->CreateShader(*lamp);
+				}
+				else
+				{
+					RV_CORE_ERROR("Renderer3D: {0} did not compile; the sea's lamps keep "
+								  "the walk in the water pass", file);
+				}
+			}
 
 			if (auto gi = ShaderCompiler::CompileFromFile("assets/shaders/rtgi_trace.rvshader",
 														 traceDefines))
@@ -2809,7 +2848,7 @@ namespace RageV
 				GraphicsPipelineDesc surface = blended;
 				surface.Name = "Renderer3D.water.surface";
 				surface.Shader = s_Data->WaterSurfaceShader;
-				surface.ColorFormats = { Format::R16G16B16A16_SFLOAT,
+				surface.ColorFormats = { Format::R32G32B32A32_SFLOAT,
 										 Format::R16G16B16A16_SFLOAT,
 										 Format::R32G32B32A32_SFLOAT };
 				surface.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque,
@@ -2859,6 +2898,52 @@ namespace RageV
 			s_Data->GiPipeline = nullptr;
 		}
 
+		// WR-16 S4b: the sea's two lamp passes. Fullscreen, no depth of their
+		// own, and their attachments are the only thing that differs -- the
+		// first writes four choices a pixel as whole integers (a weight put
+		// through a half would quantise the one number the estimate divides
+		// by), the second writes the lamp light in two halves, what scatters
+		// into the water and what glints off it.
+		if (s_Data->WaterChooseShader)
+		{
+			GraphicsPipelineDesc choose;
+			choose.Name = "Renderer3D.water.choose";
+			choose.Shader = s_Data->WaterChooseShader;
+			choose.Topology = PrimitiveTopology::TriangleList;
+			choose.Rasterizer.Cull = CullMode::None;
+			choose.Blend = BlendPreset::Opaque;
+			choose.DepthStencil.DepthTestEnable = false;
+			choose.DepthStencil.DepthWriteEnable = false;
+			choose.ColorFormats = { Format::R32G32B32A32_UINT, Format::R32G32B32A32_UINT };
+			choose.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque };
+			choose.DepthFormat = Format::Undefined;
+			s_Data->WaterChoosePipeline = s_Data->Device->CreatePipeline(choose);
+		}
+		else
+		{
+			s_Data->WaterChoosePipeline = nullptr;
+		}
+
+		if (s_Data->WaterShadeShader)
+		{
+			GraphicsPipelineDesc shade;
+			shade.Name = "Renderer3D.water.shade";
+			shade.Shader = s_Data->WaterShadeShader;
+			shade.Topology = PrimitiveTopology::TriangleList;
+			shade.Rasterizer.Cull = CullMode::None;
+			shade.Blend = BlendPreset::Opaque;
+			shade.DepthStencil.DepthTestEnable = false;
+			shade.DepthStencil.DepthWriteEnable = false;
+			shade.ColorFormats = { Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT };
+			shade.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque };
+			shade.DepthFormat = Format::Undefined;
+			s_Data->WaterShadePipeline = s_Data->Device->CreatePipeline(shade);
+		}
+		else
+		{
+			s_Data->WaterShadePipeline = nullptr;
+		}
+
 		s_Data->PipelineDirty = false;
 
 		// Resource sets are tied to a pipeline layout, so they go with it and
@@ -2889,6 +2974,9 @@ namespace RageV
 				slot.WaterSetCursor = 0;
 				slot.WaterSurfaceSets.clear();
 				slot.WaterSurfaceSetCursor = 0;
+				slot.LampSet.reset();
+				slot.LampChooseInputs.reset();
+				slot.LampShadeInputs.reset();
 			}
 		}
 	}
@@ -3663,6 +3751,83 @@ namespace RageV
 											 (uint64_t)lightSlots * sizeof(GpuLightCull));
 		}
 
+		// **The sea's lamp passes' set** (WR-16 S4b). Its own again, and for
+		// the same reason: the two shaders include the lit header under
+		// RV_TRACE_ONLY like the bounce does, but they *use* the cluster lists
+		// and the shadow maps, so the compiler keeps those bindings and the
+		// bounce's set does not have them. One set for both passes -- they
+		// reflect the same set 0.
+		if (s_Data->WaterChoosePipeline)
+		{
+			if (!slot.LampSet)
+				slot.LampSet = s_Data->Device->CreateResourceSet(s_Data->WaterChoosePipeline, 0);
+
+			if (slot.LampSet)
+			{
+				slot.LampSet->SetUniformBuffer(0, slot.Buffer, 0, sizeof(SceneUniforms));
+				slot.LampSet->SetStorageBuffer(8, slot.Lights, 0,
+											   (uint64_t)lightSlots * sizeof(GpuLight));
+				slot.LampSet->SetStorageBuffer(9, slot.Cells, 0,
+											   cells.size() * sizeof(LightGrid::Cell));
+				slot.LampSet->SetStorageBuffer(10, slot.CellIndices, 0,
+											   (uint64_t)indexSlots * sizeof(uint32_t));
+				slot.LampSet->SetTexture(1, environmentMap
+											 ? environmentMap
+											 : TextureLoader::BlackCubeArray(*s_Data->Device),
+										 s_Data->EnvironmentSampler);
+				slot.LampSet->SetTexture(5, irradianceMap
+											 ? irradianceMap
+											 : TextureLoader::BlackCubeArray(*s_Data->Device),
+										 s_Data->EnvironmentSampler);
+				const Ref<RHITexture> lampBrdf = EnvironmentIBL::GetBRDF();
+				slot.LampSet->SetTexture(6, lampBrdf ? lampBrdf
+													 : TextureLoader::White(*s_Data->Device),
+										 lampBrdf ? EnvironmentIBL::GetBRDFSampler()
+												  : s_Data->PointSampler);
+				slot.LampSet->SetTexture(12, haveReflections
+											  ? reflections->Texture
+											  : TextureLoader::TransparentBlack(*s_Data->Device),
+										 s_Data->EnvironmentSampler);
+				slot.LampSet->SetTexture(16, haveIndirect
+											  ? indirect->Texture
+											  : TextureLoader::TransparentBlack(*s_Data->Device),
+										 s_Data->EnvironmentSampler);
+				slot.LampSet->SetTexture(18,
+										 s_Data->Irradiance
+											 ? s_Data->Irradiance->Texture()
+											 : TextureLoader::BlackVolume(*s_Data->Device),
+										 s_Data->Irradiance ? s_Data->Irradiance->Sampler()
+															: s_Data->PointSampler);
+				slot.LampSet->SetAccelerationStructure(RayShadows::kBinding,
+													   RayShadows::GetStructure());
+				if (RayCounters::IsAvailable())
+					slot.LampSet->SetStorageBuffer(RayCounters::kBinding, RayCounters::Buffer());
+				if (slot.LightCull)
+					slot.LampSet->SetStorageBuffer(kLightCullBinding, slot.LightCull, 0,
+												   (uint64_t)lightSlots * sizeof(GpuLightCull));
+
+				// The four shadow arrays, always, for the reason the scene set
+				// states: a comparison sampler a layout declares and a set
+				// leaves empty is a validation error.
+				const Ref<RHISampler> shadowSampler = ShadowMap::GetSampler();
+				const Ref<RHITexture> empty = ShadowMap::GetEmptyTexture();
+				const Ref<RHITexture> emptyCube = ShadowMap::GetEmptyCube();
+				for (uint32_t i = 0; i < ShadowMap::kMaxCascades; i++)
+				{
+					const Ref<RHITexture> cascade = i < cascadeCount
+												  ? ShadowMap::GetCascadeTexture(i) : nullptr;
+					slot.LampSet->SetTexture(2, cascade ? cascade : empty, shadowSampler, i);
+				}
+				for (uint32_t i = 0; i < ShadowMap::kMaxLocal; i++)
+				{
+					const Ref<RHITexture> spot = ShadowMap::GetSpotTexture(i);
+					slot.LampSet->SetTexture(3, spot ? spot : empty, shadowSampler, i);
+					const Ref<RHITexture> point = ShadowMap::GetPointTexture(i);
+					slot.LampSet->SetTexture(4, point ? point : emptyCube, shadowSampler, i);
+				}
+			}
+		}
+
 		// Not committed and not bound yet.
 		//
 		// The instance buffer is part of this same set, and its contents are
@@ -4309,6 +4474,16 @@ namespace RageV
 											 (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
 				slot.GiSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
 			}
+
+			// The sea's lamp passes shade a hit through the same two: their
+			// shadow ray runs the cutout test, which reads the instance's
+			// record and its material's map.
+			if (slot.LampSet)
+			{
+				slot.LampSet->SetStorageBuffer(13, slot.Materials, 0,
+											   (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+				slot.LampSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+			}
 		}
 
 		// Always bound, even with nothing skinned in the scene: the layout
@@ -4437,6 +4612,14 @@ namespace RageV
 		// shares a frame with are.
 		if (slot.GiSet)
 			slot.GiSet->Commit();
+
+		// And the sea's lamp passes' set, for the same reason and in the same
+		// place. **Forgetting this is not a crash but a silence**: set 3 is
+		// committed by the pass itself, so the surface reads correctly and only
+		// the scene block comes back zero -- which reads as a budget of no
+		// lamps at all, and a sea lit by the sun alone.
+		if (slot.LampSet)
+			slot.LampSet->Commit();
 
 		// Bound per run rather than once, because the run decides which of the
 		// three pipelines draws it.
@@ -5014,6 +5197,15 @@ namespace RageV
 									 s_Data->WaterWrapSampler);
 				waterSet->SetTexture(4, Water::GetFoamPattern(),
 									 s_Data->WaterWrapSampler);
+				// WR-16 S4b: the lamp light, or black where the passes did not
+				// run -- a declared binding left empty is a validation error,
+				// and the flags lane below is what says whether to read it.
+				const bool lamps = !surfaceOnly && s_Data->WaterLampDiffuse
+								&& s_Data->WaterLampSpecular;
+				waterSet->SetTexture(5, lamps ? s_Data->WaterLampDiffuse : black,
+									 s_Data->WaterClampSampler);
+				waterSet->SetTexture(6, lamps ? s_Data->WaterLampSpecular : black,
+									 s_Data->WaterClampSampler);
 				waterSet->Commit();
 				cmd->BindResourceSet(3, waterSet);
 
@@ -5032,6 +5224,8 @@ namespace RageV
 				const float rowSign =
 					s_Data->Device->GetBackend() == Backend::Vulkan ? -1.0f : 1.0f;
 				object.Size.z = backdrop ? rowSign : 0.0f;
+				// And whether the sea's lamps were shaded in their own passes.
+				object.Size.w = lamps ? 1.0f : 0.0f;
 
 				// Both stages: the vertex reads the dials, and the fragment
 				// declares the same block so the ranges agree.
@@ -5065,6 +5259,131 @@ namespace RageV
 			s_Data->TransparentView = {};
 			s_Data->TransparentSlots.clear();
 		}
+	}
+
+
+	// **The sea's lamps, chosen and shaded away from the water pass** (WR-16
+	// S4b). Two fullscreen draws between the surface pass and the transparent
+	// one: the first writes four choices a pixel, the second reads what the
+	// neighbours chose, shades the survivors and traces their rays.
+	//
+	// Set 0 is the lamp set, filled in BeginScene beside the bounce's; set 2
+	// is the texture heap, which the shadow ray's cutout test samples; set 3
+	// is the sea's own -- the surface the prepass drew and the choices.
+	namespace
+	{
+		struct LampPushConstants
+		{
+			Mat4 PreviousViewProjection{ 1.0f };
+			// x: last frame's choices are there. y: the most confidence a
+			// history may carry, in frames.
+			Vec4 History{ 0.0f, 20.0f, 0.0f, 0.0f };
+		};
+	}
+
+	void Renderer3D::ChooseWaterLamps(const RHI::Ref<RHITexture>& surface,
+									  const RHI::Ref<RHITexture>& material,
+									  const RHI::Ref<RHITexture>& position,
+									  const RHI::Ref<RHITexture>& previousIndex,
+									  const RHI::Ref<RHITexture>& previousWeight,
+									  CameraMotion& motion, bool hasHistory)
+	{
+		if (!s_Data || !s_Data->WaterChoosePipeline || !s_Data->ActiveScene)
+			return;
+		RHICommandList* cmd = Renderer::GetCommandList();
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!cmd || !slot.LampSet || !surface || !material || !position)
+			return;
+
+		if (!slot.LampChooseInputs)
+			slot.LampChooseInputs =
+				s_Data->Device->CreateResourceSet(s_Data->WaterChoosePipeline, 3);
+		if (!slot.LampChooseInputs)
+			return;
+
+		// Point sampled, all five: a normal between two normals is not a
+		// normal, and a light index between two indices is not a light.
+		const Ref<RHITexture> black = TextureLoader::TransparentBlack(*s_Data->Device);
+		slot.LampChooseInputs->SetTexture(0, surface, s_Data->PointSampler);
+		slot.LampChooseInputs->SetTexture(1, material, s_Data->PointSampler);
+		slot.LampChooseInputs->SetTexture(2, position, s_Data->PointSampler);
+		slot.LampChooseInputs->SetTexture(3, previousIndex ? previousIndex : black,
+										  s_Data->PointSampler);
+		slot.LampChooseInputs->SetTexture(4, previousWeight ? previousWeight : black,
+										  s_Data->PointSampler);
+		slot.LampChooseInputs->Commit();
+
+		LampPushConstants push;
+		push.PreviousViewProjection = motion.ViewProjection;
+		push.History.x = hasHistory && previousIndex && previousWeight
+					  && EngineConfig::Get().WaterLampReuse ? 1.0f : 0.0f;
+		push.History.z = EngineConfig::Get().WaterLampReuse ? 1.0f : 0.0f;
+		// And this frame's camera becomes the next one's answer to "where was
+		// this point on screen". Recorded here rather than by the graph
+		// because a history of choices belongs to its chain, and the editor
+		// draws two chains from two cameras in one frame.
+		motion.ViewProjection = s_Data->Scene.ViewProjection;
+
+		cmd->BindPipeline(s_Data->WaterChoosePipeline);
+		cmd->BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd->BindResourceSet(3, slot.LampChooseInputs);
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
+		cmd->Draw(3);
+	}
+
+	void Renderer3D::ShadeWaterLamps(const RHI::Ref<RHITexture>& surface,
+									 const RHI::Ref<RHITexture>& material,
+									 const RHI::Ref<RHITexture>& position,
+									 const RHI::Ref<RHITexture>& choiceIndex,
+									 const RHI::Ref<RHITexture>& choiceWeight)
+	{
+		if (!s_Data || !s_Data->WaterShadePipeline || !s_Data->ActiveScene)
+			return;
+		RHICommandList* cmd = Renderer::GetCommandList();
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!cmd || !slot.LampSet || !surface || !material || !position
+			|| !choiceIndex || !choiceWeight)
+		{
+			return;
+		}
+
+		if (!slot.LampShadeInputs)
+			slot.LampShadeInputs =
+				s_Data->Device->CreateResourceSet(s_Data->WaterShadePipeline, 3);
+		if (!slot.LampShadeInputs)
+			return;
+
+		slot.LampShadeInputs->SetTexture(0, surface, s_Data->PointSampler);
+		slot.LampShadeInputs->SetTexture(1, material, s_Data->PointSampler);
+		slot.LampShadeInputs->SetTexture(2, position, s_Data->PointSampler);
+		slot.LampShadeInputs->SetTexture(3, choiceIndex, s_Data->PointSampler);
+		slot.LampShadeInputs->SetTexture(4, choiceWeight, s_Data->PointSampler);
+		slot.LampShadeInputs->Commit();
+
+		LampPushConstants push;
+		push.History.z = EngineConfig::Get().WaterLampReuse ? 1.0f : 0.0f;
+
+		cmd->BindPipeline(s_Data->WaterShadePipeline);
+		cmd->BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd->BindResourceSet(3, slot.LampShadeInputs);
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
+		cmd->Draw(3);
+	}
+
+	// Handed over around the water draw and taken back after it, the backdrop's
+	// shape: the renderer must not hold a texture the graph's pool may give to
+	// somebody else next frame.
+	void Renderer3D::SetWaterLamps(const RHI::Ref<RHITexture>& diffuse,
+								   const RHI::Ref<RHITexture>& specular)
+	{
+		if (!s_Data)
+			return;
+		s_Data->WaterLampDiffuse = diffuse;
+		s_Data->WaterLampSpecular = specular;
 	}
 
 	void Renderer3D::BeginShadow(const Mat4& viewProjection)

@@ -82,6 +82,13 @@ layout(location = 12) flat out vec4 v_WaterDeep;
 // NDC sign -- see water_params.glsl for the packing.
 layout(location = 13) flat out vec4 v_WaterMisc;
 
+// x = whether the sea's lamps were chosen and shaded in their own passes
+// (WR-16 S4b), so the fragment walks the sun alone and adds their two
+// pictures. y, z, w spare. A varying rather than a second push-constant
+// block, for the reason the fragment states: two declarations that must
+// agree are two that eventually do not.
+layout(location = 14) flat out vec4 v_WaterLamps;
+
 // The dials off the push-constant block, into the shared sum.
 void WaterSurface(vec2 position, float time,
 				  out vec3 offset, out vec3 tangent, out vec3 binormal)
@@ -150,6 +157,7 @@ void main()
 	v_WaterDeep    = vec4(RV_WATER_DEEP, RV_WATER_DIRECTION);
 	v_WaterMisc    = vec4(RV_WATER_TIME, RV_WATER_LENGTH,
 						  RV_WATER_GRADIENT, RV_WATER_FLAGS);
+	v_WaterLamps   = vec4(RV_WATER_LAMPS, 0.0, 0.0, 0.0);
 
 	v_BaseColor     = instance.BaseColor;
 	v_EmissiveColor = instance.EmissiveColor;

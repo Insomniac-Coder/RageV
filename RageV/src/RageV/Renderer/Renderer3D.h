@@ -12,6 +12,9 @@
 
 namespace RageV
 {
+	struct CameraMotion;
+
+
 	// Lit mesh rendering. Unlike Renderer2D, geometry is not merged: each mesh
 	// keeps its own buffers and per-object data goes through push constants, so
 	// a draw costs a push-constant write rather than a descriptor update.
@@ -223,6 +226,26 @@ namespace RageV
 		// chooses and shades its lamps has something to read. Leaves the list
 		// standing for FlushTransparent.
 		static void FlushWaterSurface();
+
+		// WR-16 S4b's two lamp passes, drawn between the surface pass and the
+		// transparent one. The first writes four choices a pixel into the pair
+		// the caller ping-pongs; the second reads them, asks the neighbours,
+		// shades the survivors and traces their rays.
+		static void ChooseWaterLamps(const RHI::Ref<RHI::RHITexture>& surface,
+									 const RHI::Ref<RHI::RHITexture>& material,
+									 const RHI::Ref<RHI::RHITexture>& position,
+									 const RHI::Ref<RHI::RHITexture>& previousIndex,
+									 const RHI::Ref<RHI::RHITexture>& previousWeight,
+									 CameraMotion& motion, bool hasHistory);
+		static void ShadeWaterLamps(const RHI::Ref<RHI::RHITexture>& surface,
+									const RHI::Ref<RHI::RHITexture>& material,
+									const RHI::Ref<RHI::RHITexture>& position,
+									const RHI::Ref<RHI::RHITexture>& choiceIndex,
+									const RHI::Ref<RHI::RHITexture>& choiceWeight);
+		// The two pictures the second pass wrote, for the water draw that
+		// reads them instead of walking its lamps. Null puts the walk back.
+		static void SetWaterLamps(const RHI::Ref<RHI::RHITexture>& diffuse,
+								  const RHI::Ref<RHI::RHITexture>& specular);
 
 		// Resets the per-frame scene-slot pool. Called by Renderer::BeginFrame.
 		static void BeginFrame();

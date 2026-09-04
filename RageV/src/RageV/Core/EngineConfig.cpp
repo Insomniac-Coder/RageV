@@ -392,6 +392,12 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "water-lamp-pass" || key == "waterlamppass")
+			return ParseBool(value, config.WaterLampPass);
+
+		if (key == "water-lamp-reuse" || key == "waterlampreuse")
+			return ParseBool(value, config.WaterLampReuse);
+
 		if (key == "light-sampling" || key == "lightsampling")
 		{
 			std::string count = value;

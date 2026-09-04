@@ -496,7 +496,7 @@ namespace RageV
 		if (wantTransparent && desc.DrawWaterSurface)
 		{
 			waterSurfaceIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
-			sceneDesc.ExtraColors.push_back(Format::R16G16B16A16_SFLOAT);
+			sceneDesc.ExtraColors.push_back(Format::R32G32B32A32_SFLOAT);
 			waterMaterialIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
 			sceneDesc.ExtraColors.push_back(Format::R16G16B16A16_SFLOAT);
 			// Full floats for the position: the sea is a kilometre wide here
@@ -1048,6 +1048,94 @@ namespace RageV
 					});
 			}
 
+			// --- the sea's lamps: which four, then their light ------------------
+			//
+			// Between the surface pass and the water draw, because the water
+			// draw reads what they produce. Two passes rather than one: every
+			// pixel has to have finished choosing before any pixel can read
+			// what its neighbour chose, and a fragment cannot see its
+			// neighbours' work inside its own pass.
+			RGResource waterLamps = kRGInvalid;
+			// Only where lamps are being sampled at all, and only where the
+			// run did not ask for the sampler inside the water shader instead.
+			if (waterSurfaceIndex != 0 && desc.WaterReservoirs
+				&& EngineConfig::Get().LightSampling > 0
+				&& EngineConfig::Get().WaterLampPass)
+			{
+				TemporalHistory& choices = *desc.WaterReservoirs;
+				// Four choices a pixel: the light's index and the confidence
+				// as whole integers in one attachment, the weight in the
+				// other. Whole integers because a weight through a half would
+				// quantise the one number the estimate divides by, and an
+				// index is not a thing to interpolate at all.
+				choices.Prepare(Renderer::GetDevice(),
+								desc.Width * (uint32_t)supersample,
+								desc.Height * (uint32_t)supersample,
+								Format::R32G32B32A32_UINT, "WaterLampChoices",
+								Format::R32G32B32A32_UINT);
+
+				if (choices.Current() && choices.Previous())
+				{
+					const RGResource pastChoices =
+						graph.Import(choices.Previous(), "WaterChoicesPrevious");
+					const RGResource newChoices =
+						graph.Import(choices.Current(), "WaterChoicesCurrent");
+
+					graph.AddPass("WaterChooseLamps",
+						[&](RGPassBuilder& builder)
+						{
+							builder.Write(newChoices);
+							builder.Sample(pastChoices);
+							builder.Sample(sceneHDR);
+							builder.DisableDepth();
+						},
+						[sceneHDR, pastChoices, waterSurfaceIndex, waterMaterialIndex,
+						 waterPositionIndex, &choices](RGPassContext& context)
+						{
+							Renderer3D::ChooseWaterLamps(
+								context.Color(sceneHDR, waterSurfaceIndex),
+								context.Color(sceneHDR, waterMaterialIndex),
+								context.Color(sceneHDR, waterPositionIndex),
+								context.Color(pastChoices, 0),
+								context.Color(pastChoices, 1),
+								choices.Motion(), choices.HasHistory());
+						});
+
+					RGTargetDesc lampDesc;
+					lampDesc.Name = "WaterLampLight";
+					lampDesc.Color = Format::R16G16B16A16_SFLOAT;
+					lampDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT };
+					lampDesc.Depth = Format::Undefined;
+					lampDesc.Scale = (float)supersample;
+					waterLamps = graph.CreateTarget(lampDesc);
+
+					graph.AddPass("WaterShadeLamps",
+						[&](RGPassBuilder& builder)
+						{
+							builder.Write(waterLamps);
+							builder.Sample(newChoices);
+							builder.Sample(sceneHDR);
+							builder.DisableDepth();
+						},
+						[sceneHDR, newChoices, waterSurfaceIndex, waterMaterialIndex,
+						 waterPositionIndex](RGPassContext& context)
+						{
+							Renderer3D::ShadeWaterLamps(
+								context.Color(sceneHDR, waterSurfaceIndex),
+								context.Color(sceneHDR, waterMaterialIndex),
+								context.Color(sceneHDR, waterPositionIndex),
+								context.Color(newChoices, 0),
+								context.Color(newChoices, 1));
+						});
+
+					// The swap. The camera that drew the choices is recorded
+					// by the pass itself, when it has used the one before it:
+					// a history of choices is per chain, and the editor draws
+					// two chains from two cameras in one frame.
+					choices.Advance();
+				}
+			}
+
 			graph.AddPass("Transparent",
 				[&](RGPassBuilder& builder)
 				{
@@ -1064,8 +1152,10 @@ namespace RageV
 
 					if (waterBackdrop != kRGInvalid)
 						builder.Sample(waterBackdrop);
+					if (waterLamps != kRGInvalid)
+						builder.Sample(waterLamps);
 				},
-				[draw = desc.DrawTransparent, waterBackdrop](RGPassContext& context)
+				[draw = desc.DrawTransparent, waterBackdrop, waterLamps](RGPassContext& context)
 				{
 					// Handed over around the draw and taken back after it, the
 					// ScreenReflections shape: the renderer must not carry a
@@ -1073,7 +1163,11 @@ namespace RageV
 					if (waterBackdrop != kRGInvalid)
 						Renderer3D::SetWaterBackdrop(context.Color(waterBackdrop, 0),
 													 context.Color(waterBackdrop, 1));
+					if (waterLamps != kRGInvalid)
+						Renderer3D::SetWaterLamps(context.Color(waterLamps, 0),
+												  context.Color(waterLamps, 1));
 					draw(context);
+					Renderer3D::SetWaterLamps(nullptr, nullptr);
 					Renderer3D::SetWaterBackdrop(nullptr, nullptr);
 				});
 

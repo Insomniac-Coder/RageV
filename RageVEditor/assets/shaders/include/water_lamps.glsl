@@ -95,7 +95,15 @@ WaterPoint FetchWaterPoint(vec2 uv)
 uint WaterClusterCell(vec3 worldPos, vec2 uv)
 {
 	const vec2 tileCount = u_Scene.ClusterGrid.xy;
-	const uvec2 tile = uvec2(clamp(uv, vec2(0.0), vec2(0.9999)) * tileCount);
+	// **Through the projection, not through the pixel's own coordinate.** The
+	// lit shader takes its tile from its clip position, and the two have to
+	// land in the same cell or this pass scores a list of lamps that do not
+	// reach the point it is shading. Deriving it the same way removes the
+	// question of whether a screen coordinate and a normalised device
+	// coordinate agree about which way is up on this backend.
+	const vec4 clip = u_Scene.ViewProjection * vec4(worldPos, 1.0);
+	const vec2 ndc = clip.xy / max(abs(clip.w), 1.0e-6) * sign(clip.w);
+	const uvec2 tile = uvec2(clamp(ndc * 0.5 + 0.5, vec2(0.0), vec2(0.9999)) * tileCount);
 	const float viewDepth = dot(worldPos - u_Scene.CameraPosition.xyz,
 								u_Scene.CameraForward.xyz);
 	float slice = 0.0;

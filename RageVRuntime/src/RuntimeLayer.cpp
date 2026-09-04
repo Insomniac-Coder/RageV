@@ -355,6 +355,7 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 		{
 			Renderer3D::FlushWaterSurface();
 		};
+		frame.WaterReservoirs = &m_WaterChoices;
 	}
 
 	// The water's two extras, on the transparent block's own terms: only

@@ -852,6 +852,8 @@ layout(location = 12) flat in vec4 v_WaterDeep;      // rgb + wind direction
 // x = the body's clock, y = grid spacing, z = gradient depth in metres,
 // w = the backdrop flag and NDC sign (see water_params.glsl).
 layout(location = 13) flat in vec4 v_WaterMisc;
+// x = whether the sea's lamps came from their own passes (WR-16 S4b).
+layout(location = 14) flat in vec4 v_WaterLamps;
 
 // **The water pipeline's own set, and that is the lesson of the reverted
 // first attempt.** The foam buffer went through Material::SetOcclusionMap
@@ -871,6 +873,11 @@ layout(set = 3, binding = 1) uniform sampler2D u_WaterBackdropDepth;
 layout(set = 3, binding = 2) uniform sampler2D u_WaterFoamBuffer;
 layout(set = 3, binding = 3) uniform sampler2D u_WaterDetailNormal;
 layout(set = 3, binding = 4) uniform sampler2D u_WaterFoamPattern;
+// WR-16 S4b: the lamp light, chosen and shaded in its own two passes. Two
+// pictures because the sea holds the glitter out of its own absorption --
+// it reflected before the light ever entered the water.
+layout(set = 3, binding = 5) uniform sampler2D u_WaterLampDiffuse;
+layout(set = 3, binding = 6) uniform sampler2D u_WaterLampSpecular;
 #endif
 
 #if defined(RV_WATER_SURFACE)
@@ -4147,6 +4154,9 @@ void main()
 	// moving object inside a baked lamp's range), and a subtraction taken
 	// from a sampled estimate would not be the same quantity.
 	if (sampleCount > 0 && shadowBudget == 0 && shadeLimit < 0 && fieldWeight <= 0.0
+#ifdef RV_WATER
+		&& v_WaterLamps.x == 0.0
+#endif
 		&& int(cellCount) > 2 * sampleCount)
 	{
 		float sampleWeight[8];
@@ -4324,6 +4334,13 @@ void main()
 	// shadow map this light was given.
 	for (int entry = 0; entry < total; ++entry)
 	{
+#ifdef RV_WATER
+		// WR-16 S4b: chosen, shaded and traced in their own passes, and added
+		// once below. Nothing positional is walked here at all -- not the
+		// eighty-byte record, not the term, not a ray.
+		if (v_WaterLamps.x != 0.0 && entry >= directionalCount)
+			continue;
+#endif
 		const bool survivor = sampled && entry >= directionalCount;
 		int i = entry < directionalCount
 			  ? entry
@@ -4810,6 +4827,21 @@ void main()
 #endif
 		}
 	}
+
+#ifdef RV_WATER
+	// **The lamp light from its own passes** (WR-16 S4b), added exactly where
+	// this loop's own would have gone: the whole of it into Lo, and the
+	// glinting half into the water's specular sum as well, because that sum
+	// is what the transmission below holds out of the sea's absorption.
+	if (v_WaterLamps.x != 0.0)
+	{
+		const vec2 lampUv = gl_FragCoord.xy / vec2(textureSize(u_WaterLampDiffuse, 0));
+		const vec3 lampDiffuse = textureLod(u_WaterLampDiffuse, lampUv, 0.0).rgb;
+		const vec3 lampSpecular = textureLod(u_WaterLampSpecular, lampUv, 0.0).rgb;
+		Lo += lampDiffuse + lampSpecular;
+		waterSpecular += lampSpecular;
+	}
+#endif
 
 #ifdef RV_RAY_SHADOWS
 	// WR-16 S1: the K survivors are traced, and the lamps' light is the

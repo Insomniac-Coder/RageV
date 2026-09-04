@@ -151,10 +151,15 @@ void main()
 							keptIndex = past.Index;
 							keptTarget = here;
 						}
-						// Capped once and used for both: a weight computed
-						// against a count the store then clamps would drift a
-						// little further every frame.
-						const uint merged = min(frames[r] + theirFrames, cap);
+						// **The cap goes on the history, not on the sum.**
+						// Clamping the merged count while keeping the weight
+						// it accumulated would divide by fewer samples than
+						// stand behind it, and the sea would come out
+						// brighter every frame the history grew. The history
+						// was clamped above; what comes out here is at most
+						// one frame past the cap and is clamped again when it
+						// is read.
+						const uint merged = frames[r] + theirFrames;
 						index[r] = keptIndex;
 						frames[r] = merged;
 						target[r] = keptTarget;

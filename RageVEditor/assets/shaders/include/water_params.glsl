@@ -34,3 +34,10 @@
 // travel together: a refraction offset is only ever applied to a backdrop
 // that exists.
 #define RV_WATER_FLAGS        u_Object.WaterSize.z
+
+// **WR-16 S4b: the sea's lamps were shaded somewhere else.** Non-zero means
+// the two pictures the lamp passes wrote are bound and hold this pixel's
+// lamp light -- what scattered into the water and what glinted off it -- so
+// the loop here walks the sun alone. Zero puts the walk back, which is what
+// every path but the sea's does anyway.
+#define RV_WATER_LAMPS        u_Object.WaterSize.w
