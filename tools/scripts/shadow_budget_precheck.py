@@ -65,13 +65,25 @@ AA_MODES = {
 WATER_BAND_FROM = 0.45
 
 
-def arms(budgets):
+def arms(budgets, sampler=False):
     """truth, the shipped preset, then each budget with the cheap target
     (irradiance: what S4 can afford for every candidate) and with the full
     one (the whole unshadowed term, BRDF included: what the water's glitter
     asks for). The gap between the two columns is the S4 design question."""
     out = [("truth", ["--rt-optimisation=off"]),
            ("quality", ["--rt-optimisation=quality"])]
+    if sampler:
+        # WR-16 S4's sampler (--sampler): the same three cameras and the same
+        # truth, so its rows read straight against S1's. Each K under both
+        # targets -- the cheap irradiance S1 found unusable on the water, and
+        # the same with the specular lobe's magnitude added -- because which
+        # of the two ships is the question this matrix exists to answer.
+        for k in budgets:
+            for target in ("term", "irradiance"):
+                out.append(("sampler-%d-%s" % (k, target),
+                            ["--rt-optimisation=off",
+                             "--light-sampling=%d,%s" % (k, target)]))
+        return out
     for k in budgets:
         out.append((f"budget-{k}", ["--rt-optimisation=off", f"--shadow-budget={k}"]))
     for k in budgets:
@@ -200,13 +212,19 @@ def main():
     parser.add_argument("--analyse-only", action="store_true",
                         help="no runtime: recompute the diffs and the flicker counts from the "
                              "stills and frames already in --out")
-    parser.add_argument("--out", default=str(ROOT / "build" / "shadow_budget"))
+    parser.add_argument("--sampler", action="store_true",
+                        help="WR-16 S4's sampler arms (--light-sampling) instead of S1's "
+                             "fixed-budget ones; writes to build/light_sampling by default")
+    parser.add_argument("--out", default=None)
     parser.add_argument("--report", help="print the tables from an earlier run's directory")
     args = parser.parse_args()
 
     cameras = [c for c in args.cameras.split(",") if c in CAMERAS]
     budgets = [int(b) for b in args.budgets.split(",") if b]
-    arm_list = arms(budgets)
+    arm_list = arms(budgets, args.sampler)
+    if args.out is None:
+        args.out = str(ROOT / "build"
+                       / ("light_sampling" if args.sampler else "shadow_budget"))
     arm_names = [a[0] for a in arm_list]
 
     if args.report:

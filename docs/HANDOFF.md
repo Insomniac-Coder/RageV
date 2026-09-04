@@ -50,6 +50,28 @@ down to 2.8 / 4.8 / 1.6 ms, which is the world-space grid's own payoff.
 now, not the shading** -- S0's "light-bound more than ray-bound" was true
 of the frame before S2 and must not be carried forward.
 
+**2026-09-04, evening: S4a, the sampler, is built and measured**
+(ENGINE-NOTES 7da; RAY-BUDGET-DESIGN Part IV "S4a, the sampler,
+measured"). `--light-sampling=K[,term|irradiance]`: a live surface whose
+cell list is longer than twice the budget scores every candidate, keeps K
+by weighted reservoir sampling, and shades and traces only those K, on
+S1's unbiased estimate. **At K = 4 the frame is 43.4 / 34.5 / 35.2 ms
+against the shipped preset's 54.2 / 46.3 / 39.8** (the project ships at RT
+optimisation **Quality** -- `SampleProject.rvproject:20` -- not Off, as
+some of these documents still say), with 0.29 / 1.29 / 0.07% of the frame
+over six levels under TAA against everything traced: better than the
+preset on Glitter, not yet on Headland and Pier, which is what S4b's reuse
+is for. **The target took three landings and is the lesson**: the water's
+roughness is an RMS slope and its lobe an anisotropic Beckmann in a streak
+frame, so GGX scored the glitter's own lamps as dim; and at grazing angles
+the Fresnel is most of the term. The score is the unshadowed term's
+luminance now, and it reproduces S1's numbers. The gate is the irradiance
+field's weight, never the Static flag -- the sea is marked static and no
+volume covers the bay. **Next: S4b**, the reuse -- the choice kept across
+frames and neighbours, in its own stage rather than the forward pass (the
+owner's decision), then S4c's reconstruction, then the world-space lamp
+grid.
+
 **The session ended here on 2026-09-04, paused at the owner's request
 (credit limit) with the context cleared.** Eleven commits on `main`, none
 pushed; the scene meta file is the one uncommitted change (the runtime

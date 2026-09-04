@@ -87,6 +87,14 @@
 //   --casting-lights=N      measurement only: under rays, only the first N
 //                           positional lights keep a shadow ray; the rest
 //                           light without one (WR-16 S0's light-count sweep)
+//   --light-sampling=K[,target]  WR-16 S4: a live surface with more lamps
+//                           reaching it than K scores them cheaply, keeps K
+//                           by weighted reservoir sampling, and shades and
+//                           traces only those -- the unbiased estimate S1
+//                           measured. target is 'term' (the default: the
+//                           unshadowed term's luminance, the water's own lobe
+//                           with its Fresnel and masking) or 'irradiance'
+//                           (S1's cheap target, kept as the arm it lost as).
 //   --shade-lights=N        measurement only (WR-16 S4's sizing): a fragment
 //                           or a traced hit shades at most N positional
 //                           lamps and skips the rest where the eighty-byte
@@ -321,6 +329,16 @@ namespace RageV
 		// Negative -- the default -- shades every lamp. Carried to the shader
 		// in RayRates.w's bits 8 and up, as N + 1 so that zero means off.
 		int   ShadeLights = -1;
+
+		// --light-sampling=K[,target]: WR-16 S4's sampler. K reservoirs per
+		// pixel over the cell's lamps, scored by the target, and only the K
+		// survivors shaded and traced. Zero -- the default -- leaves every
+		// lamp shaded as it is today. The target: 0 the cheap irradiance S1
+		// measured unusable on the water, 1 the same with the specular lobe's
+		// magnitude added, which is what the water's glitter needs. Carried
+		// in RayRates.w's bits 16-19 and 20-21.
+		int   LightSampling = 0;
+		int   LightSamplingTarget = 1;
 
 		// **--debug-view=<what>** (WR-16 S0): the frame replaced by a heat map
 		// of one number per pixel, read from the counts the lit shaders write

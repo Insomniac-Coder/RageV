@@ -2795,7 +2795,7 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	// WR-16 S4's sizing, as on screen: at most N positional lamps are read in
 	// full and shaded at this hit. Read from RayRates.w's high bits here too,
 	// so one flag covers both halves of the lamp cost.
-	const int hitShadeLimit = int(u_Scene.RayRates.w + 0.5) / 256 - 1;
+	const int hitShadeLimit = ((int(u_Scene.RayRates.w + 0.5) >> 8) & 255) - 1;
 	int hitShaded = 0;
 #ifndef RV_TRACE_ONLY
 	// **WR-10: the hit takes the cluster it falls in.** The cluster grid is
@@ -4455,22 +4455,246 @@ void main()
 	// leaves the shading; this cuts the shading, which after S2 is the half
 	// the water still pays in full. The lamps past N are simply absent, so
 	// the picture is wrong on purpose and the frame time is the bound.
-	const int shadeLimit = int(u_Scene.RayRates.w + 0.5) / 256 - 1;
+	const int shadeLimit = ((int(u_Scene.RayRates.w + 0.5) >> 8) & 255) - 1;
 	int shadedLights = 0;
+
+	// **WR-16 S4, the sampler** (`--light-sampling=K[,target]`, RayRates.w
+	// bits 16-19 as K, bits 20-21 as the target's kind). The step S1 sized
+	// and this builds: a pixel with more lamps reaching it than a budget can
+	// pay for does not shade them all. It scores each candidate cheaply,
+	// keeps K of them by weighted reservoir sampling, and shades and traces
+	// only those K -- the same unbiased estimate S1 measured (the survivor's
+	// term over its probability of having been chosen, averaged over K), so
+	// the picture is right in the mean and as noisy as K allows. The reuse
+	// and the reconstruction that follow this step are what quiet it.
+	//
+	// **The target is the whole design question**, which is why it is a dial
+	// here and not a decision: S1 measured the cheap irradiance target
+	// unusable on the water -- a glitter lamp's specular is about a hundred
+	// times its irradiance, so a target blind to the highlight samples the
+	// streak's lamps as if they were dim and the tonemapper clips the little
+	// it does draw. `term` is the other arm and the one that won: the
+	// unshadowed term's luminance, built from the same lobe the shading uses
+	// -- see the score below, which took three landings to get right.
+	//
+	// **Only where it can win**: a live surface -- the sea, and anything that
+	// moves -- whose cell list is longer than twice the budget. A static
+	// pixel deep in the field already walks the short live sublist S2 gave
+	// it, and sampling four of three lamps costs more than shading them. The
+	// two measurement flags are exclusive with it: S1's budget still shades
+	// every lamp, and the sizing flag shades none past N.
+#ifdef RV_RAY_SHADOWS
+	const int sampleCount  = clamp((budgetCode >> 16) & 15, 0, 8);
+	const int sampleTarget = (budgetCode >> 20) & 3;
+#else
+	const int sampleCount  = 0;
+	const int sampleTarget = 0;
+#endif
+	uint  sampleIndex[8];
+	float sampleScale[8];
+	bool  sampled = false;
+#ifdef RV_RAY_SHADOWS
+	// The field's weight, not the Static flag: what disqualifies a pixel is
+	// the bake owing it light, not the mesh being still. The sea is marked
+	// Static like everything else the marking pass touched, but no volume
+	// covers the bay, so its weight is zero and every lamp reaching it is
+	// live -- which is exactly the pixel this sampler is for. A weight above
+	// zero also means a lamp may be *subtracted* here rather than added (a
+	// moving object inside a baked lamp's range), and a subtraction taken
+	// from a sampled estimate would not be the same quantity.
+	if (sampleCount > 0 && shadowBudget == 0 && shadeLimit < 0 && fieldWeight <= 0.0
+		&& int(cellCount) > 2 * sampleCount)
+	{
+		float sampleWeight[8];
+		uint  sampleSeed[8];
+		float sampleTotal = 0.0;
+		// The rule every stochastic choice in this shader follows: fixed per
+		// pixel with no temporal filter to integrate it, walking along the
+		// frame under one. Hashed per pixel, reservoir and lamp, because a
+		// weighted reservoir is unbiased only when each draw is independent
+		// of the last -- the trap S1 paid for with a darker water.
+		const uvec2 px = uvec2(gl_FragCoord.xy);
+		const uint  salt = any(notEqual(u_Scene.Jitter, vec4(0.0)))
+						 ? uint(mod(u_Scene.GlobalIllumination.y, 1024.0)) * 0xC2B2AE35u : 0u;
+		for (int r = 0; r < sampleCount; ++r)
+		{
+			sampleIndex[r] = 0u;
+			sampleWeight[r] = 0.0;
+			sampleScale[r] = 0.0;
+			sampleSeed[r] = BudgetHash(px.x ^ (px.y << 16u) ^ (uint(r) << 28u)
+									   ^ salt ^ 0x2545F491u);
+		}
+		const vec3  kLum = vec3(0.2126, 0.7152, 0.0722);
+		const float NdotVs = max(dot(N, V), 1.0e-3);
+#ifdef RV_WATER
+		// **The water's lobe is not GGX and its roughness is not a roughness**
+		// (see WaterBeckmannD): it is the surface's RMS slope, and the lobe is
+		// an anisotropic Beckmann in a frame that a sized lamp turns from the
+		// wind to the view -- which is what draws the shaft toward the camera
+		// instead of a pool along the wind. The first landing of this sampler
+		// scored the sea with the GGX distribution and this number, and the
+		// two disagree by enough that the lamps carrying the glitter were
+		// scored as if dim: Pier came out at 10.7% of the frame over six
+		// levels against the fully traced picture, against S1's 1.14% with
+		// the true term as the target. So the score uses the same lobe the
+		// shading does, with the shadowing term left at one. Everything here
+		// is per pixel; only the half vector and the source's angular size
+		// change from lamp to lamp.
+		const vec3  windDir = vec3(waterWind.x, 0.0, waterWind.y);
+		const vec3  windT = normalize(windDir - N * dot(windDir, N));
+		const vec3  windB = cross(N, windT);
+		vec3  viewT = V - N * dot(V, N);
+		const float viewT2 = dot(viewT, viewT);
+		const bool  hasStreak = viewT2 > 1.0e-6;
+		viewT = hasStreak ? viewT * inversesqrt(max(viewT2, 1.0e-12)) : windT;
+		const vec3  viewB = hasStreak ? cross(N, viewT) : windB;
+		const float ax0 = max(shadingRoughness * 1.16, 0.02);
+		const float ay0 = max(shadingRoughness * 0.86, 0.02);
+		// The view's half of the masking: the same in both frames and the
+		// same for every lamp, so it is paid once.
+		const float g1View = hasStreak
+						   ? WaterBeckmannG1X(V, N, viewT, viewB, ax0, ay0)
+						   : WaterBeckmannG1(V, N, windT, windB, shadingRoughness);
+#endif
+		const float f0Lum  = dot(F0, kLum);
+		const float albLum = max(dot(albedo, kLum), 1.0e-3);
+		const float alpha  = shadingRoughness * shadingRoughness;
+		const float alpha2 = max(alpha * alpha, 1.0e-6);
+		for (int entry = directionalCount; entry < total; ++entry)
+		{
+			const int i = int(u_CellIndices.Indices[cellOffset + uint(entry - directionalCount)]);
+#ifdef RV_LIGHT_CULL
+			if (LightCullRejects(uint(i), v_WorldPos, false, true))
+				continue;
+#endif
+			const GpuLight light = u_Lights.Lights[i];
+			if (light.Position.w == 0.0)
+				continue;
+			// The falloff and the cone exactly as the loop below computes
+			// them, so a lamp scores zero only where its term is zero and the
+			// estimate stays unbiased.
+			const vec3  toLight = light.Position.xyz - v_WorldPos;
+			const float distance2 = dot(toLight, toLight);
+			const vec3  L = toLight * inversesqrt(max(distance2, 1.0e-8));
+			const float range = max(light.Params.x, 0.0001);
+			const float t = distance2 / (range * range);
+			const float ratio = clamp(1.0 - t * t, 0.0, 1.0);
+			float attenuation = (ratio * ratio) / max(distance2, 0.0001);
+			if (light.Params.z < light.Params.y)
+			{
+				const float theta = dot(L, -light.Direction.xyz);
+				attenuation *= clamp((theta - light.Params.z)
+									 / max(light.Params.y - light.Params.z, 0.0001), 0.0, 1.0);
+			}
+			const float NdotL = max(dot(N, L), 0.0);
+			if (attenuation <= 0.0 || NdotL <= 0.0)
+				continue;
+			const float lum = dot(light.Color.rgb, kLum) * light.Color.a * attenuation;
+			// **What the target has to be, learned by measuring it three
+			// times.** Irradiance alone (S1's cheap target) is 11.8% of Pier
+			// over six levels; the distribution added, but GGX's and with the
+			// water's slope read as a roughness, 10.7%; the water's own
+			// anisotropic lobe with its streak frame, 5.5%. What was still
+			// missing is the half of the term that varies most from lamp to
+			// lamp on a low camera: the Fresnel, which at grazing angles is
+			// fifty times its value at normal incidence, and the masking,
+			// which cuts the lamps that lie along the surface. With those the
+			// score is the unshadowed term's luminance -- what S1 measured as
+			// the target that holds -- minus only the coat, the sheen and the
+			// sized lamp's closest-point half vector. It is affordable
+			// because it is paid for the candidates and not for the shading:
+			// no ray, no closest-point solve, no coat, no sheen, and one
+			// number instead of three channels.
+			const vec3  H = normalize(V + L);
+			const float VdotH = max(dot(H, V), 0.0);
+			const float fresnel = f0Lum + (1.0 - f0Lum) * pow(1.0 - VdotH, 5.0);
+			float target = lum * NdotL * albLum * (1.0 - fresnel) * (1.0 - metallic) / PI;
+			if (sampleTarget != 0)
+			{
+#ifdef RV_WATER
+				// The sized-lamp streak, or the wind frame for a point source:
+				// the shading's own two branches, with its renormalisation.
+				const float angular = light.Direction.w
+									* inversesqrt(max(distance2, 1.0e-8));
+				float ndf;
+				float ndfScale;
+				float g;
+				if (light.Direction.w > 0.0 && hasStreak)
+				{
+					const float axS = min(ax0 * 3.0 + 4.0 * angular, 1.0);
+					const float ayS = min(ay0 + 0.5 * angular, 1.0);
+					ndfScale = sqrt((ax0 * ay0) / (axS * ayS));
+					ndf = WaterBeckmannDX(H, N, viewT, viewB, axS, ayS);
+					g = g1View * WaterBeckmannG1X(L, N, viewT, viewB, ax0, ay0);
+				}
+				else
+				{
+					const float widened = min(shadingRoughness + 0.5 * angular, 1.0);
+					ndfScale = (shadingRoughness * shadingRoughness)
+							 / max(widened * widened, 1.0e-12);
+					ndf = WaterBeckmannD(H, N, windT, windB, widened);
+					g = g1View * WaterBeckmannG1(L, N, windT, windB, shadingRoughness);
+				}
+				target += lum * ndf * ndfScale * g * fresnel * 0.25 / NdotVs;
+#else
+				const float NdotH = max(dot(N, H), 0.0);
+				const float d = NdotH * NdotH * (alpha2 - 1.0) + 1.0;
+				target += lum * (alpha2 / (PI * d * d))
+						* GeometrySmith(N, V, L, shadingRoughness)
+						* fresnel * 0.25 / NdotVs;
+#endif
+			}
+			target = max(target, 1.0e-9);
+			sampleTotal += target;
+			const float accept = target / sampleTotal;
+			for (int r = 0; r < sampleCount; ++r)
+			{
+				const float draw = float(BudgetHash(sampleSeed[r] ^ (uint(i) * 0x9E3779B9u)) >> 8u)
+								 * (1.0 / 16777216.0);
+				if (draw < accept)
+				{
+					sampleIndex[r] = uint(i);
+					sampleWeight[r] = target;
+				}
+			}
+		}
+		if (sampleTotal > 0.0)
+		{
+			// One over the probability this lamp had of being chosen, over K
+			// samples: the whole weight of the cell divided among the
+			// survivors. The loop below multiplies it into `liveShare`, which
+			// is its one per-light scale.
+			for (int r = 0; r < sampleCount; ++r)
+			{
+				sampleScale[r] = sampleWeight[r] > 0.0
+							   ? sampleTotal / (float(sampleCount) * sampleWeight[r])
+							   : 0.0;
+			}
+			sampled = true;
+			total = directionalCount + sampleCount;
+		}
+	}
+#endif
 
 	// `entry`, not `slot`: the loop body already has a `slot`, which is the
 	// shadow map this light was given.
 	for (int entry = 0; entry < total; ++entry)
 	{
+		const bool survivor = sampled && entry >= directionalCount;
 		int i = entry < directionalCount
 			  ? entry
-			  : int(u_CellIndices.Indices[cellOffset + uint(entry - directionalCount)]);
+			  : (sampled ? int(sampleIndex[entry - directionalCount])
+						 : int(u_CellIndices.Indices[cellOffset + uint(entry - directionalCount)]));
+		// WR-16 S4: a survivor with no weight is a reservoir that never saw a
+		// candidate -- there is no light behind it to add.
+		if (survivor && sampleScale[entry - directionalCount] <= 0.0)
+			continue;
 
 #ifdef RV_LIGHT_CULL
 		// WR-16 S2: sixteen bytes decide whether the eighty are read. A
 		// directional light is never rejected (its range packs infinity, its
-		// class is live).
-		if (LightCullRejects(uint(i), v_WorldPos, cullInsideField, true))
+		// class is live). A survivor passed this test when it was scored.
+		if (!survivor && LightCullRejects(uint(i), v_WorldPos, cullInsideField, true))
 			continue;
 #endif
 		// The sizing flag's cap (above): directional lights are never capped
@@ -4515,6 +4739,13 @@ void main()
 			if (liveShare <= 0.0 && !subtractive)
 				continue;
 		}
+		// WR-16 S4: the survivor stands for the lamps that were not chosen --
+		// its term over the probability it had of being chosen, averaged over
+		// K. `liveShare` is the loop's one per-light scale, so the estimate
+		// rides in on it and every consumer below inherits it. A sampled
+		// pixel is never static, so this multiplies a one.
+		if (survivor)
+			liveShare *= sampleScale[entry - directionalCount];
 
 		vec3  lightColor = light.Color.rgb * light.Color.a;
 		float isPositional = light.Position.w;
@@ -4819,6 +5050,16 @@ void main()
 		{
 			budgeted = true;
 		}
+		else if (liveShare > 0.0 && kind != 0 && survivor)
+		{
+			// WR-16 S4: a survivor is traced, always. Choosing which lamps
+			// deserve a ray is exactly what the thinning below was for, and
+			// the sampler has just done it per pixel and by importance rather
+			// than by distance.
+			shadow = TraceShadowSoft(v_WorldPos, L,
+									 length(light.Position.xyz - v_WorldPos),
+									 light.Direction.w, uint(i));
+		}
 		else if (liveShare > 0.0 && kind != 0)
 		{
 			// WR-17: a far light's ray is traced by a fraction of the pixels
@@ -4916,7 +5157,12 @@ void main()
 		// lamp on a static surface, so those shade to the bit they always did.
 		Lo += (kD * albedo / PI * diffuseCosine + specular * NdotL) * radiance * shadow * liveShare;
 #ifdef RV_WATER
-		waterSpecular += specular * radiance * NdotL * shadow;
+		// `liveShare` here too (WR-16 S4). It is exactly one for the water
+		// today -- the sea is never a static surface -- so this changes no
+		// pixel; under the sampler it carries the survivor's estimate, and
+		// without it the glitter would be the light of four lamps instead of
+		// the light of all of them.
+		waterSpecular += specular * radiance * NdotL * shadow * liveShare;
 #endif
 		}
 	}

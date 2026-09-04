@@ -392,6 +392,37 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "light-sampling" || key == "lightsampling")
+		{
+			std::string count = value;
+			const size_t comma = value.find(',');
+			if (comma != std::string::npos)
+			{
+				const std::string target = ToLower(value.substr(comma + 1));
+				count = value.substr(0, comma);
+				if (target == "term" || target == "peak")
+					config.LightSamplingTarget = 1;
+				else if (target == "irradiance" || target == "cheap")
+					config.LightSamplingTarget = 0;
+				else
+				{
+					RV_CORE_WARN("light-sampling's target is 'term' or 'irradiance'; got '{0}'",
+								 target);
+					return false;
+				}
+			}
+			try
+			{
+				config.LightSampling = Math::Clamp(std::stoi(count), 0, 8);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("light-sampling expects a whole number from 0 to 8; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
 		if (key == "shade-lights" || key == "shadelights")
 		{
 			try

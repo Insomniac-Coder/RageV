@@ -3920,3 +3920,107 @@ target per candidate plus the reservoir machinery, and that cost sits between
 `shade-4` and `base`. So 28.5 / 24.0 / 22.9 ms is S4's floor, not its
 forecast, and the first thing the sampler must be measured for is what its
 scoring costs per candidate.
+
+#### S4a, the sampler, measured (2026-09-04, evening)
+
+The first of S4's four pieces, built after the sizing run and the owner's
+four calls. **`--light-sampling=K[,term|irradiance]`**: a live surface whose
+cell list is longer than twice the budget scores every candidate, keeps K by
+weighted reservoir sampling, and shades and traces only those K. The
+estimate is S1's, unchanged -- the survivor's term over the probability it
+had of being chosen, averaged over K -- so it is unbiased by construction
+and as noisy as K allows. The difference from S1's instrument is the whole
+point: S1 still shaded every lamp to build its terms, and this shades four.
+
+**Where it applies, and why not the Static flag.** The gate is the
+irradiance field's weight at the pixel, not `MeshComponent::Static`. The sea
+*is* marked static -- `mark_static.py` marked every mesh -- but no volume
+covers the bay, so the field owes it nothing and every lamp reaching it is
+live. A weight above zero also means a lamp may be *subtracted* here rather
+than added (a moving object inside a baked lamp's range), and a subtraction
+taken from a sampled estimate is not the same quantity, so those pixels are
+left alone. In this scene the gate selects the sea, which is where the
+sizing run put every millisecond.
+
+**The target took three landings, and each one is a lesson.**
+
+| what the score was | Pier, no AA | Pier, TAA |
+|---|---|---|
+| the irradiance alone (S1's cheap target) | 17.8 | 12.2 |
+| plus a distribution -- but GGX's, fed the water's slope | 17.1 | 10.7 |
+| plus the water's own anisotropic lobe in its streak frame | 14.6 | 5.5 |
+| **plus the Fresnel and the masking** | **10.6** | **1.29** |
+
+1. **The water's roughness is not a roughness.** It is the surface's RMS
+   slope (see `WaterBeckmannD`), and the lobe it feeds is an anisotropic
+   Beckmann that a sized lamp turns out of the wind frame and toward the
+   viewer -- the turn that draws the glitter as a shaft rather than a pool.
+   Scoring the sea with the GGX distribution and that number scored the very
+   lamps that make the glitter as if they were dim.
+2. **On a low camera the Fresnel is most of the answer.** Water reflects
+   about fifty times as much at grazing as head on, and Pier's lamps sit at
+   every angle between. Leaving the Fresnel and the masking out of the score
+   was the difference between 5.5% and 1.3%.
+
+What the score is now is the unshadowed term's luminance, built from the
+same lobe the shading uses, minus the coat, the sheen and the sized lamp's
+closest-point half vector. That is S1's `full` target -- the one it measured
+as the target that holds -- and the sampler reproduces S1's numbers to the
+decimal at K = 4 under TAA: **0.29 / 1.29 / 0.07 against S1's 0.29 / 1.14 /
+0.07.** It is affordable because it is paid for the candidates and not for
+the shading: no ray, no closest-point solve, no coat, no sheen, one number
+instead of three channels. It costs 2 to 3 ms over the irradiance arm and is
+worth roughly ten times that in the picture.
+
+**The matrix** (`shadow_budget_precheck.py --sampler`, the same three
+cameras, the same truth, the same protocol as S1, so the rows read straight
+against its table; `build/light_sampling_final/`). Percent of the frame over
+6 levels against everything traced, and the frame time at 1440p at the
+project's settings -- which are **RT optimisation Quality**
+(`SampleProject.rvproject:20`), not Off as some of these documents still say:
+
+| camera | arm | ms | no AA | TAA | blink %, TAA |
+|---|---|---|---|---|---|
+| Headland | truth | 64.1 | ref | ref | 2.67 |
+| | quality (shipped) | 54.2 | 0.31 | 0.00 | 2.73 |
+| | **sampler 4, term** | **43.4** | 1.82 | 0.29 | 3.68 |
+| | sampler 4, irradiance | 40.6 | 3.65 | 2.49 | 5.19 |
+| | sampler 8, term | 48.6 | 1.32 | 0.12 | 3.31 |
+| Pier | truth | 48.7 | ref | ref | 3.76 |
+| | quality (shipped) | 46.3 | 0.43 | 0.04 | 3.84 |
+| | **sampler 4, term** | **34.5** | 10.55 | 1.29 | 8.33 |
+| | sampler 4, irradiance | 32.5 | 17.82 | 12.17 | 11.72 |
+| | sampler 8, term | 38.1 | 7.13 | 0.57 | 6.35 |
+| Glitter | truth | 48.4 | ref | ref | 3.21 |
+| | quality (shipped) | 39.8 | 0.90 | 0.42 | 3.22 |
+| | **sampler 4, term** | **35.2** | 0.45 | 0.07 | 3.40 |
+| | sampler 4, irradiance | 34.1 | 4.66 | 2.18 | 7.17 |
+| | sampler 8, term | 41.5 | 0.32 | 0.04 | 3.32 |
+
+**The verdict.**
+
+- **The target is `term`.** It wins on every camera, in every AA mode, at
+  both budgets, by three to ten times, for 2 to 3 ms. The irradiance arm is
+  kept only as the arm it lost as. Decided by measurement, as the owner
+  asked, not by judgement.
+- **K = 4 stays the default and K = 8 is the fallback S1 predicted.** Eight
+  halves the residual on the two cameras that have one (Headland 0.29 to
+  0.12, Pier 1.29 to 0.57) for 5.2 / 3.6 / 6.3 ms. The reuse is meant to
+  close Pier without spending that; if it does not, this is what it costs.
+- **The frame is 10.8 / 11.8 / 4.6 ms under the shipped preset already**, at
+  a picture that is better than it on Glitter (0.07 against 0.42) and not
+  yet as good on Headland and Pier (0.29 against 0.00, 1.29 against 0.04).
+  Closing those two is the next two pieces' job, not this one's.
+- **The flicker rule holds where it is structural.** Without a temporal
+  filter the choice is fixed per pixel, and the blinking counts under no AA
+  and MSAA are the shipped preset's to three decimals (0.007 / 0.21 / 0.79).
+  Under TAA the sampler adds 0.9 / 4.5 / 0.2 points -- the same shape S1
+  measured for four rays (0.9 / 3.8 / 0.2), and the same thing the direct
+  light's own history is there to remove.
+
+**Off the flag nothing changed**: stills at 1600x900 against the pre-S2
+runtime at Off and at Quality, max difference 0; `scenetest` green on both
+backends. One always-on line did change and is worth stating -- the water's
+specular sum now carries `liveShare` like the diffuse does. It is exactly
+one for the sea today, so no pixel moves; without it a sampled pixel's
+glitter would be the light of four lamps instead of the light of all of them.

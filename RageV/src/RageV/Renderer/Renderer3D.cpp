@@ -3164,7 +3164,9 @@ namespace RageV
 				// S4's sizing flag --shade-lights=N as N + 1 (zero is off).
 				// Both are whole numbers well inside a float's exact range.
 				(float)(config.ShadowBudget + (config.ShadowBudgetFullTarget ? 16 : 0)
-						+ (config.ShadeLights >= 0 ? 256 * (config.ShadeLights + 1) : 0)));
+						+ (config.ShadeLights >= 0 ? 256 * (config.ShadeLights + 1) : 0)
+						+ 65536 * config.LightSampling
+						+ 1048576 * config.LightSamplingTarget));
 		}
 
 		const uint32_t cascadeCount = ShadowMap::HasCascades() ? ShadowMap::GetCascadeCount() : 0;

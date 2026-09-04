@@ -14375,6 +14375,77 @@ the standing rule, still walks its full list, and that is S4's.
 
 ---
 
+### 7da. Four lamps a pixel, chosen well (WR-16, step S4a: the sampler)
+
+The sea is lit by 176 lamps and shades every one of them at every pixel.
+S2 ended that for the static surfaces -- the deck, the towers, the cliffs
+read the field instead -- but the water moves, so it is lit live, and after
+S2 it *is* the frame: 41 of Headland's 54 ms, and a lamp lever (rays and
+shading together) worth 44 to 47% of it, measured with `--shade-lights=N`
+before any of this was built.
+
+**What the sampler does.** A pixel whose cell list is longer than twice the
+budget scores each candidate, keeps K of them by weighted reservoir sampling
+-- one reservoir per ray, each lamp offered to all of them with its score as
+its weight -- and shades and traces only those K. Each survivor's light is
+multiplied by the whole cell's weight over K times its own, which is one
+over the probability it had of being chosen: the estimator is unbiased for
+the sum over every lamp, exactly S1's, and as noisy as K rays allow. It sits
+in the existing light loop rather than beside it: the loop's index becomes
+the survivor's, the estimate rides in on `liveShare` (its one per-light
+scale), and a survivor skips the thinning and is always traced, because
+choosing which lamps deserve a ray is what the thinning was for and the
+sampler has just done it per pixel and by importance.
+
+**The gate is the field's weight, not the Static flag.** The sea is marked
+static like every other mesh, but no volume covers the bay: the field owes
+it nothing, every lamp reaching it is live, and it is exactly the pixel this
+is for. Where the weight is above zero a lamp may also be *subtracted*
+rather than added (a moving object inside a baked lamp's range), and a
+subtraction taken from a sampled estimate is not the same quantity, so those
+pixels keep the full walk.
+
+**The target is the whole step, and it took three landings.** Unbiasedness
+does not care what the score is; the noise cares about nothing else. On Pier
+under TAA, percent of the frame over six levels against everything traced:
+the irradiance alone (S1's cheap target) 12.2, plus a distribution but GGX's
+12.2 to 10.7, plus the water's own anisotropic Beckmann in its streak frame
+5.5, plus the Fresnel and the masking **1.29** -- against S1's 1.14 with the
+true term as the target, and the shipped preset's 0.04.
+
+- **The water's roughness is not a roughness.** It is the RMS slope of the
+  surface, and the lobe is an anisotropic Beckmann that a sized lamp turns
+  out of the wind frame toward the viewer -- the turn that makes the glitter
+  a shaft instead of a pool. Feeding that number to GGX scored the lamps
+  that make the glitter as if they were dim.
+- **At grazing angles the Fresnel is most of the term.** Water reflects
+  about fifty times as much edge on as head on, and a low camera's lamps sit
+  at every angle between; a score that uses the reflectance at normal
+  incidence for all of them ranks them wrongly.
+
+So the score is the unshadowed term's luminance, from the same lobe the
+shading uses, without the coat, the sheen, or the sized lamp's
+closest-point half vector. Affordable because it is paid for candidates and
+not for shading: no ray, no closest-point solve, one channel instead of
+three. `--light-sampling=K[,term|irradiance]`; the irradiance arm is kept as
+the arm it lost as.
+
+**Measured** (three cameras, three AA modes, the flicker protocol, diffs
+against everything traced; RAY-BUDGET-DESIGN Part IV "S4a, the sampler,
+measured"): at K = 4 the frame is **43.4 / 34.5 / 35.2 ms against the
+shipped preset's 54.2 / 46.3 / 39.8**, with a picture better than the preset
+on Glitter and not yet as good on Headland and Pier (0.29 and 1.29 against
+0.00 and 0.04 over six levels under TAA). Under no AA and MSAA the blinking
+counts are the preset's to three decimals -- the choice is fixed per pixel
+without a temporal filter, as every stochastic term here is -- and TAA adds
+0.9 / 4.5 / 0.2 points, which is the grain the reuse and the reconstruction
+in S4b and S4c exist to remove.
+
+**Off the flag nothing changed**: bit-identical to the pre-S2 runtime at Off
+and at Quality. One always-on line did change: the water's specular sum
+carries `liveShare` like the diffuse, which is exactly one for the sea today
+and carries the survivor's estimate under the sampler.
+
 ## 8. What this changes
 
 | Item | Before | After |
