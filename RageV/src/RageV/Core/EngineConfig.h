@@ -87,6 +87,13 @@
 //   --casting-lights=N      measurement only: under rays, only the first N
 //                           positional lights keep a shadow ray; the rest
 //                           light without one (WR-16 S0's light-count sweep)
+//   --shadow-budget=K[,full] measurement only (WR-16 S1): each pixel traces
+//                           K shadow rays in all, to K lamps chosen by
+//                           importance from its cluster list, and takes the
+//                           lamps' light through the unbiased sampling
+//                           weights; 1, 2, 4 or 8. Replaces the thinning.
+//                           ",full" weighs candidates by their whole
+//                           unshadowed term instead of the cheap irradiance.
 //   --debug-view=rays|lights|confidence|importance
 //                           replace the picture with a heat map: rays cast
 //                           per pixel, lights walked per pixel, the temporal
@@ -276,6 +283,18 @@ namespace RageV
 		// first N positional lights keep their shadow ray. Negative -- the
 		// default -- leaves every light as authored.
 		int   CastingLights = -1;
+		// --shadow-budget=K: a measurement (WR-16 S1, the fixed-budget
+		// pre-check). Under rays each pixel traces K shadow rays in all, to K
+		// lamps chosen by weighted reservoir sampling on a cheap importance
+		// (unshadowed irradiance), and takes the lamps' light through the
+		// importance-sampling weights -- unbiased, and as noisy as K allows.
+		// Zero, the default, leaves the per-light rays and the thinning as
+		// they are. Carried to the shader in RayRates.w, K in the low four
+		// bits and the target above them: `--shadow-budget=K,full` weighs the
+		// candidates by their whole unshadowed term instead of the cheap
+		// irradiance -- the S4 design question the water's glitter forces.
+		int   ShadowBudget = 0;
+		bool  ShadowBudgetFullTarget = false;
 
 		// **--debug-view=<what>** (WR-16 S0): the frame replaced by a heat map
 		// of one number per pixel, read from the counts the lit shaders write

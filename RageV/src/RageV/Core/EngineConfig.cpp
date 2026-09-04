@@ -392,6 +392,36 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "shadow-budget" || key == "shadowbudget")
+		{
+			// K, optionally followed by ",full" for the full-term target.
+			std::string count = value;
+			config.ShadowBudgetFullTarget = false;
+			const size_t comma = value.find(',');
+			if (comma != std::string::npos)
+			{
+				const std::string target = ToLower(value.substr(comma + 1));
+				count = value.substr(0, comma);
+				if (target == "full")
+					config.ShadowBudgetFullTarget = true;
+				else if (target != "cheap")
+				{
+					RV_CORE_WARN("shadow-budget's target is 'cheap' or 'full'; got '{0}'", target);
+					return false;
+				}
+			}
+			try
+			{
+				config.ShadowBudget = Math::Clamp(std::stoi(count), 0, 8);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("shadow-budget expects a whole number from 0 to 8; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
 		if (key == "debug-view" || key == "debugview")
 		{
 			const std::string lowered = ToLower(value);

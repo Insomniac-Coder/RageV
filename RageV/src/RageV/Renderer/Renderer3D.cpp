@@ -3073,11 +3073,14 @@ namespace RageV
 				: Vec4((float)(uint32_t)preset.Shape, preset.Start, preset.End, preset.Floor);
 			// WR-18: the water's ray rate and refraction reach, the preset's or
 			// the run's.
+			// .w: WR-16 S1's fixed shadow budget per pixel, a measurement;
+			// zero leaves the per-light rays and the thinning alone.
 			s_Data->Scene.RayRates = Vec4(
 				config.HasRayRateOverride ? config.RayRateOverride : preset.RayRate,
 				config.HasRefractionFloorOverride ? config.RefractionFloorOverride
 												  : preset.RefractionFloor,
-				config.HitLights ? 0.0f : 1.0f, 0.0f);
+				config.HitLights ? 0.0f : 1.0f,
+				(float)(config.ShadowBudget + (config.ShadowBudgetFullTarget ? 16 : 0)));
 		}
 
 		const uint32_t cascadeCount = ShadowMap::HasCascades() ? ShadowMap::GetCascadeCount() : 0;

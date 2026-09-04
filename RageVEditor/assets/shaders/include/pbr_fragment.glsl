@@ -1247,6 +1247,16 @@ float InterleavedGradientNoise(vec2 pixel)
 	return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
 }
 
+// A permuted-congruential hash (O'Neill's PCG output step), for the draws
+// that must be independent of one another -- the reservoir sampling of
+// WR-16 S1. White noise, deterministic, one integer in and out.
+uint BudgetHash(uint x)
+{
+	x = x * 747796405u + 2891336453u;
+	x = ((x >> ((x >> 28u) + 4u)) ^ x) * 277803737u;
+	return (x >> 22u) ^ x;
+}
+
 float TraceShadowSoftFromMasked(vec3 worldPos, vec3 Ng, vec3 L, float tMax,
 								float sourceRadius, uint light, uint mask)
 {
@@ -4266,6 +4276,74 @@ void main()
 	// this pixel traced, which the dither's R2 spacing puts within a few
 	// stations of it; before any was traced it is lit.
 	float lastFarVisible = 1.0;
+
+	// **WR-16 S1, the fixed-budget pre-check: K shadow rays a pixel, to K
+	// lamps chosen by importance** (`--shadow-budget=K`, RayRates.w; the
+	// owner's Debug Pass C). Instead of one ray per casting lamp, thinned by
+	// distance, each pixel keeps K reservoirs; every live positional lamp
+	// offers itself to each with a weight -- its unshadowed irradiance, the
+	// cheap target S4 will use, not the BRDF -- and the classic single-sample
+	// weighted reservoir keeps one lamp per reservoir with probability
+	// weight over total. After the loop the K survivors are traced and the
+	// pixel's lamp light is the importance-sampling estimate
+	//     sum over reservoirs of  term_j * V_j * W / (K * w_j)
+	// which is unbiased for the sum over every lamp of term_i * V_i, and
+	// exactly as noisy as K rays allow: the raw floor Part IV asks to see
+	// before any reuse. The draws are interleaved gradient noise per pixel
+	// shifted per reservoir, walked along the golden ratio per lamp index,
+	// and along the frame only while a temporal filter exists to integrate
+	// it (u_Scene.Jitter, the rule every stochastic term here follows): with
+	// no filter the choice is fixed per pixel and the picture holds still.
+	// Reservoirs are drawn with replacement -- independent samples -- which
+	// keeps the estimator simple and the same lamp may be traced twice.
+	//
+	// A measurement, not the production sampler: it still shades every lamp
+	// to build its terms (the shading lever is S4's), and eight reservoirs
+	// of a term each are registers this shader does not have to spare, so
+	// its frame time is an upper bound and its picture is the point.
+	// RayRates.w carries K in the low four bits and the target's kind above
+	// them: 0 the cheap target (unshadowed irradiance, what S4 would afford
+	// for a hundred and forty candidates), 16 the full one (the lamp's whole
+	// unshadowed term, BRDF and all -- affordable here only because this
+	// measurement still shades every lamp). The two arms answer the S4
+	// design question the water forces: a glitter lamp's specular is a
+	// hundred times its irradiance, and a target that does not know it
+	// samples the streak's lamps as if they were dim.
+	const int budgetCode = int(u_Scene.RayRates.w + 0.5);
+	const int shadowBudget = clamp(budgetCode & 15, 0, 8);
+	const bool budgetFullTarget = budgetCode >= 16;
+	uint  budgetIndex[8];
+	vec3  budgetTerm[8];
+#ifdef RV_WATER
+	vec3  budgetSpec[8];
+#endif
+	float budgetWeight[8];
+	uint  budgetSeed[8];
+	float budgetTotal = 0.0;
+	if (shadowBudget > 0)
+	{
+		// **Independent draws, hashed per pixel, reservoir and lamp.** The
+		// first landing walked one golden-ratio sequence along the lamp
+		// index, and the water came out darker the smaller K was: a weighted
+		// reservoir is unbiased only when each item's uniform is independent
+		// of the last, and consecutive terms of one sequence are not. White
+		// noise across lamps is right here; the low-discrepancy set was for
+		// the soft shadow's disc points, a different question. Fixed per
+		// pixel without a temporal filter, salted by the frame under one.
+		const uvec2 px = uvec2(gl_FragCoord.xy);
+		const uint frameSalt = any(notEqual(u_Scene.Jitter, vec4(0.0)))
+							 ? uint(mod(u_Scene.GlobalIllumination.y, 1024.0)) * 0x85EBCA6Bu : 0u;
+		for (int r = 0; r < 8; ++r)
+		{
+			budgetIndex[r] = 0u;
+			budgetTerm[r] = vec3(0.0);
+#ifdef RV_WATER
+			budgetSpec[r] = vec3(0.0);
+#endif
+			budgetWeight[r] = 0.0;
+			budgetSeed[r] = BudgetHash(px.x ^ (px.y << 16u) ^ (uint(r) << 28u) ^ frameSalt);
+		}
+	}
 #endif
 
 	// `entry`, not `slot`: the loop body already has a `slot`, which is the
@@ -4601,9 +4679,17 @@ void main()
 													 length(light.Position.xyz - v_WorldPos),
 													 light.Direction.w, uint(i), RV_RAY_MASK_MOVING);
 		}
+		// WR-16 S1: under the fixed budget a live positional lamp is not traced
+		// here; it offers itself to the reservoirs where its term is known,
+		// below, and contributes nothing to Lo directly.
+		bool budgeted = false;
 		if (liveShare > 0.0 && kind == 1)
 		{
 			shadow = TraceShadow(v_WorldPos, L, 1.0e4);
+		}
+		else if (liveShare > 0.0 && kind != 0 && shadowBudget > 0)
+		{
+			budgeted = true;
 		}
 		else if (liveShare > 0.0 && kind != 0)
 		{
@@ -4666,13 +4752,72 @@ void main()
 			movingLossSpecular += specular * NdotL * radiance * (1.0 - shadowMoving) * fieldShare;
 		}
 #endif
+#ifdef RV_RAY_SHADOWS
+		if (budgeted)
+		{
+			// The lamp's whole term, held for the reservoirs; its weight is
+			// the cheap target -- luminance of the unshadowed irradiance --
+			// so a bright near lamp is chosen often and a far dim one
+			// rarely, and the estimate divides by that weight to stay fair.
+			const vec3 term = (kD * albedo / PI * diffuseCosine + specular * NdotL)
+							* radiance * liveShare;
+			const vec3 lumWeights = vec3(0.2126, 0.7152, 0.0722);
+			const float weight = max(budgetFullTarget ? dot(term, lumWeights)
+													  : dot(radiance, lumWeights) * NdotL, 1.0e-6);
+			budgetTotal += weight;
+			const float accept = weight / budgetTotal;
+			for (int r = 0; r < shadowBudget; ++r)
+			{
+				const float draw = float(BudgetHash(budgetSeed[r] ^ (uint(i) * 0x9E3779B9u)) >> 8u)
+								 * (1.0 / 16777216.0);
+				if (draw < accept)
+				{
+					budgetIndex[r] = uint(i);
+					budgetTerm[r] = term;
+#ifdef RV_WATER
+					budgetSpec[r] = specular * radiance * NdotL;
+#endif
+					budgetWeight[r] = weight;
+				}
+			}
+		}
+		else
+#endif
+		{
 		// `liveShare` is exactly 1.0 for every light that is not a fully baked
 		// lamp on a static surface, so those shade to the bit they always did.
 		Lo += (kD * albedo / PI * diffuseCosine + specular * NdotL) * radiance * shadow * liveShare;
 #ifdef RV_WATER
 		waterSpecular += specular * radiance * NdotL * shadow;
 #endif
+		}
 	}
+
+#ifdef RV_RAY_SHADOWS
+	// WR-16 S1: the K survivors are traced, and the lamps' light is the
+	// importance-sampling estimate -- each survivor's term scaled by the
+	// total weight over K times its own, which is one over its probability
+	// of having been chosen, over K samples.
+	if (shadowBudget > 0 && budgetTotal > 0.0)
+	{
+		for (int r = 0; r < shadowBudget; ++r)
+		{
+			if (budgetWeight[r] <= 0.0)
+				continue;
+			const GpuLight chosen = u_Lights.Lights[budgetIndex[r]];
+			const vec3 toLight = chosen.Position.xyz - v_WorldPos;
+			const float distance = length(toLight);
+			const vec3 Lc = toLight / max(distance, 1.0e-6);
+			const float visible = TraceShadowSoft(v_WorldPos, Lc, distance, chosen.Direction.w,
+												  budgetIndex[r]);
+			const float scale = visible * budgetTotal / (float(shadowBudget) * budgetWeight[r]);
+			Lo += budgetTerm[r] * scale;
+#ifdef RV_WATER
+			waterSpecular += budgetSpec[r] * scale;
+#endif
+		}
+	}
+#endif
 
 	// A constant environment standing in for IBL: irradiance is the same from
 	// every direction, so one colour serves both the diffuse and specular
