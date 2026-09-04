@@ -430,6 +430,24 @@ namespace RageV
 		// harder on whatever the importance map is pointing at.
 		float RayBudgetSpread = 3.0f;
 
+		// **What a ray costs, by kind, in milliseconds per million rays on
+		// this project's target hardware** (WR-16 S0; docs/RAY-BUDGET-DESIGN
+		// Part III 4.1). The controller needs the time of rays that are cast
+		// inside a shading pass -- the shadow rays and the water's rays live
+		// in the lit fragment, where no timer can see them alone -- and gets
+		// it as the counted rays times this. **Set by the calibration
+		// protocol and never learned online**: an online fit is an output
+		// feeding an input, the loop this engine has already met. Zero means
+		// uncalibrated, and the controller treats that type as costing
+		// nothing rather than guessing. The AO and GI passes have timers of
+		// their own; their entries exist so the report can say what a ray
+		// of each kind cost when it was measured.
+		float RayCostShadow = 0.0f;
+		float RayCostWater = 0.0f;
+		float RayCostReflection = 0.0f;
+		float RayCostGi = 0.0f;
+		float RayCostAo = 0.0f;
+
 		// GiBounces and the whole of the voxel form moved to the post profile
 		// on 2026-08-20 (10.6, ENGINE-NOTES 7bg), where the rest of the GI
 		// settings already were. What stays here is the *hardware* budget --

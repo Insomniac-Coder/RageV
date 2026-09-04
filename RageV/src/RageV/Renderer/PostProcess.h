@@ -462,6 +462,20 @@ namespace RageV
 		static void Blit(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& source,
 						 RHI::Format outputFormat);
 
+		// **The debug view** (WR-16 S0, `--debug-view=`): `frame` dimmed under
+		// a heat map of one number per pixel. `mode` is EngineConfig's
+		// DebugViewMode less one (0 rays, 1 lights, 2 confidence, 3
+		// importance); `counts` is Renderer3D's per-pixel count buffer, read
+		// by the first two; `aux` is the texture the other two read -- the
+		// temporal moments (validity in .w) or the ray budget's tile map --
+		// or null when that source did not run this frame, which the map
+		// then says by staying dark. `scale` is the value at the top of the
+		// ramp.
+		static void DebugView(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& frame,
+							  const RHI::Ref<RHI::RHITexture>& aux,
+							  const RHI::Ref<RHI::RHIBuffer>& counts,
+							  int mode, float scale, RHI::Format outputFormat);
+
 		// The indirect buffer's temporal stage (ENGINE-NOTES 7av): this
 		// frame's raw estimate accumulated onto what the last frame resolved,
 		// reprojected through the velocity buffer.
@@ -513,6 +527,8 @@ namespace RageV
 			// to its mean, then turn importance into ray counts.
 			ImportanceTiles, TileReduce, TileBudget,
 			WaterBackdropCopy,
+			// WR-16 S0: the heat map of one number per pixel.
+			DebugView,
 			Count
 		};
 
@@ -556,6 +572,12 @@ namespace RageV
 							 // lit shader multiplies into the bounce. Part of
 							 // the pipeline cache key, so the single-attachment
 							 // pipelines every other pass uses are untouched.
-							 RHI::Format secondOutputFormat = RHI::Format::Undefined);
+							 RHI::Format secondOutputFormat = RHI::Format::Undefined,
+							 // Bound at binding 5 when the shader declares it:
+							 // the ray counters for the passes that count (the
+							 // traced occlusion pass, the temporal resolve) and
+							 // the per-pixel debug counts for the debug view
+							 // (WR-16 S0). A storage buffer either way.
+							 const RHI::Ref<RHI::RHIBuffer>& counters = nullptr);
 	};
 }

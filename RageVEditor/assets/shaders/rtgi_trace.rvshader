@@ -550,4 +550,10 @@ void main()
 	}
 
 	o_Indirect = vec4(bounced / float(rays), 1.0);
+
+	// WR-16 S0: the bounce's rays and hits into the frame's counters. Not a
+	// lit fragment -- a pixel of this pass is a probe, not a surface.
+#ifdef RV_RAY_COUNTERS
+	FlushRayCounters(false);
+#endif
 }

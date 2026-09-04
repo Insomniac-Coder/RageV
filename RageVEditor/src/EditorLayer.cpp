@@ -10,6 +10,7 @@
 #include "RageV/Asset/ScriptGraphGenerator.h"
 #include "RageV/Renderer/DebugRenderer.h"
 #include "RageV/Renderer/FrameGraphBuilder.h"
+#include "RageV/Renderer/RayCounters.h"
 #include "RageV/Physics/PhysicsDebugDraw.h"
 #include "RageV/Scene/ScenePicking.h"
 #include "RageV/Project/Project.h"
@@ -2572,6 +2573,37 @@ void EditorLayer::DrawStatisticsPanel()
 	ImGui::PlotLines("##FrameTimes", m_FrameHistory, IM_ARRAYSIZE(m_FrameHistory),
 					 m_FrameHistoryIndex, nullptr, 0.0f, FLT_MAX,
 					 ImVec2(-1.0f, 48.0f));
+
+	// The frame's rays, counted where they are cast and read back a frame or
+	// two late (WR-16 S0). Only where the device traces; the panel says
+	// nothing otherwise rather than showing zeros.
+	{
+		const RayCounters::Sample& rays = RayCounters::Last();
+		if (rays.Valid)
+		{
+			UI::TextCaption("rays %.1f M/frame: shadow %.1f  water %.1f  refl %.1f  GI %.1f  AO %.1f",
+							rays.TotalRays() / 1.0e6, rays.Lanes[RayCounters::ShadowRays] / 1.0e6,
+							rays.Lanes[RayCounters::WaterRays] / 1.0e6,
+							rays.Lanes[RayCounters::ReflectionRays] / 1.0e6,
+							rays.Lanes[RayCounters::GiRays] / 1.0e6,
+							rays.Lanes[RayCounters::AoRays] / 1.0e6);
+			const float confidence = rays.TemporalConfidence();
+			if (confidence >= 0.0f)
+				UI::TextCaption("per fragment %.1f rays, %.1f lights (max %u); %.1f lights per hit; "
+								"temporal confidence %.0f%%",
+								rays.RaysPerFragment(), rays.LightsPerFragment(),
+								rays.Lanes[RayCounters::LightsMax], rays.LightsPerHit(),
+								confidence * 100.0f);
+			else
+				UI::TextCaption("per fragment %.1f rays, %.1f lights (max %u); %.1f lights per hit",
+								rays.RaysPerFragment(), rays.LightsPerFragment(),
+								rays.Lanes[RayCounters::LightsMax], rays.LightsPerHit());
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Counted in the shaders that cast them and read back one frame "
+								  "late, like the GPU timings. 'Per fragment' divides by the "
+								  "fragments the lit shaders shaded -- two per pixel under water.");
+		}
+	}
 
 	// Where the frame goes, on both processors.
 	//

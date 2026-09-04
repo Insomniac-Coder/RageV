@@ -50,6 +50,28 @@ layout(set = 0, binding = 2) uniform sampler2D u_Budget;
 
 layout(set = 0, binding = 4) uniform accelerationStructureEXT u_SceneAS;
 
+// WR-16 S0: the taps are counted into the frame's ray counters
+// (RayCounters::kPostBinding, lane AoRays), the way the lit shaders count
+// theirs: one subgroup reduction and one atomic per wave, from a lane that is
+// not a helper. See pbr_fragment.glsl's FlushRayCounters for the reasoning.
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+// Sixty-four copies by screen tile, summed on the CPU: see pbr_fragment's
+// RayCounterSlot. No early-fragment-tests line here: this is a fullscreen
+// pass with no depth attachment, so there is no test to keep in front.
+layout(std430, set = 0, binding = 5) buffer RayCounterBlock
+{
+	uint Counts[64 * 16];
+} u_RayCounters;
+const uint RAY_LANE_AO = 4u;
+
+uint RayCounterSlot()
+{
+	const uvec2 px = uvec2(gl_FragCoord.xy);
+	return ((px.x >> 3u) + (px.y >> 2u) * 7u) & 63u;
+}
+
 layout(push_constant) uniform Params
 {
 	float TexelX;
@@ -291,6 +313,9 @@ void main()
 						 + u_Params.A * kGoldenAngleTurn;
 
 	float occlusion = 0.0;
+	// Rays this invocation actually cast: the taps under the slope are
+	// skipped, and a skipped tap is not a ray.
+	uint rayCount = 0u;
 	// **Per tile, not per frame.** `Taps` is the ceiling and the fallback:
 	// with no budget bound every pixel takes it, which is the fixed count
 	// this replaces. Clamped to at least one -- a pixel that casts no ray
@@ -322,6 +347,7 @@ void main()
 		// map claims.
 		if (dot(direction, geometric) < 0.0)
 			continue;
+		rayCount++;
 
 		rayQueryEXT q;
 		// **Cutouts occlude as solid here, deliberately.**
@@ -345,6 +371,16 @@ void main()
 	}
 
 	const float ao = 1.0 - occlusion / float(kTaps);
+
+	// The wave's taps into the frame's counter. Lanes that returned early
+	// above cast nothing and are absent from the reduction, which is right.
+	{
+		const bool real = !gl_HelperInvocation;
+		const uvec4 realLanes = subgroupBallot(real);
+		const uint sum = subgroupAdd(real ? rayCount : 0u);
+		if (real && sum > 0u && gl_SubgroupInvocationID == subgroupBallotFindLSB(realLanes))
+			atomicAdd(u_RayCounters.Counts[RayCounterSlot() * 16u + RAY_LANE_AO], sum);
+	}
 
 	// Occlusion in R, linear depth in G for the blur's edge test -- the same
 	// contract as ssao_compute, because the same blur reads it.

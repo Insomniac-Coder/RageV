@@ -5,6 +5,7 @@
 #include "RageV/Core/EngineConfig.h"
 #include "RageV/Core/FrameProfiler.h"
 #include "RayShadows.h"
+#include "RayCounters.h"
 #include "VoxelGI.h"
 #include "Renderer3D.h"
 #include "RageV/Asset/AssetManager.h"
@@ -330,6 +331,17 @@ namespace RageV
 		// Which filter, resolved once, by the function everything else asks.
 		const EngineConfig& config = EngineConfig::Get();
 		const AntiAliasing aa = ResolveAntiAliasing(desc.Render);
+
+		// **`--debug-view` (WR-16 S0)**, decided once: the composite runs
+		// where the counters exist (the ray-query path), and the per-pixel
+		// count buffer is sized and zeroed only for the two modes that read
+		// it. Renderer3D decided whether the lit shaders write it when they
+		// were compiled; DebugCountsBuffer is null otherwise.
+		const bool debugView = config.DebugView != EngineConfig::DebugViewMode::None
+							&& RayCounters::IsAvailable();
+		const bool debugCounts = debugView
+							  && (config.DebugView == EngineConfig::DebugViewMode::Rays
+								  || config.DebugView == EngineConfig::DebugViewMode::Lights);
 
 		// SSAA is decided here rather than with the other two, because it is
 		// the only one that changes the size of the scene target -- everything
@@ -806,6 +818,31 @@ namespace RageV
 				[update = desc.UpdateWater](RGPassContext& context) { update(context); });
 		}
 
+		// **The debug view's per-pixel counts, sized and zeroed before the
+		// scene draws** (WR-16 S0). The lit shaders add into the buffer
+		// under RV_DEBUG_VIEW; a transfer zeroes its two planes every frame,
+		// past the header, and the barrier orders the zero before the first
+		// atomic. Outside any render pass, which is what a standalone pass
+		// is for.
+		if (debugCounts)
+		{
+			Renderer3D::EnsureDebugCounts(desc.Width * (uint32_t)supersample,
+										  desc.Height * (uint32_t)supersample);
+			if (const Ref<RHIBuffer> counts = Renderer3D::DebugCountsBuffer())
+			{
+				graph.AddStandalonePass("Debug counts clear",
+					[&](RGPassBuilder&) {},
+					[counts](RGPassContext& context)
+					{
+						context.Cmd.FillBuffer(counts, Renderer3D::kDebugCountsHeaderBytes,
+											   counts->GetSize() - Renderer3D::kDebugCountsHeaderBytes,
+											   0u);
+						context.Cmd.BufferBarrier(counts, BufferSync::TransferWrite,
+												  BufferSync::ShaderWrite);
+					});
+			}
+		}
+
 		graph.AddPass("Scene",
 			[&](RGPassBuilder& builder)
 			{
@@ -1058,6 +1095,9 @@ namespace RageV
 		// is not incidental. A threshold applied to a frame that is wobbling
 		// by half a pixel flickers along every bright edge, and a glow that
 		// shimmers is more obvious than the aliasing it was hiding.
+		// This frame's temporal history, for the debug view's confidence
+		// map: attachment 1 of it carries the validity lane (WR-16 S0).
+		RGResource temporalCurrent = kRGInvalid;
 		if (wantTemporal)
 		{
 			TemporalHistory& history = *desc.History;
@@ -1081,6 +1121,7 @@ namespace RageV
 				// reproject.
 				const RGResource current = graph.Import(history.Current(), "TemporalCurrent");
 				const RGResource previous = graph.Import(history.Previous(), "TemporalPrevious");
+				temporalCurrent = current;
 				const RGResource source = shaded;
 				const float feedback = desc.Render.TemporalFeedback;
 				const bool hasHistory = history.HasHistory();
@@ -2405,7 +2446,9 @@ namespace RageV
 		// filter then reads. Both filters work on perceived brightness, so they
 		// have to run after the transfer function, not before.
 		RGResource tonemapped = desc.Output;
-		if (wantAA)
+		// And under the debug view (WR-16 S0), which draws the output last
+		// from the tone-mapped frame and cannot sample the target it writes.
+		if (wantAA || debugView)
 		{
 			RGTargetDesc ldr;
 			ldr.Name = "Tonemapped";
@@ -2631,6 +2674,86 @@ namespace RageV
 					PostProcess::SmaaBlend(context.Cmd, context.Color(source),
 										   context.Color(weights),
 										   context.Width, context.Height, format);
+				});
+		}
+
+		// --- the debug view, over everything but the UI (WR-16 S0) ---------------
+		//
+		// The output written again, from the tone-mapped frame and one number
+		// per pixel: the rays or lights the lit shaders counted into the debug
+		// buffer, the temporal resolve's validity lane, or the ray budget's
+		// tile map. Whatever anti-aliasing wrote into the output before this
+		// is replaced; a heat map is not a picture to smooth.
+		if (debugView)
+		{
+			const EngineConfig::DebugViewMode view = config.DebugView;
+			const int mode = (int)view - 1;
+			const Format format = desc.OutputFormat;
+			// The composite declares the count buffer whichever mode runs,
+			// and a declared binding is filled or the draw is undefined: the
+			// texture-backed modes, which never read it, bind the frame's
+			// ray counters in its place.
+			const Ref<RHIBuffer> counts = debugCounts ? Renderer3D::DebugCountsBuffer()
+													  : RayCounters::Buffer();
+			// The ramp's top: rays saturate at the busiest cluster's worth of
+			// shadow rays plus a few, lights at the busiest cluster, the
+			// allocation at three times the AO average (RayBudgetSpread's
+			// ceiling); confidence is two colours and needs no scale.
+			const float busiest = (float)Math::Max(Renderer3D::GetMaxCellLoad(), 1u);
+			const float scale = view == EngineConfig::DebugViewMode::Rays ? busiest + 8.0f
+							  : view == EngineConfig::DebugViewMode::Lights ? busiest
+							  : view == EngineConfig::DebugViewMode::Importance
+									? desc.Render.RayBudgetAoAverage * Math::Max(desc.Render.RayBudgetSpread, 1.0f)
+									: 1.0f;
+			// The texture-backed modes' source, when it ran this frame.
+			const RGResource auxResource = view == EngineConfig::DebugViewMode::Confidence
+										 ? temporalCurrent
+										 : view == EngineConfig::DebugViewMode::Importance
+											   ? rayBudgetMap : kRGInvalid;
+			const uint32_t auxAttachment = view == EngineConfig::DebugViewMode::Confidence ? 1u : 0u;
+
+			// Said once: a view whose source is not running draws a dark map,
+			// and the log should say why rather than leave it to be guessed.
+			static EngineConfig::DebugViewMode s_Said = EngineConfig::DebugViewMode::None;
+			if (auxResource == kRGInvalid && mode >= 2 && s_Said != view)
+			{
+				s_Said = view;
+				RV_CORE_WARN("Debug view: {0} has no source this frame ({1}); the map stays dark",
+							 view == EngineConfig::DebugViewMode::Confidence ? "confidence" : "importance",
+							 view == EngineConfig::DebugViewMode::Confidence
+								 ? "the temporal resolve runs under TAA only"
+								 : "the ray budget's tile allocator is off");
+			}
+
+			if (debugCounts && counts)
+			{
+				// The counts were written by the scene passes' fragments;
+				// the composite reads them.
+				graph.AddStandalonePass("Debug view sync",
+					[&](RGPassBuilder&) {},
+					[counts](RGPassContext& context)
+					{
+						context.Cmd.BufferBarrier(counts, BufferSync::ShaderWrite,
+												  BufferSync::ShaderRead);
+					});
+			}
+
+			graph.AddPass("Debug view",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(desc.Output);
+					builder.Sample(tonemapped);
+					if (auxResource != kRGInvalid)
+						builder.Sample(auxResource);
+					builder.DisableDepth();
+				},
+				[tonemapped, auxResource, auxAttachment, counts, mode, scale, format]
+				(RGPassContext& context)
+				{
+					PostProcess::DebugView(context.Cmd, context.Color(tonemapped),
+										   auxResource != kRGInvalid
+											   ? context.Color(auxResource, auxAttachment) : nullptr,
+										   counts, mode, scale, format);
 				});
 		}
 

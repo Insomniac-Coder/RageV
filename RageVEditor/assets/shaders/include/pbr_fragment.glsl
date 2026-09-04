@@ -362,6 +362,179 @@ const float POINT_SHADOW_NEAR = 0.05;
 layout(set = 0, binding = 14) uniform accelerationStructureEXT u_SceneAS;
 #endif
 
+// **WR-16 S0: the rays are counted where they are cast** (ENGINE-NOTES 7cy;
+// RayCounters on the CPU side, whose Lane enum this order mirrors). Every
+// launch site below adds one to a per-invocation register; main adds the
+// registers into the frame's counter buffer once, at its end -- a subgroup
+// reduction and a single atomic per lane per wave, from a lane that is not
+// a helper, because a helper invocation's stores have no effect and an
+// electee that happened to be one would drop the wave's count. Under the
+// same define as the structure, so the OpenGL layouts never see the
+// binding; not in the irradiance fill, whose rays are bake time and whose
+// set is its own.
+#if defined(RV_RAY_SHADOWS) && !defined(RV_IRRADIANCE_FILL)
+#define RV_RAY_COUNTERS
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+
+// **Sixty-four copies of the sixteen lanes, one per screen tile, summed on
+// the CPU after the readback.** Every wave in the frame adds into this
+// buffer -- 1.4 million atomics a frame on Headland -- and atomics to one
+// address serialise in the L2, so the lanes are spread over sixty-four
+// lines by the wave's position on screen; the 4 KB the CPU sums is
+// nothing. Measured honestly: the spread changed nothing on this GPU (the
+// 13 ms the flush first cost was the lost early depth test, below), and it
+// is kept as the right shape for a counter every wave touches rather than
+// as a fix for anything seen. (RayCounters::kSlots on the CPU side; the
+// two must agree.)
+layout(std430, set = 0, binding = 21) buffer RayCounterBlock
+{
+	uint Counts[64 * 16];
+} u_RayCounters;
+const uint RAY_COUNTER_SLOTS = 64u;
+
+// **The depth test stays in front of the shader.** A fragment shader with a
+// memory side effect -- these atomics -- may no longer be culled by depth
+// before it runs, because the side effect would be observable; so without
+// this line every fragment the prepass had already rejected is shaded
+// again, and the frame pays for the counting with its overdraw: measured
+// +11 ms on Headland's 59, with the contention and the registers both ruled
+// out first. Forcing the early test is exact for the families that neither
+// discard nor write depth -- the opaque and the water -- and counts only the
+// fragments the picture keeps, which is what a per-pixel figure means. The
+// alpha-cutout family cannot take it: an early depth write survives its
+// discard and a picket would leave depth where its holes are. It counts
+// late, and its overdraw is the price of counting there.
+#if !defined(RV_ALPHA_CUTOUT) && !defined(RV_TRACE_ONLY)
+layout(early_fragment_tests) in;
+#endif
+
+// Which copy this wave adds into: the 8x4 block of pixels the leader lane
+// sits in, rows offset so neighbouring waves in x and in y both land on
+// different lines. Any assignment is correct -- the CPU sums them all --
+// this one merely keeps waves that run together apart.
+uint RayCounterSlot()
+{
+	const uvec2 px = uvec2(gl_FragCoord.xy);
+	return ((px.x >> 3u) + (px.y >> 2u) * 7u) & (RAY_COUNTER_SLOTS - 1u);
+}
+
+const uint RAY_LANE_SHADOW      = 0u;   // every shadow ray, on screen and at hits
+const uint RAY_LANE_WATER       = 1u;   // the water's mirror and refraction rays
+const uint RAY_LANE_REFLECTION  = 2u;   // the opaque surfaces' mirror rays
+const uint RAY_LANE_GI          = 3u;   // the traced bounce's rays
+const uint RAY_LANE_AO          = 4u;   // the occlusion pass's taps (counted there)
+const uint RAY_LANE_LIT         = 5u;   // fragments this shader shaded
+const uint RAY_LANE_LIGHTS      = 6u;   // lights those fragments walked, summed
+const uint RAY_LANE_LIGHTS_MAX  = 7u;   // the largest list any fragment walked
+const uint RAY_LANE_HITS        = 8u;   // traced surfaces shaded
+const uint RAY_LANE_HIT_LIGHTS  = 9u;   // lights those hits walked, summed
+
+// Which lane TraceSurface's rays belong to is a property of the compile,
+// not of the call: the bounce's trace includes this file under
+// RV_TRACE_ONLY, the water under RV_WATER, and the opaque families under
+// neither.
+#if defined(RV_TRACE_ONLY)
+const uint RAY_LANE_SURFACE = RAY_LANE_GI;
+#elif defined(RV_WATER)
+const uint RAY_LANE_SURFACE = RAY_LANE_WATER;
+#else
+const uint RAY_LANE_SURFACE = RAY_LANE_REFLECTION;
+#endif
+
+// **Two words, packed, live through the whole of main.** The first form of
+// this was an array of five counters and three more words, and it cost the
+// Headland frame 26% (59 to 74 ms): eight registers held across a shader
+// that was already at its occupancy edge, and an array indexed by a loop
+// variable at the flush, which is an array in local memory. The counts a
+// fragment can reach are small -- shadow rays under 65,536, surface rays
+// and hits under 256, lights under 65,536 -- so they share two registers:
+//   A = shadow rays (low 16 bits) | lights this fragment walks (high 16)
+//   B = surface rays (low 8) | traced hits (next 8) | lights those hits walked (high 16)
+// Which lane the surface rays belong to is decided at compile time
+// (RAY_LANE_SURFACE), so no per-lane register is needed for them.
+uint g_CountA = 0u;
+uint g_CountB = 0u;
+
+#define RV_COUNT_SHADOW_RAY()  (g_CountA += 1u)
+#define RV_COUNT_SURFACE_RAY() (g_CountB += 1u)
+#define RV_COUNT_HIT(lights)   (g_CountB += (1u << 8) | (uint(max(lights, 0)) << 16))
+#define RV_COUNT_LIGHTS(total) (g_CountA |= uint(max(total, 0)) << 16)
+
+// One reduction and at most one atomic per lane per wave. `leader` is the
+// lowest active lane that is not a helper; a wave of helpers alone adds
+// nothing, which is right -- no pixel of theirs is in the frame. `base` is
+// the wave's slot times the lane count.
+void CountLane(uint base, uint lane, uint value, bool leader)
+{
+	const uint sum = subgroupAdd(value);
+	if (leader && sum > 0u)
+		atomicAdd(u_RayCounters.Counts[base + lane], sum);
+}
+
+// Called once, at the end of main, in control flow every live lane of the
+// wave reaches: a lane that discarded is inactive and simply absent from
+// the reductions, and the discards in this file all happen before any ray.
+// `shaded` says whether this invocation counts as a lit fragment (the
+// bounce's trace passes false: its pixels are not surfaces).
+void FlushRayCounters(bool shaded)
+{
+	const bool real = !gl_HelperInvocation;
+	const uvec4 realLanes = subgroupBallot(real);
+	const bool leader = real && gl_SubgroupInvocationID == subgroupBallotFindLSB(realLanes);
+	const uint a = real ? g_CountA : 0u;
+	const uint b = real ? g_CountB : 0u;
+	const uint base = RayCounterSlot() * 16u;
+
+	CountLane(base, RAY_LANE_SHADOW, a & 0xFFFFu, leader);
+	CountLane(base, RAY_LANE_SURFACE, b & 0xFFu, leader);
+	CountLane(base, RAY_LANE_LIT, (real && shaded) ? 1u : 0u, leader);
+	CountLane(base, RAY_LANE_LIGHTS, a >> 16u, leader);
+	const uint most = subgroupMax(a >> 16u);
+	if (leader && most > 0u)
+		atomicMax(u_RayCounters.Counts[base + RAY_LANE_LIGHTS_MAX], most);
+	CountLane(base, RAY_LANE_HITS, (b >> 8u) & 0xFFu, leader);
+	CountLane(base, RAY_LANE_HIT_LIGHTS, b >> 16u, leader);
+}
+#else
+#define RV_COUNT_SHADOW_RAY()
+#define RV_COUNT_SURFACE_RAY()
+#define RV_COUNT_HIT(lights)
+#define RV_COUNT_LIGHTS(total)
+#endif
+
+// **`--debug-view=rays|lights`**: the same two numbers per pixel, added into
+// a buffer the debug composite draws as a heat map. Adds rather than stores,
+// so a water pixel shows its own rays *and* the deck's beneath it -- what
+// the pixel cost, not what the last surface cost. Compiled in only under
+// the flag (Renderer3D::kDebugCountsBinding); the header is written by the
+// CPU once per size and the planes are zeroed by a fill every frame.
+#ifdef RV_DEBUG_VIEW
+layout(std430, set = 0, binding = 22) buffer DebugCountBlock
+{
+	uint Width;
+	uint Height;
+	uint Pixels;
+	uint _pad;
+	uint Counts[];
+} u_DebugCounts;
+
+void DebugCountsStore()
+{
+	if (gl_HelperInvocation)
+		return;
+	const uvec2 px = uvec2(gl_FragCoord.xy);
+	const uint index = px.y * u_DebugCounts.Width + px.x;
+	if (px.x >= u_DebugCounts.Width || index >= u_DebugCounts.Pixels)
+		return;
+#ifdef RV_RAY_COUNTERS
+	atomicAdd(u_DebugCounts.Counts[index], (g_CountA & 0xFFFFu) + (g_CountB & 0xFFu));
+	atomicAdd(u_DebugCounts.Counts[u_DebugCounts.Pixels + index], g_CountA >> 16u);
+#endif
+}
+#endif
+
 // Ray-traced reflections (ENGINE-NOTES 7ao): a hit is shaded, so the hit's
 // mesh and material have to be reachable from a shader that never bound
 // them. The mesh by *address* -- buffer references over the vertex and index
@@ -980,6 +1153,7 @@ float TraceShadowFromMasked(vec3 worldPos, vec3 Ng, vec3 L, float tMax, uint mas
 {
 	if (u_Scene.ShadowParams.x <= 0.0)
 		return 1.0;
+	RV_COUNT_SHADOW_RAY();
 
 	float NgdotL = clamp(dot(Ng, L), 0.0, 1.0);
 	float slope = sqrt(1.0 - NgdotL * NgdotL) / max(NgdotL, 0.15);
@@ -2413,6 +2587,7 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	float slope = sqrt(1.0 - NgdotD * NgdotD) / max(NgdotD, 0.15);
 	float offset = 0.002 * (1.0 + min(slope, 4.0));
 
+	RV_COUNT_SURFACE_RAY();
 	rayQueryEXT q;
 	rayQueryInitializeEXT(q, u_SceneAS, RV_RAY_BASE_FLAGS, RV_RAY_MASK_SCENE,
 						  origin + Ng * offset, 0.0, direction, reach);
@@ -2578,12 +2753,14 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	}
 	const int hitTotal = hitLightCount == 0 ? 0
 					   : (hitCellCount < 0 ? hitLightCount : hitDirectional + hitCellCount);
+	RV_COUNT_HIT(hitTotal);
 	for (int entry = 0; entry < hitTotal; ++entry)
 	{
 		const int i = hitCellCount < 0 ? entry
 					: (entry < hitDirectional ? entry
 					   : int(u_CellIndices.Indices[hitCellOffset + uint(entry - hitDirectional)]));
 #else
+	RV_COUNT_HIT(hitLightCount);
 	for (int i = 0; i < hitLightCount; ++i)
 	{
 #endif
@@ -4022,6 +4199,9 @@ void main()
 	uint cellCount = u_Cells.Cells[cell].Count;
 
 	int total = directionalCount + int(cellCount);
+	// What this fragment walks, whatever it traces: the budget's "lights per
+	// pixel", the number the owner's document asks for first.
+	RV_COUNT_LIGHTS(total);
 
 #ifdef RV_RAY_SHADOWS
 	// **WR-17, share shape only: what this pixel receives unshadowed from
@@ -5125,6 +5305,16 @@ void main()
 	// one did, so quads and meshes were being shown through different ones.
 	o_Color = vec4(color, baseColor.a);
 
+#endif
+
+	// WR-16 S0: the frame's counts, once per invocation, last. Every live
+	// lane of the wave reaches this line -- main has no early return, and
+	// the discards above came before any ray was cast.
+#ifdef RV_RAY_COUNTERS
+	FlushRayCounters(true);
+#endif
+#ifdef RV_DEBUG_VIEW
+	DebugCountsStore();
 #endif
 }
 

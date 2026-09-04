@@ -66,6 +66,7 @@
 #include "RageV/Renderer/RenderGraph.h"
 #include "RageV/Renderer/FrameGraphBuilder.h"
 #include "RageV/Renderer/RayShadows.h"
+#include "RageV/Renderer/RayCounters.h"
 #include "RageV/Renderer/VoxelGI.h"
 #include "RageV/Renderer/EditorCamera.h"
 #include "RageV/Asset/AssetWatcher.h"
@@ -3220,6 +3221,166 @@ void main()
 			  "after moving the vertices and refitting, the same ray hits at t = 8: the structure followed them");
 		Check(!hit(7), "and the just-long-enough ray now falls short of it");
 		Check(!hit(6), "the too-short ray still misses");
+	}
+
+	// **The buffer readback and the ray counters** (WR-16 S0, ENGINE-NOTES
+	// 7cy). RHIDevice::ReadBuffer promises a copy one frame late, never a
+	// stall and never another frame's bytes; the check drives real frames,
+	// fills a buffer with a different word each frame, and asks for it back.
+	// The first pass through each frame slot must answer false, and every
+	// answer after that must be the word written FramesInFlight frames ago
+	// -- the same slot's previous frame -- not this frame's and not the
+	// other slot's. Then the counters themselves: available exactly where
+	// ray query is, a buffer to bind on every frame, and a sample that comes
+	// back Valid once the ring has turned, holding zeros on frames that
+	// traced nothing rather than nothing at all.
+	void CheckRayCounters()
+	{
+		RHI::RHIDevice& device = Renderer::GetDevice();
+		const RHI::DeviceCaps& caps = device.GetCaps();
+
+		Check(RayCounters::IsAvailable() == caps.SupportsRayQuery,
+			  "the ray counters are available exactly where ray query is");
+
+		if (!caps.SupportsRayQuery)
+		{
+			// OpenGL: the default answers false and copies nothing.
+			RHI::BufferDesc desc;
+			desc.Size = 64;
+			desc.Usage = RHI::BufferUsage::Storage | RHI::BufferUsage::TransferSrc;
+			desc.DebugName = "scenetest.readback";
+			RHI::Ref<RHI::RHIBuffer> buffer = device.CreateBuffer(desc);
+			std::vector<uint8_t> out;
+			RHI::RHICommandList* cmd = device.BeginFrame();
+			if (!cmd)
+			{
+				Check(true, "no frame available; the readback check is skipped");
+				return;
+			}
+			Renderer::BeginFrame(cmd);
+			Check(!device.ReadBuffer(buffer, 0, 64, out) && out.empty(),
+				  "a backend without the readback answers false and leaves the vector alone");
+			Check(RayCounters::Buffer() == nullptr, "and the counters have no buffer to bind");
+			Renderer::EndFrame();
+			device.EndFrame();
+			return;
+		}
+
+		RHI::BufferDesc desc;
+		desc.Size = 64;
+		desc.Usage = RHI::BufferUsage::Storage | RHI::BufferUsage::TransferSrc;
+		desc.DebugName = "scenetest.readback";
+		RHI::Ref<RHI::RHIBuffer> buffer = device.CreateBuffer(desc);
+		Check(buffer != nullptr, "a small storage buffer with TransferSrc creates");
+		if (!buffer)
+			return;
+
+		const uint32_t frames = device.GetFramesInFlight();
+		// Word per frame, chosen so a wrong frame's answer cannot look right.
+		const uint32_t kPattern[8] = { 0x11111111u, 0x22222222u, 0x33333333u, 0x44444444u,
+									   0x55555555u, 0x66666666u, 0x77777777u, 0x88888888u };
+		const uint32_t rounds = std::min<uint32_t>(frames * 3, 8);
+
+		bool firstPassFalse = true;
+		bool laterPassTrue = true;
+		bool rightFrame = true;
+		bool rightLength = true;
+		uint32_t answered = 0;
+		bool sampleValid = false;
+		bool sampleZero = true;
+
+		for (uint32_t frame = 0; frame < rounds; frame++)
+		{
+			RHI::RHICommandList* cmd = device.BeginFrame();
+			if (!cmd)
+			{
+				Check(true, "no frame available mid-check; the readback check stops here");
+				return;
+			}
+			Renderer::BeginFrame(cmd);
+
+			// Before the fill in the command buffer, which the contract
+			// allows: the copy is recorded at EndFrame either way, so the
+			// order inside the frame is free.
+			std::vector<uint8_t> out;
+			const bool got = device.ReadBuffer(buffer, 0, 64, out);
+
+			cmd->FillBuffer(buffer, 0, 64, kPattern[frame]);
+			cmd->BufferBarrier(buffer, RHI::BufferSync::TransferWrite, RHI::BufferSync::ShaderRead);
+
+			if (frame < frames)
+			{
+				// The first time through each slot: nothing recorded yet.
+				if (got)
+					firstPassFalse = false;
+			}
+			else
+			{
+				if (!got)
+					laterPassTrue = false;
+				else
+				{
+					answered++;
+					if (out.size() != 64)
+						rightLength = false;
+					else
+					{
+						uint32_t word = 0;
+						memcpy(&word, out.data(), sizeof(word));
+						// The same slot's previous frame: FramesInFlight ago.
+						if (word != kPattern[frame - frames])
+							rightFrame = false;
+						// And every word of the range, not only the first.
+						for (uint32_t i = 1; i < 16; i++)
+						{
+							uint32_t other = 0;
+							memcpy(&other, out.data() + i * 4, sizeof(other));
+							if (other != kPattern[frame - frames])
+								rightFrame = false;
+						}
+					}
+				}
+			}
+
+			// The counters' own readback, through the same ring: a frame
+			// that traced nothing comes back as zeros, Valid.
+			const RayCounters::Sample& fresh = RayCounters::Fresh();
+			if (fresh.Valid)
+			{
+				sampleValid = true;
+				for (uint32_t i = 0; i < RayCounters::Count; i++)
+					if (fresh.Lanes[i] != 0)
+						sampleZero = false;
+			}
+
+			Check(RayCounters::Buffer() != nullptr, "the counters have a buffer to bind this frame");
+
+			Renderer::EndFrame();
+			device.EndFrame();
+		}
+
+		Check(firstPassFalse, "the first pass through each frame slot answers false: nothing copied yet");
+		Check(laterPassTrue && answered == rounds - frames,
+			  "every pass after that answers true, one frame late and never stalling");
+		Check(rightLength, "the bytes that come back are the range that was asked for");
+		Check(rightFrame, "and they are the same slot's previous frame -- FramesInFlight frames "
+						  "ago, not this frame's and not the other slot's");
+		Check(sampleValid, "the ray counters' own readback comes back Valid once the ring has turned");
+		Check(sampleZero, "and reads zero on frames that traced nothing, not garbage");
+
+		// A changed request is a fresh start, not another range's bytes.
+		{
+			RHI::RHICommandList* cmd = device.BeginFrame();
+			if (cmd)
+			{
+				Renderer::BeginFrame(cmd);
+				std::vector<uint8_t> out;
+				Check(!device.ReadBuffer(buffer, 16, 32, out),
+					  "asking for a different range of the same buffer answers false the first time");
+				Renderer::EndFrame();
+				device.EndFrame();
+			}
+		}
 	}
 
 	// The particle sort, against a buffer whose right answer is arithmetic.
@@ -16319,6 +16480,7 @@ int RunTests(int argc, char** argv)
 	CheckMultisampledDepth();
 	CheckBindlessHeap();
 	CheckRayQuery();
+	CheckRayCounters();
 	CheckStorageImages();
 	CheckTerrain();
 	CheckTerrainBrush();

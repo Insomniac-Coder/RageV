@@ -1,0 +1,120 @@
+// **The debug view: one number per pixel, as a heat map** (WR-16 S0,
+// `--debug-view=rays|lights|confidence|importance`).
+//
+// The owner's multi-light document asks for these before any budget is
+// built: rays cast per pixel, lights walked per pixel, the temporal
+// resolve's confidence, the budget's importance. A mean over the frame says
+// the water costs 146 rays a pixel; this shows *which* pixels, and whether
+// the hot band is the glitter or the deck's underside. Drawn over the
+// tone-mapped frame at a fifth of its brightness, so the map keeps its
+// geography.
+//
+// The per-pixel counts come from the buffer the lit shaders add into under
+// RV_DEBUG_VIEW (pbr_fragment.glsl, DebugCountsStore): a header of width,
+// height and pixel count, then one word per pixel of rays and one of lights.
+// Confidence and importance read a texture instead -- the temporal history's
+// second attachment (validity in .w) and the ray budget's tile map (.r, the
+// AO rays a tile was given).
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+// The tone-mapped frame, dimmed underneath.
+layout(set = 0, binding = 0) uniform sampler2D u_Frame;
+// The auxiliary texture the texture-backed modes read: the temporal moments
+// (confidence) or the ray budget's tile map (importance). Black when the
+// mode has none or the source is not running this frame.
+layout(set = 0, binding = 1) uniform sampler2D u_Aux;
+// The per-pixel counts (rays, lights). Bound at the post-process passes'
+// storage slot; read only here.
+layout(std430, set = 0, binding = 5) readonly buffer DebugCountBlock
+{
+	uint Width;
+	uint Height;
+	uint Pixels;
+	uint _pad;
+	uint Counts[];
+} u_DebugCounts;
+
+layout(push_constant) uniform Params
+{
+	vec2  TexelSize;
+	// 0 rays, 1 lights, 2 confidence, 3 importance.
+	float Mode;
+	// The value that maps to the top of the ramp.
+	float Scale;
+	// Whether u_Aux holds this frame's source at all.
+	float AuxValid;
+	float FlipY;
+} u_Params;
+
+// A dark-to-bright ramp with distinct hues per band, so a number is read off
+// by colour rather than by brightness alone: black, blue, cyan, green,
+// yellow, red, white.
+vec3 Ramp(float t)
+{
+	t = clamp(t, 0.0, 1.0);
+	const vec3 stops[7] = vec3[7](
+		vec3(0.0, 0.0, 0.0), vec3(0.1, 0.1, 0.8), vec3(0.0, 0.7, 0.9),
+		vec3(0.1, 0.8, 0.2), vec3(0.95, 0.9, 0.1), vec3(0.95, 0.2, 0.1),
+		vec3(1.0, 1.0, 1.0));
+	const float scaled = t * 6.0;
+	const int band = int(min(floor(scaled), 5.0));
+	return mix(stops[band], stops[band + 1], scaled - float(band));
+}
+
+void main()
+{
+	// The destination row this fragment writes and the source row v_UV
+	// names are the same row on OpenGL and opposite rows on Vulkan. See
+	// PostProcess::Dispatch.
+	const vec2 uv = vec2(v_UV.x, u_Params.FlipY > 0.5 ? 1.0 - v_UV.y : v_UV.y);
+	const vec3 frame = texture(u_Frame, uv).rgb;
+
+	const int mode = int(u_Params.Mode + 0.5);
+	float value = 0.0;
+	bool known = true;
+	if (mode == 0 || mode == 1)
+	{
+		// The counts are at the scene target's size, which under SSAA is
+		// not the output's: address by fraction, not by fragment.
+		const uvec2 px = uvec2(clamp(uv, vec2(0.0), vec2(0.9999))
+							   * vec2(u_DebugCounts.Width, u_DebugCounts.Height));
+		const uint index = px.y * u_DebugCounts.Width + px.x;
+		if (index < u_DebugCounts.Pixels)
+			value = float(u_DebugCounts.Counts[(mode == 1 ? u_DebugCounts.Pixels : 0u) + index]);
+	}
+	else if (mode == 2)
+	{
+		// The validity lane: one reused, zero not. Shown as a two-colour
+		// map -- the ramp's top for reused, its red for rejected -- because
+		// a fraction between them does not exist.
+		known = u_Params.AuxValid > 0.5;
+		value = texture(u_Aux, uv).w > 0.5 ? 1.0 : 5.0 / 6.0;
+	}
+	else
+	{
+		known = u_Params.AuxValid > 0.5;
+		value = texture(u_Aux, uv).r;
+	}
+
+	const float t = known ? value / max(u_Params.Scale, 1.0e-6) : 0.0;
+	// A zero stays the frame, dimmed, so "no rays here" reads as the scene
+	// and not as the ramp's black.
+	const vec3 heat = t > 0.0 ? Ramp(t) : vec3(0.0);
+	o_Color = vec4(frame * 0.2 + heat * 0.8, 1.0);
+}

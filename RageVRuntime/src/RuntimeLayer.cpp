@@ -4,6 +4,7 @@
 #include "RageV/Project/Project.h"
 #include "RageV/Core/EngineConfig.h"
 #include "RageV/Core/FrameProfiler.h"
+#include "RageV/Renderer/RayCounters.h"
 #include "RageV/Particles/ParticleSystem.h"
 #include "RageV/Renderer/ParticleRenderer.h"
 #include "RageV/UI/Canvas.h"
@@ -392,6 +393,27 @@ void RuntimeLayer::OnImGuiRender()
 					m_FrameTimeMs > 0.0f ? 1000.0f / m_FrameTimeMs : 0.0f);
 		ImGui::Text("%u x %u", m_Width, m_Height);
 		ImGui::Text("%u Hz simulation", Application::GetFixedHz());
+
+		// The frame's rays, a frame or two behind like the GPU timings
+		// (WR-16 S0). Millions per frame by kind, then the per-pixel numbers
+		// the owner's document asks for first.
+		const RayCounters::Sample& rays = RayCounters::Last();
+		if (rays.Valid)
+		{
+			ImGui::Separator();
+			ImGui::Text("rays %.1f M: shadow %.1f  water %.1f  refl %.1f  GI %.1f  AO %.1f",
+						rays.TotalRays() / 1.0e6, rays.Lanes[RayCounters::ShadowRays] / 1.0e6,
+						rays.Lanes[RayCounters::WaterRays] / 1.0e6,
+						rays.Lanes[RayCounters::ReflectionRays] / 1.0e6,
+						rays.Lanes[RayCounters::GiRays] / 1.0e6,
+						rays.Lanes[RayCounters::AoRays] / 1.0e6);
+			ImGui::Text("per fragment: %.1f rays, %.1f lights (max %u); %.1f lights per hit",
+						rays.RaysPerFragment(), rays.LightsPerFragment(),
+						rays.Lanes[RayCounters::LightsMax], rays.LightsPerHit());
+			const float confidence = rays.TemporalConfidence();
+			if (confidence >= 0.0f)
+				ImGui::Text("temporal confidence %.1f%%", confidence * 100.0f);
+		}
 	}
 	ImGui::End();
 }

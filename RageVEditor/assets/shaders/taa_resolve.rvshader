@@ -81,6 +81,55 @@ layout(set = 0, binding = 2) uniform sampler2D u_Velocity;
 // sampled: a count is not a thing to interpolate.
 layout(set = 0, binding = 3) uniform sampler2D u_Moments;
 
+// **WR-16 S0: the validity lane, and its count.** `o_Moments.w` is now one
+// where this pixel reused its history and zero where it did not -- the one
+// per-pixel validity the ray budget's temporal consumers will read instead
+// of each deciding for itself (RAY-BUDGET-DESIGN Part III §5, Part IV
+// finding 6). Written on every path, like the rest of the attachment. The
+// count of both goes into the frame's ray counters as "temporal confidence"
+// -- compiled in only where the counters exist (Vulkan: subgroup ops and
+// fragment atomics), which is what RV_RAY_COUNTERS says.
+#ifdef RV_RAY_COUNTERS
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+// Sixty-four copies by screen tile, summed on the CPU: see pbr_fragment's
+// RayCounterSlot. A fullscreen pass without depth, so the side effect costs
+// no early test here.
+layout(std430, set = 0, binding = 5) buffer RayCounterBlock
+{
+	uint Counts[64 * 16];
+} u_RayCounters;
+const uint RAY_LANE_TAA_PIXELS = 10u;
+const uint RAY_LANE_TAA_REUSED = 11u;
+
+uint RayCounterSlot()
+{
+	const uvec2 px = uvec2(gl_FragCoord.xy);
+	return ((px.x >> 3u) + (px.y >> 2u) * 7u) & 63u;
+}
+
+// Called once per invocation, at whichever exit it takes. Each exit reduces
+// over the lanes that reach it, so a lane is counted exactly once.
+void CountTemporal(bool reused)
+{
+	const bool real = !gl_HelperInvocation;
+	const uvec4 realLanes = subgroupBallot(real);
+	const bool leader = real && gl_SubgroupInvocationID == subgroupBallotFindLSB(realLanes);
+	const uint pixels = subgroupAdd(real ? 1u : 0u);
+	const uint kept = subgroupAdd((real && reused) ? 1u : 0u);
+	if (leader && pixels > 0u)
+	{
+		const uint base = RayCounterSlot() * 16u;
+		atomicAdd(u_RayCounters.Counts[base + RAY_LANE_TAA_PIXELS], pixels);
+		if (kept > 0u)
+			atomicAdd(u_RayCounters.Counts[base + RAY_LANE_TAA_REUSED], kept);
+	}
+}
+#else
+void CountTemporal(bool reused) {}
+#endif
+
 layout(push_constant) uniform Params
 {
 	// One texel of the scene target.
@@ -242,7 +291,9 @@ void main()
 	{
 		o_Color = current;
 		// One frame seen, and its luminance is the whole of what is known.
+		// Validity zero: nothing was reused.
 		o_Moments = vec4(1.0, currentLuma, currentLuma * currentLuma, 0.0);
+		CountTemporal(false);
 		return;
 	}
 
@@ -278,6 +329,7 @@ void main()
 		// tell the next frame to trust the fluctuation of a surface that is
 		// not the one now under this pixel.
 		o_Moments = vec4(1.0, currentLuma, currentLuma * currentLuma, 0.0);
+		CountTemporal(false);
 		return;
 	}
 
@@ -353,7 +405,9 @@ void main()
 	// Only for a pixel that did not move: on water and anything else whose
 	// shading legitimately changes in place, the fluctuation is the picture.
 	const float temporalSigma = sqrt(max(momMeanSq - momMean * momMean, 0.0)) * stillness;
-	o_Moments = vec4(frames, momMean, momMeanSq, 0.0);
+	// Validity one: this pixel's history was reprojected and blended in.
+	o_Moments = vec4(frames, momMean, momMeanSq, 1.0);
+	CountTemporal(true);
 
 	// **Never clamp tighter than this pixel is known to fluctuate.** Widened
 	// as a whole -- the same factor on all three axes -- so the box keeps its

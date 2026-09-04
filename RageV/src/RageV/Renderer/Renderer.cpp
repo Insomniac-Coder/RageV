@@ -18,6 +18,7 @@
 #include "PostProcess.h"
 #include "AutoExposure.h"
 #include "Water.h"
+#include "RayCounters.h"
 
 namespace RageV
 {
@@ -117,6 +118,10 @@ namespace RageV
 		// than once per frame depends on this having run first.
 		Renderer2D::BeginFrame();
 		Renderer3D::BeginFrame();
+		// Takes back last time round's ray counts and zeroes this frame's
+		// buffer, outside any render pass, before anything traces (WR-16 S0).
+		if (commandList)
+			RayCounters::BeginFrame(*commandList);
 		DebugRenderer::BeginFrame();
 		ParticleRenderer::BeginFrame();
 		Skybox::BeginFrame();

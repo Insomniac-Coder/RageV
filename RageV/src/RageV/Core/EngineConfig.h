@@ -84,6 +84,14 @@
 //   --hit-lights=on|off     measurement only: off skips the light walk at
 //                           every traced hit, so the ray's cost and the
 //                           walk's can be told apart (WR-10)
+//   --casting-lights=N      measurement only: under rays, only the first N
+//                           positional lights keep a shadow ray; the rest
+//                           light without one (WR-16 S0's light-count sweep)
+//   --debug-view=rays|lights|confidence|importance
+//                           replace the picture with a heat map: rays cast
+//                           per pixel, lights walked per pixel, the temporal
+//                           resolve's history validity, or the ray budget's
+//                           per-tile allocation (WR-16 S0). Vulkan only.
 
 #include "RageV/Renderer/RHI/RHITypes.h"
 #include "RageV/Renderer/RenderSettings.h"
@@ -264,6 +272,21 @@ namespace RageV
 		float RefractionFloorOverride = 0.0f;
 		// --hit-lights=off: a measurement, the traced hit's light walk skipped.
 		bool  HitLights = true;
+		// --casting-lights=N: a measurement (WR-16 S0). Under rays only the
+		// first N positional lights keep their shadow ray. Negative -- the
+		// default -- leaves every light as authored.
+		int   CastingLights = -1;
+
+		// **--debug-view=<what>** (WR-16 S0): the frame replaced by a heat map
+		// of one number per pixel, read from the counts the lit shaders write
+		// under RV_DEBUG_VIEW (rays, lights), from the temporal resolve's
+		// second attachment (confidence), or from the ray budget's tile map
+		// (importance -- the allocation the importance became, which is the
+		// map the consumers read). The owner's multi-light document asks for
+		// these views before any budgeting is built, so a hot pixel is seen
+		// rather than inferred from a mean.
+		enum class DebugViewMode { None, Rays, Lights, Confidence, Importance };
+		DebugViewMode DebugView = DebugViewMode::None;
 
 		// **--gi-source=baked|realtime.** Which form of indirect light to use,
 		// stated rather than inferred. Without it the only lever is whether a

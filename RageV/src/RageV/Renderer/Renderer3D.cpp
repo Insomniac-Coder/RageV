@@ -7,6 +7,7 @@
 #include "TextureHeap.h"
 #include "Water.h"
 #include "RayShadows.h"
+#include "RayCounters.h"
 #include "VoxelGI.h"
 #include "ShadowMap.h"
 #include "EnvironmentIBL.h"
@@ -67,6 +68,11 @@ namespace RageV
 		// lit sets carry it -- unlike the material and ray-instance bindings
 		// above, which only the bindless variants declare.
 		constexpr uint32_t kVisibleBinding = 17;
+		// The per-pixel debug counts (WR-16 S0, `--debug-view`), declared by
+		// the lit fragment include under RV_DEBUG_VIEW alone. 21 is the ray
+		// counters (RayCounters::kBinding); 19 and 20 are held for the
+		// allocation textures S3 adds.
+		constexpr uint32_t kDebugCountsBinding = 22;
 		constexpr uint32_t kRayInstancePosed = 1u;
 		// This instance is one the area-emitter list answers for, so a
 		// hemisphere hit on it must not count its emissive a second time.
@@ -925,6 +931,18 @@ namespace RageV
 			// the shaders are recompiled and the pipelines rebuilt when it does.
 			bool RayShadowsOn = false;
 			bool RayReflectionsOn = false;
+			// **`--debug-view=rays|lights` (WR-16 S0).** When on, the lit
+			// shaders are compiled with RV_DEBUG_VIEW and add their per-pixel
+			// ray and light counts into this buffer -- a 16-byte header
+			// (width, height, pixels) the CPU writes once per size, then two
+			// planes of one word per pixel: rays, then lights walked. Zeroed
+			// by the frame graph before the scene pass and read by the debug
+			// composite after everything else. A buffer rather than an image
+			// so a transfer can zero it and no image layout is involved.
+			bool           DebugCountsOn = false;
+			Ref<RHIBuffer> DebugCounts;
+			uint32_t       DebugCountsWidth = 0;
+			uint32_t       DebugCountsHeight = 0;
 			// The sky's visibility, traced per pixel rather than baked. The
 			// count is the dial: 0 is off, and 2/4/8 are Quarter/Half/Full.
 			// Stored as the number the shader wants rather than the enum, so
@@ -1156,6 +1174,9 @@ namespace RageV
 		// on a device without ray queries, and then everything below that asks
 		// about it is answered "no" (ENGINE-NOTES 7am).
 		RayShadows::Init(device);
+		// The ray counters (WR-16 S0): available exactly where the structure
+		// is, because the lit shaders declare both under one define.
+		RayCounters::Init(device);
 		GpuCull::Init(device);
 
 		if (!CompileLitShaders())
@@ -1253,6 +1274,7 @@ namespace RageV
 		Mesh::ClearCache();
 		TextureLoader::ClearCache();
 		RayShadows::Shutdown();
+		RayCounters::Shutdown();
 		GpuCull::Shutdown();
 		// After s_Data's default material, which holds a reference to it.
 		s_Data.reset();
@@ -1367,6 +1389,27 @@ namespace RageV
 			defines.push_back("RV_BINDLESS");
 		if (s_Data->RayShadowsOn)
 			defines.push_back("RV_RAY_SHADOWS");
+		// `--debug-view=rays|lights` (WR-16 S0): the lit shaders add their
+		// per-pixel counts into a buffer only under this define, so a run
+		// without the flag pays nothing. Rides the ray switch: the counts
+		// are of rays, and the binding sits beside the structure's.
+		{
+			const EngineConfig::DebugViewMode view = EngineConfig::Get().DebugView;
+			s_Data->DebugCountsOn = s_Data->RayShadowsOn
+				&& (view == EngineConfig::DebugViewMode::Rays
+					|| view == EngineConfig::DebugViewMode::Lights);
+			if (s_Data->DebugCountsOn)
+			{
+				defines.push_back("RV_DEBUG_VIEW");
+				// A declared binding is filled from the first draw, so the
+				// buffer exists from the compile on; the frame graph grows it
+				// to the scene's size before the first scene pass. Only when
+				// there is none: the lit shaders recompile when a traced
+				// feature toggles, and a sized buffer must not shrink back.
+				if (!s_Data->DebugCounts)
+					EnsureDebugCounts(1, 1);
+			}
+		}
 		if (s_Data->RayReflectionsOn)
 			defines.push_back("RV_RAY_REFLECTIONS");
 		if (s_Data->RayGlobalIlluminationOn)
@@ -2748,6 +2791,58 @@ namespace RageV
 		s_Data->IndirectDraws = 0;
 	}
 
+	void Renderer3D::EnsureDebugCounts(uint32_t width, uint32_t height)
+	{
+		if (!s_Data || !s_Data->DebugCountsOn)
+			return;
+		width = Math::Max(width, 1u);
+		height = Math::Max(height, 1u);
+		if (s_Data->DebugCounts && s_Data->DebugCountsWidth == width
+			&& s_Data->DebugCountsHeight == height)
+			return;
+
+		const uint64_t pixels = (uint64_t)width * height;
+		BufferDesc desc;
+		desc.Size = kDebugCountsHeaderBytes + pixels * 2 * sizeof(uint32_t);
+		desc.Usage = BufferUsage::Storage;
+		desc.Memory = MemoryDomain::DeviceLocal;
+		desc.DebugName = "DebugCounts";
+		// The old one is released to the deferred queue by the Ref: a frame
+		// still drawing into it keeps it until its fence.
+		s_Data->DebugCounts = s_Data->Device->CreateBuffer(desc);
+		s_Data->DebugCountsWidth = width;
+		s_Data->DebugCountsHeight = height;
+		if (!s_Data->DebugCounts)
+		{
+			RV_CORE_ERROR("Debug view: the device refused a {0}-byte count buffer at {1}x{2}",
+						  desc.Size, width, height);
+			return;
+		}
+
+		// The header, once per size: the shader indexes by it and the fill
+		// that zeroes the planes each frame starts past it. A staged upload
+		// -- a stall -- on a resize only.
+		const uint32_t header[4] = { width, height, (uint32_t)pixels, 0u };
+		s_Data->DebugCounts->Upload(header, sizeof(header), 0);
+		RV_CORE_INFO("Debug view: per-pixel counts at {0}x{1} ({2} MB)", width, height,
+					 desc.Size / (1024 * 1024));
+	}
+
+	const Ref<RHIBuffer>& Renderer3D::DebugCountsBuffer()
+	{
+		static const Ref<RHIBuffer> s_None;
+		return s_Data && s_Data->DebugCountsOn ? s_Data->DebugCounts : s_None;
+	}
+
+	bool Renderer3D::DebugCountsSize(uint32_t& width, uint32_t& height)
+	{
+		if (!s_Data || !s_Data->DebugCountsOn || !s_Data->DebugCounts)
+			return false;
+		width = s_Data->DebugCountsWidth;
+		height = s_Data->DebugCountsHeight;
+		return true;
+	}
+
 	void Renderer3D::BeginScene(const Camera& camera, const Mat4& cameraTransform,
 								const LightList& lights, const SceneEnvironment& environment,
 								const RenderSettings& render,
@@ -3043,6 +3138,7 @@ namespace RageV
 		// Indexed by the light's *original* position, not its position after the
 		// reorder above -- ShadowMap assigned slots while walking the scene, and
 		// asking it about the wrong light gives a light somebody else's map.
+		uint32_t castingKept = 0;
 		for (uint32_t slot = 0; slot < (uint32_t)s_Data->LightOrder.size(); slot++)
 		{
 			const uint32_t original = s_Data->LightOrder[slot];
@@ -3064,6 +3160,23 @@ namespace RageV
 			// the same index names the same light in both.
 			if (s_Data->RayShadowsOn)
 				s_Data->LightScratch[slot].Shadow.y = s_Data->Ordered[slot].MovingInRange ? 1.0f : 0.0f;
+
+			// **`--casting-lights=N`, a measurement (WR-16 S0's light-count
+			// sweep, the owner's Debug Pass B).** Under rays, only the first N
+			// positional lights keep their shadow ray; the rest light without
+			// one, exactly as a light past the map budget does under maps.
+			// The sun is not counted against N. The picture is wrong on
+			// purpose: what it measures is how the frame's time follows the
+			// number of lights that trace, which is what tells a light-bound
+			// frame from a ray-bound one.
+			if (s_Data->RayShadowsOn && EngineConfig::Get().CastingLights >= 0
+				&& s_Data->Ordered[slot].Type != Light::LightType::Directional)
+			{
+				if (castingKept >= (uint32_t)EngineConfig::Get().CastingLights)
+					s_Data->LightScratch[slot].Shadow.x = (float)(uint32_t)LocalShadow::Kind::None;
+				else
+					castingKept++;
+			}
 
 			if (assigned.Type == LocalShadow::Kind::Spot && assigned.Slot >= 0)
 				s_Data->Scene.SpotLookup[assigned.Slot] = assigned.LookupMatrix;
@@ -3297,6 +3410,19 @@ namespace RageV
 		if (s_Data->RayShadowsOn)
 			sceneSet->SetAccelerationStructure(RayShadows::kBinding, RayShadows::GetStructure());
 
+		// The ray counters (WR-16 S0), declared under the same define as the
+		// structure and filled whenever it is: a declared binding left empty
+		// is a validation error, not a quiet zero. This frame slot's buffer,
+		// zeroed at the top of the frame.
+		if (s_Data->RayShadowsOn && RayCounters::IsAvailable())
+			sceneSet->SetStorageBuffer(RayCounters::kBinding, RayCounters::Buffer());
+
+		// The per-pixel debug counts (`--debug-view=rays|lights`), declared
+		// only when the lit shaders were compiled with RV_DEBUG_VIEW, and
+		// then by every family -- the buffer exists from that compile on.
+		if (s_Data->DebugCountsOn && s_Data->DebugCounts)
+			sceneSet->SetStorageBuffer(kDebugCountsBinding, s_Data->DebugCounts);
+
 		// All four, always. A comparison sampler the layout declares and the
 		// set does not fill is a validation error; a 1x1 depth of 1.0 is the
 		// harmless answer, because under LessOrEqual every comparison against
@@ -3354,6 +3480,10 @@ namespace RageV
 													: TextureLoader::BlackCubeArray(*s_Data->Device),
 								   s_Data->EnvironmentSampler);
 			slot.GiSet->SetAccelerationStructure(RayShadows::kBinding, RayShadows::GetStructure());
+			// The bounce's rays are counted too; the trace shader reflects the
+			// same include under the same define.
+			if (RayCounters::IsAvailable())
+				slot.GiSet->SetStorageBuffer(RayCounters::kBinding, RayCounters::Buffer());
 		}
 
 		// Not committed and not bound yet.

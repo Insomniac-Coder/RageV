@@ -78,6 +78,27 @@ def parse(text):
     if match:
         result["lights"], result["busiest"] = int(match[1]), int(match[2])
 
+    # WR-16 S0: the ray counters' lines. Millions of rays per frame by kind,
+    # the per-fragment figures, and the temporal resolve's confidence.
+    match = re.search(r"rays per frame: shadow ([0-9.]+) M, water ([0-9.]+) M, "
+                      r"reflection ([0-9.]+) M, GI ([0-9.]+) M, AO ([0-9.]+) M -- ([0-9.]+) M in all, "
+                      r"([0-9.]+) per lit fragment \((\d+) frames counted\)", text)
+    if match:
+        result["rays"] = {"shadow": float(match[1]), "water": float(match[2]),
+                          "reflection": float(match[3]), "gi": float(match[4]),
+                          "ao": float(match[5]), "total": float(match[6]),
+                          "per_fragment": float(match[7]), "frames": int(match[8])}
+    match = re.search(r"lights per fragment: ([0-9.]+) avg, (\d+) max; at traced hits: "
+                      r"([0-9.]+) avg over ([0-9.]+) M hits", text)
+    if match:
+        result["lights_per_fragment"] = float(match[1])
+        result["lights_max"] = int(match[2])
+        result["lights_per_hit"] = float(match[3])
+        result["hits"] = float(match[4])
+    match = re.search(r"temporal confidence: ([0-9.]+)% of pixels", text)
+    if match:
+        result["confidence"] = float(match[1])
+
     section = None
     for line in text.splitlines():
         if "[benchmark]" not in line:
@@ -122,8 +143,13 @@ def table(rows):
     def fmt(value):
         return f"{value:.1f}" if value is not None else "?"
 
+    # The rays columns (WR-16 S0) appear only when a run counted them, so an
+    # older JSON prints the table it always did.
+    counted = any(row.get("rays") for row in rows)
     header = ("| camera | " + " | ".join(f"{p}: ms / fps" for p in passes)
-              + " | water ms | scene ms | busiest cluster |")
+              + " | water ms | scene ms | busiest cluster |"
+              + (" rays M/frame (shadow / water) | rays per fragment | lights per fragment |"
+                 if counted else ""))
     lines = [header, "|" + "---|" * (header.count("|") - 1)]
     for camera in cameras:
         cells = []
@@ -134,8 +160,13 @@ def table(rows):
         last = get(camera, passes[-1]) or {}
         water = (last.get("passes", {}).get("scene/Transparent") or {}).get("gpu")
         scene = (last.get("passes", {}).get("scene/Scene") or {}).get("gpu")
-        lines.append(f"| {camera} | " + " | ".join(cells)
-                     + f" | {fmt(water)} | {fmt(scene)} | {last.get('busiest', '?')} |")
+        line = (f"| {camera} | " + " | ".join(cells)
+                + f" | {fmt(water)} | {fmt(scene)} | {last.get('busiest', '?')} |")
+        if counted:
+            rays = last.get("rays") or {}
+            line += (f" {fmt(rays.get('total'))} ({fmt(rays.get('shadow'))} / {fmt(rays.get('water'))})"
+                     f" | {fmt(rays.get('per_fragment'))} | {fmt(last.get('lights_per_fragment'))} |")
+        lines.append(line)
     return "\n".join(lines)
 
 

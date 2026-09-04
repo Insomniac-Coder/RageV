@@ -2060,6 +2060,37 @@ namespace
 							"Performance lets no light reach past 300 m: 50 ms, and the "
 							"far glitter dims.")))),
 
+				// WR-16 S0: the calibrated cost of a ray, by kind. Milliseconds
+				// per million rays, from the isolation protocol on the target
+				// machine; zero is uncalibrated. Saved with the project so the
+				// controller (S3) reads a measured number, never a guess.
+				Field<&RenderSettings::RayCostShadow>("RayCostShadow",
+					Named("Shadow ray cost", OnlyWhen(RayTracingOn,
+						Drag(0.01f, 0.0f, 100.0f,
+							"Milliseconds a million shadow rays cost on the target "
+							"hardware, measured by the calibration protocol (WR-16 S0). "
+							"The ray budget multiplies the counted rays by this to "
+							"learn what the lit pass spent on them. Zero: not "
+							"calibrated, and the budget treats them as free.")))),
+				Field<&RenderSettings::RayCostWater>("RayCostWater",
+					Named("Water ray cost", OnlyWhen(RayTracingOn,
+						Drag(0.01f, 0.0f, 100.0f,
+							"The same for the water's mirror and refraction rays.")))),
+				Field<&RenderSettings::RayCostReflection>("RayCostReflection",
+					Named("Reflection ray cost", OnlyWhen(RayTracingOn,
+						Drag(0.01f, 0.0f, 100.0f,
+							"The same for the opaque surfaces' mirror rays.")))),
+				Field<&RenderSettings::RayCostGi>("RayCostGi",
+					Named("GI ray cost", OnlyWhen(RayTracingOn,
+						Drag(0.01f, 0.0f, 100.0f,
+							"The same for the traced bounce's rays. Its pass has a "
+							"timer, so this is a record of the measurement rather than "
+							"what the budget reads.")))),
+				Field<&RenderSettings::RayCostAo>("RayCostAo",
+					Named("AO ray cost", OnlyWhen(RayTracingOn,
+						Drag(0.01f, 0.0f, 100.0f,
+							"The same for the occlusion taps; a record, as for GI.")))),
+
 				Field<&RenderSettings::ShadowDistance>("ShadowDistance",
 					Named("Distance", OnlyWhen(UsesCascades,
 						Drag(0.5f, 1.0f, 500.0f,

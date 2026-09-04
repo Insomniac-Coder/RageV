@@ -2,6 +2,7 @@
 #include <rvpch.h>
 #include "PostProcess.h"
 #include "Renderer.h"
+#include "RayCounters.h"
 // The stand-in cube the fog binds when a scene has no sky to take its colour
 // from (WR-3). A declared binding with nothing in it is undefined on both
 // backends, so "no sky" has to be a black cube rather than a null.
@@ -89,6 +90,7 @@ namespace RageV
 				case 30: return "assets/shaders/tile_reduce.rvshader";
 				case 31: return "assets/shaders/tile_budget.rvshader";
 				case 32: return "assets/shaders/water_backdrop.rvshader";
+				case 33: return "assets/shaders/debug_view.rvshader";
 				default: return "assets/shaders/fog.rvshader";
 			}
 		}
@@ -184,7 +186,15 @@ namespace RageV
 			if (i == (int)Shader::RtaoCompute && !device.GetCaps().SupportsRayQuery)
 				continue;
 
-			auto compiled = ShaderCompiler::CompileFromFile(ShaderPath(i));
+			// The temporal resolve counts the pixels that reused history
+			// into the ray counters (WR-16 S0) -- subgroup ops and a
+			// fragment atomic -- only where the counters exist, which is
+			// the ray-query path. The OpenGL compile is the shader as it was.
+			std::vector<std::string> defines;
+			if (i == (int)Shader::TaaResolve && device.GetCaps().SupportsRayQuery)
+				defines.push_back("RV_RAY_COUNTERS");
+
+			auto compiled = ShaderCompiler::CompileFromFile(ShaderPath(i), defines);
 			if (!compiled)
 			{
 				RV_CORE_ERROR("PostProcess: failed to compile {0}", ShaderPath(i));
@@ -308,7 +318,8 @@ namespace RageV
 							   const Ref<RHITexture>& fourth, Sampling fourthSampling,
 							   const Ref<RHIBuffer>& storage,
 							   const Ref<RHIAccelerationStructure>& structure,
-							   Format secondOutputFormat)
+							   Format secondOutputFormat,
+							   const Ref<RHIBuffer>& counters)
 	{
 		if (!s_Data || !s_Data->Ready || !first)
 			return;
@@ -411,6 +422,12 @@ namespace RageV
 		// The frame's acceleration structure, for the one pass that traces.
 		if (structure)
 			set->SetAccelerationStructure(4, structure);
+
+		// The counters, for the passes that count and the one that draws
+		// them (WR-16 S0). Only when the caller passed one, which it does
+		// only for a shader that declares the binding.
+		if (counters)
+			set->SetStorageBuffer(RayCounters::kPostBinding, counters);
 
 		set->Commit();
 
@@ -851,7 +868,11 @@ namespace RageV
 				 &params, sizeof(params), Sampling::Point, Sampling::Point,
 				 budget ? budget : s_Data->Black, Sampling::Point,
 				 nullptr, Sampling::Point,
-				 nullptr, structure);
+				 nullptr, structure, Format::Undefined,
+				 // The taps are counted (WR-16 S0). The shader declares the
+				 // binding unconditionally, and it only compiles where the
+				 // counters exist -- the same condition, ray query.
+				 RayCounters::Buffer());
 	}
 
 	void PostProcess::SsaoCompute(RHICommandList& cmd, const Ref<RHITexture>& depth,
@@ -1466,7 +1487,11 @@ namespace RageV
 				 // nothing bound is undefined behaviour, and params.C is what
 				 // says the black is not data.
 				 moments ? moments : s_Data->Black, Sampling::Point,
-				 nullptr, nullptr, momentsFormat);
+				 nullptr, nullptr, momentsFormat,
+				 // The validity lane's count (WR-16 S0): declared by the
+				 // shader under RV_RAY_COUNTERS, which Init defines exactly
+				 // where RayCounters is available, so the two agree.
+				 RayCounters::IsAvailable() ? RayCounters::Buffer() : nullptr);
 	}
 
 	void PostProcess::GiDenoise(RHICommandList& cmd, const Ref<RHITexture>& current,
@@ -1514,5 +1539,24 @@ namespace RageV
 	{
 		PostParams params;
 		Dispatch(cmd, Shader::Blit, outputFormat, source, nullptr, &params, sizeof(params));
+	}
+
+	void PostProcess::DebugView(RHICommandList& cmd, const Ref<RHITexture>& frame,
+								const Ref<RHITexture>& aux, const Ref<RHIBuffer>& counts,
+								int mode, float scale, Format outputFormat)
+	{
+		if (!s_Data || !frame || !counts)
+			return;
+
+		PostParams params;
+		params.A = (float)mode;
+		params.B = Math::Max(scale, 1.0e-6f);
+		params.C = aux ? 1.0f : 0.0f;
+		// The frame linear, the auxiliary point: a validity flag and a tile
+		// map are both things a filtered read would invent values between.
+		Dispatch(cmd, Shader::DebugView, outputFormat, frame, aux ? aux : s_Data->Black,
+				 &params, sizeof(params), Sampling::Linear, Sampling::Point,
+				 nullptr, Sampling::Point, nullptr, Sampling::Point,
+				 nullptr, nullptr, Format::Undefined, counts);
 	}
 }

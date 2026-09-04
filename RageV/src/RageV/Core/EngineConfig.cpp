@@ -378,6 +378,42 @@ namespace RageV
 		if (key == "hit-lights" || key == "hitlights")
 			return ParseBool(value, config.HitLights);
 
+		if (key == "casting-lights" || key == "castinglights")
+		{
+			try
+			{
+				config.CastingLights = Math::Max(std::stoi(value), 0);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("casting-lights expects a whole number; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
+		if (key == "debug-view" || key == "debugview")
+		{
+			const std::string lowered = ToLower(value);
+			if (lowered == "none" || lowered == "off")
+				config.DebugView = EngineConfig::DebugViewMode::None;
+			else if (lowered == "rays")
+				config.DebugView = EngineConfig::DebugViewMode::Rays;
+			else if (lowered == "lights")
+				config.DebugView = EngineConfig::DebugViewMode::Lights;
+			else if (lowered == "confidence")
+				config.DebugView = EngineConfig::DebugViewMode::Confidence;
+			else if (lowered == "importance" || lowered == "allocation")
+				config.DebugView = EngineConfig::DebugViewMode::Importance;
+			else
+			{
+				RV_CORE_WARN("debug-view expects rays, lights, confidence or importance; got '{0}'",
+							 value);
+				return false;
+			}
+			return true;
+		}
+
 		if (key == "ray-rate" || key == "rayrate")
 		{
 			config.HasRayRateOverride = true;

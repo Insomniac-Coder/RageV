@@ -3,6 +3,7 @@
 #include "EngineConfig.h"
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/Renderer.h"
+#include "RageV/Renderer/RayCounters.h"
 #include <format>
 #include <algorithm>
 #include <unordered_map>
@@ -21,6 +22,12 @@ namespace RageV
 			// measurable.
 			float GpuTotal = -1.0f;
 			float GpuPhases[(int)FramePhase::Count]{};
+
+			// The ray counts that came back this frame (WR-16 S0), a frame
+			// or two old like the GPU timings, and Valid only on frames the
+			// device answered -- so a frame with no answer is not filed as a
+			// frame of zero rays.
+			RayCounters::Sample Rays;
 		};
 
 		std::vector<FrameRecord> s_Frames;
@@ -549,6 +556,7 @@ namespace RageV
 			record.Phases[i] = s_Phases[i];
 			record.GpuPhases[i] = s_GpuPhases[i];
 		}
+		record.Rays = RayCounters::Fresh();
 
 		s_Frames.push_back(record);
 	}
@@ -821,6 +829,74 @@ namespace RageV
 
 		RV_CORE_INFO("[benchmark]   {0} lights, busiest cluster holds {1}",
 					 Renderer3D::GetLightCount(), Renderer3D::GetMaxCellLoad());
+
+		// **What the frame cast, counted where it was cast** (WR-16 S0,
+		// RayCounters). Means over the frames whose counts came back --
+		// the readback is a frame or two behind, and a frame it missed is
+		// left out rather than averaged in as zero. The per-pixel figures
+		// divide by the fragments the lit shaders shaded, opaque and water,
+		// which under water is two fragments a pixel and is meant to be.
+		{
+			double lanes[RayCounters::Count]{};
+			uint32_t counted = 0;
+			uint32_t mostLights = 0;
+			for (const FrameRecord& record : s_Frames)
+			{
+				if (!record.Rays.Valid)
+					continue;
+				counted++;
+				for (uint32_t i = 0; i < RayCounters::Count; i++)
+					lanes[i] += record.Rays.Lanes[i];
+				mostLights = std::max(mostLights, record.Rays.Lanes[RayCounters::LightsMax]);
+			}
+
+			if (counted == 0)
+			{
+				RV_CORE_INFO("[benchmark]   rays: not counted -- {0}",
+							 RayCounters::IsAvailable()
+								 ? "no frame's counts came back"
+								 : "this device does not trace, so there are none");
+			}
+			else
+			{
+				for (uint32_t i = 0; i < RayCounters::Count; i++)
+					lanes[i] /= counted;
+				const double million = 1.0e6;
+				const double total = lanes[RayCounters::ShadowRays] + lanes[RayCounters::WaterRays]
+								   + lanes[RayCounters::ReflectionRays] + lanes[RayCounters::GiRays]
+								   + lanes[RayCounters::AoRays];
+				// A frame with no lit fragments -- a lit family compiled without
+				// the counters, or nothing drawn -- has no per-fragment figure,
+				// and dividing by one would print the total as one.
+				const bool lit = lanes[RayCounters::LitFragments] > 0.0;
+				const double fragments = std::max(lanes[RayCounters::LitFragments], 1.0);
+				RV_CORE_INFO("[benchmark]   rays per frame: shadow {0:.2f} M, water {1:.2f} M, "
+							 "reflection {2:.2f} M, GI {3:.2f} M, AO {4:.2f} M -- {5:.2f} M in all, "
+							 "{6} per lit fragment ({7} frames counted)",
+							 lanes[RayCounters::ShadowRays] / million,
+							 lanes[RayCounters::WaterRays] / million,
+							 lanes[RayCounters::ReflectionRays] / million,
+							 lanes[RayCounters::GiRays] / million,
+							 lanes[RayCounters::AoRays] / million,
+							 total / million,
+							 lit ? std::format("{:.1f}", total / fragments) : std::string("--"),
+							 counted);
+				RV_CORE_INFO("[benchmark]   lights per fragment: {0} avg, {1} max; at traced "
+							 "hits: {2:.1f} avg over {3:.2f} M hits",
+							 lit ? std::format("{:.1f}", lanes[RayCounters::LightsWalked] / fragments)
+								 : std::string("--"),
+							 mostLights,
+							 lanes[RayCounters::HitLightsWalked]
+								 / std::max(lanes[RayCounters::Hits], 1.0),
+							 lanes[RayCounters::Hits] / million);
+				if (lanes[RayCounters::TaaPixels] > 0.0)
+					RV_CORE_INFO("[benchmark]   temporal confidence: {0:.1f}% of pixels reused "
+								 "their history",
+								 100.0 * lanes[RayCounters::TaaReused] / lanes[RayCounters::TaaPixels]);
+				else
+					RV_CORE_INFO("[benchmark]   temporal confidence: no temporal resolve ran");
+			}
+		}
 
 		// Says whether the traced bounce had anything to aim at. Without this
 		// line a run against a scene where the emissive path never engages is

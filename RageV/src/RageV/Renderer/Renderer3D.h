@@ -222,6 +222,20 @@ namespace RageV
 		// Resets the per-frame scene-slot pool. Called by Renderer::BeginFrame.
 		static void BeginFrame();
 
+		// **The per-pixel debug counts** (`--debug-view=rays|lights`, WR-16
+		// S0). When the lit shaders were compiled with RV_DEBUG_VIEW they add
+		// each pixel's ray count and light count into this buffer: a 16-byte
+		// header (width, height, pixels, 0) and two planes of one word per
+		// pixel, rays then lights. The frame graph sizes it to the scene
+		// target before the scene pass, zeroes the planes with a fill, and
+		// reads it back in the debug composite after everything else. Null
+		// when the view is off; sized 1x1 until the first frame.
+		static void EnsureDebugCounts(uint32_t width, uint32_t height);
+		static const RHI::Ref<RHI::RHIBuffer>& DebugCountsBuffer();
+		static bool DebugCountsSize(uint32_t& width, uint32_t& height);
+		// Bytes past the header: what a fill zeroes.
+		static constexpr uint64_t kDebugCountsHeaderBytes = 16;
+
 		// `environmentMap` is what surfaces reflect -- the scene's environment
 		// map, a probe's capture, or the sky's gradient baked into a small
 		// cube. Null means nothing is reflected, not that the term is
