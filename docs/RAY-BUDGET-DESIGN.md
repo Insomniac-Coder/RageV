@@ -3732,6 +3732,25 @@ flashing lights and the marine lights are realtime and live everywhere,
 and the hybrid lamps near the tower's base are live within their radius.
 
 **The eight-camera table after S2** (`bench_night.py --label after-s2`,
-the same protocol as `wr16-before`, taken the same afternoon):
+the same protocol as `wr16-before`, taken the same afternoon on a GPU that
+had been running for hours -- so against the morning's `wr16-before`
+these are pessimistic, and the interleaved pairs above are the per-camera
+truth; `build/bench/after-s2.json`):
 
-_(appended below when the run finished)_
+| camera | A: ms / fps | B: ms / fps | water ms | scene ms | wr16-before (B) | lamps per fragment, before to after |
+|---|---|---|---|---|---|---|
+| Headland | 51.5 / 19.4 | 55.2 / 18.1 | 42.5 | 10.8 | 63.7 | 76.8 to 35.1 |
+| Deck | 8.7 / 115.4 | 9.1 / 110.4 | 1.3 | 5.1 | 10.7 | 48.7 to 5.6 |
+| Profile | 26.9 / 37.1 | 29.2 / 34.2 | 22.5 | 5.1 | 32.1 | 27.0 to 9.2 |
+| Bluff | 36.6 / 27.3 | 38.3 / 26.1 | 25.8 | 10.3 | 44.8 | 63.3 to 17.1 |
+| Pier | 43.6 / 23.0 | 44.2 / 22.6 | 32.3 | 9.8 | 53.9 | 115.5 to 49.5 |
+| Cliff | 18.2 / 54.9 | 19.3 / 51.9 | 8.6 | 8.5 | 26.4 | 99.5 to 23.9 |
+| Glitter | 38.4 / 26.0 | 38.8 / 25.8 | 28.6 | 8.3 | 50.2 | 125.4 to 63.1 |
+| Lime Point | 48.5 / 20.6 | 47.8 / 20.9 | 35.8 | 9.9 | 57.5 | 111.1 to 54.3 |
+
+**272 ms (pass A) to 282 ms (pass B) over the eight, against 339 this
+morning: 17 to 20% off the whole table**, every camera faster, the water
+pass on every camera within a few milliseconds of what it was and the
+opaque pass roughly halved everywhere. The rays columns are unchanged to
+the decimal, which is the exactness the pictures already said: S2 removed
+reads, not rays.

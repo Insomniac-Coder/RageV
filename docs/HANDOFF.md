@@ -178,7 +178,20 @@ Two forms tried and dropped on the way: a per-cell count alone (never zero
 under the deck) and a reordered single list (it would have changed which
 thinned lamp WR-17's borrow takes its visibility from). The pre-S2 runtime
 is kept beside the new one as `build/bin/Release/RageVRuntime_preS2` for
-any further A/B this session.
+any further A/B this session. **The eight cameras after S2**
+(`bench_night.py --label after-s2`, `build/bench/after-s2.json`; the
+table is in Part IV, "S2, measured"): **272 to 282 ms over the eight
+against 339 this morning**, every camera faster -- Headland 51.5 / 55.2,
+Deck 8.7, Profile 26.9, Bluff 36.6, Pier 43.6, Cliff 18.2, Glitter 38.4,
+Lime Point 48.5 (pass A) -- with the rays columns unchanged to the decimal.
+Taken on a GPU that had run all day, so pessimistic against the morning's
+table; the interleaved pairs are the per-camera truth.
+
+**Work paused here on 2026-09-04 at the owner's request** (a credit limit).
+Everything is committed on `main`, nothing pushed; the scene meta file is
+the one uncommitted change, on purpose. The next step is S4, and it is the
+most complex one: lay its shape out for the owner and discuss it before
+building.
 
 ### The baseline and the flicker counts
 
