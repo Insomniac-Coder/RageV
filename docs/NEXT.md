@@ -135,12 +135,13 @@ an importance input, quantised behind the dead band and dwell; **the order
 is S1, S2, S4, S3, S5**; and S4 is the proper thing -- a few lamps per
 pixel chosen by a cheap target, shaded alone, the choice reused, the
 result reconstructed -- spending the shading lever and the ray lever
-together. **Next is S1**, two arms: the one-day fixed-budget pre-check on
-the water (`--shadow-budget=K`, 1 / 2 / 4 / 8 shadow rays per pixel by a
-cheap importance, three AA modes, three cameras, diff images and the
-flicker count), first raw, then under TAA as the accumulator; the verdict
-is the K to build for, whether any lamp group's shadow is structurally
-missing at 8, and whether accumulation lets the water hold that K.
+together. **S1 ran the same afternoon and the gate passed** (Part IV,
+"S1, measured"): K = 4 with a target that includes the specular holds the
+water under TAA at or under the shipped preset's bar on Headland and
+Glitter, Pier needs S4's reuse, no lamp group is structurally missing at
+8, and the cheap irradiance target is unusable on the water. **Next is
+S2**, the cheap hit walk (13-22% of the frame), then S4 as S1 now defines
+it, then S3, then S5.
 
 ## The order
 

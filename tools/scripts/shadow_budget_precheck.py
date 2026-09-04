@@ -97,21 +97,32 @@ def still(camera_flag, width, height, extra, path, frame=60):
                + ["--frame-time=0.000001", f"--screenshot-frame={frame}", f"--screenshot={path}"])
 
 
-def flicker(camera_flag, width, height, extra, stem):
-    code, log = run(command(camera_flag, width, height, extra)
-                    + ["--frame-time=0.000001", "--screenshot-frame=240",
-                       "--screenshot-count=16", f"--screenshot={stem}.png"])
-    frames = sorted(pathlib.Path(stem).parent.glob(pathlib.Path(stem).name + "_*.png"))
-    if code != 0 or len(frames) < 8:
-        return {"error": f"exit {code}, {len(frames)} frames"}, log
+def flicker_frames(stem):
+    return sorted(pathlib.Path(stem).parent.glob(pathlib.Path(stem).name + "_*.png"))
+
+
+def flicker_count(frames):
+    """The protocol's own script over the captured frames."""
+    if len(frames) < 8:
+        return {"error": f"{len(frames)} frames"}
     proc = subprocess.run([sys.executable, str(FLICKER)] + [str(f) for f in frames],
                           capture_output=True, text=True, errors="replace")
     match = re.search(r"blinking pixels\s+(\d+)\s+\(([0-9.]+)% of the region\)", proc.stdout)
     worst = re.search(r"worst swing\s+([0-9.]+)", proc.stdout)
     if not match:
-        return {"error": "no flicker output"}, log + proc.stdout
+        return {"error": "no flicker output: " + proc.stdout[-200:]}
     return {"blinking": int(match[1]), "blinking_pct": float(match[2]),
-            "worst_swing": float(worst[1]) if worst else None}, log
+            "worst_swing": float(worst[1]) if worst else None}
+
+
+def flicker(camera_flag, width, height, extra, stem):
+    code, log = run(command(camera_flag, width, height, extra)
+                    + ["--frame-time=0.000001", "--screenshot-frame=240",
+                       "--screenshot-count=16", f"--screenshot={stem}.png"])
+    frames = flicker_frames(stem)
+    if code != 0 or len(frames) < 8:
+        return {"error": f"exit {code}, {len(frames)} frames"}, log
+    return flicker_count(frames), log
 
 
 def benchmark(camera_flag, width, height, extra, frames):
@@ -184,6 +195,11 @@ def main():
     parser.add_argument("--bench-height", type=int, default=1440)
     parser.add_argument("--frames", type=int, default=200)
     parser.add_argument("--no-flicker", action="store_true")
+    parser.add_argument("--no-bench", action="store_true",
+                        help="keep the benchmarks an earlier run recorded; stills and flicker only")
+    parser.add_argument("--analyse-only", action="store_true",
+                        help="no runtime: recompute the diffs and the flicker counts from the "
+                             "stills and frames already in --out")
     parser.add_argument("--out", default=str(ROOT / "build" / "shadow_budget"))
     parser.add_argument("--report", help="print the tables from an earlier run's directory")
     args = parser.parse_args()
@@ -198,15 +214,36 @@ def main():
         print(report(results, cameras, arm_names))
         return
 
+    # Absolute, because the runtime resolves a relative path against its own
+    # directory, not this script's -- the first run wrote every still under
+    # build/bin/Release/RageVRuntime/ and the diff column came out empty.
+    out = pathlib.Path(args.out).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    results_path = out / "results.json"
+    results = json.load(open(results_path, encoding="utf-8")) if results_path.exists() else {}
+
+    if args.analyse_only:
+        for camera in cameras:
+            for name, _ in arm_list:
+                entry = results.setdefault(f"{name}/{camera}", {})
+                entry.setdefault("aa", {})
+                for aa in AA_MODES:
+                    mode = entry["aa"].setdefault(aa, {})
+                    png = out / f"{name}_{camera}_{aa}.png"
+                    reference = out / f"truth_{camera}_{aa}.png"
+                    if name != "truth" and reference.exists() and png.exists():
+                        mode["diff"] = diff(reference, png, out / f"{name}_{camera}_{aa}_diff.png")
+                    frames = flicker_frames(str(out / "flicker" / f"{name}_{camera}_{aa}"))
+                    if frames:
+                        mode["flicker"] = flicker_count(frames)
+        results_path.write_text(json.dumps(results, indent=1), encoding="utf-8")
+        print(report(results, cameras, arm_names))
+        return
+
     if not RUNTIME.exists():
         sys.exit(f"no runtime at {RUNTIME}; build Release first")
     if "RageVEditor" in subprocess.run(["tasklist"], capture_output=True, text=True).stdout:
         sys.exit("RageVEditor.exe is running; close it first")
-
-    out = pathlib.Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
-    results_path = out / "results.json"
-    results = json.load(open(results_path, encoding="utf-8")) if results_path.exists() else {}
 
     for camera in cameras:
         flag = CAMERAS[camera]
@@ -215,8 +252,11 @@ def main():
             entry = results.get(key, {})
             started = time.time()
 
-            bench, log = benchmark(flag, args.bench_width, args.bench_height, extra, args.frames)
-            (out / f"{name}_{camera}_bench.log").write_text(log, encoding="utf-8")
+            if args.no_bench and entry.get("bench"):
+                bench = entry["bench"]
+            else:
+                bench, log = benchmark(flag, args.bench_width, args.bench_height, extra, args.frames)
+                (out / f"{name}_{camera}_bench.log").write_text(log, encoding="utf-8")
             entry["bench"] = bench
             entry.setdefault("aa", {})
 

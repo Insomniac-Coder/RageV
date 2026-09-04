@@ -3562,3 +3562,111 @@ third source's temporal accumulation behind it.
 
 Later, optional: the direct-light field's highlight half (§7 M5), and the
 steel's mirror rate (§4.3.4).
+
+#### S1, measured (2026-09-04): the fixed budget on the water
+
+**The instrument** (`--shadow-budget=K[,full]`, commit `554589b`): each
+pixel keeps K reservoirs; every live positional lamp offers itself to each
+with a weight and the classic single-sample weighted reservoir keeps one
+lamp per reservoir; the K survivors are traced and the lamps' light is the
+importance-sampling estimate -- unbiased, exactly as noisy as K rays allow,
+no reuse. The weight is the *cheap target* (unshadowed irradiance, what a
+sampler could afford for every candidate) or, with `,full`, the *full
+target* (the lamp's whole unshadowed term, BRDF included). Draws are
+hashed per pixel, reservoir and lamp, fixed per pixel without a temporal
+filter and salted by the frame under one -- the same build is the raw arm
+under no AA and MSAA and the accumulated arm under TAA. It still shades
+every lamp to build the terms, and eight reservoirs spill registers, so
+its frame time is an upper bound; its picture is the point.
+
+**The matrix** (`tools/scripts/shadow_budget_precheck.py`; ten arms on
+Headland, Pier and Glitter under no AA, MSAA 4x and TAA; stills at
+1600x900 with the clock pinned, diffed against the everything-traced frame
+under the same AA; the flicker protocol; frame times at 1440p at the
+project's own settings; everything under `build/shadow_budget/`). The
+shipped preset (Quality) is in every table for scale. Percent of the frame
+over 6 levels, raw (no AA; MSAA reads the same to the second decimal) and
+accumulated (TAA), **full target**:
+
+| camera | Quality raw / TAA | K = 1 | K = 2 | K = 4 | K = 8 |
+|---|---|---|---|---|---|
+| Headland | 0.31 / 0.00 | 2.99 / 0.91 | 2.22 / 0.55 | 1.73 / 0.29 | 1.28 / 0.12 |
+| Pier | 0.43 / 0.04 | 18.18 / 4.44 | 12.77 / 2.29 | 9.72 / 1.14 | 6.52 / 0.50 |
+| Glitter | 0.90 / 0.42 | 0.92 / 0.22 | 0.61 / 0.13 | 0.45 / 0.07 | 0.31 / 0.03 |
+
+The water band alone (the lower 55% of the frame), under TAA: over 6
+levels 0.40 / 2.06 / 0.13% at K = 4 and 0.15 / 0.90 / 0.06% at K = 8;
+signed mean at K = 8 **+0.01 / +0.03 / +0.00** levels. The diff images are
+balanced red-and-blue speckle on the lit water, densest where the lamps'
+light is, and nowhere a dark region.
+
+The **cheap target** fails on the water at every K: Headland raw over 6
+falls only from 3.84% to 3.44% between K = 1 and K = 8, the water's signed
+mean is -0.85 to -0.29 (darker), and under TAA at K = 8 it is 1.87% over 6
+against the full target's 0.12%. The glitter lamps' specular is a hundred
+times their irradiance; a target that does not know it samples the
+streak's lamps as if they were dim, the rare draws come back as spikes,
+and the tonemapper clips the spikes -- a bias in display space that no K
+cures.
+
+**Flicker** (blinking pixels, Headland / Pier / Glitter): under no AA and
+MSAA every budget arm sits at the truth's own figure (0.006-0.007% on
+Headland, the floor; Pier 0.20-0.27 against 0.16, Glitter 0.78-0.84
+against 0.79 -- the flashing lamps in view, whose changing intensity moves
+a few pixels' choice) -- the fixed per-pixel choice holds still, which is
+the rule. Under TAA, where the choice walks: truth 2.67 / 3.76 / 3.21,
+Quality 2.73 / 3.84 / 3.22, K = 4 full 3.61 / 7.65 / 3.39, K = 8 full
+3.27 / 5.88 / 3.32 -- the accumulated estimate's residual variance inside
+TAA's window, which is what S4's own longer history and spatial pass exist
+to remove.
+
+**Frame time** (1440p, project settings, sequential runs so the drift is in
+them, the shading walk kept, the reservoirs spilling -- an upper bound):
+
+| camera | truth | Quality | K = 4 full | K = 8 full | shadow rays M, Quality to K = 4 (per fragment) |
+|---|---|---|---|---|---|
+| Headland | 79.0 | 68.1 | 63.5 | 69.7 | 31.8 to 13.6 (9.3 to 5.1) |
+| Pier | 56.5 | 54.1 | 47.2 | 53.0 | 65.7 to 13.1 (18.2 to 5.3) |
+| Glitter | 69.1 | 58.3 | 56.6 | 63.3 | 22.0 to 13.9 (7.4 to 5.3) |
+
+K = 4 with the full target is 7 / 13 / 3% under the shipped preset and 20
+/ 16 / 18% under the truth with every lamp still shaded; K = 8 costs about
+6 ms more than K = 4 on each camera. The shading lever is not in these
+numbers.
+
+**The verdict, in the design's three questions.**
+
+1. **The K to build for is 4, with a target that knows the specular.**
+   Under TAA, Headland (0.29%) and Glitter (0.07%) sit at or under the
+   shipped preset's bar, and Glitter beats Quality at 63% of its rays.
+   Pier -- 115 lamps a fragment under the deck, the hardest camera -- is
+   1.14% at K = 4 and 0.50% at K = 8 against Quality's 0.04%: it needs
+   what S4 adds over this instrument, the temporal reuse of the *choice*
+   (some twenty times the candidates) and the spatial reuse among
+   neighbours; K = 8 is the fallback the Quality preset can take.
+2. **No lamp group's shadow is structurally missing at 8.** The water's
+   signed mean at K = 8 under TAA is within 0.03 levels on all three
+   cameras and the diffs are speckle, not shape. The signed offsets at low
+   K are global, not structural: the cheap target's spikes clipped by the
+   tonemapper (darker), and the auto exposure metering a noisier frame
+   (Pier's full target reads +1.2 at K = 1 and +0.03 at K = 8). The
+   failure the Share shape had does not appear. ReSTIR is built.
+3. **Accumulation lets the water hold K = 4 -- with its own reconstruction
+   behind it.** TAA's window alone takes the raw floor down four- to
+   eight-fold (Headland 1.73 to 0.29, Pier 9.72 to 1.14, Glitter 0.45 to
+   0.07); without any filter the raw floor at K = 4 is 1.7 / 9.7 / 0.45%,
+   so under no AA and MSAA the water needs S4's own history and spatial
+   pass, which decision F provides for.
+
+**What this fixes in S4's definition.** (a) The candidate target must
+include the specular: either the classic two stages -- the cheap
+irradiance picks a shortlist of M (sixteen), the full term weighs those
+sixteen, K survive -- or an analytic lobe estimate (the Beckmann peak of
+the half-vector, without G and F) times the irradiance for every
+candidate; S4 measures both, and the bound on shading is M cheap terms,
+sixteen full ones and K traced. (b) K = 4 is the Balanced default and
+K = 8 Quality's, until S3 hands K per tile. (c) Every residual sits on the
+lit water band; the spatial pass can be confined to it. (d) The flashing
+lamps move the choice under a fixed seed because their intensity moves
+the weights; S4's reservoir history must hard-clamp on them, as every
+other history here does.

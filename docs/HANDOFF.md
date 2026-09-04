@@ -15,16 +15,16 @@ commit them first. The evening's start-here is the first section below
 (the numbers), the morning's the second (the flag), and the fourth
 session's entry after them is still the map of everything else.
 
-**2026-09-04: WR-16 step S0 is built, measured and committed** -- the
-section right below this paragraph. **Where to start cold: WR-16 step
-S1**, Part IV of `docs/RAY-BUDGET-DESIGN.md` -- the one-day fixed-budget
-pre-check on the water, which the owner calls what it is: the gate. If a
-few importance-chosen lamps per pixel cannot reproduce the water's lamp
-shadows even averaged over frames, the ReSTIR route is dropped and
-thinning stays the shadow spender under the budget; if they can, ReSTIR is
-built after the budget (S3) as its shadow spender (S4). The hit walk (S2)
-is independent. Explain the step before acting on it; the owner asked for
-the reasoning first, every time.
+**2026-09-04: WR-16 steps S0 and S1 are built, measured and committed** --
+the section right below this paragraph. **The gate passed**: four
+importance-chosen lamps a pixel, with a target that knows the specular,
+reproduce the water's lamp shadows under TAA at or under the shipped
+preset's bar on Headland and Glitter, with no lamp group structurally
+missing at eight; Pier needs the reuse S4 adds. **Where to start cold:
+WR-16 step S2**, the cheap hit walk (Part IV, the re-sequenced table),
+then S4 as Part IV's "S1, measured" now defines it -- the target must
+include the specular, K = 4 -- then S3, then S5. Explain the step before
+acting on it; the owner asked for the reasoning first, every time.
 
 ## Start here -- 2026-09-04: WR-16 S0, the rays counted where they are cast
 
@@ -131,6 +131,30 @@ reconstruction stays off; and S4 is done the proper way -- a few lamps
 per pixel by a cheap target, shaded alone, the choice reused across frames
 and neighbours, the result reconstructed -- spending the shading lever and
 the ray lever together. The re-sequenced table is at the end of Part IV.
+
+### S1, the pre-check, measured the same afternoon
+
+`--shadow-budget=K[,full]` (commit `554589b`) and
+`tools/scripts/shadow_budget_precheck.py`; the tables and the verdict are
+in Part IV, "S1, measured". The short form: **K = 4 with a target that
+includes the specular.** Under TAA the frame over 6 levels against the
+everything-traced truth is 0.29% on Headland and 0.07% on Glitter (the
+shipped preset: 0.00 and 0.42), 1.14% on Pier under the deck (Quality
+0.04; K = 8 gives 0.50, and S4's reuse of the choice is what closes it).
+The water's signed mean at K = 8 is within 0.03 levels everywhere and the
+diffs are speckle, not shape: no lamp group structurally missing. **The
+cheap irradiance target is unusable on the water** -- the glitter lamps'
+specular is a hundred times their irradiance, the rare draws come back as
+spikes, the tonemapper clips them, and the water reads darker at every K.
+Raw, under no AA and MSAA, the fixed per-pixel choice holds still at the
+truth's own flicker figure; under TAA the walking choice adds 0.9 / 3.8 /
+0.2 points of blink at K = 4, which is the residual S4's own history and
+spatial pass exist to remove. Frame time with every lamp still shaded and
+the reservoirs spilling: 7 / 13 / 3% under Quality, 20 / 16 / 18% under
+the truth. Two things learned building it: a golden-ratio walk along the
+lamp index correlates the reservoir's draws and biases it (hash them); and
+the auto exposure meters a noisier frame differently, so a signed mean at
+low K is a global offset before it is a bias -- read the diff image.
 
 ### The baseline and the flicker counts
 
