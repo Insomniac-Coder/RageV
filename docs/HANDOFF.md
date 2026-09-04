@@ -1,6 +1,125 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-03.
+**Read this first.** Updated 2026-09-04.
+
+## 2026-09-04, second session: WR-16 S4 is COMPLETE and pushed
+
+**Start here: WR-16 S3, and its first move is already scoped.** Everything
+below is done, measured, committed and on the remote at `04287c4`. The only
+uncommitted file is `SampleProject/assets/scenes/goldengatedemo.rage.meta`,
+whose SourceHash the runtime rewrites on load -- left alone deliberately, as
+before, and it is the owner's call.
+
+### What S4 finished with
+
+Against the preset the project actually ships (RT optimisation **Quality**,
+`SampleProject.rvproject:20`), at 1440p:
+
+| camera | shipped | now | error (TAA) | blink (TAA) |
+|---|---|---|---|---|
+| Headland | 58.9 ms | **34.4** | 0.56% | 2.00% (preset 2.73) |
+| Pier | 47.9 ms | **29.9** | 3.47% | 2.01% (preset 3.84) |
+| Glitter | 42.9 ms | **27.6** | 0.96% | 2.68% (preset 3.22) |
+
+36 to 42% off the frame, and the flicker is below the shipped preset *and*
+below everything-traced on all three cameras. What it spends is per-frame
+accuracy, worst on Pier.
+
+Four commits: `ea78c13` (S4b measured, the reuse off, two defects), `3d023d6`
+(S4c), `3e92900` (the world grid, and S4c's memory set to 4,2), `04287c4` (the
+sixty-second still test).
+
+### The four defects, because each is a rule rather than a fix
+
+1. **A shadow ray was sent to lamps that cast none.** The lit shader never
+   traces a light whose `kind` is zero -- `CastShadows` false in the scene, and
+   **70 of this scene's 191 lights are authored that way on purpose** (48 tower
+   floods, the post tops, nav, marine and beacons: WR-4's fill fixtures). They
+   sit behind the deck, so tracing them blacked out the brightest glitter, 13.7
+   where truth reads 192.2. **A pass that re-implements the lit shader's
+   lighting must re-implement its exemptions, not only its arithmetic.**
+2. **The sea covers itself and the prepass kept the wrong crossing.** At 400 m
+   on Glitter three to five water fragments land on one pixel; with a shared
+   depth tested-but-not-written the survivor was whichever rasterised last. One
+   probed pixel stood 29 m from the water the draw shows, on the same view ray.
+   It has a target and depth of its own now.
+3. **The ray counters were blind to the lamp passes.** `FlushRayCounters` sits
+   at the end of the lit shader's main, which `RV_TRACE_ONLY` compiles out. Any
+   ray figure for this path from before today undercounts -- 6.6 M read where
+   13.6 M were cast.
+4. **The graph's default clear colour is `{0,0,0,1}`** and the position
+   attachment's `w` is the "a wave was drawn here" mask, so taking the default
+   marked every screen pixel as water and put both lamp passes over the whole
+   frame: the choose pass 3.8 -> 7.6 ms. `SetClearColor` with a zero alpha.
+
+### Two settings that are decisions, not defaults
+
+- **The reuse of the *choice* is off and should stay off.** Both halves lose on
+  every camera: Pier's error 1.32% with neither, 8.55% with the history alone,
+  4.51% with the neighbours alone. The sea retilts every patch every frame, so
+  a choice made last frame -- or twelve pixels away -- was made for a surface
+  that has since turned, and on water the score is nearly all specular.
+- **S4c's memory is PROVISIONAL at 4,2.** The owner picked 16,4 from a
+  flicker-versus-error table, then watched the water move and said it looked
+  blurry and "less like water". It did: 16,4 costs a third of the sea's fine
+  detail. **When this is tuned again, show detail, flicker AND error together,
+  and show stills** -- the error percentage cannot say "the water stopped
+  looking like water" and detail-per-pixel can. Pier's curve, detail / blink /
+  error: off 4.74 / 8.29 / 1.32, **4,2 3.39 / 4.18 / 1.95**, 8,2 3.37 / 4.14 /
+  1.98, 16,4 2.72 / 2.01 / 3.47; traced reference 4.29, preset 4.30.
+
+### S3: the first move, and the trap it walks into
+
+**`budget.Advance()` has been restored and reverted three times** and made the
+picture worse every time. The note where it lives says why and what to do
+first: a damped step feeding a `floor(x + 0.5)` quantiser is the classic slow
+limit cycle -- this engine has met one, breathing at about a hertz -- so
+**fix the shape, then restore the line**. The shape is §4.2's dead band (up at
+`n + 0.75`, down at `n + 0.25`) plus an 8-frame dwell, replacing the +/-1-a-frame
+easing in `tile_budget.rvshader`.
+
+**Its judge now exists**: `tools/scripts/tile_transitions.py`, the
+sixty-second still test the design named and nobody had written. It reads the
+allocator's own tile map through `--debug-view=importance`, samples the middle
+of every tile each frame and counts changes; the bar is under 0.01 per tile per
+second. **Headland today reads 21.84**, with 87.8% of tiles changing and the
+busiest changing on every frame -- exactly what a budget with no history to damp
+it should read, and the number the dead band has to move.
+
+### Left owing, none of it blocking
+
+- **S4's own acceptance test does not exist.** The design signs S4 off on a
+  moving-camera ghosting test; every protocol here is still-camera and
+  `--camera` is a single fixed pose. A reconstruction stage is precisely what a
+  still camera cannot judge.
+- **A blur the owner reports has been in the water "for a while"**, seen on a
+  low close view of the tower base -- not one of the three benchmark cameras and
+  not S4c, since with accumulation off the water carries *more* high-frequency
+  content than the reference. **Ask for that camera before chasing it.**
+- **Glitter keeps a one-sided residual and it is structural**: the passes shade
+  one surface per pixel where the draw blends three to five, so the nearest
+  crossing's light is applied to the whole stack -- about 10% too bright.
+- **The streaks pulse on the temporal jitter's fixed 8-step cycle**
+  (`TemporalJitterPhase: 8`). The real fix is WR-13, specular AA. **The owner's
+  order is: finish WR-16 -- S3 then S5 -- and only then WR-13. They were asked
+  twice about bringing it forward and said no; do not re-ask.**
+
+### The instrument that settled everything
+
+Five hypotheses were tested and killed by measurement before the first defect
+was found. What ended it was making **both paths answer the same question at
+the same pixel in the same frame**: the water draw reported 59 lamps reaching
+it and 7 visible, and tracing those same lamps in the same shader at the same
+instant returned 0 -- visibility no ray produced is a branch that never traced.
+`--lamp-probe` now carries the water draw's own position, its lamp counts, both
+`waterSpecular` sums and a walk over every light in the scene, for that reason.
+Reach for it early rather than after five arguments.
+
+New flags this session: `--water-lamp-history`, `--water-lamp-neighbours`,
+`--water-lamp-tuning`, `--water-lamp-accumulate`, `--water-lamp-memory`,
+`--water-lamp-clamp`, `--world-grid`.
+
+---
 
 **2026-09-03: the static / moving split, Hybrid Full Bake, the bigger
 boxes and the packed atlas are built, tested, applied, committed and
