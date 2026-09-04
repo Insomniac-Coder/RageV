@@ -2810,8 +2810,10 @@ namespace RageV
 				surface.Name = "Renderer3D.water.surface";
 				surface.Shader = s_Data->WaterSurfaceShader;
 				surface.ColorFormats = { Format::R16G16B16A16_SFLOAT,
-										 Format::R16G16B16A16_SFLOAT };
-				surface.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque };
+										 Format::R16G16B16A16_SFLOAT,
+										 Format::R32G32B32A32_SFLOAT };
+				surface.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque,
+											   BlendPreset::Opaque };
 				surface.DepthStencil.DepthWriteEnable = false;
 				s_Data->WaterSurfacePipeline = s_Data->Device->CreatePipeline(surface);
 			}

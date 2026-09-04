@@ -492,12 +492,17 @@ namespace RageV
 		// them, so no other renderer has to learn a new count.
 		uint32_t waterSurfaceIndex = 0;
 		uint32_t waterMaterialIndex = 0;
+		uint32_t waterPositionIndex = 0;
 		if (wantTransparent && desc.DrawWaterSurface)
 		{
 			waterSurfaceIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
 			sceneDesc.ExtraColors.push_back(Format::R16G16B16A16_SFLOAT);
 			waterMaterialIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
 			sceneDesc.ExtraColors.push_back(Format::R16G16B16A16_SFLOAT);
+			// Full floats for the position: the sea is a kilometre wide here
+			// and a half's step at that distance is half a metre.
+			waterPositionIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
+			sceneDesc.ExtraColors.push_back(Format::R32G32B32A32_SFLOAT);
 		}
 
 		const RGResource sceneHDR = graph.CreateTarget(sceneDesc);
@@ -1023,7 +1028,8 @@ namespace RageV
 					{
 						builder.WriteAttachments(sceneHDR,
 							{ { waterSurfaceIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
-							  { waterMaterialIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
+							  { waterMaterialIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
+							  { waterPositionIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
 						// The opaque scene's depth, tested and not written:
 						// water behind the pier writes no surface, and the
 						// transparent pass's own fragments must still pass
