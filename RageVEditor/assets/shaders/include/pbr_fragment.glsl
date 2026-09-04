@@ -3903,7 +3903,11 @@ void main()
 	// the lighting, which under this variant happens in the pass that reads
 	// these two attachments. The wind angle rides along because the water's
 	// lobe is anisotropic about it and the reader has no vertex to ask.
-	o_SurfaceWater = vec4(OctEncode(N), shadingRoughness, v_WaterDeep.w);
+	// **The normal itself, not an encoding of it.** A sea's lobe is a few
+	// hundredths of a radian wide and it is aimed by this vector; the two
+	// horizontal components are enough, because a water normal always points
+	// up, and the vertical one comes back exactly from them.
+	o_SurfaceWater = vec4(N.xz, shadingRoughness, v_WaterDeep.w);
 	o_MaterialWater = vec4(albedo, clamp(surface.Specular, 0.0, 1.0));
 	o_PositionWater = vec4(v_WorldPos, 1.0);
 	return;

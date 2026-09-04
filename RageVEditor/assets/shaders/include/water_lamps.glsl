@@ -39,7 +39,8 @@ layout(push_constant) uniform LampParams
 	// is to reproject by -- which is what TAA already does for it.
 	mat4 PreviousViewProjection;
 	// x: last frame's choices are there to reuse. y: the most confidence a
-	// history may carry, in frames. z: whether the reuse runs at all. w: spare.
+	// history may carry, in frames. z: whether the reuse runs at all. w: one
+	// where a texture row runs the other way up from a normalised coordinate.
 	vec4 History;
 	// **The pixel under the microscope** (--lamp-probe=x,y): xy the pixel, z
 	// non-zero where one was asked for. A picture cannot show the two numbers
@@ -61,6 +62,18 @@ layout(std430, set = 3, binding = 5) buffer LampProbeBlock
 {
 	float Values[];
 } u_LampProbe;
+
+// **The one place a projected coordinate becomes a framebuffer row.** The
+// reprojected history arrives in normalised device coordinates while the
+// attachments are addressed by row, and which way the rows run is the
+// backend's business -- so it rides in the push constant, as it does for
+// every other fullscreen pass in this engine.
+ivec2 LampTexelFromUv(vec2 uv)
+{
+	const vec2 size = vec2(textureSize(u_WaterPositionIn, 0));
+	const float row = u_Lamps.History.w > 0.5 ? 1.0 - uv.y : uv.y;
+	return ivec2(clamp(vec2(uv.x, row), vec2(0.0), vec2(0.9999)) * size);
+}
 
 bool LampProbeHere()
 {
@@ -102,17 +115,30 @@ struct WaterPoint
 	bool  Valid;
 };
 
-WaterPoint FetchWaterPoint(vec2 uv)
+// **By framebuffer texel, never by coordinate.** These three attachments are
+// written by a raster pass at its own fragment position and read by the water
+// shader at its own -- both framebuffer-addressed. A fullscreen pass in
+// between is the one place where a *coordinate* enters, and on Vulkan a
+// fullscreen triangle's v_UV runs the other way up: the pass standing at row
+// y read the sea at row H-1-y, chose and shaded for that point, and wrote the
+// answer at row y. Nothing was dim and nothing was mis-weighted -- the whole
+// band was reflected about the middle of the screen, which is why it looked
+// like the glitter had walked away from the bridge. The engine has the trap
+// written down in PostProcess.cpp: the negative-height viewport fixes where a
+// fragment writes, not where a coordinate reads.
+WaterPoint FetchWaterPoint(ivec2 texel)
 {
 	WaterPoint p;
-	const vec4 position = textureLod(u_WaterPositionIn, uv, 0.0);
+	const vec4 position = texelFetch(u_WaterPositionIn, texel, 0);
 	p.Valid = position.w > 0.5;
 	p.Position = position.xyz;
-	const vec4 surface = textureLod(u_WaterSurfaceIn, uv, 0.0);
-	p.N = OctDecode(surface.xy);
+	const vec4 surface = texelFetch(u_WaterSurfaceIn, texel, 0);
+	// The two horizontal components, with the vertical one recovered: a sea's
+	// normal always points up, so nothing is lost and nothing is quantised.
+	p.N = vec3(surface.x, sqrt(max(1.0 - dot(surface.xy, surface.xy), 0.0)), surface.y);
 	p.Roughness = surface.z;
 	p.Wind = surface.w;
-	const vec4 material = textureLod(u_WaterMaterialIn, uv, 0.0);
+	const vec4 material = texelFetch(u_WaterMaterialIn, texel, 0);
 	p.Albedo = material.rgb;
 	p.Specular = material.a;
 	p.V = normalize(u_Scene.CameraPosition.xyz - p.Position);

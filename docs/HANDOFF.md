@@ -50,6 +50,41 @@ down to 2.8 / 4.8 / 1.6 ms, which is the world-space grid's own payoff.
 now, not the shading** -- S0's "light-bound more than ray-bound" was true
 of the frame before S2 and must not be carried forward.
 
+**2026-09-04, night: S4b is built -- the sea's lamps are chosen and shaded
+in passes of their own, and the picture lands** (RAY-BUDGET-DESIGN Part IV,
+"S4b, built and measured"). Four passes now sit between the backdrop copy
+and the water draw: a surface prepass that draws the sea a second time to
+write its normal, colour and position; a pass that scores every lamp in the
+cell and keeps four by weighted reservoir sampling, folding in last frame's
+four; a pass that reads three neighbours' choices, shades the survivors and
+traces their rays; and the water draw, which adds the two pictures they
+produce and walks the sun alone. Both fullscreen passes borrow the lit
+shader's set 0 under RV_TRACE_ONLY the way rtgi_trace does, so the rays and
+the cutout test are the lit shader's own.
+
+**Measured on Headland against every lamp traced: 1.95% of the frame over
+six levels with no AA, 0.78% under TAA**; the lamp-lit water reads 28.7
+against truth's 29.7 and the dark water 10.3 against 10.3. **Start here:**
+S4c, the reconstruction -- the direct light has no history of its own yet --
+and the flicker protocol, which has not been run on any of this. The
+neighbour ring (three taps at twelve pixels) and the confidence cap (20) are
+both untuned assertions, and no frame time has been taken since the passes
+landed: S4a's table is the last honest one.
+
+**Four defects were paid for on the way and all four are worth reading
+before touching this** (the same Part IV section): a descriptor set that was
+never committed, so the passes read a scene block of zeros and shaded
+nothing; choices read through a sampler instead of by texel, which handed
+every pixel its neighbour's lamp; a neighbour test in metres, which on a sea
+seen edge on rejected every neighbour; and -- the one the owner spotted from
+the shape alone -- both passes reading the sea at `v_UV`, which on Vulkan is
+upside down, so the whole glitter band was mirrored about the middle of the
+screen. **The tool that found three of them is `--lamp-probe=x,y`**, which
+prints one water pixel's entire arithmetic beside its own full walk. And one
+wrong fix is recorded there too, because it nearly stuck: capping the
+*merged* confidence looked like a large win only because it cancelled the
+light the mirroring was losing.
+
 **2026-09-04, evening: S4a, the sampler, is built and measured**
 (ENGINE-NOTES 7da; RAY-BUDGET-DESIGN Part IV "S4a, the sampler,
 measured"). `--light-sampling=K[,term|irradiance]`: a live surface whose

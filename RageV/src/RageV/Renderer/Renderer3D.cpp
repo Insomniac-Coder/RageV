@@ -5291,7 +5291,7 @@ namespace RageV
 		};
 
 		// Thirty-two floats, the same slots the shader's comment names.
-		constexpr uint32_t kLampProbeFloats = 32;
+		constexpr uint32_t kLampProbeFloats = 48;
 		constexpr uint32_t kLampProbeBinding = 5;
 
 		void FillLampProbe(LampPushConstants& push)
@@ -5300,6 +5300,14 @@ namespace RageV
 			if (config.LampProbeX < 0 || config.LampProbeY < 0)
 				return;
 			push.Probe = Vec4((float)config.LampProbeX, (float)config.LampProbeY, 1.0f, 0.0f);
+		}
+
+		// Which way a texture row runs against a normalised coordinate: the
+		// same fact every fullscreen pass here carries, and the one the sea's
+		// lamp passes need for the reprojected history.
+		void FillLampFlip(LampPushConstants& push, Renderer3DData& data)
+		{
+			push.History.w = data.Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
 		}
 
 		// Storage for the writes, TransferSrc for the readback -- the pair
@@ -5358,6 +5366,13 @@ namespace RageV
 			RV_CORE_INFO("  estimate {0} against the walk {1} (unshadowed {2}), K {3}",
 						 v[24], v[25], v[26], v[3]);
 			RV_CORE_INFO("  the choose pass wrote weight {0} for lamp {1}", v[30], v[31]);
+			RV_CORE_INFO("  history: flag {0}, cap {1}, clip w {2}, reprojected to ({3}, {4})",
+						 v[32], v[33], v[34], v[35], v[36]);
+			RV_CORE_INFO("  history merged: M {0}, W {1} -> confidence {2}; the shade pass "
+						 "read confidence {3}",
+						 v[37], v[38], v[39], v[43]);
+			RV_CORE_INFO("  neighbours: reuse flag {0}, {1} tried, {2} taken, slack {3} m",
+						 v[42], v[40], v[41], v[44]);
 		}
 	}
 
@@ -5398,6 +5413,7 @@ namespace RageV
 		LampPushConstants push;
 		push.PreviousViewProjection = motion.ViewProjection;
 		FillLampProbe(push);
+		FillLampFlip(push, *s_Data);
 		push.History.x = hasHistory && previousIndex && previousWeight
 					  && EngineConfig::Get().WaterLampReuse ? 1.0f : 0.0f;
 		push.History.z = EngineConfig::Get().WaterLampReuse ? 1.0f : 0.0f;
@@ -5450,6 +5466,7 @@ namespace RageV
 		LampPushConstants push;
 		push.History.z = EngineConfig::Get().WaterLampReuse ? 1.0f : 0.0f;
 		FillLampProbe(push);
+		FillLampFlip(push, *s_Data);
 
 		// **Read inside the frame, not outside it.** The readback arms a copy
 		// in the frame's own command buffer and answers with what a previous

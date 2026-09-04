@@ -4024,3 +4024,107 @@ backends. One always-on line did change and is worth stating -- the water's
 specular sum now carries `liveShare` like the diffuse does. It is exactly
 one for the sea today, so no pixel moves; without it a sampled pixel's
 glitter would be the light of four lamps instead of the light of all of them.
+
+#### S4b, built and measured (2026-09-04, night)
+
+The reuse, the way the owner chose it: the sea's lamps are chosen, shaded and
+traced in passes of their own, so a pixel can read what its neighbours kept.
+Four passes now stand between the backdrop copy and the water draw.
+
+**What exists.**
+
+- **WaterSurface** (raster) draws the sea a second time with
+  `water_surface.rvshader` -- pbr_fragment under RV_WATER, RV_TRANSPARENT and
+  RV_WATER_SURFACE, which returns as soon as the surface is final -- into
+  three attachments appended to the scene target: the normal's two horizontal
+  components with the roughness and the wind angle, the colour with the
+  specular dial, and the world position in full floats. 0.44 ms at 720p.
+- **WaterChooseLamps** (fullscreen) scores every lamp in the pixel's cluster
+  cell, keeps K by weighted reservoir sampling, and folds in the four this
+  pixel kept last frame, reprojected by the camera's own motion.
+- **WaterShadeLamps** (fullscreen) reads three neighbours' choices, merges
+  them in this pixel's own terms, shades the survivors in full, traces one
+  shadow ray each, and writes the lamp light as two pictures -- what scatters
+  into the water and what glints off it.
+- **The water draw** adds those two where its own lamp walk used to be, and
+  walks the sun alone. `v_WaterLamps.x` (the water push constant's spare
+  lane) is what says so.
+
+Both fullscreen passes borrow the lit shader's set 0 the way `rtgi_trace`
+does -- RV_TRACE_ONLY, so the lights, the cluster lists, the cull records,
+the acceleration structure and the shadow ray with its cutout test are the
+lit shader's own, not a copy. `ShadeLamp` and the sea's lobe live in
+`include/water_lamps.glsl` and `include/water_lobe.glsl`, included by both.
+
+**Measured** (Headland, 1600x900, frame 60, the clock pinned, against every
+lamp traced):
+
+| | lamp-lit water | dark water | over 6 levels |
+|---|---|---|---|
+| truth | 29.71 | 10.29 | -- |
+| S4b, no AA | 28.72 | 10.32 | 1.95% |
+| S4b, TAA | -- | -- | **0.78%** |
+
+**Four defects were found on the way, and each one is a lesson.**
+
+1. **The lamp passes' scene set was never committed.** Set 3 is committed by
+   the pass itself, so the sea's surface read perfectly and only the scene
+   block came back zeros -- which decodes as a budget of no lamps, so the
+   passes faithfully shaded nothing. It looked like a sampling bug for an
+   hour. Every other set in the slot is committed in EndScene; this one is
+   too now.
+2. **A choice read through a sampler is a neighbour's choice.** The shade
+   pass read its four chosen lamps with `textureLod` in normalised
+   coordinates. The probe: the choose pass wrote lamp 39, weight 5.7183094;
+   the shade pass read lamp 38, weight 1.2665564. All three read sites take
+   texels now.
+3. **The neighbour test was a distance in metres, and the sea is edge on.**
+   Twelve pixels toward the horizon is hundreds of metres of water, so every
+   neighbour failed: three tried, none taken, on every pixel of the bay. It
+   is the design's own pair now -- depth within a tenth, normals within a
+   wide angle.
+4. **The two passes read the sea at `v_UV`, which on Vulkan is upside down.**
+   The pass standing at row y chose and shaded for the water at row H-1-y and
+   wrote the answer at row y: the whole band reflected about the middle of
+   the screen, which is what "the streaks depart from the bridge instead of
+   sitting under it" was. Nothing was dim and nothing was mis-weighted.
+   Proved three ways -- 0.968 correlation between the error and its own
+   mirror, two probed pixels reporting each other's view depths (445 m at a
+   row that must be farther than one reading 838 m), and the fix restoring
+   0.997 correlation with the true picture. The engine has this trap written
+   down in PostProcess.cpp: the negative-height viewport fixes where a
+   fragment *writes*, not where a coordinate *reads*. Every producer and
+   consumer of these attachments is framebuffer-addressed, so they are all
+   read by texel now, and the one place a projected coordinate has to become
+   a row -- the reprojected history -- takes the backend's flip from the push
+   constant, as every other fullscreen pass here does.
+
+**And one wrong fix, recorded because it nearly stuck.** Capping the *merged*
+confidence after the spatial merge (`min(frames + min(M, cap), cap)`) looked
+like a large win -- the lamp-lit water went from 19.7 to 27.1 -- because it
+inflated the estimate by exactly enough to cancel the light the mirroring was
+losing. The cap belongs on each input and never on the sum: each neighbour
+brings `min(M, cap)` frames into the numerator, so the denominator has to
+carry the same frames. Two wrongs, one visible.
+
+**The instrument that found three of the four: `--lamp-probe=x,y`.** One
+water pixel's whole arithmetic, written to a buffer and printed -- the
+candidates swept, the sum of their scores as *both* passes compute it, each
+reservoir's lamp, score, weight, term and visibility, the estimate, the same
+pixel's full walk with and without shadows, and the history and neighbour
+state. Two things about it to know: the readback answers only between the
+device's BeginFrame and EndFrame, so it is called from inside the pass; and
+it answers false the first time round, because the copy it arms is read a
+frame later.
+
+**Flags:** `--light-sampling=K[,term|irradiance|exact]`,
+`--water-lamp-pass=on|off` (the passes, or the sampler inside the water
+shader), `--water-lamp-reuse=on|off`, `--lamp-probe=x,y`.
+
+**What is left of S4.** The reconstruction (S4c) is not built: the direct
+light has no history of its own yet, and the flicker protocol has not been
+run on any of this. The estimate at K = 4 is 0.78% over six levels under TAA
+against 0.29% for the forward sampler at S4a, so there is quality still to
+find -- the neighbour ring is three taps at twelve pixels and untuned, and
+the confidence cap is 20 by assertion. The frame times have not been taken
+since the passes landed; S4a's table is the last honest one.

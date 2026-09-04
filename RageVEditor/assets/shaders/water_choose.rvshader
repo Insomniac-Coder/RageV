@@ -48,7 +48,7 @@ void main()
 	float weight[4] = float[4](0.0, 0.0, 0.0, 0.0);   // what the term is multiplied by
 	float target[4] = float[4](0.0, 0.0, 0.0, 0.0);   // the score of the lamp held
 
-	const WaterPoint p = FetchWaterPoint(v_UV);
+	const WaterPoint p = FetchWaterPoint(ivec2(gl_FragCoord.xy));
 	const int K = LampBudget();
 	float sweptTotal = 0.0;
 	if (p.Valid && K > 0)
@@ -111,9 +111,20 @@ void main()
 		// reaches this point is dropped rather than blended, and the
 		// confidence is capped, so a history cannot outvote the present for
 		// ever.
+		if (LampProbeHere())
+		{
+			u_LampProbe.Values[32] = u_Lamps.History.x;
+			u_LampProbe.Values[33] = u_Lamps.History.y;
+		}
 		if (u_Lamps.History.x > 0.5)
 		{
 			const vec4 clip = u_Lamps.PreviousViewProjection * vec4(p.Position, 1.0);
+			if (LampProbeHere())
+			{
+				u_LampProbe.Values[34] = clip.w;
+				u_LampProbe.Values[35] = clip.w > 0.0 ? clip.x / clip.w * 0.5 + 0.5 : -1.0;
+				u_LampProbe.Values[36] = clip.w > 0.0 ? clip.y / clip.w * 0.5 + 0.5 : -1.0;
+			}
 			if (clip.w > 0.0)
 			{
 				const vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
@@ -122,8 +133,7 @@ void main()
 					// By texel, for the reason the shade pass records: a
 					// choice is not a thing to address in normalised
 					// coordinates.
-					const ivec2 pastTexel =
-						ivec2(uv * vec2(textureSize(u_WaterPositionIn, 0)));
+					const ivec2 pastTexel = LampTexelFromUv(uv);
 					const uvec4 pastIndex = texelFetch(u_ReservoirIndex, pastTexel, 0);
 					const uvec4 pastWeight = texelFetch(u_ReservoirWeight, pastTexel, 0);
 					const uint cap = uint(max(u_Lamps.History.y, 1.0));
@@ -167,6 +177,12 @@ void main()
 						// one frame past the cap and is clamped again when it
 						// is read.
 						const uint merged = frames[r] + theirFrames;
+						if (LampProbeHere() && r == 0)
+						{
+							u_LampProbe.Values[37] = float(past.M);
+							u_LampProbe.Values[38] = past.W;
+							u_LampProbe.Values[39] = float(merged);
+						}
 						index[r] = keptIndex;
 						frames[r] = merged;
 						target[r] = keptTarget;

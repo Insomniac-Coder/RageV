@@ -47,7 +47,7 @@ void main()
 	o_LampDiffuse = vec4(0.0);
 	o_LampSpecular = vec4(0.0);
 
-	const WaterPoint p = FetchWaterPoint(v_UV);
+	const WaterPoint p = FetchWaterPoint(ivec2(gl_FragCoord.xy));
 	const int K = LampBudget();
 	if (!p.Valid || K == 0)
 		return;
@@ -95,23 +95,46 @@ void main()
 	const vec2 texel = 1.0 / vec2(textureSize(u_WaterPositionIn, 0));
 	const uint salt = LampFrameSalt();
 	const float turn = LampRandom(px.x ^ (px.y << 16u) ^ salt ^ 0x9E3779B9u) * 6.28318530718;
-	const float away = length(p.Position - u_Scene.CameraPosition.xyz);
-	const float slack = max(1.0, away * 0.02);
+	const float myDepth = dot(p.Position - u_Scene.CameraPosition.xyz,
+							  u_Scene.CameraForward.xyz);
+	const float slack = myDepth;   // reported by the probe
 	const int neighbours = u_Lamps.History.z > 0.5 ? 3 : 0;
+	float triedNeighbours = 0.0;
+	float tookNeighbours = 0.0;
 	for (int s = 0; s < neighbours; ++s)
 	{
+		triedNeighbours += 1.0;
 		const float angle = turn + float(s) * 2.09439510239;
-		const vec2 uv = v_UV + vec2(cos(angle), sin(angle)) * 12.0 * texel;
-		if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))))
+		// The ring in framebuffer texels, for the same reason: a coordinate
+		// and a fragment do not agree about which way is up on this backend.
+		const ivec2 size = textureSize(u_WaterPositionIn, 0);
+		const ivec2 theirTexel = mineTexel
+							   + ivec2(round(vec2(cos(angle), sin(angle)) * 12.0));
+		if (any(lessThan(theirTexel, ivec2(0))) || any(greaterThanEqual(theirTexel, size)))
 			continue;
 
-		const vec4 theirPosition = textureLod(u_WaterPositionIn, uv, 0.0);
+		const vec4 theirPosition = texelFetch(u_WaterPositionIn, theirTexel, 0);
 		if (theirPosition.w <= 0.5)
 			continue;
-		if (distance(theirPosition.xyz, p.Position) > slack)
+		// **Depth and normal, not a distance in metres.** The sea is seen
+		// nearly edge on: twelve pixels toward the horizon is hundreds of
+		// metres of water, so a world-space slack rejects every neighbour
+		// a grazing view has -- measured, three tried and none taken on
+		// every pixel of the bay. What actually says 'the same surface' is
+		// the pair the design named: depth within a tenth, and normals
+		// within a wide angle, wide because a wave's normal turns fast and
+		// two neighbours on one swell are still the same swell.
+		const float theirDepth = dot(theirPosition.xyz - u_Scene.CameraPosition.xyz,
+									 u_Scene.CameraForward.xyz);
+		if (abs(theirDepth - myDepth) > 0.1 * max(myDepth, 1.0))
 			continue;
+		const vec2 theirXZ = texelFetch(u_WaterSurfaceIn, theirTexel, 0).xy;
+		const vec3 theirN = vec3(theirXZ.x,
+								 sqrt(max(1.0 - dot(theirXZ, theirXZ), 0.0)), theirXZ.y);
+		if (dot(theirN, p.N) < 0.85)
+			continue;
+		tookNeighbours += 1.0;
 
-		const ivec2 theirTexel = ivec2(uv * vec2(textureSize(u_WaterPositionIn, 0)));
 		const uvec4 theirIndex = texelFetch(u_ReservoirIndex, theirTexel, 0);
 		const uvec4 theirWeight = texelFetch(u_ReservoirWeight, theirTexel, 0);
 		for (int r = 0; r < K; ++r)
@@ -143,8 +166,12 @@ void main()
 				keptIndex = theirs.Index;
 				keptTarget = here;
 			}
-			// The neighbour's confidence, capped on the way in; the sum is
-			// not capped, for the reason the choose pass records.
+			// **The cap goes on each input, never on the sum.** Each
+			// neighbour brings min(M, cap) frames into the numerator, so the
+			// denominator has to carry the same frames or the estimate is
+			// inflated by whatever was clamped away. Capping the sum here
+			// read as a brightening that happened to cancel a displacement
+			// elsewhere -- two wrongs, and only one of them visible.
 			const uint merged = frames[r] + min(theirs.M, cap);
 			index[r] = keptIndex;
 			frames[r] = merged;
@@ -246,6 +273,11 @@ void main()
 		u_LampProbe.Values[27] = scoreSum;
 		u_LampProbe.Values[28] = gl_FragCoord.x;
 		u_LampProbe.Values[29] = gl_FragCoord.y;
+		u_LampProbe.Values[40] = triedNeighbours;
+		u_LampProbe.Values[41] = tookNeighbours;
+		u_LampProbe.Values[42] = u_Lamps.History.z;
+		u_LampProbe.Values[43] = float(frames[0]);
+		u_LampProbe.Values[44] = slack;
 		// slots 30 and 31 belong to the choose pass; left alone here.
 	}
 }
