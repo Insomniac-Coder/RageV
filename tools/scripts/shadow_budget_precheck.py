@@ -87,16 +87,14 @@ def arms(budgets, sampler=False, passes=False):
             out.append(("fwd-%d" % k,
                         ["--rt-optimisation=off", "--light-sampling=%d,term" % k,
                          "--water-lamp-pass=off"]))
-            out.append(("pass-%d-noreuse" % k,
-                        ["--rt-optimisation=off", "--light-sampling=%d,term" % k,
-                         "--water-lamp-reuse=off"]))
-            out.append(("pass-%d-history" % k,
-                        ["--rt-optimisation=off", "--light-sampling=%d,term" % k,
-                         "--water-lamp-neighbours=off"]))
-            out.append(("pass-%d-neighbours" % k,
-                        ["--rt-optimisation=off", "--light-sampling=%d,term" % k,
-                         "--water-lamp-history=off"]))
+            # The reuse's two halves were measured on 2026-09-04 and both lose;
+            # it is off by default now and its arms are not re-run. What the
+            # pair below measures is S4c, the accumulation of the shaded light,
+            # which is a different quantity and the one that survives.
             out.append(("pass-%d" % k,
+                        ["--rt-optimisation=off", "--light-sampling=%d,term" % k,
+                         "--water-lamp-accumulate=off"]))
+            out.append(("pass-%d-s4c" % k,
                         ["--rt-optimisation=off", "--light-sampling=%d,term" % k]))
         return out
     if sampler:

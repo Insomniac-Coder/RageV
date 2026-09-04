@@ -448,6 +448,8 @@ private:
 	// WR-16 S4b: the sea's choices, one per chain like every history here.
 	RageV::TemporalHistory m_SceneWaterChoices;
 	RageV::TemporalHistory m_GameWaterChoices;
+	RageV::TemporalHistory m_SceneWaterLampLight;
+	RageV::TemporalHistory m_GameWaterLampLight;
 	// One indirect-diffuse history per chain (7av), for the reason the two
 	// above are two rather than one: the viewport and the game view are
 	// different sizes showing different cameras.

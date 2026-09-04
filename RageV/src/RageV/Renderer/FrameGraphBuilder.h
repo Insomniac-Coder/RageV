@@ -54,6 +54,15 @@ namespace RageV
 		// shader.
 		TemporalHistory* WaterReservoirs = nullptr;
 
+		// WR-16 S4c: where the sea's *shaded* lamp light is kept from one frame
+		// to the next, which is a different quantity from the choices above and
+		// fails differently. A choice is made for a surface with a particular
+		// tilt and is wrong the moment a wave turns it; a brightness is a
+		// property of the patch and survives that turn, which is why this
+		// accumulates where the reuse of the choice was measured to lose.
+		// Null leaves the light unaccumulated, as noisy as four lamps allow.
+		TemporalHistory* WaterLampLight = nullptr;
+
 		// Composites the two attachments above back over the scene. Given the
 		// accumulation and revealage textures, in that order.
 		std::function<void(RGPassContext&, const RHI::Ref<RHI::RHITexture>&,

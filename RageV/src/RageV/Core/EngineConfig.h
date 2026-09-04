@@ -377,6 +377,25 @@ namespace RageV
 		// rebuild per arm; neither has ever been measured.
 		int   WaterLampTaps = 3;
 		int   WaterLampCap = 20;
+
+		// --water-lamp-accumulate=on|off and --water-lamp-memory=scatter,glint
+		// (WR-16 S4c): whether the sea's lamp light is averaged with the frames
+		// behind it, and how many frames each half may carry. Two numbers
+		// rather than one because the halves go stale at different rates -- the
+		// light entering the water is broad and slow and holds for many frames,
+		// while the light glinting off it is the specular, which is exactly
+		// what a turning wave changes; one memory long enough for the first
+		// would smear the second into a haze.
+		bool  WaterLampAccumulate = true;
+		int   WaterLampMemoryScatter = 16;
+		int   WaterLampMemoryGlint = 4;
+		// --water-lamp-clamp=N: how many standard deviations of the pixel's
+		// own neighbourhood a history may sit from its mean before it is
+		// pulled back. Their outright range is the obvious bound and is wrong
+		// here -- four lamps out of a hundred make a pixel legitimately
+		// brighter than all eight neighbours often enough that the range
+		// clips the average back into the noise every frame.
+		float WaterLampClamp = 4.0f;
 		// --lamp-probe=x,y: one water pixel's arithmetic, written to a buffer
 		// by the shading pass and printed by the CPU. A picture cannot show
 		// the sum of the scores a pixel swept or the score of the lamp it

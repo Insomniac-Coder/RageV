@@ -242,6 +242,14 @@ namespace RageV
 									const RHI::Ref<RHI::RHITexture>& position,
 									const RHI::Ref<RHI::RHITexture>& choiceIndex,
 									const RHI::Ref<RHI::RHITexture>& choiceWeight);
+		// WR-16 S4c: the two pictures above, averaged with the frames behind
+		// them and held to what this pixel's neighbours currently say.
+		static void AccumulateWaterLamps(const RHI::Ref<RHI::RHITexture>& diffuse,
+										 const RHI::Ref<RHI::RHITexture>& specular,
+										 const RHI::Ref<RHI::RHITexture>& position,
+										 const RHI::Ref<RHI::RHITexture>& previousDiffuse,
+										 const RHI::Ref<RHI::RHITexture>& previousSpecular,
+										 CameraMotion& motion, bool hasHistory);
 		// The two pictures the second pass wrote, for the water draw that
 		// reads them instead of walking its lamps. Null puts the walk back.
 		static void SetWaterLamps(const RHI::Ref<RHI::RHITexture>& diffuse,

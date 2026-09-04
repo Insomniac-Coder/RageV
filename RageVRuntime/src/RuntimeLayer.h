@@ -67,6 +67,7 @@ private:
 	RageV::TemporalHistory m_Occlusion;
 	// WR-16 S4b: the sea's four choices a pixel, kept from frame to frame.
 	RageV::TemporalHistory m_WaterChoices;
+	RageV::TemporalHistory m_WaterLampLight;
 
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_Target;
 

@@ -4234,3 +4234,80 @@ applied to the whole stack. Closing that needs the passes to carry more than
 one layer, which is a larger question than S4 and is not worth opening for a
 tenth of a percent of one camera; it is written here so the next person does not
 mistake it for a bug.
+
+#### S4c, built and measured (2026-09-04): the light averaged, not the choice
+
+**What it is.** A fullscreen pass between the shade pass and the water draw
+that blends each pixel's lamp light with what it read last frame for the same
+patch of sea, reprojected by the camera's motion. The two pictures are kept
+apart and given different memories -- 16 frames for what scatters into the
+water, 4 for what glints off it, `--water-lamp-memory=scatter,glint`.
+
+**Why this works where reusing the choice did not.** A choice is made for a
+surface with a particular tilt and a wave turning that tilt makes it wrong at
+once; a brightness is a property of the patch and survives the turn. Measured,
+not argued: the reuse of the choice lost on every camera and is off by default,
+and this accumulation of the same pixels' *light* wins on every camera.
+
+**Measured** (1440p frame time at the project's settings, error and flicker
+under TAA against everything traced):
+
+| camera | arm | ms | error >6 | blink % |
+|---|---|---|---|---|
+| Headland | shipped preset | 58.9 | 0.00 | 2.73 |
+| | the passes | 34.2 | 0.29 | 3.65 |
+| | **the passes + S4c** | **34.3** | 0.56 | **2.00** |
+| Pier | shipped preset | 47.9 | 0.04 | 3.84 |
+| | the passes | 31.8 | 1.32 | 8.29 |
+| | **the passes + S4c** | **31.5** | 3.47 | **2.01** |
+| Glitter | shipped preset | 42.9 | 0.42 | 3.22 |
+| | the passes | 29.9 | 0.59 | 3.51 |
+| | **the passes + S4c** | **30.0** | 0.96 | **2.68** |
+
+**The flicker is below the shipped preset and below the traced reference on
+every camera** -- truth's own blink is 2.67 / 3.76 / 3.21 -- and the pass costs
+0.18 ms. What it spends is per-frame accuracy, worst on Pier at 1.32 -> 3.47%.
+The owner chose that point from a still-and-flicker comparison of 8,2 against
+16,4; the curve on Pier was 4.18% blink / 1.95% error at 4,2, 4.14 / 1.98 at
+8,2, and 2.01 / 3.47 at 16,4.
+
+**Three defects on the way, each found by measurement rather than argument.**
+
+1. **The history was clamped to the neighbours' range**, which is the standard
+   move and is wrong for this signal: with four lamps out of a hundred a pixel
+   is often legitimately brighter than all eight of its neighbours, so the
+   accumulated value was clipped back into the noise every frame. Error 5.91%.
+   Replacing the range with the neighbourhood's mean and spread fixed nothing
+   on its own (2.08 against 2.06 at a width of four against sixty-four), which
+   is how the clamp was *ruled out* as the remaining bias.
+2. **The reprojection ignored the jitter.** The engine keeps the temporal
+   jitter beside the view-projection rather than inside it, so projecting a
+   point through the previous matrix lands where it would have been drawn with
+   no jitter -- up to a pixel out. Putting `u_Scene.Jitter.zw` back: 5.91% ->
+   3.86%.
+3. **The history was fetched by texel rather than sampled.** The place a point
+   sat last frame is fractional, and rounding it reads a neighbour. Sampling
+   with filtering: blink 3.11% -> 2.01%. Note the contrast with the *choices*
+   two passes earlier, which must never be interpolated -- reading those
+   through a sampler handed every pixel its neighbour's lamp. An index is not a
+   thing to average; light is exactly that.
+
+**And one design decision the measurement overturned.** The two memories were
+adopted on the reasoning that the halves go stale at different rates. They do,
+but the split earns almost nothing: with the glint's memory off and the
+scatter's at eight, the blink barely moves (8.29% to 7.63%). **The glint memory
+does all of the work, good and bad.** The two dials are kept because they cost
+nothing and make that measurable, not because the scatter's is pulling its
+weight.
+
+**What is left, and it is not S4c's to fix.** The streaks still pulse, and the
+pulse is structured rather than random: the wobble follows brightness at +0.70,
+measuring 3.84 levels on the brightest tenth of the water against 1.23
+elsewhere, and it repeats on the temporal jitter's fixed eight-step cycle
+(`TemporalJitterPhase: 8` in the project). S4c damps it 2.4x on the streaks --
+3.84 to 1.60 -- but the cause is a specular lobe sharper than a pixel, so a
+sub-pixel shift changes how much of a streak each pixel catches. **The fix for
+that is WR-13, specular antialiasing**, which widens the lobe by how fast the
+normal varies inside the pixel. Raising the jitter phase to sixteen would
+spread the beat without shrinking it; that is the owner's setting and was left
+alone.

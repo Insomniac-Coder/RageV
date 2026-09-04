@@ -1158,6 +1158,64 @@ namespace RageV
 								context.Color(newChoices, 1));
 						});
 
+					// --- and the light averaged with the frames behind it ---
+					//
+					// WR-16 S4c. The pair above is the light of four lamps
+					// drawn at random: right on average, different every frame,
+					// and that difference is the fizz the flicker protocol
+					// counts. This blends each pixel with what it read last
+					// frame for the same patch of sea. It is the *light* that
+					// is kept, not the choice -- the half of S4b that reused
+					// the choice was measured to lose, because a wave turning a
+					// patch makes last frame's choice wrong immediately, while
+					// a brightness is a property of the patch and survives the
+					// turn.
+					//
+					// From here on the water draw reads this pair instead, so
+					// `waterLamps` becomes the accumulated one.
+					if (desc.WaterLampLight && EngineConfig::Get().WaterLampAccumulate)
+					{
+						TemporalHistory& light = *desc.WaterLampLight;
+						light.Prepare(Renderer::GetDevice(),
+									  desc.Width * (uint32_t)supersample,
+									  desc.Height * (uint32_t)supersample,
+									  Format::R16G16B16A16_SFLOAT, "WaterLampAverage",
+									  Format::R16G16B16A16_SFLOAT);
+
+						if (light.Current() && light.Previous())
+						{
+							const RGResource pastLight =
+								graph.Import(light.Previous(), "WaterLightPrevious");
+							const RGResource newLight =
+								graph.Import(light.Current(), "WaterLightCurrent");
+							const RGResource rawLamps = waterLamps;
+
+							graph.AddPass("WaterAccumulateLamps",
+								[&](RGPassBuilder& builder)
+								{
+									builder.Write(newLight);
+									builder.Sample(pastLight);
+									builder.Sample(rawLamps);
+									builder.Sample(waterSurface);
+									builder.DisableDepth();
+								},
+								[rawLamps, waterSurface, pastLight, &light]
+								(RGPassContext& context)
+								{
+									Renderer3D::AccumulateWaterLamps(
+										context.Color(rawLamps, 0),
+										context.Color(rawLamps, 1),
+										context.Color(waterSurface, 2),
+										context.Color(pastLight, 0),
+										context.Color(pastLight, 1),
+										light.Motion(), light.HasHistory());
+								});
+
+							waterLamps = newLight;
+							light.Advance();
+						}
+					}
+
 					// The swap. The camera that drew the choices is recorded
 					// by the pass itself, when it has used the one before it:
 					// a history of choices is per chain, and the editor draws

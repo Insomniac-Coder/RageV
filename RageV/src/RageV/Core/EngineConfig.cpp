@@ -398,6 +398,55 @@ namespace RageV
 		if (key == "water-lamp-reuse" || key == "waterlampreuse")
 			return ParseBool(value, config.WaterLampReuse);
 
+		if (key == "water-lamp-clamp" || key == "waterlampclamp")
+		{
+			try
+			{
+				config.WaterLampClamp = Math::Clamp(std::stof(value), 0.0f, 64.0f);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("water-lamp-clamp expects a number from 0 to 64; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
+		if (key == "water-lamp-accumulate" || key == "waterlampaccumulate")
+			return ParseBool(value, config.WaterLampAccumulate);
+
+		if (key == "water-lamp-memory" || key == "waterlampmemory")
+		{
+			std::string scatter = value;
+			const size_t comma = value.find(',');
+			if (comma != std::string::npos)
+			{
+				scatter = value.substr(0, comma);
+				try
+				{
+					config.WaterLampMemoryGlint =
+						Math::Clamp(std::stoi(value.substr(comma + 1)), 1, 64);
+				}
+				catch (const std::exception&)
+				{
+					RV_CORE_WARN("water-lamp-memory's glint is a whole number from 1 to 64; "
+								 "got '{0}'", value);
+					return false;
+				}
+			}
+			try
+			{
+				config.WaterLampMemoryScatter = Math::Clamp(std::stoi(scatter), 1, 64);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("water-lamp-memory expects scatter[,glint], each from 1 to 64; "
+							 "got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
 		if (key == "water-lamp-history" || key == "waterlamphistory")
 			return ParseBool(value, config.WaterLampHistory);
 

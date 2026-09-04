@@ -547,6 +547,10 @@ namespace RageV
 			Ref<RHIPipeline> WaterChoosePipeline;
 			Ref<RHIShader>   WaterShadeShader;
 			Ref<RHIPipeline> WaterShadePipeline;
+			// WR-16 S4c: the pass that averages the two pictures above with
+			// the frames behind them.
+			Ref<RHIShader>   WaterAccumulateShader;
+			Ref<RHIPipeline> WaterAccumulatePipeline;
 			// The two pictures the second pass writes, handed to the water
 			// pass the way the backdrop is.
 			Ref<RHITexture>  WaterLampDiffuse;
@@ -884,6 +888,7 @@ namespace RageV
 				Ref<RHIResourceSet> LampSet;
 				Ref<RHIResourceSet> LampChooseInputs;
 				Ref<RHIResourceSet> LampShadeInputs;
+				Ref<RHIResourceSet> LampAccumulateInputs;
 				// And the transparent pipeline's *GPU-driven* set: the same
 				// instance table read through the indices the blended cull
 				// wrote instead of the ones the sort produced. One binding
@@ -1433,12 +1438,14 @@ namespace RageV
 			// include the same header, so their set 0 is the bounce's shape and
 			// their shadow ray is the lit shader's own -- cutout test inside
 			// traversal included, which the bridge's masked thin members need.
-			for (int pass = 0; pass < 2; ++pass)
+			for (int pass = 0; pass < 3; ++pass)
 			{
 				const char* file = pass == 0 ? "assets/shaders/water_choose.rvshader"
-											 : "assets/shaders/water_shade.rvshader";
+									: pass == 1 ? "assets/shaders/water_shade.rvshader"
+												: "assets/shaders/water_accumulate.rvshader";
 				Ref<RHIShader>& target = pass == 0 ? s_Data->WaterChooseShader
-												   : s_Data->WaterShadeShader;
+									   : pass == 1 ? s_Data->WaterShadeShader
+												   : s_Data->WaterAccumulateShader;
 				target = nullptr;
 				if (auto lamp = ShaderCompiler::CompileFromFile(file, traceDefines))
 				{
@@ -2955,6 +2962,29 @@ namespace RageV
 		else
 		{
 			s_Data->WaterShadePipeline = nullptr;
+		}
+
+		// WR-16 S4c: the same two attachments again, because what it writes is
+		// the same pair of pictures with the frames behind them averaged in.
+		if (s_Data->WaterAccumulateShader)
+		{
+			GraphicsPipelineDesc accumulate;
+			accumulate.Name = "Renderer3D.water.accumulate";
+			accumulate.Shader = s_Data->WaterAccumulateShader;
+			accumulate.Topology = PrimitiveTopology::TriangleList;
+			accumulate.Rasterizer.Cull = CullMode::None;
+			accumulate.Blend = BlendPreset::Opaque;
+			accumulate.DepthStencil.DepthTestEnable = false;
+			accumulate.DepthStencil.DepthWriteEnable = false;
+			accumulate.ColorFormats = { Format::R16G16B16A16_SFLOAT,
+										Format::R16G16B16A16_SFLOAT };
+			accumulate.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque };
+			accumulate.DepthFormat = Format::Undefined;
+			s_Data->WaterAccumulatePipeline = s_Data->Device->CreatePipeline(accumulate);
+		}
+		else
+		{
+			s_Data->WaterAccumulatePipeline = nullptr;
 		}
 
 		s_Data->PipelineDirty = false;
@@ -5536,6 +5566,70 @@ namespace RageV
 		if (s_Data->Heap)
 			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
 		cmd->BindResourceSet(3, slot.LampShadeInputs);
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
+		cmd->Draw(3);
+	}
+
+	// **WR-16 S4c: the light averaged with the frames behind it.** The two
+	// pictures the shade pass wrote are the light of four lamps drawn at
+	// random, which is right on average and different every frame; this blends
+	// each pixel with what it read last frame for the same patch of sea, held
+	// to the range its neighbours currently cover so a stale answer is pulled
+	// back rather than believed. Two memories, because the light entering the
+	// water and the light glinting off it go stale at different rates.
+	void Renderer3D::AccumulateWaterLamps(const RHI::Ref<RHITexture>& diffuse,
+										  const RHI::Ref<RHITexture>& specular,
+										  const RHI::Ref<RHITexture>& position,
+										  const RHI::Ref<RHITexture>& previousDiffuse,
+										  const RHI::Ref<RHITexture>& previousSpecular,
+										  CameraMotion& motion, bool hasHistory)
+	{
+		if (!s_Data || !s_Data->WaterAccumulatePipeline || !s_Data->ActiveScene)
+			return;
+		RHICommandList* cmd = Renderer::GetCommandList();
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!cmd || !slot.LampSet || !diffuse || !specular || !position
+			|| !previousDiffuse || !previousSpecular)
+		{
+			return;
+		}
+
+		if (!slot.LampAccumulateInputs)
+			slot.LampAccumulateInputs =
+				s_Data->Device->CreateResourceSet(s_Data->WaterAccumulatePipeline, 3);
+		if (!slot.LampAccumulateInputs)
+			return;
+
+		slot.LampAccumulateInputs->SetTexture(0, diffuse, s_Data->PointSampler);
+		slot.LampAccumulateInputs->SetTexture(1, specular, s_Data->PointSampler);
+		slot.LampAccumulateInputs->SetTexture(2, position, s_Data->PointSampler);
+		// The history is sampled at a fractional place -- the jitter the frame
+		// being read was drawn with -- so it wants filtering, where the three
+		// above are fetched by texel and do not care. The water draw's own
+		// clamped sampler is the one that exists; on the very first frame it
+		// has not been made yet, and there is no history to read then anyway.
+		const Ref<RHISampler>& historySampler =
+			s_Data->WaterClampSampler ? s_Data->WaterClampSampler : s_Data->PointSampler;
+		slot.LampAccumulateInputs->SetTexture(3, previousDiffuse, historySampler);
+		slot.LampAccumulateInputs->SetTexture(4, previousSpecular, historySampler);
+		slot.LampAccumulateInputs->Commit();
+
+		const EngineConfig& lamps = EngineConfig::Get();
+		LampPushConstants push;
+		push.PreviousViewProjection = motion.ViewProjection;
+		FillLampFlip(push, *s_Data);
+		push.History.x = hasHistory && lamps.WaterLampAccumulate ? 1.0f : 0.0f;
+		push.History.y = (float)Math::Max(lamps.WaterLampMemoryScatter, 1);
+		push.History.z = (float)Math::Max(lamps.WaterLampMemoryGlint, 1);
+		push.Probe.x = lamps.WaterLampClamp;
+		// This frame's camera answers the next frame's "where was this point".
+		motion.ViewProjection = s_Data->Scene.ViewProjection;
+
+		cmd->BindPipeline(s_Data->WaterAccumulatePipeline);
+		cmd->BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd->BindResourceSet(3, slot.LampAccumulateInputs);
 		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
 		cmd->Draw(3);
 	}

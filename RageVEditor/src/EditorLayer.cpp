@@ -726,6 +726,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 			Renderer3D::FlushWaterSurface();
 		};
 		scene.WaterReservoirs = &m_SceneWaterChoices;
+		scene.WaterLampLight = &m_SceneWaterLampLight;
 		scene.ResolveTransparent = [](RGPassContext&, const RHI::Ref<RHI::RHITexture>& accumulate,
 									  const RHI::Ref<RHI::RHITexture>& revealage)
 		{
@@ -839,6 +840,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 				Renderer3D::FlushWaterSurface();
 			};
 			game.WaterReservoirs = &m_GameWaterChoices;
+			game.WaterLampLight = &m_GameWaterLampLight;
 			game.ResolveTransparent = [](RGPassContext&, const RHI::Ref<RHI::RHITexture>& accumulate,
 										 const RHI::Ref<RHI::RHITexture>& revealage)
 			{
