@@ -398,6 +398,9 @@ namespace RageV
 		if (key == "water-lamp-reuse" || key == "waterlampreuse")
 			return ParseBool(value, config.WaterLampReuse);
 
+		if (key == "world-grid" || key == "worldgrid")
+			return ParseBool(value, config.WorldLightGrid);
+
 		if (key == "water-lamp-clamp" || key == "waterlampclamp")
 		{
 			try

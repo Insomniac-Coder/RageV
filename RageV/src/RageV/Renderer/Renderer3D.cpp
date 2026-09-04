@@ -57,6 +57,10 @@ namespace RageV
 		};
 		static_assert(sizeof(GpuLightCull) == 16, "Must match LightCull in pbr_fragment.glsl");
 		constexpr uint32_t kLightCullBinding = 23;
+		// WR-16 S4's world-space lamp grid: the cells and the index list a hit
+		// reads when it lands off screen, where the cluster grid has no cell.
+		constexpr uint32_t kWorldGridBinding = 24;
+		constexpr uint32_t kWorldGridIndexBinding = 25;
 		constexpr uint32_t kLightCullClassLive = 0;
 		constexpr uint32_t kLightCullClassFull = 1;
 		constexpr uint32_t kLightCullClassHybrid = 2;
@@ -292,6 +296,14 @@ namespace RageV
 			// WR-18: x = the water's ray rate (1 every pixel, 2 one per 2x2 quad),
 			// y = the transmittance under which its refraction ray stops looking.
 			Vec4 RayRates{ 1.0f, 0.0f, 0.0f, 0.0f };
+
+			// **WR-16 S4: the world-space lamp grid.** xyz = its low corner,
+			// w = 1 where it was built; xyz = one over the cell size. A hit
+			// off screen has no cluster and walked every light in the scene;
+			// this gives it a cell wherever it landed. Appended, and
+			// mirrored by hand in pbr_fragment.glsl and scene_block.glsl.
+			Vec4 WorldGridOrigin{ 0.0f, 0.0f, 0.0f, 0.0f };
+			Vec4 WorldGridScale{ 0.0f, 0.0f, 0.0f, 0.0f };
 		};
 
 		// Where a batch starts in the instance buffer. The model matrix used to
@@ -828,6 +840,14 @@ namespace RageV
 				uint32_t            CellCapacity = 0;
 				Ref<RHIBuffer>      CellIndices;
 				uint32_t            CellIndexCapacity = 0;
+				// The same pair for the world grid (WR-16 S4). Per slot rather
+				// than shared because the buffers live with the frame's other
+				// per-scene uploads, even though the grid itself has no camera
+				// in it and is the same for every viewport.
+				Ref<RHIBuffer>      WorldCells;
+				uint32_t            WorldCellCapacity = 0;
+				Ref<RHIBuffer>      WorldCellIndices;
+				uint32_t            WorldCellIndexCapacity = 0;
 				// Every skinned instance's bones, back to back. One buffer for
 				// the scene rather than one per character: forty characters
 				// would otherwise want forty bindings.
@@ -963,6 +983,7 @@ namespace RageV
 			std::vector<uint32_t> LightOrder;
 			LightList Ordered;
 			LightGrid Grid;
+			WorldLightGrid WorldGrid;
 
 			// How many rows at the head of the instance pool belong to the
 			// cull table rather than to a pending draw (roadmap 8.3). The CPU
@@ -3535,6 +3556,47 @@ namespace RageV
 		if (!cellIndices.empty())
 			slot.CellIndices->Upload(cellIndices.data(), cellIndices.size() * sizeof(uint32_t));
 
+		// **And the same lights binned in the world** (WR-16 S4). No camera in
+		// it: a ray's hit is wherever the ray landed, and the hits that cost
+		// the most are the ones the frustum does not contain -- the seabed
+		// below the frame, the bridge reflected from behind the viewer -- so
+		// the grid above has no cell for them and they walked all 190 lights.
+		// Built every frame beside the other, which costs nothing on this
+		// scene's light count and keeps a moved lamp honest without a dirty
+		// flag to get wrong.
+		s_Data->WorldGrid.Build(s_Data->Ordered, directionalCount);
+
+		const auto& worldCells = s_Data->WorldGrid.Cells();
+		const auto& worldIndices = s_Data->WorldGrid.Indices();
+		const uint32_t worldIndexSlots = Math::Max<uint32_t>((uint32_t)worldIndices.size(), 1u);
+
+		if (!EnsureInstanceBuffer(slot.WorldCells, slot.WorldCellCapacity,
+								  (uint32_t)worldCells.size(), sizeof(LightGrid::Cell),
+								  "Renderer3D.worldCells") ||
+			!EnsureInstanceBuffer(slot.WorldCellIndices, slot.WorldCellIndexCapacity,
+								  worldIndexSlots, sizeof(uint32_t),
+								  "Renderer3D.worldCellIndices"))
+		{
+			return;
+		}
+
+		if (!worldCells.empty())
+			slot.WorldCells->Upload(worldCells.data(),
+									worldCells.size() * sizeof(LightGrid::Cell));
+		if (!worldIndices.empty())
+			slot.WorldCellIndices->Upload(worldIndices.data(),
+										  worldIndices.size() * sizeof(uint32_t));
+
+		{
+			const Vec3 origin = s_Data->WorldGrid.Origin();
+			const Vec3 scale = s_Data->WorldGrid.InverseCellSize();
+			const bool built = s_Data->WorldGrid.IsBuilt() && !worldCells.empty()
+							&& EngineConfig::Get().WorldLightGrid;
+			s_Data->Scene.WorldGridOrigin = Vec4(origin.x, origin.y, origin.z,
+												 built ? 1.0f : 0.0f);
+			s_Data->Scene.WorldGridScale = Vec4(scale.x, scale.y, scale.z, 0.0f);
+		}
+
 		float nearPlane = 0.1f, farPlane = 1000.0f;
 		LightGrid::DepthRangeOf(camera.GetProjection(), nearPlane, farPlane);
 
@@ -3727,6 +3789,15 @@ namespace RageV
 			sceneSet->SetStorageBuffer(kLightCullBinding, slot.LightCull, 0,
 									   (uint64_t)lightSlots * sizeof(GpuLightCull));
 
+			// The world grid beside it (WR-16 S4): the cells a hit off screen
+			// reads instead of walking every light in the scene.
+			if (slot.WorldCells && slot.WorldCellIndices)
+			{
+				sceneSet->SetStorageBuffer(kWorldGridBinding, slot.WorldCells);
+				sceneSet->SetStorageBuffer(kWorldGridIndexBinding,
+										   slot.WorldCellIndices);
+			}
+
 		// The per-pixel debug counts (`--debug-view=rays|lights`), declared
 		// only when the lit shaders were compiled with RV_DEBUG_VIEW, and
 		// then by every family -- the buffer exists from that compile on.
@@ -3797,6 +3868,15 @@ namespace RageV
 			if (slot.LightCull)
 				slot.GiSet->SetStorageBuffer(kLightCullBinding, slot.LightCull, 0,
 											 (uint64_t)lightSlots * sizeof(GpuLightCull));
+
+				// The world grid beside it (WR-16 S4): the cells a hit off screen
+				// reads instead of walking every light in the scene.
+				if (slot.WorldCells && slot.WorldCellIndices)
+				{
+					slot.GiSet->SetStorageBuffer(kWorldGridBinding, slot.WorldCells);
+					slot.GiSet->SetStorageBuffer(kWorldGridIndexBinding,
+											   slot.WorldCellIndices);
+				}
 		}
 
 		// **The sea's lamp passes' set** (WR-16 S4b). Its own again, and for
@@ -3853,6 +3933,15 @@ namespace RageV
 				if (slot.LightCull)
 					slot.LampSet->SetStorageBuffer(kLightCullBinding, slot.LightCull, 0,
 												   (uint64_t)lightSlots * sizeof(GpuLightCull));
+
+					// The world grid beside it (WR-16 S4): the cells a hit off screen
+					// reads instead of walking every light in the scene.
+					if (slot.WorldCells && slot.WorldCellIndices)
+					{
+						slot.LampSet->SetStorageBuffer(kWorldGridBinding, slot.WorldCells);
+						slot.LampSet->SetStorageBuffer(kWorldGridIndexBinding,
+												   slot.WorldCellIndices);
+					}
 
 				// The four shadow arrays, always, for the reason the scene set
 				// states: a comparison sampler a layout declares and a set

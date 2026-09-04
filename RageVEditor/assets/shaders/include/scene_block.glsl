@@ -118,6 +118,16 @@ layout(set = 0, binding = 0) uniform SceneData
 	vec4 ShadowRayFade;
 	// WR-18: the water's ray rate and reach; read by the fragment stage.
 	vec4 RayRates;
+	// **WR-16 S4: the world-space lamp grid** (LightGrid.h's WorldLightGrid).
+	// A hit is wherever the ray landed, and the ones that matter are mostly
+	// not on screen -- the seabed below the frame's bottom edge, the bridge
+	// reflected from behind the camera -- so the picture-shaped cluster grid
+	// has no cell for them and they walked every light in the scene. These
+	// two say where the world grid starts and how a position becomes a cell.
+	// xyz = the grid's low corner, w = 1 where it was built at all;
+	// xyz = one over the cell size, w unused.
+	vec4 WorldGridOrigin;
+	vec4 WorldGridScale;
 } u_Scene;
 
 // Per instance, indexed by the draw's instance number.

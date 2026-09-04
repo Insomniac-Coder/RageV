@@ -230,4 +230,140 @@ namespace RageV
 			m_Indices.insert(m_Indices.end(), live.begin(), live.end());
 		}
 	}
+
+	// **The world grid's binning.** No camera, no projection, no slices: a
+	// light's range is a sphere, the sphere has a box, and every cell the box
+	// touches gets the light. The sphere test inside the box is worth its two
+	// multiplies -- a corner cell of a box is often outside the sphere, and a
+	// light there is one every hit in that cell would read and reject.
+	void WorldLightGrid::Build(const LightList& lights, uint32_t firstPositional)
+	{
+		m_Cells.assign(kCellCount, Cell{});
+		m_Indices.clear();
+		m_MaxCellLoad = 0;
+
+		if (m_Buckets.size() != kCellCount)
+			m_Buckets.resize(kCellCount);
+		if (m_Live.size() != kCellCount)
+			m_Live.resize(kCellCount);
+		for (auto& bucket : m_Buckets)
+			bucket.clear();
+		for (auto& live : m_Live)
+			live.clear();
+
+		// The bounds are what the lights reach, not where the scene is: a hit
+		// outside them is outside every light's range and needs no cell.
+		Vec3 low(std::numeric_limits<float>::max());
+		Vec3 high(std::numeric_limits<float>::lowest());
+		bool any = false;
+		for (uint32_t i = firstPositional; i < (uint32_t)lights.size(); i++)
+		{
+			const LightRenderData& light = lights[i];
+			const float range = Math::Max(light.Range, 0.0001f);
+			low = Math::Min(low, light.Position - Vec3(range));
+			high = Math::Max(high, light.Position + Vec3(range));
+			any = true;
+		}
+		if (!any)
+		{
+			m_Origin = Vec3(0.0f);
+			m_InverseCellSize = Vec3(0.0f);
+			return;
+		}
+
+		const Vec3 span = Math::Max(high - low, Vec3(0.001f));
+		const Vec3 cell(span.x / (float)kCellsX, span.y / (float)kCellsY,
+						span.z / (float)kCellsZ);
+		m_Origin = low;
+		m_InverseCellSize = Vec3(1.0f / cell.x, 1.0f / cell.y, 1.0f / cell.z);
+
+		const auto forEachCellOf = [&](const Vec3& centre, float radius, auto&& visit)
+		{
+			const Vec3 lowCell = (centre - Vec3(radius) - low) * m_InverseCellSize;
+			const Vec3 highCell = (centre + Vec3(radius) - low) * m_InverseCellSize;
+			const int x0 = Math::Max((int)std::floor(lowCell.x), 0);
+			const int y0 = Math::Max((int)std::floor(lowCell.y), 0);
+			const int z0 = Math::Max((int)std::floor(lowCell.z), 0);
+			const int x1 = Math::Min((int)std::floor(highCell.x), (int)kCellsX - 1);
+			const int y1 = Math::Min((int)std::floor(highCell.y), (int)kCellsY - 1);
+			const int z1 = Math::Min((int)std::floor(highCell.z), (int)kCellsZ - 1);
+
+			for (int z = z0; z <= z1; z++)
+			{
+				for (int y = y0; y <= y1; y++)
+				{
+					for (int x = x0; x <= x1; x++)
+					{
+						// The closest point of the cell to the light: outside
+						// the range sphere means the box touched and the
+						// sphere did not.
+						const Vec3 cellLow = low + Vec3((float)x * cell.x, (float)y * cell.y,
+														(float)z * cell.z);
+						const Vec3 cellHigh = cellLow + cell;
+						const Vec3 closest = Math::Min(Math::Max(centre, cellLow), cellHigh);
+						const Vec3 away = closest - centre;
+						if (Math::Dot(away, away) > radius * radius)
+							continue;
+						visit((uint32_t)((z * (int)kCellsY + y) * (int)kCellsX + x));
+					}
+				}
+			}
+		};
+
+		const auto pushLive = [&](uint32_t cell_, uint32_t i)
+		{
+			auto& live = m_Live[cell_];
+			if (live.empty() || live.back() != i)
+				live.push_back(i);
+		};
+
+		// The same rules the screen grid applies, for the same reason: a hit
+		// on a static surface under a fully baked lamp reads the live sublist,
+		// and the two lists must agree about what "live" means or a hit and a
+		// fragment would disagree about one lamp.
+		for (uint32_t i = firstPositional; i < (uint32_t)lights.size(); i++)
+		{
+			const LightRenderData& light = lights[i];
+			const float range = Math::Max(light.Range, 0.0001f);
+			const bool fullyBaked = light.Mobility == LightMobility::FullBake;
+			const bool hybrid = light.Mobility == LightMobility::HybridFullBake;
+
+			forEachCellOf(light.Position, range,
+						  [&](uint32_t cell_) { m_Buckets[cell_].push_back(i); });
+
+			if (hybrid)
+			{
+				const float radius = Math::Max(light.HybridRadius, 0.0f);
+				const float band = Math::Max(radius * 0.1f, 1.0f);
+				forEachCellOf(light.Position, radius + band,
+							  [&](uint32_t cell_) { pushLive(cell_, i); });
+			}
+			if ((fullyBaked || hybrid) && !light.MovingInRange)
+				continue;
+			forEachCellOf(light.Position, range,
+						  [&](uint32_t cell_) { pushLive(cell_, i); });
+		}
+
+		for (uint32_t c = 0; c < kCellCount; c++)
+		{
+			const auto& bucket = m_Buckets[c];
+			const auto& live = m_Live[c];
+
+			m_Cells[c].Offset = (uint32_t)m_Indices.size();
+			m_Cells[c].Count = (uint32_t)bucket.size();
+			m_MaxCellLoad = Math::Max(m_MaxCellLoad, (uint32_t)bucket.size());
+			m_Indices.insert(m_Indices.end(), bucket.begin(), bucket.end());
+
+			m_Cells[c].LiveOffset = (uint32_t)m_Indices.size();
+			m_Cells[c].LiveCount = (uint32_t)live.size();
+			m_Indices.insert(m_Indices.end(), live.begin(), live.end());
+		}
+
+		// One index at least, so IsBuilt() is honest and the buffer is never
+		// zero-sized -- a zero-sized storage buffer is a validation error and
+		// a scene can legitimately have no positional light in range of
+		// anything.
+		if (m_Indices.empty())
+			m_Indices.push_back(0);
+	}
 }

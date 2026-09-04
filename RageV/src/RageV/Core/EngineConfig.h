@@ -387,8 +387,16 @@ namespace RageV
 		// what a turning wave changes; one memory long enough for the first
 		// would smear the second into a haze.
 		bool  WaterLampAccumulate = true;
-		int   WaterLampMemoryScatter = 16;
-		int   WaterLampMemoryGlint = 4;
+		// **Four and two, chosen on the picture** (2026-09-04). Sixteen and
+		// four take the flicker furthest -- 2.01% of pixels blinking against
+		// the shipped preset's 3.84 -- but they cost the sea a third of its
+		// fine detail, 2.72 against the traced reference's 4.29, and the water
+		// stops reading as water. These keep 3.39 of that 4.29 and still bring
+		// the blink to 4.18, near the preset's own. The flicker was never the
+		// only axis; it was the only one that had a number until the blur got
+		// one too.
+		int   WaterLampMemoryScatter = 4;
+		int   WaterLampMemoryGlint = 2;
 		// --water-lamp-clamp=N: how many standard deviations of the pixel's
 		// own neighbourhood a history may sit from its mean before it is
 		// pulled back. Their outright range is the obvious bound and is wrong
@@ -396,6 +404,16 @@ namespace RageV
 		// brighter than all eight neighbours often enough that the range
 		// clips the average back into the noise every frame.
 		float WaterLampClamp = 4.0f;
+
+		// --world-grid=on|off (WR-16 S4): whether a ray's hit that lands
+		// outside the camera's frustum reads the world-space lamp grid or
+		// falls back to walking every light in the scene, which is what it did
+		// before the grid existed. A measurement switch, not a quality one --
+		// the two answers are identical, because a cell holds every light
+		// whose range reaches it -- so the only thing it can move is time, and
+		// this laptop's GPU drifts too much between sessions to compare a
+		// number taken before a rebuild with one taken after.
+		bool  WorldLightGrid = true;
 		// --lamp-probe=x,y: one water pixel's arithmetic, written to a buffer
 		// by the shading pass and printed by the CPU. A picture cannot show
 		// the sum of the scores a pixel swept or the score of the lamp it

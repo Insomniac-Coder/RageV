@@ -126,4 +126,67 @@ namespace RageV
 		// The live sublist per cell (WR-16 S2); reused for the same reason.
 		std::vector<std::vector<uint32_t>> m_Live;
 	};
+
+	// **The same binning, in the world rather than on the screen** (WR-16 S4,
+	// decided after S2 measured what it is for).
+	//
+	// The grid above is cut through the camera's frustum, which is exactly
+	// right for a fragment and useless for a ray's hit: a hit is wherever the
+	// ray landed, and the ones that matter here are mostly *not* on screen --
+	// the seabed under the water, which lies below the frame's bottom edge,
+	// and the bridge reflected in the sea, which lies behind the camera. S2
+	// measured about half of Pier's refraction hits in the first case and
+	// roughly a third of its mirror hits in the second, and every one of them
+	// walked all 190 positional lights because it had no cell to read.
+	//
+	// A guard band of extra rows on the screen grid was considered and dropped:
+	// it reaches the hits below the frame and never the ones behind the camera.
+	//
+	// **What the resolution buys, measured from this scene's lamps before any
+	// of it was written**: the load plateaus almost at once, because a lamp
+	// authored at 600 m genuinely reaches that far and no grid can cut what
+	// the range does not. 16x4x16 gives at most 93 lights in a cell and 46.8 on
+	// average; 8x4x128, sixteen times the cells, gives 85 and 39.5. So the grid
+	// is coarse on purpose -- the win is 190 down to about 40, and the last
+	// fifth of it is not worth the cells.
+	class WorldLightGrid
+	{
+	public:
+		// Shaped to the lights rather than square: this scene's lamps run
+		// along a bridge, 2,700 m in z and 86 m in x, so cells along the span
+		// separate them and cells across it do not.
+		static constexpr uint32_t kCellsX = 8;
+		static constexpr uint32_t kCellsY = 4;
+		static constexpr uint32_t kCellsZ = 32;
+		static constexpr uint32_t kCellCount = kCellsX * kCellsY * kCellsZ;
+
+		// The same sixteen bytes the screen grid uses, so one shader struct
+		// and one walk serve both.
+		using Cell = LightGrid::Cell;
+
+		// Bins `lights` by where they reach in the world. Positional lights
+		// only, as above, and the indices are into the light buffer.
+		void Build(const LightList& lights, uint32_t firstPositional);
+
+		const std::vector<Cell>& Cells() const { return m_Cells; }
+		const std::vector<uint32_t>& Indices() const { return m_Indices; }
+
+		// Where the grid starts and how a world position becomes a cell. The
+		// shader gets both; there is no camera in this arithmetic at all.
+		const Vec3& Origin() const { return m_Origin; }
+		const Vec3& InverseCellSize() const { return m_InverseCellSize; }
+
+		uint32_t MaxCellLoad() const { return m_MaxCellLoad; }
+		bool IsBuilt() const { return !m_Indices.empty(); }
+
+	private:
+		std::vector<Cell> m_Cells;
+		std::vector<uint32_t> m_Indices;
+		Vec3 m_Origin{ 0.0f };
+		Vec3 m_InverseCellSize{ 0.0f };
+		uint32_t m_MaxCellLoad = 0;
+
+		std::vector<std::vector<uint32_t>> m_Buckets;
+		std::vector<std::vector<uint32_t>> m_Live;
+	};
 }

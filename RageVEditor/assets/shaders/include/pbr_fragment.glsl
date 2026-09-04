@@ -234,6 +234,16 @@ layout(set = 0, binding = 0) uniform SceneData
 	// measurement flag, --hit-lights=off). w unused. Appended; mirrored in scene_block.glsl
 	// and Renderer3D.cpp.
 	vec4 RayRates;
+	// **WR-16 S4: the world-space lamp grid** (LightGrid.h's WorldLightGrid).
+	// A hit is wherever the ray landed, and the ones that matter are mostly
+	// not on screen -- the seabed below the frame's bottom edge, the bridge
+	// reflected from behind the camera -- so the picture-shaped cluster grid
+	// has no cell for them and they walked every light in the scene. These
+	// two say where the world grid starts and how a position becomes a cell.
+	// xyz = the grid's low corner, w = 1 where it was built at all;
+	// xyz = one over the cell size, w unused.
+	vec4 WorldGridOrigin;
+	vec4 WorldGridScale;
 } u_Scene;
 
 // Every light in the scene, however many that is.
@@ -314,6 +324,34 @@ layout(std430, set = 0, binding = 10) readonly buffer CellIndexBlock
 {
 	uint Indices[];
 } u_CellIndices;
+
+// **WR-16 S4: the same lights binned in the world instead of on the screen.**
+// The grid above is cut through the camera's frustum, which is right for a
+// fragment and useless for a ray's hit: a hit is wherever the ray landed, and
+// the expensive ones are the ones the frustum does not hold -- the seabed
+// below the frame's bottom edge, the bridge reflected from behind the camera.
+// S2 measured about half of Pier's refraction hits in the first case, and they
+// walked all 190 positional lights because there was no cell to read.
+//
+// The dimensions are WorldLightGrid::kCellsX/Y/Z in LightGrid.h and the two
+// must agree. Coarse on purpose: measured on this scene's lamps, 16x4x16 holds
+// at most 93 lights in a cell and 46.8 on average, while sixteen times as many
+// cells only reaches 85 and 39.5 -- a lamp authored at 600 m reaches that far
+// whatever the grid does, so the win is 190 down to about 40 and the last
+// fifth of it is not worth the memory.
+const uint RV_WORLD_GRID_X = 8u;
+const uint RV_WORLD_GRID_Y = 4u;
+const uint RV_WORLD_GRID_Z = 32u;
+
+layout(std430, set = 0, binding = 24) readonly buffer WorldCellBlock
+{
+	LightCell Cells[];
+} u_WorldCells;
+
+layout(std430, set = 0, binding = 25) readonly buffer WorldCellIndexBlock
+{
+	uint Indices[];
+} u_WorldCellIndices;
 
 // Arrays, not single cubes, so which environment a surface reflects is an
 // index the instance carries rather than a binding the draw carries. Slot 0 is
@@ -2536,6 +2574,8 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	const int hitDirectional = int(u_Scene.ClusterGrid.w);
 	uint hitCellOffset = 0u;
 	int hitCellCount = -1;   // -1: no cell, every light
+	// Which of the two index lists the offset above belongs to.
+	bool hitFromWorld = false;
 	{
 		const vec4 clip = u_Scene.ViewProjection * vec4(hitPosition, 1.0);
 		const float viewDepth = dot(hitPosition - u_Scene.CameraPosition.xyz,
@@ -2564,6 +2604,36 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 			}
 #endif
 		}
+		else if (u_Scene.WorldGridOrigin.w > 0.5)
+		{
+			// **Off screen, so the world grid** (WR-16 S4). This is the case
+			// the whole grid exists for: no camera in the arithmetic, just
+			// where the hit is.
+			const vec3 at = (hitPosition - u_Scene.WorldGridOrigin.xyz)
+						  * u_Scene.WorldGridScale.xyz;
+			const vec3 dims = vec3(RV_WORLD_GRID_X, RV_WORLD_GRID_Y, RV_WORLD_GRID_Z);
+			if (all(greaterThanEqual(at, vec3(0.0))) && all(lessThan(at, dims)))
+			{
+				const uvec3 c = uvec3(at);
+				const uint cell = (c.z * RV_WORLD_GRID_Y + c.y) * RV_WORLD_GRID_X + c.x;
+				hitCellOffset = u_WorldCells.Cells[cell].Offset;
+				hitCellCount = int(u_WorldCells.Cells[cell].Count);
+				hitFromWorld = true;
+#ifdef RV_LIGHT_CULL
+				if (surface.Static && hitFieldWeight >= 1.0)
+				{
+					hitCellOffset = u_WorldCells.Cells[cell].LiveOffset;
+					hitCellCount = int(u_WorldCells.Cells[cell].LiveCount);
+				}
+#endif
+			}
+			// Outside the grid is outside every light's range, since the
+			// bounds are what the lights reach rather than where the scene
+			// is -- but a cell of zero is what says so, and the -1 above
+			// would say "walk them all". Nothing to do: staying at -1 costs
+			// a walk that finds nothing, and the grid's own bounds already
+			// make that case rare.
+		}
 	}
 	const int hitTotal = hitLightCount == 0 ? 0
 					   : (hitCellCount < 0 ? hitLightCount : hitDirectional + hitCellCount);
@@ -2572,7 +2642,11 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	{
 		const int i = hitCellCount < 0 ? entry
 					: (entry < hitDirectional ? entry
-					   : int(u_CellIndices.Indices[hitCellOffset + uint(entry - hitDirectional)]));
+					   : int(hitFromWorld
+							 ? u_WorldCellIndices.Indices[hitCellOffset
+														  + uint(entry - hitDirectional)]
+							 : u_CellIndices.Indices[hitCellOffset
+													 + uint(entry - hitDirectional)]));
 #else
 	RV_COUNT_HIT(hitLightCount);
 	for (int i = 0; i < hitLightCount; ++i)

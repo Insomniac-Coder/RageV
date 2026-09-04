@@ -4311,3 +4311,46 @@ that is WR-13, specular antialiasing**, which widens the lobe by how fast the
 normal varies inside the pixel. Raising the jitter phase to sixteen would
 spread the beat without shrinking it; that is the owner's setting and was left
 alone.
+
+#### The world-space lamp grid, built and measured (2026-09-04) -- S4 complete
+
+**What it is.** `WorldLightGrid` in `LightGrid.h`: the same lights binned by
+where they reach in the world rather than by where they land on the screen.
+8x4x32 cells over the box the lights' ranges cover, each carrying the full list
+and the live sublist in the screen grid's own sixteen-byte cell, so one shader
+struct and one walk serve both. Built every frame beside the other -- cheap at
+this light count, and no dirty flag to get wrong when a lamp moves.
+
+**Why the screen grid could not do it.** It is cut through the camera's
+frustum, which is exactly right for a fragment and useless for a ray's hit. A
+hit is wherever the ray landed, and the expensive ones are the ones the frustum
+does not hold: the seabed below the frame's bottom edge, the bridge reflected
+from behind the camera. Those had no cell and walked every positional light in
+the scene. A guard band of extra rows was considered and dropped -- it reaches
+the hits below the frame and never the ones behind the camera.
+
+**The resolution was chosen by measuring this scene's lamps before any of it
+was written**, and the answer was "coarse": the load plateaus at once, because
+a lamp authored at 600 m reaches that far whatever the grid does. 16x4x16 holds
+at most 93 lights in a cell and 46.8 on average; 8x4x128, sixteen times the
+cells, only reaches 85 and 39.5.
+
+**Measured**, interleaved on one machine in one sitting, two passes each, at
+1440p:
+
+| camera | grid on | grid off | lamps walked per hit |
+|---|---|---|---|
+| Headland | 34.4 ms | 34.6 ms | 4.2 against 13.0 |
+| Pier | **29.9** | 32.8 | **13.5 against 101.3** |
+| Glitter | **27.6** | 30.1 | **2.4 against 118.1** |
+
+**8 to 9% of the frame on the two cameras that look across the bay, and the
+picture is bit-identical on all three** (max 0 levels) -- which it must be, since
+a cell holds every light whose range reaches it, so walking the cell and walking
+them all are the same walk. Headland gains nothing and that is the expected
+shape: its hits are mostly on screen already, and its walk was 13 lamps to begin
+with. `--world-grid=on|off` exists for exactly this measurement, because this
+machine's GPU drifts more between sessions than the effect is worth.
+
+**S4 is complete with this.** The sampler (S4a), the passes (S4b, its reuse
+measured and switched off), the accumulation (S4c) and the world grid.
