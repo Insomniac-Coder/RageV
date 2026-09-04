@@ -112,6 +112,31 @@ fixed-budget pre-check on the water, the cheap hit walk, the budget
 built unless the pre-check finds structural bias and judged by the flicker
 protocol under every AA. Start at S0.
 
+**2026-09-04: S0 is built** (ENGINE-NOTES 7cy; RAY-BUDGET-DESIGN Part IV
+"S0, built"): the rays are counted where they are cast and read back a
+frame late, the report and the HUD say rays per frame by kind, lights per
+fragment and temporal confidence, `--debug-view=` draws them, the ray
+costs are calibrated into the project, and the Hybrid bridge has its
+`wr16-before` baseline. The counting costs 1.4% and changes no pixel --
+after a day in which its first build cost 26%, because a shader with a
+side effect loses its early depth test. **The calibration's finding that
+outranks the plan's expectations: the frame is light-bound more than
+ray-bound** -- with every lamp's shadow ray removed, 70-80% of the frame
+remains; the lamps' rays are 20-30%, the hit walk 13-22%, and the rest is
+the shading of 77-125 lamps per fragment. The owner's third document (a
+spatiotemporal reconstruction design) was judged against those numbers
+the same day (RAY-BUDGET-DESIGN Part IV, "The third source, judged"):
+its history validation, allocation order, shadow reconstruction,
+half-resolution water rays and the moving-camera benchmark are taken into
+S3, S4 and a new S5; its GI/AO reconstruction is not (under 2.5% of this
+frame). **Next is S1**, now with two arms: the one-day fixed-budget
+pre-check on the water -- 1 / 2 / 4 / 8 shadow rays per pixel by a cheap
+importance, three AA modes, three cameras, diff images and the flicker
+count -- first raw, then with the third source's temporal accumulation
+behind it; the verdict is the ray count to build for, whether any lamp
+group's shadow is structurally missing at 8, and how many rays a pixel the
+accumulation lets the water hold.
+
 ## The order
 
 Ranked by value per hour, not by size. Numbers are engineering judgement.

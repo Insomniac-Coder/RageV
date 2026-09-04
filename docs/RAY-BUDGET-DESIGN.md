@@ -3316,3 +3316,221 @@ within 5% of the isolation runs, bit-identical picture.
 
 Later, optional: the direct-light field's highlight half (§7 M5), and the
 steel's mirror rate (§4.3.4).
+
+#### S0, built (2026-09-04) -- ENGINE-NOTES 7cy
+
+Everything the S0 row lists is in, in three commits on `main`, and the
+acceptance held: **the counters cost 0.85 ms of Headland's 62 (1.4%),
+interleaved on/off at 1440p, with the picture bit-identical** (max
+difference 0 over 1600x900, on against off and on against itself), and the
+counters agree with the isolation runs by the two tests the calibration
+script states -- the quad arm removes three quarters of the water's rays
+and the casting sweep's frames follow the counted rays at one cost. What
+is where:
+
+- **`RHIDevice::ReadBuffer`** (`RayCounters` reads it once a frame): a copy
+  at EndFrame into a per-slot staging buffer, handed back when the slot's
+  fence has been waited on -- the timestamps' shape, never a stall, always
+  a frame or two old. `RHICommandList::FillBuffer` for the zero and
+  `BufferSync::ShaderWrite` for the barrier before it. scenetest drives
+  real frames through it on both backends.
+- **The counter SSBO at set 0 binding 21** under `RV_RAY_SHADOWS`, binding 5
+  in the occlusion pass and the temporal resolve; sixteen lanes, sixty-four
+  copies by screen tile summed on the CPU. The four increments:
+  `TraceShadowFromMasked`, `TraceSurface` (the lane decided at compile
+  time: bounce, water, opaque), the occlusion taps, and the fill excluded.
+  Beside the rays: lit fragments, lights walked (sum and max), hits and the
+  lights they walked, the temporal resolve's pixels and reuses.
+- **The lines** in the benchmark report (`rays per frame: ...`, `lights per
+  fragment: ...`, `temporal confidence: ...`), the runtime's F1 overlay and
+  the editor's Statistics panel; `bench_night.py` parses them and its table
+  gained three columns.
+- **The validity lane**: `o_Moments.w` is one where the temporal resolve
+  reused history, zero where it did not; written and counted, read by
+  nothing yet.
+- **`--debug-view=rays|lights|confidence|importance`**: a heat map over the
+  frame, the first two from a per-pixel buffer the lit shaders add into
+  under `RV_DEBUG_VIEW` (added, so a water pixel shows its own rays and the
+  deck's), the others from the temporal history's second attachment and the
+  budget's tile map. `--casting-lights=N` beside it, the sweep's flag.
+- **The calibration**: `tools/scripts/ray_cost_calibration.py`, interleaved
+  base-and-arm on Headland, Pier, Glitter and the Deck; the numbers below
+  and in `RenderSettings::RayCost*` (ms per million rays, in the project).
+- **The baseline**: `bench_night.py --label wr16-before`, the table below;
+  and the flicker protocol on the Hybrid scene under the three AA modes.
+
+**What the first number taught** (the whole of it in 7cy): the first build
+cost a quarter of the frame, and it was not the atomics or the registers
+but the depth test -- a fragment shader with a memory side effect is no
+longer culled by depth before it runs, so the counting shaded every
+fragment the prepass had rejected, and counted their rays. `layout(
+early_fragment_tests) in;` in the families that neither discard nor write
+depth put the test back; the honest Headland count fell from 41.8 M to
+31.8 M rays with it. The rule for every step after this: **a new
+instrument's first number is the instrument's cost until an A/B says
+otherwise.**
+
+**The calibration** (`ray_cost_calibration.py --label wr16-s0`, 2560x1440,
+200 frames, RT optimisation Quality, base and arm interleaved per camera;
+raw runs under `build/bench/wr16-s0_calibration_*`):
+
+| camera | GPU ms | rays M a frame (shadow / water / mirror / AO) | rays, lights per lit fragment (max) | hits M, lights per hit | shadow ms/M | hit walk ms/M hits | water marginal ms/M | mirror ms/M | AO ms/M |
+|---|---|---|---|---|---|---|---|---|---|
+| Headland | 62.2 | 40.4 (31.8 / 3.9 / 0.3 / 4.4) | 9.3, 76.8 (147) | 1.57, 84 | 0.91 | 5.25 | 0.94 | -- | 0.07 |
+| Pier | 51.4 | 74.1 (65.7 / 3.3 / 1.2 / 3.9) | 18.2, 115.5 (179) | 3.07, 156 | 0.22 | 3.80 | 0.91 | -- | 0.09 |
+| Glitter | 49.3 | 29.6 (21.9 / 4.0 / 0.2 / 3.5) | 7.3, 125.4 (152) | 0.83, 135 | 0.63 | 9.13 | 0.48 | -- | 0.07 |
+| Deck | 10.8 | 7.1 (2.2 / 0.1 / 0.8 / 4.0) | 3.2, 48.7 (114) | 0.33, 63 | -- | 5.37 | -- | 3.62 | 0.26 |
+
+**Stored in the project** (`RenderSettings::RayCost*`, ms per million rays,
+pooled over the three water cameras as total saved over total removed):
+shadow 0.40, water 0.77 (marginal, the quad arm), mirror 3.62 (the Deck,
+corrected for the 0.04 M water rays the arm also removed), AO 0.12, GI 0
+(baked on this scene; not measured).
+
+**The counters passed their checks.** The quad arm leaves 25.0 / 25.1 /
+25.1% of the water's rays on the three water cameras (the Deck's 28.6% is
+0.07 M rays, noise); `--hit-lights=off` leaves the traced rays and the hits
+unchanged on all four; the casting sweep's frames follow the counted rays
+at one cost within 4.8% on Glitter and 5.9% on Pier. Headland misses the
+5% line at 9.8%, and the reason is the design's own finding rather than a
+counting error: the sweep removes lamps in list order, and the first 0.64 M
+rays it removes (N = 75) cost 4 ms per million while the rest cost under
+one -- **far rays are the expensive rays**, and one slope cannot fit both.
+
+**Three findings that change S3 and the plan's expectations, in order of
+weight.**
+
+1. **The frame is light-bound more than ray-bound.** With every lamp's
+   shadow ray gone (`--casting-lights=0`, the sun's rays kept), Headland
+   is 43.7 ms of 62.2, Pier 41.1 of 51.4, Glitter 37.7 of 49.3: the lamps'
+   shadow rays are 19 / 13 / 12 ms, 20-30% of the frame, and **70-80% of
+   the frame remains with no lamp traced at all.** The hit walk is another
+   8 / 12 / 8 ms (84-156 lights read and shaded per hit). What is left is
+   the lit loop's own arithmetic over 77-125 lights per fragment, the
+   water's mirror and refraction rays (2.7 / 2.3 / 1.4 ms marginal), and
+   the raster. This is the owner's Debug Pass B answered: the time follows
+   the *lights evaluated*, and a ray budget alone caps its own gain at a
+   quarter of the frame. The larger lever is lights shaded per fragment
+   and per hit, which nothing in Part III spends except S2's hit walk.
+2. **One cost per ray kind is a two-to-four-fold model between cameras**
+   (shadow 0.22 ms/M under the deck at Pier, 0.91 across the bay from
+   Headland: short rays and long rays), and a 5-10% model within one.
+   S3's controller therefore takes the pass timers as the truth and uses
+   the counts to *split* a pass between its ray kinds, never counts times
+   a constant as the time itself. The stored costs are what the report
+   quotes and what a split starts from.
+3. **The hit walk is worth 13-22% of the frame on its own** (finding 1's
+   second number), which promotes S2 from "cheap and independent" to the
+   largest single item after the many-light shading, and it is exact.
+
+**The baseline** (`bench_night.py --label wr16-before`, 2026-09-04,
+2560x1440, 300 frames, two passes; `build/bench/wr16-before.json`). Every
+WR-16 number from S1 on is measured against this table, on the same day
+as its "after" or interleaved with it -- the GPU read about 8% slower today
+than on the evening of 2026-09-03 (Headland 61.6 against 58-59 with the
+counters off), and the counters themselves are 1.4% of it. Water = the
+`scene/Transparent` pass, scene = `scene/Scene`, both from pass B.
+
+| camera | A: ms / fps | B: ms / fps | water ms | scene ms | busiest cluster | rays M a frame (shadow / water) | rays per lit fragment | lights per lit fragment |
+|---|---|---|---|---|---|---|---|---|
+| Headland | 62.7 / 16.0 | 63.7 / 15.7 | 47.1 | 14.6 | 146 | 40.4 (31.8 / 3.9) | 9.3 | 76.8 |
+| Deck | 10.6 / 94.1 | 10.7 / 93.6 | 1.6 | 6.3 | 113 | 7.1 (2.2 / 0.1) | 3.2 | 48.7 |
+| Profile | 31.7 / 31.6 | 32.1 / 31.1 | 24.9 | 5.6 | 102 | 4.1 (2.3 / 0.6) | 4.4 | 27.0 |
+| Bluff | 44.1 / 22.7 | 44.8 / 22.3 | 28.5 | 14.1 | 135 | 29.8 (22.4 / 1.3) | 7.6 | 63.3 |
+| Pier | 53.8 / 18.6 | 53.9 / 18.6 | 35.7 | 15.9 | 178 | 74.0 (65.6 / 3.3) | 18.2 | 115.5 |
+| Cliff | 26.0 / 38.5 | 26.4 / 37.8 | 11.2 | 13.1 | 111 | 33.2 (25.2 / 1.4) | 8.8 | 99.5 |
+| Glitter | 50.0 / 20.0 | 50.2 / 19.9 | 33.8 | 14.4 | 151 | 29.6 (22.0 / 4.0) | 7.4 | 125.4 |
+| Lime Point | 57.5 / 17.4 | 57.5 / 17.4 | 39.3 | 16.0 | 142 | 79.3 (71.3 / 4.0) | 18.9 | 111.1 |
+
+339 ms over the eight (pass B). Two things the rays columns say at a
+glance: Pier and Lime Point cast 74-79 M rays a frame at 18-19 a fragment
+-- under the deck the thinning does not reach, every lamp is near -- while
+Profile casts 4 M and still spends 25 ms on the water: **the water pass's
+time is not proportional to its rays**, which is finding 1 again from the
+other side.
+
+**The flicker counts** (the protocol as `check_glint_flicker.py` states it:
+Headland, 1600x900, the clock pinned, 16 frames from frame 240;
+`build/flicker/wr16-before/`), the baseline every later step is judged
+against under each AA mode:
+
+| AA | blinking pixels | mean swing | worst swing |
+|---|---|---|---|
+| none | 93 (0.006%) | 14.8 levels | 76 |
+| MSAA 4x | 99 (0.007%) | 13.9 | 56 |
+| TAA | 39,323 (2.73%) | 12.6 | 203 |
+
+No AA and MSAA are at the metric's floor (0.01%, a hard-shadowed frame).
+The TAA figure is the scene's standing residual -- the sub-pixel members
+under TAA that WR-13 left as the owner's dial (3.59% of the frame as
+shipped on 2026-09-02; the still-feedback change that took it to 0.78% is
+OFF by the owner's ruling) -- and not a change from S0: nothing reads the
+validity lane yet, and the resolve's colour is untouched.
+
+#### The third source, judged against the numbers (2026-09-04)
+
+The owner brought a third document on the day S0 finished:
+`GPU_Vendor_Agnostic_Ray_Reconstruction_Design.md` (in their Downloads,
+44 sections) -- a spatiotemporal reconstruction design of the SVGF and
+ReBLUR family: reproject history, validate it by depth and normal, keep a
+confidence and a variance per pixel, give each pixel 0 / 1 / 2 / 4 / 8
+rays by those, reconstruct spatially with depth, normal and hit-distance
+weights, trace at half resolution, and add reservoirs last. The owner's
+brief: *judge it by how much better and how much faster it makes things,
+not by how much work it is, and take what is useful.* Judged against the
+calibration above, item by item, with the gain each would buy on this
+scene:
+
+| what the document proposes | what it would buy here | taken? |
+|---|---|---|
+| History validation by depth, normal and material (§8), a confidence per pixel (§9), history age (§29) | The validity lane S0 wrote says only "on screen or not"; a disoccluded pixel reads as valid. These are the missing tests, and validity and age are *inputs*, which the allocator may read. Prerequisite for everything temporal below. | **Yes, S3**: written once at the resolve, read by every consumer. |
+| Variance-guided per-pixel counts (§10, §12, §33) | The loop that breathed at a hertz on 2026-08-28: variance is an output of the rays. The document's own hysteresis and quantised counts (§15, §34) are the dead band and dwell of §4.2. | **As decided**: one arm behind the quantisation in S3, judged by the sixty-second transition count. |
+| The allocation decision order (§34): valid history first, then variance, motion, disocclusion, shadow boundary, then zero rays | A sound template for the allocator's per-tile rules. | **Yes, S3**, with the inputs-only rule. |
+| Temporal accumulation and spatial reconstruction of the *direct-light shadows* with the boundary preserved (§11, §20, §37); spend rays where confidence is low (§38) | The lamps' shadow rays are 19 / 13 / 12 ms on the three water cameras. Part III's M4 had ReSTIR choosing the lamps and "no separate direct-light denoiser at first"; this is the denoiser it lacked, and the water -- many soft penumbrae, no hard contact edge -- is the surface most forgiving of it. With four rays a pixel held by history, roughly half of those milliseconds: 9 / 7 / 6 ms. | **Yes, S4**: the reconstruction stage after the sampling, under the one-accumulator contract (reservoirs keep samples, this keeps the shaded direct light, TAA keeps the frame). |
+| Half-resolution tracing with hit-distance-aware reconstruction (§16, §21) | For the water's mirror and refraction rays and the hit walks they cause: 2.7 + 8.2 ms on Headland, 2.3 + 11.7 on Pier. WR-18's quads cut the rays four-fold but the time only 1.25-fold because the idle lanes wait; a separate half-resolution pass realises the cut: about three quarters of that sum less reconstruction, 6-9 ms a camera, less after S2 halves the walk. Needs the water's normal in a 16-bit buffer -- the RENDERING-REVAMP candidate. | **Yes, as S5**, after S2 and S4. |
+| Reconstruction of GI, AO and reflections (§16, §35, §36) | GI is baked here (0 rays), AO is 0.3 ms, the steel's mirror rays 1.2 ms on Headland: under 2.5% of the frame. The Deck's close steel is the one exception (2.9 of 10.8 ms) and that is §4.3.4's item. | **No**, not on this scene. |
+| Zero-ray reuse on stable pixels (§11) for the water's mirror and refraction | The waves move every frame; a mirror sample on water has no valid history, which the document's own reflection rules (§36) concede. | **No** for the water; the validity lane will say so per pixel where it does apply. |
+| Benchmark across camera movement (§40), reconstruction overhead under a fifth of the ray time it saves (§41), more debug views (§28) | Our protocols are still-camera; a moving-camera ghosting and flicker check is a real gap once anything reuses history. The overhead bar is the honest test of any denoiser. | **Yes**: acceptance lines for S3 and S4; the views as they are needed. |
+| Neural reconstruction, vendor paths (§26, §44) | Nothing to take; the engine is ray query on Vulkan. | -- |
+
+**What the calibration says that neither document does, and which
+outranks all of the above:** with every lamp's shadow ray removed the frame
+keeps 70-80% of its time. The many-light cost on the water is the *shading*
+of 77-125 lamps per fragment (Beckmann, per lamp, per pixel) and of 84-156
+per traced hit, before any ray. A ray budget, however well reconstructed,
+caps its own gain near a quarter of the frame. The lever that reaches the
+rest is **lights evaluated per fragment**, and it changes what S4 is:
+ReSTIR DI as Part III wrote it -- "RIS over the cell list with the
+unshadowed term's luminance as the target function (already in hand)" --
+keeps the full BRDF walk to build its target, and so spends the ray lever
+only. Done as the literature does it, the candidates are weighed by a
+*cheap* target (Lambert irradiance, or intensity over distance squared),
+the full BRDF is evaluated for the few survivors alone, and the temporal
+and spatial reuse of the *choice* is what makes sixteen cheap candidates
+and four full evaluations hold against a hundred and forty-six. That is
+the same sampler spending both levers, and the reconstruction stage from
+the third source is its denoiser. The honest projection, with wide error
+bars until S1 and S4 measure it: the water pass's light arithmetic from
+15-19 ms toward 3, the lamps' shadow rays from 19 toward 5, the hit walk
+halved by S2 and quartered again by S5 -- **Headland from 62 ms toward
+30**. S1's pre-check is the first number on that road, and it now carries
+two arms: the raw floor Part IV asked for, and the same budget with the
+third source's temporal accumulation behind it.
+
+**What changes in the sequence, then:**
+- **S1** gains a second arm: 1 / 2 / 4 / 8 shadow rays per pixel by a cheap
+  importance, first raw (the floor), then with temporal accumulation of
+  the shaded direct light and the depth-normal validity (the third
+  source's Phase 1). The verdict adds: how many rays a pixel the
+  accumulation lets the water hold, and whether the shading of the
+  unchosen lamps can be dropped with it -- measured as ms and as a diff.
+- **S2** is unchanged and is worth 13-22% of the frame on its own.
+- **S3** takes the validation tests, confidence and age, the decision
+  order, variance behind the band, the moving-camera benchmark and the
+  overhead bar; the controller reads pass timers as the truth and uses the
+  counts to split them (finding 2).
+- **S4** is RIS with a cheap target, shading the survivors alone, reuse of
+  the choice, and the reconstruction stage as its denoiser -- spending both
+  levers.
+- **S5**, new: the water's rays in a half-resolution pass with
+  hit-distance-aware reconstruction.

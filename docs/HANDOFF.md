@@ -15,14 +15,162 @@ commit them first. The evening's start-here is the first section below
 (the numbers), the morning's the second (the flag), and the fourth
 session's entry after them is still the map of everything else.
 
-**Where to start cold: WR-16 step S0**, Part IV of `docs/RAY-BUDGET-DESIGN.md`
--- counters, calibration, debug views, a fresh baseline on the Hybrid
-bridge. Then the one-day test (S1), which the owner calls what it is: the
-gate. If a few importance-chosen lamps per pixel cannot reproduce the
-water's lamp shadows even averaged over frames, the ReSTIR route is
-dropped and thinning stays the shadow spender under the budget; if they
-can, ReSTIR is built after the budget (S3) as its shadow spender (S4). The
-hit walk (S2) is independent.
+**2026-09-04: WR-16 step S0 is built, measured and committed** -- the
+section right below this paragraph. **Where to start cold: WR-16 step
+S1**, Part IV of `docs/RAY-BUDGET-DESIGN.md` -- the one-day fixed-budget
+pre-check on the water, which the owner calls what it is: the gate. If a
+few importance-chosen lamps per pixel cannot reproduce the water's lamp
+shadows even averaged over frames, the ReSTIR route is dropped and
+thinning stays the shadow spender under the budget; if they can, ReSTIR is
+built after the budget (S3) as its shadow spender (S4). The hit walk (S2)
+is independent. Explain the step before acting on it; the owner asked for
+the reasoning first, every time.
+
+## Start here -- 2026-09-04: WR-16 S0, the rays counted where they are cast
+
+**On `main`, three commits: `7b6b658` (the RHI's buffer readback and
+fill), `c0d70c3` (the counters, the views, the flags, the calibration
+script), and the docs commit after them. Not pushed -- pushing is the
+owner's call every time.** Design record ENGINE-NOTES 7cy; the step's
+state and numbers in RAY-BUDGET-DESIGN Part IV, "S0, built". Solo, no
+agents, by the owner's standing rule.
+
+### What exists now, in plain words
+
+- **Every ray the frame casts is counted, by kind, in the shader that
+  casts it**, and the count comes back a frame or two late the way the GPU
+  timings do -- never a stall. The benchmark report has three new lines
+  (`rays per frame: ...`, `lights per fragment: ...`, `temporal
+  confidence: ...`), the runtime's F1 overlay and the editor's Statistics
+  panel show the same, and `bench_night.py` parses them into its JSON and
+  three extra table columns.
+- **`--debug-view=rays|lights|confidence|importance`** replaces the
+  picture with a heat map of one number per pixel: rays cast, lights
+  walked, whether the temporal resolve reused history, the ray budget's
+  per-tile allocation. Vulkan only. The rays view is what the owner's
+  multi-light document asked for first; look at it before believing a
+  mean.
+- **`--casting-lights=N`**: only the first N positional lights keep a
+  shadow ray. A measurement flag for the light-count sweep; the picture is
+  wrong on purpose.
+- **`RenderSettings::RayCost*`**: what a ray of each kind costs in
+  milliseconds per million, measured by `tools/scripts/
+  ray_cost_calibration.py` and stored in the project. Never learned online.
+- **The validity lane**: the TAA resolve writes `o_Moments.w` as one where
+  the pixel reused its history, zero where not. Written and counted, read
+  by nothing yet -- S3's consumers will.
+- **`RHIDevice::ReadBuffer`** and **`RHICommandList::FillBuffer`** for
+  anyone who needs a number back from the GPU every frame; scenetest
+  drives real frames through the readback on both backends.
+
+### The number that mattered, and the day it cost
+
+The first build put Headland at **74 ms against 59** -- the instrument was
+a quarter of the frame. Bisected by staging three variants of the shader
+under one binary (increments only, flush only, neither): the flush cost
+13 ms. Packing the eight counter words into two registers won 4 ms.
+Spreading the atomics over sixty-four addresses won nothing. **The cause
+was the depth test**: a fragment shader with a memory side effect is no
+longer culled by depth before it runs, so every fragment the depth
+prepass had already rejected was shaded again -- rays, light loop and all
+-- and counted. `layout(early_fragment_tests) in;` in the families that
+neither discard nor write depth (opaque and water; not the alpha-cutout
+family, whose discard must not leave depth behind) put the test back.
+Interleaved on/off at 2560x1440, Headland: **62.3 / 61.6 / 62.6 / 61.6 ms
+-- 0.85 ms, 1.4%**, picture bit-identical (max difference 0 over
+1600x900). And the honest count is lower than the first one: **31.8 M
+rays a frame on Headland, not 41.8 M** -- the ten million were rays the
+counting had itself caused. Rule for every later step: **an instrument's
+first number is the instrument's own cost until an interleaved A/B says
+otherwise.**
+
+Headland at 1440p, RT optimisation Quality, as it stands: shadow 31.8 M,
+water 3.9 M, opaque mirror 0.4 M, AO 4.4 M, GI 0 (baked) rays a frame;
+9.3 rays and 78.5 lights per lit fragment (max 147, the busiest cluster);
+87.8 lights per traced hit over 1.9 M hits. Under TAA the temporal
+confidence reads 100% on a still camera.
+
+### What the calibration found, and what the owner's third document changes
+
+The calibration table and its reading are in RAY-BUDGET-DESIGN Part IV,
+"S0, built". The one finding to carry in your head: **the frame is
+light-bound more than ray-bound.** With every lamp's shadow ray removed
+(`--casting-lights=0`), Headland keeps 43.7 of 62.2 ms, Pier 41.1 of 51.4,
+Glitter 37.7 of 49.3 -- the lamps' rays are 19 / 13 / 12 ms, the hit walk
+another 8 / 12 / 8, and what remains is the shading of 77-125 lamps per
+fragment before any ray. A ray budget alone caps its own gain near a
+quarter of the frame; the larger lever is lights evaluated per fragment,
+which is why S4 becomes RIS with a *cheap* target that shades only the
+survivors (Part III's "unshadowed term as the target" would have kept the
+whole walk). Also: one cost per ray kind is a two-to-four-fold model
+between cameras (short rays under the deck, long rays across the bay), so
+S3's controller reads pass timers as the truth and uses counts to split
+them.
+
+The same afternoon the owner brought a third document -- a spatiotemporal
+reconstruction design (history validation, confidence, variance-guided
+0-8 rays a pixel, spatial reconstruction, half-res tracing) -- with the
+brief *judge it by the gain, not the work, and take what is useful.* It is
+judged item by item against the numbers in Part IV, "The third source,
+judged": taken are its history validation and allocation order (S3), its
+shadow reconstruction as S4's denoiser, its half-resolution water rays as
+a new S5, and its moving-camera benchmark and overhead bar as acceptance
+lines; not taken are its GI/AO/reflection reconstruction (under 2.5% of
+this frame) and zero-ray reuse on the water's mirror (the waves move).
+**S1 now has two arms**: the raw floor, and the same per-pixel budget with
+temporal accumulation behind it.
+
+### The baseline and the flicker counts
+
+`bench_night.py --label wr16-before`, 2560x1440, 300 frames, two passes
+(`build/bench/wr16-before.json`). **Measure every later step against this,
+on the same day or interleaved**: the GPU read about 8% slower today than
+yesterday evening on the same frame, and the counters are 1.4% of it.
+
+| camera | A: ms / fps | B: ms / fps | water ms | scene ms | busiest cluster | rays M a frame (shadow / water) | rays per fragment | lights per fragment |
+|---|---|---|---|---|---|---|---|---|
+| Headland | 62.7 / 16.0 | 63.7 / 15.7 | 47.1 | 14.6 | 146 | 40.4 (31.8 / 3.9) | 9.3 | 76.8 |
+| Deck | 10.6 / 94.1 | 10.7 / 93.6 | 1.6 | 6.3 | 113 | 7.1 (2.2 / 0.1) | 3.2 | 48.7 |
+| Profile | 31.7 / 31.6 | 32.1 / 31.1 | 24.9 | 5.6 | 102 | 4.1 (2.3 / 0.6) | 4.4 | 27.0 |
+| Bluff | 44.1 / 22.7 | 44.8 / 22.3 | 28.5 | 14.1 | 135 | 29.8 (22.4 / 1.3) | 7.6 | 63.3 |
+| Pier | 53.8 / 18.6 | 53.9 / 18.6 | 35.7 | 15.9 | 178 | 74.0 (65.6 / 3.3) | 18.2 | 115.5 |
+| Cliff | 26.0 / 38.5 | 26.4 / 37.8 | 11.2 | 13.1 | 111 | 33.2 (25.2 / 1.4) | 8.8 | 99.5 |
+| Glitter | 50.0 / 20.0 | 50.2 / 19.9 | 33.8 | 14.4 | 151 | 29.6 (22.0 / 4.0) | 7.4 | 125.4 |
+| Lime Point | 57.5 / 17.4 | 57.5 / 17.4 | 39.3 | 16.0 | 142 | 79.3 (71.3 / 4.0) | 18.9 | 111.1 |
+
+339 ms over the eight. Profile casts 4 M rays and spends 25 ms on the
+water; Pier casts 74 M and spends 36: the water's time is not its rays.
+
+The flicker protocol on Headland (1600x900, clock pinned, 16 frames from
+240; `build/flicker/wr16-before/`): **no AA 0.006%, MSAA 4x 0.007%** -- the
+metric's floor -- **TAA 2.73%** (worst swing 203 levels), which is the
+scene's standing TAA residual (3.59% as shipped on 2026-09-02, the owner's
+dial), not a change from S0: nothing reads the validity lane yet.
+
+### Traps this session paid for
+
+- **`cast` is a reserved word in GLSL** (as `coherent` was in 7cw). The
+  occlusion shader failed to compile and took the whole post chain with it
+  in scenetest -- twenty-nine failures from one identifier.
+- **The readback ring holds its source buffers alive**, so it drops them
+  before the deferred queue's final flush or the buffers outlive the
+  device; and the copy that reads a buffer wants a barrier *after* it,
+  into later submissions, or the next frame's fill of the same buffer is a
+  write-after-read the validation layer names every frame.
+- **`--hit-lights=off` moves the shadow count**, not only the walk: the
+  sun's shadow ray at a hit lives inside the walk it skips. The counters
+  were right; the first check was wrong.
+- **`--rt-reflections=off` takes the water's mirror ray with the steel's**
+  (one define), so the reflection arm runs on the Deck and is corrected.
+- **The GPU read ~2.5 ms slower today than yesterday evening** on the same
+  Headland frame with counting off (61.6 against 58-59). Compare only
+  interleaved, same session; yesterday's tables are not today's baseline.
+- **To bisect a shader cheaply**, copy the variant straight into
+  `build/bin/Release/RageVRuntime/assets/shaders/` and restore the source
+  copy after; no build, no staging swap under a running benchmark.
+- `goldengatedemo.rage.meta`'s SourceHash is rewritten by the runtime on
+  load. Left uncommitted on purpose; the owner should say whether the
+  scene or the meta is the stale one.
 
 **On `main` now, and pushed.** The 2026-09-02 session worked on `main` and
 pushed four commits to it, ending at **`bd7f813`**. The paragraph that used

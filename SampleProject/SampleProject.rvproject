@@ -18,6 +18,11 @@ Project:
     RayTracedWaterRefraction: true
     RayTracedGiSource: Baked
     RtOptimisation: Quality
+    RayCostShadow: 0.4
+    RayCostWater: 0.77
+    RayCostReflection: 3.62
+    RayCostGi: 0
+    RayCostAo: 0.12
     RayBudget: Fractional
     RayBudgetMs: 4
     RayBudgetFraction: 0.4

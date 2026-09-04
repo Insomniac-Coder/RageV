@@ -14154,6 +14154,149 @@ order kept, under half the stacked size.
   The exact-text replacement helper converts the line ending of the search
   and the replacement to the file's own before matching.
 
+### 7cy. Counting the rays where they are cast (WR-16, step S0)
+
+**What it is for.** The ray budget (`docs/RAY-BUDGET-DESIGN.md`) spends
+rays against a time, and the rays that cost the most on the night scene are
+cast where no timer can see them alone: the shadow rays and the water's
+mirror and refraction rays are launched from inside the lit fragment
+shader, beside the BRDF walk, and the by-pass table reports the pass. Both
+of the owner's source documents put the same instruction first -- *measure
+before you optimise; know the ray count per pixel before touching any
+budget* -- and Part IV of the design made it the first step: counters,
+calibration, debug views, a fresh baseline. This note is that step.
+
+**The shape.** A storage buffer of sixteen words per frame in flight
+(`RayCounters`, set 0 binding 21 in the lit family under `RV_RAY_SHADOWS`,
+binding 5 in the two post passes that count). Every launch site increments
+a per-invocation register -- `TraceShadowFromMasked` for every shadow ray,
+`TraceSurface` for the mirror, refraction and bounce rays (which lane is a
+property of the *compile*: the bounce's trace includes the file under
+`RV_TRACE_ONLY`, the water under `RV_WATER`, the opaque families under
+neither), the occlusion pass for its taps -- and each shader adds its
+registers to the buffer once at the end of main: a `subgroupAdd` and one
+atomic per lane per wave, from the lowest lane that is **not a helper
+invocation**. That last clause is load-bearing. A helper's stores have no
+effect, and `subgroupElect()` picks the lowest *active* lane, helper or not,
+so a wave whose lowest lane was a helper would silently drop its count;
+the leader is chosen by `subgroupBallot(!gl_HelperInvocation)` instead.
+Beside the rays: lit fragments (what the per-pixel averages divide by, two
+per pixel under water and meant to be), the lights each fragment's cluster
+list holds (sum and max), the traced hits and the lights each hit walked,
+and the temporal resolve's pixels and how many reused their history.
+
+**The readback is the timestamps' shape** (`RHIDevice::ReadBuffer`): copied
+at EndFrame into a per-slot staging buffer, handed back when the slot's
+fence has been waited on, so it never stalls and is always a frame or two
+old -- which over a benchmark is the same average. `FrameProfiler` files a
+sample per frame only when one came back, so a frame the ring missed is
+left out rather than averaged in as zero. The report gained three lines
+(rays per frame by kind and per lit fragment; lights per fragment and per
+hit; temporal confidence), the runtime's F1 overlay and the editor's
+Statistics panel the same numbers, and `bench_night.py` parses them.
+
+**The validity lane** (Part IV finding 6): `taa_resolve` writes
+`o_Moments.w` as one where the pixel's history was reprojected and blended
+and zero where it was not -- the one per-pixel validity the budget's
+temporal consumers will read instead of each deciding for itself. Written,
+counted, not yet read by anything.
+
+**`--debug-view=rays|lights|confidence|importance`.** The owner's
+multi-light document asks for these views before any budget is built, and
+the reason is the same as the diff-image rule: a mean says the water costs
+so many rays a pixel, a map says *which* pixels. Rays and lights come from a
+second buffer the lit shaders add into under `RV_DEBUG_VIEW` -- one word per
+pixel per plane, **added, not stored**, so a water pixel shows its own rays
+and the deck's beneath it, what the pixel cost -- zeroed by a fill before
+the scene pass and drawn by a composite after everything but the UI. A
+buffer rather than an image because a transfer can zero it and no image
+layout is involved; the header (width, height, pixels) is written once per
+size and the fill starts past it. Confidence reads the temporal history's
+second attachment, importance the ray budget's tile map (the allocation
+the importance became, which is what the consumers read).
+
+**`--casting-lights=N`**, a measurement: under rays only the first N
+positional lights keep their shadow ray, the rest light without one. The
+owner's Debug Pass B, and the arm the calibration's shadow cost comes from.
+
+**The calibration** (`tools/scripts/ray_cost_calibration.py`; the numbers
+are in RAY-BUDGET-DESIGN Part IV, "S0, built"): interleaved base-and-arm
+runs on the three design cameras and the Deck, the shadow cost as the slope
+of GPU time saved against shadow rays removed across the casting sweep,
+the hit walk's cost per hit from `--hit-lights=off`, the water ray's
+*marginal* cost from `--ray-rate=2` (lower than its average: the idle quad
+lanes wait), the opaque mirror ray's from `--rt-reflections=off` on the
+Deck, corrected for the water's mirror ray that goes with it. Stored in the
+project as `RenderSettings::RayCost*`, milliseconds per million rays,
+**never learned online** -- an online fit is an output feeding an input,
+the loop this engine has already met (7bl's hertz).
+
+**Three things the run found that the design had not said.**
+- `--hit-lights=off` moves the *shadow* count, not only the walk: the sun's
+  shadow ray at a hit lives inside the walk it skips. The counters were
+  right and the check was wrong; it compares the traced rays and the hits
+  now, which do hold.
+- `--rt-reflections=off` takes the water's mirror ray with the steel's --
+  the same define -- so the reflection arm is read on the camera with the
+  least water and corrected for the water rays it removed.
+- The quad arm leaves 25.6% of the water's rays, not 25.0%: the odd lanes
+  at the water's screen edge trace on their own. Within the 5% the
+  acceptance asks for, and a number to remember when S3 reads the rate per
+  tile.
+
+**What the counting cost, and the three theories it took.** The first
+build put Headland at 74 ms against 59: the instrumentation was a quarter
+of the frame. Bisected by staging three variants of the include under the
+same binary -- increments without the flush, the flush without the
+increments, neither -- the increments cost about 2 ms and the flush 13.
+Theory one, register pressure and a private array indexed by a loop
+variable at the flush: packing the eight words into two won 4 ms and was
+kept. Theory two, atomics to one address serialising in the L2 (1.4
+million a frame): spreading the lanes over sixty-four slots by screen
+tile changed nothing at all, and was kept anyway as the right shape for a
+counter every wave touches. Theory three was the one: **a fragment shader
+with a memory side effect may not be depth-culled before it runs**,
+because the side effect would be observable -- so every fragment the
+depth prepass had already rejected was shaded again, rays and all, and the
+frame paid the overdraw the prepass exists to remove. `layout(
+early_fragment_tests) in;` puts the test back in front, exact for the
+families that neither discard nor write depth (the opaque and the water;
+the cutout family keeps its late test, because an early depth write would
+survive its discard). Interleaved on/off at 1440p: 62.3 / 61.6 / 62.6 /
+61.6 ms -- **0.85 ms, 1.4%** -- and the picture bit-identical (max
+difference 0 over 1600x900, on against off and on against itself). The
+counted shadow rays fell from 41.8 M to 31.8 M with the fix, which is the
+honest figure: the ten million were the overdraw the counting had itself
+created. A lesson worth the day: *a counter can change the thing it
+counts*, and the first number out of a new instrument is the instrument's
+own cost until an A/B says otherwise.
+
+**What the first calibration said** (the table in RAY-BUDGET-DESIGN Part
+IV). The counters passed their checks -- the quad arm leaves a quarter of
+the water's rays, `--hit-lights=off` moves no traced ray and no hit, the
+casting sweep's frames follow the counted rays within 5-6% on two cameras
+and 10% on Headland, where the far lamps removed first cost four times the
+near ones. And the sweep answered the owner's Debug Pass B: **the frame is
+light-bound more than ray-bound.** With every lamp's shadow ray gone the
+three water cameras keep 70-80% of their time; the lamps' rays are 20-30%,
+the hit walk 13-22%, and the rest is the lit loop shading 77-125 lamps per
+fragment. That reorders what the budget can buy and what S4 has to be
+(Part IV, "The third source, judged"). It also showed that one cost per
+ray kind is a two-to-four-fold model between cameras -- 0.22 ms per
+million shadow rays under the deck, 0.91 across the bay -- so the
+controller will read pass timers and use counts to split them, never a
+constant times a count as the time.
+
+**Traps paid for.** `cast` is a reserved word in GLSL (as `coherent` was
+in 7cw); the occlusion pass failed to compile and took the whole post chain
+with it in scenetest, twenty-nine checks at once from one identifier. The
+readback ring holds its sources alive and so must drop them before the
+deferred queue's final flush, or the buffers outlive the device; and a copy
+that reads a buffer the next frame fills wants a barrier into later
+submissions after it, or the validation layer names the write-after-read
+on every frame. `EnsureDebugCounts(1, 1)` at every lit recompile shrank a
+sized buffer back to a texel; it creates one only when there is none.
+
 
 ---
 
