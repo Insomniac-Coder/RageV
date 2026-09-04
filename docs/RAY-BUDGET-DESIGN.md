@@ -4128,3 +4128,109 @@ against 0.29% for the forward sampler at S4a, so there is quality still to
 find -- the neighbour ring is three taps at twelve pixels and untuned, and
 the confidence cap is 20 by assertion. The frame times have not been taken
 since the passes landed; S4a's table is the last honest one.
+
+#### The lamps a shadow ray must not be sent to (2026-09-04, after S4b)
+
+**The defect.** S4b's shade pass traced a shadow ray for every lamp it kept.
+The lit shader does not: its loop traces a directional light, traces a spot or
+point light, and *leaves a light whose `kind` is zero at full visibility* --
+`kind = int(light.Shadow.x)`, and the two branches are
+`liveShare > 0.0 && kind == 1` and `liveShare > 0.0 && kind != 0`. A lamp
+authored to cast no shadow therefore has no ray in the forward path and had one
+in the pass, and on this bridge those are the lamps that draw the glitter. They
+sit behind the deck. The ray was stopped by it, and the brightest water in the
+frame went black -- 13.7 against truth's 192.2 at one probed pixel on Pier.
+
+**The fix** is the lit shader's own rule, one condition in `water_shade`:
+
+```glsl
+const float visible = int(u_Lights.Lights[index[r]].Shadow.x) == 0
+    ? 1.0
+    : TraceShadowSoftFromMasked(...);
+```
+
+**What it is worth.** At the probed pixels 13.7 -> 189.3 against the forward
+sampler's own 189.3. Over the frame, the honest measure is not the error against
+truth -- both arms sample four lamps and both are noisy -- but whether the
+disagreement is *lopsided*. Pier, no AA, pixels where one arm is more than 20
+levels worse than the other:
+
+| | passes worse | forward worse |
+|---|---|---|
+| before | 12,524 | 9,148 |
+| after | 9,879 | 9,874 |
+
+Five pixels apart in 1.4 million. Two stochastic samplers of one estimator
+disagreeing at random is what that looks like; the lopsidedness was the defect
+and it is gone.
+
+**The lesson, and it is the same shape as S4b's other four.** A pass that
+re-implements the lit shader's lighting must re-implement its *exemptions* too,
+not only its arithmetic. The arithmetic was checked term by term and matched;
+what did not match was a branch that decides whether to trace at all. When two
+paths are meant to agree, diff the conditions as carefully as the equations.
+
+**How it was found, after a long detour.** Four hypotheses were tested and
+killed by measurement first -- the ray's origin (lifting it half a metre changed
+nothing), its normal (tracing flat changed nothing), the cutout test (blocked
+even when no candidate is confirmed), a second water fragment winning the pixel
+(the prepass writes exactly one), and the cluster cell's lamp list (walking every
+light in the scene gave the same total to seven digits). What ended it was
+putting both paths' numbers side by side at one pixel in one frame: the water
+draw reported 59 lamps reaching it and 7 visible, and tracing those same 7 in
+the same shader, at the same instant, returned 0. Visibility that no ray
+produced is a branch that never traced. **The instrument that answers a
+disagreement is the one that makes both sides answer the same question in the
+same frame** -- `--lamp-probe` now carries the water draw's own position, its
+lamp counts, and both `waterSpecular` sums for exactly that reason.
+
+#### The sea covers itself, and the prepass kept the wrong crossing (2026-09-04)
+
+**The defect.** S4b's surface prepass wrote its three attachments into the
+*scene* target, so it shared the scene's depth: tested against the opaque
+scene, never written, because a write there would make the water pass's own
+fragments fail their test afterwards. That is right until the sea is seen
+nearly edge on, and then it is not: at 400 m on Glitter **three to five water
+fragments land on one pixel**, every one of them in front of the opaque scene
+and so every one passing the test. With no write and no blending the survivor
+is whichever was rasterised last. Probed at one such pixel, the pass stood at
+(114.85, -0.27, 328.54) -- 413 m out -- while the water draw shaded
+(142.37, -0.07, 317.93), 383 m out: **29 metres apart, on the same view ray**,
+with different lamps visible from each. The brightest band of the sea came out
+at a tenth of its brightness.
+
+**The fix.** A render target of its own, with a depth of its own, cleared and
+written, so the nearest fragment wins. Two things that target cannot do, and
+both had to be put back by hand:
+
+1. **Rejecting water behind the pier.** The shared depth did that for free.
+   The surface shader now discards where the backdrop's own view depth -- read
+   two hundred lines above for the refraction -- says the fragment is at or
+   behind the opaque scene.
+2. **Clearing to nothing.** The graph's default clear colour is
+   `{0, 0, 0, 1}`, and the position attachment's `w` is the mask that says a
+   wave was drawn here. Taking the default marked **every pixel of the screen**
+   as valid water, and the two lamp passes ran over the whole frame:
+   `WaterChooseLamps` 3.8 ms -> 7.6, the frame 30.8 -> 38. `SetClearColor` with
+   a zero alpha put it back to 3.7 ms and 30.0. The old code passed its clear
+   values explicitly and this is why.
+
+**What it is worth.** Glitter, no AA, on the 4,425 pixels the old passes got
+wrong by more than 20 levels: mean error **43.8 -> 36.4**. The three probed
+pixels went from 13-19 against truth's 183-203 to 203-214. Headland and Pier do
+not change at all -- neither is grazing enough for the sea to cover itself --
+and the frame time is unchanged on all three. `scenetest` green on both
+backends.
+
+**What it does not fix, and this one is structural.** Glitter's disagreement
+with the forward sampler is still one-sided: 2,935 pixels where the passes are
+more than 20 levels worse against 407 the other way (Headland 2,254 vs 2,138
+and Pier 9,879 vs 9,874 are symmetric, which is what two stochastic samplers of
+one estimator look like). The remaining error has the opposite sign to the old
+one -- about 10% too bright rather than 90% too dark -- and the reason is the
+design: **the passes shade one surface per pixel, and the water draw blends
+three to five.** The lamp light computed for the nearest crossing is then
+applied to the whole stack. Closing that needs the passes to carry more than
+one layer, which is a larger question than S4 and is not worth opening for a
+tenth of a percent of one camera; it is written here so the next person does not
+mistake it for a bug.

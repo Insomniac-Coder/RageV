@@ -65,13 +65,40 @@ AA_MODES = {
 WATER_BAND_FROM = 0.45
 
 
-def arms(budgets, sampler=False):
+def arms(budgets, sampler=False, passes=False):
     """truth, the shipped preset, then each budget with the cheap target
     (irradiance: what S4 can afford for every candidate) and with the full
     one (the whole unshadowed term, BRDF included: what the water's glitter
     asks for). The gap between the two columns is the S4 design question."""
     out = [("truth", ["--rt-optimisation=off"]),
            ("quality", ["--rt-optimisation=quality"])]
+    if passes:
+        # WR-16 S4b (--passes): the sea's lamps chosen and shaded in passes of
+        # their own, against the same truth and the same protocol as S4a, so
+        # the rows read straight against its table. Three arms per budget,
+        # because "what did S4b do" is two questions and one arm cannot answer
+        # both: `fwd` is the sampler inside the water shader (S4a, the row to
+        # beat), `pass-noreuse` is the same estimate moved into the two passes
+        # (so fwd -> pass-noreuse is what the passes COST), and `pass` adds the
+        # history and the three neighbours (so pass-noreuse -> pass is what the
+        # reuse BUYS). Nothing here is tuned: the neighbour ring is three taps
+        # at twelve pixels and the confidence cap is 20, both by assertion.
+        for k in budgets:
+            out.append(("fwd-%d" % k,
+                        ["--rt-optimisation=off", "--light-sampling=%d,term" % k,
+                         "--water-lamp-pass=off"]))
+            out.append(("pass-%d-noreuse" % k,
+                        ["--rt-optimisation=off", "--light-sampling=%d,term" % k,
+                         "--water-lamp-reuse=off"]))
+            out.append(("pass-%d-history" % k,
+                        ["--rt-optimisation=off", "--light-sampling=%d,term" % k,
+                         "--water-lamp-neighbours=off"]))
+            out.append(("pass-%d-neighbours" % k,
+                        ["--rt-optimisation=off", "--light-sampling=%d,term" % k,
+                         "--water-lamp-history=off"]))
+            out.append(("pass-%d" % k,
+                        ["--rt-optimisation=off", "--light-sampling=%d,term" % k]))
+        return out
     if sampler:
         # WR-16 S4's sampler (--sampler): the same three cameras and the same
         # truth, so its rows read straight against S1's. Each K under both
@@ -212,6 +239,10 @@ def main():
     parser.add_argument("--analyse-only", action="store_true",
                         help="no runtime: recompute the diffs and the flicker counts from the "
                              "stills and frames already in --out")
+    parser.add_argument("--passes", action="store_true",
+                        help="WR-16 S4b's arms (the sea's own lamp passes, with and without "
+                             "the reuse, against S4a's forward sampler); writes to "
+                             "build/water_lamp_pass by default")
     parser.add_argument("--sampler", action="store_true",
                         help="WR-16 S4's sampler arms (--light-sampling) instead of S1's "
                              "fixed-budget ones; writes to build/light_sampling by default")
@@ -221,10 +252,13 @@ def main():
 
     cameras = [c for c in args.cameras.split(",") if c in CAMERAS]
     budgets = [int(b) for b in args.budgets.split(",") if b]
-    arm_list = arms(budgets, args.sampler)
+    if args.passes and args.budgets == parser.get_default("budgets"):
+        budgets = [4]
+    arm_list = arms(budgets, args.sampler, args.passes)
     if args.out is None:
         args.out = str(ROOT / "build"
-                       / ("light_sampling" if args.sampler else "shadow_budget"))
+                       / ("water_lamp_pass" if args.passes
+                          else "light_sampling" if args.sampler else "shadow_budget"))
     arm_names = [a[0] for a in arm_list]
 
     if args.report:

@@ -351,7 +351,32 @@ namespace RageV
 		// own sweep every frame. Off is the same estimate the sampler inside
 		// the water shader makes, which is what makes the pair an A/B of the
 		// reuse alone.
-		bool  WaterLampReuse = true;
+		//
+		// **Off by default since 2026-09-04, measured.** Both halves lose on
+		// all three cameras: the sea retilts every patch every frame, so a
+		// choice kept from the last frame -- or borrowed from a pixel twelve
+		// across -- was made for a surface that has since turned, and on water
+		// the score is nearly all specular, which turns with it. Pier, error
+		// against everything traced under TAA: 1.32% with neither, 8.55% with
+		// the history, 4.51% with the neighbours, 6.45% with both; and the
+		// flicker rises with it, 8.3% of pixels blinking to 11.9%. It costs
+		// 0.4 to 2.1 ms to make the picture worse.
+		bool  WaterLampReuse = false;
+		// --water-lamp-history=on|off and --water-lamp-neighbours=on|off: the
+		// two halves of the reuse, switched apart. Keeping a choice across
+		// frames and borrowing one from a neighbour are different mechanisms
+		// with different ways of being wrong, and the single switch above
+		// could only say that the pair cost the picture, never which of them.
+		// --water-lamp-reuse stays the master: off means neither runs.
+		bool  WaterLampHistory = true;
+		bool  WaterLampNeighbours = true;
+		// --water-lamp-tuning=taps[,cap]: the two numbers the reuse was built
+		// with by assertion -- how many neighbours a pixel reads (a ring of
+		// three) and the most confidence a history may carry (twenty frames).
+		// Both are carried to the shader so a matrix can move them without a
+		// rebuild per arm; neither has ever been measured.
+		int   WaterLampTaps = 3;
+		int   WaterLampCap = 20;
 		// --lamp-probe=x,y: one water pixel's arithmetic, written to a buffer
 		// by the shading pass and printed by the CPU. A picture cannot show
 		// the sum of the scores a pixel swept or the score of the lamp it

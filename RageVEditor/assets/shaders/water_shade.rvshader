@@ -98,7 +98,10 @@ void main()
 	const float myDepth = dot(p.Position - u_Scene.CameraPosition.xyz,
 							  u_Scene.CameraForward.xyz);
 	const float slack = myDepth;   // reported by the probe
-	const int neighbours = u_Lamps.History.z > 0.5 ? 3 : 0;
+	// How many, rather than whether: the ring's size is one of the two
+	// assertions in this pass, so the CPU carries the count and a matrix can
+	// move it. Zero is the borrowing switched off.
+	const int neighbours = int(u_Lamps.History.z + 0.5);
 	float triedNeighbours = 0.0;
 	float tookNeighbours = 0.0;
 	for (int s = 0; s < neighbours; ++s)
@@ -195,9 +198,17 @@ void main()
 		if (toward <= 0.0)
 			continue;
 
-		const float visible = TraceShadowSoftFromMasked(
-			p.Position, p.N, L, toward, u_Lights.Lights[index[r]].Direction.w,
-			index[r], RV_RAY_MASK_SCENE);
+		// **A lamp that casts no shadow is not traced**, exactly as the lit
+		// shader does not trace it: its `kind` is zero, and the loop there
+		// leaves such a light at full visibility rather than sending a ray
+		// that the bridge would stop. Tracing them here is what turned the
+		// brightest glitter black -- the lamps that draw it sit behind the
+		// deck, and they were never meant to be occluded by it.
+		const float visible = int(u_Lights.Lights[index[r]].Shadow.x) == 0
+			? 1.0
+			: TraceShadowSoftFromMasked(
+				p.Position, p.N, L, toward, u_Lights.Lights[index[r]].Direction.w,
+				index[r], RV_RAY_MASK_SCENE);
 
 		const float scale = visible * weight[r] / float(K);
 		diffuse += lampDiffuse * scale;
@@ -221,6 +232,14 @@ void main()
 		float scoreSum = 0.0;
 		vec3 walk = vec3(0.0);
 		vec3 walkLit = vec3(0.0);
+		// **The same walk traced two other ways**, because a pass that reports
+		// every lamp blocked cannot say why from its own answer: once with the
+		// sea's flat normal in place of the wave's, once from half a metre
+		// above the surface. Whichever of the three lets the light through
+		// names the cause -- the normal it offsets along, the origin it starts
+		// from, or neither.
+		vec3 walkFlat = vec3(0.0);
+		vec3 walkLifted = vec3(0.0);
 		for (uint e = 0u; e < count; ++e)
 		{
 			const uint i = u_CellIndices.Indices[offset + e];
@@ -243,6 +262,12 @@ void main()
 			const float vis = TraceShadowSoftFromMasked(p.Position, p.N, wL, wt,
 								u_Lights.Lights[i].Direction.w, i, RV_RAY_MASK_SCENE);
 			walk += (wd + ws) * vis;
+			walkFlat += (wd + ws) * TraceShadowSoftFromMasked(
+							p.Position, vec3(0.0, 1.0, 0.0), wL, wt,
+							u_Lights.Lights[i].Direction.w, i, RV_RAY_MASK_SCENE);
+			walkLifted += (wd + ws) * TraceShadowSoftFromMasked(
+							p.Position + vec3(0.0, 0.5, 0.0), p.N, wL, wt,
+							u_Lights.Lights[i].Direction.w, i, RV_RAY_MASK_SCENE);
 		}
 
 		u_LampProbe.Values[0] = swept;
@@ -278,6 +303,126 @@ void main()
 		u_LampProbe.Values[42] = u_Lamps.History.z;
 		u_LampProbe.Values[43] = float(frames[0]);
 		u_LampProbe.Values[44] = slack;
+		// Cleared here, filled by the water draw later in the same frame.
+		u_LampProbe.Values[64] = 0.0;
+		u_LampProbe.Values[65] = 0.0;
+		u_LampProbe.Values[66] = 0.0;
+		u_LampProbe.Values[67] = 0.0;
+		u_LampProbe.Values[68] = 0.0;
+		u_LampProbe.Values[72] = 0.0;
+		// **What stops the ray.** A walk that comes back all-blocked cannot say
+		// what blocked it, and every guess so far has been wrong, so ask the
+		// structure directly for the first survivor's lamp: how far along the
+		// ray the blocker stands, which instance it belongs to, and -- the one
+		// that separates the two families of cause -- whether the ray is still
+		// blocked when no cutout candidate is ever confirmed. If it is not,
+		// the blocker is a masked surface this test called solid; if it is,
+		// the blocker is ordinary geometry and the fault is where the ray
+		// starts or which way it points.
+		// **Does this position belong to this pixel?** Project it back through
+		// the frame's own camera and see where it lands. A grazing view over
+		// water turns one pixel into metres of sea, so a position taken from
+		// the wrong row would put the ray's origin far from the surface the
+		// eye is looking at -- and the flip that did exactly this was the last
+		// defect this pass paid for.
+		{
+			const vec4 backClip = u_Scene.ViewProjection * vec4(p.Position, 1.0);
+			const vec2 backNdc = backClip.xy / max(abs(backClip.w), 1.0e-6);
+			const vec2 size = vec2(textureSize(u_WaterPositionIn, 0));
+			u_LampProbe.Values[61] = texelFetch(u_WaterPositionIn, mineTexel, 0).w;
+			u_LampProbe.Values[59] = (backNdc.x * 0.5 + 0.5) * size.x;
+			u_LampProbe.Values[60] = (backNdc.y * 0.5 + 0.5) * size.y;
+		}
+		// **The same walk again, over every light in the scene** rather than
+		// over the cell's list. If the cell's list is the wrong one, this lights
+		// up and the rays are innocent; if this is dark too, the list is fine
+		// and the rays are the fault. One number decides between the two
+		// families that are left.
+		{
+			vec3 allWalk = vec3(0.0);
+			vec3 allLit = vec3(0.0);
+			float allSeen = 0.0;
+			for (int i = 0; i < u_Scene.LightCount; ++i)
+			{
+				if (u_Lights.Lights[i].Color.w <= 0.0)
+					continue;
+				vec3 ad, as2, aL;
+				float at;
+				ShadeLamp(p, uint(i), ad, as2, aL, at);
+				if (at <= 0.0)
+					continue;
+				allSeen += 1.0;
+				allLit += ad + as2;
+				allWalk += (ad + as2) * TraceShadowSoftFromMasked(
+							   p.Position, p.N, aL, at,
+							   u_Lights.Lights[i].Direction.w, uint(i), RV_RAY_MASK_SCENE);
+			}
+			u_LampProbe.Values[62] = dot(allWalk, kLum);
+			u_LampProbe.Values[63] = dot(allLit, kLum);
+			u_LampProbe.Values[61] = allSeen;
+		}
+		u_LampProbe.Values[45] = -1.0;
+		u_LampProbe.Values[46] = -1.0;
+		u_LampProbe.Values[47] = -1.0;
+		{
+			vec3 bd, bs, bL;
+			float bt;
+			ShadeLamp(p, index[0], bd, bs, bL, bt);
+			if (bt > 0.0)
+			{
+				const vec3 origin = p.Position + p.N * 0.01;
+				rayQueryEXT bq;
+				rayQueryInitializeEXT(bq, u_SceneAS,
+									  RV_RAY_BASE_FLAGS | gl_RayFlagsTerminateOnFirstHitEXT,
+									  RV_RAY_MASK_SCENE, origin, 0.0, bL, bt);
+				RayTraverse(bq);
+				if (rayQueryGetIntersectionTypeEXT(bq, true)
+					!= gl_RayQueryCommittedIntersectionNoneEXT)
+				{
+					u_LampProbe.Values[45] = rayQueryGetIntersectionTEXT(bq, true);
+					u_LampProbe.Values[46] =
+						float(rayQueryGetIntersectionInstanceCustomIndexEXT(bq, true));
+					// Where the blocker stands, in the world. A height says
+					// what it is without a name: the sea sits near zero and
+					// the deck is metres above it.
+					const vec3 stop = origin + bL * rayQueryGetIntersectionTEXT(bq, true);
+					u_LampProbe.Values[56] = stop.x;
+					u_LampProbe.Values[57] = stop.y;
+					u_LampProbe.Values[58] = stop.z;
+				}
+				// The same ray, confirming nothing: only instances the
+				// structure itself calls opaque can stop it.
+				rayQueryEXT sq;
+				rayQueryInitializeEXT(sq, u_SceneAS,
+									  RV_RAY_BASE_FLAGS | gl_RayFlagsTerminateOnFirstHitEXT,
+									  RV_RAY_MASK_SCENE, origin, 0.0, bL, bt);
+				while (rayQueryProceedEXT(sq)) {}
+				u_LampProbe.Values[47] = rayQueryGetIntersectionTypeEXT(sq, true)
+									   != gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
+			}
+		}
+		// Where this pass believes it is standing, and the two controlled
+		// retraces beside it.
+		u_LampProbe.Values[73] = texelFetch(u_WaterPositionIn, mineTexel, 0).w;
+		u_LampProbe.Values[48] = p.Position.x;
+		u_LampProbe.Values[49] = p.Position.y;
+		u_LampProbe.Values[50] = p.Position.z;
+		u_LampProbe.Values[51] = p.N.x;
+		u_LampProbe.Values[52] = p.N.y;
+		u_LampProbe.Values[53] = p.N.z;
+		u_LampProbe.Values[54] = dot(walkFlat, kLum);
+		u_LampProbe.Values[55] = dot(walkLifted, kLum);
 		// slots 30 and 31 belong to the choose pass; left alone here.
 	}
+
+	// **The sea's own shadow rays, into the frame's counters.** They were cast
+	// and tallied in the register all along and then dropped on the floor,
+	// because the flush stands at the end of the lit shader's main and
+	// RV_TRACE_ONLY compiles that out -- so every ray figure taken for this
+	// path since it was built is missing the water's share. `false`: the water
+	// draw already counts this pixel as a lit fragment, and counting it twice
+	// would halve every per-fragment figure in the report.
+#ifdef RV_RAY_COUNTERS
+	FlushRayCounters(false);
+#endif
 }

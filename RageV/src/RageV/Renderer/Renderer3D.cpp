@@ -2854,9 +2854,19 @@ namespace RageV
 				surface.ColorFormats = { Format::R32G32B32A32_SFLOAT,
 										 Format::R16G16B16A16_SFLOAT,
 										 Format::R32G32B32A32_SFLOAT };
+				// Matches the target above, which is single-sampled on purpose.
+				surface.Samples = 1;
 				surface.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque,
 											   BlendPreset::Opaque };
-				surface.DepthStencil.DepthWriteEnable = false;
+				// **Written, on a depth of this pass's own** (2026-09-04). The
+				// sea covers itself where it is seen edge on, and without a
+				// write the fragment that survives is the last rasterised
+				// rather than the nearest -- measured three to five deep at
+				// 400 m, and the lamps chosen for the wrong one. The scene's
+				// depth is not the one being written: the frame graph gives
+				// this pass its own, so the water draw's own fragments still
+				// pass their test afterwards.
+				surface.DepthStencil.DepthWriteEnable = true;
 				s_Data->WaterSurfacePipeline = s_Data->Device->CreatePipeline(surface);
 			}
 			else
@@ -5214,6 +5224,17 @@ namespace RageV
 									 s_Data->WaterClampSampler);
 				waterSet->SetTexture(6, lamps ? s_Data->WaterLampSpecular : black,
 									 s_Data->WaterClampSampler);
+				// The lamp probe, so this draw can answer the passes' question.
+				if (!s_Data->LampProbe)
+				{
+					BufferDesc probeDesc;
+					probeDesc.Size = 80 * sizeof(float);
+					probeDesc.Usage = BufferUsage::Storage | BufferUsage::TransferSrc;
+					probeDesc.Memory = MemoryDomain::DeviceLocal;
+					probeDesc.DebugName = "Renderer3D.lampProbe";
+					s_Data->LampProbe = s_Data->Device->CreateBuffer(probeDesc);
+				}
+				waterSet->SetStorageBuffer(7, s_Data->LampProbe);
 				waterSet->Commit();
 				cmd->BindResourceSet(3, waterSet);
 
@@ -5290,8 +5311,10 @@ namespace RageV
 			Vec4 Probe{ 0.0f, 0.0f, 0.0f, 0.0f };
 		};
 
-		// Thirty-two floats, the same slots the shader's comment names.
-		constexpr uint32_t kLampProbeFloats = 48;
+		// Fifty-six floats, the same slots the shader's comment names -- the
+		// last eight added when the passes reported every lamp blocked and
+		// nothing in the report could say from where.
+		constexpr uint32_t kLampProbeFloats = 80;
 		constexpr uint32_t kLampProbeBinding = 5;
 
 		void FillLampProbe(LampPushConstants& push)
@@ -5371,8 +5394,27 @@ namespace RageV
 			RV_CORE_INFO("  history merged: M {0}, W {1} -> confidence {2}; the shade pass "
 						 "read confidence {3}",
 						 v[37], v[38], v[39], v[43]);
-			RV_CORE_INFO("  neighbours: reuse flag {0}, {1} tried, {2} taken, slack {3} m",
+			RV_CORE_INFO("  neighbours: {0} taps, {1} tried, {2} taken, slack {3} m",
 						 v[42], v[40], v[41], v[44]);
+			RV_CORE_INFO("  standing at ({0}, {1}, {2}), normal ({3}, {4}, {5})",
+						 v[48], v[49], v[50], v[51], v[52], v[53]);
+			RV_CORE_INFO("  the same walk with a flat normal {0}, and from half a metre "
+						 "up {1}", v[54], v[55]);
+			RV_CORE_INFO("  the first survivor's ray: blocked at {0} m by instance {1}; "
+						 "confirming no cutout candidate, blocked = {2}",
+						 v[45], v[46], v[47]);
+			RV_CORE_INFO("  the blocker stands at ({0}, {1}, {2})", v[56], v[57], v[58]);
+			RV_CORE_INFO("  that position projects back to pixel ({0}, {1}); this pixel is "
+						 "({2}, {3})", v[59], v[60], v[28], v[29]);
+			RV_CORE_INFO("  every light in the scene, not just the cell's: {0} reach here, "
+						 "walk {1}, unshadowed {2}", v[61], v[62], v[63]);
+			RV_CORE_INFO("  THE WATER DRAW at the same pixel: shades from ({0}, {1}, {2}), "
+						 "{3} lamps reach it, {4} of them visible to its own ray",
+						 v[64], v[65], v[66], v[67], v[68]);
+			RV_CORE_INFO("  waterSpecular: the old loop's own {0}, the passes' {1} "
+						 "(their diffuse {2})", v[69], v[70], v[71]);
+			RV_CORE_INFO("  of those, actually traced visible here and now: {0}", v[72]);
+			RV_CORE_INFO("  water fragments covering this pixel: {0}", v[73]);
 		}
 	}
 
@@ -5414,9 +5456,19 @@ namespace RageV
 		push.PreviousViewProjection = motion.ViewProjection;
 		FillLampProbe(push);
 		FillLampFlip(push, *s_Data);
+		// **The two halves of the reuse, switched apart.** The choice kept
+		// across frames and the choice borrowed from a neighbour fail in
+		// different ways -- a wave retilts a patch between frames, and a
+		// neighbour twelve pixels off is a different part of a swell -- so one
+		// switch for both could only ever say that the pair cost the picture.
+		// History.z carries the number of taps now rather than a flag, so the
+		// ring's size is measurable too, and History.y the confidence cap.
+		const EngineConfig& lamps = EngineConfig::Get();
 		push.History.x = hasHistory && previousIndex && previousWeight
-					  && EngineConfig::Get().WaterLampReuse ? 1.0f : 0.0f;
-		push.History.z = EngineConfig::Get().WaterLampReuse ? 1.0f : 0.0f;
+					  && lamps.WaterLampReuse && lamps.WaterLampHistory ? 1.0f : 0.0f;
+		push.History.y = (float)lamps.WaterLampCap;
+		push.History.z = lamps.WaterLampReuse && lamps.WaterLampNeighbours
+					   ? (float)lamps.WaterLampTaps : 0.0f;
 		// And this frame's camera becomes the next one's answer to "where was
 		// this point on screen". Recorded here rather than by the graph
 		// because a history of choices belongs to its chain, and the editor
@@ -5464,7 +5516,10 @@ namespace RageV
 		slot.LampShadeInputs->Commit();
 
 		LampPushConstants push;
-		push.History.z = EngineConfig::Get().WaterLampReuse ? 1.0f : 0.0f;
+		const EngineConfig& lamps = EngineConfig::Get();
+		push.History.y = (float)lamps.WaterLampCap;
+		push.History.z = lamps.WaterLampReuse && lamps.WaterLampNeighbours
+					   ? (float)lamps.WaterLampTaps : 0.0f;
 		FillLampProbe(push);
 		FillLampFlip(push, *s_Data);
 

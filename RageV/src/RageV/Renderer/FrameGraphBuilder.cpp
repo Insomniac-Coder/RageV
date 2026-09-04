@@ -490,22 +490,51 @@ namespace RageV
 		// exactly what it was -- the lesson the indirect attachment's own
 		// comment records -- and no pipeline but the surface pass's names
 		// them, so no other renderer has to learn a new count.
-		uint32_t waterSurfaceIndex = 0;
-		uint32_t waterMaterialIndex = 0;
-		uint32_t waterPositionIndex = 0;
-		if (wantTransparent && desc.DrawWaterSurface)
-		{
-			waterSurfaceIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
-			sceneDesc.ExtraColors.push_back(Format::R32G32B32A32_SFLOAT);
-			waterMaterialIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
-			sceneDesc.ExtraColors.push_back(Format::R16G16B16A16_SFLOAT);
-			// Full floats for the position: the sea is a kilometre wide here
-			// and a half's step at that distance is half a metre.
-			waterPositionIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
-			sceneDesc.ExtraColors.push_back(Format::R32G32B32A32_SFLOAT);
-		}
+		// **A target of its own, and the depth is the whole reason** (measured
+		// 2026-09-04). These three began as attachments appended to the scene
+		// target, which made them share its depth -- tested against the opaque
+		// scene and never written, because writing there would make the water
+		// pass's own fragments fail their test afterwards. But a sea seen
+		// nearly edge on covers itself: at 400 m on the Glitter camera three
+		// to five water fragments land on one pixel, all of them in front of
+		// the opaque scene and so all of them passing. With no depth write and
+		// no blending the survivor is whichever was rasterised last, not the
+		// nearest -- a probed pixel there stood 29 m from the water the draw
+		// actually shows, with different lamps visible, and the brightest band
+		// of the sea came out at a tenth of its brightness.
+		//
+		// With a depth of their own, cleared and written, the nearest fragment
+		// wins. What that depth cannot do is reject water behind the pier, so
+		// the surface shader does that itself, against the backdrop's own view
+		// depth -- which this pass already samples for the refraction.
+		const bool wantWaterSurface = wantTransparent && desc.DrawWaterSurface;
 
 		const RGResource sceneHDR = graph.CreateTarget(sceneDesc);
+
+		RGResource waterSurface = kRGInvalid;
+		if (wantWaterSurface)
+		{
+			RGTargetDesc surfaceDesc;
+			surfaceDesc.Name = "WaterSurface";
+			// The normal's two horizontal components with the roughness and
+			// the wind angle; the colour with the specular dial; and the world
+			// position in full floats, because the sea is a kilometre wide
+			// here and a half's step at that distance is half a metre.
+			surfaceDesc.Color = Format::R32G32B32A32_SFLOAT;
+			surfaceDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT,
+										Format::R32G32B32A32_SFLOAT };
+			surfaceDesc.Depth = Format::D32_SFLOAT;
+			surfaceDesc.Scale = sceneDesc.Scale;
+			// **One sample, whatever the scene uses.** This target holds a
+			// description of the sea, not a picture of it, and everything that
+			// reads it is a fullscreen pass working one sample to a pixel. A
+			// multisampled copy would cost a 1440p D32 and three float
+			// attachments times the sample count, resolve them all, and hand
+			// the readers back exactly what one sample would have given:
+			// measured at 7 ms of the Glitter frame, a fifth of it.
+			surfaceDesc.Samples = 1;
+			waterSurface = graph.CreateTarget(surfaceDesc);
+		}
 
 		// The sub-pixel offset this frame is drawn with, in the scene target's
 		// own pixels -- which are the supersampled ones when SSAA is on, not
@@ -1021,20 +1050,23 @@ namespace RageV
 			// colour gradient reads the depth behind the water to know how deep
 			// it is; before the transparent pass, because the pass that shades
 			// the sea's lamps sits between the two.
-			if (waterSurfaceIndex != 0)
+			if (waterSurface != kRGInvalid)
 			{
 				graph.AddPass("WaterSurface",
 					[&](RGPassBuilder& builder)
 					{
-						builder.WriteAttachments(sceneHDR,
-							{ { waterSurfaceIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
-							  { waterMaterialIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
-							  { waterPositionIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
-						// The opaque scene's depth, tested and not written:
-						// water behind the pier writes no surface, and the
-						// transparent pass's own fragments must still pass
-						// their depth test after this one has run.
-						builder.PreserveDepth();
+						// Its own colour and its own depth, both cleared: the
+						// depth is what makes the nearest of several water
+						// fragments on one pixel the one that survives.
+						builder.Write(waterSurface);
+						// **Cleared to nothing, alpha included.** The position
+						// attachment's w is the mask that says a wave was drawn
+						// here, and the graph's default clear has alpha one --
+						// which reads as valid water on every pixel of the
+						// screen and put the two lamp passes over the whole
+						// frame instead of over the sea. Measured: the choose
+						// pass 3.8 ms to 7.6.
+						builder.SetClearColor(Vec4(0.0f, 0.0f, 0.0f, 0.0f));
 						if (waterBackdrop != kRGInvalid)
 							builder.Sample(waterBackdrop);
 					},
@@ -1058,7 +1090,7 @@ namespace RageV
 			RGResource waterLamps = kRGInvalid;
 			// Only where lamps are being sampled at all, and only where the
 			// run did not ask for the sampler inside the water shader instead.
-			if (waterSurfaceIndex != 0 && desc.WaterReservoirs
+			if (waterSurface != kRGInvalid && desc.WaterReservoirs
 				&& EngineConfig::Get().LightSampling > 0
 				&& EngineConfig::Get().WaterLampPass)
 			{
@@ -1086,16 +1118,15 @@ namespace RageV
 						{
 							builder.Write(newChoices);
 							builder.Sample(pastChoices);
-							builder.Sample(sceneHDR);
+							builder.Sample(waterSurface);
 							builder.DisableDepth();
 						},
-						[sceneHDR, pastChoices, waterSurfaceIndex, waterMaterialIndex,
-						 waterPositionIndex, &choices](RGPassContext& context)
+						[waterSurface, pastChoices, &choices](RGPassContext& context)
 						{
 							Renderer3D::ChooseWaterLamps(
-								context.Color(sceneHDR, waterSurfaceIndex),
-								context.Color(sceneHDR, waterMaterialIndex),
-								context.Color(sceneHDR, waterPositionIndex),
+								context.Color(waterSurface, 0),
+								context.Color(waterSurface, 1),
+								context.Color(waterSurface, 2),
 								context.Color(pastChoices, 0),
 								context.Color(pastChoices, 1),
 								choices.Motion(), choices.HasHistory());
@@ -1114,16 +1145,15 @@ namespace RageV
 						{
 							builder.Write(waterLamps);
 							builder.Sample(newChoices);
-							builder.Sample(sceneHDR);
+							builder.Sample(waterSurface);
 							builder.DisableDepth();
 						},
-						[sceneHDR, newChoices, waterSurfaceIndex, waterMaterialIndex,
-						 waterPositionIndex](RGPassContext& context)
+						[waterSurface, newChoices](RGPassContext& context)
 						{
 							Renderer3D::ShadeWaterLamps(
-								context.Color(sceneHDR, waterSurfaceIndex),
-								context.Color(sceneHDR, waterMaterialIndex),
-								context.Color(sceneHDR, waterPositionIndex),
+								context.Color(waterSurface, 0),
+								context.Color(waterSurface, 1),
+								context.Color(waterSurface, 2),
 								context.Color(newChoices, 0),
 								context.Color(newChoices, 1));
 						});

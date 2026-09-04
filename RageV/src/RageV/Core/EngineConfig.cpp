@@ -398,6 +398,44 @@ namespace RageV
 		if (key == "water-lamp-reuse" || key == "waterlampreuse")
 			return ParseBool(value, config.WaterLampReuse);
 
+		if (key == "water-lamp-history" || key == "waterlamphistory")
+			return ParseBool(value, config.WaterLampHistory);
+
+		if (key == "water-lamp-neighbours" || key == "waterlampneighbours"
+			|| key == "water-lamp-neighbors")
+			return ParseBool(value, config.WaterLampNeighbours);
+
+		if (key == "water-lamp-tuning" || key == "waterlamptuning")
+		{
+			std::string taps = value;
+			const size_t comma = value.find(',');
+			if (comma != std::string::npos)
+			{
+				taps = value.substr(0, comma);
+				try
+				{
+					config.WaterLampCap = Math::Clamp(std::stoi(value.substr(comma + 1)), 1, 64);
+				}
+				catch (const std::exception&)
+				{
+					RV_CORE_WARN("water-lamp-tuning's cap is a whole number from 1 to 64; "
+								 "got '{0}'", value);
+					return false;
+				}
+			}
+			try
+			{
+				config.WaterLampTaps = Math::Clamp(std::stoi(taps), 0, 8);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("water-lamp-tuning expects taps[,cap], taps from 0 to 8; "
+							 "got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
 		if (key == "lamp-probe" || key == "lampprobe")
 		{
 			const size_t comma = value.find(',');

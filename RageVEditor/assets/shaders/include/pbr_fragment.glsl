@@ -878,6 +878,18 @@ layout(set = 3, binding = 4) uniform sampler2D u_WaterFoamPattern;
 // it reflected before the light ever entered the water.
 layout(set = 3, binding = 5) uniform sampler2D u_WaterLampDiffuse;
 layout(set = 3, binding = 6) uniform sampler2D u_WaterLampSpecular;
+#if !defined(RV_WATER_SURFACE)
+// **The lamp probe, on the water draw's own set** (2026-09-04). The passes and
+// this draw disagree about whether a lamp is visible from the same pixel, and
+// every argument about why has been wrong; so the draw answers the same
+// question into the same buffer and the two are read side by side. The pixel
+// is not plumbed in -- the shade pass wrote its own coordinate into slots 28
+// and 29, and this reads it from there.
+layout(std430, set = 3, binding = 7) buffer WaterProbeBlock
+{
+	float Values[];
+} u_WaterProbe;
+#endif
 #endif
 
 #if defined(RV_WATER_SURFACE)
@@ -3897,6 +3909,17 @@ void main()
 	vec3 F0 = mix(vec3(0.08 * clamp(surface.Specular, 0.0, 1.0)), albedo, metallic);
 
 #ifdef RV_WATER_SURFACE
+	// **What the shared depth used to do.** This pass writes into a depth of
+	// its own now, so it can keep the nearest of the several water fragments
+	// that land on one pixel where the sea is seen edge on; the price is that
+	// its depth no longer holds the opaque scene, and water behind the pier
+	// would write a surface. The backdrop's view depth is already read above
+	// for the refraction, and the thickness it produced is zero exactly where
+	// this fragment is at or behind it -- which is the test the shared depth
+	// buffer was making.
+	if (waterFlags != 0.0 && waterThickness <= 0.0)
+		discard;
+
 	// **The cut.** Everything above is the surface: the wave normal with its
 	// detail ripples, the roughness the footprint block widened with distance,
 	// the foam, and the colour the depth gradient chose. Everything below is
@@ -4334,6 +4357,16 @@ void main()
 	}
 #endif
 
+	// **The one pixel under the microscope walks the lamps anyway** (2026-09-04),
+	// so the specular this loop builds can be read beside the one the passes
+	// built for the same pixel, in the same frame. One pixel, so the cost and
+	// the double count are both irrelevant; the numbers are the point.
+#if defined(RV_WATER) && !defined(RV_WATER_SURFACE)
+	const bool probePixel = u_WaterProbe.Values[29] > 0.0
+						 && abs(gl_FragCoord.x - u_WaterProbe.Values[28]) < 0.5
+						 && abs(gl_FragCoord.y - u_WaterProbe.Values[29]) < 0.5;
+#endif
+
 	// `entry`, not `slot`: the loop body already has a `slot`, which is the
 	// shadow map this light was given.
 	for (int entry = 0; entry < total; ++entry)
@@ -4342,7 +4375,11 @@ void main()
 		// WR-16 S4b: chosen, shaded and traced in their own passes, and added
 		// once below. Nothing positional is walked here at all -- not the
 		// eighty-byte record, not the term, not a ray.
+#if defined(RV_WATER_SURFACE)
 		if (v_WaterLamps.x != 0.0 && entry >= directionalCount)
+#else
+		if (v_WaterLamps.x != 0.0 && entry >= directionalCount && !probePixel)
+#endif
 			continue;
 #endif
 		const bool survivor = sampled && entry >= directionalCount;
@@ -4767,6 +4804,36 @@ void main()
 								 v_WorldPos, N);
 #endif
 
+#if defined(RV_WATER) && !defined(RV_WATER_SURFACE)
+		// The same pixel the lamp passes probed, answered by this draw: where
+		// it shades from, how many positional lamps reach it, and how many of
+		// those its own shadow ray finds visible.
+		if (u_WaterProbe.Values[29] > 0.0
+			&& abs(gl_FragCoord.x - u_WaterProbe.Values[28]) < 0.5
+			&& abs(gl_FragCoord.y - u_WaterProbe.Values[29]) < 0.5)
+		{
+			u_WaterProbe.Values[64] = v_WorldPos.x;
+			u_WaterProbe.Values[65] = v_WorldPos.y;
+			u_WaterProbe.Values[66] = v_WorldPos.z;
+			if (kind != 1 && attenuation > 0.0 && NdotL > 0.0)
+			{
+				u_WaterProbe.Values[67] += 1.0;
+				if (shadow > 0.5)
+					u_WaterProbe.Values[68] += 1.0;
+				// **And the same lamp traced here and now**, so a `shadow` of
+				// one that came from a skipped ray is told apart from a ray
+				// that actually reached the lamp.
+#ifdef RV_RAY_SHADOWS
+				const float fresh = TraceShadowSoft(v_WorldPos, L,
+									length(light.Position.xyz - v_WorldPos),
+									light.Direction.w, uint(i));
+				if (fresh > 0.5)
+					u_WaterProbe.Values[72] += 1.0;
+#endif
+			}
+		}
+#endif
+
 		// **The wrap applies to the diffuse and not the specular.** Light that
 		// entered the surface and came back out has forgotten which way it
 		// arrived; light that bounced off the surface has not. Wrapping both
@@ -4842,6 +4909,17 @@ void main()
 		const vec2 lampUv = gl_FragCoord.xy / vec2(textureSize(u_WaterLampDiffuse, 0));
 		const vec3 lampDiffuse = textureLod(u_WaterLampDiffuse, lampUv, 0.0).rgb;
 		const vec3 lampSpecular = textureLod(u_WaterLampSpecular, lampUv, 0.0).rgb;
+#if !defined(RV_WATER_SURFACE)
+		if (probePixel)
+		{
+			const vec3 kLum = vec3(0.2126, 0.7152, 0.0722);
+			// What this loop built for itself, before anything is added.
+			u_WaterProbe.Values[69] = dot(waterSpecular, kLum);
+			// What the passes built for the same pixel.
+			u_WaterProbe.Values[70] = dot(lampSpecular, kLum);
+			u_WaterProbe.Values[71] = dot(lampDiffuse, kLum);
+		}
+#endif
 		Lo += lampDiffuse + lampSpecular;
 		waterSpecular += lampSpecular;
 	}
