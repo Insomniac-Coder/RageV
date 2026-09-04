@@ -2666,7 +2666,9 @@ lighting hash keys on the baked lights' parameters (`Scene::FieldBakePath`).
    protocol under no AA, MSAA and TAA (`check_glint_flicker.py`), and the
    eight-camera table.
 4. Every reduction holds still without a temporal filter and integrates
-   with one (WR-15's rule, owner's constraint).
+   with one (WR-15's rule, owner's constraint). *Read with Part IV E: the constraint is no flicker under any AA, judged
+   by the protocol; a consumer may carry its own history in every mode, as
+   the GI denoiser does.*
 5. The largest cost first: the light walk at hits, before any budgeting.
 6. Baked and realtime alike: with GI baked its demand is zero and nothing
    idles at a level chosen for a load that is not there.
@@ -2835,7 +2837,12 @@ like every other history in this engine. **Without a temporal filter
 (`u_Scene.Jitter == 0`) temporal reuse is off** and the estimator is
 per-frame RIS + spatial reuse with the fixed dither seeding candidates —
 noisier, still unbiased, still holding still. That is what makes B admissible
-under the owner's rule at all.
+under the owner's rule at all. **[Amended 2026-09-03, see Part IV decision E: the
+constraint as the owner stated it is "the flickering issue fix should work
+no matter what AA technique is picked" -- no flicker under any AA -- not
+"no accumulation without TAA". ReSTIR keeps its own reprojected reservoir
+history in every AA mode, as the GI denoiser keeps its own; the flicker
+protocol under the three modes is the judge.]**
 
 **Selection.** The preset chooses: Off and Quality use A (Quality's 300/600
 is free by the bar); Balanced and Performance use B when the flicker
@@ -3276,20 +3283,36 @@ within 5% of the isolation runs, bit-identical picture.
 - **E. The order, decided:** counters first; then the one-day pre-check --
   a fixed 1, 2, 4 and 8 shadow rays per pixel spread by importance over
   the pixel's lamps, on the water and the deck, under no AA, MSAA and TAA,
-  diffed against the baseline -- and *then* the choice between the
-  allocator-and-controller route and the ReSTIR route, with the numbers in
-  hand. The cheap light walk (B) is independent and can run beside either.
-  The reasoning is in the handoff's WR-16 note: the allocator and the
-  controller can spread rays and lower counts, but only sampling can take
-  a water pixel from 146 shadow rays to a few, and the pre-check says in a
-  day whether that holds on this scene before three weeks go into it.
+  diffed against the baseline. The allocator and the controller are the
+  budget and are built regardless; ReSTIR is one way of *spending* the
+  shadow part of that budget, thinning (WR-17, shipped) is the other, and
+  the two sit behind one interface (Part III §4.3.3). **The constraint on
+  ReSTIR is the owner's actual one -- "the flickering issue fix should work
+  no matter what AA technique is picked" -- not the stricter reading Part
+  III gave it.** ReSTIR keeps its own reprojected reservoir history and its
+  spatial reuse in every AA mode, exactly as the GI denoiser keeps its own
+  history under no AA today and holds still; the flicker protocol under the
+  three modes judges it, as it judges everything else. So the pre-check is
+  **not a veto**. It is the raw floor -- what a few lamps per pixel look
+  like before any averaging -- and it does two jobs in a day: it sizes the
+  ray count (does 4 do, or 8), and it catches *bias*: groups of far lamps
+  whose shadows are structurally missing at 8 rays even in the frame
+  average, the failure the Share shape had. **ReSTIR is built unless the
+  pre-check shows that bias**; the go/no-go on the built thing is Part III
+  §7 M4's own acceptance -- the weights fixture, the flicker protocol, and
+  beating thinning at the same cost -- and if it fails those, thinning
+  stays the spender and the plan says so. The cheap light walk (B) is
+  independent of all of this.
 
 #### The sequence, as it will be built
 
 | step | what | days | accept |
 |---|---|---|---|
 | S0 | instrumentation: `RHIDevice::ReadBuffer`, the counter SSBO at set 0 binding 21, the four increments, the rays / lights-per-pixel / confidence lines in the report and the HUD, the calibration runs (`--hit-lights=off`, `--shadow-rays=off`, `--ray-rate`, the light-count sweep), the validity lane in `o_Moments.w`, `--debug-view=rays|lights|confidence|importance`, `bench_night.py --label wr16-before` | 1–2 | counters within 5% of the isolation runs; bit-identical picture |
-| S1 | the pre-check: fixed 1 / 2 / 4 / 8 shadow rays per pixel by importance, no reuse, three AA modes, three cameras, diff images and the flicker count | 1 | a written verdict: which per-pixel budget holds the water and the deck, and therefore which route is taken |
-| S2 | the hit walk: 16-byte light records at hits and the per-cell live-lamp bit; independent of S1's verdict | 1–2 | diff of zero; the water pass's hit share measured before and after |
-| S3 | the route S1 chose -- Part III §7 M2+M3 (allocator widened, controller with per-type pressure under the preset's target) or M4 (ReSTIR DI behind the shadow interface, with M2's per-tile lanes it needs) -- with Part III's acceptance tests, against the S0 baseline | as §7 | as §7 |
-| S4 | the other route only if S3 leaves the frame over the preset's target | as §7 | as §7 |
+| S1 | the pre-check: fixed 1 / 2 / 4 / 8 shadow rays per pixel by importance, no reuse, three AA modes, three cameras, diff images and the flicker count | 1 | a written verdict: the ray count to build for (4 or 8), and whether any lamp group's shadow is structurally missing at 8 (bias) -- the one finding that stops ReSTIR before it is built |
+| S2 | the cheap hit walk: 16-byte light records at hits and the per-cell live-lamp bit; independent of S1's verdict, can run beside anything | 1–2 | diff of zero; the water pass's hit share measured before and after |
+| S3 | **the budget, always built:** the allocator widened to eight lanes (Part III §4.2 and §7 M2 -- AO, GI, the water's rate, the shadow-ray ceiling, the per-pixel shadow count; importance from inputs, 3x3 smoothed, variance as one arm behind the dead band; dead band and dwell), then the controller (§4.1 and §7 M3 -- pressure per ray type from the preset's total ray-time target, shares between types, `GetRayScale()` and the mode dial retired) | 5–7 | §7 M2 and M3's tests against the S0 baseline: the sixty-second still test, the flicker protocol, the diff within 0.5% over 2 levels, the eight cameras within 10% of the preset's target where reachable |
+| S4 | **the shadow spender: ReSTIR DI** behind the interface of §4.3.3, with its own reprojected reservoir history and spatial reuse in every AA mode, reading its per-pixel count from S3's lane (§7 M4) -- built unless S1 found bias | 10–15 | §7 M4's tests: the weights fixture within 1% per light, the flicker protocol under no AA / MSAA / TAA, Balanced's cost with a diff under Quality's; if it fails them or does not beat thinning at the same cost, thinning stays the spender and the plan says so |
+
+Later, optional: the direct-light field's highlight half (§7 M5), and the
+steel's mirror rate (§4.3.4).

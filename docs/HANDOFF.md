@@ -4,12 +4,25 @@
 
 **2026-09-03: the static / moving split, Hybrid Full Bake, the bigger
 boxes and the packed atlas are built, tested, applied, committed and
-pushed** -- `f9aa11e` (the engine, every scene marked, the docs) and
-`c4d1edf` (the bridge's lamps and boxes, its bake, the generator), on the
-owner's word, the second push not done by the owner's own hand. The
-evening's start-here is the first section below (the numbers), the
-morning's the second (the flag), and the fourth session's entry after them
-is still the map of everything else.
+pushed** -- `f9aa11e` (the engine, every scene marked, the docs),
+`c4d1edf` (the bridge's lamps and boxes, its bake, the generator),
+`b9b54a7` and `8c89119` (handoff; WR-16 as one document), all pushed on
+the owner's word. **Late on 2026-09-03 three documents were corrected and
+left uncommitted when the owner cleared context**: `RAY-BUDGET-DESIGN.md`,
+`NEXT.md` and this file -- the correction is the stretched flicker rule
+(below, "WR-16, prepared and decided"). `git status` will show the three;
+commit them first. The evening's start-here is the first section below
+(the numbers), the morning's the second (the flag), and the fourth
+session's entry after them is still the map of everything else.
+
+**Where to start cold: WR-16 step S0**, Part IV of `docs/RAY-BUDGET-DESIGN.md`
+-- counters, calibration, debug views, a fresh baseline on the Hybrid
+bridge. Then the one-day test (S1), which the owner calls what it is: the
+gate. If a few importance-chosen lamps per pixel cannot reproduce the
+water's lamp shadows even averaged over frames, the ReSTIR route is
+dropped and thinning stays the shadow spender under the budget; if they
+can, ReSTIR is built after the budget (S3) as its shadow spender (S4). The
+hit walk (S2) is independent.
 
 **On `main` now, and pushed.** The 2026-09-02 session worked on `main` and
 pushed four commits to it, ending at **`bd7f813`**. The paragraph that used
@@ -129,12 +142,28 @@ nothing at a hit (compact record and per-cell live-lamp bit); the
 controller targets the total ray-traced time under the RT optimisation
 preset and the Off / Absolute / Fractional dial is retired; the water's
 rays are inside the budget; and the order is **counters (S0) → the one-day
-fixed-budget pre-check on the water (S1) → choose the route** --
-allocator-and-controller or ReSTIR -- with the cheap hit walk (S2)
-independent. The reasoning the owner asked for: the allocator and the
-controller can spread rays and lower counts, but only sampling takes a
-water pixel from 146 shadow rays to a few, and the pre-check says in a day
-whether that holds here before three weeks are spent. Start at S0.
+fixed-budget pre-check on the water (S1) → the cheap hit walk (S2) → the
+budget, allocator then controller, always (S3) → ReSTIR as the shadow
+spender (S4)**, built unless the pre-check finds lamp groups whose shadows
+are structurally missing at 8 rays, and judged once built by §7 M4's tests
+-- the flicker protocol under all three AA modes among them. **The owner
+corrected a stretched rule tonight:** their constraint is "the flickering
+fix should work no matter what AA technique is picked", not "no
+accumulation without TAA"; ReSTIR keeps its own history in every AA mode as
+the GI denoiser does. The reasoning for the order: the budget can spread
+rays and lower counts, but only sampling takes a water pixel from 146
+shadow rays to a few; the pre-check sizes that and catches bias in a day.
+**The owner's own reading of S1, which is the one to keep:** it is the gate
+-- if the one-day test does not work, the ReSTIR route goes; nothing
+subtler than that. Start at S0.
+
+**How the evening's conversation went, for whoever explains WR-16 next:**
+four rounds of confusion came from my framing "allocator-and-controller
+route versus ReSTIR route" -- they are not alternatives; the budget is
+always built and ReSTIR is one way of spending its shadow lane -- and one
+more from stretching the owner's flicker rule into "no accumulation
+without TAA". Say: the budget always; ReSTIR if the gate passes; judged
+by the flicker protocol under every AA like everything else.
 
 ### Traps this evening paid for
 

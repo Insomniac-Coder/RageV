@@ -106,8 +106,11 @@ eight cameras**, Hybrid costing 3% over pure Full bake. HANDOFF's evening
 entry has the table and the two fast-because-wrong traps it took to get an
 honest number. **Next is WR-16, decided and sequenced:**
 `RAY-BUDGET-DESIGN.md` is one document in four parts now; Part IV has the
-review, the owner's decisions and the order -- counters, then the one-day
-fixed-budget pre-check on the water, then the route. Start at S0.
+review, the owner's decisions and the order -- counters, the one-day
+fixed-budget pre-check on the water, the cheap hit walk, the budget
+(allocator then controller, always), and ReSTIR as the shadow spender,
+built unless the pre-check finds structural bias and judged by the flicker
+protocol under every AA. Start at S0.
 
 ## The order
 
