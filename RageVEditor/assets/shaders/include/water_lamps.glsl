@@ -176,10 +176,19 @@ float ScoreLamp(WaterPoint p, uint index, out vec3 L, out float NdotL)
 	const bool hasStreak = viewT2 > 1.0e-6;
 	viewT = hasStreak ? viewT * inversesqrt(max(viewT2, 1.0e-12)) : windT;
 	const vec3 viewB = hasStreak ? cross(p.N, viewT) : windB;
-	const float ax0 = max(p.Roughness * 1.16, 0.02);
-	const float ay0 = max(p.Roughness * 0.86, 0.02);
 	const float NdotV = max(dot(p.N, p.V), 1.0e-3);
 	const float angular = light.Direction.w * inversesqrt(max(distance2, 1.0e-8));
+	// **The lamp's size widens the slope before the lobe is built**, which
+	// is what the shading does and what the score has to do with it. A
+	// score built on the unwidened slope calls a lamp a little off the
+	// mirror direction dim, while the shading finds it bright: the sampler
+	// then picks it rarely and pays it an enormous weight when it does,
+	// and a four-sample estimate of a heavy tail reads dark however
+	// unbiased it is in the limit.
+	const float widened = light.Direction.w > 0.0
+						? min(p.Roughness + 0.5 * angular, 1.0) : p.Roughness;
+	const float ax0 = max(widened * 1.16, 0.02);
+	const float ay0 = max(widened * 0.86, 0.02);
 
 	float ndf, ndfScale, g;
 	if (light.Direction.w > 0.0 && hasStreak)
@@ -193,11 +202,10 @@ float ScoreLamp(WaterPoint p, uint index, out vec3 L, out float NdotL)
 	}
 	else
 	{
-		const float widened = min(p.Roughness + 0.5 * angular, 1.0);
 		ndfScale = (p.Roughness * p.Roughness) / max(widened * widened, 1.0e-12);
 		ndf = WaterBeckmannD(H, p.N, windT, windB, widened);
-		g = WaterBeckmannG1(p.V, p.N, windT, windB, p.Roughness)
-		  * WaterBeckmannG1(L, p.N, windT, windB, p.Roughness);
+		g = WaterBeckmannG1(p.V, p.N, windT, windB, widened)
+		  * WaterBeckmannG1(L, p.N, windT, windB, widened);
 	}
 	score += lum * ndf * ndfScale * g * fresnel * 0.25 / NdotV;
 	return max(score, 1.0e-9);
