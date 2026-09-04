@@ -50,6 +50,7 @@ void main()
 
 	const WaterPoint p = FetchWaterPoint(v_UV);
 	const int K = LampBudget();
+	float sweptTotal = 0.0;
 	if (p.Valid && K > 0)
 	{
 		const uvec2 px = uvec2(gl_FragCoord.xy);
@@ -96,6 +97,7 @@ void main()
 		// One over the chance this lamp had of being kept: the cell's whole
 		// weight over its own. One sweep stands behind it, so the confidence
 		// is a single frame.
+		sweptTotal = total;
 		for (int r = 0; r < K; ++r)
 		{
 			if (target[r] > 0.0)
@@ -117,8 +119,13 @@ void main()
 				const vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
 				if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0))))
 				{
-					const uvec4 pastIndex = textureLod(u_ReservoirIndex, uv, 0.0);
-					const uvec4 pastWeight = textureLod(u_ReservoirWeight, uv, 0.0);
+					// By texel, for the reason the shade pass records: a
+					// choice is not a thing to address in normalised
+					// coordinates.
+					const ivec2 pastTexel =
+						ivec2(uv * vec2(textureSize(u_WaterPositionIn, 0)));
+					const uvec4 pastIndex = texelFetch(u_ReservoirIndex, pastTexel, 0);
+					const uvec4 pastWeight = texelFetch(u_ReservoirWeight, pastTexel, 0);
 					const uint cap = uint(max(u_Lamps.History.y, 1.0));
 					for (int r = 0; r < K; ++r)
 					{
@@ -169,6 +176,16 @@ void main()
 				}
 			}
 		}
+	}
+
+	// The sum this pixel actually swept, for the microscope: the shade pass
+	// recomputes it in slot 27 and the two have to agree.
+	if (LampProbeHere())
+	{
+		u_LampProbe.Values[1] = sweptTotal;
+		// What this pass actually wrote, before anything reads it back.
+		u_LampProbe.Values[30] = weight[0];
+		u_LampProbe.Values[31] = float(index[0]);
 	}
 
 	o_ReservoirIndex = PackReservoirIndices(index, frames);

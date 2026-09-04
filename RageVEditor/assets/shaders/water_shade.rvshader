@@ -42,106 +42,6 @@ layout(location = 0) in vec2 v_UV;
 layout(location = 0) out vec4 o_LampDiffuse;
 layout(location = 1) out vec4 o_LampSpecular;
 
-// One lamp, shaded in full, in the order the lit shader does it: the sized
-// source's closest point for the half vector, the widening its angular size
-// adds to the slope, then the streak frame it turns the lobe into.
-void ShadeLamp(WaterPoint p, uint index, out vec3 diffuse, out vec3 specular,
-			   out vec3 L, out float toward)
-{
-	diffuse = vec3(0.0);
-	specular = vec3(0.0);
-	L = vec3(0.0, 1.0, 0.0);
-	toward = 0.0;
-
-	const GpuLight light = u_Lights.Lights[index];
-	const vec3 toLight = light.Position.xyz - p.Position;
-	const float distance2 = dot(toLight, toLight);
-	toward = sqrt(max(distance2, 1.0e-8));
-	L = toLight / toward;
-
-	const float range = max(light.Params.x, 0.0001);
-	const float t = distance2 / (range * range);
-	const float ratio = clamp(1.0 - t * t, 0.0, 1.0);
-	float attenuation = (ratio * ratio) / max(distance2, 0.0001);
-	if (light.Params.z < light.Params.y)
-	{
-		const float theta = dot(L, -light.Direction.xyz);
-		attenuation *= clamp((theta - light.Params.z)
-							 / max(light.Params.y - light.Params.z, 0.0001), 0.0, 1.0);
-	}
-	const float NdotL = max(dot(p.N, L), 0.0);
-	if (attenuation <= 0.0 || NdotL <= 0.0)
-	{
-		toward = 0.0;
-		return;
-	}
-
-	const vec3 radiance = light.Color.rgb * light.Color.a * attenuation;
-	const vec3 N = p.N;
-	const vec3 V = p.V;
-	const float NdotV = max(dot(N, V), 0.0);
-
-	// The half vector a sized source deserves: the point on the sphere
-	// closest to the mirror direction, not its centre.
-	vec3 H = normalize(V + L);
-	float specRoughness = p.Roughness;
-	float specScale = 1.0;
-	const float radius = light.Direction.w;
-	if (radius > 0.0)
-	{
-		const vec3 R = reflect(-V, N);
-		const vec3 centreToRay = dot(toLight, R) * R - toLight;
-		const vec3 closest = toLight + centreToRay *
-			clamp(radius * inversesqrt(max(dot(centreToRay, centreToRay), 1.0e-8)), 0.0, 1.0);
-		H = normalize(V + normalize(closest));
-
-		// Water's roughness is the RMS slope itself, so the angular radius
-		// adds to it directly.
-		const float angular = radius * inversesqrt(max(distance2, 1.0e-8));
-		const float widened = min(specRoughness + 0.5 * angular, 1.0);
-		specScale = (specRoughness * specRoughness) / max(widened * widened, 1.0e-12);
-		specRoughness = widened;
-	}
-
-	const vec3 windDir = vec3(cos(p.Wind), 0.0, sin(p.Wind));
-	const vec3 windT = normalize(windDir - N * dot(windDir, N));
-	const vec3 windB = cross(N, windT);
-
-	float NDF;
-	float G;
-	vec3 Tv = V - N * dot(V, N);
-	const float tv2 = dot(Tv, Tv);
-	if (radius > 0.0 && tv2 > 1.0e-6)
-	{
-		Tv *= inversesqrt(tv2);
-		const vec3 Bv = cross(N, Tv);
-		const float ax0 = max(specRoughness * 1.16, 0.02);
-		const float ay0 = max(specRoughness * 0.86, 0.02);
-		const float angular = radius * inversesqrt(max(distance2, 1.0e-8));
-		const float axS = min(ax0 * 3.0 + 4.0 * angular, 1.0);
-		const float ayS = min(ay0 + 0.5 * angular, 1.0);
-		specScale = sqrt((ax0 * ay0) / (axS * ayS));
-		NDF = WaterBeckmannDX(H, N, Tv, Bv, axS, ayS);
-		G   = WaterBeckmannG1X(V, N, Tv, Bv, ax0, ay0)
-			* WaterBeckmannG1X(L, N, Tv, Bv, ax0, ay0);
-	}
-	else
-	{
-		NDF = WaterBeckmannD(H, N, windT, windB, specRoughness);
-		G   = WaterBeckmannG1(V, N, windT, windB, specRoughness)
-			* WaterBeckmannG1(L, N, windT, windB, specRoughness);
-	}
-
-	const float f0 = 0.08 * clamp(p.Specular, 0.0, 1.0);
-	const float VdotH = max(dot(H, V), 0.0);
-	const vec3 F = vec3(f0 + (1.0 - f0) * pow(1.0 - VdotH, 5.0));
-	const vec3 spec = (NDF * G * F * specScale) / (4.0 * NdotV * NdotL + 0.0001);
-	const vec3 kD = vec3(1.0) - F;
-
-	diffuse = kD * p.Albedo / PI * NdotL * radiance;
-	specular = spec * NdotL * radiance;
-}
-
 void main()
 {
 	o_LampDiffuse = vec4(0.0);
@@ -152,8 +52,14 @@ void main()
 	if (!p.Valid || K == 0)
 		return;
 
-	const uvec4 mineIndex = textureLod(u_ReservoirIndex, v_UV, 0.0);
-	const uvec4 mineWeight = textureLod(u_ReservoirWeight, v_UV, 0.0);
+	// **By texel, never by coordinate.** A choice is a light's index and the
+	// weight the estimate divides by; neither is a thing to address in
+	// normalised coordinates. Read through a sampler this pass shaded the
+	// lamp its neighbour had chosen, with a weight computed for a third one,
+	// and the sea came out at a third of its light with no other symptom.
+	const ivec2 mineTexel = ivec2(gl_FragCoord.xy);
+	const uvec4 mineIndex = texelFetch(u_ReservoirIndex, mineTexel, 0);
+	const uvec4 mineWeight = texelFetch(u_ReservoirWeight, mineTexel, 0);
 
 	uint  index[4];
 	uint  frames[4];
@@ -205,8 +111,9 @@ void main()
 		if (distance(theirPosition.xyz, p.Position) > slack)
 			continue;
 
-		const uvec4 theirIndex = textureLod(u_ReservoirIndex, uv, 0.0);
-		const uvec4 theirWeight = textureLod(u_ReservoirWeight, uv, 0.0);
+		const ivec2 theirTexel = ivec2(uv * vec2(textureSize(u_WaterPositionIn, 0)));
+		const uvec4 theirIndex = texelFetch(u_ReservoirIndex, theirTexel, 0);
+		const uvec4 theirWeight = texelFetch(u_ReservoirWeight, theirTexel, 0);
 		for (int r = 0; r < K; ++r)
 		{
 			const Reservoir theirs = UnpackReservoir(theirIndex, theirWeight, uint(r));
@@ -272,4 +179,73 @@ void main()
 
 	o_LampDiffuse = vec4(diffuse, 1.0);
 	o_LampSpecular = vec4(specular, 1.0);
+
+	// **The one pixel under the microscope** (--lamp-probe=x,y). Everything
+	// the estimate turns on, beside the answer it should have produced. A
+	// picture cannot show a sum of scores.
+	if (LampProbeHere())
+	{
+		const vec3 kLum = vec3(0.2126, 0.7152, 0.0722);
+		const uint cell = WaterClusterCell(p.Position, v_UV);
+		const uint offset = u_Cells.Cells[cell].Offset;
+		const uint count = u_Cells.Cells[cell].Count;
+
+		float swept = 0.0;
+		float scoreSum = 0.0;
+		vec3 walk = vec3(0.0);
+		vec3 walkLit = vec3(0.0);
+		for (uint e = 0u; e < count; ++e)
+		{
+			const uint i = u_CellIndices.Indices[offset + e];
+			if (LampOutOfRange(i, p.Position))
+				continue;
+			vec3 sL;
+			float sN;
+			const float sc = ScoreLamp(p, i, sL, sN);
+			if (sN <= 0.0)
+				continue;
+			swept += 1.0;
+			scoreSum += sc;
+
+			vec3 wd, ws, wL;
+			float wt;
+			ShadeLamp(p, i, wd, ws, wL, wt);
+			if (wt <= 0.0)
+				continue;
+			walkLit += wd + ws;
+			const float vis = TraceShadowSoftFromMasked(p.Position, p.N, wL, wt,
+								u_Lights.Lights[i].Direction.w, i, RV_RAY_MASK_SCENE);
+			walk += (wd + ws) * vis;
+		}
+
+		u_LampProbe.Values[0] = swept;
+		u_LampProbe.Values[2] = float(count);
+		u_LampProbe.Values[3] = float(K);
+		for (int r = 0; r < 4; ++r)
+		{
+			u_LampProbe.Values[4 + r] = float(index[r]);
+			u_LampProbe.Values[8 + r] = target[r];
+			u_LampProbe.Values[12 + r] = weight[r];
+			u_LampProbe.Values[16 + r] = 0.0;
+			u_LampProbe.Values[20 + r] = 0.0;
+			if (frames[r] > 0u && weight[r] > 0.0)
+			{
+				vec3 pd, ps, pL;
+				float pt;
+				ShadeLamp(p, index[r], pd, ps, pL, pt);
+				u_LampProbe.Values[16 + r] = dot(pd + ps, kLum);
+				if (pt > 0.0)
+					u_LampProbe.Values[20 + r] = TraceShadowSoftFromMasked(
+						p.Position, p.N, pL, pt, u_Lights.Lights[index[r]].Direction.w,
+						index[r], RV_RAY_MASK_SCENE);
+			}
+		}
+		u_LampProbe.Values[24] = dot(diffuse + specular, kLum);
+		u_LampProbe.Values[25] = dot(walk, kLum);
+		u_LampProbe.Values[26] = dot(walkLit, kLum);
+		u_LampProbe.Values[27] = scoreSum;
+		u_LampProbe.Values[28] = gl_FragCoord.x;
+		u_LampProbe.Values[29] = gl_FragCoord.y;
+		// slots 30 and 31 belong to the choose pass; left alone here.
+	}
 }

@@ -39,9 +39,34 @@ layout(push_constant) uniform LampParams
 	// is to reproject by -- which is what TAA already does for it.
 	mat4 PreviousViewProjection;
 	// x: last frame's choices are there to reuse. y: the most confidence a
-	// history may carry, in frames. z, w: spare.
+	// history may carry, in frames. z: whether the reuse runs at all. w: spare.
 	vec4 History;
+	// **The pixel under the microscope** (--lamp-probe=x,y): xy the pixel, z
+	// non-zero where one was asked for. A picture cannot show the two numbers
+	// this estimate turns on -- the sum of the scores a pixel swept, and the
+	// score of the lamp it kept -- so one pixel writes them into a buffer the
+	// CPU reads back and prints.
+	vec4 Probe;
 } u_Lamps;
+
+// Thirty-two floats, one pixel, written once a frame. Slot by slot:
+//   0 candidates swept   1 the sum of their scores   2 the cell's length
+//   3 K                  4..7 the chosen lamps       8..11 their scores
+//   12..15 their weights 16..19 their unshadowed terms
+//   20..23 their visibility
+//   24 the estimate      25 the full walk with rays  26 the full walk without
+//   27 the sum of scores recomputed here (against slot 1)
+//   28 the pixel's own screen position, packed
+layout(std430, set = 3, binding = 5) buffer LampProbeBlock
+{
+	float Values[];
+} u_LampProbe;
+
+bool LampProbeHere()
+{
+	return u_Lamps.Probe.z > 0.5
+		&& uvec2(gl_FragCoord.xy) == uvec2(u_Lamps.Probe.xy + 0.5);
+}
 
 const uint RV_LAMP_RESERVOIRS = 4u;
 
@@ -56,6 +81,12 @@ int LampBudget()
 bool LampScoreIsTerm()
 {
 	return ((int(u_Scene.RayRates.w + 0.5) >> 20) & 3) != 0;
+}
+
+// The third arm: the score is the shaded term itself.
+bool LampScoreIsExact()
+{
+	return ((int(u_Scene.RayRates.w + 0.5) >> 20) & 3) == 2;
 }
 
 // A water pixel, as both passes read it.
@@ -124,6 +155,106 @@ bool LampOutOfRange(uint index, vec3 position)
 	return dot(toLight, toLight) >= range * range;
 }
 
+// One lamp, shaded in full, in the order the lit shader does it: the sized
+// source's closest point for the half vector, the widening its angular size
+// adds to the slope, then the streak frame it turns the lobe into.
+void ShadeLamp(WaterPoint p, uint index, out vec3 diffuse, out vec3 specular,
+			   out vec3 L, out float toward)
+{
+	diffuse = vec3(0.0);
+	specular = vec3(0.0);
+	L = vec3(0.0, 1.0, 0.0);
+	toward = 0.0;
+
+	const GpuLight light = u_Lights.Lights[index];
+	const vec3 toLight = light.Position.xyz - p.Position;
+	const float distance2 = dot(toLight, toLight);
+	toward = sqrt(max(distance2, 1.0e-8));
+	L = toLight / toward;
+
+	const float range = max(light.Params.x, 0.0001);
+	const float t = distance2 / (range * range);
+	const float ratio = clamp(1.0 - t * t, 0.0, 1.0);
+	float attenuation = (ratio * ratio) / max(distance2, 0.0001);
+	if (light.Params.z < light.Params.y)
+	{
+		const float theta = dot(L, -light.Direction.xyz);
+		attenuation *= clamp((theta - light.Params.z)
+							 / max(light.Params.y - light.Params.z, 0.0001), 0.0, 1.0);
+	}
+	const float NdotL = max(dot(p.N, L), 0.0);
+	if (attenuation <= 0.0 || NdotL <= 0.0)
+	{
+		toward = 0.0;
+		return;
+	}
+
+	const vec3 radiance = light.Color.rgb * light.Color.a * attenuation;
+	const vec3 N = p.N;
+	const vec3 V = p.V;
+	const float NdotV = max(dot(N, V), 0.0);
+
+	// The half vector a sized source deserves: the point on the sphere
+	// closest to the mirror direction, not its centre.
+	vec3 H = normalize(V + L);
+	float specRoughness = p.Roughness;
+	float specScale = 1.0;
+	const float radius = light.Direction.w;
+	if (radius > 0.0)
+	{
+		const vec3 R = reflect(-V, N);
+		const vec3 centreToRay = dot(toLight, R) * R - toLight;
+		const vec3 closest = toLight + centreToRay *
+			clamp(radius * inversesqrt(max(dot(centreToRay, centreToRay), 1.0e-8)), 0.0, 1.0);
+		H = normalize(V + normalize(closest));
+
+		// Water's roughness is the RMS slope itself, so the angular radius
+		// adds to it directly.
+		const float angular = radius * inversesqrt(max(distance2, 1.0e-8));
+		const float widened = min(specRoughness + 0.5 * angular, 1.0);
+		specScale = (specRoughness * specRoughness) / max(widened * widened, 1.0e-12);
+		specRoughness = widened;
+	}
+
+	const vec3 windDir = vec3(cos(p.Wind), 0.0, sin(p.Wind));
+	const vec3 windT = normalize(windDir - N * dot(windDir, N));
+	const vec3 windB = cross(N, windT);
+
+	float NDF;
+	float G;
+	vec3 Tv = V - N * dot(V, N);
+	const float tv2 = dot(Tv, Tv);
+	if (radius > 0.0 && tv2 > 1.0e-6)
+	{
+		Tv *= inversesqrt(tv2);
+		const vec3 Bv = cross(N, Tv);
+		const float ax0 = max(specRoughness * 1.16, 0.02);
+		const float ay0 = max(specRoughness * 0.86, 0.02);
+		const float angular = radius * inversesqrt(max(distance2, 1.0e-8));
+		const float axS = min(ax0 * 3.0 + 4.0 * angular, 1.0);
+		const float ayS = min(ay0 + 0.5 * angular, 1.0);
+		specScale = sqrt((ax0 * ay0) / (axS * ayS));
+		NDF = WaterBeckmannDX(H, N, Tv, Bv, axS, ayS);
+		G   = WaterBeckmannG1X(V, N, Tv, Bv, ax0, ay0)
+			* WaterBeckmannG1X(L, N, Tv, Bv, ax0, ay0);
+	}
+	else
+	{
+		NDF = WaterBeckmannD(H, N, windT, windB, specRoughness);
+		G   = WaterBeckmannG1(V, N, windT, windB, specRoughness)
+			* WaterBeckmannG1(L, N, windT, windB, specRoughness);
+	}
+
+	const float f0 = 0.08 * clamp(p.Specular, 0.0, 1.0);
+	const float VdotH = max(dot(H, V), 0.0);
+	const vec3 F = vec3(f0 + (1.0 - f0) * pow(1.0 - VdotH, 5.0));
+	const vec3 spec = (NDF * G * F * specScale) / (4.0 * NdotV * NdotL + 0.0001);
+	const vec3 kD = vec3(1.0) - F;
+
+	diffuse = kD * p.Albedo / PI * NdotL * radiance;
+	specular = spec * NdotL * radiance;
+}
+
 // **What a lamp is worth at this point.** Zero where it contributes nothing,
 // which is what keeps the estimate unbiased: a score of zero has to mean a
 // term of zero, or the lamps a score cannot see would be missing rather than
@@ -159,9 +290,39 @@ float ScoreLamp(WaterPoint p, uint index, out vec3 L, out float NdotL)
 	const float f0 = 0.08 * clamp(p.Specular, 0.0, 1.0);
 	const float albLum = max(dot(p.Albedo, kLum), 1.0e-3);
 
-	const vec3 H = normalize(p.V + L);
+	// **The half vector a sized lamp deserves, here too.** The shading
+	// aims at the point on the lamp's sphere closest to the mirror
+	// direction, not at its centre; a score that aims at the centre is
+	// asking a different question of a very narrow lobe, and the lamps
+	// it calls bright are not the ones the shading finds bright. On a
+	// sea whose lobe is a few hundredths of a radian wide that is not a
+	// small difference -- it moves the streak.
+	vec3 H = normalize(p.V + L);
+	if (light.Direction.w > 0.0)
+	{
+		const vec3 R = reflect(-p.V, p.N);
+		const vec3 centreToRay = dot(toLight, R) * R - toLight;
+		const vec3 closest = toLight + centreToRay *
+			clamp(light.Direction.w
+				  * inversesqrt(max(dot(centreToRay, centreToRay), 1.0e-8)), 0.0, 1.0);
+		H = normalize(p.V + normalize(closest));
+	}
 	const float VdotH = max(dot(H, p.V), 0.0);
 	const float fresnel = f0 + (1.0 - f0) * pow(1.0 - VdotH, 5.0);
+
+	// **The score can be the term itself** (--light-sampling=K,exact), which
+	// is what S1's winning arm used: when the score is proportional to what
+	// the lamp actually contributes, every choice returns the same estimate
+	// and four samples are nearly noiseless. Every approximation to it
+	// widens the spread instead, and on a lobe this narrow the spread is
+	// the difference between a sheet of light and a scatter of dots.
+	if (LampScoreIsExact())
+	{
+		vec3 ed, es, eL;
+		float et;
+		ShadeLamp(p, index, ed, es, eL, et);
+		return max(dot(ed + es, kLum), 1.0e-9);
+	}
 
 	float score = lum * NdotL * albLum * (1.0 - fresnel) / PI;
 	if (!LampScoreIsTerm())

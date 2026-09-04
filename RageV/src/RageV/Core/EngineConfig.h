@@ -352,6 +352,13 @@ namespace RageV
 		// the water shader makes, which is what makes the pair an A/B of the
 		// reuse alone.
 		bool  WaterLampReuse = true;
+		// --lamp-probe=x,y: one water pixel's arithmetic, written to a buffer
+		// by the shading pass and printed by the CPU. A picture cannot show
+		// the sum of the scores a pixel swept or the score of the lamp it
+		// kept, and those two are what the estimate turns on. Negative -- the
+		// default -- writes nothing.
+		int   LampProbeX = -1;
+		int   LampProbeY = -1;
 
 		// **--debug-view=<what>** (WR-16 S0): the frame replaced by a heat map
 		// of one number per pixel, read from the counts the lit shaders write

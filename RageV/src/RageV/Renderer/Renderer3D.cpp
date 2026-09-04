@@ -551,6 +551,9 @@ namespace RageV
 			// pass the way the backdrop is.
 			Ref<RHITexture>  WaterLampDiffuse;
 			Ref<RHITexture>  WaterLampSpecular;
+			// --lamp-probe: thirty-two floats one water pixel writes about its
+			// own arithmetic, read back and printed.
+			Ref<RHIBuffer>   LampProbe;
 
 			// **The same lit shader with the cutout test compiled in**, for
 			// alpha-tested materials. A separate variant and not a uniform
@@ -2981,10 +2984,15 @@ namespace RageV
 		}
 	}
 
+	// Defined with the lamp passes further down; declared here because the
+	// frame hook is where its dump has to be read.
+	namespace { void PrintLampProbe(Renderer3DData& data); }
+
 	void Renderer3D::BeginFrame()
 	{
 		if (!s_Data)
 			return;
+
 
 		// The GPU has finished with this frame's slots, so they are reusable.
 		s_Data->SceneCursor = 0;
@@ -5276,9 +5284,81 @@ namespace RageV
 		{
 			Mat4 PreviousViewProjection{ 1.0f };
 			// x: last frame's choices are there. y: the most confidence a
-			// history may carry, in frames.
+			// history may carry, in frames. z: whether the reuse runs.
 			Vec4 History{ 0.0f, 20.0f, 0.0f, 0.0f };
+			// xy: the pixel under the microscope. z: whether one was asked for.
+			Vec4 Probe{ 0.0f, 0.0f, 0.0f, 0.0f };
 		};
+
+		// Thirty-two floats, the same slots the shader's comment names.
+		constexpr uint32_t kLampProbeFloats = 32;
+		constexpr uint32_t kLampProbeBinding = 5;
+
+		void FillLampProbe(LampPushConstants& push)
+		{
+			const EngineConfig& config = EngineConfig::Get();
+			if (config.LampProbeX < 0 || config.LampProbeY < 0)
+				return;
+			push.Probe = Vec4((float)config.LampProbeX, (float)config.LampProbeY, 1.0f, 0.0f);
+		}
+
+		// Storage for the writes, TransferSrc for the readback -- the pair
+		// RHIDevice::ReadBuffer asks for, and the same pair the ray counters
+		// use. Made once and kept: a declared binding must be filled whether
+		// or not a probe was asked for.
+		const Ref<RHIBuffer>& EnsureLampProbe(Renderer3DData& data)
+		{
+			if (!data.LampProbe)
+			{
+				BufferDesc desc;
+				desc.Size = (uint64_t)kLampProbeFloats * sizeof(float);
+				desc.Usage = BufferUsage::Storage | BufferUsage::TransferSrc;
+				desc.Memory = MemoryDomain::DeviceLocal;
+				desc.DebugName = "Renderer3D.lampProbe";
+				data.LampProbe = data.Device->CreateBuffer(desc);
+			}
+			return data.LampProbe;
+		}
+
+		// What the pixel wrote, printed once a frame. Read back rather than
+		// mapped: the buffer is device local, which is what the writes want.
+		void PrintLampProbe(Renderer3DData& data)
+		{
+			const EngineConfig& config = EngineConfig::Get();
+			if (config.LampProbeX < 0 || !data.LampProbe)
+				return;
+			std::vector<uint8_t> bytes;
+			if (!data.Device->ReadBuffer(data.LampProbe, 0,
+										 (uint64_t)kLampProbeFloats * sizeof(float), bytes)
+				|| bytes.size() < kLampProbeFloats * sizeof(float))
+			{
+				static bool said = false;
+				if (!said)
+				{
+					RV_CORE_WARN("lamp probe: the readback returned nothing; this backend "
+								 "cannot hand a buffer back");
+					said = true;
+				}
+				return;
+			}
+			const float* v = reinterpret_cast<const float*>(bytes.data());
+			if (v[28] == 0.0f && v[29] == 0.0f)
+				return;   // the pixel was not shaded this frame
+
+			RV_CORE_INFO("lamp probe at ({0}, {1}): cell holds {2}, {3} swept, scores sum "
+						 "{4} (choose said {5})",
+						 v[28], v[29], v[2], v[0], v[27], v[1]);
+			for (int r = 0; r < 4; r++)
+			{
+				RV_CORE_INFO("  reservoir {0}: lamp {1} score {2} weight {3} term {4} "
+							 "visible {5} -> {6}",
+							 r, v[4 + r], v[8 + r], v[12 + r], v[16 + r], v[20 + r],
+							 v[16 + r] * v[20 + r] * v[12 + r] / Math::Max(v[3], 1.0f));
+			}
+			RV_CORE_INFO("  estimate {0} against the walk {1} (unshadowed {2}), K {3}",
+						 v[24], v[25], v[26], v[3]);
+			RV_CORE_INFO("  the choose pass wrote weight {0} for lamp {1}", v[30], v[31]);
+		}
 	}
 
 	void Renderer3D::ChooseWaterLamps(const RHI::Ref<RHITexture>& surface,
@@ -5311,10 +5391,13 @@ namespace RageV
 										  s_Data->PointSampler);
 		slot.LampChooseInputs->SetTexture(4, previousWeight ? previousWeight : black,
 										  s_Data->PointSampler);
+		if (const Ref<RHIBuffer>& probe = EnsureLampProbe(*s_Data))
+			slot.LampChooseInputs->SetStorageBuffer(kLampProbeBinding, probe);
 		slot.LampChooseInputs->Commit();
 
 		LampPushConstants push;
 		push.PreviousViewProjection = motion.ViewProjection;
+		FillLampProbe(push);
 		push.History.x = hasHistory && previousIndex && previousWeight
 					  && EngineConfig::Get().WaterLampReuse ? 1.0f : 0.0f;
 		push.History.z = EngineConfig::Get().WaterLampReuse ? 1.0f : 0.0f;
@@ -5360,10 +5443,21 @@ namespace RageV
 		slot.LampShadeInputs->SetTexture(2, position, s_Data->PointSampler);
 		slot.LampShadeInputs->SetTexture(3, choiceIndex, s_Data->PointSampler);
 		slot.LampShadeInputs->SetTexture(4, choiceWeight, s_Data->PointSampler);
+		if (const Ref<RHIBuffer>& probe = EnsureLampProbe(*s_Data))
+			slot.LampShadeInputs->SetStorageBuffer(kLampProbeBinding, probe);
 		slot.LampShadeInputs->Commit();
 
 		LampPushConstants push;
 		push.History.z = EngineConfig::Get().WaterLampReuse ? 1.0f : 0.0f;
+		FillLampProbe(push);
+
+		// **Read inside the frame, not outside it.** The readback arms a copy
+		// in the frame's own command buffer and answers with what a previous
+		// frame copied, so it only works between the device's BeginFrame and
+		// EndFrame -- called from Renderer3D::BeginFrame, which runs before
+		// the device's, it answers false for ever and reads as a pixel that
+		// was never shaded.
+		PrintLampProbe(*s_Data);
 
 		cmd->BindPipeline(s_Data->WaterShadePipeline);
 		cmd->BindResourceSet(0, slot.LampSet);

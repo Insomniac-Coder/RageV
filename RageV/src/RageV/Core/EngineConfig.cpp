@@ -398,6 +398,27 @@ namespace RageV
 		if (key == "water-lamp-reuse" || key == "waterlampreuse")
 			return ParseBool(value, config.WaterLampReuse);
 
+		if (key == "lamp-probe" || key == "lampprobe")
+		{
+			const size_t comma = value.find(',');
+			if (comma == std::string::npos)
+			{
+				RV_CORE_WARN("lamp-probe expects x,y in pixels; got '{0}'", value);
+				return false;
+			}
+			try
+			{
+				config.LampProbeX = std::stoi(value.substr(0, comma));
+				config.LampProbeY = std::stoi(value.substr(comma + 1));
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("lamp-probe expects x,y in pixels; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
 		if (key == "light-sampling" || key == "lightsampling")
 		{
 			std::string count = value;
@@ -406,7 +427,9 @@ namespace RageV
 			{
 				const std::string target = ToLower(value.substr(comma + 1));
 				count = value.substr(0, comma);
-				if (target == "term" || target == "peak")
+				if (target == "exact")
+					config.LightSamplingTarget = 2;
+				else if (target == "term" || target == "peak")
 					config.LightSamplingTarget = 1;
 				else if (target == "irradiance" || target == "cheap")
 					config.LightSamplingTarget = 0;
