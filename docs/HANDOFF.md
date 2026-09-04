@@ -32,6 +32,24 @@ sublist, built once from the lamps' positions, the candidate source for
 every hit and pixel whether or not the point is in the picture; the S4
 row in Part IV's re-sequenced table). Then S3, then S5.
 
+**2026-09-04, evening: S4 was laid out for the owner and the sizing run
+taken before any of it is built** (RAY-BUDGET-DESIGN Part IV, "S4's shape,
+laid out and decided" and "S4's sizing, measured"; commit `0fa126d`).
+Four calls: start with the measurement; build *both* candidate targets and
+let the matrix pick; take the deferred step for the water's direct light
+now rather than temporal reuse alone; solo. The new measurement flag is
+**`--shade-lights=N`** -- every lamp's sixteen-byte record still walked,
+only the first N read in full and shaded, ray included, on screen and at
+hits; picture wrong on purpose, time honest -- and `water_cost_split.py`
+runs the arms interleaved. **The whole lamp lever at K = 4 is 25.5 / 19.7 /
+17.0 ms, 44 to 47% of the frame on Headland, Pier and Glitter, all of it in
+the water pass.** Four rays a pixel cost under two milliseconds; K = 8 costs
+two more than K = 4 (so K is a setting); the light walk at traced hits is
+down to 2.8 / 4.8 / 1.6 ms, which is the world-space grid's own payoff.
+**And the ranking turned over: on the water the rays are the bigger half
+now, not the shading** -- S0's "light-bound more than ray-bound" was true
+of the frame before S2 and must not be carried forward.
+
 **The session ended here on 2026-09-04, paused at the owner's request
 (credit limit) with the context cleared.** Eleven commits on `main`, none
 pushed; the scene meta file is the one uncommitted change (the runtime
