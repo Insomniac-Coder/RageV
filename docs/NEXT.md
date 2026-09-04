@@ -139,9 +139,11 @@ together. **S1 ran the same afternoon and the gate passed** (Part IV,
 "S1, measured"): K = 4 with a target that includes the specular holds the
 water under TAA at or under the shipped preset's bar on Headland and
 Glitter, Pier needs S4's reuse, no lamp group is structurally missing at
-8, and the cheap irradiance target is unusable on the water. **Next is
-S2**, the cheap hit walk (13-22% of the frame), then S4 as S1 now defines
-it, then S3, then S5.
+8, and the cheap irradiance target is unusable on the water. **S2 shipped the same day**
+(ENGINE-NOTES 7cz): the sixteen-byte cull record and the live sublist per
+cell -- bit-identical, and 20 / 28 / 32% off Headland, Pier and Glitter,
+two thirds of it the opaque pass's static pixels. **Next is S4** as S1
+defines it, then S3, then S5.
 
 ## The order
 

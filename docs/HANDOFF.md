@@ -15,16 +15,19 @@ commit them first. The evening's start-here is the first section below
 (the numbers), the morning's the second (the flag), and the fourth
 session's entry after them is still the map of everything else.
 
-**2026-09-04: WR-16 steps S0 and S1 are built, measured and committed** --
-the section right below this paragraph. **The gate passed**: four
-importance-chosen lamps a pixel, with a target that knows the specular,
-reproduce the water's lamp shadows under TAA at or under the shipped
-preset's bar on Headland and Glitter, with no lamp group structurally
-missing at eight; Pier needs the reuse S4 adds. **Where to start cold:
-WR-16 step S2**, the cheap hit walk (Part IV, the re-sequenced table),
-then S4 as Part IV's "S1, measured" now defines it -- the target must
-include the specular, K = 4 -- then S3, then S5. Explain the step before
-acting on it; the owner asked for the reasoning first, every time.
+**2026-09-04: WR-16 steps S0, S1 and S2 are built, measured and
+committed** -- the section right below this paragraph. **The gate passed**
+(S1): four importance-chosen lamps a pixel, with a target that knows the
+specular, reproduce the water's lamp shadows under TAA at or under the
+shipped preset's bar on Headland and Glitter, with no lamp group
+structurally missing at eight; Pier needs the reuse S4 adds. **S2 took 20
+/ 28 / 32% off Headland, Pier and Glitter, bit-identical** -- most of it
+from static pixels on screen that had been reading and dropping a hundred
+lamps a frame. **Where to start cold: WR-16 step S4** as Part IV's "S1,
+measured" defines it -- a few lamps per pixel chosen by a target that
+includes the specular, shaded alone, the choice reused across frames and
+neighbours, the result reconstructed -- then S3, then S5. Explain the step
+before acting on it; the owner asked for the reasoning first, every time.
 
 ## Start here -- 2026-09-04: WR-16 S0, the rays counted where they are cast
 
@@ -155,6 +158,27 @@ the truth. Two things learned building it: a golden-ratio walk along the
 lamp index correlates the reservoir's draws and biases it (hash them); and
 the auto exposure meters a noisier frame differently, so a signed mean at
 low K is a global offset before it is a bias -- read the diff image.
+
+### S2, the cheap hit walk, built and measured the same day
+
+ENGINE-NOTES 7cz; Part IV, "S2, measured". A sixteen-byte cull record per
+light (set 0 binding 23) and a second, live-only list per cluster cell
+beside the full one, in the full list's order; a static surface deep
+inside the irradiance field walks the sublist and drops the rest by the
+record, on screen and at traced hits. **Bit-identical** against the pre-S2
+build (max difference 0 on six stills, Off and Quality, three cameras).
+Interleaved at 1440p: **Headland 67.1 to 54.0 ms, Pier 58.2 to 42.2,
+Glitter 55.5 to 37.8** -- two thirds of it the opaque pass, where every
+static pixel had been reading and dropping 77 to 125 lamps a frame. Lamps
+walked per fragment 77 / 116 / 125 to 35 / 50 / 63. What is left of the
+hit walk is about 5 ms on Headland and Pier; Pier's hits reflect into the
+edge band of the deck's 5 m volumes, where the field's weight is under
+one and the full loop must decide -- a deeper volume is the owner's call.
+Two forms tried and dropped on the way: a per-cell count alone (never zero
+under the deck) and a reordered single list (it would have changed which
+thinned lamp WR-17's borrow takes its visibility from). The pre-S2 runtime
+is kept beside the new one as `build/bin/Release/RageVRuntime_preS2` for
+any further A/B this session.
 
 ### The baseline and the flicker counts
 

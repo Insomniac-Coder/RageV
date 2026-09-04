@@ -14297,6 +14297,76 @@ submissions after it, or the validation layer names the write-after-read
 on every frame. `EnsureDebugCounts(1, 1)` at every lit recompile shrank a
 sized buffer back to a texel; it creates one only when there is none.
 
+### 7cz. The cheap hit walk: sixteen bytes decide whether eighty are read (WR-16, step S2)
+
+**The cost, measured before anything was built** (7cy's calibration): the
+light walk at traced hits was 8, 12 and 8 ms of Headland's, Pier's and
+Glitter's frames -- 84 to 156 lamps read and shaded per hit over 1.6 to
+3.1 million hits -- and since 7cx most of those reads were of lamps that
+contribute nothing at the hit. A static hit deep inside the irradiance
+field takes a fully baked lamp's light from the field, and a hybrid lamp's
+beyond its radius; the loop learned that only after fetching the lamp's
+eighty-byte record. Part IV's decision B: at a traced hit a fully baked
+lamp costs nothing.
+
+**Two things, both exact.** First, **a sixteen-byte cull record per light**
+(`GpuLightCull`, set 0 binding 23 under `RV_RAY_SHADOWS`): the position and
+one packed word -- the range as a half float rounded *up*, the class
+(live, fully baked, hybrid), a bit for a moving object inside the range,
+and the hybrid lamp's radius plus blend band in eighths of a metre rounded
+*up*. `LightCullRejects` reads it and drops a lamp when it is past its
+range (where the falloff window is exactly zero), or when the surface is
+static with the field's weight at one and the lamp is fully baked, or
+hybrid beyond its radius and band (where `BakedShare` is exactly one and
+the live share exactly zero). Every rounding is upward, so the record
+rejects only what the full loop would have found to be nothing, and the
+picture is bit-identical -- the acceptance, and the reason a
+sixteen-byte record can carry a range in sixteen bits. Second, **a second
+list per cluster cell**: beside the full list -- unchanged, in its original
+order, for every other pixel -- the *live* sublist: realtime and half-baked
+lamps wherever they reach, hybrid lamps within their radius and band
+(their small sphere binned in place of their range), and the fully baked
+and hybrid lamps with a moving object inside their range, whose
+subtractive shadow ray a static pixel traces on screen (a traced hit drops
+those through the record: it never traces that ray). In the same
+ascending order as the full list. A static surface deep inside the field
+walks the sublist and nothing else, on screen and at hits.
+
+**Two forms that were not this one.** A count per cell -- "zero live lamps
+here, walk the directional lights alone" -- was built and measured first
+and bought Pier almost nothing: under the deck the roadway's lamps and the
+underside share a view-space cell, so the count was never zero and every
+hit still iterated 155 entries. Then the single list reordered live-first,
+withdrawn before it was measured: WR-17's borrow gives a skipped lamp the
+visibility of the *last* thinned lamp the pixel traced, so a reordered
+list changes the Quality picture by a real if small amount, and "exact"
+means the full list keeps its order for everyone who walks it.
+
+**Why the field's weight must be exactly one.** The full loop's skip is
+`1 - weight * share <= 0`, and with both in [0, 1] that is `weight >= 1 and
+share >= 1`. The edge fade is a clamp to one, so a surface more than a cell
+inside a volume reads exactly 1.0 and the condition is a real equality,
+not a tolerance; in the edge band the cull keeps every lamp and the full
+loop decides, as before.
+
+**Measured** (RAY-BUDGET-DESIGN Part IV, "S2, measured"). Stills against
+the pre-S2 build at Off and at Quality on Headland, Pier and Glitter: max
+difference 0 on all six. Interleaved at 1440p: **Headland 67.1 to 54.0 ms
+(-20%), Pier 58.2 to 42.2 (-28%), Glitter 55.5 to 37.8 (-32%).** The plan
+priced the step at 8 to 12 ms, the hit walk's share; two thirds of the
+saving is the *opaque pass* (21 to 11, 21 to 9, 22 to 8 ms), because every
+static pixel on the deck, the towers, the cliffs and the shores had been
+reading and dropping 77 to 125 lamps a frame to learn what the field
+already held. Lamps walked per fragment fell from 77 / 116 / 125 to 35 /
+50 / 63; per hit from 84 / 156 / 135 to 18 / 103 / 25. The hit walk left:
+about 5 ms on Headland and Pier, nothing on Glitter. Pier's hits still
+average 103 lamps because the deck's underside reflects into the edge band
+of the deck's 5 m volumes, where the weight is under one and the full loop
+decides as it must -- a deeper volume is an authoring change and the
+owner's call. This is the first spend of the lever the calibration named,
+lamps *evaluated* per fragment, at no ray and no pixel; the water, live by
+the standing rule, still walks its full list, and that is S4's.
+
 
 ---
 

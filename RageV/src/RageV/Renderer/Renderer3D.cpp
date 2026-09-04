@@ -37,6 +37,74 @@ namespace RageV
 		};
 		static_assert(sizeof(GpuLight) == 80, "Must match GpuLight in pbr.rvshader");
 
+		// **WR-16 S2: the light's cull record, sixteen bytes** (ENGINE-NOTES
+		// 7cz). What a loop needs to *drop* a light without reading its
+		// eighty-byte record: the position, the range, and whether a static
+		// surface deep inside the irradiance field owes it anything at all.
+		// One word packs the rest: bits 31..16 the range as a half float
+		// rounded UP, bits 15..14 the class (0 live: realtime or half baked;
+		// 1 fully baked; 2 hybrid), bit 13 a moving object inside the range
+		// this frame (the subtractive ray, on screen), bits 12..0 the hybrid
+		// lamp's radius plus its blend band in eighths of a metre, rounded
+		// UP. Every rounding is upward so a light the record rejects is a
+		// light the full record would have found contributing exactly zero
+		// -- the walk stays bit-identical. Mirrors LightCull in
+		// pbr_fragment.glsl, std430.
+		struct GpuLightCull
+		{
+			Vec3     Position;
+			uint32_t Packed;
+		};
+		static_assert(sizeof(GpuLightCull) == 16, "Must match LightCull in pbr_fragment.glsl");
+		constexpr uint32_t kLightCullBinding = 23;
+		constexpr uint32_t kLightCullClassLive = 0;
+		constexpr uint32_t kLightCullClassFull = 1;
+		constexpr uint32_t kLightCullClassHybrid = 2;
+
+		// A float as a half, rounded toward +infinity: the smallest half not
+		// below the value. Infinity in, infinity out; the sign is kept.
+		uint16_t HalfUp(float value)
+		{
+			if (value != value)
+				return 0x7E00u;   // a quiet NaN stays one
+			if (value >= 65504.0f)
+				return 0x7C00u;   // infinity: past binary16's largest finite value
+			if (value <= 0.0f)
+				return 0u;        // never negative here; zero for anything at or under
+
+			uint32_t bits;
+			std::memcpy(&bits, &value, sizeof(bits));
+			const int exponent = (int)((bits >> 23) & 0xFFu) - 127 + 15;
+			if (exponent <= 0)
+				return 1u;        // under the smallest normal: the smallest denormal is above it
+			// Truncation rounds toward zero; one more step where anything was
+			// lost puts the half above the value.
+			uint16_t half = (uint16_t)(((uint32_t)exponent << 10) | ((bits & 0x007FFFFFu) >> 13));
+			if ((bits & 0x1FFFu) != 0u)
+				half++;
+			return half;
+		}
+
+		uint32_t PackLightCull(const LightRenderData& light)
+		{
+			const float range = light.Type == Light::LightType::Directional
+							  ? 1.0e30f : Math::Max(light.Range, 0.0001f);
+			uint32_t cls = kLightCullClassLive;
+			uint32_t reject = 0;
+			if (light.Mobility == LightMobility::FullBake)
+				cls = kLightCullClassFull;
+			else if (light.Mobility == LightMobility::HybridFullBake)
+			{
+				cls = kLightCullClassHybrid;
+				const float radius = Math::Max(light.HybridRadius, 0.0f);
+				const float band = Math::Max(radius * 0.1f, 1.0f);
+				// Eighths of a metre, rounded up, capped where thirteen bits end.
+				reject = Math::Min((uint32_t)std::ceil((radius + band) * 8.0f), 0x1FFFu);
+			}
+			return ((uint32_t)HalfUp(range) << 16) | (cls << 14)
+				 | (light.MovingInRange ? (1u << 13) : 0u) | reject;
+		}
+
 		// Mirrors RayInstance in pbr_fragment.glsl, std430 (ENGINE-NOTES 7ao):
 		// what a ray's hit needs to shade the instance it hit, one per TLAS
 		// instance in build order so the hit's custom index is the row.
@@ -727,6 +795,10 @@ namespace RageV
 				// Every light in this scene, however many that is.
 				Ref<RHIBuffer>      Lights;
 				uint32_t            LightCapacity = 0;
+				// The lights' cull records (WR-16 S2), one per light in the
+				// same order, under traced shadows.
+				Ref<RHIBuffer>      LightCull;
+				uint32_t            LightCullCapacity = 0;
 				// The cluster grid: a range per cell, and the indices those
 				// ranges point into.
 				Ref<RHIBuffer>      Cells;
@@ -850,6 +922,8 @@ namespace RageV
 
 			// Built in BeginScene, uploaded there too.
 			std::vector<GpuLight> LightScratch;
+			// The cull records beside them (WR-16 S2), built in the same walk.
+			std::vector<GpuLightCull> LightCullScratch;
 			// Original light indices, directional first. The shadow assignment
 			// is keyed on the original order and has to be undone through this.
 			std::vector<uint32_t> LightOrder;
@@ -2995,6 +3069,8 @@ namespace RageV
 
 		s_Data->LightScratch.clear();
 		s_Data->LightScratch.reserve(lights.size());
+		s_Data->LightCullScratch.clear();
+		s_Data->LightCullScratch.reserve(lights.size());
 
 		for (const LightRenderData& light : s_Data->Ordered)
 		{
@@ -3032,6 +3108,10 @@ namespace RageV
 			entry.Shadow = Vec4(0.0f);
 
 			s_Data->LightScratch.push_back(entry);
+			// The cull record (WR-16 S2): position and the packed word. The
+			// moving-object bit is written below with Shadow.y, from the same
+			// per-frame mark.
+			s_Data->LightCullScratch.push_back({ light.Position, PackLightCull(light) });
 		}
 		s_Data->Scene.LightCount = lightCount;
 
@@ -3163,6 +3243,14 @@ namespace RageV
 			// the same index names the same light in both.
 			if (s_Data->RayShadowsOn)
 				s_Data->LightScratch[slot].Shadow.y = s_Data->Ordered[slot].MovingInRange ? 1.0f : 0.0f;
+			// The cull record's moving bit (WR-16 S2), from the same mark:
+			// PackLightCull read it already, and this keeps the two in step
+			// should the mark ever be set after the records are built.
+			if (slot < (uint32_t)s_Data->LightCullScratch.size())
+			{
+				uint32_t& packed = s_Data->LightCullScratch[slot].Packed;
+				packed = (packed & ~(1u << 13)) | (s_Data->Ordered[slot].MovingInRange ? (1u << 13) : 0u);
+			}
 
 			// **`--casting-lights=N`, a measurement (WR-16 S0's light-count
 			// sweep, the owner's Debug Pass B).** Under rays, only the first N
@@ -3210,6 +3298,22 @@ namespace RageV
 		{
 			slot.Lights->Upload(s_Data->LightScratch.data(),
 								s_Data->LightScratch.size() * sizeof(GpuLight));
+		}
+
+		// The cull records (WR-16 S2), beside the lights and in their order;
+		// bound only under traced shadows, which is where the loops read them.
+		if (s_Data->RayShadowsOn)
+		{
+			if (!EnsureInstanceBuffer(slot.LightCull, slot.LightCullCapacity, lightSlots,
+									  sizeof(GpuLightCull), "Renderer3D.lightCull"))
+			{
+				return;
+			}
+			if (!s_Data->LightCullScratch.empty())
+			{
+				slot.LightCull->Upload(s_Data->LightCullScratch.data(),
+									   s_Data->LightCullScratch.size() * sizeof(GpuLightCull));
+			}
 		}
 
 		// The cluster grid. Built here rather than in the scene, because it is
@@ -3420,6 +3524,11 @@ namespace RageV
 		if (s_Data->RayShadowsOn && RayCounters::IsAvailable())
 			sceneSet->SetStorageBuffer(RayCounters::kBinding, RayCounters::Buffer());
 
+		// The lights' cull records (WR-16 S2), declared under the same define.
+		if (s_Data->RayShadowsOn && slot.LightCull)
+			sceneSet->SetStorageBuffer(kLightCullBinding, slot.LightCull, 0,
+									   (uint64_t)lightSlots * sizeof(GpuLightCull));
+
 		// The per-pixel debug counts (`--debug-view=rays|lights`), declared
 		// only when the lit shaders were compiled with RV_DEBUG_VIEW, and
 		// then by every family -- the buffer exists from that compile on.
@@ -3487,6 +3596,9 @@ namespace RageV
 			// same include under the same define.
 			if (RayCounters::IsAvailable())
 				slot.GiSet->SetStorageBuffer(RayCounters::kBinding, RayCounters::Buffer());
+			if (slot.LightCull)
+				slot.GiSet->SetStorageBuffer(kLightCullBinding, slot.LightCull, 0,
+											 (uint64_t)lightSlots * sizeof(GpuLightCull));
 		}
 
 		// Not committed and not bound yet.

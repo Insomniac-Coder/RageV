@@ -3670,3 +3670,68 @@ lit water band; the spatial pass can be confined to it. (d) The flashing
 lamps move the choice under a fixed seed because their intensity moves
 the weights; S4's reservoir history must hard-clamp on them, as every
 other history here does.
+
+#### S2, measured (2026-09-04): the cheap hit walk, and the cheap static pixel with it
+
+**What was built** (ENGINE-NOTES 7cz; the commit after `ff9e361`). Two
+exact things. **A sixteen-byte cull record per light** (set 0 binding 23
+under `RV_RAY_SHADOWS`): position, the range as a half float rounded up,
+the class (live, fully baked, hybrid), a moving-object bit, and the hybrid
+lamp's radius plus blend band rounded up. `LightCullRejects` drops a lamp
+past its range, or -- for a static surface with the field's weight at
+exactly one -- a fully baked lamp, or a hybrid one beyond its radius and
+band; every rounding is upward, so it rejects only what the full loop
+would have found contributing exactly zero. **And a second list per
+cluster cell**: beside the full list, unchanged and in its original order
+for every other pixel, the *live* sublist -- realtime and half-baked lamps
+wherever they reach, hybrid lamps within their radius and band, fully
+baked and hybrid lamps with a moving object inside their range -- in the
+same ascending order. A static surface deep inside the field walks the
+sublist and nothing else, on screen and at traced hits (which drop the
+moving-object entries through the record: a hit never traces the
+subtractive ray). A first version reordered the single list live-first;
+it was withdrawn before measuring because the thinning's borrow takes the
+visibility of the *last* thinned lamp traced, so a reordered list would
+have changed the Quality picture. A cell-level test alone (skip when the
+live count is zero) was measured first and bought Pier almost nothing:
+under the deck the roadway's lamps and the underside share a view-space
+cell.
+
+**Exactness held**: stills at 1600x900, clock pinned, frame 60, against
+the pre-S2 build on Headland, Pier and Glitter, at Off and at Quality --
+**max difference 0 on all six**. scenetest green.
+
+**Frame time** (2560x1440, the project's settings, 200 frames, the pre-S2
+runtime and the new one interleaved A B A B per camera; "hit walk left" is
+the new build against itself with `--hit-lights=off`):
+
+| camera | before | after | saved | opaque pass | water pass | lamps per fragment | lamps per hit | hit walk left |
+|---|---|---|---|---|---|---|---|---|
+| Headland | 67.1 | 54.0 | **13.1 ms (20%)** | 21.1 to 10.7 | 44.1 to 41.5 | 76.8 to 35.1 | 83.9 to 17.7 | 5.0 ms |
+| Pier | 58.2 | 42.2 | **16.0 ms (28%)** | 20.7 to 9.3 | 35.2 to 30.8 | 115.5 to 49.5 | 155.7 to 103.3 | 4.7 ms |
+| Glitter | 55.5 | 37.8 | **17.7 ms (32%)** | 22.0 to 7.7 | 31.6 to 28.3 | 125.4 to 63.0 | 135.3 to 25.3 | about 0 |
+
+The plan priced S2 at 8 to 12 ms, the hit walk's share. Two thirds of
+what it saved is the **opaque pass**: the deck, the towers, the cliffs and
+the shores are static surfaces inside the field, and each of their pixels
+had been reading and dropping 77 to 125 lamps a frame to learn what the
+field already held. The same sixteen bytes and the same sublist made that
+exact and cheap. This is the first spend of the lever the calibration
+named -- lamps *evaluated* per fragment -- and it cost no ray and no
+pixel. The water, live by the standing rule, still walks its full list;
+that is S4's.
+
+**What is left of the hit walk, and why.** Pier's hits still average 103
+lamps: the reflections of the deck's underside land in the edge band of
+the deck's 5 m volumes, where the field's weight is under one and the full
+loop decides, as it must. A volume that reaches a cell further below the
+deck would move those hits inside; that is an authoring change and the
+owner's call, and S4's reuse spends less on them either way. Headland's
+remaining 5 ms is 17.7 lamps per hit over 1.6 million hits -- the
+flashing lights and the marine lights are realtime and live everywhere,
+and the hybrid lamps near the tower's base are live within their radius.
+
+**The eight-camera table after S2** (`bench_night.py --label after-s2`,
+the same protocol as `wr16-before`, taken the same afternoon):
+
+_(appended below when the run finished)_

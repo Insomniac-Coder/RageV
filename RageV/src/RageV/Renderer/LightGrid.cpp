@@ -82,21 +82,20 @@ namespace RageV
 		float farPlane = 1000.0f;
 		DepthRangeOf(projection, nearPlane, farPlane);
 
-		for (uint32_t i = firstPositional; i < (uint32_t)lights.size(); i++)
+		// The cells a sphere touches, conservatively: the bounding box of the
+		// sphere in view space decides the slices and its screen-space box
+		// the tiles. Used twice -- for the light's range, which bins it, and
+		// (WR-16 S2) for a hybrid lamp's half-bake sphere, which marks the
+		// cells where a static surface still has to walk it.
+		const auto forEachCellOf = [&](const Vec3& centre, float radius, auto&& visit)
 		{
-			const LightRenderData& light = lights[i];
-			const float radius = Math::Max(light.Range, 0.0001f);
-
-			// The sphere's extent in view space decides the slice range, and
-			// its screen-space box decides the tiles.
-			//
-			// Both are computed from the eight corners of the sphere's bounding
-			// box rather than analytically. Conservative in the safe direction:
-			// a light kept in a cell it does not reach costs a wasted iteration,
-			// and a light dropped from a cell it does reach is a dark patch that
-			// moves with the camera.
-			const Vec3 centre = light.Position;
-
+			// Straddling the near plane: some corners project and some do
+			// not, and the ones that do not are the ones wrapping around
+			// behind the eye. Their projection is meaningless, so the tile
+			// range has to be the whole screen or the light disappears from
+			// the edges as the camera moves into it. And the y axis is not
+			// flipped: the shader derives its tile from the same normalised
+			// coordinate, so both agree whatever the convention.
 			float minDepth = std::numeric_limits<float>::max();
 			float maxDepth = std::numeric_limits<float>::lowest();
 			Vec2 minScreen(std::numeric_limits<float>::max());
@@ -112,8 +111,6 @@ namespace RageV
 				};
 
 				const Vec3 viewPos = Vec3(view * Vec4(centre + offset, 1.0f));
-				// View space looks down -Z, so depth in front of the camera is
-				// positive -z.
 				const float depth = -viewPos.z;
 
 				minDepth = Math::Min(minDepth, depth);
@@ -131,15 +128,9 @@ namespace RageV
 				maxScreen = Math::Max(maxScreen, ndc);
 			}
 
-			// Entirely behind the camera, or entirely beyond the far plane.
 			if (maxDepth <= nearPlane || minDepth >= farPlane)
-				continue;
+				return;
 
-			// Straddling the near plane: some corners projected and some did
-			// not, and the ones that did not are the ones wrapping around
-			// behind the eye. Their projection is meaningless, so the tile
-			// range has to be the whole screen or the light disappears from the
-			// edges as the camera moves into it.
 			const bool straddles = !anyInFront || minDepth <= nearPlane;
 			if (straddles)
 			{
@@ -150,12 +141,8 @@ namespace RageV
 			minScreen = Math::Max(minScreen, Vec2(-1.0f));
 			maxScreen = Math::Min(maxScreen, Vec2(1.0f));
 			if (minScreen.x > maxScreen.x || minScreen.y > maxScreen.y)
-				continue;
+				return;
 
-			// NDC to tiles. The y axis is not flipped here: the shader derives
-			// its tile from the same normalised coordinate, so both agree
-			// whatever the convention, and a flip would have to happen in both
-			// or neither.
 			const auto tileOf = [](float ndc, uint32_t count)
 			{
 				const float unit = (ndc * 0.5f + 0.5f) * (float)count;
@@ -171,29 +158,76 @@ namespace RageV
 			const uint32_t z1 = SliceForDepth(Math::Min(maxDepth, farPlane), nearPlane, farPlane);
 
 			for (uint32_t z = z0; z <= z1; z++)
-			{
 				for (uint32_t y = y0; y <= y1; y++)
-				{
 					for (uint32_t x = x0; x <= x1; x++)
-					{
-						const uint32_t cell = (z * kTilesY + y) * kTilesX + x;
-						m_Buckets[cell].push_back(i);
-					}
-				}
+						visit((z * kTilesY + y) * kTilesX + x);
+		};
+
+		// **The full list, and beside it the live sublist (WR-16 S2).** A
+		// realtime or half-baked lamp is live wherever it reaches; a fully
+		// baked one is live nowhere for a static surface deep inside the
+		// field, except where a moving object stands inside its range and
+		// the subtractive ray is traced on screen; a hybrid one is live within
+		// its radius plus the blend band BakedShare uses (a tenth of the
+		// radius, a metre at least), which is the sphere binned here in place
+		// of its range, and beyond it like a fully baked one. The lamps are
+		// walked in ascending index order, so each cell's live sublist comes
+		// out in the same order as its full list; a hybrid lamp with a moving
+		// object can push itself twice in a row, which the back() test folds.
+		// A cell test alone (a count of zero) was not enough under the deck,
+		// where the roadway's lamps and the underside share a view-space cell
+		// and every hit still iterated the whole list.
+		if (m_Live.size() != kCellCount)
+			m_Live.resize(kCellCount);
+		for (auto& live : m_Live)
+			live.clear();
+
+		const auto pushLive = [&](uint32_t cell, uint32_t i)
+		{
+			auto& live = m_Live[cell];
+			if (live.empty() || live.back() != i)
+				live.push_back(i);
+		};
+
+		for (uint32_t i = firstPositional; i < (uint32_t)lights.size(); i++)
+		{
+			const LightRenderData& light = lights[i];
+			const float range = Math::Max(light.Range, 0.0001f);
+			const bool fullyBaked = light.Mobility == LightMobility::FullBake;
+			const bool hybrid = light.Mobility == LightMobility::HybridFullBake;
+
+			// The range sphere: where the lamp is in the cell at all.
+			forEachCellOf(light.Position, range,
+						  [&](uint32_t cell) { m_Buckets[cell].push_back(i); });
+
+			if (hybrid)
+			{
+				const float radius = Math::Max(light.HybridRadius, 0.0f);
+				const float band = Math::Max(radius * 0.1f, 1.0f);
+				forEachCellOf(light.Position, radius + band,
+							  [&](uint32_t cell) { pushLive(cell, i); });
 			}
+			if ((fullyBaked || hybrid) && !light.MovingInRange)
+				continue;
+			forEachCellOf(light.Position, range, [&](uint32_t cell) { pushLive(cell, i); });
 		}
 
-		// Flatten. One contiguous index list and a range per cell, because the
-		// shader wants to walk it and a vector of vectors is not a buffer.
+		// Flatten. One contiguous index list and two ranges per cell -- the
+		// full list, then its live sublist -- because the shader wants to
+		// walk them and a vector of vectors is not a buffer.
 		for (uint32_t cell = 0; cell < kCellCount; cell++)
 		{
 			const auto& bucket = m_Buckets[cell];
+			const auto& live = m_Live[cell];
 
 			m_Cells[cell].Offset = (uint32_t)m_Indices.size();
 			m_Cells[cell].Count = (uint32_t)bucket.size();
 			m_MaxCellLoad = Math::Max(m_MaxCellLoad, (uint32_t)bucket.size());
-
 			m_Indices.insert(m_Indices.end(), bucket.begin(), bucket.end());
+
+			m_Cells[cell].LiveOffset = (uint32_t)m_Indices.size();
+			m_Cells[cell].LiveCount = (uint32_t)live.size();
+			m_Indices.insert(m_Indices.end(), live.begin(), live.end());
 		}
 	}
 }

@@ -45,7 +45,27 @@ namespace RageV
 		{
 			uint32_t Offset = 0;
 			uint32_t Count = 0;
+			// **WR-16 S2: a second, shorter list for a static surface deep
+			// inside the irradiance field.** A fully baked lamp is in the
+			// field and a hybrid one is in it beyond its radius; both cost a
+			// pixel an 80-byte read to learn they can be skipped. So beside
+			// the cell's full list -- unchanged, in its original order, for
+			// every other pixel -- the grid writes the *live* sublist: every
+			// realtime and half-baked lamp binned into the cell, every hybrid
+			// lamp whose half-bake sphere reaches it, and every fully baked or
+			// hybrid lamp with a moving object inside its range (whose
+			// subtractive shadow ray a static pixel traces on screen; a traced
+			// hit drops those through the cull record). In the same ascending
+			// order as the full list, so a static pixel's lamps are processed
+			// in the order they always were and the picture stays
+			// bit-identical -- a reordered single list would have changed
+			// which thinned lamp was traced last, which is what a skipped
+			// lamp borrows its visibility from. Mirrors LightCell in
+			// pbr_fragment.glsl.
+			uint32_t LiveOffset = 0;
+			uint32_t LiveCount = 0;
 		};
+		static_assert(sizeof(Cell) == 16, "LightCell in pbr_fragment.glsl is four words");
 
 		// The near and far planes back out of a projection matrix.
 		//
@@ -103,5 +123,7 @@ namespace RageV
 
 		// Reused between frames so a steady scene stops allocating.
 		std::vector<std::vector<uint32_t>> m_Buckets;
+		// The live sublist per cell (WR-16 S2); reused for the same reason.
+		std::vector<std::vector<uint32_t>> m_Live;
 	};
 }

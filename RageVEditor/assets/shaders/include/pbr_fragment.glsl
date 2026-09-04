@@ -298,6 +298,11 @@ struct LightCell
 {
 	uint Offset;
 	uint Count;
+	// WR-16 S2: the cell's live sublist -- the lamps a static surface deep
+	// inside the irradiance field still has to walk, in the full list's own
+	// order. Mirrors LightGrid::Cell.
+	uint LiveOffset;
+	uint LiveCount;
 };
 
 layout(std430, set = 0, binding = 9) readonly buffer CellBlock
@@ -360,6 +365,62 @@ const float POINT_SHADOW_NEAR = 0.05;
 #ifdef RV_RAY_SHADOWS
 #extension GL_EXT_ray_query : require
 layout(set = 0, binding = 14) uniform accelerationStructureEXT u_SceneAS;
+#endif
+
+// **WR-16 S2: the light's cull record, sixteen bytes** (ENGINE-NOTES 7cz;
+// GpuLightCull on the CPU side). The hit walk was reading a lamp's eighty
+// bytes to learn it was out of range or fully baked -- 84 to 156 lamps per
+// hit, 8 to 12 ms a frame on the bridge, most of it reads of lamps that
+// contribute nothing. This record is what a loop needs to drop a lamp:
+// its position, its range, and its class. xyz the position; w's bits, as
+// an integer: 31..16 the range as a half float rounded UP, 15..14 the
+// class (0 live: realtime or half baked; 1 fully baked; 2 hybrid), 13 a
+// moving object inside its range this frame, 12..0 the hybrid lamp's
+// radius plus its blend band in eighths of a metre, rounded UP. Every
+// rounding is upward, so a lamp this record rejects is one the full record
+// would have found contributing exactly zero: the walk is bit-identical
+// with and without it. Under the same define as the structure; not in the
+// fill, which walks every baked lamp by design.
+#if defined(RV_RAY_SHADOWS) && !defined(RV_IRRADIANCE_FILL)
+#define RV_LIGHT_CULL
+layout(std430, set = 0, binding = 23) readonly buffer LightCullBlock
+{
+	vec4 Cull[];
+} u_LightCull;
+
+const uint LIGHT_CULL_LIVE   = 0u;
+const uint LIGHT_CULL_FULL   = 1u;
+const uint LIGHT_CULL_HYBRID = 2u;
+
+// **Whether the full record can be skipped**, from the cull record alone.
+// `insideField` is "a static surface with the field's weight at one" --
+// where a fully baked lamp's live share is exactly zero and a hybrid lamp's
+// is zero beyond its radius and band -- and `onScreen` says whether the
+// subtractive ray for a moving object applies (it does not at a hit).
+// Both tests reject only what the full loop would have found to be nothing.
+bool LightCullRejects(uint index, vec3 position, bool insideField, bool onScreen)
+{
+	const vec4 cull = u_LightCull.Cull[index];
+	const uint packed = floatBitsToUint(cull.w);
+	const vec3 toLight = cull.xyz - position;
+	const float distance2 = dot(toLight, toLight);
+	// The range, rounded up when it was packed: past it the falloff window
+	// is exactly zero. A directional light packs infinity here.
+	const float range = unpackHalf2x16(packed).y;
+	if (distance2 >= range * range)
+		return true;
+	if (!insideField)
+		return false;
+	const uint cls = (packed >> 14u) & 3u;
+	if (cls == LIGHT_CULL_LIVE)
+		return false;
+	if (onScreen && (packed & (1u << 13u)) != 0u)
+		return false;   // the subtractive ray, traced on screen
+	if (cls == LIGHT_CULL_FULL)
+		return true;
+	const float reject = float(packed & 0x1FFFu) * 0.125;
+	return distance2 >= reject * reject;
+}
 #endif
 
 // **WR-16 S0: the rays are counted where they are cast** (ENGINE-NOTES 7cy;
@@ -2759,6 +2820,18 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 							* uint(u_Scene.ClusterGrid.x) + tile.x;
 			hitCellOffset = u_Cells.Cells[cell].Offset;
 			hitCellCount = int(u_Cells.Cells[cell].Count);
+#ifdef RV_LIGHT_CULL
+			// WR-16 S2: a static hit deep inside the field walks the cell's
+			// live sublist alone, in the full list's order; the lamps it
+			// leaves out are ones it would have read and dropped. The
+			// sublist's on-screen-only entries (a fully baked lamp with a
+			// moving object under it) fall to the cull record below.
+			if (surface.Static && hitFieldWeight >= 1.0)
+			{
+				hitCellOffset = u_Cells.Cells[cell].LiveOffset;
+				hitCellCount = int(u_Cells.Cells[cell].LiveCount);
+			}
+#endif
 		}
 	}
 	const int hitTotal = hitLightCount == 0 ? 0
@@ -2773,6 +2846,11 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	RV_COUNT_HIT(hitLightCount);
 	for (int i = 0; i < hitLightCount; ++i)
 	{
+#endif
+#ifdef RV_LIGHT_CULL
+		// WR-16 S2: sixteen bytes decide whether the eighty are read.
+		if (LightCullRejects(uint(i), hitPosition, surface.Static && hitFieldWeight >= 1.0, false))
+			continue;
 #endif
 		GpuLight light = u_Lights.Lights[i];
 		float hitLiveShare = 1.0;
@@ -4207,6 +4285,18 @@ void main()
 	uint cell = ClusterIndexFor(v_WorldPos);
 	uint cellOffset = u_Cells.Cells[cell].Offset;
 	uint cellCount = u_Cells.Cells[cell].Count;
+#ifdef RV_LIGHT_CULL
+	// WR-16 S2: a static pixel deep inside the field walks the cell's live
+	// sublist alone, in the full list's order; the lamps it leaves out are
+	// ones it would have read and dropped. The sixteen-byte test below still
+	// drops the out-of-range ones inside it.
+	const bool cullInsideField = surfaceStatic && fieldWeight >= 1.0;
+	if (cullInsideField)
+	{
+		cellOffset = u_Cells.Cells[cell].LiveOffset;
+		cellCount = u_Cells.Cells[cell].LiveCount;
+	}
+#endif
 
 	int total = directionalCount + int(cellCount);
 	// What this fragment walks, whatever it traces: the budget's "lights per
@@ -4354,6 +4444,13 @@ void main()
 			  ? entry
 			  : int(u_CellIndices.Indices[cellOffset + uint(entry - directionalCount)]);
 
+#ifdef RV_LIGHT_CULL
+		// WR-16 S2: sixteen bytes decide whether the eighty are read. A
+		// directional light is never rejected (its range packs infinity, its
+		// class is live).
+		if (LightCullRejects(uint(i), v_WorldPos, cullInsideField, true))
+			continue;
+#endif
 		GpuLight light = u_Lights.Lights[i];
 
 		// **A fully baked light on a static surface is in the field** (7cx),
