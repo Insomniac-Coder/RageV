@@ -120,6 +120,18 @@ this frame) and zero-ray reuse on the water's mirror (the waves move).
 **S1 now has two arms**: the raw floor, and the same per-pixel budget with
 temporal accumulation behind it.
 
+**The owner's decisions from that discussion (Part IV, F-K):** the direct
+light keeps its own temporal history under every AA mode, its failures
+without TAA a trade-off; two temporal filters in series are fine;
+**variance comes in** as an importance input, quantised behind the dead
+band and dwell, with the sixty-second still test as the judge; **the
+order is S1, S2, S4, S3, S5** (S4 is where the milliseconds are, S3 spends
+them well); S1's second arm runs under TAA; the bridge is the test, GI/AO
+reconstruction stays off; and S4 is done the proper way -- a few lamps
+per pixel by a cheap target, shaded alone, the choice reused across frames
+and neighbours, the result reconstructed -- spending the shading lever and
+the ray lever together. The re-sequenced table is at the end of Part IV.
+
 ### The baseline and the flicker counts
 
 `bench_night.py --label wr16-before`, 2560x1440, 300 frames, two passes

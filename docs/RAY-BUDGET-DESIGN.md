@@ -3304,7 +3304,7 @@ within 5% of the isolation runs, bit-identical picture.
   stays the spender and the plan says so. The cheap light walk (B) is
   independent of all of this.
 
-#### The sequence, as it will be built
+#### The sequence, as it was first built (2026-09-03; superseded by the re-sequenced table at the end of this part)
 
 | step | what | days | accept |
 |---|---|---|---|
@@ -3517,20 +3517,48 @@ halved by S2 and quartered again by S5 -- **Headland from 62 ms toward
 two arms: the raw floor Part IV asked for, and the same budget with the
 third source's temporal accumulation behind it.
 
-**What changes in the sequence, then:**
-- **S1** gains a second arm: 1 / 2 / 4 / 8 shadow rays per pixel by a cheap
-  importance, first raw (the floor), then with temporal accumulation of
-  the shaded direct light and the depth-normal validity (the third
-  source's Phase 1). The verdict adds: how many rays a pixel the
-  accumulation lets the water hold, and whether the shading of the
-  unchosen lamps can be dropped with it -- measured as ms and as a diff.
-- **S2** is unchanged and is worth 13-22% of the frame on its own.
-- **S3** takes the validation tests, confidence and age, the decision
-  order, variance behind the band, the moving-camera benchmark and the
-  overhead bar; the controller reads pass timers as the truth and uses the
-  counts to split them (finding 2).
-- **S4** is RIS with a cheap target, shading the survivors alone, reuse of
-  the choice, and the reconstruction stage as its denoiser -- spending both
-  levers.
-- **S5**, new: the water's rays in a half-resolution pass with
-  hit-distance-aware reconstruction.
+#### Decided by the owner, 2026-09-04, after the discussion of the third source
+
+- **F. The direct light keeps its own temporal history under every AA
+  mode.** Its failures without TAA's cover -- lag, a ghost behind the car
+  -- are a trade-off, caught by the flicker protocol and a moving-camera
+  test, not a reason to withhold the history. Two temporal filters in
+  series on the direct light (the reconstruction's, then TAA's) are
+  accepted.
+- **G. Variance comes in.** Part III's "never image variance" was written
+  wider than the defect it answered: the pulse of 2026-08-28 came from
+  variance driving a *continuous* count through an easing filter and a
+  rounding step. Variance is one importance input among the others,
+  moving a tile only between fixed levels, after a margin and a hold, with
+  "stable" also requiring the history to be old and valid. The
+  sixty-second still test decides: over one tile change in a hundred per
+  second and variance goes back out, and zero-ray reuse is limited to what
+  validity and age alone justify.
+- **H. The order is S1, S2, S4, S3, S5.** S4 is where the milliseconds are
+  and S3 spends them well; an allocator built before the sampler exists
+  would size lanes for a consumer that is not there. The history
+  validation by depth and normal moves into S4 with it, because the
+  reconstruction cannot run without it.
+- **I. S1's second arm runs the fixed budget under TAA** and lets TAA be
+  the accumulator: one day, and it says whether four rays a pixel hold
+  before the dedicated history is built.
+- **J. The bridge is the test.** GI and AO reconstruction stay off the
+  list; the bridge bakes its GI.
+- **K. S4 is done the proper way**: a few lamps per pixel chosen by a cheap
+  target, shaded alone, the choice reused across frames and neighbours,
+  and the result reconstructed. It spends the shading lever and the ray
+  lever together.
+
+#### The sequence, re-sequenced 2026-09-04
+
+| step | what | days | accept |
+|---|---|---|---|
+| S0 | **done** -- above | -- | held: 0.85 ms, bit-identical, the counters within their checks |
+| S1 | the pre-check, two arms: `--shadow-budget=K` for K = 1, 2, 4, 8 -- K shadow rays a pixel to K lamps chosen by weighted reservoir sampling on a cheap importance, the lamps' light through the importance-sampling weights -- first raw (no AA, MSAA: the floor), then under TAA (the accumulator that exists); three cameras, diff images against the everything-traced frame, the flicker protocol, the frame times | 1 | a written verdict: the K to build for, whether any lamp group's shadow is structurally missing at 8 even in the accumulated frame (bias), and whether accumulation lets the water hold that K |
+| S2 | the cheap hit walk: 16-byte light records and the per-cell live-lamp bit; independent of everything | 1-2 | diff of zero; the water pass's hit share (8 / 12 / 8 ms) measured before and after |
+| S4 | **the shadow spender, the proper way**: candidates from the cell list weighed by a cheap target (irradiance, or intensity over distance squared), the full BRDF for the K survivors alone, temporal reuse of the choice through the validity lane completed with depth and normal tests, spatial reuse among neighbours, K shadow rays, the unbiased weights; then the reconstruction stage from the third source -- temporal accumulation of the shaded direct light with confidence and age, a spatial pass that respects the shadow boundary, disocclusion spending rays -- under the one-accumulator contract; K a preset constant until S3 hands it per tile | 15-20 | §7 M4's tests (the weights fixture within 1% per light, the flicker protocol under no AA / MSAA / TAA, Balanced's cost with a diff under Quality's) plus the moving-camera ghosting test and the overhead bar (reconstruction under a fifth of the ray time it saves); the water pass's lamp arithmetic measured before and after |
+| S3 | the budget: the allocator widened to eight lanes (AO, GI, the water's rate, the shadow-ray ceiling, S4's K per tile) with importance from coverage, motion, material, light count, validity, age and variance behind the dead band and dwell, 3x3 smoothed; then the controller -- pressure per ray type from the preset's total ray-time target, pass timers as the truth and the counts to split them, shares between types, `GetRayScale()` and the mode dial retired | 5-7 | §7 M2 and M3's tests against the S0 baseline: the sixty-second still test (under one tile change in a hundred per second, with variance in), the flicker protocol, the diff within 0.5% over 2 levels, the eight cameras within 10% of the preset's target where reachable |
+| S5 | the water's mirror and refraction rays in a half-resolution pass with hit-distance-aware reconstruction; needs the water's normal in a 16-bit buffer | 3-5 | the diff against the full-resolution frame, the flicker protocol, and the water pass's ray and hit-walk share (3 + 8 ms on Headland) measured before and after |
+
+Later, optional: the direct-light field's highlight half (§7 M5), and the
+steel's mirror rate (§4.3.4).

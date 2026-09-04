@@ -129,13 +129,18 @@ the same day (RAY-BUDGET-DESIGN Part IV, "The third source, judged"):
 its history validation, allocation order, shadow reconstruction,
 half-resolution water rays and the moving-camera benchmark are taken into
 S3, S4 and a new S5; its GI/AO reconstruction is not (under 2.5% of this
-frame). **Next is S1**, now with two arms: the one-day fixed-budget
-pre-check on the water -- 1 / 2 / 4 / 8 shadow rays per pixel by a cheap
-importance, three AA modes, three cameras, diff images and the flicker
-count -- first raw, then with the third source's temporal accumulation
-behind it; the verdict is the ray count to build for, whether any lamp
-group's shadow is structurally missing at 8, and how many rays a pixel the
-accumulation lets the water hold.
+frame). **Decided the same day** (Part IV, decisions F-K): the direct
+light keeps its own temporal history under every AA; variance comes in as
+an importance input, quantised behind the dead band and dwell; **the order
+is S1, S2, S4, S3, S5**; and S4 is the proper thing -- a few lamps per
+pixel chosen by a cheap target, shaded alone, the choice reused, the
+result reconstructed -- spending the shading lever and the ray lever
+together. **Next is S1**, two arms: the one-day fixed-budget pre-check on
+the water (`--shadow-budget=K`, 1 / 2 / 4 / 8 shadow rays per pixel by a
+cheap importance, three AA modes, three cameras, diff images and the
+flicker count), first raw, then under TAA as the accumulator; the verdict
+is the K to build for, whether any lamp group's shadow is structurally
+missing at 8, and whether accumulation lets the water hold that K.
 
 ## The order
 
