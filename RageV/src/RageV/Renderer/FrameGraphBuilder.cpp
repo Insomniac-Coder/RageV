@@ -1128,8 +1128,8 @@ namespace RageV
 				// One choice per n x n block where a run asks for it: the
 				// sweep is what the choose pass costs, and this is the only
 				// thing that divides it.
-				const uint32_t chooseScale =
-					(uint32_t)Math::Max(EngineConfig::Get().WaterChooseScale, 1);
+				const uint32_t chooseScale = (uint32_t)EngineConfig::ChooseBlock(
+					EngineConfig::Get().WaterLampReuse);
 				choices.Prepare(Renderer::GetDevice(),
 								desc.Width * (uint32_t)supersample / chooseScale,
 								desc.Height * (uint32_t)supersample / chooseScale,
