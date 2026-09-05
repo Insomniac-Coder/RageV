@@ -571,6 +571,8 @@ namespace RageV
 			// The two pictures the second pass writes, handed to the water
 			// pass the way the backdrop is.
 			Ref<RHITexture>  WaterLampDiffuse;
+			// WR-16 S5: the half-resolution mirror pass's picture.
+			Ref<RHITexture>  WaterReflection;
 			Ref<RHITexture>  WaterLampSpecular;
 			// --lamp-probe: thirty-two floats one water pixel writes about its
 			// own arithmetic, read back and printed.
@@ -3627,8 +3629,13 @@ namespace RageV
 							&& EngineConfig::Get().WorldLightGrid;
 			s_Data->Scene.WorldGridOrigin = Vec4(origin.x, origin.y, origin.z,
 												 built ? 1.0f : 0.0f);
-			s_Data->Scene.WorldGridScale = Vec4(scale.x, scale.y, scale.z,
-												(float)EngineConfig::Get().WaterAblate);
+			// w: --water-ablate's bits in 0..7, and above them --water-trace's
+			// block size, so the water draw knows whether its mirror ray was
+			// traced somewhere else and at what size.
+			s_Data->Scene.WorldGridScale = Vec4(
+				scale.x, scale.y, scale.z,
+				(float)(EngineConfig::Get().WaterAblate
+						+ 256 * EngineConfig::Get().WaterTrace));
 		}
 
 		float nearPlane = 0.1f, farPlane = 1000.0f;
@@ -5373,6 +5380,9 @@ namespace RageV
 				// and the flags lane below is what says whether to read it.
 				const bool lamps = !surfaceOnly && s_Data->WaterLampDiffuse
 								&& s_Data->WaterLampSpecular;
+				waterSet->SetTexture(8, s_Data->WaterReflection ? s_Data->WaterReflection
+															   : black,
+									 s_Data->WaterClampSampler);
 				waterSet->SetTexture(5, lamps ? s_Data->WaterLampDiffuse : black,
 									 s_Data->WaterClampSampler);
 				waterSet->SetTexture(6, lamps ? s_Data->WaterLampSpecular : black,
@@ -5815,6 +5825,14 @@ namespace RageV
 	// Handed over around the water draw and taken back after it, the backdrop's
 	// shape: the renderer must not hold a texture the graph's pool may give to
 	// somebody else next frame.
+	// WR-16 S5: handed round the water draw the way the lamp pictures are,
+	// because the renderer must not hold a pooled target between frames.
+	void Renderer3D::SetWaterReflection(const RHI::Ref<RHITexture>& reflection)
+	{
+		if (s_Data)
+			s_Data->WaterReflection = reflection;
+	}
+
 	void Renderer3D::SetWaterLamps(const RHI::Ref<RHITexture>& diffuse,
 								   const RHI::Ref<RHITexture>& specular)
 	{

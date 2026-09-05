@@ -1113,6 +1113,8 @@ namespace RageV
 			// what its neighbour chose, and a fragment cannot see its
 			// neighbours' work inside its own pass.
 			RGResource waterLamps = kRGInvalid;
+			// WR-16 S5's half-resolution mirror picture, when that pass ran.
+			RGResource waterTraced = kRGInvalid;
 			// Only where lamps are being sampled at all, and only where the
 			// run did not ask for the sampler inside the water shader instead.
 			if (waterSurface != kRGInvalid && desc.WaterReservoirs
@@ -1265,12 +1267,14 @@ namespace RageV
 			const int traceScale = EngineConfig::Get().WaterTrace;
 			if (traceScale > 1 && waterSurface != kRGInvalid)
 			{
+				// Declared outside so the water draw below can sample it.
 				RGTargetDesc traceDesc;
 				traceDesc.Name = "WaterReflection";
 				traceDesc.Color = Format::R16G16B16A16_SFLOAT;
 				traceDesc.Depth = Format::Undefined;
 				traceDesc.Scale = (float)supersample / (float)traceScale;
-				const RGResource traced = graph.CreateTarget(traceDesc);
+				waterTraced = graph.CreateTarget(traceDesc);
+				const RGResource traced = waterTraced;
 
 				graph.AddPass("WaterTrace",
 					[&](RGPassBuilder& builder)
@@ -1307,8 +1311,11 @@ namespace RageV
 						builder.Sample(waterBackdrop);
 					if (waterLamps != kRGInvalid)
 						builder.Sample(waterLamps);
+					if (waterTraced != kRGInvalid)
+						builder.Sample(waterTraced);
 				},
-				[draw = desc.DrawTransparent, waterBackdrop, waterLamps](RGPassContext& context)
+				[draw = desc.DrawTransparent, waterBackdrop, waterLamps,
+				 waterTraced](RGPassContext& context)
 				{
 					// Handed over around the draw and taken back after it, the
 					// ScreenReflections shape: the renderer must not carry a
@@ -1319,7 +1326,10 @@ namespace RageV
 					if (waterLamps != kRGInvalid)
 						Renderer3D::SetWaterLamps(context.Color(waterLamps, 0),
 												  context.Color(waterLamps, 1));
+					if (waterTraced != kRGInvalid)
+						Renderer3D::SetWaterReflection(context.Color(waterTraced));
 					draw(context);
+					Renderer3D::SetWaterReflection(nullptr);
 					Renderer3D::SetWaterLamps(nullptr, nullptr);
 					Renderer3D::SetWaterBackdrop(nullptr, nullptr);
 				});

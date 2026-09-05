@@ -259,6 +259,9 @@ namespace RageV
 										 CameraMotion& motion, bool hasHistory);
 		// The two pictures the second pass wrote, for the water draw that
 		// reads them instead of walking its lamps. Null puts the walk back.
+		// WR-16 S5: the half-resolution mirror pass's picture, for the draw.
+		static void SetWaterReflection(const RHI::Ref<RHI::RHITexture>& reflection);
+
 		static void SetWaterLamps(const RHI::Ref<RHI::RHITexture>& diffuse,
 								  const RHI::Ref<RHI::RHITexture>& specular);
 

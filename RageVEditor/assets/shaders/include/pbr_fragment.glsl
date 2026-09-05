@@ -916,6 +916,10 @@ layout(set = 3, binding = 4) uniform sampler2D u_WaterFoamPattern;
 // it reflected before the light ever entered the water.
 layout(set = 3, binding = 5) uniform sampler2D u_WaterLampDiffuse;
 layout(set = 3, binding = 6) uniform sampler2D u_WaterLampSpecular;
+// **WR-16 S5: the sea's mirror ray, traced in a smaller pass.** rgb the
+// radiance, a the distance it travelled -- negative where that pass found
+// no sea. Bound black and unread when the pass did not run.
+layout(set = 3, binding = 8) uniform sampler2D u_WaterReflection;
 #if !defined(RV_WATER_SURFACE)
 // **The lamp probe, on the water draw's own set** (2026-09-04). The passes and
 // this draw disagree about whether a lamp is visible from the same pixel, and
@@ -5402,11 +5406,29 @@ void main()
 		// WR-18: one lane of the quad traces, all four share (see QuadShare).
 		// The share runs for every lane, outside the mirror test, because a
 		// quad op inside a branch some lanes skip is undefined.
-		const uint quadLane = QuadTraceLane();
+		// **WR-16 S5: where a smaller pass already traced this ray, read it.**
+		// Uniform across the draw, so the quad ops below are still reached by
+		// every lane of a quad -- a broadcast from a branch some lanes skipped
+		// is undefined, which is why this is a scene value and not a per-pixel
+		// test.
+		const int s5Scale = (int(u_Scene.WorldGridScale.w + 0.5) >> 8) & 15;
 		vec3 quadTraced = vec3(0.0);
-		if (mirror > 0.0 && QuadTraces(quadLane))
-			quadTraced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N), v_Instance.x);
-		quadTraced = QuadShare(quadTraced, quadLane);
+		if (s5Scale > 1)
+		{
+			// One tap for now. The pass writes the distance the ray travelled
+			// into alpha and nothing here uses it yet: a distance-aware filter
+			// is the refinement, and it wants these numbers to improve on.
+			const vec2 s5Uv = gl_FragCoord.xy
+							/ vec2(textureSize(u_WaterReflection, 0) * s5Scale);
+			quadTraced = textureLod(u_WaterReflection, s5Uv, 0.0).rgb;
+		}
+		else
+		{
+			const uint quadLane = QuadTraceLane();
+			if (mirror > 0.0 && QuadTraces(quadLane))
+				quadTraced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N), v_Instance.x);
+			quadTraced = QuadShare(quadTraced, quadLane);
+		}
 #endif
 		if (mirror > 0.0)
 		{
