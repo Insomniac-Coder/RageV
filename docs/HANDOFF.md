@@ -1,6 +1,54 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-05.
+**Read this first.** Updated 2026-09-05 (second entry).
+
+## 2026-09-05, later: the night frame from 57.6 ms to 27.9
+
+Headland at 1440p and RT optimisation Quality. Glitter 22.2, Pier 35.6.
+Thirteen commits, all local, **nothing pushed.**
+
+**Start here: the opaque pass's BRDF arithmetic.** It is 10.8 ms, of which
+lighting is 1.0 and every material texture read together is 0.58
+(`--water-ablate=materials`). Resolution scaling splits it ~1.7 ms fixed
+geometry against **~9.1 ms per-pixel**, so with the fetches ruled out that 9.1
+is BRDF evaluation. Owner's next target. A Nanite-shaped system would be aiming
+at the 1.7, which is the same verdict RENDERING-REVAMP reached on 2026-09-02
+and still true against a frame a quarter the size.
+
+**Also open:** the owner reports horizontal lines instead of continuous streaks
+when zoomed into the water. Pre-existing, not the half-resolution reflection.
+It is a 2-pixel vertical period, strongest on Pier near (2176, 896). Not the
+reflection, the sun, or the thinning dither; refraction carries part of it
+(379 -> 330). Unconfirmed which artefact the owner means.
+
+### What bought the time
+
+- **S4's sampler had no settings home**, so the editor, a packaged build and
+  bench_night.py had always drawn the *unsampled* frame while this document
+  reported the sampled one. Giving it one is most of 57.6 -> 30.5.
+- **The lamp choice is made once per 2x2**, not per pixel: -3.8 ms. The choose
+  pass costs the sweep over the cell's ~146 candidates, not the survivors, so
+  sweeping less often is the only lever that divides it.
+- **Lamps are binned brightest first**, so a hit walk can stop early rather
+  than reading every remaining cull record: -1.9 ms.
+- **The water stopped walking a lamp list it never reads**: -1.5 ms,
+  bit-identical. A `continue` where a `break` belonged -- the second instance
+  that day. Look for a third.
+- **The sea's reflection traced at half resolution** (WR-16 S5), with a
+  reconstruction that weights four taps by the distance each ray travelled.
+
+### The render settings panel
+
+Everything that did nothing is gone -- the ray-budget mode, its ceiling, its
+frame share, the five per-ray costs, and Renderer's whole frame-time controller
+(243 lines). Verified dead first: `GetRayScale()` had two consumers, both gated
+on the per-tile allocator not running, and it always runs.
+
+The panel now reads **RT GI source, RT optimisation, Resolution**, and RT
+optimisation owns the ray budget as columns -- water ray rate, lamps kept, AO
+rays, bounce rays, tile spread, reflection resolution. Its AO/GI/spread columns
+are a shape rather than a measurement and want a sweep.
+
 
 ## 2026-09-05: WR-16 S3's first move is built, measured and PASSES
 
