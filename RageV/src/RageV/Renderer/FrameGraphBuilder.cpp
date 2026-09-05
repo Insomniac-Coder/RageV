@@ -1264,7 +1264,10 @@ namespace RageV
 			// Nothing reads this yet -- the water draw still traces its own,
 			// and pointing it here is the next step -- so it is off unless a
 			// run asks, because an unread pass is only cost.
-			const int traceScale = EngineConfig::Get().WaterReflectionScale;
+			// The level's, unless a run asked for another (--water-reflection).
+			const int traceScale = config.HasWaterReflectionOverride
+									   ? config.WaterReflectionScale
+									   : rtPreset.ReflectionScale;
 			if (traceScale > 1 && waterSurface != kRGInvalid)
 			{
 				// Declared outside so the water draw below can sample it.

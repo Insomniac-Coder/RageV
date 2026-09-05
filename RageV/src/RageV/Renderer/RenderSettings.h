@@ -203,6 +203,12 @@ namespace RageV
 		// what the engine did before S4. This is the single biggest lever in
 		// WR-16: four took Headland from 58.9 to 34.4 ms.
 		int   Lamps;
+		// **At what size the sea's mirror ray is traced** (WR-16 S5): 1 a ray
+		// per pixel inside the water draw, 2 a pass at half the width and
+		// height, 4 a quarter. A smaller pass has one fragment where the
+		// quad share has one working lane and three idle, so the same ray
+		// density costs what it should.
+		int   ReflectionScale;
 	};
 
 	constexpr RayOptimisationPreset RayOptimisationPresetFor(RayOptimisation level)
@@ -210,12 +216,12 @@ namespace RageV
 		switch (level)
 		{
 			//                                          shadow thinning                          cutoff  water   refraction    AO    GI  spread  lamps
-			case RayOptimisation::Quality:     return { ShadowRayFalloff::Linear, 300.0f, 600.0f, 0.0f,   0.0f,   2.0f, 1.0f / 256.0f, 8.0f, 4.0f, 3.0f, 8 };
-			case RayOptimisation::Balanced:    return { ShadowRayFalloff::Linear, 150.0f, 300.0f, 0.125f, 0.0f,   2.0f, 1.0f / 256.0f, 6.0f, 3.0f, 3.0f, 4 };
-			case RayOptimisation::Performance: return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   300.0f, 2.0f, 1.0f / 256.0f, 4.0f, 2.0f, 2.0f, 2 };
+			case RayOptimisation::Quality:     return { ShadowRayFalloff::Linear, 300.0f, 600.0f, 0.0f,   0.0f,   2.0f, 1.0f / 256.0f, 8.0f, 4.0f, 3.0f, 8, 2 };
+			case RayOptimisation::Balanced:    return { ShadowRayFalloff::Linear, 150.0f, 300.0f, 0.125f, 0.0f,   2.0f, 1.0f / 256.0f, 6.0f, 3.0f, 3.0f, 4, 2 };
+			case RayOptimisation::Performance: return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   300.0f, 2.0f, 1.0f / 256.0f, 4.0f, 2.0f, 2.0f, 2, 4 };
 			// Off: the reference. Every shadow ray traced, every light its
 			// full range, a ray per pixel on the water and every lamp shaded.
-			default:                           return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   0.0f,   1.0f, 0.0f,          8.0f, 4.0f, 3.0f, 0 };
+			default:                           return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   0.0f,   1.0f, 0.0f,          8.0f, 4.0f, 3.0f, 0, 1 };
 		}
 	}
 

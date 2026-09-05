@@ -479,6 +479,7 @@ namespace RageV
 		// the time, because the three lanes that do not trace wait rather
 		// than working; a smaller pass has nothing idle. Zero, the default,
 		// leaves the quad share alone.
+		bool  HasWaterReflectionOverride = false;
 		int   WaterReflectionScale = 0;
 
 		// --world-grid=on|off (WR-16 S4): whether a ray's hit that lands
