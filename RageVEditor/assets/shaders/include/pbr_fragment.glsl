@@ -5369,6 +5369,14 @@ void main()
 			gloss = vec2(0.25, 0.6);
 		float mirror = 1.0 - smoothstep(gloss.x, gloss.y, roughness);
 #ifdef RV_WATER
+		// --water-ablate=reflection. Zeroing the term takes the traced ray,
+		// the probe fallback and the blend that applies them together, which
+		// is the whole point: what is measured is the piece, not a fragment
+		// of it.
+		if ((int(u_Scene.WorldGridScale.w + 0.5) & 1) != 0)
+			mirror = 0.0;
+#endif
+#ifdef RV_WATER
 		// WR-18: one lane of the quad traces, all four share (see QuadShare).
 		// The share runs for every lane, outside the mirror test, because a
 		// quad op inside a branch some lanes skip is undefined.

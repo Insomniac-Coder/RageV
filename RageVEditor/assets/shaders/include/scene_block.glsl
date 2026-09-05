@@ -127,6 +127,12 @@ layout(set = 0, binding = 0) uniform SceneData
 	// xyz = the grid's low corner, w = 1 where it was built at all;
 	// xyz = one over the cell size, w unused.
 	vec4 WorldGridOrigin;
+	// xyz the world grid's scale. **w is --water-ablate's bits**, a
+	// measurement: 1 zeroes the sea's reflection, 2 its see-through, 4 the
+	// lamp light it composites. The picture is wrong on purpose and the time
+	// is honest, the contract --shade-lights already carries. It lives here
+	// because the water's own dials reach the fragment stage as varyings and
+	// this word was set to zero and read by nothing.
 	vec4 WorldGridScale;
 } u_Scene;
 

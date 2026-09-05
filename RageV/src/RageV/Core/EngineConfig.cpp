@@ -398,6 +398,35 @@ namespace RageV
 		if (key == "water-lamp-reuse" || key == "waterlampreuse")
 			return ParseBool(value, config.WaterLampReuse);
 
+		if (key == "water-ablate" || key == "waterablate")
+		{
+			config.WaterAblate = 0;
+			const std::string lowered = ToLower(value);
+			size_t at = 0;
+			while (at <= lowered.size())
+			{
+				const size_t comma = lowered.find(',', at);
+				const std::string name = lowered.substr(
+					at, comma == std::string::npos ? std::string::npos : comma - at);
+				if (name == "reflection" || name == "mirror")
+					config.WaterAblate |= 1;
+				else if (name == "refraction" || name == "seethrough")
+					config.WaterAblate |= 2;
+				else if (name == "lamps")
+					config.WaterAblate |= 4;
+				else if (!name.empty() && name != "none" && name != "off")
+				{
+					RV_CORE_WARN("water-ablate expects reflection, refraction or lamps, "
+								 "comma separated; got '{0}'", name);
+					return false;
+				}
+				if (comma == std::string::npos)
+					break;
+				at = comma + 1;
+			}
+			return true;
+		}
+
 		if (key == "water-trace" || key == "watertrace")
 		{
 			try

@@ -445,6 +445,16 @@ namespace RageV
 		// clips the average back into the noise every frame.
 		float WaterLampClamp = 4.0f;
 
+		// --water-ablate=<names>: a measurement. Each name zeroes one piece
+		// of the sea's shading so its cost can be taken by subtraction --
+		// `reflection`, `refraction`, `lamps`, comma separated. The picture
+		// is wrong on purpose and the time is honest, the same contract
+		// --shade-lights carries. It exists because the water draw's cost
+		// was otherwise a single unexplained lump: every other number in
+		// WR-16 came from turning something off, and nothing could turn
+		// these off.
+		int   WaterAblate = 0;
+
 		// **How many pixels one lamp choice covers.** Two: the choice is made
 		// once per 2x2 block and all four pixels shade the lamps it names,
 		// each with its own normal and its own shadow rays. Measured on

@@ -3627,7 +3627,8 @@ namespace RageV
 							&& EngineConfig::Get().WorldLightGrid;
 			s_Data->Scene.WorldGridOrigin = Vec4(origin.x, origin.y, origin.z,
 												 built ? 1.0f : 0.0f);
-			s_Data->Scene.WorldGridScale = Vec4(scale.x, scale.y, scale.z, 0.0f);
+			s_Data->Scene.WorldGridScale = Vec4(scale.x, scale.y, scale.z,
+												(float)EngineConfig::Get().WaterAblate);
 		}
 
 		float nearPlane = 0.1f, farPlane = 1000.0f;
