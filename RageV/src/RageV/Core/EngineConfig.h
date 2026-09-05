@@ -285,7 +285,6 @@ namespace RageV
 		// pixel measured 3.30 ms with the showroom's car close and 2.17 ms
 		// with it far. Making the count the variable is what turns that into
 		// a flat frame instead of a visible dip.
-		float RayBudgetMs = 0.0f;
 
 		// --shadow-rays=<shape>,<start>,<end>[,<share>]: the project's shadow-ray
 		// falloff (RenderSettings::ShadowRayFade, WR-17), overridden for one run

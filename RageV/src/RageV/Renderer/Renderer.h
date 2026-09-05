@@ -145,15 +145,12 @@ namespace RageV
 		// Called once a frame with what the ray passes cost and what the whole
 		// GPU frame cost -- the first is what is being budgeted, the second is
 		// what Fractional takes its share of.
-		static void  UpdateRayBudget(float rayGpuMs, float frameGpuMs);
 
 		// Forget what was learned and hold full quality until the frame is
 		// worth measuring again. For a scene load or any other cut after which
 		// the last scene's cost says nothing about this one's.
-		static void  ResetRayBudget();
 
 		// What to multiply a pass's ray count by, in [kMinRayScale, 1].
-		static float GetRayScale();
 
 		// The floor. A quarter, so ambient occlusion's eight rays bottom out
 		// at two -- which is the Quarter rung the dial already offers, not a
@@ -164,7 +161,6 @@ namespace RageV
 		// cannot buy that -- ambient occlusion at one or two rays a pixel
 		// speckles at every crease, and the frames it wins are frames nobody
 		// asked for.
-		static constexpr float kMinRayScale = 0.5f;
 
 		// What the last frame graph actually built, as opposed to what was
 		// asked for.

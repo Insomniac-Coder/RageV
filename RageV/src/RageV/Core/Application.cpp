@@ -804,9 +804,6 @@ namespace RageV {
 			// per view -- the editor builds it twice, for two viewports -- and
 			// a controller stepped twice a frame moves at twice the rate it
 			// was tuned for.
-			Renderer::UpdateRayBudget(FrameProfiler::LiveRayGpuMs(),
-									  FrameProfiler::LiveGpuFrameMs());
-
 			// The whole frame's GPU span, either side of everything recorded.
 			cmd->WriteTimestamp(kWholeFrameBeginSlot);
 

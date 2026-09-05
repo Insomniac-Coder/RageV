@@ -1008,21 +1008,6 @@ namespace RageV
 			return true;
 		}
 
-		if (key == "ray-budget" || key == "raybudget")
-		{
-			try
-			{
-				const float ms = std::stof(value);
-				config.RayBudgetMs = ms > 0.0f ? ms : 0.0f;
-			}
-			catch (...)
-			{
-				RV_CORE_WARN("ray-budget expects milliseconds, got '{0}'", value);
-				return false;
-			}
-			return true;
-		}
-
 		if (key == "fixed-hz" || key == "fixedhz")
 		{
 			try

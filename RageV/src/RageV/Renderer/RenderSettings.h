@@ -430,21 +430,6 @@ namespace RageV
 		// Only means anything while the dial above is not Off.
 		GiSource RayTracedGiSource = GiSource::Realtime;
 
-		// **What the ray counts are spent against.** Only means anything while
-		// ray tracing is on -- there is nothing to budget otherwise -- which
-		// is why the panel shows it under that switch.
-		RayBudgetMode RayBudget = RayBudgetMode::Off;
-
-		// The ceiling under Absolute: milliseconds of GPU time the ray passes
-		// may take. Measured on the ray passes alone, so it is unaffected by
-		// what the rest of the frame costs.
-		float RayBudgetMs = 4.0f;
-
-		// The share under Fractional: how much of the GPU frame the ray passes
-		// may occupy. 0.4 is a reasonable place to start -- rays are a large
-		// part of a traced frame and starving them helps nothing.
-		float RayBudgetFraction = 0.4f;
-
 		// **What the adaptive allocator spends, per ray type.** Rays per pixel
 		// *averaged across the screen*, not a per-pixel count: a tile of
 		// average interest gets exactly this, and the importance map moves rays
@@ -521,24 +506,6 @@ namespace RageV
 		// One believes this frame whole, which is the undamped allocator
 		// (`--tile-smooth`).
 		float RayBudgetImportanceSmoothing = 0.0625f;
-
-		// **What a ray costs, by kind, in milliseconds per million rays on
-		// this project's target hardware** (WR-16 S0; docs/RAY-BUDGET-DESIGN
-		// Part III 4.1). The controller needs the time of rays that are cast
-		// inside a shading pass -- the shadow rays and the water's rays live
-		// in the lit fragment, where no timer can see them alone -- and gets
-		// it as the counted rays times this. **Set by the calibration
-		// protocol and never learned online**: an online fit is an output
-		// feeding an input, the loop this engine has already met. Zero means
-		// uncalibrated, and the controller treats that type as costing
-		// nothing rather than guessing. The AO and GI passes have timers of
-		// their own; their entries exist so the report can say what a ray
-		// of each kind cost when it was measured.
-		float RayCostShadow = 0.0f;
-		float RayCostWater = 0.0f;
-		float RayCostReflection = 0.0f;
-		float RayCostGi = 0.0f;
-		float RayCostAo = 0.0f;
 
 		// GiBounces and the whole of the voxel form moved to the post profile
 		// on 2026-08-20 (10.6, ENGINE-NOTES 7bg), where the rest of the GI

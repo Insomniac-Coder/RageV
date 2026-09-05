@@ -1937,9 +1937,7 @@ namespace RageV
 				// darkens the whole scene, which is a worse failure than a
 				// noisy bounce.
 				[sceneHDR, normalIndex, traceView, budgetMap = rayBudgetMap,
-				 rays = hasRayBudget ? RayDetailRays(giDetail)
-										  : Math::Max((int)(RayDetailRays(giDetail)
-											   * Renderer::GetRayScale() + 0.5f), 1)]
+				 rays = RayDetailRays(giDetail)]
 				(RGPassContext& context)
 				{
 					RayGpuScope rayTime(context.Cmd);
@@ -2054,12 +2052,6 @@ namespace RageV
 			// per-tile allocation is the same rays taken twice -- the second
 			// time uniformly. Here the count is the ceiling the allocator works
 			// below, and the average it works toward is a setting.
-			if (rayOcclusion && !hasRayBudget)
-			{
-				const float scale = Renderer::GetRayScale();
-				if (scale < 1.0f)
-					aoTaps = Math::Max((uint32_t)(aoTaps * scale + 0.5f), 2u);
-			}
 			// **Nothing runs occlusion at full resolution any more.** It is a
 			// low-frequency term multiplied into lighting, it now has a
 			// temporal filter behind it and a depth-aware upsample in front,
