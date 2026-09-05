@@ -27,7 +27,21 @@ namespace RageV
 		// The surface-description attachment: octahedral normal, roughness,
 		// metallic. Eight bits per octahedral component is about a degree,
 		// which is ample for a reflection direction. ENGINE-NOTES 7ad.
-		constexpr Format kNormalFormat = Format::R8G8B8A8_UNORM;
+		//
+		// **Sixteen since WR-16 S5** (2026-09-05). A degree is ample to point a
+		// reflection ray and not ample to *test* one: S5 reconstructs a
+		// half-resolution trace by rejecting neighbours whose normals disagree,
+		// and at eight bits the quantisation is the same size as the angle the
+		// test is trying to measure -- so a flat surface reads as a spread of
+		// distinct normals and the reconstruction rejects its own neighbours.
+		// The design names this as S5's prerequisite and notes the history's
+		// normal test wants it too. Half floats rather than sixteen-bit unorm
+		// because the octahedral encode already lands in [0, 1] and every other
+		// target in this chain is SFLOAT; the cost is four more bytes a pixel
+		// on a buffer that RTAO, the bounce, the reflections, the importance
+		// pass and the water's four passes all read, so the frame-time A/B is
+		// part of S5's acceptance rather than an afterthought.
+		constexpr Format kNormalFormat = Format::R16G16B16A16_SFLOAT;
 		// Traced indirect diffuse (7av): irradiance, unbounded and positive,
 		// so half floats rather than the normal's eight bits. Named here
 		// because five places have to agree about it -- the target, the six
