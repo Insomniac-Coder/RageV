@@ -472,14 +472,14 @@ namespace RageV
 		// fallback keeps that arm runnable for anyone re-testing it.
 		static int ChooseBlock(bool reuse) { return reuse ? 1 : 2; }
 
-		// --water-trace=<n> (WR-16 S5): the sea's mirror ray traced in a pass
+		// --water-reflection=full|half|quarter (WR-16 S5): the sea's mirror ray traced in a pass
 		// of its own at 1/n the picture's width and height -- 2 for half, 4
 		// for a quarter -- instead of once per 2x2 quad inside the water
 		// shader. The quad share quarters the rays and saves only a fifth of
 		// the time, because the three lanes that do not trace wait rather
 		// than working; a smaller pass has nothing idle. Zero, the default,
 		// leaves the quad share alone.
-		int   WaterTrace = 0;
+		int   WaterReflectionScale = 0;
 
 		// --world-grid=on|off (WR-16 S4): whether a ray's hit that lands
 		// outside the camera's frustum reads the world-space lamp grid or

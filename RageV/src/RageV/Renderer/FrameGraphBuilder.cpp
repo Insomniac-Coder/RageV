@@ -1264,7 +1264,7 @@ namespace RageV
 			// Nothing reads this yet -- the water draw still traces its own,
 			// and pointing it here is the next step -- so it is off unless a
 			// run asks, because an unread pass is only cost.
-			const int traceScale = EngineConfig::Get().WaterTrace;
+			const int traceScale = EngineConfig::Get().WaterReflectionScale;
 			if (traceScale > 1 && waterSurface != kRGInvalid)
 			{
 				// Declared outside so the water draw below can sample it.
@@ -1276,7 +1276,7 @@ namespace RageV
 				waterTraced = graph.CreateTarget(traceDesc);
 				const RGResource traced = waterTraced;
 
-				graph.AddPass("WaterTrace",
+				graph.AddPass("WaterReflection",
 					[&](RGPassBuilder& builder)
 					{
 						builder.Write(traced);

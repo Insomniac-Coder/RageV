@@ -1006,7 +1006,15 @@ layout(location = 3) out vec4 o_Indirect;
 #include "octahedral.glsl"
 
 #ifndef RV_LAYERED
-bool HasMap(int flag) { return (u_Material.MapFlags & flag) != 0; }
+bool HasMap(int flag)
+{
+	// --water-ablate=materials: every material map read skipped and the
+	// constant kept, so the cost of the fetches comes out by subtraction.
+	// One gate because every fetch already asks through here.
+	if ((int(u_Scene.WorldGridScale.w + 0.5) & 32) != 0)
+		return false;
+	return (u_Material.MapFlags & flag) != 0;
+}
 #endif
 
 // Which cell of the grid this fragment falls in.

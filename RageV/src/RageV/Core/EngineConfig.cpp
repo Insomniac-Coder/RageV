@@ -418,6 +418,8 @@ namespace RageV
 					config.WaterAblate |= 8;
 				else if (name == "screenlamps")
 					config.WaterAblate |= 16;
+				else if (name == "materials")
+					config.WaterAblate |= 32;
 				else if (!name.empty() && name != "none" && name != "off")
 				{
 					RV_CORE_WARN("water-ablate expects reflection, refraction, lamps, sun or screenlamps, "
@@ -431,15 +433,22 @@ namespace RageV
 			return true;
 		}
 
-		if (key == "water-trace" || key == "watertrace")
+		// --water-reflection=full|half|quarter: at what size the sea's mirror
+		// ray is traced. Named for what it is: only the reflection moves, and
+		// the see-through is still traced inside the water draw.
+		if (key == "water-reflection" || key == "waterreflection")
 		{
-			try
+			const std::string lowered = ToLower(value);
+			if (lowered == "full" || lowered == "1")
+				config.WaterReflectionScale = 0;
+			else if (lowered == "half" || lowered == "2")
+				config.WaterReflectionScale = 2;
+			else if (lowered == "quarter" || lowered == "4")
+				config.WaterReflectionScale = 4;
+			else
 			{
-				config.WaterTrace = Math::Clamp(std::stoi(value), 0, 4);
-			}
-			catch (const std::exception&)
-			{
-				RV_CORE_WARN("water-trace expects 0, 2 or 4; got '{0}'", value);
+				RV_CORE_WARN("water-reflection expects full, half or quarter; got '{0}'",
+							 value);
 				return false;
 			}
 			return true;
