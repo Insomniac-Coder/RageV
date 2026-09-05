@@ -720,13 +720,20 @@ void EditorLayer::OnUpdate(Timestep ts)
 				ParticleRenderer::FlushWeighted();
 			};
 		// WR-16 S4b: the sea's surface, drawn before the pass that shades
-		// its lamps. The water runs of the same list, and the list stands.
-		scene.DrawWaterSurface = [](RGPassContext&)
+		// its lamps. The water runs of the same list, and the list stands --
+		// **and only where there is a sea.** A scene with blended meshes and no
+		// water -- a windscreen is the ordinary case -- still set these three up,
+		// and paid for the surface draw, the two lamp passes and the mirror trace:
+		// five passes with nothing to run on, 0.26 ms of the showroom's 8 ms frame.
+		if (m_Scene->HasWater())
 		{
-			Renderer3D::FlushWaterSurface();
-		};
-		scene.WaterReservoirs = &m_SceneWaterChoices;
-		scene.WaterLampLight = &m_SceneWaterLampLight;
+			scene.DrawWaterSurface = [](RGPassContext&)
+			{
+				Renderer3D::FlushWaterSurface();
+			};
+			scene.WaterReservoirs = &m_SceneWaterChoices;
+			scene.WaterLampLight = &m_SceneWaterLampLight;
+		}
 		scene.ResolveTransparent = [](RGPassContext&, const RHI::Ref<RHI::RHITexture>& accumulate,
 									  const RHI::Ref<RHI::RHITexture>& revealage)
 		{
@@ -835,12 +842,17 @@ void EditorLayer::OnUpdate(Timestep ts)
 				Renderer3D::FlushTransparent();
 				ParticleRenderer::FlushWeighted();
 			};
-			game.DrawWaterSurface = [](RGPassContext&)
+			// The sea's own passes, and only where there is a sea: see the
+			// scene view above for what a windscreen was paying for.
+			if (m_Scene->HasWater())
 			{
-				Renderer3D::FlushWaterSurface();
-			};
-			game.WaterReservoirs = &m_GameWaterChoices;
-			game.WaterLampLight = &m_GameWaterLampLight;
+				game.DrawWaterSurface = [](RGPassContext&)
+				{
+					Renderer3D::FlushWaterSurface();
+				};
+				game.WaterReservoirs = &m_GameWaterChoices;
+				game.WaterLampLight = &m_GameWaterLampLight;
+			}
 			game.ResolveTransparent = [](RGPassContext&, const RHI::Ref<RHI::RHITexture>& accumulate,
 										 const RHI::Ref<RHI::RHITexture>& revealage)
 			{

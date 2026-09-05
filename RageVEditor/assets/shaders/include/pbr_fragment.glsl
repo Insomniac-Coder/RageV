@@ -3092,15 +3092,34 @@ float WrapDiffuse(float NdotL, float wrap)
 	return clamp((NdotL + wrap) / ((1.0 + wrap) * (1.0 + wrap)), 0.0, 1.0);
 }
 
+// **x^5 as three multiplies.** `pow` with a variable base is a log and an
+// exp, and Schlick's exponent is a small whole number, so the multiply
+// chain is both cheaper and more accurate than the transcendental pair
+// that stood in for it. Every Fresnel in this shader comes through here
+// or the two callers below.
+//
+// **It buys no time, and that is the measurement, not a hope.** Frame
+// time is unchanged on Headland and on the showroom (2026-09-05, four
+// runs an arm in a palindrome order, +-0.02 ms): the arithmetic in this
+// shader sits in the shadow of the eighty-byte light-record reads, so
+// removing it changes nothing. Kept because the result is bit-identical
+// on all four test cameras and the form is plainly the right one, not
+// because it is faster.
+float Pow5(float x)
+{
+	const float x2 = x * x;
+	return x2 * x2 * x;
+}
+
 vec3 FresnelSchlick(float cosTheta, vec3 F0)
 {
-	return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+	return F0 + (1.0 - F0) * Pow5(clamp(1.0 - cosTheta, 0.0, 1.0));
 }
 
 vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
 {
 	vec3 F90 = max(vec3(1.0 - roughness), F0);
-	return F0 + (F90 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+	return F0 + (F90 - F0) * Pow5(clamp(1.0 - cosTheta, 0.0, 1.0));
 }
 
 // Screen-space derivative TBN. Avoids needing tangents in the vertex format,
@@ -4194,6 +4213,17 @@ void main()
 	// hundred times its irradiance, and a target that does not know it
 	// samples the streak's lamps as if they were dim.
 	const int budgetCode = int(u_Scene.RayRates.w + 0.5);
+	//
+	// **The instrument is compiled in only when it is asked for**
+	// (`--shadow-budget=K`), exactly as RV_DEBUG_VIEW is. The note above
+	// already says eight reservoirs of a term each are registers this shader
+	// does not have to spare -- and a *declaration* spends them whether or
+	// not the branch that fills it ever runs. Left in unconditionally it
+	// cost 0.84 ms of the showroom's 6.6 ms frame while switched off,
+	// measured by bisect on 2026-09-05: c0d70c3 6.56 ms, 554589b 7.40 ms,
+	// the opaque pass carrying all of it. Renderer3D pushes the define when
+	// EngineConfig::ShadowBudget is non-zero.
+#ifdef RV_SHADOW_BUDGET
 	const int shadowBudget = clamp(budgetCode & 15, 0, 8);
 	const bool budgetFullTarget = (budgetCode & 16) != 0;
 	uint  budgetIndex[8];
@@ -4228,6 +4258,11 @@ void main()
 			budgetSeed[r] = BudgetHash(px.x ^ (px.y << 16u) ^ (uint(r) << 28u) ^ frameSalt);
 		}
 	}
+#else
+	// A compile-time zero, so the sampler's exclusivity test below reads as
+	// it always did and folds away with it.
+	const int shadowBudget = 0;
+#endif
 #endif
 
 	// **WR-16 S4's sizing** (`--shade-lights=N`, RayRates.w bits 8 and up,
@@ -4471,6 +4506,17 @@ void main()
 						 && abs(gl_FragCoord.x - u_WaterProbe.Values[28]) < 0.5
 						 && abs(gl_FragCoord.y - u_WaterProbe.Values[29]) < 0.5;
 #endif
+
+	// **One N.V a fragment, where there were three a lamp.** The same
+	// number was being taken inside GeometrySmith's view half, again in the
+	// specular's denominator and again for the sheen's masking -- N and V
+	// are the fragment's and do not move down the loop. On the bridge a
+	// pixel walks seventy-eight to a hundred and twenty-five lamps, so it
+	// was some two hundred dot products a pixel for one answer.
+	//
+	// **And it buys no time either** -- see Pow5 above for the numbers and
+	// the reason. Bit-identical, fewer instructions, same milliseconds.
+	const float NdotVc = max(dot(N, V), 0.0);
 
 	// `entry`, not `slot`: the loop body already has a `slot`, which is the
 	// shadow map this light was given.
@@ -4786,12 +4832,13 @@ void main()
 		{
 			NDF = DistributionGGX(N, H, specRoughness);
 		}
-		float G   = GeometrySmith(N, V, L, specRoughness);
+		float G   = GeometrySchlickGGX(NdotVc, specRoughness)
+				  * GeometrySchlickGGX(NdotL, specRoughness);
 #endif
 		vec3  F   = FresnelSchlick(max(dot(H, V), 0.0), F0);
 
 		vec3 numerator = NDF * G * F * specScale;
-		float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
+		float denominator = 4.0 * NdotVc * NdotL + 0.0001;
 		vec3 specular = numerator / denominator;
 
 		// Energy conservation: what is not reflected is refracted, and metals
@@ -4811,7 +4858,7 @@ void main()
 			const float Dc = DistributionGGX(N, H, coatRoughness);
 			const float Vc = VisibilityKelemen(VdotH);
 			// A coat is a dielectric film: 4%, always, whatever is beneath it.
-			const float Fc = (0.04 + 0.96 * pow(1.0 - VdotH, 5.0)) * surface.Coat.x;
+			const float Fc = (0.04 + 0.96 * Pow5(1.0 - VdotH)) * surface.Coat.x;
 
 			specular = specular * (1.0 - Fc) + vec3(Dc * Vc * Fc);
 			kD *= (1.0 - Fc);
@@ -4823,7 +4870,7 @@ void main()
 		{
 			const float Ds = DistributionCharlie(max(dot(N, H), 0.0),
 												 clamp(surface.Sheen.a, 0.07, 1.0));
-			const float Vs = VisibilityAshikhmin(max(dot(N, V), 0.0), NdotL);
+			const float Vs = VisibilityAshikhmin(NdotVc, NdotL);
 			specular += surface.Sheen.rgb * Ds * Vs;
 		}
 
@@ -4861,10 +4908,12 @@ void main()
 		{
 			shadow = TraceShadow(v_WorldPos, L, 1.0e4);
 		}
+#ifdef RV_SHADOW_BUDGET
 		else if (liveShare > 0.0 && kind != 0 && shadowBudget > 0)
 		{
 			budgeted = true;
 		}
+#endif
 		else if (liveShare > 0.0 && kind != 0 && survivor)
 		{
 			// WR-16 S4: a survivor is traced, always. Choosing which lamps
@@ -4966,7 +5015,7 @@ void main()
 			movingLossSpecular += specular * NdotL * radiance * (1.0 - shadowMoving) * fieldShare;
 		}
 #endif
-#ifdef RV_RAY_SHADOWS
+#if defined(RV_RAY_SHADOWS) && defined(RV_SHADOW_BUDGET)
 		if (budgeted)
 		{
 			// The lamp's whole term, held for the reservoirs; its weight is
@@ -5043,7 +5092,7 @@ void main()
 	}
 #endif
 
-#ifdef RV_RAY_SHADOWS
+#if defined(RV_RAY_SHADOWS) && defined(RV_SHADOW_BUDGET)
 	// WR-16 S1: the K survivors are traced, and the lamps' light is the
 	// importance-sampling estimate -- each survivor's term scaled by the
 	// total weight over K times its own, which is one over its probability

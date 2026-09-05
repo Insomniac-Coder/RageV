@@ -7,7 +7,13 @@
 Headland at 1440p and RT optimisation Quality. Glitter 22.2, Pier 35.6.
 Thirteen commits, all local, **nothing pushed.**
 
-**Start here: the opaque pass's BRDF arithmetic.** It is 10.8 ms, of which
+**⛔ Retired 2026-09-05 — see NEXT.md, "The opaque pass is not BRDF-bound".**
+Cutting the whole specular core out of the shader moves Headland's opaque
+pass by 0.054 ms of 11.37. The residual below is real; calling it BRDF
+evaluation was the error. The arithmetic hides behind the light-record
+reads, so the lever is reading fewer lamps.
+
+~~**Start here: the opaque pass's BRDF arithmetic.**~~ It is 10.8 ms, of which
 lighting is 1.0 and every material texture read together is 0.58
 (`--water-ablate=materials`). Resolution scaling splits it ~1.7 ms fixed
 geometry against **~9.1 ms per-pixel**, so with the fetches ruled out that 9.1

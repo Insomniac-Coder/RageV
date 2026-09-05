@@ -395,3 +395,179 @@ Written here because they are cross-cutting and easy to lose.
   it.
 - **Cells smaller than the thinnest wall**, or the reader's half-cell bias
   samples straight through it.
+
+---
+
+## ⭐ Parked, owner-set 2026-09-05: the showroom becomes an underground garage
+
+**Back burner, to be picked up after the BRDF work.** The brief: delete the
+Ironman and Mark 85 showroom scenes, and replace the hand-built studio in
+`showroom.rage` with `Underground+Garage+Scene.fbx`, the car parked inside it,
+camera opened out. Everything below was measured on 2026-09-05 so the work can
+start cold.
+
+**The file is already in the project** at
+`assets/models/garage/underground_garage.fbx` (33.8 MB, FBX 7400 binary,
+untracked). It has **no attribution file yet and the owner must supply the
+source and licence** — the showroom prints its credit along the bottom of the
+frame (`Credit Text`), so a second line is needed there before this ships.
+
+**The importer cannot read it as it stands, and that is the first job.**
+
+- **Every texture is embedded.** Eleven `Texture` objects, nine `Video`
+  records, eight carrying `Content` blobs (~14.2 MB of JPEG and PNG). Their
+  filenames point at `Underground Garage Scene.fbm\…` and at
+  `C:\Users\User1\Desktop\…`, and neither exists here.
+  `FbxImporter::ResolveTexturePath` only ever looks on disk and nothing reads
+  `ufbx_texture::content`, so all eleven resolve to nothing. **The fix is the
+  one `GltfImporter::ExtractImage` already makes** — write the blob out
+  beside the model, sniff the extension from the magic bytes, name it from a
+  stable index so a re-import mints the same handle.
+- **All 42 materials are Phong**, so `ReadMaterial`'s `isPbr` test is false
+  for every one of them. Base colour, emissive and normal maps still come
+  through; **the roughness, metallic and alpha maps are dropped**, and this
+  file binds real ones: roughness to `ShininessExponent`, metallic to
+  `ReflectionFactor`, alpha to `TransparencyFactor` (the importer only tests
+  `transparency_color.texture`). Those are maps an artist authored, not
+  numbers ufbx derived from a shininess exponent, so the rule the importer
+  states does not cover them.
+- **Tangents are not a problem.** The file carries none and the engine wants
+  none — the tangent frame is built from screen-space derivatives.
+
+**What the model actually is.**
+
+| | |
+|---|---|
+| Overall bounds | 49.0 × 9.3 × 57.8 m; the room shell is 46.9 × 6.8 × 53.7 m |
+| Geometry | 135 nodes, 116 meshes, 391k vertices, ~476k triangles |
+| The part that is furnished | X ∈ [-11, +10] m, Z ∈ [-27, -8] m — the light fixtures cover only that |
+| Floor | `Plane.016`, material `wet road.001`, top at y ≈ 0 |
+| Ceiling | ~6.8 m, fixtures hung at 3.1 m and 4.4 m |
+| Back wall | Z ≈ -27, carrying the graffiti, a ladder and a tyre pile |
+
+**There are no lights in the file** — 61 `light v1.xxx` nodes are *fixture
+meshes*, and the `light` / `light2` materials on them are Blender's untouched
+0.8 grey. Every light source and every emissive surface has to be authored,
+the way the studio's nine-panel rig was.
+
+**And most of the look is not in the file either.** 38 of the 42 materials
+carry no map at all, and the ones that matter — `concrete`, `wet road.001`,
+`metalic shader.001`, `car shader_2` — are all sitting at Blender's default
+0.8 grey, because their real definitions were shader-node graphs that FBX
+cannot carry. Hand-authored `.rmat` overrides for those are not polish here;
+they are the only way the room has a surface at all.
+
+**The order that follows from the above:** fix the importer → `rvimport
+models/garage/underground_garage.fbx` for the subtree and its `.rmat` files →
+edit `showroom.rage` surgically (it is **hand-owned**, like the bridge —
+`make_showroom_scene.py` has drifted and regenerating destroys the bay
+downlights' shadow flags and every `Static` flag) → author the light rig →
+`.rmat` overrides → re-place the reflection probe and the irradiance volume,
+which are sized for an 11 × 17.5 m room → re-bake both flavours.
+
+**The deletions, separately and cheaply:** `showroom2.rage` (Iron Man) and
+`showroom-mark85.rage`, their `.meta`s, their bakes, their models and their
+two generator scripts. Nothing references them but two comments and a table
+in `tools/scripts/mark_static.py`; it reclaims 366 MB and every byte is in
+git.
+
+---
+
+## The opaque pass is not BRDF-bound — measured 2026-09-05, and it retires a target
+
+**The 2026-09-05 handoff's start-here is wrong, and this is the measurement**
+that says so. It reasoned by residual: the opaque pass is 10.8 ms, lighting is
+1.0 and every material texture read together is 0.58, so "with the fetches
+ruled out that 9.1 is BRDF evaluation". A shader *executing* BRDF code for
+9.1 ms is not the same claim as its arithmetic costing 9.1 ms, and it does
+not.
+
+**The ablation.** A staged variant of `pbr_fragment.glsl` with the whole
+specular core cut out -- the GGX distribution, both Smith halves and the
+divide, reduced to `specular = F * 0.04` so D and G fall to dead code, the
+light-record read and the shadow ray untouched. Four runs an arm in a
+palindrome order (A,B,B,A twice), 120 frames, 2560x1440:
+
+| | opaque pass | frame |
+|---|---|---|
+| bridge Headland, full BRDF | 11.368 ms (+-0.024) | 26.594 ms |
+| bridge Headland, D, G and the divide gone | 11.314 (+-0.071) | 26.419 |
+| **the whole specular core is worth** | **0.054 ms, 0.5%** | **0.175 ms, 0.7%** |
+| showroom, same pair | 5.774 -> 5.523 | 8.031 -> 7.920 |
+
+**So there is no time in the equations.** Two rewrites were tried first and
+both are in the shader now, bit-identical on six cameras and worth nothing:
+one N.V a fragment where there were three a lamp, and Schlick's fifth power
+as three multiplies instead of a log and an exp. A third -- cancelling the
+two Smith cosines against the specular's own 4*N.V*N.L, which turns three
+divides a lamp into one -- was measured and **reverted**: it moved a few
+hundred pixels by up to 196 levels at grazing incidence (the old epsilon was
+suppressing an edge-on lobe that should be finite) and bought nothing.
+Roughly two hundred divides a pixel came out of Headland for 0.07 ms.
+
+**What that means for the next step.** The arithmetic sits in the shadow of
+the eighty-byte light-record reads, so the lever is *reading fewer lamps*,
+not shading them more cheaply -- which is exactly where every win this engine
+has actually banked came from: S2 (a second live-only list per cluster cell)
+took -20/-28/-32% by removing reads and no rays at all, and S4 exists to cut
+the read count further. **Do not spend another session on cheaper BRDF
+variants**; the published fast forms (Hammon's height-correlated visibility,
+Lagarde's spherical-Gaussian Fresnel, Karis's joint approximation) are all
+different *models* with different pixels, and the ones that are free are
+algebraic and worth nothing here.
+
+**A measurement trap this session paid for.** Interleaving A,B per camera is
+not enough on this laptop: the first arm in a group reads systematically
+faster, and it produced a confident -1.15 ms for a change that a palindrome
+order shows is worth zero (the same run had `scene/Transparent` at 10.61
+against 9.80; re-measured it was 10.03 against 10.22, the other way round).
+**Use A,B,B,A and quote the spread** -- it took the standard deviation from
++-0.7 ms to +-0.02.
+
+---
+
+## Applied 2026-09-05: the S1 gate, and passes with nothing to run on
+
+Both landed after the BRDF session above, at the owner's request. Bit-identical
+on six cameras against the untouched build; scenetest green on both backends
+(Vulkan 2491, OpenGL 2432, no failures).
+
+**S1 behind `RV_SHADOW_BUDGET`.** `pbr_fragment.glsl` was declaring
+`budgetIndex[8]`, `budgetTerm[8]`, `budgetWeight[8]` and `budgetSeed[8]`
+unconditionally -- the `if (shadowBudget > 0)` guard skips the initialisation,
+never the declaration -- so ~48 registers went in the hottest fragment shader
+whether or not anyone passed `--shadow-budget`. It now compiles in only when
+`EngineConfig::ShadowBudget` is non-zero, on `RV_DEBUG_VIEW`'s exact precedent
+in `Renderer3D::CompileLitShaders`. **The instrument is unchanged where it is
+wanted**: with `--shadow-budget=4` the bridge is bit-identical to the old build
+on Headland, Pier and Glitter, and K=4 still differs from K=0 by up to 40
+levels over 0.13% of pixels, so it has not been silently compiled away.
+
+**Water passes only where there is water.** `DrawWaterSurface`,
+`WaterReservoirs` and `WaterLampLight` were being set inside the *transparent*
+block, which is gated on `HasWeightedEmitters() || HasBlendedMeshes()`. A car
+windscreen satisfies that, so the showroom was building WaterSurface,
+WaterChooseLamps, WaterShadeLamps, WaterAccumulateLamps and WaterReflection --
+five passes with no sea to run on. They now sit behind the `HasWater()` the
+file already asked two lines further down, in all three call sites (the
+runtime, and the editor's scene and game views).
+
+| showroom, 1440p, n=4 palindrome | frame | FPS |
+|---|---|---|
+| before | 8.184 ms (+-0.179) | 122.2 |
+| after | **7.735 (+-0.120)** | **129.3** |
+
+The bridge is unchanged (-0.57 +-0.56 ms on Headland, inside its own spread) --
+it has water, so it loses no passes, and the S1 gate is worth nothing there for
+the reason the section above gives.
+
+**The general rule this leaves.** Every other pass in `FrameGraphBuilder` is
+already gated on its *effect* being switched on -- bloom, DoF, SSR, motion blur,
+the AA mode, the GI form, the AO level. Water was the only one gated on the
+wrong question: whether anything transparent was drawn, rather than whether its
+own subject existed. Checked while here and NOT bugs: the "SSAO" chain is the
+shared AO chain that ray-traced AO runs inside (it is not a second screen-space
+pass), DoF is genuinely on in the showroom's profile, and SSR is already
+suppressed when ray-traced reflections are on. `UI` is unconditional by a
+documented decision -- a scene with no canvas resolves to nothing and the pass
+costs a compare.

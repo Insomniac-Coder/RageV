@@ -1575,6 +1575,16 @@ namespace RageV
 					EnsureDebugCounts(1, 1);
 			}
 		}
+		// `--shadow-budget=K` (WR-16 S1), on the same rule as the counts
+		// above: a run without the flag pays nothing. The instrument holds
+		// eight reservoirs of a lamp's whole term in the lit shader, and a
+		// declaration spends the registers whether or not the branch that
+		// fills it runs -- so compiled in unconditionally it cost 0.84 ms of
+		// the showroom's frame with K at zero (bisect, 2026-09-05). A
+		// command-line measurement flag, read once, so deciding it here at
+		// compile time is the whole of it.
+		if (EngineConfig::Get().ShadowBudget > 0)
+			defines.push_back("RV_SHADOW_BUDGET");
 		if (s_Data->RayReflectionsOn)
 			defines.push_back("RV_RAY_REFLECTIONS");
 		if (s_Data->RayGlobalIlluminationOn)

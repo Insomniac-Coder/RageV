@@ -335,6 +335,7 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 
 	// Asked of the scene rather than of the renderer: the graph is described
 	// before anything draws, so the renderer would answer for last frame.
+	const bool hasWater = m_Scene->HasWater();
 	if (Particles::System::HasWeightedEmitters(*m_Scene) || m_Scene->HasBlendedMeshes())
 	{
 		frame.DrawTransparent = [](RGPassContext&)
@@ -350,18 +351,25 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 			ParticleRenderer::ResolveWeighted(accumulate, revealage);
 		};
 		// WR-16 S4b: the sea's surface, drawn before the pass that shades its
-		// lamps. The water runs of the same list, and the list stands.
-		frame.DrawWaterSurface = [](RGPassContext&)
+		// lamps. The water runs of the same list, and the list stands --
+		// **and only where there is a sea.** A scene with blended meshes and no
+		// water -- a windscreen is the ordinary case -- still set these three up,
+		// and paid for the surface draw, the two lamp passes and the mirror trace:
+		// five passes with nothing to run on, 0.26 ms of the showroom's 8 ms frame.
+		if (hasWater)
 		{
-			Renderer3D::FlushWaterSurface();
-		};
-		frame.WaterReservoirs = &m_WaterChoices;
-		frame.WaterLampLight = &m_WaterLampLight;
+			frame.DrawWaterSurface = [](RGPassContext&)
+			{
+				Renderer3D::FlushWaterSurface();
+			};
+			frame.WaterReservoirs = &m_WaterChoices;
+			frame.WaterLampLight = &m_WaterLampLight;
+		}
 	}
 
 	// The water's two extras, on the transparent block's own terms: only
 	// when a body exists to pay for them.
-	if (m_Scene->HasWater())
+	if (hasWater)
 	{
 		frame.WaterSeeThrough = true;
 		frame.UpdateWater = [this](RGPassContext& context)
