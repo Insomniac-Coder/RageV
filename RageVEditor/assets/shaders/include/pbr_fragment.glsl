@@ -2659,8 +2659,18 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 #endif
 		if (hitShadeLimit >= 0 && i >= int(u_Scene.ClusterGrid.w))
 		{
+			// **Stop, rather than walk on.** This was a `continue`, which
+			// capped the shading and went on reading every remaining cull
+			// record to test its range -- and the reading is the larger half:
+			// on Headland, capping the shading at four saved 0.68 ms of the
+			// water draw where skipping the walk entirely saved 2.72.
+			//
+			// Safe only because the cell's list is filled brightest first
+			// (LightGrid::Build), so what is left when the budget runs out is
+			// dimmer than what was taken. The directional lights sit before
+			// ClusterGrid.w and are never reached by this.
 			if (hitShaded >= hitShadeLimit)
-				continue;
+				break;
 			++hitShaded;
 		}
 		GpuLight light = u_Lights.Lights[i];

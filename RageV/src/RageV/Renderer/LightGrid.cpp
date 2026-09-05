@@ -2,6 +2,8 @@
 #include "LightGrid.h"
 #include "RageV/Math/Math.h"
 
+#include <algorithm>
+
 namespace RageV
 {
 	void LightGrid::DepthRangeOf(const Mat4& projection, float& nearPlane, float& farPlane)
@@ -189,7 +191,30 @@ namespace RageV
 				live.push_back(i);
 		};
 
+		// **WR-16: the lamps in brightness order, so every cell's list comes
+		// out sorted for the price of one sort.** A hit walk that stops early
+		// needs what remains to be dimmer than what it took; sorting each cell
+		// afterwards would be three thousand sorts a frame, and this is one.
+		//
+		// Emitted brightness rather than brightness at the cell: a cell is a
+		// volume, not a point, and a lamp bright at one corner is dim at the
+		// other. The cull record's range test still runs first, so an early
+		// exit drops the dimmer, never the nearer.
+		std::vector<uint32_t> order;
+		order.reserve(lights.size() - firstPositional);
 		for (uint32_t i = firstPositional; i < (uint32_t)lights.size(); i++)
+			order.push_back(i);
+		std::sort(order.begin(), order.end(), [&lights](uint32_t a, uint32_t b)
+		{
+			const auto lum = [](const LightRenderData& l)
+			{
+				return l.Intensity * (0.2126f * l.Color.x + 0.7152f * l.Color.y
+									  + 0.0722f * l.Color.z);
+			};
+			return lum(lights[a]) > lum(lights[b]);
+		});
+
+		for (uint32_t i : order)
 		{
 			const LightRenderData& light = lights[i];
 			const float range = Math::Max(light.Range, 0.0001f);
@@ -321,7 +346,30 @@ namespace RageV
 		// on a static surface under a fully baked lamp reads the live sublist,
 		// and the two lists must agree about what "live" means or a hit and a
 		// fragment would disagree about one lamp.
+		// **WR-16: the lamps in brightness order, so every cell's list comes
+		// out sorted for the price of one sort.** A hit walk that stops early
+		// needs what remains to be dimmer than what it took; sorting each cell
+		// afterwards would be three thousand sorts a frame, and this is one.
+		//
+		// Emitted brightness rather than brightness at the cell: a cell is a
+		// volume, not a point, and a lamp bright at one corner is dim at the
+		// other. The cull record's range test still runs first, so an early
+		// exit drops the dimmer, never the nearer.
+		std::vector<uint32_t> order;
+		order.reserve(lights.size() - firstPositional);
 		for (uint32_t i = firstPositional; i < (uint32_t)lights.size(); i++)
+			order.push_back(i);
+		std::sort(order.begin(), order.end(), [&lights](uint32_t a, uint32_t b)
+		{
+			const auto lum = [](const LightRenderData& l)
+			{
+				return l.Intensity * (0.2126f * l.Color.x + 0.7152f * l.Color.y
+									  + 0.0722f * l.Color.z);
+			};
+			return lum(lights[a]) > lum(lights[b]);
+		});
+
+		for (uint32_t i : order)
 		{
 			const LightRenderData& light = lights[i];
 			const float range = Math::Max(light.Range, 0.0001f);
