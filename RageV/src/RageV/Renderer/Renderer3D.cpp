@@ -5609,6 +5609,8 @@ namespace RageV
 
 		LampPushConstants push;
 		push.PreviousViewProjection = motion.ViewProjection;
+		// How many pixels one choice covers; the sweep divides by its square.
+		push.Trace.z = (float)Math::Max(EngineConfig::Get().WaterChooseScale, 1);
 		FillLampProbe(push);
 		FillLampFlip(push, *s_Data);
 		// **The two halves of the reuse, switched apart.** The choice kept
@@ -5719,6 +5721,8 @@ namespace RageV
 
 		LampPushConstants push;
 		const EngineConfig& lamps = EngineConfig::Get();
+		// The shading reads a choice that may cover this whole block.
+		push.Trace.z = (float)Math::Max(lamps.WaterChooseScale, 1);
 		push.History.y = (float)lamps.WaterLampCap;
 		push.History.z = lamps.WaterLampReuse && lamps.WaterLampNeighbours
 					   ? (float)lamps.WaterLampTaps : 0.0f;

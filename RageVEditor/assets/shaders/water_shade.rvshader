@@ -58,8 +58,15 @@ void main()
 	// lamp its neighbour had chosen, with a weight computed for a third one,
 	// and the sea came out at a third of its light with no other symptom.
 	const ivec2 mineTexel = ivec2(gl_FragCoord.xy);
-	const uvec4 mineIndex = texelFetch(u_ReservoirIndex, mineTexel, 0);
-	const uvec4 mineWeight = texelFetch(u_ReservoirWeight, mineTexel, 0);
+	// **The choice may live in a smaller buffer than the shading.** Where
+	// the choose pass ran at half size, one of its texels covers this 2x2,
+	// so the surface reads above stay at this pixel and only the choice
+	// comes from the block. Two addressings of two buffers, and mixing them
+	// up is the failure this file's note already describes.
+	const float chooseScale = max(u_Lamps.Trace.z, 1.0);
+	const ivec2 choiceTexel = ivec2(vec2(mineTexel) / chooseScale);
+	const uvec4 mineIndex = texelFetch(u_ReservoirIndex, choiceTexel, 0);
+	const uvec4 mineWeight = texelFetch(u_ReservoirWeight, choiceTexel, 0);
 
 	uint  index[4];
 	uint  frames[4];

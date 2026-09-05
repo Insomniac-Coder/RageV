@@ -48,12 +48,21 @@ void main()
 	float weight[4] = float[4](0.0, 0.0, 0.0, 0.0);   // what the term is multiplied by
 	float target[4] = float[4](0.0, 0.0, 0.0, 0.0);   // the score of the lamp held
 
-	const WaterPoint p = FetchWaterPoint(ivec2(gl_FragCoord.xy));
+	// **The surface this decision is made for.** With the pass at full size
+	// that is this pixel; at half it is the first pixel of the 2x2 the
+	// decision covers -- the sweep is quartered and the shading that follows
+	// it is not, because shading stays at full resolution and only the
+	// choice is shared.
+	const float chooseScale = max(u_Lamps.Trace.z, 1.0);
+	const ivec2 surfaceTexel = ivec2(gl_FragCoord.xy * chooseScale);
+	const WaterPoint p = FetchWaterPoint(surfaceTexel);
 	const int K = LampBudget();
 	float sweptTotal = 0.0;
 	if (p.Valid && K > 0)
 	{
-		const uvec2 px = uvec2(gl_FragCoord.xy);
+		// Seeded off the surface texel, not this pass's own, so the dither
+		// pattern stays fixed to the sea rather than to the buffer's size.
+		const uvec2 px = uvec2(surfaceTexel);
 		const uint salt = LampFrameSalt();
 		uint seed[4];
 		for (int r = 0; r < 4; ++r)

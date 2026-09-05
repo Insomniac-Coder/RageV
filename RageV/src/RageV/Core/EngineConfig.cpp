@@ -398,6 +398,27 @@ namespace RageV
 		if (key == "water-lamp-reuse" || key == "waterlampreuse")
 			return ParseBool(value, config.WaterLampReuse);
 
+		if (key == "choose-scale" || key == "choosescale")
+		{
+			try
+			{
+				config.WaterChooseScale = Math::Clamp(std::stoi(value), 1, 4);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("choose-scale expects 1, 2 or 4; got '{0}'", value);
+				return false;
+			}
+			if (config.WaterChooseScale > 1 && config.WaterLampReuse)
+			{
+				RV_CORE_WARN("choose-scale above one needs --water-lamp-reuse=off: the "
+							 "reuse addresses the choice and the surface with one texel, "
+							 "which at two resolutions is two different pixels");
+				return false;
+			}
+			return true;
+		}
+
 		if (key == "water-trace" || key == "watertrace")
 		{
 			try

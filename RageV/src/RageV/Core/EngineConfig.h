@@ -445,6 +445,21 @@ namespace RageV
 		// clips the average back into the noise every frame.
 		float WaterLampClamp = 4.0f;
 
+		// --choose-scale=<n>: the sea's lamp CHOICE made once per n x n block
+		// instead of once per pixel. Measured: the choose pass costs 2.91 ms
+		// keeping two lamps and 4.11 keeping eight, so nearly all of it is
+		// sweeping the cell's candidates rather than keeping the survivors --
+		// and sweeping once per block is the only lever that touches that.
+		// The shading stays per pixel with its own normal and its own shadow
+		// rays; what is shared is which lamps to look at.
+		//
+		// **This is S4b's rejected spatial reuse at a quarter of the
+		// distance** -- that verdict used taps twelve pixels out, and a block
+		// is one -- so it exists to be measured. Requires the reuse off: the
+		// history and neighbour paths address the choice and the surface with
+		// one texel, which at two resolutions is two different pixels.
+		int   WaterChooseScale = 1;
+
 		// --water-trace=<n> (WR-16 S5): the sea's mirror ray traced in a pass
 		// of its own at 1/n the picture's width and height -- 2 for half, 4
 		// for a quarter -- instead of once per 2x2 quad inside the water

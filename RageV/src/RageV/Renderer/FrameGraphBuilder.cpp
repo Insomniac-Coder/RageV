@@ -1125,9 +1125,14 @@ namespace RageV
 				// other. Whole integers because a weight through a half would
 				// quantise the one number the estimate divides by, and an
 				// index is not a thing to interpolate at all.
+				// One choice per n x n block where a run asks for it: the
+				// sweep is what the choose pass costs, and this is the only
+				// thing that divides it.
+				const uint32_t chooseScale =
+					(uint32_t)Math::Max(EngineConfig::Get().WaterChooseScale, 1);
 				choices.Prepare(Renderer::GetDevice(),
-								desc.Width * (uint32_t)supersample,
-								desc.Height * (uint32_t)supersample,
+								desc.Width * (uint32_t)supersample / chooseScale,
+								desc.Height * (uint32_t)supersample / chooseScale,
 								Format::R32G32B32A32_UINT, "WaterLampChoices",
 								Format::R32G32B32A32_UINT);
 
