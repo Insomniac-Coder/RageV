@@ -5423,12 +5423,53 @@ void main()
 		vec3 quadTraced = vec3(0.0);
 		if (s5Scale > 1)
 		{
-			// One tap for now. The pass writes the distance the ray travelled
-			// into alpha and nothing here uses it yet: a distance-aware filter
-			// is the refinement, and it wants these numbers to improve on.
-			const vec2 s5Uv = gl_FragCoord.xy
-							/ vec2(textureSize(u_WaterReflection, 0) * s5Scale);
-			quadTraced = textureLod(u_WaterReflection, s5Uv, 0.0).rgb;
+			// **Four taps, weighted by how far each ray went.** One tap smears
+			// a reflection of something touching the water across the whole
+			// block, because the block's single answer was traced for one of
+			// its four pixels and the other three are told it is theirs. Which
+			// of those two cases a pixel is in is exactly what the pass wrote
+			// into alpha: a ray that travelled a kilometre describes a
+			// reflection that barely moves across four pixels, and one that
+			// travelled a metre describes a reflection that moves fast.
+			//
+			// So the four neighbours are blended bilinearly, and a neighbour
+			// whose ray landed at a very different distance is faded out --
+			// it is looking at different geometry, and averaging it in is what
+			// draws a silhouette across the block. The tolerance is a quarter
+			// of the reference distance, so it is proportional: a metre of
+			// disagreement matters at two metres and does not at five hundred.
+			//
+			// A negative alpha is "no sea in that texel" and is refused
+			// outright rather than faded, because it is not a dimmer answer,
+			// it is no answer.
+			const vec2 s5Size = vec2(textureSize(u_WaterReflection, 0));
+			const vec2 s5Coord = gl_FragCoord.xy / float(s5Scale) - 0.5;
+			const vec2 s5Base = floor(s5Coord);
+			const vec2 s5Frac = s5Coord - s5Base;
+
+			const ivec2 s5Near = ivec2(clamp(s5Base + round(s5Frac),
+											 vec2(0.0), s5Size - 1.0));
+			const float s5Ref = texelFetch(u_WaterReflection, s5Near, 0).a;
+
+			vec3 s5Sum = vec3(0.0);
+			float s5Weight = 0.0;
+			for (int sy = 0; sy <= 1; ++sy)
+			for (int sx = 0; sx <= 1; ++sx)
+			{
+				const ivec2 at = ivec2(clamp(s5Base + vec2(float(sx), float(sy)),
+											 vec2(0.0), s5Size - 1.0));
+				const vec4 tap = texelFetch(u_WaterReflection, at, 0);
+				if (tap.a < 0.0)
+					continue;
+				const float bilinear = (sx == 0 ? 1.0 - s5Frac.x : s5Frac.x)
+									 * (sy == 0 ? 1.0 - s5Frac.y : s5Frac.y);
+				const float tolerance = max(0.25 * s5Ref, 1.0);
+				const float agrees = s5Ref > 0.0
+								   ? exp(-abs(tap.a - s5Ref) / tolerance) : 1.0;
+				s5Sum += tap.rgb * (bilinear * agrees);
+				s5Weight += bilinear * agrees;
+			}
+			quadTraced = s5Weight > 0.0 ? s5Sum / s5Weight : vec3(0.0);
 		}
 		else
 		{
