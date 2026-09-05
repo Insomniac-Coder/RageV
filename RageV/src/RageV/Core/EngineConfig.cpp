@@ -414,9 +414,13 @@ namespace RageV
 					config.WaterAblate |= 2;
 				else if (name == "lamps")
 					config.WaterAblate |= 4;
+				else if (name == "sun")
+					config.WaterAblate |= 8;
+				else if (name == "screenlamps")
+					config.WaterAblate |= 16;
 				else if (!name.empty() && name != "none" && name != "off")
 				{
-					RV_CORE_WARN("water-ablate expects reflection, refraction or lamps, "
+					RV_CORE_WARN("water-ablate expects reflection, refraction, lamps, sun or screenlamps, "
 								 "comma separated; got '{0}'", name);
 					return false;
 				}

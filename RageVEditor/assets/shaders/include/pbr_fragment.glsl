@@ -4054,10 +4054,19 @@ void main()
 	// reach every cell and binning them would put a copy in all 3456 of them.
 	// Everything after them is positional and comes from this fragment's cell.
 	int directionalCount = int(u_Scene.ClusterGrid.w);
+	// --water-ablate=sun: the directional lights, which is the sun here.
+	// Not water-only despite the flag's name -- this loop serves every lit
+	// fragment, so the same switch measures the sun in the opaque pass too.
+	if ((int(u_Scene.WorldGridScale.w + 0.5) & 8) != 0)
+		directionalCount = 0;
 
 	uint cell = ClusterIndexFor(v_WorldPos);
 	uint cellOffset = u_Cells.Cells[cell].Offset;
 	uint cellCount = u_Cells.Cells[cell].Count;
+	// --water-ablate=screenlamps: the positional lamps this fragment would
+	// walk from its own cell. Serves both passes, as above.
+	if ((int(u_Scene.WorldGridScale.w + 0.5) & 16) != 0)
+		cellCount = 0u;
 #ifdef RV_LIGHT_CULL
 	// WR-16 S2: a static pixel deep inside the field walks the cell's live
 	// sublist alone, in the full list's order; the lamps it leaves out are
@@ -4459,12 +4468,20 @@ void main()
 		// WR-16 S4b: chosen, shaded and traced in their own passes, and added
 		// once below. Nothing positional is walked here at all -- not the
 		// eighty-byte record, not the term, not a ray.
+		//
+		// **`break`, not `continue`** (2026-09-05). This said continue, and
+		// the claim above was false: the loop still ran every one of the
+		// cell's entries -- up to a hundred and forty-six under the bridge --
+		// to reach a skip. Measured by removing the walk: 1.42 ms of the water
+		// draw doing nothing. Everything from directionalCount on is skipped,
+		// so stopping at the first is the same answer without the iterations,
+		// and the probe pixel still walks because its condition is false here.
 #if defined(RV_WATER_SURFACE)
 		if (v_WaterLamps.x != 0.0 && entry >= directionalCount)
 #else
 		if (v_WaterLamps.x != 0.0 && entry >= directionalCount && !probePixel)
 #endif
-			continue;
+			break;
 #endif
 		const bool survivor = sampled && entry >= directionalCount;
 		int i = entry < directionalCount
@@ -5004,8 +5021,13 @@ void main()
 			u_WaterProbe.Values[71] = dot(lampDiffuse, kLum);
 		}
 #endif
-		Lo += lampDiffuse + lampSpecular;
-		waterSpecular += lampSpecular;
+		// --water-ablate=lamps: with the adds gone the two fetches above are
+		// dead and go with them, so what is measured is the whole composite.
+		if ((int(u_Scene.WorldGridScale.w + 0.5) & 4) == 0)
+		{
+			Lo += lampDiffuse + lampSpecular;
+			waterSpecular += lampSpecular;
+		}
 	}
 #endif
 
@@ -5543,7 +5565,11 @@ void main()
 		//
 		// A miss is open sea with no bottom in reach: transmittance zero, the
 		// lit colour answers, which is what a bottomless bay looks like.
-		const vec3 refractedDir = refract(-waterView, N, 0.7519);
+		vec3 refractedDir = refract(-waterView, N, 0.7519);
+		// --water-ablate=refraction: a zero direction fails the guards that
+		// follow, so the ray, its hit shading and the absorption go together.
+		if ((int(u_Scene.WorldGridScale.w + 0.5) & 2) != 0)
+			refractedDir = vec3(0.0);
 
 		// **WR-18: how far the refracted ray looks.** It looked 300 m, and
 		// the water had absorbed the answer long before that: transmittance
@@ -5611,7 +5637,11 @@ void main()
 		// behind that pier to fetch.
 		if (waterFlags != 0.0)
 		{
-			const vec3 refractedDir = refract(-waterView, N, 0.7519);
+			vec3 refractedDir = refract(-waterView, N, 0.7519);
+		// --water-ablate=refraction: a zero direction fails the guards that
+		// follow, so the ray, its hit shading and the absorption go together.
+		if ((int(u_Scene.WorldGridScale.w + 0.5) & 2) != 0)
+			refractedDir = vec3(0.0);
 			const float push = clamp(waterThickness, 0.25, 4.0);
 			const vec4 refractedClip = u_Scene.ViewProjection
 									 * vec4(v_WorldPos + refractedDir * push, 1.0);
