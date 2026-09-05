@@ -353,6 +353,17 @@ namespace RageV
 		// were compiled; DebugCountsBuffer is null otherwise.
 		const bool debugView = config.DebugView != EngineConfig::DebugViewMode::None
 							&& RayCounters::IsAvailable();
+		// **The level's own numbers**, resolved once. `--rt-optimisation`
+		// overrides the project for a run, exactly as it does in Renderer3D.
+		const RayOptimisationPreset rtPreset = RayOptimisationPresetFor(
+			config.HasRayOptimisationOverride
+				? (RayOptimisation)config.RayOptimisationOverride
+				: desc.Render.RtOptimisation);
+		// The lamp count the water passes are gated on: the level's, unless a
+		// measurement run asked for another.
+		const int rtLamps = config.HasLightSamplingOverride
+							   ? config.LightSampling : rtPreset.Lamps;
+
 		const bool debugCounts = debugView
 							  && (config.DebugView == EngineConfig::DebugViewMode::Rays
 								  || config.DebugView == EngineConfig::DebugViewMode::Lights);
@@ -1105,9 +1116,7 @@ namespace RageV
 			// Only where lamps are being sampled at all, and only where the
 			// run did not ask for the sampler inside the water shader instead.
 			if (waterSurface != kRGInvalid && desc.WaterReservoirs
-				&& (EngineConfig::Get().HasLightSamplingOverride
-						? EngineConfig::Get().LightSampling
-						: desc.Render.LightSampling) > 0
+				&& rtLamps > 0
 				&& EngineConfig::Get().WaterLampPass)
 			{
 				TemporalHistory& choices = *desc.WaterReservoirs;
@@ -1603,9 +1612,9 @@ namespace RageV
 					},
 					[tiles, mean, previous, hasHistory,
 					 tilesX = budgetTilesX, tilesY = budgetTilesY,
-					 aoAverage = desc.Render.RayBudgetAoAverage,
-					 giAverage = desc.Render.RayBudgetGiAverage,
-					 spread = desc.Render.RayBudgetSpread,
+					 aoAverage = rtPreset.AoRays,
+					 giAverage = rtPreset.GiRays,
+					 spread = rtPreset.Spread,
 					 deadBand, dwell, smoothing](RGPassContext& context)
 					{
 						// One dial, and it is the honest one: the ratio between the
@@ -2985,12 +2994,12 @@ namespace RageV
 			const float scale = view == EngineConfig::DebugViewMode::Rays ? busiest + 8.0f
 							  : view == EngineConfig::DebugViewMode::Lights ? busiest
 							  : view == EngineConfig::DebugViewMode::Importance
-									? Math::Min(desc.Render.RayBudgetAoAverage
-												* Math::Max(desc.Render.RayBudgetSpread, 1.0f),
+									? Math::Min(rtPreset.AoRays
+												* Math::Max(rtPreset.Spread, 1.0f),
 											kTileRayCeiling)
 							  : view == EngineConfig::DebugViewMode::GiImportance
-									? Math::Min(desc.Render.RayBudgetGiAverage
-												* Math::Max(desc.Render.RayBudgetSpread, 1.0f),
+									? Math::Min(rtPreset.GiRays
+												* Math::Max(rtPreset.Spread, 1.0f),
 											kTileRayCeiling)
 									: 1.0f;
 			// The texture-backed modes' source, when it ran this frame.

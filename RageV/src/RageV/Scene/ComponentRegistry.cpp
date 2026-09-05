@@ -189,6 +189,17 @@ namespace
 			return hint;
 		}
 
+		// The same, with the leading `first` values kept out of the editor's
+		// dropdown. They remain valid everywhere else -- see EnumFirst.
+		template<size_t N>
+		FieldHint EnumFrom(int first, const char* const (&names)[N],
+						   const char* tooltip = nullptr)
+		{
+			FieldHint hint = Enum(names, tooltip);
+			hint.EnumFirst = first;
+			return hint;
+		}
+
 		// The same, for an enum whose file spelling has changed. `legacy` is
 		// still read; `names` is what gets written.
 		template<size_t N>
@@ -2043,7 +2054,7 @@ namespace
 				// WR-17: RT optimisation, one preset for every light.
 				Field<&RenderSettings::RtOptimisation>("RtOptimisation",
 					Named("RT optimisation", OnlyWhen(RayTracingOn,
-						Enum(kRayOptimisationNames,
+						EnumFrom(1, kRayOptimisationNames,
 							"How far the traced shadows are allowed to economise. Every "
 							"casting light costs every pixel one ray, and a sea under a "
 							"hundred lamps pays for all of them; the farther a light the "

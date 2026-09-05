@@ -410,7 +410,10 @@ namespace RageV::UI
 
 				if (ImGui::BeginCombo("##value", preview))
 				{
-					for (int i = 0; i < hint.EnumCount; i++)
+					// From EnumFirst: a value below it is still legal, still
+					// shown as the preview when a file or a flag set it, and
+					// simply not offered as a choice.
+					for (int i = hint.EnumFirst; i < hint.EnumCount; i++)
 					{
 						const bool isSelected = current == i;
 						if (ImGui::Selectable(hint.EnumNames[i], isSelected))

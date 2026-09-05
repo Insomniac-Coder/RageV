@@ -156,7 +156,13 @@ namespace RageV
 	// with no lamp reaching past 300 m, which dims the far glitter.
 	enum class RayOptimisation : uint32_t
 	{
-		Off = 0,      // every shadow ray traced, every light its full range
+		// **Not a shipping level.** Everything traced, nothing skipped, no
+		// lamp sampling: this is the reference every measurement in the
+		// project is compared against (`--rt-optimisation=off`, and
+		// shadow_ray_matrix.py's baseline arm). It is kept off the editor's
+		// list rather than deleted, because deleting it would delete the
+		// thing the other three are measured relative to.
+		Off = 0,
 		Quality,      // rays thin linearly from 300 to 600 m, half kept at 450
 		Balanced,     // rays thin from 150 to 300 m, one in eight kept past it
 		Performance,  // no light reaches past 300 m
@@ -175,16 +181,41 @@ namespace RageV
 		// WR-18: the transmittance under which the refraction ray stops looking;
 		// 0 = the 300 m it always had. A 256th is invisible by construction.
 		float RefractionFloor;
+
+		// **The ray budget, per level** (2026-09-05). These were three
+		// settings of their own and a fourth on the command line, none of
+		// them reachable from the thing called "RT optimisation" -- so the
+		// dial named for the cost/quality trade owned neither of WR-16's two
+		// largest savings. They are columns here now, and one place says
+		// what a level costs.
+		//
+		// AoRays and GiRays are the *screen average*, not a per-pixel count:
+		// the allocator moves rays between tiles around this number without
+		// changing the total. Spread is how far one tile may sit from it --
+		// three means the busiest tile may take three times the average and
+		// the dullest a third of it, and one means every tile gets exactly
+		// the average.
+		float AoRays;
+		float GiRays;
+		float Spread;
+		// **Lamps shaded per pixel on the water** (WR-16 S4). Zero shades
+		// every lamp that reaches the surface, which is what Off means and
+		// what the engine did before S4. This is the single biggest lever in
+		// WR-16: four took Headland from 58.9 to 34.4 ms.
+		int   Lamps;
 	};
 
 	constexpr RayOptimisationPreset RayOptimisationPresetFor(RayOptimisation level)
 	{
 		switch (level)
 		{
-			case RayOptimisation::Quality:     return { ShadowRayFalloff::Linear, 300.0f, 600.0f, 0.0f,   0.0f,   1.0f, 1.0f / 256.0f };
-			case RayOptimisation::Balanced:    return { ShadowRayFalloff::Linear, 150.0f, 300.0f, 0.125f, 0.0f,   2.0f, 1.0f / 256.0f };
-			case RayOptimisation::Performance: return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   300.0f, 2.0f, 1.0f / 256.0f };
-			default:                           return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   0.0f,   1.0f, 0.0f };
+			//                                          shadow thinning                          cutoff  water   refraction    AO    GI  spread  lamps
+			case RayOptimisation::Quality:     return { ShadowRayFalloff::Linear, 300.0f, 600.0f, 0.0f,   0.0f,   2.0f, 1.0f / 256.0f, 8.0f, 4.0f, 3.0f, 8 };
+			case RayOptimisation::Balanced:    return { ShadowRayFalloff::Linear, 150.0f, 300.0f, 0.125f, 0.0f,   2.0f, 1.0f / 256.0f, 6.0f, 3.0f, 3.0f, 4 };
+			case RayOptimisation::Performance: return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   300.0f, 2.0f, 1.0f / 256.0f, 4.0f, 2.0f, 2.0f, 2 };
+			// Off: the reference. Every shadow ray traced, every light its
+			// full range, a ray per pixel on the water and every lamp shaded.
+			default:                           return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   0.0f,   1.0f, 0.0f,          8.0f, 4.0f, 3.0f, 0 };
 		}
 	}
 
@@ -439,17 +470,12 @@ namespace RageV
 		// unusable on water, 1 the same with the specular lobe's magnitude,
 		// which is what the glitter needs, 2 the exact term.
 		// `--light-sampling=K[,target]` overrides both for one run.
-		int LightSampling = 0;
-		int LightSamplingTarget = 1;
 
-		float RayBudgetAoAverage = 8.0f;
-		float RayBudgetGiAverage = 4.0f;
 
 		// How far from its share a tile may be moved: the dearest may have this
 		// many times the average and the cheapest this fraction of it. One is a
 		// uniform count -- exactly the old behaviour -- and larger concentrates
 		// harder on whatever the importance map is pointing at.
-		float RayBudgetSpread = 3.0f;
 
 		// **How still the allocation holds** (WR-16 S3; RAY-BUDGET-DESIGN 4.2).
 		// A tile keeps the whole number of rays it has until the continuous

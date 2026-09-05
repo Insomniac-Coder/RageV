@@ -151,6 +151,23 @@ namespace RageV
 		// key kept for backward compatibility may not describe the field at
 		// all. Null means derive it.
 		const char* Label = nullptr;
+
+		// **The first value the editor offers.** Every name stays in the list,
+		// because FieldType::Enum stores the *index* -- dropping one would
+		// shift the enumerators after it and change what every saved project
+		// means. This hides a leading value from the dropdown only: files, the
+		// command line and the C# interop still read and write it, and a
+		// project already set to it still shows its name.
+		//
+		// RT optimisation's `Off` is the case it exists for: not a level
+		// anybody ships, and the reference every measurement is taken against,
+		// so it must stay reachable without being offered.
+		//
+		// **Last in the struct on purpose.** Call sites build a FieldHint from
+		// a positional initialiser list, so a member added in the middle
+		// re-targets every one after it -- which is what putting this next to
+		// EnumCount did, and what the note above EnumCount already warned of.
+		int EnumFirst = 0;
 	};
 
 	// Reads better at a call site than a braced initialiser, and matches the
