@@ -398,6 +398,20 @@ namespace RageV
 		if (key == "water-lamp-reuse" || key == "waterlampreuse")
 			return ParseBool(value, config.WaterLampReuse);
 
+		if (key == "water-trace" || key == "watertrace")
+		{
+			try
+			{
+				config.WaterTrace = Math::Clamp(std::stoi(value), 0, 4);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("water-trace expects 0, 2 or 4; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
 		if (key == "world-grid" || key == "worldgrid")
 			return ParseBool(value, config.WorldLightGrid);
 

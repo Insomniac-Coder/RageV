@@ -48,6 +48,11 @@ layout(push_constant) uniform LampParams
 	// score of the lamp it kept -- so one pixel writes them into a buffer the
 	// CPU reads back and prints.
 	vec4 Probe;
+	// WR-16 S5, for the mirror pass alone: x the probe whose irradiance a
+	// traced hit is lit by -- the water draw takes it per instance and a
+	// fullscreen pass has no instance -- and y how many surface texels one
+	// of its own covers. Zero on every other pass here.
+	vec4 Trace;
 } u_Lamps;
 
 // Thirty-two floats, one pixel, written once a frame. Slot by slot:

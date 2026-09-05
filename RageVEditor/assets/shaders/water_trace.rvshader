@@ -1,0 +1,84 @@
+// **WR-16 S5: the sea's mirror ray, traced once per pixel of a smaller
+// picture.**
+//
+// The water pass already traces one reflection ray per 2x2 quad and broadcasts
+// it to the other three lanes (`QuadTraceLane` in pbr_fragment.glsl). That
+// quarters the rays and saves a fifth of the time, because the three lanes
+// that do not trace do not go and do something else -- they wait. Measured on
+// Headland at 1440p: one ray a pixel 32.72 ms, one per quad 31.57, so the
+// sharing is worth 1.15 ms out of a ray cost of roughly 5.7.
+//
+// Here the same ray density costs what it should. A pass at half the width and
+// half the height has one *fragment* per 2x2 of the picture, so nothing idles,
+// and the four full-resolution pixels read the answer back afterwards. The
+// design calls for exactly this (Part III, "half-resolution tracing with
+// hit-distance-aware reconstruction") and names the sixteen-bit surface normal
+// as its prerequisite, which landed first.
+//
+// **What it writes, and why the alpha is the interesting channel.** The
+// radiance is the easy half. The distance the ray travelled is what the
+// reconstruction cannot recover for itself and cannot do without: a reflection
+// of the hull touching the water must stay inside its own pixel, while a
+// reflection of the far tower may be spread across four without anybody
+// seeing it. Sharing the two cases with one filter width is what makes a
+// half-resolution reflection look like a half-resolution reflection.
+//
+// **A miss is not a zero.** Alpha below zero marks "no sea in this texel",
+// which the reconstruction must refuse to average in; the sky is a real answer
+// at a real distance and gets one.
+#type vertex
+#version 460 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 460 core
+
+#define RV_TRACE_ONLY
+#include "include/pbr_fragment.glsl"
+#include "include/water_lobe.glsl"
+#include "include/water_lamps.glsl"
+
+layout(location = 0) in vec2 v_UV;
+
+// rgb the reflected radiance; a the distance it travelled, or a negative where
+// there was no sea to reflect anything.
+layout(location = 0) out vec4 o_Reflection;
+
+void main()
+{
+	o_Reflection = vec4(0.0, 0.0, 0.0, -1.0);
+
+	// **By texel, never by coordinate** -- the rule the lamp passes learned the
+	// hard way (see FetchWaterPoint's note). This pass is smaller than the
+	// surface description it reads, so one texel here names a block there, and
+	// the block's first texel is the one taken: the sea's description is
+	// point-sampled everywhere in this engine, and a block centre lands
+	// between four texels at an even scale.
+	const float step = max(u_Lamps.Trace.y, 1.0);
+	const ivec2 texel = ivec2(gl_FragCoord.xy * step);
+	const WaterPoint p = FetchWaterPoint(texel);
+	if (!p.Valid)
+		return;
+
+	// The lit shader's own reflection, in its own terms: the wave normal both
+	// bends the ray and lifts its origin off the surface.
+	const vec3 direction = reflect(-p.V, p.N);
+	const TracedSurface hit = TraceSurface(p.Position, p.N, direction, 1.0e4);
+
+	if (hit.Missed)
+	{
+		// The sky, at a distance no reconstruction should tighten around.
+		o_Reflection = vec4(hit.Sky, 1.0e4);
+		return;
+	}
+
+	o_Reflection = vec4(ShadeTraced(hit, ProbeIrradiance(hit.Normal, u_Lamps.Trace.x)),
+						length(hit.Position - p.Position));
+}

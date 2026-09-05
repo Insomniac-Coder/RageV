@@ -563,6 +563,11 @@ namespace RageV
 			// the frames behind them.
 			Ref<RHIShader>   WaterAccumulateShader;
 			Ref<RHIPipeline> WaterAccumulatePipeline;
+			// WR-16 S5: the sea's mirror ray, traced at a fraction of the
+			// picture's size so the rays the quad share already saved cost
+			// what they should.
+			Ref<RHIShader>   WaterTraceShader;
+			Ref<RHIPipeline> WaterTracePipeline;
 			// The two pictures the second pass writes, handed to the water
 			// pass the way the backdrop is.
 			Ref<RHITexture>  WaterLampDiffuse;
@@ -909,6 +914,8 @@ namespace RageV
 				Ref<RHIResourceSet> LampChooseInputs;
 				Ref<RHIResourceSet> LampShadeInputs;
 				Ref<RHIResourceSet> LampAccumulateInputs;
+				// WR-16 S5's mirror pass, which reads the same surface trio.
+				Ref<RHIResourceSet> WaterTraceInputs;
 				// And the transparent pipeline's *GPU-driven* set: the same
 				// instance table read through the indices the blended cull
 				// wrote instead of the ones the sort produced. One binding
@@ -1459,14 +1466,16 @@ namespace RageV
 			// include the same header, so their set 0 is the bounce's shape and
 			// their shadow ray is the lit shader's own -- cutout test inside
 			// traversal included, which the bridge's masked thin members need.
-			for (int pass = 0; pass < 3; ++pass)
+			for (int pass = 0; pass < 4; ++pass)
 			{
 				const char* file = pass == 0 ? "assets/shaders/water_choose.rvshader"
 									: pass == 1 ? "assets/shaders/water_shade.rvshader"
-												: "assets/shaders/water_accumulate.rvshader";
+									: pass == 2 ? "assets/shaders/water_accumulate.rvshader"
+												: "assets/shaders/water_trace.rvshader";
 				Ref<RHIShader>& target = pass == 0 ? s_Data->WaterChooseShader
 									   : pass == 1 ? s_Data->WaterShadeShader
-												   : s_Data->WaterAccumulateShader;
+									   : pass == 2 ? s_Data->WaterAccumulateShader
+												   : s_Data->WaterTraceShader;
 				target = nullptr;
 				if (auto lamp = ShaderCompiler::CompileFromFile(file, traceDefines))
 				{
@@ -2985,6 +2994,28 @@ namespace RageV
 			s_Data->WaterShadePipeline = nullptr;
 		}
 
+		// WR-16 S5: one attachment -- the reflected radiance with the distance
+		// it travelled in the alpha, which is what the reconstruction needs.
+		if (s_Data->WaterTraceShader)
+		{
+			GraphicsPipelineDesc trace;
+			trace.Name = "Renderer3D.water.trace";
+			trace.Shader = s_Data->WaterTraceShader;
+			trace.Topology = PrimitiveTopology::TriangleList;
+			trace.Rasterizer.Cull = CullMode::None;
+			trace.Blend = BlendPreset::Opaque;
+			trace.DepthStencil.DepthTestEnable = false;
+			trace.DepthStencil.DepthWriteEnable = false;
+			trace.ColorFormats = { Format::R16G16B16A16_SFLOAT };
+			trace.BlendPerAttachment = { BlendPreset::Opaque };
+			trace.DepthFormat = Format::Undefined;
+			s_Data->WaterTracePipeline = s_Data->Device->CreatePipeline(trace);
+		}
+		else
+		{
+			s_Data->WaterTracePipeline = nullptr;
+		}
+
 		// WR-16 S4c: the same two attachments again, because what it writes is
 		// the same pair of pictures with the frames behind them averaged in.
 		if (s_Data->WaterAccumulateShader)
@@ -3041,6 +3072,7 @@ namespace RageV
 				slot.LampSet.reset();
 				slot.LampChooseInputs.reset();
 				slot.LampShadeInputs.reset();
+				slot.WaterTraceInputs.reset();
 			}
 		}
 	}
@@ -5429,6 +5461,9 @@ namespace RageV
 			Vec4 History{ 0.0f, 20.0f, 0.0f, 0.0f };
 			// xy: the pixel under the microscope. z: whether one was asked for.
 			Vec4 Probe{ 0.0f, 0.0f, 0.0f, 0.0f };
+			// WR-16 S5, the mirror pass alone: x the probe a traced hit is
+			// lit by, y how many surface texels one of its texels covers.
+			Vec4 Trace{ 0.0f, 1.0f, 0.0f, 0.0f };
 		};
 
 		// Fifty-six floats, the same slots the shader's comment names -- the
@@ -5600,6 +5635,53 @@ namespace RageV
 		if (s_Data->Heap)
 			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
 		cmd->BindResourceSet(3, slot.LampChooseInputs);
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
+		cmd->Draw(3);
+	}
+
+	// **WR-16 S5: the sea's mirror ray, at a fraction of the picture.**
+	//
+	// The same three attachments the lamp passes read, and the same borrowed
+	// set 0 -- so the ray, the cutout test inside its traversal and the
+	// shading of what it hits are the lit shader's own. `downscale` is how
+	// many surface texels one texel of this pass covers: two for half, four
+	// for a quarter.
+	void Renderer3D::TraceWaterReflection(const RHI::Ref<RHITexture>& surface,
+									      const RHI::Ref<RHITexture>& material,
+									      const RHI::Ref<RHITexture>& position,
+									      float downscale)
+	{
+		if (!s_Data || !s_Data->WaterTracePipeline || !s_Data->ActiveScene)
+			return;
+		RHICommandList* cmd = Renderer::GetCommandList();
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!cmd || !slot.LampSet || !surface || !material || !position)
+			return;
+
+		if (!slot.WaterTraceInputs)
+			slot.WaterTraceInputs =
+				s_Data->Device->CreateResourceSet(s_Data->WaterTracePipeline, 3);
+		if (!slot.WaterTraceInputs)
+			return;
+
+		// The choice pair the lamp passes bind at 3 and 4 is not read here,
+		// but a declared binding must be filled or the draw is undefined, so
+		// the surface stands in for both.
+		slot.WaterTraceInputs->SetTexture(0, surface, s_Data->PointSampler);
+		slot.WaterTraceInputs->SetTexture(1, material, s_Data->PointSampler);
+		slot.WaterTraceInputs->SetTexture(2, position, s_Data->PointSampler);
+		slot.WaterTraceInputs->SetTexture(3, surface, s_Data->PointSampler);
+		slot.WaterTraceInputs->SetTexture(4, surface, s_Data->PointSampler);
+		if (const Ref<RHIBuffer>& probe = EnsureLampProbe(*s_Data))
+			slot.WaterTraceInputs->SetStorageBuffer(kLampProbeBinding, probe);
+		slot.WaterTraceInputs->Commit();
+
+		LampPushConstants push;
+		push.Trace = Vec4(0.0f, Math::Max(downscale, 1.0f), 0.0f, 0.0f);
+
+		cmd->BindPipeline(s_Data->WaterTracePipeline);
+		cmd->BindResourceSet(0, slot.LampSet);
+		cmd->BindResourceSet(3, slot.WaterTraceInputs);
 		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
 		cmd->Draw(3);
 	}

@@ -1249,6 +1249,41 @@ namespace RageV
 				}
 			}
 
+			// --- WR-16 S5: the sea's mirror ray, in a pass of its own -------
+			//
+			// At 1/n the width and height, so the ray density the quad share
+			// already gives costs what it should: a smaller pass has one
+			// fragment where the quad has one working lane and three waiting.
+			// Nothing reads this yet -- the water draw still traces its own,
+			// and pointing it here is the next step -- so it is off unless a
+			// run asks, because an unread pass is only cost.
+			const int traceScale = EngineConfig::Get().WaterTrace;
+			if (traceScale > 1 && waterSurface != kRGInvalid)
+			{
+				RGTargetDesc traceDesc;
+				traceDesc.Name = "WaterReflection";
+				traceDesc.Color = Format::R16G16B16A16_SFLOAT;
+				traceDesc.Depth = Format::Undefined;
+				traceDesc.Scale = (float)supersample / (float)traceScale;
+				const RGResource traced = graph.CreateTarget(traceDesc);
+
+				graph.AddPass("WaterTrace",
+					[&](RGPassBuilder& builder)
+					{
+						builder.Write(traced);
+						builder.Sample(waterSurface);
+						builder.DisableDepth();
+					},
+					[waterSurface, traceScale](RGPassContext& context)
+					{
+						Renderer3D::TraceWaterReflection(
+							context.Color(waterSurface, 0),
+							context.Color(waterSurface, 1),
+							context.Color(waterSurface, 2),
+							(float)traceScale);
+					});
+			}
+
 			graph.AddPass("Transparent",
 				[&](RGPassBuilder& builder)
 				{

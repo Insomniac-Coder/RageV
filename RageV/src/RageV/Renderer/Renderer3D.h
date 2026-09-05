@@ -237,6 +237,13 @@ namespace RageV
 									 const RHI::Ref<RHI::RHITexture>& previousIndex,
 									 const RHI::Ref<RHI::RHITexture>& previousWeight,
 									 CameraMotion& motion, bool hasHistory);
+		// WR-16 S5: the sea's mirror ray at a fraction of the picture's size.
+		// `downscale` is how many surface texels one of its texels covers.
+		static void TraceWaterReflection(const RHI::Ref<RHI::RHITexture>& surface,
+										 const RHI::Ref<RHI::RHITexture>& material,
+										 const RHI::Ref<RHI::RHITexture>& position,
+										 float downscale);
+
 		static void ShadeWaterLamps(const RHI::Ref<RHI::RHITexture>& surface,
 									const RHI::Ref<RHI::RHITexture>& material,
 									const RHI::Ref<RHI::RHITexture>& position,
