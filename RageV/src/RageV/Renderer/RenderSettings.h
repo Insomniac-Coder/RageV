@@ -421,6 +421,27 @@ namespace RageV
 		// one allocator serve baked and realtime alike: with the bounce baked
 		// there is no runtime GI demand, so its budget is unspent rather than
 		// the whole dial idling at a level chosen for a load that is not there.
+		// **WR-16 S4's lamp sampler: how many lamps a pixel keeps.** Zero
+		// shades every lamp that reaches the surface, which is what the engine
+		// did before S4. Four is what S4 was built and measured for --
+		// 58.9 -> 34.4 ms on Headland, 47.9 -> 29.9 on Pier, 42.9 -> 27.6 on
+		// Glitter, with the flicker below the shipped preset on all three.
+		//
+		// **It lives here because a win that only exists behind a hand-typed
+		// flag does not ship.** Until 2026-09-05 the only way to turn S4 on
+		// was `--light-sampling=4` on a command line: no settings field and no
+		// project key, so the editor, a packaged build and bench_night.py all
+		// drew and measured the unsampled frame while the handoff reported the
+		// sampled one. The default stays zero -- turning it on changes every
+		// project's picture and is a decision, not a repair.
+		//
+		// The target scores the candidates: 0 the cheap irradiance S1 measured
+		// unusable on water, 1 the same with the specular lobe's magnitude,
+		// which is what the glitter needs, 2 the exact term.
+		// `--light-sampling=K[,target]` overrides both for one run.
+		int LightSampling = 0;
+		int LightSamplingTarget = 1;
+
 		float RayBudgetAoAverage = 8.0f;
 		float RayBudgetGiAverage = 4.0f;
 
@@ -429,6 +450,45 @@ namespace RageV
 		// uniform count -- exactly the old behaviour -- and larger concentrates
 		// harder on whatever the importance map is pointing at.
 		float RayBudgetSpread = 3.0f;
+
+		// **How still the allocation holds** (WR-16 S3; RAY-BUDGET-DESIGN 4.2).
+		// A tile keeps the whole number of rays it has until the continuous
+		// target has moved this far from it, and may not move again for this
+		// many frames. What they replace is an easing of one ray a frame,
+		// which is a damped integrator feeding a quantiser -- the shape of the
+		// slow limit cycle this engine has already met, and the reason
+		// `budget.Advance()` was restored and reverted three times.
+		//
+		// 0.75 is the design's, and the number is not arbitrary: after a step
+		// the value is at most half a ray from the target, which is inside the
+		// band, so a step can never provoke the step back. Zero on both
+		// restores the undamped re-derivation the allocator had while the
+		// history was switched off, which is what the sixty-second still test
+		// measures against (`--tile-dead-band`, `--tile-dwell`). The dwell is
+		// capped at 31 frames by the shader, which packs both lanes' counters
+		// into one half-float.
+		float RayBudgetDeadBand = 0.75f;
+		float RayBudgetDwell = 8.0f;
+
+		// **How much of this frame's demand a tile believes**, the rest coming
+		// from the average it already held. The two above ration how often a
+		// count may change; this removes the thing that was making it want to.
+		// TAA nudges the camera a fraction of a pixel over a fixed cycle
+		// (TemporalJitterPhase), which walks silhouettes across the importance
+		// pass's sample lattice; averaging over frames cancels what repeats.
+		// Measured: with the jitter off this allocator does not change a tile
+		// in sixty seconds on either the night bridge or the showroom, and
+		// without the averaging nothing but a scene-specific dead band wide
+		// enough to freeze the allocator came near the bar.
+		//
+		// A sixteenth is two jitter cycles' worth of memory, and is what the
+		// sixty-second still test passes on: bridge 0.0082 and showroom 0.0000
+		// against a bar of 0.01, both lanes. An eighth reads 0.0147 and fails;
+		// a thirty-second passes with nothing measurable at all and is the
+		// setting to reach for if a scene ever fails, at twice the latency.
+		// One believes this frame whole, which is the undamped allocator
+		// (`--tile-smooth`).
+		float RayBudgetImportanceSmoothing = 0.0625f;
 
 		// **What a ray costs, by kind, in milliseconds per million rays on
 		// this project's target hardware** (WR-16 S0; docs/RAY-BUDGET-DESIGN

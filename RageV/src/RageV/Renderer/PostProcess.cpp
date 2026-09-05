@@ -1011,7 +1011,8 @@ namespace RageV
 								 uint32_t tileWidth, uint32_t tileHeight,
 								 float aoAverage, float giAverage,
 								 float minFactor, float maxFactor,
-								 float hysteresis, float aoCeiling, float giCeiling,
+								 float deadBand, float aoCeiling, float giCeiling,
+								 float dwellFrames, float smoothing,
 								 Format outputFormat)
 	{
 		if (!s_Data || !tiles || !mean)
@@ -1022,9 +1023,11 @@ namespace RageV
 			PostParams Base;
 			float MinFactor = 0.25f;
 			float MaxFactor = 4.0f;
-			float Hysteresis = 1.0f;
+			float DeadBand = 0.75f;
 			float AoCeiling = 16.0f;
 			float GiCeiling = 16.0f;
+			float DwellFrames = 8.0f;
+			float Smoothing = 0.0625f;
 		};
 
 		BudgetParams params;
@@ -1035,9 +1038,11 @@ namespace RageV
 		params.Base.C = history ? 1.0f : 0.0f;
 		params.MinFactor = minFactor;
 		params.MaxFactor = maxFactor;
-		params.Hysteresis = hysteresis;
+		params.DeadBand = deadBand;
 		params.AoCeiling = aoCeiling;
 		params.GiCeiling = giCeiling;
+		params.DwellFrames = dwellFrames;
+		params.Smoothing = smoothing;
 
 		Dispatch(cmd, Shader::TileBudget, outputFormat, tiles, mean,
 				 &params, sizeof(params), Sampling::Linear, Sampling::Point,
@@ -1543,15 +1548,26 @@ namespace RageV
 
 	void PostProcess::DebugView(RHICommandList& cmd, const Ref<RHITexture>& frame,
 								const Ref<RHITexture>& aux, const Ref<RHIBuffer>& counts,
-								int mode, float scale, Format outputFormat)
+								int mode, float scale, float frameMix,
+								Format outputFormat)
 	{
 		if (!s_Data || !frame || !counts)
 			return;
 
-		PostParams params;
-		params.A = (float)mode;
-		params.B = Math::Max(scale, 1.0e-6f);
-		params.C = aux ? 1.0f : 0.0f;
+		// Longer than the shared block by one float, so like the tonemap it
+		// *begins* with a PostParams -- Dispatch patches FlipY where that
+		// struct puts it and would otherwise write into the wrong field.
+		struct DebugViewParams
+		{
+			PostParams Base;
+			float FrameMix = 0.2f;
+		};
+
+		DebugViewParams params;
+		params.Base.A = (float)mode;
+		params.Base.B = Math::Max(scale, 1.0e-6f);
+		params.Base.C = aux ? 1.0f : 0.0f;
+		params.FrameMix = Math::Clamp(frameMix, 0.0f, 1.0f);
 		// The frame linear, the auxiliary point: a validity flag and a tile
 		// map are both things a filtered read would invent values between.
 		Dispatch(cmd, Shader::DebugView, outputFormat, frame, aux ? aux : s_Data->Black,

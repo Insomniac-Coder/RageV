@@ -349,7 +349,8 @@ namespace RageV
 				   uint32_t tileWidth, uint32_t tileHeight,
 				   float aoAverage, float giAverage,
 				   float minFactor, float maxFactor,
-				   float hysteresis, float aoCeiling, float giCeiling,
+				   float deadBand, float aoCeiling, float giCeiling,
+				   float dwellFrames, float smoothing,
 				   RHI::Format outputFormat);
 
 
@@ -465,16 +466,20 @@ namespace RageV
 		// **The debug view** (WR-16 S0, `--debug-view=`): `frame` dimmed under
 		// a heat map of one number per pixel. `mode` is EngineConfig's
 		// DebugViewMode less one (0 rays, 1 lights, 2 confidence, 3
-		// importance); `counts` is Renderer3D's per-pixel count buffer, read
+		// importance, 4 importance-gi); `counts` is Renderer3D's per-pixel
+		// count buffer, read
 		// by the first two; `aux` is the texture the other two read -- the
 		// temporal moments (validity in .w) or the ray budget's tile map --
 		// or null when that source did not run this frame, which the map
 		// then says by staying dark. `scale` is the value at the top of the
-		// ramp.
+		// ramp, and `frameMix` how much of the frame shows through: 0.2 for a
+		// person, 0 for a test that reads the picture as data -- at any other
+		// value a pixel moves when the scene moves.
 		static void DebugView(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& frame,
 							  const RHI::Ref<RHI::RHITexture>& aux,
 							  const RHI::Ref<RHI::RHIBuffer>& counts,
-							  int mode, float scale, RHI::Format outputFormat);
+							  int mode, float scale, float frameMix,
+							  RHI::Format outputFormat);
 
 		// The indirect buffer's temporal stage (ENGINE-NOTES 7av): this
 		// frame's raw estimate accumulated onto what the last frame resolved,

@@ -1091,7 +1091,9 @@ namespace RageV
 			// Only where lamps are being sampled at all, and only where the
 			// run did not ask for the sampler inside the water shader instead.
 			if (waterSurface != kRGInvalid && desc.WaterReservoirs
-				&& EngineConfig::Get().LightSampling > 0
+				&& (EngineConfig::Get().HasLightSamplingOverride
+						? EngineConfig::Get().LightSampling
+						: desc.Render.LightSampling) > 0
 				&& EngineConfig::Get().WaterLampPass)
 			{
 				TemporalHistory& choices = *desc.WaterReservoirs;
@@ -1457,6 +1459,15 @@ namespace RageV
 		// and it stepped for the whole screen at once, visibly. Nothing here
 		// reads frame time; only the distribution moves.
 		// ------------------------------------------------------------------
+		// **The most rays a tile may be given, stated once.** The allocator
+		// clamps to it and the debug view's ramp tops out at it. They were
+		// written separately -- 16 at the call below, AoAverage * spread (24
+		// at the defaults) in the ramp -- so the map's top third was
+		// unreachable and a tile handed the maximum read as two thirds of the
+		// way up the scale. A map that cannot show the ceiling is a map that
+		// hides the clamp binding, which is exactly when one is worth reading.
+		constexpr float kTileRayCeiling = 16.0f;
+
 		RGResource rayBudgetMap = kRGInvalid;
 		bool hasRayBudget = false;
 		uint32_t budgetTilesX = 0;
@@ -1553,6 +1564,19 @@ namespace RageV
 
 				const RGResource mean = reduced;
 
+				// The stillness levers, the preset's unless a measurement run
+				// says otherwise. Resolved here rather than in the capture so
+				// the override is read once, where it can be seen.
+				const float deadBand = config.HasTileDeadBandOverride
+										 ? config.TileDeadBandOverride
+										 : desc.Render.RayBudgetDeadBand;
+				const float dwell = config.HasTileDwellOverride
+									  ? config.TileDwellOverride
+									  : desc.Render.RayBudgetDwell;
+				const float smoothing = config.HasTileSmoothOverride
+										  ? config.TileSmoothOverride
+										  : desc.Render.RayBudgetImportanceSmoothing;
+
 				graph.AddPass("Budget allocate",
 					[&](RGPassBuilder& builder)
 					{
@@ -1567,7 +1591,8 @@ namespace RageV
 					 tilesX = budgetTilesX, tilesY = budgetTilesY,
 					 aoAverage = desc.Render.RayBudgetAoAverage,
 					 giAverage = desc.Render.RayBudgetGiAverage,
-					 spread = desc.Render.RayBudgetSpread](RGPassContext& context)
+					 spread = desc.Render.RayBudgetSpread,
+					 deadBand, dwell, smoothing](RGPassContext& context)
 					{
 						// One dial, and it is the honest one: the ratio between the
 						// cheapest tile and the dearest. Floor and ceiling move together.
@@ -1579,50 +1604,50 @@ namespace RageV
 							hasHistory ? context.Color(previous) : nullptr,
 							tilesX, tilesY, aoAverage, giAverage,
 							minFactor, maxFactor,
-							// One ray a frame. Any target is reached inside a fifth
-							// of a second -- faster than the filters downstream
-							// converge -- so nothing waits on this and nothing pops.
-							1.0f,
-							16.0f, 16.0f,
+							// The distance a target must move before a whole number
+							// follows it, and the frames it must then sit still. Not
+							// an easing -- see the shader's note, and the one below on
+							// why the line that feeds it back had to wait for this.
+							deadBand,
+							kTileRayCeiling, kTileRayCeiling,
+							dwell, smoothing,
 							Format::R16G16B16A16_SFLOAT);
 					});
 
 				rayBudgetMap = current;
 				hasRayBudget = true;
 
-				// **`budget.Advance()` belongs here and is deliberately absent.
-				// Do not add it as the one-line fix it looks like.**
+				// **`budget.Advance()`, restored** (WR-16 S3). Without it m_Valid
+				// never becomes true, HasHistory() above is permanently false, the
+				// previous map is imported and never sampled, and every tile's counts
+				// are re-derived from scratch every frame. On paper that was always a
+				// bug -- and the line was still enabled and reverted three times, on
+				// three different versions of the surrounding code, making the picture
+				// worse every time. The last was 2026-08-29, after the allocator's
+				// inputs, the GI resolution, the runtime cache and the denoiser had all
+				// changed, which was the argument for trying again.
 				//
-				// What it would do is real: without it m_Valid never becomes
-				// true, HasHistory() above is permanently false, the previous
-				// map is imported and never sampled, TileBudget is handed a
-				// null history, and tile_budget's whole +/-1 ray a frame block
-				// is skipped. So per-tile counts are re-derived from scratch
-				// every frame, undamped. On paper that is a bug and this is
-				// its fix.
+				// **The fault was never this line; it was what the history fed.** An
+				// easing of one ray a frame into a `floor(x + 0.5)` is a damped
+				// integrator feeding a quantiser, the classic shape for a slow limit
+				// cycle, and this engine has already met one breathing at about a hertz
+				// (importance_tiles.rvshader:46-52). Damping the input to a stair does
+				// not stop the stair being climbed; it makes the climbing rhythmic.
+				// Frame time was untouched either way (4.38 vs 4.44 ms, inside this
+				// machine's drift), so there was never anything on the other side of
+				// the trade to weigh the flicker against.
 				//
-				// **It has been enabled and reverted three times, on three
-				// different versions of the surrounding code, and every time it
-				// made the picture worse.** The last was 2026-08-29, after the
-				// allocator's inputs, the GI resolution, the runtime cache and
-				// the denoiser had all changed -- which was the argument for
-				// trying again, and it still came back: flicker and jitter
-				// lower than they once were, but returning. Frame time is
-				// untouched either way (4.38 vs 4.44 ms, inside this machine's
-				// drift), so there is nothing on the other side of the trade.
-				//
-				// The reason is structural rather than a tuning miss. A damped
-				// integrator feeding a quantiser -- `floor(x + 0.5)` in
-				// tile_budget -- is the classic shape for a slow limit cycle,
-				// and this engine has already met it once, breathing at about a
-				// hertz (importance_tiles.rvshader:46-52). Damping the input to
-				// a stair does not stop the stair being climbed; it just makes
-				// the climbing rhythmic.
-				//
-				// **What it needs before it can come back: a dead band on the
-				// tile count**, so a tile near a rounding boundary holds its
-				// current value instead of stepping whenever the estimate
-				// crosses. Fix the shape, then restore the line.
+				// **So the shape was fixed first.** tile_budget now holds a whole
+				// number until the continuous target has moved a whole dead band away
+				// from it, takes the rounded target in one step when it has, and may
+				// not step again for the dwell -- RAY-BUDGET-DESIGN 4.2, and the
+				// shader's own note on why the band's 0.75 makes a step unable to
+				// provoke the step back. The judge is
+				// `tools/scripts/tile_transitions.py`: how often a tile changes its
+				// allocation with the camera and the scene still, where the honest
+				// answer is "almost never" and the bar is 0.01 changes per tile per
+				// second.
+				budget.Advance();
 			}
 		}
 		else if (desc.RayBudget)
@@ -2946,12 +2971,19 @@ namespace RageV
 			const float scale = view == EngineConfig::DebugViewMode::Rays ? busiest + 8.0f
 							  : view == EngineConfig::DebugViewMode::Lights ? busiest
 							  : view == EngineConfig::DebugViewMode::Importance
-									? desc.Render.RayBudgetAoAverage * Math::Max(desc.Render.RayBudgetSpread, 1.0f)
+									? Math::Min(desc.Render.RayBudgetAoAverage
+												* Math::Max(desc.Render.RayBudgetSpread, 1.0f),
+											kTileRayCeiling)
+							  : view == EngineConfig::DebugViewMode::GiImportance
+									? Math::Min(desc.Render.RayBudgetGiAverage
+												* Math::Max(desc.Render.RayBudgetSpread, 1.0f),
+											kTileRayCeiling)
 									: 1.0f;
 			// The texture-backed modes' source, when it ran this frame.
 			const RGResource auxResource = view == EngineConfig::DebugViewMode::Confidence
 										 ? temporalCurrent
-										 : view == EngineConfig::DebugViewMode::Importance
+										 : (view == EngineConfig::DebugViewMode::Importance
+											|| view == EngineConfig::DebugViewMode::GiImportance)
 											   ? rayBudgetMap : kRGInvalid;
 			const uint32_t auxAttachment = view == EngineConfig::DebugViewMode::Confidence ? 1u : 0u;
 
@@ -2962,7 +2994,9 @@ namespace RageV
 			{
 				s_Said = view;
 				RV_CORE_WARN("Debug view: {0} has no source this frame ({1}); the map stays dark",
-							 view == EngineConfig::DebugViewMode::Confidence ? "confidence" : "importance",
+							 view == EngineConfig::DebugViewMode::Confidence ? "confidence"
+								 : view == EngineConfig::DebugViewMode::GiImportance ? "importance-gi"
+								 : "importance",
 							 view == EngineConfig::DebugViewMode::Confidence
 								 ? "the temporal resolve runs under TAA only"
 								 : "the ray budget's tile allocator is off");
@@ -2990,13 +3024,14 @@ namespace RageV
 						builder.Sample(auxResource);
 					builder.DisableDepth();
 				},
-				[tonemapped, auxResource, auxAttachment, counts, mode, scale, format]
+				[tonemapped, auxResource, auxAttachment, counts, mode, scale, format,
+				 frameMix = config.DebugViewMix]
 				(RGPassContext& context)
 				{
 					PostProcess::DebugView(context.Cmd, context.Color(tonemapped),
 										   auxResource != kRGInvalid
 											   ? context.Color(auxResource, auxAttachment) : nullptr,
-										   counts, mode, scale, format);
+										   counts, mode, scale, frameMix, format);
 				});
 		}
 

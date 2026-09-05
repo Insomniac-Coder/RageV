@@ -12,9 +12,13 @@
 // The per-pixel counts come from the buffer the lit shaders add into under
 // RV_DEBUG_VIEW (pbr_fragment.glsl, DebugCountsStore): a header of width,
 // height and pixel count, then one word per pixel of rays and one of lights.
-// Confidence and importance read a texture instead -- the temporal history's
-// second attachment (validity in .w) and the ray budget's tile map (.r, the
-// AO rays a tile was given).
+// Confidence and importance read a texture instead -- the temporal
+// history's second attachment (validity in .w) and the ray budget's
+// tile map, whose .r is the AO rays a tile was given and whose .g is the
+// bounce's. **The two lanes are allocated separately and can be restless
+// separately** (WR-16 S3), so `importance-gi` exists and the sixty-second
+// still test grades one lane at a time; a judge reading only the first
+// cannot see half of what it is grading.
 
 #type vertex
 #version 450 core
@@ -53,13 +57,21 @@ layout(std430, set = 0, binding = 5) readonly buffer DebugCountBlock
 layout(push_constant) uniform Params
 {
 	vec2  TexelSize;
-	// 0 rays, 1 lights, 2 confidence, 3 importance.
+	// 0 rays, 1 lights, 2 confidence, 3 importance (AO), 4 importance (GI).
 	float Mode;
 	// The value that maps to the top of the ramp.
 	float Scale;
 	// Whether u_Aux holds this frame's source at all.
 	float AuxValid;
 	float FlipY;
+	// **How much of the scene shows through** (`--debug-view-mix`). A fifth
+	// by default, because a map with no geography is unreadable by a person.
+	// Zero is for a machine: at any other value a pixel's colour moves when
+	// the *scene* moves, and a test that counts changed pixels then counts
+	// the animation instead of the thing it is grading. The sixty-second
+	// still test read 21 changes per tile per second with a dwell that
+	// allowed at most 2 before this existed.
+	float FrameMix;
 } u_Params;
 
 // A dark-to-bright ramp with distinct hues per band, so a number is read off
@@ -109,12 +121,15 @@ void main()
 	else
 	{
 		known = u_Params.AuxValid > 0.5;
-		value = texture(u_Aux, uv).r;
+		const vec4 budget = texture(u_Aux, uv);
+		value = mode == 3 ? budget.r : budget.g;
 	}
 
 	const float t = known ? value / max(u_Params.Scale, 1.0e-6) : 0.0;
 	// A zero stays the frame, dimmed, so "no rays here" reads as the scene
-	// and not as the ramp's black.
+	// and not as the ramp's black -- unless nothing is mixed in, where a
+	// zero has to read as black or it is not a measurement.
+	const float mix = clamp(u_Params.FrameMix, 0.0, 1.0);
 	const vec3 heat = t > 0.0 ? Ramp(t) : vec3(0.0);
-	o_Color = vec4(frame * 0.2 + heat * 0.8, 1.0);
+	o_Color = vec4(frame * mix + heat * (1.0 - mix), 1.0);
 }

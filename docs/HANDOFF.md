@@ -1,6 +1,109 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-04.
+**Read this first.** Updated 2026-09-05.
+
+## 2026-09-05: WR-16 S3's first move is built, measured and PASSES
+
+**Start here: S5**, the water's mirror and refraction rays at half resolution.
+S3's remaining half -- the eight lanes and the controller -- is NOT built; what
+is built is the stability half, and it passes its acceptance.
+
+### The allocator is still, and `budget.Advance()` is back
+
+Three mechanisms in `tile_budget.rvshader`, in the order they mattered:
+
+1. **The demand is averaged across frames** (`RayBudgetImportanceSmoothing`,
+   default 1/16, `--tile-smooth`). This did nearly all the work.
+2. **A dead band of 0.75 rays** -- the design's own number, untouched, and only
+   wide enough *because* the averaging removed the wobble first.
+3. **A dwell of 8 frames** between changes.
+
+Then `budget.Advance()` was restored, on the fourth attempt in this engine's
+history, with the shape underneath it fixed first.
+
+| sixty seconds, bar 0.01 changes/tile/s | AO | GI |
+|---|---|---|
+| bridge Headland, as it shipped | 2.4421 | -- |
+| bridge Headland, now | **0.0082** | **0.0082** |
+| showroom, now | **0.0000** | **0.0000** |
+
+The picture is unchanged: no pixel differs from the undamped allocator by more
+than 6 levels on any of the three cameras at 1440p, worst mean absolute
+difference 0.004 levels.
+
+### The cause, and the one flag that proves it
+
+**With `--aa=none` the allocator reads 0.0000, zero tiles, on both scenes.**
+Every bit of the restlessness was TAA's sub-pixel jitter walking silhouettes --
+cables, tower edges -- across `importance_tiles`'s fixed 4x4 sample lattice, so
+a tile's coverage changes while nothing moves. The jitter is periodic
+(`TemporalJitterPhase: 8`), which is why averaging cancels it and why no
+threshold could. **Reach for `--aa=none` first when the allocator looks
+restless.**
+
+### Three approaches measured and rejected -- do not retry them cold
+
+- **A wider dead band** reaches the bar but needs 4 rays on the bridge and 8 in
+  the showroom. Scene-dependent, because the wobble scales with what a tile
+  asks for: the tell that it was the wrong knob.
+- **Shifting the importance lattice by the jitter** -- the obvious fix, with an
+  in-engine precedent in `rtao_compute`'s `JitterUv`. **Both signs made it
+  worse** (0.216 off, 0.276 at +1, 0.404 at -1). The lattice is *point*-sampled,
+  so a sub-pixel shift either lands on the same texel or jumps a whole one; it
+  cannot express a fraction of a pixel and only adds a second thing that jumps.
+- **A coverage-age counter.** Worked, then became unnecessary -- an averaged
+  demand never collapses to zero for a tile covered five frames in eight.
+
+### The test was measuring fiction, twice
+
+`tools/scripts/tile_transitions.py` had never measured the allocator.
+
+1. **It graded the animated picture.** The debug view draws its map over the
+   tone-mapped frame at a fifth of that frame's brightness -- 51 levels a
+   channel -- so moving water and flashing beacons counted as allocation
+   changes. Caught by arithmetic: with the dwell at 31, which caps a tile at
+   1.94 changes a second, Headland still read **21.13**. Now `--debug-view-mix`
+   (0.2 for a person, 0 for a machine) plus a guard that refuses a capture
+   whose tiles are not flat inside.
+2. **Its warm-up counted as restlessness**, so the *better* setting scored worse
+   (0.0796 against 0.0129). Now `--settle`, default 240.
+
+It was also blind to the GI lane; `--debug-view=importance-gi` and `--lane` fix
+that, and both lanes are graded.
+
+### The 0.01 bar has no derivation
+
+`RAY-BUDGET-DESIGN.md` asserts it twice and never justifies it; its only
+concrete job is settling decision G. It counts events, not their size and not
+their visibility. **`check_glint_flicker.py` is the test that measures what a
+viewer sees and it has NOT been run on S3** -- the design lists it in S3's
+acceptance alongside the still test. That gap is open.
+
+### Three defects found by evaluation and fixed here
+
+- **The dwell cap was enforced at one of two entry points.** `--tile-dwell`
+  clamps to 31; `RenderSettings::RayBudgetDwell` did not, and the shader's
+  counter saturates at 31 -- so a project asking for more froze every tile for
+  ever. Capped in the shader now, where the cap is defined.
+- **The tile ray ceiling was stated twice and disagreed** (16 at the call, 24 in
+  the debug ramp), so the map's top third was unreachable. One constant now.
+- **S4's entire win shipped switched off.** `LightSampling` defaulted to 0 and
+  existed only as a command-line flag -- no settings field, no project key -- so
+  the editor, a packaged build and `bench_night.py` all drew the *unsampled*
+  frame while this handoff reported the sampled one. It has a `RenderSettings`
+  home now, with the flag overriding for a run. **The default is still 0:
+  turning it on changes every project's picture and is the owner's call.**
+
+### Left owing
+
+- The eight-lane widening and the controller -- the rest of S3.
+- The flicker protocol on S3.
+- **Nine more evaluation findings, none of them verified** -- the agents that
+  would have challenged them all died on a session limit. See
+  `wf_eb9ab3b7-4d5`'s journal. The largest: S4b's "the reuse loses" verdict may
+  have been measured with a *biased* combine (the merge divides by the plain
+  confidence sum rather than the unbiased Z count), which loses on every camera
+  whether or not the tilt explanation holds.
 
 ## 2026-09-04, second session: WR-16 S4 is COMPLETE and pushed
 

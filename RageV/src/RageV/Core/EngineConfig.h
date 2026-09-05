@@ -109,11 +109,30 @@
 //                           weights; 1, 2, 4 or 8. Replaces the thinning.
 //                           ",full" weighs candidates by their whole
 //                           unshadowed term instead of the cheap irradiance.
-//   --debug-view=rays|lights|confidence|importance
+//   --debug-view=rays|lights|confidence|importance|importance-gi
 //                           replace the picture with a heat map: rays cast
 //                           per pixel, lights walked per pixel, the temporal
 //                           resolve's history validity, or the ray budget's
-//                           per-tile allocation (WR-16 S0). Vulkan only.
+//                           per-tile allocation (WR-16 S0). `importance` is
+//                           the AO lane and `importance-gi` the bounce's --
+//                           the two are allocated separately and can be
+//                           restless separately, so a judge that reads only
+//                           the first cannot see half of what it grades.
+//                           Vulkan only.
+//   --debug-view-mix=<0..1> how much of the scene shows through a debug
+//                           view. 0.2 by default; 0 makes the map exact,
+//                           which is what a test that counts changed
+//                           pixels needs.
+//   --tile-dead-band=<rays> WR-16 S3, measurement: the allocator's three
+//   --tile-dwell=<frames>   stillness levers, overriding RenderSettings for
+//   --tile-smooth=<w>       one run. How far a tile's continuous demand must
+//                           move before its whole number follows; how long it
+//                           must then sit still; and how much of this frame's
+//                           demand it believes against the average it holds.
+//                           `--tile-dead-band=0 --tile-dwell=0 --tile-smooth=1`
+//                           is the undamped allocator the still test measures
+//                           against. Dwell is capped at 31 frames, both lanes'
+//                           counters sharing one half-float lane.
 
 #include "RageV/Renderer/RHI/RHITypes.h"
 #include "RageV/Renderer/RenderSettings.h"
@@ -311,6 +330,23 @@ namespace RageV
 		int   ShadowBudget = 0;
 		bool  ShadowBudgetFullTarget = false;
 
+		// --tile-dead-band=<rays> and --tile-dwell=<frames>: WR-16 S3's two
+		// stillness levers, overridden for one run so the sixty-second still
+		// test can sweep them without editing the project. Both zero is the
+		// undamped allocator -- every tile's count re-derived from scratch
+		// each frame -- which is the baseline the test grades against.
+		bool  HasTileDeadBandOverride = false;
+		float TileDeadBandOverride = 0.0f;
+		bool  HasTileDwellOverride = false;
+		float TileDwellOverride = 0.0f;
+		// --tile-smooth=<w>: the third lever, and the one that works. The two
+		// above ration how often a tile may change its count; this removes
+		// what was making it want to. `w` is how much of this frame's demand
+		// a tile believes, the rest coming from the average it held; 1 is the
+		// undamped allocator and an eighth is one jitter cycle's memory.
+		bool  HasTileSmoothOverride = false;
+		float TileSmoothOverride = 1.0f;
+
 		// --shade-lights=N: a measurement (WR-16 S4's sizing, 2026-09-04).
 		// A fragment or a traced hit walks every lamp's sixteen-byte cull
 		// record as it does today -- as S4's sampler would, to score
@@ -337,6 +373,10 @@ namespace RageV
 		// measured unusable on the water, 1 the same with the specular lobe's
 		// magnitude added, which is what the water's glitter needs. Carried
 		// in RayRates.w's bits 16-19 and 20-21.
+		// Set only when the flag was given, so `--light-sampling=0` can turn
+		// the sampler OFF for one run against a project that carries it on --
+		// which is the A/B the measurement scripts need.
+		bool  HasLightSamplingOverride = false;
 		int   LightSampling = 0;
 		int   LightSamplingTarget = 1;
 		// --water-lamp-pass=on|off (WR-16 S4b): whether the sea's lamps are
@@ -430,7 +470,16 @@ namespace RageV
 		// map the consumers read). The owner's multi-light document asks for
 		// these views before any budgeting is built, so a hot pixel is seen
 		// rather than inferred from a mean.
-		enum class DebugViewMode { None, Rays, Lights, Confidence, Importance };
+		// **--debug-view-mix=<0..1>**: how much of the tone-mapped frame the
+		// heat map is drawn over. The default fifth is what makes a map
+		// readable by a person -- and it is also what made the sixty-second
+		// still test count the moving sea as changed allocations, since a
+		// fifth of an animated frame is 51 levels a channel. Zero for any
+		// test that reads the picture as data.
+		float DebugViewMix = 0.2f;
+
+		enum class DebugViewMode { None, Rays, Lights, Confidence, Importance,
+								   GiImportance };
 		DebugViewMode DebugView = DebugViewMode::None;
 
 		// **--gi-source=baked|realtime.** Which form of indirect light to use,

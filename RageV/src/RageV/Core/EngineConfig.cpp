@@ -533,6 +533,7 @@ namespace RageV
 			try
 			{
 				config.LightSampling = Math::Clamp(std::stoi(count), 0, 8);
+				config.HasLightSamplingOverride = true;
 			}
 			catch (const std::exception&)
 			{
@@ -586,6 +587,76 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "debug-view-mix" || key == "debugviewmix")
+		{
+			try
+			{
+				config.DebugViewMix = Math::Clamp(std::stof(value), 0.0f, 1.0f);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("debug-view-mix expects a number in [0, 1]; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
+		// **WR-16 S3's two stillness levers**, for one run. Both zero is the
+		// undamped allocator: every tile's count re-derived from scratch each
+		// frame, which is what tools/scripts/tile_transitions.py grades
+		// against. The dwell's ceiling is the shader's, not a taste: both
+		// lanes' counters are packed into one half-float lane and 31 is where
+		// the pair stays exactly representable.
+		if (key == "tile-dead-band" || key == "tiledeadband")
+		{
+			try
+			{
+				config.TileDeadBandOverride = Math::Clamp(std::stof(value), 0.0f, 8.0f);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("tile-dead-band expects a number of rays in [0, 8]; got '{0}'",
+							 value);
+				return false;
+			}
+			config.HasTileDeadBandOverride = true;
+			return true;
+		}
+
+		if (key == "tile-dwell" || key == "tiledwell")
+		{
+			try
+			{
+				config.TileDwellOverride = Math::Clamp(std::stof(value), 0.0f, 31.0f);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("tile-dwell expects a number of frames in [0, 31]; got '{0}'",
+							 value);
+				return false;
+			}
+			config.HasTileDwellOverride = true;
+			return true;
+		}
+
+		if (key == "tile-smooth" || key == "tilesmooth")
+		{
+			try
+			{
+				// Above zero, not at it: a weight of zero believes nothing of
+				// any frame, so every tile holds whatever the first frame gave
+				// it for ever and the allocator is not allocating at all.
+				config.TileSmoothOverride = Math::Clamp(std::stof(value), 0.001f, 1.0f);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("tile-smooth expects a weight in (0, 1]; got '{0}'", value);
+				return false;
+			}
+			config.HasTileSmoothOverride = true;
+			return true;
+		}
+
 		if (key == "debug-view" || key == "debugview")
 		{
 			const std::string lowered = ToLower(value);
@@ -599,9 +670,13 @@ namespace RageV
 				config.DebugView = EngineConfig::DebugViewMode::Confidence;
 			else if (lowered == "importance" || lowered == "allocation")
 				config.DebugView = EngineConfig::DebugViewMode::Importance;
+			else if (lowered == "importance-gi" || lowered == "importancegi"
+					 || lowered == "allocation-gi" || lowered == "gi")
+				config.DebugView = EngineConfig::DebugViewMode::GiImportance;
 			else
 			{
-				RV_CORE_WARN("debug-view expects rays, lights, confidence or importance; got '{0}'",
+				RV_CORE_WARN("debug-view expects rays, lights, confidence, importance or "
+							 "importance-gi; got '{0}'",
 							 value);
 				return false;
 			}

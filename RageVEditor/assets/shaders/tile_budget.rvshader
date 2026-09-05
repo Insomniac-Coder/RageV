@@ -24,6 +24,28 @@
 // allocator serve baked and realtime alike: with the bounce baked there is no
 // runtime GI demand, and its budget is simply unspent rather than the whole
 // dial idling at a level chosen for a load that is not there.
+//
+// **The dead band and the dwell (WR-16 S3, RAY-BUDGET-DESIGN 4.2).** What used
+// to be here was an easing: a count could move one ray a frame toward its
+// target. That is a damped integrator feeding a quantiser -- floor(x + 0.5) --
+// which is the classic shape for a slow limit cycle, and this engine has
+// already met one, breathing at about a hertz. Damping the input to a stair
+// does not stop the stair being climbed; it makes the climbing rhythmic, which
+// is why budget.Advance() was restored and reverted three times and made the
+// picture worse every time.
+//
+// So the easing is gone and a hysteresis takes its place. A tile holds the
+// whole number it has until the continuous target has moved a whole DeadBand
+// away from it, and then takes the target's rounded value in one step; and it
+// may not do that again for DwellFrames frames. Two properties fall out of the
+// numbers rather than out of tuning:
+//
+//  * At the design's 0.75 the value after a step is at most 0.5 from the
+//    target, which is inside the band -- so a step can never provoke the step
+//    back. Noise under three quarters of a ray moves nothing at all.
+//  * The step is to the *rounded target*, not one ray toward it. Limiting the
+//    size of a step only adds latency, and latency is exactly what the easing
+//    was for; the band already does the job the easing was trying to do.
 
 #type vertex
 #version 450 core
@@ -46,7 +68,9 @@ layout(location = 0) out vec4 o_Budget;
 layout(set = 0, binding = 0) uniform sampler2D u_Tiles;
 // Its 1x1 reduction. Only `.r` matters -- the mean importance.
 layout(set = 0, binding = 1) uniform sampler2D u_Mean;
-// Last frame's output of this pass: what the counts ease toward from.
+// Last frame's output of this pass: the counts to hold, and how long each has
+// been held. Point-sampled by the caller -- a filtered read of a packed
+// counter is a number that means nothing.
 layout(set = 0, binding = 2) uniform sampler2D u_History;
 
 layout(push_constant) uniform Params
@@ -60,10 +84,59 @@ layout(push_constant) uniform Params
 
 	float MinFactor;       // the least of its share a tile may be cut to
 	float MaxFactor;       // and the most it may be given
-	float Hysteresis;      // how far a count may move toward target in a frame
+	float DeadBand;        // how far the target must move before a count does
 	float AoCeiling;
 	float GiCeiling;
+	float DwellFrames;     // and how long a count must then sit still
+	float Smoothing;       // how much of this frame's demand to believe
 } u_Budget;
+
+// Both dwell counters share the alpha lane, so each is capped where the pair
+// still lands on an exactly-representable half: 31 + 32 * 31 = 1023, and a
+// half float is exact to 2048. The dwell that matters is 8.
+const float kDwellCap = 31.0;
+const float kDwellPack = 32.0;
+// A tile counts as sky when its averaged demand falls this far under the
+// screen's mean. An average approaches zero without reaching it, so the
+// test needs a floor; at the default smoothing a tile that genuinely
+// becomes sky crosses this in about fifty frames, and costs nothing in
+// the meantime -- both tracing passes return on an empty pixel before
+// they read this map (rtao_compute:253, rtgi_trace:218).
+const float kEmptyFraction = 1.0e-3;
+
+// One lane's decision: the count it keeps, and how many frames it has kept it.
+//
+// Held while the target is inside the band or the dwell has not run out;
+// otherwise the target's rounded value, and the dwell restarts.
+vec2 Hold(float held, float target, float dwell, float band, float wanted)
+{
+	// **Capped here, because here is where the cap is known.** The counter
+	// saturates at kDwellCap, so a dwell asked for above it is a dwell that
+	// can never elapse: the test below stays true and the tile freezes for
+	// ever. `--tile-dwell` clamps in the parser, but RenderSettings does not
+	// and reaches this shader unchecked -- one of two entry points guarded,
+	// which is this codebase's own recurring defect. Guarding the rule where
+	// it is defined covers both, and whatever the third turns out to be.
+	const float dwellFrames = min(wanted, kDwellCap);
+
+	// **A tile that had nothing last frame takes its target at once.** Sky, or
+	// ground a moving camera has just uncovered: the dwell exists to stop a
+	// count walking, and there is no count to walk from. Without this a newly
+	// covered tile traces nothing for the length of the dwell, which reads as
+	// a band of unshaded tiles following the camera.
+	if (held <= 0.0)
+		return vec2(floor(target + 0.5), 0.0);
+
+	if (abs(target - held) < band || dwell < dwellFrames)
+		return vec2(held, min(dwell + 1.0, kDwellCap));
+
+	const float next = floor(target + 0.5);
+	// A band under half a ray can be crossed without the rounded value
+	// changing. That is not a change and must not restart the dwell, or a tile
+	// sitting near a boundary is held back for ever by its own near misses.
+	return next == held ? vec2(held, min(dwell + 1.0, kDwellCap))
+						: vec2(next, 0.0);
+}
 
 void main()
 {
@@ -97,52 +170,85 @@ void main()
 
 	const float mean = max(texelFetch(u_Mean, ivec2(0), 0).r, 1.0e-5);
 
-	// A tile with no surface asked for nothing. Zero rather than the minimum,
-	// because the tracing passes skip empty texels anyway and a minimum here
-	// would show in the debug view as sky that costs rays.
-	const float raw = texture(u_Tiles, uv).r;
-	if (raw <= 0.0)
-	{
-		o_Budget = vec4(0.0, 0.0, importance, 0.0);
-		return;
-	}
+	// **Last frame's decisions, read once**: the two counts, how long each has
+	// been held, and the demand this tile has been averaging.
+	const bool hasHistory = u_Budget.HasHistory > 0.5;
+	const vec4 was = hasHistory ? texture(u_History, uv) : vec4(0.0);
+
+	// **The demand is averaged across frames, and that is what made the
+	// allocator still.** Measured: with TAA's jitter off, this allocator does
+	// not change a single tile in sixty seconds, on the night bridge or the
+	// showroom. With it on, nothing but a dead band wide enough to freeze the
+	// allocator reached the bar -- and the width needed differed per scene (4
+	// rays on the bridge, 8 in the showroom), because the wobble scales with
+	// what a tile is asking for. A threshold in rays was never going to fit
+	// both.
+	//
+	// The wobble has a cause and a period: the camera is nudged a fraction of
+	// a pixel per frame over a fixed cycle (RenderSettings::TemporalJitterPhase),
+	// which moves silhouettes across the importance pass's sample lattice.
+	// Averaging over frames cancels what repeats and keeps what does not, so
+	// what reaches the clamps below is the tile's real demand and the design's
+	// own 0.75 band is wide enough for it again.
+	//
+	// One-pole rather than a true box over the cycle: a box cancels a periodic
+	// signal exactly but wants a frame of storage per step, and this is one
+	// lane. Smoothing is the weight of *this* frame -- 1 believes it whole,
+	// which is the undamped allocator this replaces.
+	const float demand = hasHistory
+					   ? mix(was.b, importance, clamp(u_Budget.Smoothing, 0.0, 1.0))
+					   : importance;
 
 	// Clamped at both ends. The floor matters as much as the ceiling: a tile
 	// cut to nothing produces no new information, so it cannot become
 	// interesting again and stays cut. The ceiling stops one glinting tile
 	// spending a budget the rest of the screen paid for.
-	const float share = clamp(importance / mean,
+	const float share = clamp(demand / mean,
 							  u_Budget.MinFactor, u_Budget.MaxFactor);
 
-	// Quantised to whole rays -- a loop cannot run 2.7 times. Rounded rather
-	// than truncated: truncation biases every tile down and the budget quietly
-	// under-spends by half a ray a tile.
-	const float aoTarget = clamp(floor(u_Budget.AoAverage * share + 0.5),
-								 1.0, u_Budget.AoCeiling);
-	const float giTarget = clamp(floor(u_Budget.GiAverage * share + 0.5),
-								 1.0, u_Budget.GiCeiling);
+	// **The target stays continuous and is clamped before it is made whole.**
+	// Rounding first and clamping after would leave the band measuring a
+	// distance to a number the clamps forbid: a tile pinned at the ceiling
+	// would read as permanently far from its target and step every time the
+	// dwell allowed it.
+	//
+	// **A tile with no surface targets zero, and the averaged demand decides
+	// whether it has one.** Testing this frame's own reading was the largest
+	// single source of restlessness before the averaging: a tile holding a
+	// bridge cable lands no sample on geometry in some frames, and a zero is a
+	// whole ray count away from what its neighbours get -- the biggest step
+	// this allocator can take, and one no dead band can damp because zero was
+	// reached by a different path. An average never collapses to zero for a
+	// tile that is covered five frames in eight, so the crossing stops
+	// happening rather than being rationed.
+	const bool empty = demand <= mean * kEmptyFraction;
+	const float aoTarget = empty ? 0.0
+						 : clamp(u_Budget.AoAverage * share, 1.0, u_Budget.AoCeiling);
+	const float giTarget = empty ? 0.0
+						 : clamp(u_Budget.GiAverage * share, 1.0, u_Budget.GiCeiling);
 
-	float ao = aoTarget;
-	float gi = giTarget;
+	// Rounded rather than truncated: truncation biases every tile down and the
+	// budget quietly under-spends by half a ray a tile. This is also the whole
+	// of the first frame, which has nothing to hold.
+	vec2 ao = vec2(floor(aoTarget + 0.5), 0.0);
+	vec2 gi = vec2(floor(giTarget + 0.5), 0.0);
 
-	if (u_Budget.HasHistory > 0.5)
+	if (hasHistory)
 	{
-		const vec4 was = texture(u_History, uv);
-		// **Toward the target, never straight to it.** A tile may gain or lose
-		// at most `Hysteresis` rays a frame, so a camera cut cannot restripe
-		// the screen in one step. At sixty frames a second any target is
-		// reached inside a fifth of a second, which is faster than the temporal
-		// filters downstream converge -- so nothing waits on this, and nothing
-		// pops because of it.
-		ao = clamp(aoTarget, was.r - u_Budget.Hysteresis, was.r + u_Budget.Hysteresis);
-		gi = clamp(giTarget, was.g - u_Budget.Hysteresis, was.g + u_Budget.Hysteresis);
-		ao = clamp(floor(ao + 0.5), 1.0, u_Budget.AoCeiling);
-		gi = clamp(floor(gi + 0.5), 1.0, u_Budget.GiCeiling);
+		const float packed = max(was.a, 0.0);
+		const float giDwell = floor(packed / kDwellPack);
+		const float aoDwell = packed - giDwell * kDwellPack;
+
+		ao = Hold(was.r, aoTarget, aoDwell, u_Budget.DeadBand, u_Budget.DwellFrames);
+		gi = Hold(was.g, giTarget, giDwell, u_Budget.DeadBand, u_Budget.DwellFrames);
 	}
 
-	// `.b` carries the smoothed importance so a debug view can show what the
-	// allocator was looking at rather than only what it decided -- the two
-	// disagree exactly where the clamps bind, which is what is worth seeing
-	// when a budget looks wrong.
-	o_Budget = vec4(ao, gi, importance, share);
+	// `.b` carried the smoothed importance for a debug view that was never
+	// written, then briefly a coverage age; it carries the averaged demand,
+	// which is what made the age unnecessary. `.a` carried the share, which
+	// nothing read, and carries the two dwell counters. Both diagnostics
+	// became state the moment the allocator needed a memory, and neither had
+	// a reader to lose.
+	o_Budget = vec4(ao.x, gi.x, demand,
+					clamp(ao.y, 0.0, kDwellCap) + kDwellPack * clamp(gi.y, 0.0, kDwellCap));
 }
