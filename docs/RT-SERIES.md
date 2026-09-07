@@ -62,7 +62,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-11 | open | 1-2 d | low-moderate | next-event estimation at GI and reflection hits |
 | RT-12 | ✅ **done 2026-09-07** | — | — | the signal debug views, complete |
 | RT-13 | **skinned + layered ✅ done inside RT-2**; transparent open | 0.5 d to decide | low | every opaque surface in the G-buffer |
-| **RT-14** | open — **new** | 1 d to measure | low | the G-buffer's bandwidth, measured before anything is packed |
+| **RT-14** | ✅ **done 2026-09-07** — and it says do not pack the G-buffer | — | — | the G-buffer's bandwidth, measured before anything is packed |
 
 **Six new items on 2026-09-07**, all from two outside reviews of the codebase — five verified defects and one expired negative result. The section after the complexity table records what those reviews got right, what they asked for that already exists, and the one place they were argued with.
 
@@ -740,6 +740,82 @@ each takes the branch its name implies (the mix=1.0 test, now a repeatable
 check), the log ramp moves the picture (ao-history 161.7 -> 186.8 mean), and the
 rendered frame is unchanged. `--debug-view=taa-refusal` mid-dolly:
 `build/garage_burst/rt12_taa_71.png`.
+
+### RT-14 — ✅ done 2026-09-07. **The G-buffer is not where the memory is, and packing it would be work for nothing.**
+
+**Method, and its limit stated first.** This machine has no GPU profiler, so
+"bandwidth" is not directly readable and pretending otherwise would produce a
+number nobody can check. Two things that *are* measurable: the inventory is
+exact (every format is a constant in `FrameGraphBuilder`, so bytes per pixel is
+arithmetic), and the traffic is inferred from **how each pass's time scales with
+pixel count** -- a bandwidth- or fill-bound pass costs a constant time per
+pixel and is linear through the origin; one bound by ALU, latency or setup has a
+large constant term. RT-2.1 used exactly this to prove the terrain's cost was
+not the raster. Three resolutions: 0.36, 1.44 and 3.24 megapixels.
+
+**The inventory.**
+
+| scene target | | | histories (both halves of each pair) | | |
+|---|---|---|---|---|---|
+| colour | RGBA16F | 8 B | TAA colour + moments | RGBA16F x2 | 32 B |
+| OIT accumulation | RGBA16F | 8 B | **TAA guide** | **RGBA32F** | **32 B** (RT-6) |
+| OIT revealage | R8 | 1 B | **reflection history** | **RGBA16F x4** | **64 B** (RT-6.1 added the 4th) |
+| velocity | RG16F | 4 B | | | |
+| surface | RGBA16F | 8 B | | | |
+| indirect | RGBA16F | 8 B | | | |
+| albedo | RGBA8 | 4 B | | | |
+| surface id | RG32F | 8 B | | | |
+| depth | D32 | 4 B | | | |
+| **total** | | **53 B** | **total** | | **128 B** |
+
+**The headline: the persistent histories are 2.4x the scene target**, and *this
+series put 48 of those 128 bytes there* -- the guide's 32 and the reflection's
+fourth attachment's 16. At 2560x1600 the pair is 741 MB; at 3840x2160, 1.5 GB.
+Every review's instinct was to look at the G-buffer. The G-buffer is the small
+half.
+
+**The traffic, and it settles the packing question.**
+
+| pass | 0.36 MP | 1.44 MP | 3.24 MP | pixel-bound share |
+|---|---|---|---|---|
+| ReflectionTrace | 1.141 | 2.281 | 5.304 | 90% |
+| ReflectionResolve | 0.727 | 2.003 | 5.293 | 99% |
+| DirectTrace | 0.974 | 2.106 | 5.230 | 93% |
+| Scene (lit) | 0.561 | 1.017 | 2.160 | 85% |
+| ReflectionAccumulate | 0.114 | 0.315 | 0.729 | 96% |
+| **GBuffer** | **0.168** | **0.231** | **0.431** | **70%** |
+
+**`scene/GBuffer` is 0.431 ms at 3.24 megapixels and only 70% pixel-bound** --
+1.8% of that frame, with a third of it fixed cost that no format change touches.
+**Narrowing the G-buffer's lanes would attack a pass that is not the problem.**
+What *is* pixel-bound is the ray-traced passes, and their cost is rays, not lane
+width: they are 90-99% linear in pixels and together 16 ms of a 24 ms frame.
+
+**RT-6's geometric test, priced for the first time:** the guide pass 0.015 /
+0.040 / 0.162 ms and the resolve 0.059 → 0.098, 0.155 → 0.258, 0.369 → 0.610.
+**0.403 ms at 3.24 MP, about 1.7% of the frame**, for the sharper bridge and
+everything RT-6.6 and RT-6.8 are built on. Its 32 B/pixel is the item's other
+half: the guide exists **only because the G-buffer is single-buffered and
+transient**, and it duplicates depth, normal and id that the G-buffer already
+wrote. Keeping those three lanes for one frame instead of copying them would
+remove a pass and 32 B/pixel -- filed as the one real packing opportunity this
+audit found, and it is an architecture change rather than a format change.
+
+**What this decides for the two items waiting on it:**
+
+- **RT-2.2 is free.** Its precondition wants the albedo lane widened from 8-bit
+  linear, and it names "sRGB8 or 16F". **`R8G8B8A8_SRGB` is the same four bytes**
+  as the `R8G8B8A8_UNORM` there now, so choosing sRGB8 over 16F costs nothing at
+  all. The precondition was never a bandwidth question.
+- **RT-6.5's surface id is not free.** A fifth attachment on the reflection
+  history adds 16 B/pixel to a budget already at 128, and traffic to
+  `ReflectionAccumulate`, which is 96% pixel-bound. Measured in RT-6.5's record
+  rather than estimated here.
+
+**Nothing was packed, which is the correct outcome of an audit.** The candidates
+that looked obvious before the measurement -- the id lane's 8 bytes, the
+velocity's format, the guide's 16 -- all sit on the *small* half of the memory
+and behind a pass that is 1.8% of the frame.
 
 ### RT-6.5 — ✅ done 2026-09-07 (§4C of the owner's specular specification)
 
