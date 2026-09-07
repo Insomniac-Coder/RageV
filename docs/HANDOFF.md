@@ -1,6 +1,146 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-07 night: **the whole RT-first series is committed and merged to `main`** (`d34c905`, merged as `ddc7827` -- the sentence "nothing is committed" below was true when it was written and is not now), and **the thirteenth entry is the current hand-off**: two outside reviews were read against the code and filed, adding **six items -- RT-6.6 through RT-6.11 and RT-14**, of which **RT-6.6 is done and measured** (its record is in RT-SERIES.md; uncommitted). `docs/RT-SERIES.md` now opens with a status table; read that before picking anything up. The twelfth entry is the RT-3 / RT-3.1 hand-off, the tenth (2026-09-06) the complete one for the RT-first state (recipes, flags, traps, what is where). `docs/RT-SERIES.md` is the one list with the records of RT-1, RT-2, RT-2.1, RT-3 and RT-3.1. Nothing is committed. **RT-6's geometric half is done** -- the temporal resolve refuses a history by depth, normal and object id, with a neighbour search before it gives up, and the bridge is visibly sharper for it (`build/rt3/taa_car_sidebyside.png`). Its still-feedback half is deferred by the owner to RT-8, because the sea reads zero velocity and nothing in the G-buffer says "water". **Open from the owner and not yet started: improve the denoiser and accumulation, and make the ground reflection less blurry** -- the reflection signal's young blur is `YoungRadius = 12`, and a validated history (RT-6, RT-5) is the precondition for weakening it. The AO look is accepted; the deferred resolve is **RT-2.2**, owner-filed for the end of the series.
+**Read this first.** Updated 2026-09-07, end of day: **the fourteenth entry below is the current hand-off** -- 23 commits, all on `main` and pushed, working tree clean. `docs/RT-SERIES.md` opens with a status table (18 of 30 closed) and is the one list; read it before picking anything up. **The two things to start on are RT-15 and RT-16**, both found today and both reproducible. Older header follows.
+
+**Superseded header.** Updated 2026-09-07 night: **the whole RT-first series is committed and merged to `main`** (`d34c905`, merged as `ddc7827` -- the sentence "nothing is committed" below was true when it was written and is not now), and **the thirteenth entry is the current hand-off**: two outside reviews were read against the code and filed, adding **six items -- RT-6.6 through RT-6.11 and RT-14**, of which **RT-6.6 is done and measured** (its record is in RT-SERIES.md; uncommitted). `docs/RT-SERIES.md` now opens with a status table; read that before picking anything up. The twelfth entry is the RT-3 / RT-3.1 hand-off, the tenth (2026-09-06) the complete one for the RT-first state (recipes, flags, traps, what is where). `docs/RT-SERIES.md` is the one list with the records of RT-1, RT-2, RT-2.1, RT-3 and RT-3.1. Nothing is committed. **RT-6's geometric half is done** -- the temporal resolve refuses a history by depth, normal and object id, with a neighbour search before it gives up, and the bridge is visibly sharper for it (`build/rt3/taa_car_sidebyside.png`). Its still-feedback half is deferred by the owner to RT-8, because the sea reads zero velocity and nothing in the G-buffer says "water". **Open from the owner and not yet started: improve the denoiser and accumulation, and make the ground reflection less blurry** -- the reflection signal's young blur is `YoungRadius = 12`, and a validated history (RT-6, RT-5) is the precondition for weakening it. The AO look is accepted; the deferred resolve is **RT-2.2**, owner-filed for the end of the series.
+
+## 2026-09-07, end of day: two outside reviews, the RT-6.x series closed, and a moving-object scene that found what nothing else could -- ALL COMMITTED AND PUSHED (`main`, 23 commits from `ddc7827` to `685ef7a`)
+
+**State.** Working tree clean, everything on `main`. Release built and both
+shader folders staged. `SampleProject/assets/scenes/showroom_moving.rage` is new
+and committed.
+
+### Start here: the two open items that matter
+
+**RT-15 -- the reflection accumulator reprojects by camera motion only.** This is
+the largest visible defect found this week and the cause of the owner's "a lot of
+ghosting and smearing" on a moving car.
+`reflection_accumulate.rvshader` finds last frame's texel with
+
+```glsl
+const vec4 clipThen = u_Reflection.PreviousViewProjection * vec4(world, 1.0);
+```
+
+which asks *where would this point have been last frame **if it had not
+moved***. For a moving object it was somewhere else, so **every** history test
+refuses, `frames` falls to one, and the pixel shows a **single ray** -- noise on
+a mirror. `u_Velocity` is already bound to the pass (binding 6) and used only for
+the silhouette test. Proven with `--debug-view=reflection-choice` on the new
+scene: the moving cube's pixels read no history while the wall around them reads
+a healthy one. **The design question is rotation** -- a screen-space velocity
+describes a translating reflector and not a turning one -- and object motion has
+to *compose* with the virtual-image reprojection already there, not replace it.
+
+**RT-16 -- a reflection takes seconds to leave the floor when its light goes
+out.** Owner-reported. Since RT-6.1 moved the composite above the resolve that
+pixel passes through **two temporal filters in series** -- the accumulator's 64
+frames and TAA's 0.98 still-feedback (~50) -- and memories in series compound.
+RT-6.10 cannot catch it: a light going out changes reflected *brightness*, not
+hit *distance*. **The arm exists**: `BURST_SWITCH="Tube ,Bottom light bars|1.328"`
+turns the tubes off at frame 80, so frames-until-gone is countable.
+
+**Do RT-15 before using the moving scene to judge any tuning.** The cube is
+currently a demonstration of that defect rather than a fair test of the filters.
+
+### What closed (13 items)
+
+RT-6.5 (the metallic **and** the object id), RT-6.6, RT-6.7, RT-6.8, RT-6.9,
+RT-6.10, RT-6.11, RT-12, RT-14, and RT-6.2 re-run. **Every RT-6.x sub-item is
+finished.** Records with every number are in `docs/RT-SERIES.md`; the highlights:
+
+- **RT-6.11 (Catmull-Rom) is the biggest quality win of the day** -- detail +6 to
+  +15% on every region for +0.02 ms. Its earlier negative result had expired.
+- **RT-6.8** (the colour box built from one surface) -- detail +0.4 to +4.9%,
+  concentrated 2.7x on the tube band, 0.2x on the floor.
+- **RT-6.6** was RT-6's own defect: the moments were read at a different texel
+  than the colour on every pixel the neighbour search recovered.
+- **RT-12** found three of fourteen debug views showing the wrong channel.
+- **RT-14** says **do not pack the G-buffer**: the scene target is 53 B/pixel and
+  the persistent histories are **128**, of which this series added 48. The
+  G-buffer pass is 0.43 ms at 3.24 MP and only 70% pixel-bound.
+- **`kStableWiden` is now 8** (was 2), on the moving scene's evidence.
+
+### Off-list fixes, also shipped
+
+- **Coloured metals reflected in grey.** The traced reflection was composited
+  through a *scalar* weight, so gold reflected the room neutrally. The trace now
+  applies the tint's **hue only** (`reflectance / luminance(reflectance)`), which
+  is brightness-neutral by construction: frame mean −0.08%.
+- **Zero-intensity lights are filtered.** 30 → 24 lights, 26.4 → 22.1 per
+  fragment. Nothing filtered on intensity anywhere before.
+- **The studio rig follows the car** -- `Kicker Right` was 7.7 m from a car it has
+  a range of 7 to reach, left behind when the car moved.
+
+### New instruments -- use these before writing another probe
+
+- **`showroom_moving.rage`**: the garage with a chrome cube crossing at 3 m/s,
+  camera still. `BURST_SCENE=showroom_moving.rage python tools/scripts/garage/burst.py <tag> --speed=0 ...`.
+  **The only scene here with a moving object**, and every ghosting claim before
+  today was made without one.
+- **27 debug views**, `--debug-view=<name>`, plus `--debug-view-log`. The new
+  ones: `taa-refusal` (which clause refused each pixel: 0 kept, 1 off screen,
+  2 no history, 3 sky, 4 object id, 5 depth, 6 normal, +0.5 if the neighbour
+  search also failed), `*-history` and `*-sigma` per signal, `ao-refusal`,
+  `reflection-normal`, `reflection-motion`, `reflection-direction`,
+  `reflection-direction-delta`.
+- **The ghost metric**: `--aa=none` is the temporal truth (aliased but exact).
+  Mask the band the object has vacated from two `none` frames, then measure
+  `|TAA - none|` there.
+
+### Traps paid this session -- the most valuable part
+
+1. **Staging an old shader against a new binary gives nonsense, not a
+   reference.** The old shader does not declare a binding the new binary fills;
+   the frame came out with a mean of 26.4 where every committed capture reads
+   43.6. This *nearly buried a working fix* -- the metal tint was reverted as a
+   "4x brightness regression" that was entirely the broken baseline. **The A/B
+   that works is to neutralise the change *inside the current shader*** so both
+   arms share one binary and one descriptor layout. Every measurement after that
+   point used it.
+2. **A negative result is only as durable as the thing it was measured
+   against.** Twice today: RT-6.2's material clamp ("measured flat") and
+   RT-6.11's Catmull-Rom ("no difference") were both re-run after RT-6/RT-6.8
+   changed their premise, and **both flipped**. Before trusting a filed negative,
+   check whether what it rested on still holds.
+3. **`OctEncode` is [0,1]², and `taa_resolve` had a local decoder assuming
+   [-1,1].** The temporal resolve decoded the G-buffer's normals wrongly from
+   RT-6 until today. Both sides went through the same wrong function so the test
+   still compared *similarity*, which is why it measured sensibly -- but
+   `kNormalTolerance = 0.9` was not the twenty-five degrees it is documented as.
+   `include/octahedral.glsl`'s own header warns that a second copy is how the
+   users stop agreeing. **Found by a debug view built the same day.**
+4. **Mean-absolute difference is not evidence of a shift.** The zero-intensity
+   light filter moved the picture 0.212 levels and looked like a regression;
+   the **signed** mean was +0.044 on a frame of 44. It was the reservoir sampler
+   drawing differently from a shorter candidate list -- same expectation,
+   different realisation. Check the signed mean.
+5. **A branch that should never fire is proven by lowering its own threshold.**
+   RT-6.9's camera-cut test: at 0.5 m/s the garage's 1.5 m/s dolly trips it and
+   the frame moves 16.8 levels across 61% of pixels; restored to 100 m/s the same
+   capture is bit-identical. Nothing else would have proven it.
+6. **A tag prefix matches a model's root *and* all its parts.** `BURST_SLIDE` on
+   `porsche_992_gt3_r` gave 49 entities a Slider each, so children took their own
+   translation *and* their parent's and the body separated at double speed. Two
+   entities share that exact tag, so even the `=tag` form is ambiguous.
+7. **`burst.py` captures the runtime's stdout**, so grepping its output for a log
+   line sees nothing. Redirect the runtime yourself, or measure the picture.
+8. **`TemporalHistory::Prepare` caches on its format list.** Adding a fifth
+   format needs the equality guard updated too or the target never reallocates.
+9. **Running the engine rewrites ~20 `.meta` `SourceHash` lines.** `HashFile` is
+   FNV-1a over raw bytes while `core.autocrlf` rewrites those bytes on checkout,
+   so every text asset re-imports after a git operation -- the exact slowness the
+   hash's own comment says it exists to prevent. Fix is `.gitattributes`, not
+   code; **not done, owner's call**, and it costs a whole-tree churn.
+
+### Still owed, and small
+
+- **The `.gitattributes` line-ending fix** (trap 9). Undecided.
+- **A moving *bridge* camera.** `burst.py` cannot drive the bridge, which left
+  RT-6.7 and RT-6.8 with a weak arm there.
+- **RT-6.5's object-id test fires on 0.05% of pixels in the garage** even at
+  maximum severity, and costs 16 B/pixel plus ~0.06 ms. It works; whether it is
+  worth carrying is a judgement on that trade, and removing it is the same five
+  files.
 
 ## 2026-09-07, night: two outside reviews read against the code, six items filed -- COMMITTED (`ddc7827` on `main`)
 
