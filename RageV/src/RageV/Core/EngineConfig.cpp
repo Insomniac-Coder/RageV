@@ -421,6 +421,9 @@ namespace RageV
 		if (key == "taa-geometry" || key == "taageometry")
 			return ParseBool(value, config.TaaGeometry);
 
+		if (key == "taa-box-geometry" || key == "taaboxgeometry")
+			return ParseBool(value, config.TaaBoxGeometry);
+
 		// The reflection signal's young blur, in texels, for a sweep.
 		if (key == "reflection-blur" || key == "reflectionblur")
 		{

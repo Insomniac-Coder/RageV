@@ -2321,6 +2321,7 @@ namespace RageV
 					},
 					[source, sceneHDR, previous, velocityIndex, normalIndex, feedback, stillFeedback,
 					 hasHistory, jitter, taaGuideCurrent, taaGuidePrevious, taaGuideHasHistory,
+					 boxGeometry = config.TaaBoxGeometry,
 					 reflectionMotion](RGPassContext& context)
 					{
 						PostProcess::TemporalResolve(
@@ -2359,7 +2360,10 @@ namespace RageV
 							// A G-buffer lane index into it reads nothing at all, which is a
 							// black material and a clamp that never opens -- measured
 							// bit-identical, at 2 and at 40, before this was corrected.
-							context.Color(sceneHDR, normalIndex));
+							context.Color(sceneHDR, normalIndex),
+							// RT-6.8: and whether the box may be built from this
+							// surface's taps alone.
+							boxGeometry);
 					});
 
 				shaded = current;

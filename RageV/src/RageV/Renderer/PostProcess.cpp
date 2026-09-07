@@ -1565,7 +1565,7 @@ namespace RageV
 									  Math::Vec2 jitter, float stillFeedback,
 									  const Ref<RHITexture>& guideCurrent,
 									  const Ref<RHITexture>& guidePrevious,
-									  const Ref<RHITexture>& material)
+									  const Ref<RHITexture>& material, bool boxGeometry)
 	{
 		// The base block, then this frame's jitter (clip units, as the scene
 		// block carries it): the resolve filters the current frame around
@@ -1580,7 +1580,8 @@ namespace RageV
 			float Geometry = 0.0f;
 			// RT-6.2: whether the material lane is bound.
 			float Material = 0.0f;
-			float Pad2 = 0.0f;
+			// RT-6.8: whether the box may be built from this surface alone.
+			float BoxGeometry = 0.0f;
 			float Pad3 = 0.0f;
 		};
 		TemporalParams full;
@@ -1591,6 +1592,7 @@ namespace RageV
 		// refuses every pixel and turns the resolve off without saying so.
 		full.Geometry = (guideCurrent && guidePrevious && hasHistory) ? 1.0f : 0.0f;
 		full.Material = material ? 1.0f : 0.0f;
+		full.BoxGeometry = boxGeometry ? 1.0f : 0.0f;
 		PostParams& params = full.Base;
 		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
 							 1.0f / (float)Math::Max(height, 1u) };

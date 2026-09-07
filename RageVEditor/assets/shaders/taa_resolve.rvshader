@@ -177,7 +177,10 @@ layout(push_constant) uniform Params
 	float Geometry;
 	// RT-6.2: one when the material lane is bound.
 	float Material;
-	float Pad2;
+	// RT-6.8: one when the colour box may be built from this surface's
+	// taps alone. Zero is the reference arm (--taa-box-geometry=off) and
+	// is exactly the behaviour before RT-6.8.
+	float BoxGeometry;
 	float Pad3;
 } u_Params;
 
@@ -214,6 +217,28 @@ const float kDepthTolerance = 0.02;
 // surface turning under the camera keeps its history, a face meeting
 // another face at an edge does not.
 const float kNormalTolerance = 0.9;
+
+// **RT-6.8: how many of the eight neighbours must be this surface before
+// the box is built from them alone.**
+//
+// The box exists to catch a history that has gone wrong, and it can only
+// do that if it describes *this* surface -- at a silhouette the nine taps
+// span two, so the range is enormous and the clip passes anything. But a
+// box built from one or two samples is nearly a point, and clipping the
+// history into a point is the same as discarding it: the pixel shows the
+// raw sample every frame and flickers. On a one-pixel cable or picket
+// that is exactly what few matching neighbours means.
+//
+// Nor can the temporal floor cover it there: `temporalSigma` is multiplied
+// by `stillness` and is zero for anything moving, which is when this
+// matters most.
+//
+// Three, then: enough to describe a range, and low enough that an ordinary
+// silhouette -- four or five of its neighbours are usually the same
+// surface -- still gets the tighter box. Below it the full neighbourhood
+// stands, so thin geometry keeps today's behaviour rather than trading a
+// ghost for a flicker.
+const int kLeastSameNeighbours = 3;
 
 // Octahedral decode, the same one the G-buffer encodes with. Local, so this
 // pass pulls in no lighting header for two lines of arithmetic.
@@ -601,6 +626,21 @@ void main()
 	vec3 highest = centreYCoCg;
 	float alphaLow = current.a;
 	float alphaHigh = current.a;
+
+	// **RT-6.8: the same box, from this surface's taps only.** Gathered
+	// beside the full one rather than instead of it, because whether it is
+	// usable is not known until the taps have been counted.
+	const bool boxGeometry = u_Params.Geometry > 0.5 && u_Params.BoxGeometry > 0.5;
+	const ivec2 guideSize = textureSize(u_GuideCurrent, 0);
+	const ivec2 centreTexel = clamp(ivec2(uv * vec2(guideSize)),
+									ivec2(0), guideSize - 1);
+	const vec4 centreGuide = boxGeometry ? texelFetch(u_GuideCurrent, centreTexel, 0)
+										 : vec4(0.0);
+	vec3 lowestSame = centreYCoCg;
+	vec3 highestSame = centreYCoCg;
+	float alphaLowSame = current.a;
+	float alphaHighSame = current.a;
+	int sameSurface = 0;
 	// The jitter in texels; a rendered sample at texel offset o sits at
 	// o - jitter on the unjittered grid.
 	vec2 jitterTexels = u_Params.Jitter * 0.5 / u_Params.TexelSize;
@@ -623,6 +663,24 @@ void main()
 			highest = max(highest, neighbour);
 			alphaLow = min(alphaLow, tap.a);
 			alphaHigh = max(alphaHigh, tap.a);
+			// RT-6.8: and again, for the taps that are this surface. The same
+			// test the history uses, both sides taken from *this* frame's lane:
+			// the question here is not "was this the same surface" but "is this
+			// neighbour the same surface". `false` because the refusal reason
+			// belongs to the centre's history test, not to a box tap.
+			if (boxGeometry)
+			{
+				const ivec2 at = clamp(centreTexel + ivec2(x, y),
+									   ivec2(0), guideSize - 1);
+				if (Matches(centreGuide, texelFetch(u_GuideCurrent, at, 0), false))
+				{
+					lowestSame = min(lowestSame, neighbour);
+					highestSame = max(highestSame, neighbour);
+					alphaLowSame = min(alphaLowSame, tap.a);
+					alphaHighSame = max(alphaHighSame, tap.a);
+					++sameSurface;
+				}
+			}
 			const vec2 offset = vec2(x, y) - jitterTexels;
 			const float w = exp(-dot(offset, offset) / twoSigmaSq);
 			filtered += tap.rgb * w;
@@ -630,6 +688,21 @@ void main()
 		}
 	}
 	centreYCoCg = ToYCoCg(filtered / max(filterWeight, 1.0e-6));
+
+	// **RT-6.8: take the narrower box only where it was built from enough
+	// of this surface to mean anything.** Below the bar the full
+	// neighbourhood stands and the pixel behaves exactly as it did.
+	//
+	// The filter above is deliberately *not* gated: it is RT-6.4's, its
+	// width was set on the owner's eye, and narrowing it at silhouettes is
+	// a separate change with its own picture to judge.
+	if (boxGeometry && sameSurface >= kLeastSameNeighbours)
+	{
+		lowest = lowestSame;
+		highest = highestSame;
+		alphaLow = alphaLowSame;
+		alphaHigh = alphaHighSame;
+	}
 
 	// Bilinear, deliberately, and this was tested rather than assumed.
 	//

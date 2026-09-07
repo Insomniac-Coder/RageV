@@ -361,6 +361,10 @@ namespace RageV
 		// RT-6: --taa-geometry=off puts the temporal resolve back on the
 		// colour box alone, which is the reference arm.
 		bool  TaaGeometry = true;
+		// **--taa-box-geometry=on|off** (RT-6.8). Whether the temporal
+		// resolve's 3x3 colour box is built only from taps that are the
+		// same surface as the centre pixel. Off is the reference arm.
+		bool  TaaBoxGeometry = true;
 		// A measurement dial for the reflection signal's young-history blur,
 		// in texels; negative means the tuning's own value.
 		float ReflectionBlurRadius = -1.0f;

@@ -140,7 +140,10 @@ namespace RageV
 									 // RT-6.2: the G-buffer's normal attachment, whose B and A
 									 // are roughness and metallic. Null leaves the clamp one
 									 // shape for every surface, which is what it was.
-									 const RHI::Ref<RHI::RHITexture>& material = nullptr);
+									 const RHI::Ref<RHI::RHITexture>& material = nullptr,
+									 // RT-6.8: whether the colour box may be built from
+									 // this surface's taps alone. False is the arm.
+									 bool boxGeometry = true);
 
 		// Depth of field, in the three passes it takes. On the linear HDR
 		// scene, after the anti-aliasing resolve and before bloom -- see

@@ -51,7 +51,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-6.5 | open | 0.5-1 d | low | the accumulator tests the material, not just roughness |
 | **RT-6.6** | ✅ **done 2026-09-07** | — | — | the moments follow the texel the colour came from |
 | **RT-6.7** | ✅ **done 2026-09-07** — correct, and measurably unreachable | — | — | the sky/geometry transition is a disocclusion |
-| **RT-6.8** | open — **new** | 1-1.5 d | moderate | the colour box is built from this surface only |
+| **RT-6.8** | ✅ **done 2026-09-07** | — | — | the colour box is built from this surface only |
 | **RT-6.9** | open — **new** | 0.5 d | low | a camera cut throws the history away |
 | **RT-6.10** | open — **new** | 1 d / 2-3 d | low-moderate | the accumulator validates what the ray hit |
 | **RT-6.11** | open — **new** | 0.5 d | low | Catmull-Rom re-measured; its negative result expired |
@@ -740,6 +740,88 @@ each takes the branch its name implies (the mix=1.0 test, now a repeatable
 check), the log ramp moves the picture (ao-history 161.7 -> 186.8 mean), and the
 rendered frame is unchanged. `--debug-view=taa-refusal` mid-dolly:
 `build/garage_burst/rt12_taa_71.png`.
+
+### RT-6.8 — ✅ done 2026-09-07
+
+**The complement of RT-6, and the numbers say so.** The resolve's two defences
+are the geometric history test and the 3x3 colour box. RT-6 taught the first to
+read the G-buffer; the box took all nine taps whatever surface they sat on, so
+at a silhouette it spanned two surfaces, described an enormous range, and passed
+almost any history through -- **widest exactly where disocclusion happens, and
+tightest on the flat wall where the history was right anyway.**
+
+Each tap is now gated by the same `Matches()` the history uses, both sides read
+from *this* frame's guide.
+
+**Live, and concentrated where it should be.** Garage dolly, on against
+`--taa-box-geometry=off`: mean 0.249 levels, 2.05% of pixels beyond two (RT-6.6,
+for scale, was 0.104 and 0.85%).
+
+| where it lands | concentration |
+|---|---|
+| ceiling (the tube band) | 2.70x |
+| wall | 1.87x |
+| car | 1.67x |
+| poles | 1.11x |
+| floor | **0.20x** |
+
+**The strongest 5% of edges carry 23.0% of the difference -- 4.60x their area**,
+against RT-6.6's 2.43x. This is an edge change and nothing else.
+
+**Detail rises on every region and change rises two to three times less**, which
+is the signature of removed ghosting rather than added grain:
+
+| region | detail off → on | change off → on |
+|---|---|---|
+| ceiling | 10.020 → **10.513** (+4.91%) | +1.86% |
+| wall | 11.478 → **11.964** (+4.24%) | +1.46% |
+| car | 8.550 → **8.816** (+3.11%) | +1.85% |
+| poles | 9.825 → **10.059** (+2.38%) | +1.37% |
+| floor | 8.423 → 8.460 (+0.44%) | **−0.47%** |
+
+The crop (`build/garage_burst/rt68_crop.png`) shows the tube ends crisper and
+their fringes tighter, which is the ghost coming off them.
+
+**The honest cost.** Parked, pixels swinging more than four levels between
+frames rise 0.7-2.6% on the edge-heavy regions and **not at all on the floor** --
+a tighter box clips more history, so the pixel shows more of this frame. That is
+the trade, and it is small against the detail.
+
+**The fallback is the design, and the bar is a dial.** On a one-pixel member few
+neighbours match, and a box from one sample is a point -- clipping a history into
+a point discards it and the pixel flickers. The temporal floor cannot cover that
+either: `temporalSigma` is multiplied by `stillness` and is exactly zero for
+anything moving. So the narrow box is taken only with enough same-surface
+evidence, and the full neighbourhood stands otherwise. Swept:
+
+| bar (of 8) | detail vs off | parked flicker vs off | detail per flicker |
+|---|---|---|---|
+| 2 | +5.57% | +3.13% | 1.78 |
+| **3 (shipped)** | **+3.97%** | **+1.75%** | **2.27** |
+| 5 | +3.05% | +1.38% | 2.21 |
+
+Three has the best ratio and is what shipped; the owner has the sweep.
+
+**Cost: none measurable.** TAA resolve 0.264 ms on against 0.260 off, each arm
+varying 0.04 on its own (A,B,B,A); the frame numbers straddle.
+
+**The bridge's static-camera arm cannot show this, and that is a measurement
+about the method rather than the change.** On a converged still the history
+equals the accumulated value, so the clip never bites and a narrower box has
+nothing to do: both arms are bit-identical at frame 60. The mechanism is live
+there -- at frame 12, before the history converges, they differ by 0.022 -- and
+RT-6's own test moves that frame by 0.483, so the machinery is fully connected.
+**A moving bridge camera is the arm this wants and `burst.py` cannot drive the
+bridge.** Filed as a gap in the measurement kit, not as a result.
+
+**RT-6.2 should be re-run and has not been.** Its flat result rested on "on a
+detailed surface the box is already wide, so the clamp only bites where there is
+nothing to lose". Part of that width at an edge was a foreign surface, and is
+now gone. The material-aware clamp deserves its sweep again on this box.
+
+**Not changed on purpose:** the current-sample filter still averages across
+silhouettes. It is RT-6.4's, its width was set on the owner's eye at 0.25, and
+gating it is a separate change with its own picture to judge.
 
 ### RT-6.7 — ✅ done 2026-09-07. Correct, free, and it fires on zero pixels -- with the reason measured rather than assumed
 
