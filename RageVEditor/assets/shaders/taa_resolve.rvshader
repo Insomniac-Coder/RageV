@@ -259,12 +259,27 @@ uint g_Refusal = kKept;
 // well. Left to the box, exactly as it was before this test existed.
 bool Matches(vec4 now, vec4 was, bool centre)
 {
-	// Sky on either side: nothing to compare, and nothing that ghosts.
-	// (RT-6.7 changes this to "both, or neither"; it is filed separately
-	// and its reason code kSkyCrossing is already reserved here so the two
-	// items do not have to touch the same lines twice.)
-	if (now.x >= 1.0 || was.x >= 1.0)
+	// **RT-6.7: both, or neither.** This was `now || was`, which accepted the
+	// transition in *both* directions -- geometry appearing where sky was
+	// inherits stale sky, and sky appearing where geometry was inherits a
+	// stale object. Those are silhouette trails and halos against the sky, and
+	// catching them is what a history test is for. Sky where there was sky
+	// still reprojects perfectly well and is still accepted outright.
+	//
+	// Refusing here is not refusing the pixel: this runs once per candidate
+	// inside the nine-tap search, so geometry whose centre texel was sky takes
+	// the neighbour that was the same geometry. Only when none of the nine is
+	// does the pixel take the current frame whole, which is the right answer
+	// for something genuinely uncovered.
+	const bool nowSky = now.x >= 1.0;
+	const bool wasSky = was.x >= 1.0;
+	if (nowSky && wasSky)
 		return true;
+	if (nowSky != wasSky)
+	{
+		if (centre) g_Refusal = kSkyCrossing;
+		return false;
+	}
 
 	// **The object, first.** Exactly equal or it is not the same object --
 	// the lane holds a whole number the G-buffer wrote, negated for a static

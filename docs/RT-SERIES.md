@@ -50,7 +50,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-6.4 | ✅ done 2026-09-07 | — | — | the current-sample filter down; the tests fade |
 | RT-6.5 | open | 0.5-1 d | low | the accumulator tests the material, not just roughness |
 | **RT-6.6** | ✅ **done 2026-09-07** | — | — | the moments follow the texel the colour came from |
-| **RT-6.7** | **written, unmeasured** — blocked on RT-12 | 1 d | moderate | the sky/geometry transition is a disocclusion |
+| **RT-6.7** | ✅ **done 2026-09-07** — correct, and measurably unreachable | — | — | the sky/geometry transition is a disocclusion |
 | **RT-6.8** | open — **new** | 1-1.5 d | moderate | the colour box is built from this surface only |
 | **RT-6.9** | open — **new** | 0.5 d | low | a camera cut throws the history away |
 | **RT-6.10** | open — **new** | 1 d / 2-3 d | low-moderate | the accumulator validates what the ray hit |
@@ -741,7 +741,54 @@ check), the log ramp moves the picture (ao-history 161.7 -> 186.8 mean), and the
 rendered frame is unchanged. `--debug-view=taa-refusal` mid-dolly:
 `build/garage_burst/rt12_taa_71.png`.
 
-### RT-6.7 — written, and the measurement was invalid. Parked behind RT-12.
+### RT-6.7 — ✅ done 2026-09-07. Correct, free, and it fires on zero pixels -- with the reason measured rather than assumed
+
+**RT-12 settled in one run what four staged probes could not.** Yesterday's
+record concluded the bridge was not running the geometric test at all, on the
+strength of a hand-placed probe. **That conclusion was wrong.** `--debug-view=taa-refusal`
+shows the test refusing **8.31% of the Deck view's pixels and 4.27% of
+Headland's**. The probe misled; the lane the pass writes itself did not. This is
+the whole argument for the owner's instruction to build RT-12 first.
+
+**The change.** `Matches()` accepted the sky/geometry transition in both
+directions (`now.x >= 1.0 || was.x >= 1.0`). It now accepts only when both sides
+are sky and refuses the crossing, with its own reason code, letting the nine-tap
+search recover a neighbour before the pixel falls through to the current frame.
+
+**And it fires on nothing.** Decoding the refusal ramp band by band:
+
+| reason | bridge Deck | garage mid-dolly |
+|---|---|---|
+| kept | 92.20% | 94.52% |
+| off screen | 0.00% | 0.18% |
+| **sky crossing** | **0.00%** | **0.00%** |
+| object id | 4.18% | 3.37% |
+| depth | 1.51% | 0.10% |
+| normal | 2.12% | 1.17% |
+
+The picture is bit-identical (mean 0.000, max 0.0).
+
+**Why, and this is the finding worth keeping.** **The bridge draws its sky as
+geometry.** A skybox writes real depth and carries an object id, so `now.x >= 1.0`
+is never true there -- an earlier probe had already measured *no bridge pixel
+above 0.99* and that reading was right even though the conclusion drawn from it
+was not. The sky/geometry transition **is** being caught on the bridge, correctly,
+and it is the **object id** test doing it: a good part of that 4.18% sits on the
+sky silhouette. The garage does have genuinely undrawn pixels (0.56% at depth
+>= 1.0, measured), but they are an enclosed static region whose boundary never
+crosses, so both sides are sky and the early-out accepts as it always did.
+
+**So the outside review's P0 is real as code and not as a defect in practice.**
+The clause it names guards a condition this engine's scenes do not reach, because
+the engine gives its sky an id like any other surface. **Kept anyway**: it costs
+nothing, it makes the code say what it means, and it is a genuine latent fix for
+any scene that ever presents true undrawn sky -- which a scene without a skybox,
+or one with a failed skybox draw, immediately would.
+
+**What it cost to learn:** yesterday, four probes and a wrong conclusion.
+Today, three runs of a view.
+
+### RT-6.7 (yesterday's parked record, kept for the wrong turn it took)
 
 **The code is done** (`tools/scripts/garage/session_2026_09_07/patch_rt67.py`,
 not applied): `Matches()` accepts only when *both* sides are sky and refuses the
