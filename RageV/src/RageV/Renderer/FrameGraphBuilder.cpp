@@ -488,6 +488,54 @@ namespace RageV
 		// target whose *shape* depends on a setting is a target the reflection
 		// probes and every pipeline have to agree with about that setting too,
 		// and 7q is the record of how that goes.
+		// **RT-6.9: a camera cut throws every temporal history away.**
+		//
+		// Reprojecting across a teleport, a scene load or a cut between two
+		// viewpoints is meaningless: the velocity buffer describes a motion that
+		// never happened, and what comes out is a whole frame of smear that then
+		// takes thirty frames to fade. It is the one temporal failure with no
+		// gradual version, so it gets the one blunt response.
+		//
+		// A speed rather than a distance: a dolly and a jump cover the same
+		// ground given enough frames, and it is the *rate* that makes a
+		// reprojection nonsense. A hundred metres a second is 360 km/h, past
+		// anything a camera travels here; forty-five degrees in one frame is
+		// 2700 degrees a second at sixty.
+		//
+		// The exposure is deliberately left alone -- a cut into a brighter room
+		// should still adapt rather than snap, and how fast is a look decision.
+		if (desc.History && desc.DeltaSeconds > 1.0e-5f)
+		{
+			const CameraMotion& was = desc.History->Motion();
+			if (was.Eye.w > 0.5f && desc.History->HasHistory())
+			{
+				const Mat4 toWorld = Math::Inverse(desc.View);
+				const Vec3 eyeNow(toWorld[3][0], toWorld[3][1], toWorld[3][2]);
+				const Vec3 facingNow = Math::Normalize(
+					Vec3(-toWorld[2][0], -toWorld[2][1], -toWorld[2][2]));
+				const Vec3 eyeWas(was.Eye.x, was.Eye.y, was.Eye.z);
+				const Vec3 facingWas = Math::Normalize(
+					Vec3(was.Forward.x, was.Forward.y, was.Forward.z));
+				constexpr float kCutMetresPerSecond = 100.0f;
+				constexpr float kCutFacing = 0.7071f;   // forty-five degrees
+				const float speed = Math::Length(eyeNow - eyeWas) / desc.DeltaSeconds;
+				const float turned = Math::Dot(facingNow, facingWas);
+				if (speed > kCutMetresPerSecond || turned < kCutFacing)
+				{
+					RV_CORE_TRACE("Camera cut: {0:.1f} m/s, facing dot {1:.3f}; "
+								  "temporal histories dropped", speed, turned);
+					desc.History->Invalidate();
+					if (desc.Reflections)  desc.Reflections->Invalidate();
+					if (desc.Indirect)     desc.Indirect->Invalidate();
+					if (desc.TaaGuide)     desc.TaaGuide->Invalidate();
+					if (desc.DirectLight)  desc.DirectLight->Invalidate();
+					if (desc.GiLight)      desc.GiLight->Invalidate();
+					if (desc.Occlusion)    desc.Occlusion->Invalidate();
+					if (desc.RayBudget)    desc.RayBudget->Invalidate();
+				}
+			}
+		}
+
 		const uint32_t velocityIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
 		sceneDesc.ExtraColors.push_back(Format::R16G16_SFLOAT);
 

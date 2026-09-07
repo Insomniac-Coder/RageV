@@ -28,6 +28,10 @@ namespace RageV
 		// changes on a mirror the camera orbits while every surface test it
 		// has says nothing has changed at all.
 		Vec4 Eye{ 0.0f, 0.0f, 0.0f, 0.0f };
+		// RT-6.9: and which way it looked. A previous facing is not
+		// recoverable from the view-projection without inverting it, and the
+		// camera-cut test needs one; written beside the eye by the same code.
+		Vec4 Forward{ 0.0f, 0.0f, -1.0f, 0.0f };
 	};
 
 	// Somewhere for a temporal filter to keep last frame's result.

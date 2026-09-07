@@ -3521,6 +3521,10 @@ namespace RageV
 			// RT-6.3: and where it was seen from.
 			motion->Eye = Vec4(cameraTransform[3][0], cameraTransform[3][1],
 							   cameraTransform[3][2], 1.0f);
+			// RT-6.9: and which way it looked. The camera's -Z in world, the
+			// same convention the light direction above uses.
+			motion->Forward = Vec4(-cameraTransform[2][0], -cameraTransform[2][1],
+								   -cameraTransform[2][2], 0.0f);
 		}
 
 		// Last frame's reflection trace, if this chain has one and the

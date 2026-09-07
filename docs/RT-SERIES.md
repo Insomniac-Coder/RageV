@@ -31,7 +31,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 
 ## Status at a glance
 
-**Fifteen of twenty-eight items are closed, three more are part-done, ten are open.** (2026-09-07, end of day.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
+**Eighteen of twenty-eight items are closed, three more are part-done, seven are open. Every RT-6.x sub-item is finished.** (2026-09-07, end of day.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
 
 | # | status | effort | risk | in a line |
 |---|---|---|---|---|
@@ -52,9 +52,9 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-6.6** | ✅ **done 2026-09-07** | — | — | the moments follow the texel the colour came from |
 | **RT-6.7** | ✅ **done 2026-09-07** — correct, and measurably unreachable | — | — | the sky/geometry transition is a disocclusion |
 | **RT-6.8** | ✅ **done 2026-09-07** | — | — | the colour box is built from this surface only |
-| **RT-6.9** | open — **new** | 0.5 d | low | a camera cut throws the history away |
-| **RT-6.10** | open — **new** | 1 d / 2-3 d | low-moderate | the accumulator validates what the ray hit |
-| **RT-6.11** | open — **new** | 0.5 d | low | Catmull-Rom re-measured; its negative result expired |
+| **RT-6.9** | ✅ **done 2026-09-07** | — | — | a camera cut throws the history away |
+| **RT-6.10** | ✅ **done 2026-09-07** | — | — | the accumulator validates what the ray hit |
+| **RT-6.11** | ✅ **done 2026-09-07** — **the biggest sharpness win of the day** | — | — | Catmull-Rom; its negative result had expired |
 | RT-7 | open | 4-5 d | moderate-high | the tubes as LTC line lights |
 | RT-8 | open | 4-6 d | **high** | the water on the G-buffer |
 | RT-9 | open | 2-3 d | moderate | the budget's shadow lane, and confidence drives allocation |
@@ -740,6 +740,71 @@ each takes the branch its name implies (the mix=1.0 test, now a repeatable
 check), the log ramp moves the picture (ao-history 161.7 -> 186.8 mean), and the
 rendered frame is unchanged. `--debug-view=taa-refusal` mid-dolly:
 `build/garage_burst/rt12_taa_71.png`.
+
+### RT-6.9, RT-6.10, RT-6.11 — ✅ done 2026-09-07. **The RT-6.x series is closed.**
+
+**RT-6.11 -- Catmull-Rom history, and the expired negative result was worth
+re-opening.** It was built once, measured flat and reverted, with the reason
+recorded: *"at this scene's speed the neighbourhood clip is discarding the
+history the sharper kernel would have preserved, so the kernel has nothing to
+do."* RT-6 taught the resolve to keep history the clip used to throw away and
+RT-6.8 narrowed the box to one surface, so the premise was gone.
+
+| region | detail off → on | change off → on |
+|---|---|---|
+| **wall** | 11.815 → **13.556** (+14.74%) | +6.91% |
+| **floor** | 8.464 → **9.315** (+10.05%) | +7.18% |
+| poles | 9.977 → **10.860** (+8.84%) | +6.87% |
+| car | 8.865 → 9.536 (+7.57%) | +8.44% |
+| ceiling | 10.520 → 11.173 (+6.21%) | +2.52% |
+
+**Detail up between six and fifteen per cent on every region**, and rising faster
+than frame-to-frame change everywhere but the car -- **the largest sharpness
+change measured all day**, several times RT-6.8's. The crop
+(`build/garage_burst/rt611_crop.png`) shows the chrome poles' highlights tighter
+and the tube ends crisper, with no ringing halo. Applied only where the
+reprojected texel itself matched: a nine-tap kernel across a silhouette is the
+blend RT-6's surface test just refused, four times wider, so a neighbour-served
+history stays point-sampled. Floored at zero, because Catmull-Rom's negative
+lobes across a bright edge make a negative radiance the tone curve renders as a
+black rim. **Cost about +0.02 ms on the resolve** (0.2805 against 0.2575, A,B,B,A;
+the frame numbers straddle).
+
+**RT-6.10 -- the accumulator validates what the ray *hit*.** The one hole RT-6.3
+cannot close by construction: a static polished wall, a static camera, a moving
+object in the reflection. Every reflector test passes and the direction test
+passes too, because the eye did not move. The virtual image distance -- how far
+behind the surface the reflected picture sits -- **was already being computed
+every frame and *smoothed* into the history rather than compared**, so a moving
+reflected object dragged the stored distance along instead of being noticed. The
+fresh value is now kept before that blend and tested, with a tolerance scaled by
+roughness: a mirror's hit distance is steady so a few per cent means the scene
+changed, while a rough lobe's swings between frames for no reason but the
+sampling.
+
+Live: 0.068 levels mean, 0.63% of pixels beyond two. **75.7% of its effect lands
+on the floor -- a 4.43x concentration** -- and nothing else is above 0.39x, which
+is right: the wet floor is the smooth surface whose reflected content actually
+moves under a dolly. Region detail and change do not shift (±0.08%), the same as
+RT-6.5's metallic and for the same reason -- it fires on a small share of pixels.
+
+**RT-6.9 -- a camera cut throws every history away.** Nothing detected a
+discontinuity in the camera; reprojecting across a teleport or a scene load
+produces a frame of smear that then takes thirty frames to fade. A **speed**
+rather than a distance, because a dolly and a jump cover the same ground given
+enough frames: over **100 m/s** (360 km/h) or **45 degrees in one frame** drops
+the colour, guide, reflection, direct, GI, occlusion and budget histories. The
+exposure is deliberately left alone -- a cut into a brighter room should adapt
+rather than snap, and how fast is a look decision. `CameraMotion` gained a
+`Forward` beside RT-6.3's `Eye`, since a previous facing is not recoverable from
+a view-projection without inverting it.
+
+**Proven live by lowering its own threshold**, which is the only honest way to
+test a branch that should never fire in a normal scene: at 0.5 m/s the garage's
+1.5 m/s dolly trips it every frame and the picture moves **16.8 levels across
+61% of pixels** -- every history dropped, exactly as designed. Restored to 100
+m/s the same capture is **bit-identical** to the pre-change build, so there are
+no false positives on ordinary motion.
 
 ### RT-6.5, the fourth check — ✅ **built 2026-09-07** (owner-instructed, after it was wrongly argued away)
 

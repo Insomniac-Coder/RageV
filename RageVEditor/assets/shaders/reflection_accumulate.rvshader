@@ -155,6 +155,11 @@ float g_Metallic = 0.0;
 // RT-6.5: this pixel's object id, for the same reason -- HistoryAt is
 // called from two places and this is the same value at both.
 float g_ObjectId = 0.0;
+// RT-6.10: this frame's raw image distance, before it is blended into the
+// history's. The comparison has to be against the *fresh* value -- the
+// blended one has already been dragged toward whatever the history holds,
+// which is the thing being tested.
+float g_FreshImage = 0.0;
 bool g_HaveMotion = false;
 
 layout(location = 0) out vec4 o_Accumulated;
@@ -407,6 +412,37 @@ const float kMaterialAgree = 0.15;
 // well inside the tolerance, most of it at the edge.
 const float kIdAgree = 0.25;
 
+// **RT-6.10: how far the reflected picture may move before the history
+// stops describing it**, as a fraction of the distance itself.
+//
+// A mirror sends one ray to one place: its hit distance is steady frame to
+// frame, so a change of a few per cent means the *scene* changed -- an
+// object moved in the reflection, which is the case no reflector test can
+// see. A rough surface samples a wide lobe and its hit distance swings
+// wildly between frames for no reason but the sampling, so the same test
+// there would refuse history for noise. Hence the two ends, and the
+// interpolation between them.
+const float kMirrorHitTolerance = 0.05;
+const float kRoughHitTolerance = 1.50;
+
+// One where the reflected picture is where it was, falling to a floor as it
+// moves. Smooth for RT-6.4's reason: a cutoff on a continuous quantity makes
+// the memory step out as something crosses the reflection, which reads as a
+// pop rather than as a reflection catching up.
+const float kHitAgree = 0.2;
+
+float HitConfidence(float nowImage, float wasImage, float roughness)
+{
+	// Relative, not absolute: a metre of change matters on a reflection two
+	// metres deep and not on one forty metres deep. The floor in the divisor
+	// keeps a reflection sitting on the surface from dividing by nothing.
+	const float moved = abs(nowImage - wasImage)
+					  / max(max(nowImage, wasImage), 0.25);
+	const float tolerance = mix(kMirrorHitTolerance, kRoughHitTolerance,
+								clamp(roughness, 0.0, 1.0));
+	return mix(1.0, kHitAgree, smoothstep(tolerance, tolerance * 3.0, moved));
+}
+
 // **The roughness channel carries the metallic in its integer part.**
 // Roughness is in [0,1] and the whole integer part of `o_Extra.r` was
 // unused; a half float at magnitude two still resolves about 0.002, which
@@ -521,6 +557,10 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 			// of another object is reflecting what this one reflects and keeps
 			// its history; one near the tolerance's edge is at a different
 			// depth and does not.
+			// **RT-6.10: and has what the ray hits moved?** The one question the
+			// reflector tests cannot ask -- a static mirror, a static camera and a
+			// moving object in the reflection pass every one of them.
+			const float hit = HitConfidence(g_FreshImage, c.reflector.a, roughness);
 			const float wasId = texelFetch(u_HistoryIdent, pastTexel, 0).r;
 			const float idPenalty =
 				abs(wasId - g_ObjectId) < 0.5
@@ -530,7 +570,7 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 			c.matchConfidence = smoothstep(0.8, 0.94, facing)
 							  * (1.0 - smoothstep(0.35 * planeTolerance, planeTolerance,
 												  offPlane))
-							  * material * idPenalty;
+							  * material * idPenalty * hit;
 		}
 		// Bilinear where the texel itself matched; the neighbour's own value
 		// where it did not, since the texels between belong to the other side.
@@ -613,6 +653,11 @@ void main()
 	const float dominant = pow(1.0 - NoV, 10.8649) * (1.0 - lobe) + lobe;
 	float image = travelled * clamp(dominant, 0.0, 1.0) / (1.0 + 2.0 * travelled * curvature);
 #endif
+
+	// RT-6.10: kept before anything blends it. Below, `image` is mixed toward
+	// the history's own so the parallax is steady frame to frame; the test
+	// needs the value *this frame's ray* produced.
+	g_FreshImage = image;
 
 	vec3 kept = fresh.rgb;
 	float frames = 1.0;
