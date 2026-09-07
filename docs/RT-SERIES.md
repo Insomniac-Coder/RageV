@@ -143,44 +143,82 @@ Two independent reviews of the codebase, read against the code rather than taken
 
 **One thing both reviews are right about that is not a code change:** they independently rate the water's G-buffer integration P0, above most of what is above it in this order. That is the owner's call and the argument is now on the record in RT-8's row.
 
-## Open, parked for later: **no test scene has a moving object**
+## 2026-09-07: **the moving-object scene, and what it found in one run**
 
-**The immediate case.** `kStableWiden` in `taa_resolve.rvshader` sets how far the
-colour clamp may open on matte surfaces -- concrete, paint, brick -- whose
-appearance does not change with viewing angle, and whose history is therefore
-right. It is at **2**. RT-6.2's re-run swept it:
+`SampleProject/assets/scenes/showroom_moving.rage` -- the garage plus one entity:
+a **near-mirror chrome cube** (metallic 1, roughness 0.12) on a `Slider`,
+crossing at 3 m/s in front of the matte graffiti wall and over the wet floor,
+with the camera standing still (`--speed=0`). Authored by `make_moving_scene.py`.
 
-| widen | detail | frame-to-frame change |
-|---|---|---|
-| **2 (shipped)** | +0.70% | −0.06% |
-| 4 | +1.09% | −0.12% |
-| 8 | +1.43% | −0.14% |
+**Metal on the owner's instruction**, and it matters: an emissive white cube was
+tried first and is the *easy* case, because its colour does not change with the
+view, so a stale history is nearly right. A mirror's is entirely a function of
+view direction, which is why smearing is worst on shiny surfaces.
 
-Better on every metric available, at every step, with parked flicker unchanged.
-**Not adopted, and it cannot be adopted on this evidence**, because the failure a
-looser clamp risks is a **smear trailing an object that moves across a matte
-surface** -- and neither the garage nor the bridge has a moving object. Only the
-camera moves. Every number above was measured in a scene where the thing that
-would go wrong cannot happen. (Owner's correction, 2026-09-07: the bridge has no
-moving car either; an earlier note in this session said otherwise and was wrong.)
+**Not the car**, and the reason is a trap worth keeping: `BURST_SLIDE` can drive
+it, but the model is 49 entities and a tag prefix matches the root *and* its
+parts, so each part takes its own Slider **and** its parent's translation -- the
+body separates from the rest at double speed. Two entities share the exact tag
+`porsche_992_gt3_r`, so even the `=tag` form is ambiguous.
 
-**And it is not only this setting.** The same gap blocks or weakens several
-things:
+### It answered RT-6.2's open value immediately: **the risk is not real**
 
-- **RT-6.2's value**, above.
-- **RT-6.10**, whose whole subject is *a static mirror, a static camera and a
-  moving object in the reflection*. It was built and shown live, but the case it
-  exists for has never been rendered.
-- **RT-5's anti-lag**, which is about a signal responding to change.
-- Any claim about **ghosting** at all. Both dolly metrics in this repository
-  reward keeping history, which is what a ghost is, so the only honest arbiter is
-  a crop -- of something moving.
+`kStableWiden` was held at 2 because a looser clamp might smear behind a moving
+object and no scene could show it. Frame 80, the band the cube has just vacated,
+measured against the `--aa=none` truth:
 
-**What would close it:** one test scene with an object crossing the frame -- a
-matte wall behind it for RT-6.2, a polished surface reflecting it for RT-6.10.
-The engine already has the pieces (`Slider.cpp` moves an entity at a set speed,
-and `burst.py` already swaps a camera script into a scene copy the same way).
-Filed rather than built, at the owner's word: **revisit later.**
+| widen | residue left behind |
+|---|---|
+| 1 | 8.56 levels |
+| **2 (shipped)** | **8.56** |
+| 4 | 8.56 |
+| 8 | 8.56 |
+
+**Identical.** The arms are live -- widen 1 against 8 differs by 0.108 levels
+across the frame and on 0.97% of pixels -- but in the trail they differ by
+**0.021**. The clamp width changes the picture elsewhere and does not touch the
+ghost, so the reason for holding at 2 is gone and 4 (+1.09% detail) or 8
+(+1.43%) is safe. **The value is the owner's; nothing measured now argues
+against the higher ones.**
+
+### And it found something bigger: **a moving glossy object has no reflection history at all**
+
+The owner saw it first -- *"the cube looks really messy while moving, there's a
+lot of artifacting, noise"*. **It is not TAA**: the `--aa=none` truth is just as
+noisy, so the noise is in the reflection layer, and
+`--debug-view=reflection-choice` shows the cube's pixels holding **no history**
+while the wall around them holds a healthy image-reprojected one.
+
+**The cause, at the line.** `reflection_accumulate.rvshader` finds last frame's
+texel by projecting this frame's **world position through last frame's camera**:
+
+```glsl
+const vec4 clipThen = u_Reflection.PreviousViewProjection * vec4(world, 1.0);
+```
+
+That asks *"where would this point have been on screen last frame **if it had not
+moved**"*. For a moving object it was somewhere else, so every test refuses,
+`frames` falls to one, and the pixel shows a **single ray's** estimate -- which
+on a near-mirror is noise. `u_Velocity` **is** bound to this pass, and is used
+only for the silhouette test (`neighbourMotion`), never to reproject.
+
+**So the accumulator handles camera motion and not object motion, and every
+reflection on anything that moves is a one-sample estimate.** That is the
+mechanism behind the owner's report of heavy ghosting while driving the car, and
+it is invisible in every other scene here because nothing else moves.
+
+**Filed rather than patched in passing:** the fix is to reproject by the scene's
+velocity lane where it describes object motion, which is RT-4/RT-5 territory and
+wants its own measurement on this scene.
+
+### Also reported, not yet investigated
+
+**A light's reflection takes seconds to leave the floor** when it is switched
+off. Worth noting that since RT-6.1 moved the composite above the resolve the
+reflection passes through **two** temporal filters in series -- its own
+accumulator (64 frames) and then TAA (still-feedback 0.98 in the garage, about
+50 frames) -- and memories in series compound. RT-6.10's hit test will not catch
+it: a light going out changes the reflected *brightness*, not the hit *distance*.
 
 ## Records
 
