@@ -741,6 +741,49 @@ check), the log ramp moves the picture (ao-history 161.7 -> 186.8 mean), and the
 rendered frame is unchanged. `--debug-view=taa-refusal` mid-dolly:
 `build/garage_burst/rt12_taa_71.png`.
 
+### Found 2026-09-07: **coloured metals reflect in grey** -- a real defect, and a fix that failed its own measurement
+
+**The defect, which the engine's own comment admits.** The traced reflection is
+added to the frame by a **single number** carried in the scene's alpha, and the
+lit shader makes that number by collapsing a colour to its brightness:
+
+```glsl
+// One channel, so a coloured metal's tint is not carried.
+reflectionWeight = reflectionShare
+                 * dot((F0 * envBRDF.x + envBRDF.y) * occlusion, luma);
+```
+
+`F0` is what a surface reflects head-on, and **for a metal it is the metal's own
+colour**. Gold's F0 is gold; copper's is copper. Collapsing it to a luminance
+throws that away, so **every coloured metal in the engine reflects the room in
+grey**. The probe's half of the reflection keeps its tint -- that multiply is a
+colour, one line above -- so only the *traced* half is affected, which is why it
+has gone unnoticed: the two halves disagree and the probe covers for it.
+
+**The fix that was tried, and why it is not committed.** Apply the tint at the
+trace instead: `reflection_trace` already reads the surface lane, reconstructs
+the world point and includes `pbr_fragment.glsl`, so it needs only the albedo
+lane bound to build F0 and multiply its picture by `F0 * envBRDF.x + envBRDF.y`
+in colour; the lit shader then owes only the scalar `reflectionShare *
+occlusion`. Algebraically the two are the same up to colour-versus-luminance.
+
+**Measured, they are not.** The garage floor went from a mean of 16/21/26 to
+63/83/100 -- **about four times brighter, uniformly on all three channels**,
+which a colour-versus-luminance swap cannot produce: it is a missing scalar, not
+a hue. The shader cache was ruled out as the cause (`SetCacheDirectory` is never
+called and no `.spv` exists on disk, so both arms compiled fresh). **Reverted
+rather than shipped**, because a change whose effect is four times what the
+algebra predicts is not understood, and shipping it would trade a known defect
+for an unknown one.
+
+**Still open, and worth its own item.** Likely suspects for the missing scalar:
+the trace's `dot(N, V)` uses the G-buffer's stored normal while the lit shader's
+`NdotV` uses the shading normal (normal-mapped, and on the wet floor they differ
+sharply at grazing angles, where `envBRDF.y` is largest); and the roughness the
+trace reads may be the stored one where the lit shader uses the specular-AA
+widened one. Either would change `envBRDF` between the two sites. `patch_gold.py`
+is kept with the attempt and this reasoning, marked not-applied.
+
 ### RT-14 — ✅ done 2026-09-07. **The G-buffer is not where the memory is, and packing it would be work for nothing.**
 
 **Method, and its limit stated first.** This machine has no GPU profiler, so
