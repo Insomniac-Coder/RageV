@@ -45,7 +45,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-5 | open | 3-4 d | **high** | the contract validates by the G-buffer; the blur goes |
 | RT-6 | ✅ geometric half done 2026-09-07; **the still-feedback half waits on RT-8** | — | — | TAA on the G-buffer |
 | RT-6.1 | ✅ done 2026-09-07 | — | — | the reflection's virtual-image motion lane |
-| RT-6.2 | ✅ measured, **negative, not shipped** | — | — | the material-aware clamp does nothing |
+| RT-6.2 | ✅ **re-run 2026-09-07: the negative result expired** | — | — | the material-aware clamp, live on RT-6.8's box |
 | RT-6.3 | ✅ done 2026-09-07 | — | — | the reflection-direction test |
 | RT-6.4 | ✅ done 2026-09-07 | — | — | the current-sample filter down; the tests fade |
 | RT-6.5 | open | 0.5-1 d | low | the accumulator tests the material, not just roughness |
@@ -740,6 +740,52 @@ each takes the branch its name implies (the mix=1.0 test, now a repeatable
 check), the log ramp moves the picture (ao-history 161.7 -> 186.8 mean), and the
 rendered frame is unchanged. `--debug-view=taa-refusal` mid-dolly:
 `build/garage_burst/rt12_taa_71.png`.
+
+### RT-6.2 re-run — the negative result has expired (owner-asked, after RT-6.8)
+
+**RT-6.2 measured the material-aware clamp as doing nothing, and gave the
+reason: *"on a detailed surface the 3x3 neighbourhood box is already wide,
+because the neighbours genuinely differ. The clamp only bites where the
+neighbourhood is flat -- where there is no detail to lose."* RT-6.8 removed the
+premise.** Part of that width at an edge was a *foreign surface* rather than
+detail, and the box now contains only this surface. So the clamp bites where it
+was always supposed to, and widening it does something.
+
+Swept again on the new box, garage dolly, frames 62-99, all five regions:
+
+| kStableWiden | detail vs off | frame-to-frame change vs off |
+|---|---|---|
+| 1.0 (clamp hardest) | — | — |
+| **2.0 (shipped)** | **+0.70%** | **−0.06%** |
+| 4.0 | +1.09% | −0.12% |
+| 8.0 | +1.43% | −0.14% |
+
+**Detail rises and change *falls* at every step**, which is not a trade: the
+clamp had been throwing away history that was *correct* on view-stable surfaces,
+and letting it through both keeps the detail and steadies the pixel. Region by
+region the gain is where the theory says -- the poles band +2.23% at the shipped
+setting and +4.53% at 8x, the floor +0.68% to +1.98%, the wall flat to slightly
+negative (it is the flattest surface in the scene and its box was tight either
+way). Compare RT-6.2's original sweep, which read "under one per cent
+everywhere".
+
+**Parked flicker is unchanged** (−2.1% to +0.2% across the regions), so the one
+metric that is not confounded by history-keeping says the widening costs
+nothing. The crop at 1x against 8x shows no ghosting appearing; the widened arm
+is cleaner in the wet floor's dark band.
+
+**Kept at 2.0, and the sweep is the owner's.** 4 and 8 measure better on both
+dolly proxies -- but **both of those reward keeping history, which is what a
+ghost is**, and parked flicker is neutral here so it cannot discriminate either.
+Widening a ghost-protection mechanism eight-fold across every rough dielectric,
+on metrics that cannot see a ghost, for 1.4% of detail, is not a trade to make
+on numbers alone. The value is one constant if a different one is wanted.
+
+**What this retires:** RT-6.2's standing conclusion that the material-aware
+clamp "measured flat ... it cannot be what is blurring the texture". It was
+true of the box it was measured on and is not true of this one. **A negative
+result is only as durable as the thing it was measured against** -- the same
+lesson RT-6.11 files for Catmull-Rom, now with a second instance.
 
 ### RT-6.8 — ✅ done 2026-09-07
 
