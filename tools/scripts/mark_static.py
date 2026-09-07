@@ -40,8 +40,6 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 # by name at runtime; the file itself carries no script on it.
 EXCLUDED_ROOTS = {
     "showroom.rage": {"porsche_992_gt3_r"},
-    "showroom2.rage": {"porsche_992_gt3_r"},
-    "showroom-mark85.rage": {"porsche_992_gt3_r"},
 }
 
 MOVING_COMPONENTS = ("ManagedScriptComponent:", "NativeScriptComponent:",

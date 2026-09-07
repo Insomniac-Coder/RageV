@@ -373,12 +373,46 @@ layout(set = 0, binding = 6) uniform sampler2D u_BRDF;
 // binding, two descriptor types is a pipeline that will not build -- and on
 // the first attempt it did not, as a device loss the moment the fox drew.
 layout(set = 0, binding = 12) uniform sampler2D u_ScreenReflections;
+// The reflector under each texel of that picture, as the accumulator wrote
+// it: normal (rg, octahedral, zero to one), plane (b: n . P), image distance
+// (a, below zero for none). What the hook tests a texel against before
+// taking its picture -- the traced form only; a 1x1 transparent black
+// otherwise, never read.
+layout(set = 0, binding = 19) uniform sampler2D u_ScreenReflectionSurface;
 
 // Last frame's indirect diffuse, albedo-free, A the confidence (7av). Added
 // to the probe's irradiance *before* the diffuse term multiplies by albedo,
 // which is the whole point: the bounce is tinted by what this surface is.
 // Binding 16 for the reason 12 is not 11 -- see above.
 layout(set = 0, binding = 16) uniform sampler2D u_Indirect;
+
+// **RT-first T5: the direct light as a signal** (docs/RT-FIRST.md 2d). Under
+// ray tracing the DirectTrace pass chooses, shades and traces the lights for
+// every opaque pixel from the G-buffer and the accumulator settles it; the lit
+// shader adds these two pictures where its loop used to trace a ray to every
+// light. Diffuse is before the albedo and the 1/pi (the denoiser must never
+// blur texture), specular complete. Only the lit variants read them, and only
+// they declare them: a set layout comes from reflection, and a binding a
+// pipeline does not reference cannot be written on its set. The skinned and
+// layered kinds are in the G-buffer pass since RT-2 (RT-1 found them outside
+// it on the bridge's terrain) and read the signals like the plain kind.
+#if defined(RV_RAY_SHADOWS) && !defined(RV_TRACE_ONLY) && !defined(RV_GBUFFER) \
+	&& !defined(RV_TRANSPARENT) && !defined(RV_WATER) && !defined(RV_IRRADIANCE_FILL)
+#define RV_DIRECT_SIGNAL_INPUT
+layout(set = 0, binding = 26) uniform sampler2D u_DirectDiffuse;
+layout(set = 0, binding = 27) uniform sampler2D u_DirectSpecular;
+#endif
+// **RT-2: the screen-space occlusion as a signal.** RTAO under rays, SSAO in
+// raster, computed from the G-buffer before this pass and settled on the
+// reconstruction contract; the intensity is folded in already. Read by texel
+// and applied below to the ambient, the stored indirect and the environment's
+// specular -- never to the direct light, which has its own shadow rays. The
+// same lit variants as the direct pair declare it, rays or not.
+#if !defined(RV_TRACE_ONLY) && !defined(RV_GBUFFER) && !defined(RV_TRANSPARENT) \
+	&& !defined(RV_WATER) && !defined(RV_IRRADIANCE_FILL)
+#define RV_SCREEN_OCCLUSION_INPUT
+layout(set = 0, binding = 28) uniform sampler2D u_ScreenOcclusion;
+#endif
 
 // Comparison samplers: the hardware compares against the reference and filters
 // the answers, which is a 2x2 percentage-closer filter for one fetch. Four
@@ -534,7 +568,13 @@ const uint RAY_LANE_HIT_LIGHTS  = 9u;   // lights those hits walked, summed
 // not of the call: the bounce's trace includes this file under
 // RV_TRACE_ONLY, the water under RV_WATER, and the opaque families under
 // neither.
-#if defined(RV_TRACE_ONLY)
+// The reflection pass includes this file under RV_TRACE_ONLY as well, and
+// says so with RV_REFLECTION_TRACE so its rays land in their own lane
+// (WR-16 R2, 2026-09-06: until then they were never flushed at all and
+// the report's reflection figure was the in-line leftovers, 0.04 M).
+#if defined(RV_REFLECTION_TRACE)
+const uint RAY_LANE_SURFACE = RAY_LANE_REFLECTION;
+#elif defined(RV_TRACE_ONLY)
 const uint RAY_LANE_SURFACE = RAY_LANE_GI;
 #elif defined(RV_WATER)
 const uint RAY_LANE_SURFACE = RAY_LANE_WATER;
@@ -872,6 +912,7 @@ layout(location = 8) in vec4 v_PrevClipPos;
 // Which record in u_Materials this instance's material is. Read only by the
 // bindless variant; declared in both so the two stages agree.
 layout(location = 9) flat in float v_MaterialIndex;
+layout(location = 15) flat in float v_ObjectId;
 
 #ifdef RV_WATER
 // x = the instantaneous Jacobian (the wet-crest signal), y = where this
@@ -966,6 +1007,18 @@ layout(location = 2) out vec4 o_PositionWater;
 layout(location = 0) out vec4 o_Accumulate;
 layout(location = 1) out float o_Revealage;
 
+#elif defined(RV_GBUFFER)
+// The G-buffer pass (RT-first step 1a, docs/RT-FIRST.md): the same
+// material path as the lit shader up to the surface, written out and
+// done. Its pass binds only these four attachments, in this order; the
+// colour and the indirect term are plain variables here so the lighting
+// code below it still compiles, unreached.
+layout(location = 0) out vec2 o_Velocity;
+layout(location = 1) out vec4 o_Surface;
+layout(location = 2) out vec4 o_Albedo;      // albedo, metallic
+layout(location = 3) out vec2 o_SurfaceId;   // v_ObjectId (negative: Static), shading roughness
+vec4 o_Color;
+vec4 o_Indirect;
 
 #else
 
@@ -1055,6 +1108,25 @@ uint ClusterIndexFor(vec3 worldPos)
 	return (z * uint(tileCount.y) + tile.y) * uint(tileCount.x) + tile.x;
 }
 #endif
+
+// The same cell from a world position alone -- projected through the scene's
+// view-projection instead of read from the fragment's clip position -- for
+// the passes that have no varyings (RT-first T5's DirectTrace; the water's
+// lamp passes carry their own copy in water_lamps.glsl).
+uint ClusterCellFor(vec3 worldPos)
+{
+	const vec2 tileCount = u_Scene.ClusterGrid.xy;
+	const vec4 clip = u_Scene.ViewProjection * vec4(worldPos, 1.0);
+	const vec2 ndc = clip.xy / max(abs(clip.w), 1.0e-6) * sign(clip.w);
+	const uvec2 tile = uvec2(clamp(ndc * 0.5 + 0.5, vec2(0.0), vec2(0.9999)) * tileCount);
+	const float viewDepth = dot(worldPos - u_Scene.CameraPosition.xyz,
+								u_Scene.CameraForward.xyz);
+	float slice = 0.0;
+	if (viewDepth > u_Scene.ClusterDepth.x)
+		slice = log(viewDepth) * u_Scene.ClusterDepth.z + u_Scene.ClusterDepth.w;
+	const uint z = uint(clamp(slice, 0.0, u_Scene.ClusterGrid.z - 1.0));
+	return (z * uint(tileCount.y) + tile.y) * uint(tileCount.x) + tile.x;
+}
 
 float SampleCascade(int cascade, vec3 coordinate)
 {
@@ -2568,11 +2640,6 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	// before WR-10 decides what to build. Uniform, so the loop is not
 	// compiled out; the picture with it off is wrong on purpose.
 	const int hitLightCount = u_Scene.RayRates.z > 0.5 ? 0 : u_Scene.LightCount;
-	// WR-16 S4's sizing, as on screen: at most N positional lamps are read in
-	// full and shaded at this hit. Read from RayRates.w's high bits here too,
-	// so one flag covers both halves of the lamp cost.
-	const int hitShadeLimit = ((int(u_Scene.RayRates.w + 0.5) >> 8) & 255) - 1;
-	int hitShaded = 0;
 #ifndef RV_TRACE_ONLY
 	// **WR-10: the hit takes the cluster it falls in.** The cluster grid is
 	// cut through the camera's view, and this loop assumed a hit had no
@@ -2669,22 +2736,6 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 		if (LightCullRejects(uint(i), hitPosition, surface.Static && hitFieldWeight >= 1.0, false))
 			continue;
 #endif
-		if (hitShadeLimit >= 0 && i >= int(u_Scene.ClusterGrid.w))
-		{
-			// **Stop, rather than walk on.** This was a `continue`, which
-			// capped the shading and went on reading every remaining cull
-			// record to test its range -- and the reading is the larger half:
-			// on Headland, capping the shading at four saved 0.68 ms of the
-			// water draw where skipping the walk entirely saved 2.72.
-			//
-			// Safe only because the cell's list is filled brightest first
-			// (LightGrid::Build), so what is left when the budget runs out is
-			// dimmer than what was taken. The directional lights sit before
-			// ClusterGrid.w and are never reached by this.
-			if (hitShaded >= hitShadeLimit)
-				break;
-			++hitShaded;
-		}
 		GpuLight light = u_Lights.Lights[i];
 		float hitLiveShare = 1.0;
 #ifndef RV_IRRADIANCE_FILL
@@ -2955,6 +3006,60 @@ vec3 TraceReflection(vec3 origin, vec3 Ng, vec3 direction, float probe)
 		return surface.Sky;
 	return ShadeTraced(surface, ProbeIrradiance(surface.Normal, probe));
 }
+
+// **The mirror ray, scattered by roughness** (owner, 2026-09-05 night: the
+// garage floor's tube reflections were knife-sharp where the reference has
+// wide soft bands). One ray per pixel along the exact mirror direction is a
+// perfect mirror whatever the roughness says; a rough surface reflects a
+// lobe of directions, and the reference integrates it. So the microfacet
+// normal is drawn from the GGX distribution the rest of this shader uses
+// (alpha = roughness squared, as DistributionGGX squares it), the view ray
+// is reflected about *that*, and the frame counter salts the draw so the
+// temporal filter averages the lobe across frames. The sample is weighted
+// one: the split-sum term applied further down already integrates the
+// BRDF, and the drawn direction stands for the lobe it was drawn from.
+// Sampling the plain NDF rather than the visible one over-blurs slightly
+// at grazing angles; that is on the safe side of the reference.
+//
+// Same lowbias32 constants as SkyHash/GiHash, its own copy because those
+// live under other defines.
+uint MirrorHash(uint x)
+{
+	x ^= x >> 16; x *= 0x7FEB352Du;
+	x ^= x >> 15; x *= 0x846CA68Bu;
+	x ^= x >> 16;
+	return x;
+}
+
+// `index` of `count` draws this frame: the pair is stratified across the
+// draws (a golden-ratio step in one axis, an even split in the other) so
+// four rays cover the lobe rather than landing in one corner of it, and
+// the frame counter moves the whole set between frames for the filter.
+vec3 GlossyReflection(vec3 N, vec3 V, float roughness, int index, int count)
+{
+	vec3 mirror = reflect(-V, N);
+	float alpha = roughness * roughness;
+	if (alpha < 1.0e-4)
+		return mirror;
+	uint seed = MirrorHash(uint(gl_FragCoord.x) ^ (uint(gl_FragCoord.y) << 16u)
+						   ^ MirrorHash(uint(u_Scene.GlobalIllumination.y) + 0x9E3779B9u));
+	seed = MirrorHash(seed);
+	float u1 = fract(float(seed & 0x00FFFFFFu) / 16777216.0 + (float(index) + 0.5) / float(count));
+	seed = MirrorHash(seed);
+	float u2 = fract(float(seed & 0x00FFFFFFu) / 16777216.0 + float(index) * 0.61803398875);
+	// GGX: the microfacet normal's tilt from N
+	float cosTheta = sqrt((1.0 - u1) / (1.0 + (alpha * alpha - 1.0) * u1));
+	float sinTheta = sqrt(max(1.0 - cosTheta * cosTheta, 0.0));
+	float phi = 6.2831853 * u2;
+	vec3 axis = abs(N.x) < 0.7 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+	vec3 t = normalize(cross(axis, N));
+	vec3 b = cross(N, t);
+	vec3 H = normalize(t * (sinTheta * cos(phi)) + b * (sinTheta * sin(phi)) + N * cosTheta);
+	vec3 L = reflect(-V, H);
+	// A draw that dips below the surface is not a reflection; the mirror
+	// direction stands in rather than a ray into the floor.
+	return dot(L, N) > 0.02 ? L : mirror;
+}
 #endif
 
 // The split-sum environment BRDF, read from the table.
@@ -3178,6 +3283,28 @@ vec3 UnpackNormal(mat3 TBN, vec2 xy, float scale)
 // not have. The tracing above this line does not.
 #ifndef RV_TRACE_ONLY
 
+// The mip a map is filtered at for this pixel, from the coordinate's explicit
+// derivatives -- the isotropic rule the hardware's own level of detail uses,
+// rho = the longer of the two texel-space derivatives, lambda = log2(rho).
+//
+// **The parallax marches read the height at this level, not at level zero.**
+// A march at level zero samples one texel's relief wherever the pixel
+// happens to land, which at a distance is noise the colour beside it has
+// already filtered away; and it costs more than the rest of the material
+// put together, because at a kilometre every fetch of a layer's dozen lands
+// on a different cache line. Headland's four terrain layers spent 5.4 ms of a
+// 20 ms frame that way -- 3.1 in the G-buffer pass, 2.3 in the lit pass --
+// measured by switching the march off (RT-2.1). At the footprint's level the
+// march finds the relief the pixel actually sees, filtered as its colour is,
+// and its fetches are neighbours. Up close the footprint is under a texel
+// and this is level zero, as before.
+float FootprintLod(sampler2D map, vec2 ddx, vec2 ddy)
+{
+	const vec2 size = vec2(textureSize(map, 0));
+	const float rho = max(length(ddx * size), length(ddy * size));
+	return max(log2(max(rho, 1e-8)), 0.0);
+}
+
 #ifndef RV_LAYERED
 vec3 PerturbNormal(mat3 TBN, vec2 uv)
 {
@@ -3192,7 +3319,7 @@ vec3 PerturbNormal(mat3 TBN, vec2 uv)
 // all as the view moves, and that motion cue is most of what the eye calls
 // depth on a ground plane seen at an angle. Without it a bumpy floor is a
 // photograph of a bumpy floor.
-vec2 Parallax(vec2 uv, vec3 viewTS)
+vec2 Parallax(vec2 uv, vec3 viewTS, float lod)
 {
 	float scale = u_Material.HeightScale;
 	if (scale <= 0.0)
@@ -3209,7 +3336,7 @@ vec2 Parallax(vec2 uv, vec3 viewTS)
 	// implicit derivatives inside divergent control flow are undefined.
 	vec2 cur = uv;
 	float depth = 0.0;
-	float h = 1.0 - textureLod(u_HeightMap, cur, 0.0).r;
+	float h = 1.0 - textureLod(u_HeightMap, cur, lod).r;
 	float prevH = h;
 
 	while (depth < h && depth < 1.0)
@@ -3217,7 +3344,7 @@ vec2 Parallax(vec2 uv, vec3 viewTS)
 		prevH = h;
 		cur -= delta;
 		depth += layer;
-		h = 1.0 - textureLod(u_HeightMap, cur, 0.0).r;
+		h = 1.0 - textureLod(u_HeightMap, cur, lod).r;
 	}
 
 	// One secant step between the sample above the surface and the one below,
@@ -3276,8 +3403,11 @@ Surface SampleSurface(vec3 Ngeo, vec3 V)
 
 	// Parallax before any map is sampled, so colour, normal, roughness and
 	// occlusion all agree about which texel is under this pixel.
+	// The height map's mip for this pixel, before the branch: derivatives
+	// belong in uniform control flow.
+	const float heightLod = FootprintLod(u_HeightMap, dFdx(uv), dFdy(uv));
 	if (HasMap(MAP_HEIGHT))
-		uv = Parallax(uv, transpose(TBN) * V);
+		uv = Parallax(uv, transpose(TBN) * V, heightLod);
 
 	s.BaseColor = v_BaseColor;
 	if (HasMap(MAP_BASE_COLOR))
@@ -3344,7 +3474,7 @@ Surface SampleSurface(vec3 Ngeo, vec3 V)
 // is divergent control flow and an implicit derivative in it is undefined.
 // Level zero, because a mip of a height field is a shallower height field and
 // the march would terminate early against it.
-vec2 ParallaxLayer(sampler2D surface, vec2 uv, vec3 viewTS, float scale)
+vec2 ParallaxLayer(sampler2D surface, vec2 uv, vec3 viewTS, float scale, float lod)
 {
 	if (scale <= 0.0)
 		return uv;
@@ -3357,7 +3487,7 @@ vec2 ParallaxLayer(sampler2D surface, vec2 uv, vec3 viewTS, float scale)
 
 	vec2 cur = uv;
 	float depth = 0.0;
-	float h = 1.0 - textureLod(surface, cur, 0.0).b;
+	float h = 1.0 - textureLod(surface, cur, lod).b;
 	float prevH = h;
 
 	while (depth < h && depth < 1.0)
@@ -3365,7 +3495,7 @@ vec2 ParallaxLayer(sampler2D surface, vec2 uv, vec3 viewTS, float scale)
 		prevH = h;
 		cur -= delta;
 		depth += step;
-		h = 1.0 - textureLod(surface, cur, 0.0).b;
+		h = 1.0 - textureLod(surface, cur, lod).b;
 	}
 
 	// One secant step between the sample above the surface and the one below,
@@ -3435,10 +3565,12 @@ vec2 ParallaxLayer(sampler2D surface, vec2 uv, vec3 viewTS, float scale)
 				? u_Layered.HeightScale[i] * smoothstep(0.5, 0.8, w) : 0.0;                 \
 			if (pom > 0.0 && wall < 1.0)                                                    \
 				uvL = ParallaxLayer(LAYER_ROUGHNESS(i), uvL,                                \
-									normalize(transpose(TBN) * V), pom * (1.0 - wall));     \
+									normalize(transpose(TBN) * V), pom * (1.0 - wall),      \
+									FootprintLod(LAYER_ROUGHNESS(i), ddxL, ddyL));          \
 			if (pom > 0.0 && wall > 0.0)                                                    \
 				uvW = ParallaxLayer(LAYER_ROUGHNESS(i), uvW,                                \
-									normalize(transpose(TBNW) * V), pom * wall);            \
+									normalize(transpose(TBNW) * V), pom * wall,             \
+									FootprintLod(LAYER_ROUGHNESS(i), ddxW, ddyW));          \
 			vec4 baseL = u_Layered.BaseColor[i];                                            \
 			if ((flags & MAP_BASE_COLOR) != 0)                                              \
 			{                                                                               \
@@ -4016,6 +4148,18 @@ void main()
 #ifndef RV_TRANSPARENT
 	o_Surface = vec4(OctEncode(N), roughness, metallic);
 #endif
+#ifdef RV_GBUFFER
+	// The albedo and the specular scalar (metallic already rides o_Surface.a);
+	// the object's id, negative for a Static surface (RT-first T5); and beside
+	// it the roughness analytic lights are shaded with (its integer part over
+	// 65535 -- ten bits were coarse enough to move chrome's highlights) with
+	// the material's occlusion in the fraction (RT-1, for the loss
+	// clamp) -- what the DirectTrace pass needs of the material and the split.
+	o_Albedo = vec4(albedo, clamp(surface.Specular, 0.0, 1.0));
+	o_SurfaceId = vec2(v_Instance.y > 0.5 ? -v_ObjectId : v_ObjectId,
+					   floor(shadingRoughness * 65535.0) + clamp(occlusion, 0.0, 0.996));
+	return;
+#endif
 
 
 	// Dielectrics reflect ~4% at normal incidence; metals use their albedo as
@@ -4085,6 +4229,14 @@ void main()
 	// reach every cell and binning them would put a copy in all 3456 of them.
 	// Everything after them is positional and comes from this fragment's cell.
 	int directionalCount = int(u_Scene.ClusterGrid.w);
+	// RT-first T5: whether the DirectTrace pass ran this frame (RayRates.w
+	// bit 22, set by the frame graph). A uniform rather than a define, so a
+	// preset change needs no recompile.
+#ifdef RV_DIRECT_SIGNAL_INPUT
+	const bool directSignal = (int(u_Scene.RayRates.w + 0.5) & 4194304) != 0;
+#else
+	const bool directSignal = false;
+#endif
 	// --water-ablate=sun: the directional lights, which is the sun here.
 	// Not water-only despite the flag's name -- this loop serves every lit
 	// fragment, so the same switch measures the sun in the opaque pass too.
@@ -4112,6 +4264,11 @@ void main()
 #endif
 
 	int total = directionalCount + int(cellCount);
+	// RT-1: under the direct-light signal every light -- its live share and
+	// the field's loss alike -- is shaded, traced and clamped in the
+	// DirectTrace pass, which also counts the lights; this loop walks none.
+	if (directSignal)
+		total = 0;
 	// What this fragment walks, whatever it traces: the budget's "lights per
 	// pixel", the number the owner's document asks for first.
 	RV_COUNT_LIGHTS(total);
@@ -4125,7 +4282,7 @@ void main()
 	// copied rather than shared so the loop's own bits stay exactly what
 	// they were. Uniform-branched off under every other shape.
 	float directIrradiance = 0.0;
-	if (mod(u_Scene.ShadowRayFade.x, 16.0) > 4.5)
+	if (!directSignal && mod(u_Scene.ShadowRayFade.x, 16.0) > 4.5)
 	{
 		for (int entry = 0; entry < total; ++entry)
 		{
@@ -4223,58 +4380,8 @@ void main()
 	// measured by bisect on 2026-09-05: c0d70c3 6.56 ms, 554589b 7.40 ms,
 	// the opaque pass carrying all of it. Renderer3D pushes the define when
 	// EngineConfig::ShadowBudget is non-zero.
-#ifdef RV_SHADOW_BUDGET
-	const int shadowBudget = clamp(budgetCode & 15, 0, 8);
-	const bool budgetFullTarget = (budgetCode & 16) != 0;
-	uint  budgetIndex[8];
-	vec3  budgetTerm[8];
-#ifdef RV_WATER
-	vec3  budgetSpec[8];
-#endif
-	float budgetWeight[8];
-	uint  budgetSeed[8];
-	float budgetTotal = 0.0;
-	if (shadowBudget > 0)
-	{
-		// **Independent draws, hashed per pixel, reservoir and lamp.** The
-		// first landing walked one golden-ratio sequence along the lamp
-		// index, and the water came out darker the smaller K was: a weighted
-		// reservoir is unbiased only when each item's uniform is independent
-		// of the last, and consecutive terms of one sequence are not. White
-		// noise across lamps is right here; the low-discrepancy set was for
-		// the soft shadow's disc points, a different question. Fixed per
-		// pixel without a temporal filter, salted by the frame under one.
-		const uvec2 px = uvec2(gl_FragCoord.xy);
-		const uint frameSalt = any(notEqual(u_Scene.Jitter, vec4(0.0)))
-							 ? uint(mod(u_Scene.GlobalIllumination.y, 1024.0)) * 0x85EBCA6Bu : 0u;
-		for (int r = 0; r < 8; ++r)
-		{
-			budgetIndex[r] = 0u;
-			budgetTerm[r] = vec3(0.0);
-#ifdef RV_WATER
-			budgetSpec[r] = vec3(0.0);
-#endif
-			budgetWeight[r] = 0.0;
-			budgetSeed[r] = BudgetHash(px.x ^ (px.y << 16u) ^ (uint(r) << 28u) ^ frameSalt);
-		}
-	}
-#else
-	// A compile-time zero, so the sampler's exclusivity test below reads as
-	// it always did and folds away with it.
-	const int shadowBudget = 0;
-#endif
 #endif
 
-	// **WR-16 S4's sizing** (`--shade-lights=N`, RayRates.w bits 8 and up,
-	// N + 1 so zero is off). A measurement with no feature behind it: the
-	// pixel walks every lamp's sixteen-byte cull record as it does today --
-	// what S4's sampler would pay to score its candidates -- and shades only
-	// the first N lamps that pass it. `--casting-lights` cuts the ray and
-	// leaves the shading; this cuts the shading, which after S2 is the half
-	// the water still pays in full. The lamps past N are simply absent, so
-	// the picture is wrong on purpose and the frame time is the bound.
-	const int shadeLimit = ((int(u_Scene.RayRates.w + 0.5) >> 8) & 255) - 1;
-	int shadedLights = 0;
 
 	// **WR-16 S4, the sampler** (`--light-sampling=K[,target]`, RayRates.w
 	// bits 16-19 as K, bits 20-21 as the target's kind). The step S1 sized
@@ -4320,7 +4427,7 @@ void main()
 	// zero also means a lamp may be *subtracted* here rather than added (a
 	// moving object inside a baked lamp's range), and a subtraction taken
 	// from a sampled estimate would not be the same quantity.
-	if (sampleCount > 0 && shadowBudget == 0 && shadeLimit < 0 && fieldWeight <= 0.0
+	if (!directSignal && sampleCount > 0 && fieldWeight <= 0.0
 #ifdef RV_WATER
 		&& v_WaterLamps.x == 0.0
 #endif
@@ -4561,12 +4668,6 @@ void main()
 		// The sizing flag's cap (above): directional lights are never capped
 		// -- there are one or two of them and they are the sun -- so this
 		// counts positional lamps alone, in the cell list's order.
-		if (shadeLimit >= 0 && i >= directionalCount)
-		{
-			if (shadedLights >= shadeLimit)
-				continue;
-			++shadedLights;
-		}
 		GpuLight light = u_Lights.Lights[i];
 
 		// **A fully baked light on a static surface is in the field** (7cx),
@@ -4900,20 +5001,10 @@ void main()
 													 length(light.Position.xyz - v_WorldPos),
 													 light.Direction.w, uint(i), RV_RAY_MASK_MOVING);
 		}
-		// WR-16 S1: under the fixed budget a live positional lamp is not traced
-		// here; it offers itself to the reservoirs where its term is known,
-		// below, and contributes nothing to Lo directly.
-		bool budgeted = false;
 		if (liveShare > 0.0 && kind == 1)
 		{
 			shadow = TraceShadow(v_WorldPos, L, 1.0e4);
 		}
-#ifdef RV_SHADOW_BUDGET
-		else if (liveShare > 0.0 && kind != 0 && shadowBudget > 0)
-		{
-			budgeted = true;
-		}
-#endif
 		else if (liveShare > 0.0 && kind != 0 && survivor)
 		{
 			// WR-16 S4: a survivor is traced, always. Choosing which lamps
@@ -5015,37 +5106,6 @@ void main()
 			movingLossSpecular += specular * NdotL * radiance * (1.0 - shadowMoving) * fieldShare;
 		}
 #endif
-#if defined(RV_RAY_SHADOWS) && defined(RV_SHADOW_BUDGET)
-		if (budgeted)
-		{
-			// The lamp's whole term, held for the reservoirs; its weight is
-			// the cheap target -- luminance of the unshadowed irradiance --
-			// so a bright near lamp is chosen often and a far dim one
-			// rarely, and the estimate divides by that weight to stay fair.
-			const vec3 term = (kD * albedo / PI * diffuseCosine + specular * NdotL)
-							* radiance * liveShare;
-			const vec3 lumWeights = vec3(0.2126, 0.7152, 0.0722);
-			const float weight = max(budgetFullTarget ? dot(term, lumWeights)
-													  : dot(radiance, lumWeights) * NdotL, 1.0e-6);
-			budgetTotal += weight;
-			const float accept = weight / budgetTotal;
-			for (int r = 0; r < shadowBudget; ++r)
-			{
-				const float draw = float(BudgetHash(budgetSeed[r] ^ (uint(i) * 0x9E3779B9u)) >> 8u)
-								 * (1.0 / 16777216.0);
-				if (draw < accept)
-				{
-					budgetIndex[r] = uint(i);
-					budgetTerm[r] = term;
-#ifdef RV_WATER
-					budgetSpec[r] = specular * radiance * NdotL;
-#endif
-					budgetWeight[r] = weight;
-				}
-			}
-		}
-		else
-#endif
 		{
 		// `liveShare` is exactly 1.0 for every light that is not a fully baked
 		// lamp on a static surface, so those shade to the bit they always did.
@@ -5092,31 +5152,6 @@ void main()
 	}
 #endif
 
-#if defined(RV_RAY_SHADOWS) && defined(RV_SHADOW_BUDGET)
-	// WR-16 S1: the K survivors are traced, and the lamps' light is the
-	// importance-sampling estimate -- each survivor's term scaled by the
-	// total weight over K times its own, which is one over its probability
-	// of having been chosen, over K samples.
-	if (shadowBudget > 0 && budgetTotal > 0.0)
-	{
-		for (int r = 0; r < shadowBudget; ++r)
-		{
-			if (budgetWeight[r] <= 0.0)
-				continue;
-			const GpuLight chosen = u_Lights.Lights[budgetIndex[r]];
-			const vec3 toLight = chosen.Position.xyz - v_WorldPos;
-			const float distance = length(toLight);
-			const vec3 Lc = toLight / max(distance, 1.0e-6);
-			const float visible = TraceShadowSoft(v_WorldPos, Lc, distance, chosen.Direction.w,
-												  budgetIndex[r]);
-			const float scale = visible * budgetTotal / (float(shadowBudget) * budgetWeight[r]);
-			Lo += budgetTerm[r] * scale;
-#ifdef RV_WATER
-			waterSpecular += budgetSpec[r] * scale;
-#endif
-		}
-	}
-#endif
 
 	// A constant environment standing in for IBL: irradiance is the same from
 	// every direction, so one colour serves both the diffuse and specular
@@ -5133,6 +5168,18 @@ void main()
 	// carries the part that varies: the sky side of an object is lit by sky and
 	// the ground side by ground, which is most of what makes a scene look like
 	// it is somewhere.
+#ifdef RV_DIRECT_SIGNAL_INPUT
+	// RT-first T5: the direct light the DirectTrace pass and its accumulator
+	// settled for this pixel -- the diffuse before the albedo and the 1/pi,
+	// the specular complete. By texel: a picture at this pixel's own place,
+	// never filtered across an edge.
+	if (directSignal)
+	{
+		const ivec2 directTexel = ivec2(gl_FragCoord.xy);
+		Lo += texelFetch(u_DirectDiffuse, directTexel, 0).rgb * albedo / PI
+			+ texelFetch(u_DirectSpecular, directTexel, 0).rgb;
+	}
+#endif
 	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
 
 	// **The stored field is read further down**, with the bounce it belongs
@@ -5207,7 +5254,43 @@ void main()
 	// off the edge of last frame's frame, freshly disoccluded, or the feature
 	// off entirely.
 	float bounceAnswered = 0.0;
-	if (u_Scene.Indirect.x > 0.0)
+	// **RT-3: whether this is this frame's bounce or last frame's**
+	// (RayRates.w bit 24). Under the signal the GI trace runs between the
+	// G-buffer and this pass, is upsampled to this pass's resolution and
+	// settled on the reconstruction contract, and arrives at binding 16 as a
+	// picture at this pixel's own place -- so it is fetched by texel, the way
+	// the direct pair and the occlusion are, and there is no reprojection to
+	// be off screen. With the signal off this is the one-frame-late buffer of
+	// 7av, which has to be reprojected because it was written for last
+	// frame's camera; that is the reference arm, and the only path the
+	// screen-space forms of GI can take at all -- their gather reads the lit
+	// image, which does not exist until this pass has run.
+	const bool giSignal = (int(u_Scene.RayRates.w + 0.5) & 16777216) != 0;
+	if (u_Scene.Indirect.x > 0.0 && giSignal)
+	{
+		const vec4 bounced = texelFetch(u_Indirect, ivec2(gl_FragCoord.xy), 0);
+		// **Not multiplied by the alpha, because the contract counts frames in
+		// the alpha and gi_denoise put a validity flag there.** The two paths
+		// into this binding do not agree about what the fourth channel means:
+		// gi_denoise writes 1 and the lit shader multiplied by it; the
+		// accumulate writes how many frames stand behind the value (up to the
+		// signal's Memory) and zero where no surface stood. Multiplying by that
+		// scales a converged pixel's bounce by sixty-four and a fresh one's by
+		// one -- the same class of unit error 7ay recorded when linear depth
+		// arrived in this channel and read as a feedback loop.
+		indirectTerm = max(bounced.rgb, vec3(0.0)) * u_Scene.Indirect.x;
+		// **And the count read as what it is.** One frame or more means the
+		// accumulate had a surface here and this pixel has an estimate; zero
+		// means it had none -- sky, or a texel the G-buffer never covered --
+		// and the field answers for it, which is the same rule as before by a
+		// different measurement. Traced from *this* frame's G-buffer there is
+		// no third case: the reprojection's hole -- off the edge of last
+		// frame, or freshly uncovered -- cannot happen to a signal that was
+		// computed for this frame's pixels.
+		bounceAnswered = bounced.a > 0.0 ? 1.0 : 0.0;
+		irradiance += indirectTerm * bounceAnswered;
+	}
+	else if (u_Scene.Indirect.x > 0.0)
 	{
 		vec2 previousIndirectNDC = thenNDC - u_Scene.Jitter.zw;
 		vec2 indirectUV = vec2(previousIndirectNDC.x,
@@ -5336,8 +5419,17 @@ void main()
 	// A multiply, not a subtraction, so a fully enclosed cell keeps exactly
 	// its bounced light and nothing else, and an open one is bit-identical to
 	// what it was before any of this existed.
+	// RT-2: the screen-space occlusion signal, where the frame graph ran it
+	// (RayRates.w bit 23); one otherwise, and the post-pass applies instead.
+#ifdef RV_SCREEN_OCCLUSION_INPUT
+	const float screenOcclusion = (int(u_Scene.RayRates.w + 0.5) & 8388608) != 0
+								? clamp(texelFetch(u_ScreenOcclusion, ivec2(gl_FragCoord.xy), 0).r, 0.0, 1.0)
+								: 1.0;
+#else
+	const float screenOcclusion = 1.0;
+#endif
 	vec3 ambient = kD * albedo *
-		   ((ambientLight + skyDiffuse) * skyVisible + irradiance) * occlusion;
+		   ((ambientLight + skyDiffuse) * skyVisible + irradiance) * occlusion * screenOcclusion;
 
 #ifdef RV_RAY_SHADOWS
 	// **The moving objects' shadows, taken out of the fully baked light**
@@ -5364,7 +5456,7 @@ void main()
 	// Every other shader that draws into this target writes zero here, which
 	// is right: none of them received indirect light.
 #ifndef RV_TRANSPARENT
-	o_Indirect = vec4(kD * albedo * indirectTerm * occlusion, 1.0);
+	o_Indirect = vec4(kD * albedo * indirectTerm * occlusion * screenOcclusion, 1.0);
 #endif
 #endif
 
@@ -5436,6 +5528,27 @@ void main()
 	// on one backend and down on the other -- the same fact taa_resolve
 	// states for the velocity, carried in as a uniform rather than
 	// re-derived per shader.
+	// How much of this surface's reflection a traced ray answers for, and
+	// how much the probe: one for a mirror, falling to zero across the gloss
+	// window. The in-line ray below weighs itself by it; the reflection
+	// pass's picture, arriving through the hook further down, is weighed by
+	// the same number -- the first version took that picture whole, and every
+	// roughness-0.5 wall in the garage, weighed in at a fifth in-line, showed
+	// a full stochastic reflection that settled over a second and ghosted
+	// under motion (owner, 2026-09-05 night). One where the traced form is
+	// not compiled in, where the screen-space trace's own confidence is the
+	// weight.
+	float reflectionWindow = 1.0;
+	// What the traced form settles on: the share of the probe given up to
+	// the pass's picture, and the weight that picture is added with after
+	// the temporal filter (reflection_composite.rvshader).
+	float reflectionShare = 0.0;
+	float reflectionWeight = 0.0;
+	// And how quickly the pass's picture is trusted: a mirror's rays hardly
+	// scatter, so its first frame is already the answer and fading it in over
+	// four reads as the reflection blinking off wherever a history was
+	// refused; a rough surface's first frame is grain, and takes the four.
+	float reflectionLift = 1.0;
 #ifdef RV_RAY_REFLECTIONS
 	// The traced form (7ao): the mirror ray from this surface, this frame,
 	// weighted in where the surface is glossy enough for a mirror ray to be
@@ -5451,6 +5564,8 @@ void main()
 		if (gloss.y <= 0.0)
 			gloss = vec2(0.25, 0.6);
 		float mirror = 1.0 - smoothstep(gloss.x, gloss.y, roughness);
+		reflectionWindow = mirror;
+		reflectionLift = mix(4.0, 1.0, smoothstep(0.0, 0.3, roughness));
 #ifdef RV_WATER
 		// --water-ablate=reflection. Zeroing the term takes the traced ray,
 		// the probe fallback and the blend that applies them together, which
@@ -5528,12 +5643,35 @@ void main()
 			quadTraced = QuadShare(quadTraced, quadLane);
 		}
 #endif
+#if defined(RV_WATER) || defined(RV_TRANSPARENT)
+		// The sea reads its own pass. Glass is not in the surface buffer the
+		// reflection pass reads, so it keeps casting its rays here and takes
+		// nothing from the hook below -- the pass's picture at a glass pixel
+		// is the reflection of whatever stands behind the glass, and a pane
+		// given that instead of its own vanished (2026-09-05 night).
 		if (mirror > 0.0)
+#else
+		// When the reflection pass runs, its accumulated picture arrives
+		// through the hook below and this fragment casts nothing: the rays
+		// are the pass's, and drawn from the lobe there.
+		if (mirror > 0.0 && u_Scene.ScreenReflections.x <= 0.0)
+#endif
 		{
 #ifdef RV_WATER
 			vec3 traced = quadTraced;
 #else
-			vec3 traced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N), v_Instance.x);
+			// Draws from the lobe, averaged: one left the floor grainy after
+			// sixty frames of the temporal filter, four did not. The count is
+			// the RT optimisation preset's MirrorRays (Indirect.w), the average
+			// the tile allocator will scale per tile once the mirror lane exists
+			// (RAY-BUDGET-DESIGN Part III 4.3.4). Rays only where the surface is
+			// glossy enough to be in here at all.
+			const int kGlossySamples = clamp(int(u_Scene.Indirect.w + 0.5), 1, 8);
+			vec3 traced = vec3(0.0);
+			for (int s = 0; s < kGlossySamples; ++s)
+				traced += TraceReflection(v_WorldPos, normalize(v_Normal),
+										  GlossyReflection(N, V, roughness, s, kGlossySamples), v_Instance.x);
+			traced /= float(kGlossySamples);
 #endif
 
 			// **Bound the ray by the probe it is replacing.**
@@ -5572,8 +5710,14 @@ void main()
 		}
 	}
 #endif
+#ifndef RV_TRANSPARENT
 	if (u_Scene.ScreenReflections.x > 0.0)
 	{
+		// Less last frame's jitter, as 7af designed it: the accumulated
+		// picture lives on the unjittered grid (reflection_accumulate.rvshader
+		// says why), so the surface's unjittered previous position is its
+		// texel. (For a day the picture sat on the jittered grid and this
+		// read it at the jittered position; that picture wobbled.)
 		vec2 previousNDC = thenNDC - u_Scene.Jitter.zw;
 		vec2 traceUV = vec2(previousNDC.x, previousNDC.y * u_Scene.ScreenReflections.y) * 0.5 + 0.5;
 
@@ -5583,13 +5727,58 @@ void main()
 		if (all(greaterThanEqual(traceUV, vec2(0.0))) && all(lessThanEqual(traceUV, vec2(1.0))))
 		{
 			vec4 traced = texture(u_ScreenReflections, traceUV);
-			float share = clamp(traced.a * u_Scene.ScreenReflections.x, 0.0, 1.0);
+			float share = clamp(traced.a * u_Scene.ScreenReflections.x * reflectionLift, 0.0, 1.0)
+						* reflectionWindow;
+#ifdef RV_RAY_REFLECTIONS
+			// **Only if that texel was this reflector.** A wall pixel a pole
+			// has just uncovered maps to where the pole was, and the picture
+			// there is the pole's -- a fifth of a chrome tube reflection on
+			// concrete, for a frame, which the temporal filter then drags out
+			// into a streak behind every pole under motion (owner, 2026-09-05
+			// night). The same test the accumulator makes, against the same
+			// attachment: facing the same way, on the same plane.
+			vec4 wasReflector = texture(u_ScreenReflectionSurface, traceUV);
+			bool sameReflector = wasReflector.a >= 0.0;
+			if (sameReflector)
+			{
+				vec3 wasNormal = OctDecode(wasReflector.rg);
+				sameReflector = dot(wasNormal, N) >= 0.8
+							 && abs(dot(wasNormal, v_WorldPos) - wasReflector.b)
+									<= 0.05 + 0.01 * distance(u_Scene.CameraPosition.xyz, v_WorldPos);
+			}
+			if (!sameReflector)
+				share = 0.0;
+#ifdef RV_WATER
+			// The sea traces its own reflection (WR-16 S5) and is not in
+			// the pass's picture; the hook is the opaque surfaces' alone.
+			share = 0.0;
+#endif
+			// **The probe gives way; the picture is added later.** Composited
+			// here, the picture went through the frame's temporal filter,
+			// which reprojects by the surface and smeared every reflection
+			// that slid across one (2026-09-05, the floor's tube bands under
+			// a dolly, in every arm). So this only makes room for it, by the
+			// share, and the weight the picture is owed -- computed below
+			// with the split-sum term -- goes out in the alpha for the pass
+			// after the filter to apply.
+			prefiltered *= 1.0 - share;
+			reflectionShare = share;
+#else
 			prefiltered = mix(prefiltered, traced.rgb, share);
+#endif
 		}
 	}
+#endif
 
 	vec2 envBRDF = EnvBRDF(NdotV, roughness);
-	ambient += prefiltered * (F0 * envBRDF.x + envBRDF.y) * occlusion;
+	ambient += prefiltered * (F0 * envBRDF.x + envBRDF.y) * occlusion * screenOcclusion;
+#ifdef RV_RAY_REFLECTIONS
+	// Exactly what the probe's radiance was multiplied by, as a luminance:
+	// the pass's picture, added after the temporal filter, is added by
+	// this. One channel, so a coloured metal's tint is not carried.
+	reflectionWeight = reflectionShare
+					 * dot((F0 * envBRDF.x + envBRDF.y) * occlusion, vec3(0.2126, 0.7152, 0.0722));
+#endif
 
 	vec3 color = ambient + Lo + surface.Emissive;
 
@@ -5644,7 +5833,7 @@ void main()
 	// `reflected` is the environment specular exactly as the line above
 	// computed it, not an approximation of it -- so an opaque surface and a
 	// blended one reflect the same room by construction.
-	vec3 reflected = prefiltered * (F0 * envBRDF.x + envBRDF.y) * occlusion;
+	vec3 reflected = prefiltered * (F0 * envBRDF.x + envBRDF.y) * occlusion * screenOcclusion;
 	vec3 transmitted = max(color - reflected, vec3(0.0));
 
 	float reflectance = clamp(max(reflected.r, max(reflected.g, reflected.b)), 0.0, 1.0);
@@ -5827,7 +6016,12 @@ void main()
 	// before the curve compresses them, and every shader that wrote to the
 	// screen used to have to agree on the display transform -- which only this
 	// one did, so quads and meshes were being shown through different ones.
-	o_Color = vec4(color, baseColor.a);
+	// The alpha is the traced reflection's weight (zero for everything
+	// else): the composite after the temporal filter reads it, the
+	// transparent resolve attenuates it by its coverage, nothing else
+	// reads it. It used to carry the base colour's alpha, which nothing
+	// read.
+	o_Color = vec4(color, reflectionWeight);
 
 #endif
 

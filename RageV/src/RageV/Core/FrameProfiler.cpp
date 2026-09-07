@@ -912,5 +912,21 @@ namespace RageV
 					 "submitted, {3} culled on the CPU",
 					 Renderer3D::GetDrawCallCount(), Renderer3D::GetIndirectDrawCount(),
 					 Renderer3D::GetTriangleCount(), Renderer3D::GetCulledCount());
+		// The terrain's levels of detail (RT-2.1): what was drawn at each
+		// level, and why the level rule held chunks finer than distance alone
+		// would have. Each chunk here is rasterised by the G-buffer half and
+		// the lit half both.
+		const Renderer3D::TerrainStats& terrain = Renderer3D::GetTerrainStats();
+		if (terrain.Chunks > 0)
+		{
+			RV_CORE_INFO("[benchmark]   terrain: {0} chunks; drawn L0 {1} ({2} tris), L1 {3} ({4}), "
+						 "L2 {5} ({6}), L3 {7} ({8}); by distance alone L0 {9} / L1 {10} / "
+						 "L2 {11} / L3 {12}; the ground's veto held {13} finer, the neighbour cap {14}",
+						 terrain.Chunks, terrain.Drawn[0], terrain.Triangles[0],
+						 terrain.Drawn[1], terrain.Triangles[1], terrain.Drawn[2], terrain.Triangles[2],
+						 terrain.Drawn[3], terrain.Triangles[3],
+						 terrain.ByDistance[0], terrain.ByDistance[1], terrain.ByDistance[2],
+						 terrain.ByDistance[3], terrain.Vetoed, terrain.Capped);
+		}
 	}
 }

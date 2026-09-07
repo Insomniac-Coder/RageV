@@ -76,6 +76,7 @@ void main()
 	// y is 0: a pose moves, and Indices.w is the previous bones' base here,
 	// not the static flag (7cx).
 	v_Instance      = vec2(instance.Indices.y, 0.0);
+	v_ObjectId      = instance.Extra.x;
 	v_MaterialIndex = instance.Indices.z;
 
 	gl_Position = u_Scene.ViewProjection * world;
@@ -115,4 +116,7 @@ void main()
 // the SPIR-V whatever the source said.
 #version 460 core
 
+// The skinned kind says so (RT-1): it is outside the G-buffer pass and keeps
+// the light loop under the direct-light signal, as the layered kind does.
+#define RV_SKINNED
 #include "include/pbr_fragment.glsl"

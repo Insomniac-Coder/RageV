@@ -1,5 +1,5 @@
 PostProfile: 1
-Exposure: 0.45
+Exposure: 0.42
 AutoExposure: false
 AutoExposureKey: 0.17
 AutoExposureSpeed: 1.4
@@ -10,13 +10,13 @@ AutoExposureMax: 32
 AutoExposureMinLog: -8
 AutoExposureMaxLog: 4
 BloomEnabled: true
-BloomThreshold: 2.28
-BloomKnee: 0.7
-BloomIntensity: 0.12
+BloomThreshold: 12
+BloomKnee: 0.5
+BloomIntensity: 0.03
 ColorLut: 9916686428105880856
 ColorLutStrength: 0.9
-BloomClamp: 28
-DepthOfField: true
+BloomClamp: 12
+DepthOfField: false
 Focus: Target
 FocusTarget: 16167290979463119363
 SubjectCoverage: 0.747
@@ -36,12 +36,12 @@ VoxelGiVoxelSize: 0.25
 GiRadius: 8
 GiSource: Baked
 GiQuality: Medium
-GiIntensity: 1
+GiIntensity: 1.0
 GiBounces: 1
 GiDenoise: 0.9
 AmbientOcclusion: Half
 AoRadius: 0.4
-AoIntensity: 0.85
+AoIntensity: 0.95
 MotionBlur: false
 MotionBlurShutter: 0.5
 MotionBlurMaxRadius: 20
@@ -50,3 +50,4 @@ VignetteIntensity: 0.2
 VignetteSmoothness: 0.62
 FilmGrain: 0.09
 FilmGrainSize: 1.6
+ReflectionFloor: 100

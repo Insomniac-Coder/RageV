@@ -1,0 +1,530 @@
+// RT-first T5 + RT-1 (docs/RT-FIRST.md 2d, docs/RT-SERIES.md): the direct
+// light as a signal.
+//
+// For every opaque pixel the G-buffer holds, this pass does what the lit
+// shader's light loop did under ray tracing -- walks the cluster cell's
+// lights, shades each one with the same BRDF, traces one shadow ray to it --
+// and writes the answer as two pictures the lit shader adds instead of
+// walking the lights itself: the diffuse light before the albedo (so the
+// denoiser blurs light and never texture) and the specular light complete.
+// Under the signal the lit shader walks no light at all (RT-1).
+//
+// With a budget (u_Direct.Rays > 0) it keeps K lights per pixel by weighted
+// reservoir sampling on a cheap score -- the unshadowed irradiance times the
+// lobe's peak -- and shades and traces only those, each divided by the
+// probability it had of being chosen; a light two reservoirs both kept is
+// traced once. The estimate is unbiased; its noise is what the reconstruction
+// contract behind this pass is for. With no budget every light is shaded,
+// which is the reference arm and must match the lit shader's loop to the bit.
+//
+// The static/moving split (7cx) is here too, both halves. A static surface
+// deep enough in the irradiance field for a fully baked lamp to owe it light
+// takes only that lamp's *live* share from this pass; and where a moving
+// object stands inside such a lamp's range, one moving-only ray says how much
+// of the field's stored light that object takes away -- subtracted here,
+// clamped to what the field holds, exactly as the loop did it (RT-1).
+// Directional lights are always shaded, never sampled.
+//
+// It borrows rather than copies: RV_TRACE_ONLY drops the lit shader's vertex
+// stage, varyings and outputs and keeps set 0 -- the lights, the cluster and
+// world lists, the cull records, the acceleration structure, the field -- and
+// the shadow-ray functions, so a ray traced here is the ray the loop traced.
+#type vertex
+#version 460 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 460 core
+
+#define RV_TRACE_ONLY
+#include "include/pbr_fragment.glsl"
+#include "include/view_reconstruction.glsl"
+
+layout(location = 0) in vec2 v_UV;
+
+// The G-buffer (RT-first T1, T3, T5): depth; oct normal, roughness, metallic;
+// albedo and the specular scalar; the id lane -- r the surface id, negative
+// for a Static surface; g the roughness the lit shader shades analytic lights
+// with (specular-antialiased) in its integer part over 65535, the material's
+// own occlusion in its fraction (eight bits' worth).
+layout(set = 3, binding = 0) uniform sampler2D u_DepthIn;
+layout(set = 3, binding = 1) uniform sampler2D u_SurfaceIn;
+layout(set = 3, binding = 2) uniform sampler2D u_AlbedoIn;
+layout(set = 3, binding = 3) uniform sampler2D u_SurfaceIdIn;
+
+layout(push_constant) uniform DirectParams
+{
+	float NearClip;
+	float FarClip;
+	float InvP0;
+	float InvP1;
+
+	float FlipY;
+	float Rays;        // K lights per pixel; zero shades every light
+	float Frame;       // the frame index the reservoirs' draws walk under TAA
+	float Animated;    // one while a temporal filter is there to integrate a walk
+
+	vec4 CameraRow0;
+	vec4 CameraRow1;
+	vec4 CameraRow2;
+	vec4 CameraPosition;
+} u_Direct;
+
+layout(location = 0) out vec4 o_Diffuse;
+layout(location = 1) out vec4 o_Specular;
+
+const uint kMaxRays = 8u;
+
+struct DirectPoint
+{
+	vec3  P;
+	vec3  N;
+	vec3  V;
+	vec3  Albedo;
+	vec3  F0;
+	float Roughness;      // what analytic lights are shaded with (specular-antialiased)
+	float RawRoughness;   // o_Surface's, what the ambient Fresnel uses
+	float Metallic;
+	float Occlusion;      // the material's own, for the loss clamp
+	float NdotV;
+	bool  Static;
+	float FieldWeight;
+};
+
+// The light's term at this point before any share -- the lit loop's, term for
+// term: direction, attenuation with the spot cone, the sized source's
+// closest-point half vector and widened lobe, GGX, Smith, Schlick. Returns
+// false for a light that reaches nothing here. `diffuse` is before the albedo
+// and the 1/pi; `specular` is complete.
+bool DirectTerm(DirectPoint p, GpuLight light, out vec3 diffuse, out vec3 specular,
+				out vec3 L, out float toward)
+{
+	diffuse = vec3(0.0);
+	specular = vec3(0.0);
+	L = vec3(0.0, 1.0, 0.0);
+	toward = 1.0e4;
+
+	const vec3 lightColor = light.Color.rgb * light.Color.a;
+	const bool positional = light.Position.w != 0.0;
+	float attenuation = 1.0;
+	if (!positional)
+	{
+		L = -light.Direction.xyz;
+	}
+	else
+	{
+		const vec3 toLight = light.Position.xyz - p.P;
+		const float distance2 = dot(toLight, toLight);
+		toward = sqrt(max(distance2, 1.0e-8));
+		L = toLight / toward;
+		const float range = max(light.Params.x, 0.0001);
+		const float t = distance2 / (range * range);
+		const float ratio = clamp(1.0 - t * t, 0.0, 1.0);
+		attenuation = (ratio * ratio) / max(distance2, 0.0001);
+		if (light.Params.z < light.Params.y)
+		{
+			const float theta = dot(L, -light.Direction.xyz);
+			attenuation *= clamp((theta - light.Params.z)
+								 / max(light.Params.y - light.Params.z, 0.0001), 0.0, 1.0);
+		}
+	}
+	const float NdotL = max(dot(p.N, L), 0.0);
+	if (attenuation <= 0.0 || NdotL <= 0.0)
+		return false;
+
+	const vec3 N = p.N;
+	const vec3 V = p.V;
+	vec3 H = normalize(V + L);
+	const vec3 radiance = lightColor * attenuation;
+	float specRoughness = p.Roughness;
+	float specScale = 1.0;
+	if (positional && light.Direction.w > 0.0)
+	{
+		const vec3 R = reflect(-V, N);
+		const vec3 toCentre = light.Position.xyz - p.P;
+		const vec3 centreToRay = dot(toCentre, R) * R - toCentre;
+		const vec3 closest = toCentre + centreToRay *
+			clamp(light.Direction.w *
+				  inversesqrt(max(dot(centreToRay, centreToRay), 1.0e-8)),
+				  0.0, 1.0);
+		H = normalize(V + normalize(closest));
+		const float angular = light.Direction.w *
+							  inversesqrt(max(dot(toCentre, toCentre), 1.0e-8));
+		const float alpha = specRoughness * specRoughness;
+		const float widenedAlpha = min(alpha + 0.5 * angular, 1.0);
+		specScale = (alpha / widenedAlpha) * (alpha / widenedAlpha);
+		specRoughness = sqrt(widenedAlpha);
+	}
+	const float NDF = DistributionGGX(N, H, specRoughness);
+	const float G = GeometrySchlickGGX(p.NdotV, specRoughness)
+				  * GeometrySchlickGGX(NdotL, specRoughness);
+	const vec3 F = FresnelSchlick(max(dot(H, V), 0.0), p.F0);
+	const vec3 numerator = NDF * G * F * specScale;
+	const float denominator = 4.0 * p.NdotV * NdotL + 0.0001;
+	const vec3 kD = (vec3(1.0) - F) * (1.0 - p.Metallic);
+
+	diffuse = kD * NdotL * radiance;
+	specular = (numerator / denominator) * NdotL * radiance;
+	return true;
+}
+
+// The field's share of a fully baked or hybrid lamp at this point (7cx): how
+// much of it the bake owns at this distance times how much of this pixel
+// the field covers. Zero for a live lamp, a moving surface, or no field.
+float FieldShare(DirectPoint p, GpuLight light)
+{
+	if (light.Params.w < 1.5 || u_Scene.IrradianceExtents.w <= 0.0 || !p.Static)
+		return 0.0;
+	return p.FieldWeight * BakedShare(light, p.P);
+}
+
+// One ray to the light, exactly the loop's: none for a light that casts no
+// shadow (its kind is zero -- the lesson of WR-16 S4b), to infinity for a
+// directional light, to a point on the source's disc for a lamp. The mask
+// is the scene's, or the moving objects alone for the field's loss.
+float DirectVisibility(DirectPoint p, GpuLight light, uint index, vec3 L, float toward, uint mask)
+{
+	if (int(light.Shadow.x) == 0)
+		return 1.0;
+	if (light.Position.w == 0.0)
+		return TraceShadowFromMasked(p.P, p.N, L, 1.0e4, mask);
+	return TraceShadowSoftFromMasked(p.P, p.N, L, toward, light.Direction.w, index, mask);
+}
+
+// The reservoirs' score (WR-16 S4's target, made cheap for RT-1): the
+// unshadowed irradiance's luminance times the BRDF's magnitude -- the
+// diffuse albedo over pi and the lobe's peak at this half vector with the
+// Fresnel at normal incidence, no masking term -- times the live share, so a
+// lamp the field owns is chosen only for the part this pass shades.
+float ScoreDirect(DirectPoint p, uint index)
+{
+	const GpuLight light = u_Lights.Lights[index];
+	if (light.Position.w == 0.0)
+		return 0.0;
+	const float liveShare = 1.0 - FieldShare(p, light);
+	if (liveShare <= 0.0)
+		return 0.0;
+	const vec3 toLight = light.Position.xyz - p.P;
+	const float distance2 = dot(toLight, toLight);
+	const vec3 L = toLight * inversesqrt(max(distance2, 1.0e-8));
+	const float range = max(light.Params.x, 0.0001);
+	const float t = distance2 / (range * range);
+	const float ratio = clamp(1.0 - t * t, 0.0, 1.0);
+	float attenuation = (ratio * ratio) / max(distance2, 0.0001);
+	if (light.Params.z < light.Params.y)
+	{
+		const float theta = dot(L, -light.Direction.xyz);
+		attenuation *= clamp((theta - light.Params.z)
+							 / max(light.Params.y - light.Params.z, 0.0001), 0.0, 1.0);
+	}
+	const float NdotL = max(dot(p.N, L), 0.0);
+	if (attenuation <= 0.0 || NdotL <= 0.0)
+		return 0.0;
+	const vec3 kLum = vec3(0.2126, 0.7152, 0.0722);
+	const float lum = dot(light.Color.rgb, kLum) * light.Color.a * attenuation * liveShare;
+	const vec3 H = normalize(p.V + L);
+	const float alpha = max(p.Roughness * p.Roughness, 1.0e-3);
+	const float alpha2 = alpha * alpha;
+	const float NdotH = max(dot(p.N, H), 0.0);
+	const float d = NdotH * NdotH * (alpha2 - 1.0) + 1.0;
+	const float peak = (alpha2 / (PI * d * d)) * dot(p.F0, kLum) * 0.25 / max(p.NdotV, 1.0e-3);
+	const float diffuseLum = max(dot(p.Albedo, kLum), 1.0e-3) * (1.0 - p.Metallic) / PI;
+	return lum * NdotL * (diffuseLum + peak);
+}
+
+void main()
+{
+	o_Diffuse = vec4(0.0, 0.0, 0.0, -1.0);
+	o_Specular = vec4(0.0, 0.0, 0.0, -1.0);
+
+	const ivec2 texel = ivec2(gl_FragCoord.xy);
+	const vec4 surface = texelFetch(u_SurfaceIn, texel, 0);
+	const float depth = texelFetch(u_DepthIn, texel, 0).r;
+	if (SurfaceIsEmpty(surface) || depth >= 1.0)
+		return;
+
+	// The surface, as rtgi_trace reconstructs it: linear depth through the
+	// inverse projection at the pixel centre, less the jitter it was drawn
+	// with, into the camera's frame.
+	const bool flip = u_Direct.FlipY > 0.5;
+	const vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+	const vec2 depthSize = vec2(textureSize(u_DepthIn, 0));
+	const vec2 snapped = (floor(uv * depthSize) + 0.5) / depthSize;
+	const float z = LinearDepth(depth, u_Direct.NearClip, u_Direct.FarClip);
+	const vec2 jitter = vec2(u_Scene.Jitter.x, flip ? -u_Scene.Jitter.y : u_Scene.Jitter.y) * 0.5;
+	const vec3 frame = ViewPosition(snapped - jitter, z, vec2(u_Direct.InvP0, u_Direct.InvP1));
+	const vec3 view = vec3(frame.x, flip ? -frame.y : frame.y, -frame.z);
+
+	DirectPoint p;
+	p.P = u_Direct.CameraPosition.xyz + vec3(dot(u_Direct.CameraRow0.xyz, view),
+											  dot(u_Direct.CameraRow1.xyz, view),
+											  dot(u_Direct.CameraRow2.xyz, view));
+	p.N = OctDecode(surface.rg);
+	p.RawRoughness = clamp(surface.b, 0.0, 1.0);
+	p.Metallic = clamp(surface.a, 0.0, 1.0);
+	// The id lane: the roughness the lit shader shades analytic lights with
+	// (specular-antialiased -- without it the chrome poles came out three
+	// levels dark), the material's occlusion, and Static in the sign.
+	const vec2 surfaceId = texelFetch(u_SurfaceIdIn, texel, 0).rg;
+	p.Roughness = clamp(floor(surfaceId.g) / 65535.0, 0.0, 1.0);
+	p.Occlusion = clamp(fract(surfaceId.g), 0.0, 1.0);
+	p.Static = surfaceId.r < 0.0;
+	const vec4 albedo = texelFetch(u_AlbedoIn, texel, 0);
+	p.Albedo = albedo.rgb;
+	p.F0 = mix(vec3(0.08 * clamp(albedo.a, 0.0, 1.0)), albedo.rgb, p.Metallic);
+	p.V = normalize(u_Scene.CameraPosition.xyz - p.P);
+	p.NdotV = max(dot(p.N, p.V), 0.0);
+	p.FieldWeight = p.Static && u_Scene.IrradianceExtents.w > 0.0
+				  ? IrradianceFieldWeight(p.P, p.N) : 0.0;
+
+	// The lights this pixel walks, as the loop finds them: the directional
+	// ones first, then the cluster cell's list -- the live sublist for a
+	// static pixel deep in the field (WR-16 S2).
+	int directionalCount = int(u_Scene.ClusterGrid.w);
+	if ((int(u_Scene.WorldGridScale.w + 0.5) & 8) != 0)
+		directionalCount = 0;
+	const uint cell = ClusterCellFor(p.P);
+	const uint fullOffset = u_Cells.Cells[cell].Offset;
+	const uint fullCount = u_Cells.Cells[cell].Count;
+	uint cellOffset = fullOffset;
+	uint cellCount = fullCount;
+	if ((int(u_Scene.WorldGridScale.w + 0.5) & 16) != 0)
+		cellCount = 0u;
+#ifdef RV_LIGHT_CULL
+	const bool cullInsideField = p.Static && p.FieldWeight >= 1.0;
+	if (cullInsideField)
+	{
+		cellOffset = u_Cells.Cells[cell].LiveOffset;
+		cellCount = u_Cells.Cells[cell].LiveCount;
+	}
+#endif
+	// The budget's "lights per pixel", counted here as the loop counted it.
+	RV_COUNT_LIGHTS(directionalCount + int(cellCount));
+
+	vec3 diffuse = vec3(0.0);
+	vec3 specular = vec3(0.0);
+	vec3 d, s, L;
+	float toward;
+
+	for (int i = 0; i < directionalCount; ++i)
+	{
+		const GpuLight light = u_Lights.Lights[i];
+		const float liveShare = 1.0 - FieldShare(p, light);
+		if (liveShare <= 0.0 || !DirectTerm(p, light, d, s, L, toward))
+			continue;
+		const float visible = DirectVisibility(p, light, uint(i), L, toward, RV_RAY_MASK_SCENE);
+		diffuse += d * (liveShare * visible);
+		specular += s * (liveShare * visible);
+	}
+
+	const int K = clamp(int(u_Direct.Rays + 0.5), 0, int(kMaxRays));
+	if (K == 0 || int(cellCount) <= K)
+	{
+		// Every lamp: the reference arm, and the cheap case where sampling
+		// K of fewer would only add noise.
+		for (uint e = 0u; e < cellCount; ++e)
+		{
+			const uint i = u_CellIndices.Indices[cellOffset + e];
+#ifdef RV_LIGHT_CULL
+			if (LightCullRejects(i, p.P, cullInsideField, true))
+				continue;
+#endif
+			const GpuLight light = u_Lights.Lights[i];
+			const float liveShare = 1.0 - FieldShare(p, light);
+			if (liveShare <= 0.0 || !DirectTerm(p, light, d, s, L, toward))
+				continue;
+			const float visible = DirectVisibility(p, light, i, L, toward, RV_RAY_MASK_SCENE);
+			diffuse += d * (liveShare * visible);
+			specular += s * (liveShare * visible);
+		}
+	}
+	else
+	{
+		// K reservoirs, each keeping one lamp with a chance proportional to
+		// its score. Independent draws per pixel, reservoir and lamp (a
+		// weighted reservoir is unbiased only when each draw is independent
+		// of the last -- WR-16 S1's lesson), fixed per pixel with no temporal
+		// filter to integrate a walk, salted by the frame under one.
+		uint  index[kMaxRays];
+		float weight[kMaxRays];
+		uint  seed[kMaxRays];
+		float total = 0.0;
+		const uvec2 px = uvec2(gl_FragCoord.xy);
+		const uint salt = u_Direct.Animated > 0.5
+						? uint(mod(u_Direct.Frame, 1024.0)) * 0xC2B2AE35u : 0u;
+		for (uint r = 0u; r < kMaxRays; ++r)
+		{
+			index[r] = 0u;
+			weight[r] = 0.0;
+			seed[r] = BudgetHash(px.x ^ (px.y << 16u) ^ (r << 28u) ^ salt ^ 0x2545F491u);
+		}
+		for (uint e = 0u; e < cellCount; ++e)
+		{
+			const uint i = u_CellIndices.Indices[cellOffset + e];
+#ifdef RV_LIGHT_CULL
+			if (LightCullRejects(i, p.P, cullInsideField, true))
+				continue;
+#endif
+			const float score = ScoreDirect(p, i);
+			if (score <= 0.0)
+				continue;
+			total += score;
+			const float accept = score / total;
+			for (int r = 0; r < K; ++r)
+			{
+				const float draw = float(BudgetHash(seed[r] ^ (i * 0x9E3779B9u)) >> 8u)
+								 * (1.0 / 16777216.0);
+				if (draw < accept)
+				{
+					index[r] = i;
+					weight[r] = score;
+				}
+			}
+		}
+		if (total > 0.0)
+		{
+			// The survivors, shaded and traced -- one ray per *distinct*
+			// lamp: two reservoirs that kept the same lamp are two samples
+			// of one visibility (RT-1), not two rays.
+			float visible[kMaxRays];
+			for (int r = 0; r < K; ++r)
+			{
+				visible[r] = 0.0;
+				if (weight[r] <= 0.0)
+					continue;
+				const GpuLight light = u_Lights.Lights[index[r]];
+				if (!DirectTerm(p, light, d, s, L, toward))
+					continue;
+				bool traced = false;
+				for (int q = 0; q < r; ++q)
+				{
+					if (weight[q] > 0.0 && index[q] == index[r])
+					{
+						visible[r] = visible[q];
+						traced = true;
+						break;
+					}
+				}
+				if (!traced)
+					visible[r] = DirectVisibility(p, light, index[r], L, toward, RV_RAY_MASK_SCENE);
+				// One over the probability this lamp had of being chosen,
+				// over K: the whole weight of the cell divided among the
+				// survivors; the live share is inside the score.
+				const float liveShare = 1.0 - FieldShare(p, light);
+				const float scale = visible[r] * liveShare * total / (float(K) * weight[r]);
+				diffuse += d * scale;
+				specular += s * scale;
+			}
+		}
+	}
+
+	// **The field's loss (7cx, RT-1).** A static surface the field answers
+	// for, under a fully baked or hybrid lamp with a moving object inside
+	// that lamp's range: the field paid the lamp in full with the static
+	// scene as occluder, so what the moving object blocks is traced against
+	// the moving objects alone and subtracted -- never more than the field
+	// holds here. The lamps are found through the cull records' bits (a
+	// moving object in range, a class the field owns) over the whole cell,
+	// since the live sublist leaves them out on purpose.
+	// A cell whose live sublist is its whole list holds no lamp the field
+	// owns, so there is nothing to lose: the walk is skipped, not paid.
+	if (p.Static && p.FieldWeight > 0.0 && u_Scene.IrradianceExtents.w > 0.0
+#ifdef RV_LIGHT_CULL
+		&& u_Cells.Cells[cell].LiveCount != fullCount
+#endif
+		)
+	{
+		vec3 lossDiffuse = vec3(0.0);
+		vec3 lossSpecular = vec3(0.0);
+		bool anyLoss = false;
+		for (int i = 0; i < directionalCount; ++i)
+		{
+			const GpuLight light = u_Lights.Lights[i];
+			const float fieldShare = FieldShare(p, light);
+			if (fieldShare <= 0.0 || light.Shadow.y <= 0.5 || light.Shadow.x <= 0.5)
+				continue;
+			if (!DirectTerm(p, light, d, s, L, toward))
+				continue;
+			const float blocked = 1.0 - DirectVisibility(p, light, uint(i), L, toward, RV_RAY_MASK_MOVING);
+			lossDiffuse += d * (blocked * fieldShare);
+			lossSpecular += s * (blocked * fieldShare);
+			anyLoss = true;
+		}
+#ifdef RV_LIGHT_CULL
+		for (uint e = 0u; e < fullCount; ++e)
+		{
+			const uint i = u_CellIndices.Indices[fullOffset + e];
+			const uint packed = floatBitsToUint(u_LightCull.Cull[i].w);
+			if (((packed >> 14u) & 3u) == LIGHT_CULL_LIVE || (packed & (1u << 13u)) == 0u)
+				continue;
+			if (LightCullRejects(i, p.P, false, true))
+				continue;
+			const GpuLight light = u_Lights.Lights[i];
+			const float fieldShare = FieldShare(p, light);
+			if (fieldShare <= 0.0 || light.Shadow.y <= 0.5 || light.Shadow.x <= 0.5)
+				continue;
+			if (!DirectTerm(p, light, d, s, L, toward))
+				continue;
+			const float blocked = 1.0 - DirectVisibility(p, light, i, L, toward, RV_RAY_MASK_MOVING);
+			lossDiffuse += d * (blocked * fieldShare);
+			lossSpecular += s * (blocked * fieldShare);
+			anyLoss = true;
+		}
+#endif
+		if (anyLoss)
+		{
+			// Clamped against the field's own direct light here (its diffuse
+			// through the ambient Fresnel, its coherent highlight through the
+			// lobe), read the way the lit shader reads it; a field with no
+			// direct light stored bounds the loss at zero, as the loop did.
+			vec3 storedDirect = vec3(0.0);
+			vec3 bakedHighlight = vec3(0.0);
+			if (u_Scene.IrradianceExtents.x > 0.5)
+			{
+				vec3 storedBounce, bakedDirection, bakedCoherent;
+				float fieldSky;
+				if (!VolumeIrradiance(p.P, p.N, true, storedBounce, fieldSky, storedDirect,
+									  bakedDirection, bakedCoherent))
+				{
+					storedDirect = vec3(0.0);
+				}
+				else if (dot(bakedCoherent, bakedCoherent) > 0.0)
+				{
+					const float NdotLb = max(dot(p.N, bakedDirection), 0.0);
+					if (NdotLb > 0.0)
+					{
+						const vec3 Hb = normalize(p.V + bakedDirection);
+						const float Db = DistributionGGX(p.N, Hb, p.Roughness);
+						const float Gb = GeometrySmith(p.N, p.V, bakedDirection, p.Roughness);
+						const vec3 Fb = FresnelSchlick(max(dot(Hb, p.V), 0.0), p.F0);
+						bakedHighlight = (Db * Gb * Fb / (4.0 * p.NdotV * NdotLb + 0.0001))
+									   * bakedCoherent * NdotLb;
+					}
+				}
+			}
+			// The lit shader's bound is kD * albedo * storedDirect * occlusion
+			// against a loss carrying albedo / pi; both here are before the
+			// albedo and the 1/pi, so the bound carries the pi instead.
+			const vec3 Fa = FresnelSchlickRoughness(p.NdotV, p.F0, p.RawRoughness);
+			const vec3 kDa = (vec3(1.0) - Fa) * (1.0 - p.Metallic);
+			diffuse -= min(lossDiffuse, kDa * storedDirect * p.Occlusion * PI);
+			specular -= min(lossSpecular, bakedHighlight);
+		}
+	}
+
+	o_Diffuse = vec4(diffuse, 1.0);
+	o_Specular = vec4(specular, 1.0);
+
+	// The rays above, into the shadow lane: the lit shader's flush is compiled
+	// out under RV_TRACE_ONLY, so every trace-only pass flushes its own.
+#ifdef RV_RAY_COUNTERS
+	FlushRayCounters(false);
+#endif
+}

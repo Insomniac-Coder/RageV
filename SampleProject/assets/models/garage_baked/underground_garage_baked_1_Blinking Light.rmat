@@ -1,0 +1,11 @@
+Material: Blinking Light
+BaseColor: [0, 0, 0, 1]
+Emissive: [55.699997, 13.033297, 0.3258976, 1]
+Metallic: 1
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]

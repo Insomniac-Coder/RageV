@@ -118,6 +118,22 @@ void main()
 		known = u_Params.AuxValid > 0.5;
 		value = texture(u_Aux, uv).w > 0.5 ? 1.0 : 5.0 / 6.0;
 	}
+	else if (mode == 8 || mode == 10 || mode == 12)   // reflection-picture, direct-light, ao: the picture over the scale
+	{
+		// The accumulated reflection picture, radiance over the scale, as
+		// it is: no ramp, no frame under it (--debug-view=reflection-picture).
+		known = u_Params.AuxValid > 0.5;
+		o_Color = vec4(known ? texture(u_Aux, uv).rgb / max(u_Params.Scale, 1.0e-6) : vec3(0.0), 1.0);
+		return;
+	}
+	else if (mode >= 5)
+	{
+		// The reflection accumulator's attachments, one number each in the
+		// alpha: the frames behind each glossy texel (5), the image distance
+		// it reprojects by (6), which history it took (7).
+		known = u_Params.AuxValid > 0.5;
+		value = texture(u_Aux, uv).a;
+	}
 	else
 	{
 		known = u_Params.AuxValid > 0.5;

@@ -169,6 +169,7 @@ namespace RageV
 		int s_GiBounces = 1;
 		float s_GiReach = 0.0f;
 		Vec2 s_ReflectionGloss{ 0.25f, 0.60f };
+		int s_MirrorRays = 4;
 		Renderer::Features s_Features;
 	}
 
@@ -210,6 +211,16 @@ namespace RageV
 	void Renderer::SetReflectionGloss(const Vec2& window)
 	{
 		s_ReflectionGloss = window;
+	}
+
+	void Renderer::SetMirrorRays(int rays)
+	{
+		s_MirrorRays = Math::Max(rays, 1);
+	}
+
+	int Renderer::GetMirrorRays()
+	{
+		return s_MirrorRays;
 	}
 
 	void Renderer::SetActiveFeatures(const Features& features)
@@ -302,12 +313,14 @@ namespace RageV
 
 	void Renderer::SetTargetFormats(RHI::Format color, RHI::Format depth, uint32_t samples,
 									RHI::Format velocity, RHI::Format normal,
-									RHI::Format indirect)
+									RHI::Format indirect, RHI::Format albedo,
+									RHI::Format surfaceId)
 	{
 		s_TargetSamples = samples;
 
 		Renderer2D::SetTargetFormats(color, depth, samples, velocity, normal, indirect);
-		Renderer3D::SetTargetFormats(color, depth, samples, velocity, normal, indirect);
+		Renderer3D::SetTargetFormats(color, depth, samples, velocity, normal, indirect,
+									 albedo, surfaceId);
 		DebugRenderer::SetTargetFormats(color, depth, samples, velocity, normal, indirect);
 		ParticleRenderer::SetTargetFormats(color, depth, samples, velocity, normal, indirect);
 		LightGlow::SetTargetFormats(color, depth, samples, velocity, normal, indirect);

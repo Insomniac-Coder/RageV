@@ -16,7 +16,13 @@ namespace RageV::Assets
 		// symptom was a windscreen that stayed solid however many times the
 		// model was re-imported, which points at the importer and not at a file
 		// beside it.
-		constexpr uint32_t kVersion = 2;
+		// **3, for the same reason again (2026-09-05).** FBX ships roughness
+		// and metalness as two maps and ImportedMaterial gained a slot for
+		// each; a cook written before them answers -1 for both, so a re-import
+		// of a model whose maps the importer had just learned to read came back
+		// out of the cache without them. Exactly the windscreen above, one
+		// field further along.
+		constexpr uint32_t kVersion = 3;
 
 		// --- writing --------------------------------------------------------
 
@@ -130,6 +136,8 @@ namespace RageV::Assets
 			Put(out, (int32_t)material.BaseColorTexture);
 			Put(out, (int32_t)material.NormalTexture);
 			Put(out, (int32_t)material.MetallicRoughnessTexture);
+			Put(out, (int32_t)material.RoughnessTexture);
+			Put(out, (int32_t)material.MetallicTexture);
 			Put(out, (int32_t)material.OcclusionTexture);
 			Put(out, (int32_t)material.EmissiveTexture);
 		}
@@ -236,14 +244,16 @@ namespace RageV::Assets
 						   : blend == (int32_t)BlendMode::Masked ? BlendMode::Masked
 																 : BlendMode::Opaque;
 
-			int32_t indices[5] = { -1, -1, -1, -1, -1 };
+			int32_t indices[7] = { -1, -1, -1, -1, -1, -1, -1 };
 			for (int32_t& index : indices)
 				reader.Get(index);
 			material.BaseColorTexture = indices[0];
 			material.NormalTexture = indices[1];
 			material.MetallicRoughnessTexture = indices[2];
-			material.OcclusionTexture = indices[3];
-			material.EmissiveTexture = indices[4];
+			material.RoughnessTexture = indices[3];
+			material.MetallicTexture = indices[4];
+			material.OcclusionTexture = indices[5];
+			material.EmissiveTexture = indices[6];
 		}
 
 		reader.Get(count);

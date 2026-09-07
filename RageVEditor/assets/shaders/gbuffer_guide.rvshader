@@ -1,0 +1,94 @@
+// RT-3.1: the G-buffer's guidance lanes at a signal's own resolution.
+//
+// **Why this exists.** The reconstruction contract validates a history by the
+// surface under each texel -- its depth, its normal, its plane -- and it reads
+// all three with `texelFetch(..., ivec2(gl_FragCoord.xy))`, so it assumes the
+// buffer it is reading is on the same grid as the signal it is filtering. That
+// is true only when the signal is at the G-buffer's resolution. RTAO and the
+// GI trace both run at half (or quarter), and RT-2 and RT-3 met that by
+// upsampling first and running the whole contract at full resolution -- four
+// passes paying four times the texels they carry information for, 0.85 ms of
+// RT-3's 0.89 ms chain.
+//
+// The arrangement every real-time denoiser uses instead is the other way
+// round: filter at the resolution the signal was traced at, and spend one
+// cheap joint bilateral upsample at the end. What that needs is exactly this
+// -- the guidance lanes downsampled to the signal's grid.
+//
+// **By selection, never by averaging.** The average of two normals across a
+// silhouette points somewhere neither surface faces; the average of two depths
+// is a plane that exists in front of the far one and behind the near one; and
+// the average of two velocities is the motion of nothing. Every lane here is
+// one whole texel of the G-buffer, copied.
+//
+// **Which texel: the one the contract itself would have read.** At full
+// resolution the contract's texel index *is* the G-buffer's, so the honest
+// downsample of texel `t` is the full-resolution texel at `t * d + d/2` --
+// addressed in integer texels through `gl_FragCoord`, which is the same
+// quantity on both sides, so no uv convention and no row flip can come between
+// them. (The traces snap to their own texel by a uv expression instead; the
+// two agree on an unflipped target and this pass deliberately follows the
+// *contract's* convention, since the contract is what reads the result.)
+//
+// **What it cannot fix, stated rather than hidden:** with an even divisor no
+// full-resolution texel centre lands on the low-resolution texel centre, so
+// the position the contract rebuilds sits half a full-resolution texel from
+// the sample it rebuilt it from. The offset is the same every frame and on
+// both sides of every comparison the contract makes, so it cancels in the
+// plane test and the reprojection; it is not zero, and the diff images are
+// what settle whether it matters.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+
+// The three the contract reads, on the signal's grid.
+layout(location = 0) out float o_Depth;      // raw clip depth, as written
+layout(location = 1) out vec4  o_Surface;    // the normal lane, whole
+layout(location = 2) out vec2  o_Velocity;   // screen motion, whole
+
+layout(set = 0, binding = 0) uniform sampler2D u_Depth;
+layout(set = 0, binding = 1) uniform sampler2D u_Surface;
+layout(set = 0, binding = 2) uniform sampler2D u_Velocity;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;      // PostParams' shared header, unused here
+	float TexelY;
+	float Divisor;     // the header's A: how many full-res texels to a side
+	float B;
+	float C;
+	float FlipY;
+} u_Params;
+
+void main()
+{
+	// Integer texels on both sides. `gl_FragCoord` is this pass's output texel
+	// and the contract's reading texel, so the two are the same index by
+	// construction rather than by an agreement about rows.
+	const int d = max(int(u_Params.Divisor + 0.5), 1);
+	const ivec2 dst = ivec2(gl_FragCoord.xy);
+	const ivec2 src = dst * d + d / 2;
+
+	const ivec2 depthSize = textureSize(u_Depth, 0);
+	const ivec2 at = clamp(src, ivec2(0), depthSize - 1);
+
+	o_Depth = texelFetch(u_Depth, at, 0).r;
+	// Clamped separately: the lanes are all the scene target's attachments and
+	// so all one size today, but a lane that ever differs would silently read
+	// the wrong surface rather than the edge one.
+	o_Surface = texelFetch(u_Surface, clamp(src, ivec2(0), textureSize(u_Surface, 0) - 1), 0);
+	o_Velocity = texelFetch(u_Velocity, clamp(src, ivec2(0), textureSize(u_Velocity, 0) - 1), 0).xy;
+}

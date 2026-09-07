@@ -1,0 +1,189 @@
+// **The opaque surfaces' glossy reflection, traced in a pass of its own.**
+//
+// The lit shader used to cast its mirror rays in-line, one exact mirror
+// direction per pixel, and blend the answer into its specular in the same
+// fragment. Right for a mirror; wrong for everything else, because a rough
+// surface reflects a lobe of directions and one ray along its centre is a
+// perfect mirror whatever the roughness says. The garage floor showed it:
+// its tubes reflected as knife-sharp lines where the reference has wide soft
+// bands. Scattering the ray by roughness (GlossyReflection) gives the bands
+// and a grain, and the grain has to be averaged over frames -- which the
+// frame's own temporal filter cannot do for a term folded into the lit
+// pixel, since it clamps every sparkle back to its neighbours.
+//
+// So the rays move here (RAY-BUDGET-DESIGN Part III 4.3.4: "the separate
+// reflection pass once the normal buffer is 16-bit", which it is). One
+// fragment per pixel of the picture reads the surface the scene pass wrote
+// -- world normal, roughness, metallic -- and the depth, rebuilds the point,
+// draws its rays from the lobe, and writes the average radiance. The pass
+// after this one averages it with the frames behind it, and the lit shader
+// composites the accumulated picture through the same hook screen-space
+// reflections use, a frame late and reprojected (ENGINE-NOTES 7af).
+//
+// **The count is the budget's.** The preset's MirrorRays is the screen
+// average (Indirect.w); where the tile allocator ran this frame, the tile's
+// GI allocation over its average scales it, so a busy tile draws more and a
+// dull one fewer, with the allocator's dead band and dwell keeping the count
+// still. That lane is the GI lane standing in for the mirror lane the design
+// names (B.g), until the allocator's second texture exists.
+//
+// **A miss is not a zero.** Alpha below zero marks "nothing glossy here", which
+// the accumulate pass must not average in and the hook reads as no share.
+#type vertex
+#version 460 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 460 core
+
+#define RV_TRACE_ONLY
+// This pass's rays count in the reflection lane, not the bounce's.
+#define RV_REFLECTION_TRACE
+#include "include/pbr_fragment.glsl"
+
+layout(location = 0) in vec2 v_UV;
+
+// The scene pass's surface attachment: world normal octahedral in rg,
+// roughness in b, metallic in a; `b <= 0` is no surface. Its depth. The tile
+// allocator's map, or the surface again when there is none this frame.
+layout(set = 3, binding = 0) uniform sampler2D u_Surface;
+layout(set = 3, binding = 1) uniform sampler2D u_Depth;
+layout(set = 3, binding = 2) uniform sampler2D u_Budget;
+
+layout(push_constant) uniform LampParams
+{
+	// The inverse of this frame's view-projection: a texel and its depth
+	// back to the world. (The slot the lamp passes use for last frame's
+	// matrix; this pass has no last frame to look at.)
+	mat4 InverseViewProjection;
+	// y: the GI lane's screen average, which the tile's allocation is read
+	// against. w: one where a texture row runs the other way up from a
+	// projected coordinate.
+	vec4 History;
+	vec4 Probe;
+	// x: the probe a traced hit is lit by. yz: the gloss window a surface must
+	// sit inside to earn a ray. w: one when u_Budget is the allocator's map.
+	vec4 Trace;
+} u_Lamps;
+
+layout(location = 0) out vec4 o_Reflection;
+// The ray's direction (octahedral) and the pdf it was drawn with, for the
+// resolve's ratio estimator: a neighbour's hit point re-aimed from another
+// texel is a sample of that texel's lobe, weighted by lobe / this pdf.
+layout(location = 1) out vec4 o_Hit;
+
+// The surface attachment's encoding is octahedral.glsl's, in zero to one; the
+// lit header already includes that file (guarded), so its decoder is the one
+// to call. A second copy that assumed minus one to one folded every normal
+// and sent every ray the wrong way (2026-09-05, found by painting the floor
+// by N.y).
+vec3 SurfaceNormal(vec2 e)
+{
+	return OctDecode(e);
+}
+
+float Halton(uint index, uint base)
+{
+	float f = 1.0, r = 0.0;
+	for (int i = 0; i < 12 && index > 0u; ++i)
+	{
+		f /= float(base);
+		r += f * float(index % base);
+		index /= base;
+	}
+	return r;
+}
+
+// The ray's direction from a low-discrepancy sequence rather than a hash
+// (2026-09-06, after the roughness-aware design note): Halton (2, 3),
+// progressive over the accumulator's 64-frame memory so a parked texel's
+// draws stratify its lobe, rotated per texel by the R2 lattice so its
+// neighbours cover other parts of the lobe than it does -- which is what
+// the resolve's disc then gathers. GGX by its distribution of half
+// vectors, as GlossyReflection does; below the horizon, the mirror.
+vec3 GlossyReflectionLD(vec3 N, vec3 V, float roughness, ivec2 texel, uint frame)
+{
+	const vec3 mirror = reflect(-V, N);
+	const float alpha = roughness * roughness;
+	if (alpha < 1.0e-4)
+		return mirror;
+	const uint index = (frame & 63u) + 1u;
+	const vec2 rotation = fract(vec2(texel) * vec2(0.7548776662, 0.5698402910));
+	const float u1 = fract(Halton(index, 2u) + rotation.x);
+	const float u2 = fract(Halton(index, 3u) + rotation.y);
+	const float cosTheta = sqrt((1.0 - u1) / (1.0 + (alpha * alpha - 1.0) * u1));
+	const float sinTheta = sqrt(max(1.0 - cosTheta * cosTheta, 0.0));
+	const float phi = 6.2831853 * u2;
+	const vec3 axis = abs(N.x) < 0.7 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+	const vec3 t = normalize(cross(axis, N));
+	const vec3 b = cross(N, t);
+	const vec3 H = normalize(t * (sinTheta * cos(phi)) + b * (sinTheta * sin(phi)) + N * cosTheta);
+	const vec3 L = reflect(-V, H);
+	return dot(L, N) > 0.02 ? L : mirror;
+}
+
+void main()
+{
+	o_Reflection = vec4(0.0, 0.0, 0.0, -1.0);
+	o_Hit = vec4(0.0);
+
+	const ivec2 texel = ivec2(gl_FragCoord.xy);
+	const ivec2 size = textureSize(u_Surface, 0);
+	const vec4 surface = texelFetch(u_Surface, texel, 0);
+	if (surface.b <= 0.0)
+		return;
+
+	// The same window the lit shader weighs its mirror by: outside it the
+	// probe answers alone and no ray is cast.
+	const float roughness = clamp(surface.b, 0.0, 1.0);
+	const vec2 gloss = u_Lamps.Trace.yz;
+	const float mirror = 1.0 - smoothstep(gloss.x, gloss.y, roughness);
+	if (mirror <= 0.0)
+		return;
+
+	const float depth = texelFetch(u_Depth, texel, 0).r;
+	if (depth >= 1.0)
+		return;
+
+	// Texel to the world: a row is a projected coordinate the other way up
+	// on the backend whose rows run down, the same fact the lamp passes carry
+	// in History.w. Clip z is the depth as written.
+	const vec2 uv = (vec2(texel) + 0.5) / vec2(size);
+	const float row = u_Lamps.History.w > 0.5 ? 1.0 - uv.y : uv.y;
+	const vec4 clip = u_Lamps.InverseViewProjection
+					* vec4(uv.x * 2.0 - 1.0, row * 2.0 - 1.0, depth, 1.0);
+	const vec3 P = clip.xyz / clip.w;
+	const vec3 N = SurfaceNormal(surface.rg);
+	const vec3 V = normalize(u_Scene.CameraPosition.xyz - P);
+
+	// One ray a texel. The preset's MirrorRays column, which used to be the
+	// count drawn here, sets how many neighbours' rays the resolve gathers
+	// instead (WR-16 R3, 2026-09-06); the tile allocator's per-tile scaling
+	// of that count went with it and would return as a scaling of the taps.
+	const vec3 direction = GlossyReflectionLD(N, V, roughness, texel, uint(u_Scene.GlobalIllumination.y));
+	const TracedSurface hit = TraceSurface(P, N, direction, 1.0e4);
+	vec3 radiance = hit.Missed
+				  ? hit.Sky
+				  : ShadeTraced(hit, ProbeIrradiance(hit.Normal, u_Lamps.Trace.x));
+	const float travelled = hit.Missed ? 1.0e4 : length(hit.Position - P);
+	o_Reflection = vec4(min(radiance, vec3(64.0)), travelled);
+	// GGX sampled by its distribution of half vectors: pdf(L) = D(H) NoH / (4 VoH).
+	const vec3 H = normalize(direction + V);
+	const float pdf = DistributionGGX(N, H, roughness) * max(dot(N, H), 1.0e-4)
+					/ (4.0 * max(dot(V, H), 1.0e-4));
+	o_Hit = vec4(OctEncode(direction), min(pdf, 6.0e4), 0.0);
+
+	// The ray above and the shadow rays its hit walked: flushed here, since
+	// the lit shader's flush is compiled out under RV_TRACE_ONLY. `false`:
+	// the lit pass already counted this pixel as a lit fragment.
+#ifdef RV_RAY_COUNTERS
+	FlushRayCounters(false);
+#endif
+}

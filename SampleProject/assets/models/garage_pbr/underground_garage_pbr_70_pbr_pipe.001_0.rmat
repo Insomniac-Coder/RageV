@@ -1,0 +1,16 @@
+Material: pbr_pipe.001_0
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 1
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 9690421870533132931
+  Normal: 16357769577741071815
+  Roughness: 15201289059321686368
+  Metallic: 13184277829465281746

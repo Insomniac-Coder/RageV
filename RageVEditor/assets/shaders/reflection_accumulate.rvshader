@@ -1,0 +1,699 @@
+// **The glossy reflection, averaged over the frames behind it -- for as long
+// as there is evidence the frames behind it are the same picture.**
+//
+// ReflectionTrace draws a few rays from each glossy pixel's lobe, a different
+// few every frame, and ReflectionResolve shares them across the rough
+// neighbourhood. That estimate is right on average and grainy in detail,
+// and the frame's temporal filter cannot smooth it once it is folded into the
+// lit pixel: it clamps every sparkle back toward its neighbours, so the bright
+// frames are thrown away and the mean sinks. Averaged on its own, before the
+// lit shader ever sees it, the grain cancels and costs no rays -- the same
+// argument water_accumulate makes for the sea's lamp light, whose shape this
+// pass borrows.
+//
+// **Reprojected by the reflection's image, not by the surface.** A reflection
+// is not painted on the floor: as the eye moves it slides across the floor,
+// and a history read at the surface's old place holds the image of something
+// else. What stays put under a moving eye is the mirror image itself -- for a
+// flat mirror, the hit seen through the surface, as far behind it as the ray
+// went. **For a curved one the image sits nearer.** A chrome pole is a convex
+// mirror and a convex mirror's image lies almost at its own surface (the
+// mirror equation: d / (1 + 2 d k) behind it, for curvature k), so the first
+// version, which pushed every image the ray's full distance back, looked for
+// a pole's history metres behind the pole -- on the wall -- and found the
+// wall's reflection there (owner, 2026-09-05 night: "a LOT of smearing by the
+// shiny poles"). The curvature is read from the neighbouring normals, and the
+// distance is the one the frames behind this surface agreed on, not the one
+// ray this frame happened to draw: a rough pixel's ray hits the tube one
+// frame and the ceiling the next, and a history looked for at a different
+// depth every frame is a trail.
+//
+// **And the history has to be the same reflector.** The reprojected texel is
+// only worth averaging with if last frame's surface there was this surface:
+// the same plane, facing the same way, about as rough. The second attachment
+// carries the reflector and the third what was learned about it, and a
+// history that fails the tests is refused; the surface's own old place is
+// tried next, which is where a freshly moved reflector's picture is. Without
+// the test every glossy texel accepted every other's, and in a room where
+// every wall is inside the gloss window that was all of them.
+//
+// **Confidence-driven, not time-driven** (RT_Temporal_Reconstruction design,
+// 2026-09-06): the memory shortens when the reprojection moves, in texels,
+// measured with the jitter taken out (a parked camera moves nothing); a
+// mirror, whose rays hardly scatter and whose fresh estimate is already
+// exact, forgets fastest of all -- it has no grain to average, only a picture
+// to keep up with; and the bound that pulls a surviving history back to the
+// fresh neighbourhood never squeezes tighter than the pixel's own measured
+// fluctuation, so grain is averaged and a real change is followed.
+//
+// The alpha carries how many frames stand behind the value. The lit shader
+// reads it a frame late to decide how much of its probe to give up, and the
+// composite after the temporal filter adds this frame's picture at this
+// texel (reflection_composite.rvshader) -- the picture never passes through
+// the frame's own temporal filter, which reprojects by the surface and
+// smeared it.
+#type vertex
+#version 460 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 460 core
+
+#define RV_TRACE_ONLY
+#include "include/pbr_fragment.glsl"
+// **Reprojection, measured (RT-first T5, 2026-09-06):** the surface rebuilt
+// at the texel centre through the scene's view-projection, and the history
+// looked up at the previous projection *minus* the previous jitter, is right
+// as it stands -- rebuilding at the unjittered position, or adding the jitter
+// instead, doubled the parked per-frame change and the motion error on every
+// region of the garage. Leave both alone.
+
+layout(location = 0) in vec2 v_UV;
+
+// This frame's estimate, resolved: rgb the radiance, a the mean distance its
+// rays travelled, or below zero where nothing is glossy.
+layout(set = 3, binding = 0) uniform sampler2D u_Fresh;
+// The scene's depth, to rebuild the surface point.
+layout(set = 3, binding = 1) uniform sampler2D u_Depth;
+// What this pass wrote last frame; w is the frames behind it.
+layout(set = 3, binding = 2) uniform sampler2D u_History;
+// The scene's surface: normal (octahedral, zero to one) for the curvature,
+// roughness for the tests and the bound.
+layout(set = 3, binding = 3) uniform sampler2D u_Surface;
+// What this pass wrote about the reflector last frame: its normal (rg,
+// octahedral, zero to one), the plane it lies in (b: n . P), and the
+// distance to its image (a), below zero where there was no reflector.
+layout(set = 3, binding = 4) uniform sampler2D u_HistorySurface;
+// And what it learned: r the reflector's roughness, g and b the first two
+// moments of the fresh estimate's luminance, a which candidate the texel
+// took (0 none, 0.5 the surface's old place, 1 the image's).
+layout(set = 3, binding = 5) uniform sampler2D u_HistoryExtra;
+// The scene's velocity attachment (clip units, as TAA reads it): what the
+// surfaces around a silhouette are doing, for the rule below.
+layout(set = 3, binding = 6) uniform sampler2D u_Velocity;
+#ifdef RV_SIGNAL_PAIR
+// The second payload (RT-first T5): a signal of two pictures -- the direct
+// light's diffuse and specular halves -- sharing every test above. Its fresh
+// frame and its own history; the same texel, the same frames, the same bound
+// width from its own neighbourhood.
+layout(set = 3, binding = 7) uniform sampler2D u_Fresh2;
+layout(set = 3, binding = 8) uniform sampler2D u_History2;
+#endif
+
+layout(push_constant) uniform ReflectionParams
+{
+	// A texel and its depth back to the world, and where a world point sat
+	// on screen last frame. Both carry their frame's jitter, as the
+	// rasteriser drew with them.
+	mat4 InverseViewProjection;
+	mat4 PreviousViewProjection;
+	// x: last frame's picture is there to average with. y: the most frames a
+	// value may carry standing still. z: the fewest, under motion. w: one
+	// where a texture row runs the other way up from a projected coordinate.
+	vec4 History;
+	// x: how far, in standard deviations of the fresh neighbourhood, a
+	// history may stand from it before it is pulled back. y: the pixels the
+	// reprojection may move before the memory starts shortening.
+	vec4 Probe;
+	// The signal's tuning (RT-first T4, Renderer3D::SignalParams): x the
+	// smear cap in texels of travel, y the moving memory floor, z the
+	// silhouette memory floor, w spare.
+	vec4 Tuning;
+	// The blur's (read by reflection_blur.rvshader; carried here so the two
+	// share one push block).
+	vec4 Blur;
+	// RT-6.3: last frame's eye in xyz, w one when it is real.
+	vec4 PreviousEye;
+} u_Reflection;
+
+// Why the texel's own history was refused this frame, for the
+// `reflection-refusal` debug view: 0 kept, 1 off screen, 2 none there,
+// 3 normal, 4 plane, 5 roughness. Written into o_Extra.a above `choice`.
+int g_Refusal = 0;
+// RT-6.1: where the picture this texel took came from, last frame -- set
+// when a candidate is accepted, so the motion write below has something to
+// difference against.
+vec2 g_ImageMotion = vec2(0.0);
+bool g_HaveMotion = false;
+
+layout(location = 0) out vec4 o_Accumulated;
+layout(location = 1) out vec4 o_Surface;
+layout(location = 2) out vec4 o_Extra;
+#ifdef RV_SIGNAL_PAIR
+layout(location = 3) out vec4 o_Accumulated2;
+#else
+// **RT-6.1: where the picture at this texel moved, in the scene velocity
+// lane's own units.** Not the surface's motion -- the virtual image's, which
+// is the whole reason this accumulator reprojects the way it does. The
+// temporal resolve reads it so the reflection can be composited *before* it
+// and still be reprojected correctly; without it the resolve drags the
+// reflection along the floor's motion and the wet ground smears into
+// horizontal bands (measured 2026-09-05 and again 2026-09-07).
+//
+// Only on the specular variant: a diffuse signal moves with its surface, so
+// its motion *is* the velocity lane's and a second copy would say nothing.
+layout(location = 3) out vec4 o_Motion;
+#endif
+
+// How many frames the moments remember: enough to know the grain's
+// spread, short enough to forget a light that went out.
+const float kMomentFrames = 16.0;
+// How many of the pixel's own standard deviations the bound opens to.
+const float kTemporalSigma = 2.0;
+// **The smear cap (WR-16 R12, 2026-09-06).** A running average of a moving
+// picture is motion blur: with the memory only halved per texel of travel
+// a frame, a floor texel sliding one texel a frame still averaged 32
+// positions -- the smear the owner saw at every camera move. The memory
+// may never span more than kSmearTexels of travel (memory <= kSmearTexels
+// / moved), down to kMovingMemory frames; the blur after the accumulator
+// carries the noise of a short history. Parked, `moved` reads exactly zero
+// (measured through the picture view, 2026-09-06), so the cap never bites
+// on a still camera; a slow hand dolly moves ~0.3 texel a frame and gets
+// ~13 frames, a fast one 1.5 texels and gets the floor.
+#define kSmearTexels (u_Reflection.Tuning.x)
+// **The silhouette rule's other half (WR-16 R5, 2026-09-06).** The rule
+// keeps a silhouette texel's own history across the side flip the jitter
+// causes, with the full memory, so the two sides average into the
+// coverage. When one side is an object moving on its own with the camera
+// still, that history is the other side's picture from where the object
+// was: a trail. So at a silhouette the memory is also shortened by the
+// fastest motion in the 3x3, the same shape as the `moved` term, down to
+// kSilhouetteMemory frames. A jitter-only flip reads zero velocity
+// (still geometry reprojects within 1e-5 texel) and keeps everything.
+#define kSilhouetteMemory (u_Reflection.Tuning.z)
+#define kMovingMemory (u_Reflection.Tuning.y)
+
+float Luma(vec3 c)
+{
+	return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// **RT-6.3: how far the reflection direction may swing before last frame's
+// picture stops being this frame's reflection** -- as a cosine, scaled by
+// the lobe.
+//
+// Every other test here asks about the *reflector*: is it the same plane,
+// facing the same way, about as rough. On a smooth metal the camera is
+// orbiting, all of them pass -- the surface has not changed at all -- and
+// the reflection has changed completely, because R = reflect(-V, N) swings
+// with the view. The history is accepted and the old image is dragged
+// across the metal. That is why smearing is worst on shiny surfaces and
+// mild on rough ones, and no amount of surface validation can see it.
+//
+// A mirror's lobe is a line: cos(1.8 degrees) is the whole of its
+// tolerance. A rough surface integrates over most of a hemisphere, so the
+// same swing changes almost nothing and its history keeps its memory.
+// Smooth rather than a cutoff: a step on a continuous quantity makes the
+// memory drop out as the camera turns, which reads as a pop rather than as
+// a reflection catching up. These two are the numbers to tune.
+const float kMirrorSensitivity = 0.9995;
+const float kRoughSensitivity = 0.86;
+
+float DirectionConfidence(vec3 nowDir, vec3 thenDir, float roughness)
+{
+	const float agree = dot(nowDir, thenDir);
+	const float lowest = mix(kMirrorSensitivity, kRoughSensitivity,
+							 clamp(roughness, 0.0, 1.0));
+	return smoothstep(lowest, mix(lowest, 1.0, 0.5), agree);
+}
+
+// The bound on a history: the fresh 3x3's mean and spread, widened. Not the
+// outright range -- with a few rays a pixel is often legitimately brighter
+// than all eight of its neighbours, and holding it to their range clips the
+// average back into the noise every frame (measured on the sea, WR-16 S4c).
+void Neighbourhood(ivec2 texel, ivec2 size, out vec3 mean, out vec3 sd)
+{
+	vec3 sum = vec3(0.0), sum2 = vec3(0.0);
+	float n = 0.0;
+	for (int y = -1; y <= 1; ++y)
+	{
+		for (int x = -1; x <= 1; ++x)
+		{
+			const ivec2 at = clamp(texel + ivec2(x, y), ivec2(0), size - 1);
+			const vec4 f = texelFetch(u_Fresh, at, 0);
+			if (f.a < 0.0)
+				continue;
+			sum += f.rgb;
+			sum2 += f.rgb * f.rgb;
+			n += 1.0;
+		}
+	}
+	n = max(n, 1.0);
+	mean = sum / n;
+	sd = sqrt(max(sum2 / n - mean * mean, vec3(0.0)));
+}
+#ifdef RV_SIGNAL_PAIR
+void Neighbourhood2(ivec2 texel, ivec2 size, out vec3 mean, out vec3 sd)
+{
+	vec3 sum = vec3(0.0), sum2 = vec3(0.0);
+	float n = 0.0;
+	for (int y = -1; y <= 1; ++y)
+	{
+		for (int x = -1; x <= 1; ++x)
+		{
+			const ivec2 at = clamp(texel + ivec2(x, y), ivec2(0), size - 1);
+			const vec4 f = texelFetch(u_Fresh2, at, 0);
+			if (f.a < 0.0)
+				continue;
+			sum += f.rgb;
+			sum2 += f.rgb * f.rgb;
+			n += 1.0;
+		}
+	}
+	n = max(n, 1.0);
+	mean = sum / n;
+	sd = sqrt(max(sum2 / n - mean * mean, vec3(0.0)));
+}
+#endif
+
+// A texel of the scene back to the world: its point and its normal. False
+// where there is no surface. The row is a projected coordinate the other
+// way up on the backend whose rows run down; clip z is the depth as written.
+bool SurfaceAt(ivec2 texel, ivec2 size, out vec3 P, out vec3 N)
+{
+	const vec4 surface = texelFetch(u_Surface, texel, 0);
+	const float depth = texelFetch(u_Depth, texel, 0).r;
+	if (surface.b <= 0.0 || depth >= 1.0)
+		return false;
+	const vec2 uv = (vec2(texel) + 0.5) / vec2(size);
+	const float row = u_Reflection.History.w > 0.5 ? 1.0 - uv.y : uv.y;
+	const vec4 clip = u_Reflection.InverseViewProjection
+					* vec4(uv.x * 2.0 - 1.0, row * 2.0 - 1.0, depth, 1.0);
+	P = clip.xyz / clip.w;
+	N = OctDecode(surface.rg);
+	return true;
+}
+
+// How sharply the reflector bends here, per metre: the normal's change over
+// the distance it changes across, along whichever screen axis bends most.
+// One-sided, taking the neighbour that is nearer in the world, so a pole's
+// edge measures the pole and not the jump to the wall behind it. Two texels
+// out rather than one: the normals are half floats, and their quantisation
+// over a texel's worth of floor read as a metre-scale curve on a plane.
+float Curvature(ivec2 texel, ivec2 size, vec3 P, vec3 N)
+{
+	float k = 0.0;
+	for (int axis = 0; axis < 2; ++axis)
+	{
+		const ivec2 step = axis == 0 ? ivec2(2, 0) : ivec2(0, 2);
+		vec3 Pa, Na, Pb, Nb;
+		const bool a = SurfaceAt(clamp(texel + step, ivec2(0), size - 1), size, Pa, Na);
+		const bool b = SurfaceAt(clamp(texel - step, ivec2(0), size - 1), size, Pb, Nb);
+		const float da = a ? length(Pa - P) : 1.0e9;
+		const float db = b ? length(Pb - P) : 1.0e9;
+		if (!a && !b)
+			continue;
+		const vec3 dN = da <= db ? Na - N : Nb - N;
+		const float dP = min(da, db);
+		k = max(k, length(dN) / max(dP, 1.0e-4));
+	}
+	// A plane reads a little curvature from the normals' quantisation; a
+	// radius over some metres is a plane for this purpose.
+	return max(k - 0.15, 0.0);
+}
+
+// A history the tests let through, and where it was found.
+struct Candidate
+{
+	vec4 past;        // the picture, bilinear
+	vec4 reflector;   // the second attachment at the texel: normal, plane, image distance
+	vec4 extra;       // the third: roughness, moments, choice
+	vec2 pastUv;
+	vec2 thenNdc;
+	ivec2 pastTexel;  // the texel the candidate came from (RV_SIGNAL_PAIR reads its twin there)
+	bool  bilinear;   // whether the picture was sampled at pastUv rather than fetched
+	// **RT-6.4: how well it matched, not just that it did.** One where the
+	// reflector is the same to well inside the tolerances, falling to zero at
+	// their edge. The tests below stay binary because the neighbour search
+	// needs a yes or a no; this is how much the winner is then trusted.
+	float matchConfidence;
+};
+
+// Where a world point sat in last frame's picture, and whether the picture
+// there is this reflector's. `pastUv` is in the history's texel space and
+// `thenNdc` the jittered projected coordinate the motion is measured from.
+// Whether a 3x3 neighbour lies on another surface: a silhouette texel,
+// whose own surface flips sides with the jitter every frame. Also the
+// fastest motion in that 3x3, in texels a frame, from the velocity
+// attachment -- whichever side is moving.
+bool AtSilhouette(ivec2 texel, ivec2 size, vec3 P, vec3 N, float eyeDistance, out float neighbourMotion)
+{
+	bool silhouette = false;
+	neighbourMotion = 0.0;
+	for (int y = -1; y <= 1; ++y)
+		for (int x = -1; x <= 1; ++x)
+		{
+			const ivec2 at = clamp(texel + ivec2(x, y), ivec2(0), size - 1);
+			neighbourMotion = max(neighbourMotion, length(texelFetch(u_Velocity, at, 0).xy * 0.5 * vec2(size)));
+			if (x == 0 && y == 0)
+				continue;
+			vec3 Pn, Nn;
+			if (!SurfaceAt(at, size, Pn, Nn))
+			{
+				silhouette = true;
+				continue;
+			}
+			if (dot(N, Nn) < 0.8 || abs(dot(N, Pn - P)) > 0.05 + 0.01 * eyeDistance)
+				silhouette = true;
+		}
+	return silhouette;
+}
+
+bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
+			   float eyeDistance, bool silhouette, out Candidate c)
+{
+	const vec4 clipThen = u_Reflection.PreviousViewProjection * vec4(world, 1.0);
+	if (clipThen.w <= 0.0)
+		return false;
+	// **The picture lives on the unjittered grid.** The matrix carries last
+	// frame's jitter, as the rasteriser drew with it; taken back out, the
+	// point lands where it sits in a picture whose texels mean the pixel
+	// centres, not this frame's dithered sample of them. That is the
+	// temporal resolve's own structure: the fresh estimate arrives at the
+	// jittered position and is one part in twenty-four, the history is kept
+	// on the fixed grid and is the rest, and what accumulates is the average
+	// over the dither -- a stable, anti-aliased picture the composite can
+	// add at the pixel. Kept on the jittered grid instead, the picture
+	// wobbled by the jitter on top of the resolved frame (9 levels of
+	// frame-to-frame change parked; resampled back by the jitter, still 5);
+	// and the first version added the jitter again on top of the matrix's
+	// and read every history up to a pixel from itself, parked (13 frames of
+	// memory where 24 stood).
+	c.thenNdc = clipThen.xy / clipThen.w - u_Scene.Jitter.zw;
+	const vec2 thenUv = c.thenNdc * 0.5 + 0.5;
+	if (any(lessThan(thenUv, vec2(0.0))) || any(greaterThan(thenUv, vec2(1.0))))
+	{
+		g_Refusal = 1;
+		return false;
+	}
+	const float thenRow = u_Reflection.History.w > 0.5 ? 1.0 - thenUv.y : thenUv.y;
+	c.pastUv = clamp(vec2(thenUv.x, thenRow), vec2(0.0), vec2(1.0));
+
+	// The reflector that was there. Fetched, not sampled: a plane is not a
+	// thing to interpolate across a silhouette.
+	// The texel under the reprojection first, then its eight neighbours
+	// (SVGF's search). Under jitter an edge texel's surface flips sides
+	// every frame, and refusing the history there left every silhouette one
+	// frame old and shaking: parked, bright edges moved 8.1 levels a frame
+	// against 3.3 with the reflections off (2026-09-06). The neighbour that
+	// kept this surface's picture holds the same picture, a texel over.
+	const ivec2 centre = clamp(ivec2(c.pastUv * vec2(size)), ivec2(0), size - 1);
+	const ivec2 offsets[9] = ivec2[9](ivec2(0, 0), ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1),
+									  ivec2(1, 1), ivec2(-1, -1), ivec2(1, -1), ivec2(-1, 1));
+	for (int k = 0; k < 9; ++k)
+	{
+		const ivec2 pastTexel = clamp(centre + offsets[k], ivec2(0), size - 1);
+		c.reflector = texelFetch(u_HistorySurface, pastTexel, 0);
+		if (c.reflector.a < 0.0)
+		{
+			if (k == 0) g_Refusal = 2;
+			continue;
+		}
+		c.extra = texelFetch(u_HistoryExtra, pastTexel, 0);
+		// At a silhouette the texel's own history is kept whichever side it
+		// showed last frame: under jitter the side flips every frame, and a
+		// history refused there was one frame old and shook (2026-09-06,
+		// parked bright edges 7.5 levels a frame against 0.9 with no
+		// reflections). Averaged across the flip it is the coverage-weighted
+		// picture, which is what TAA's colour is at the same texel. The
+		// bound below still holds it to this frame's neighbourhood.
+		c.matchConfidence = 1.0;
+		if (!(silhouette && k == 0))
+		{
+			const vec3 wasN = OctDecode(c.reflector.rg);
+			const float facing = dot(wasN, N);
+			if (facing < 0.8)
+			{
+				if (k == 0) g_Refusal = 3;
+				continue;
+			}
+			const float planeTolerance = 0.05 + 0.01 * eyeDistance;
+			const float offPlane = abs(dot(wasN, P) - c.reflector.b);
+			if (offPlane > planeTolerance)
+			{
+				if (k == 0) g_Refusal = 4;
+				continue;
+			}
+			if (abs(c.extra.r - roughness) > 0.5)
+			{
+				if (k == 0) g_Refusal = 5;
+				continue;
+			}
+			// **RT-6.4: and how well, not merely whether.** A history is whole at
+			// dot 0.801 and gone at 0.799 with a cutoff, and nothing in a picture
+			// changes that sharply -- what the eye sees as the camera turns is the
+			// memory stepping out rather than a reflection catching up. Full trust
+			// well inside each tolerance, falling to none at its edge.
+			c.matchConfidence = smoothstep(0.8, 0.94, facing)
+							  * (1.0 - smoothstep(0.35 * planeTolerance, planeTolerance,
+												  offPlane));
+		}
+		// Bilinear where the texel itself matched; the neighbour's own value
+		// where it did not, since the texels between belong to the other side.
+		c.past = k == 0 ? texture(u_History, c.pastUv) : texelFetch(u_History, pastTexel, 0);
+		c.pastTexel = pastTexel;
+		c.bilinear = k == 0;
+		if (c.past.a > 0.0)
+			return true;
+	}
+	return false;
+}
+
+void main()
+{
+	const ivec2 texel = ivec2(gl_FragCoord.xy);
+	const ivec2 size = textureSize(u_Fresh, 0);
+	const vec4 fresh = texelFetch(u_Fresh, texel, 0);
+#ifdef RV_SIGNAL_PAIR
+	const vec4 fresh2 = texelFetch(u_Fresh2, texel, 0);
+	vec3 kept2 = fresh2.rgb;
+#endif
+
+	// Nothing glossy here: nothing to average, and a zero share for the hook.
+	// The zero matters -- a stale value left in this attachment would be
+	// picked up as a history next frame -- and so does the mark below it,
+	// which says no reflector stood here for anyone to match.
+	vec3 P, N;
+	if (fresh.a < 0.0 || !SurfaceAt(texel, size, P, N))
+	{
+		o_Accumulated = vec4(0.0);
+		o_Surface = vec4(0.0, 0.0, 0.0, -1.0);
+		o_Extra = vec4(0.0);
+#ifndef RV_SIGNAL_PAIR
+		// Nothing here reflects, so there is no image to have moved. Zero is
+		// read by the resolve as "use the surface's", which is right.
+		o_Motion = vec4(0.0);
+#endif
+#ifdef RV_SIGNAL_PAIR
+		o_Accumulated2 = vec4(0.0);
+#endif
+		return;
+	}
+
+	const vec2 uv = (vec2(texel) + 0.5) / vec2(size);
+	const float row = u_Reflection.History.w > 0.5 ? 1.0 - uv.y : uv.y;
+	const vec2 nowNdc = vec2(uv.x * 2.0 - 1.0, row * 2.0 - 1.0);
+	const vec3 eye = u_Scene.CameraPosition.xyz;
+	const float eyeDistance = length(P - eye);
+	const vec3 sight = (P - eye) / max(eyeDistance, 1.0e-4);
+	const vec4 surface = texelFetch(u_Surface, texel, 0);
+	const float roughness = clamp(surface.b, 0.0, 1.0);
+	const float luma = Luma(fresh.rgb);
+
+	// The image behind the surface: the ray's distance for a flat mirror,
+	// nearer for anything that curves -- and nearer again for anything
+	// rough. A rough lobe's reflection is a blur of many directions and its
+	// blur slides across the surface by less than a mirror image would, so a
+	// history looked for at the mirror's parallax lands past it, on a
+	// neighbour's picture: the smear the rough floor showed under a dolly.
+	// The lobe's dominant direction sits between the mirror direction and
+	// the normal by a factor of roughness and view angle (Lagarde's fit, as
+	// NVIDIA's ReBLUR places its virtual point), and the image goes that
+	// fraction of the way back. A miss is the sky and stands at the horizon.
+	const float travelled = min(fresh.a, 1.0e3);
+#ifdef RV_SIGNAL_DIFFUSE
+	// A diffuse signal (shadows, occlusion, irradiance) moves with its
+	// surface: no virtual image, the history is read where the surface was.
+	float image = 0.0;
+#else
+	const float curvature = Curvature(texel, size, P, N);
+	const float NoV = clamp(dot(N, -sight), 0.0, 1.0);
+	const float lobe = 0.298475 * log(39.4115 - 39.0029 * roughness);
+	const float dominant = pow(1.0 - NoV, 10.8649) * (1.0 - lobe) + lobe;
+	float image = travelled * clamp(dominant, 0.0, 1.0) / (1.0 + 2.0 * travelled * curvature);
+#endif
+
+	vec3 kept = fresh.rgb;
+	float frames = 1.0;
+	float choice = 0.0;
+	float momMean = luma;
+	float momMeanSq = luma * luma;
+
+	if (u_Reflection.History.x > 0.5)
+	{
+		// The surface's own old place first -- not to average with yet, but
+		// to read the image distance the frames behind it settled on, which
+		// this frame's rays refine rather than replace.
+		Candidate atSurface;
+		float neighbourMotion = 0.0;
+		const bool silhouette = AtSilhouette(texel, size, P, N, eyeDistance, neighbourMotion);
+		const bool haveSurface = HistoryAt(P, size, P, N, roughness, eyeDistance, silhouette, atSurface);
+#ifdef RV_SIGNAL_DIFFUSE
+		Candidate c = atSurface;
+		bool have = haveSurface;
+		choice = have ? 0.5 : 0.0;
+#else
+		if (haveSurface)
+			image = mix(atSurface.reflector.a, image, 1.0 / min(atSurface.past.a + 1.0, 8.0));
+		Candidate c;
+		bool have = HistoryAt(P + sight * image, size, P, N, roughness, eyeDistance, silhouette, c);
+		choice = have ? 1.0 : 0.0;
+		if (!have && haveSurface)
+		{
+			c = atSurface;
+			have = true;
+			choice = 0.5;
+		}
+#endif
+
+		if (have)
+		{
+			// **The bound: the fresh neighbourhood's spread, widened on smooth
+			// surfaces and never narrower than the pixel's own fluctuation.**
+			// A tube's line on car paint is a pixel or two wide with dark
+			// neighbours; held to their spread, its history is pulled down
+			// every frame and the paint reads matte (owner, 2026-09-05
+			// night) -- a mirror's rays hardly scatter, so its history needs
+			// no bounding against noise; the rough floor's does. And a rough
+			// pixel whose own estimate swings by so much a frame is not
+			// changing, it is grainy: the moments say by how much, and the
+			// bound opens to that.
+			const float width = mix(12.0, max(u_Reflection.Probe.x, 0.0),
+									smoothstep(0.08, 0.3, roughness));
+			vec3 mean, sd;
+			Neighbourhood(texel, size, mean, sd);
+			const float sigma = sqrt(max(c.extra.b - c.extra.g * c.extra.g, 0.0));
+			const vec3 halfWidth = max(sd * width, vec3(kTemporalSigma * sigma));
+			const vec3 held = clamp(c.past.rgb, mean - halfWidth, mean + halfWidth);
+
+			// How far the picture moved since last frame, in texels, on the
+			// unjittered grid both sides: a parked camera reads the half
+			// pixel this frame's sample sits from the centre and no more,
+			// which the slack below absorbs; the dither is not motion.
+			const vec2 shift = c.thenNdc - (nowNdc - u_Scene.Jitter.xy);
+			// RT-6.1: the same quantity the temporal resolve wants, in its units.
+			g_ImageMotion = -shift * 0.5;
+			g_HaveMotion = true;
+			const float moved = length(shift * 0.5 * vec2(size));
+
+			// The memory: full standing still, and shorter in proportion to
+			// how far the picture moved -- a running average of a moving
+			// picture is motion blur, and the 12 m burst measured its peaks
+			// losing a tenth over three seconds of slow yaw with a fixed
+			// memory. A mirror has no grain to average and forgets four times
+			// as fast, down to a single frame; the rough floor keeps a few so
+			// its grain does not come back under motion.
+#ifdef RV_SIGNAL_DIFFUSE
+			const float gloss = 1.0;   // a diffuse signal has no mirror end
+#else
+			const float gloss = smoothstep(0.0, 0.3, roughness);
+#endif
+			const float slack = max(u_Reflection.Probe.y, 0.25) * mix(0.25, 1.0, gloss);
+			const float fewest = mix(1.0, max(u_Reflection.History.z, 1.0), gloss);
+			// The silhouette rule above keeps the full memory here on purpose:
+			// capped at one jitter cycle (eight frames, tried 2026-09-06) the
+			// edges flickered again at 2.7 levels a frame against 1.5, and the
+			// "ghost" that cap was meant for was the metric comparing an
+			// averaged edge texel with a single-sided reference.
+			float memory = max(u_Reflection.History.y, 1.0) / (1.0 + moved / slack);
+			memory = min(memory, max(kSmearTexels / max(moved, 1.0e-3), kMovingMemory));
+			if (silhouette)
+				memory = min(memory, max(max(u_Reflection.History.y, 1.0) / (1.0 + neighbourMotion / slack),
+										 kSilhouetteMemory));
+			memory = max(memory, fewest);
+
+			// **RT-6.3: and shortened by how much the reflection itself moved.**
+			// The reflector's own normal is in the candidate, so last frame's
+			// reflection direction is exact rather than guessed: the eye was
+			// there, the surface faced that way, the mirror direction follows.
+			//
+			// The memory is scaled, not the history refused. Refusing would trade
+			// a smear for the noise of a one-frame estimate on exactly the
+			// surfaces that show noise worst; scaling lets the fresh rays take
+			// over at the rate the reflection is actually changing. The floor is
+			// `fewest`, which a mirror already sets to one.
+			if (u_Reflection.PreviousEye.w > 0.5)
+			{
+				const vec3 wasN = OctDecode(c.reflector.rg);
+				const vec3 thenSight = normalize(P - u_Reflection.PreviousEye.xyz);
+				const float confidence =
+					DirectionConfidence(reflect(sight, N), reflect(thenSight, wasN),
+										roughness);
+				memory = max(mix(fewest, memory, confidence), fewest);
+			}
+			// RT-6.4: and by how well the reflector itself matched. Multiplied
+			// rather than taken as a minimum: a candidate that is marginal on two
+			// counts at once is worth less than one marginal on either.
+			memory = max(mix(fewest, memory, c.matchConfidence), fewest);
+			frames = min(c.past.a + 1.0, memory);
+			kept = mix(held, fresh.rgb, 1.0 / frames);
+#ifdef RV_SIGNAL_PAIR
+			// The twin: read where the candidate was read, bounded by its
+			// own neighbourhood at the same width, blended by the same
+			// frames. A specular half is sharper than its diffuse twin, so
+			// the bound is its own; the memory is shared.
+			{
+				vec3 mean2, sd2;
+				Neighbourhood2(texel, size, mean2, sd2);
+				const vec4 past2 = c.bilinear ? texture(u_History2, c.pastUv)
+											  : texelFetch(u_History2, c.pastTexel, 0);
+				const vec3 halfWidth2 = max(sd2 * width, vec3(1.0e-4));
+				// Clamped, and on a memory of its own (Tuning.w; zero shares the
+				// diffuse's): the water's lesson holds on land -- a highlight is
+				// what a moving view changes first, so the twin forgets faster.
+				// Measured: memory 4 halves the still bias and cuts the motion
+				// error on every region; the clamp off doubles the motion error.
+				const vec3 held2 = clamp(past2.rgb, mean2 - halfWidth2, mean2 + halfWidth2);
+				const float frames2 = u_Reflection.Tuning.w > 0.0 ? min(frames, u_Reflection.Tuning.w) : frames;
+				kept2 = mix(held2, fresh2.rgb, 1.0 / frames2);
+			}
+#endif
+
+			// The moments track what *arrives*, at the rate the colour
+			// forgets or faster: a light that went out must not hold the
+			// bound open for long.
+			const float momentAlpha = max(1.0 / frames, 1.0 / kMomentFrames);
+			momMean = mix(c.extra.g, luma, momentAlpha);
+			momMeanSq = mix(c.extra.b, luma * luma, momentAlpha);
+		}
+	}
+
+#ifndef RV_SIGNAL_PAIR
+	// **The image's motion, in the velocity lane's units.** The accumulator
+	// already measures it: `shift` below is how far the picture moved since
+	// last frame, both sides on the unjittered grid, which is the scene
+	// shader's o_Velocity with the sign the other way round and the halving
+	// left off. Zero with no history: nothing to difference, and the resolve
+	// then keeps the surface's motion, which is what it did before this.
+	o_Motion = vec4(g_HaveMotion ? g_ImageMotion : vec2(0.0), 0.0, 0.0);
+#endif
+	o_Accumulated = vec4(kept, frames);
+#ifdef RV_SIGNAL_PAIR
+	o_Accumulated2 = vec4(kept2, frames);
+#endif
+	// For the next frame's tests: this reflector's normal as the scene
+	// encodes it, the plane it lies in, how far behind it its image sat;
+	// its roughness, what its estimate has been doing, and which history it
+	// took -- the last for the debug view (--debug-view=reflection-choice).
+	o_Surface = vec4(surface.rg, dot(N, P), image);
+	// choice in the fraction (0 none, 0.25 the surface's history, 0.5 the
+	// image's), the refusal reason in the integer part.
+	o_Extra = vec4(roughness, momMean, momMeanSq, 0.5 * choice + float(g_Refusal));
+}

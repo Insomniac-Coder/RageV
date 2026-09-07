@@ -437,6 +437,14 @@ namespace RageV::Vk
 				out.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 				break;
 
+			case BlendPreset::AlphaBlendUnder:
+				out.blendEnable = VK_TRUE;
+				out.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+				out.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+				out.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+				out.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+				break;
+
 			case BlendPreset::Additive:
 				out.blendEnable = VK_TRUE;
 				out.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;

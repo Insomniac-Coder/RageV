@@ -1,0 +1,202 @@
+// **The accumulated reflection, blurred by how little history it has.**
+//
+// The accumulator trusts a history only while there is evidence for it, so
+// under motion a pixel holds one to four frames of a few rays: grainy on a
+// rough floor, a single jittered sample on chrome. Standing still it holds
+// twenty-four and is clean. This pass sits between the accumulator and the
+// composite and averages each pixel with its neighbours on the same
+// reflector by a radius that shrinks with the frames behind it -- wide at
+// one frame, nothing at sixteen -- so the grain is smoothed across space
+// exactly while it cannot be smoothed across time, and the picture goes
+// sharp again as the history rebuilds. Nothing old is mixed in: it reads
+// this frame's accumulated picture only, so it cannot smear. The
+// accumulator never sees the blurred picture; its history stays sharp.
+//
+// RT_Temporal_Reconstruction design (2026-09-06), section 5's spatial
+// denoise after the temporal pass, the shape every production reflection
+// denoiser has: pre-blur, accumulate, post-blur by history length.
+#type vertex
+#version 460 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 460 core
+
+#define RV_TRACE_ONLY
+#include "include/pbr_fragment.glsl"
+
+layout(location = 0) in vec2 v_UV;
+
+// The accumulator's picture: rgb the radiance, a the frames behind it, zero
+// where nothing glossy stood.
+layout(set = 3, binding = 0) uniform sampler2D u_Accumulated;
+layout(set = 3, binding = 1) uniform sampler2D u_Depth;
+// The scene's surface: normal (octahedral, zero to one), roughness in b.
+layout(set = 3, binding = 2) uniform sampler2D u_Surface;
+// The reflection history's second attachment: its .a is the image
+// distance the accumulator placed the picture at (-1 none), the hit
+// distance that bounds the blur below.
+layout(set = 3, binding = 3) uniform sampler2D u_ImageDistance;
+#ifdef RV_SIGNAL_PAIR
+layout(set = 3, binding = 4) uniform sampler2D u_Accumulated2;   // the twin, same weights
+#endif
+
+layout(push_constant) uniform ReflectionParams
+{
+	mat4 InverseViewProjection;
+	mat4 PreviousViewProjection;
+	// y: the frames at which the blur has faded to nothing. w: one where a
+	// texture row runs the other way up from a projected coordinate.
+	vec4 History;
+	vec4 Probe;
+	vec4 Tuning;
+	// The young-history blur's tuning (RT-first T4, Renderer3D::SignalParams):
+	// x the radius at one frame of history, y the frames at which it has
+	// faded to nothing, z how far past the lobe's footprint it may reach
+	// while young (specular), w the radius bound in texels (diffuse).
+	vec4 Blur;
+} u_Reflection;
+
+layout(location = 0) out vec4 o_Blurred;
+#ifdef RV_SIGNAL_PAIR
+layout(location = 1) out vec4 o_Blurred2;
+#endif
+
+// **WR-16 R12 (2026-09-06): the blur is the short history's partner.** Its
+// radius comes from how few frames stand behind the texel -- kYoungRadius
+// texels at one frame, nothing at kBlurFrames -- so a picture that just
+// started (after a move, or while moving under the smear cap) is soft but
+// stable instead of grainy, and sharpens as the frames arrive. The radius
+// is bounded per axis by the lobe's footprint on the surface (a chrome
+// pole is never blurred past its own lobe; a foreshortened floor blurs
+// less across than along) and by the gloss window; three passes at
+// strides 1, 2, 4 reach it with seven taps each. The accumulator's own
+// history is never blurred: this reads it and writes the composite's
+// input, so there is no feedback and nothing here can smear over time.
+const int kMaxRadius = 3;
+#define kYoungRadius (u_Reflection.Blur.x)
+// While the history is young the blur may reach past the lobe's footprint
+// by this factor (young squared times it): a moving picture blurred wider
+// than its lobe is soft; the same picture at six frames of history is
+// noise, and the owner saw the noise (2026-09-06 night, first R12 build:
+// the footprint bound and a gloss window kept the floor's blur at two to
+// four texels, "very noisy").
+#define kYoungOverreach (u_Reflection.Blur.z)
+#define kBlurFrames (u_Reflection.Blur.y)
+const float kLobeWidth = 2.8;
+const float kPassShare = 0.57735;   // three passes share the variance
+
+bool SurfaceAt(ivec2 texel, ivec2 size, out vec3 P, out vec3 N, out float roughness)
+{
+	const vec4 surface = texelFetch(u_Surface, texel, 0);
+	const float depth = texelFetch(u_Depth, texel, 0).r;
+	if (surface.b <= 0.0 || depth >= 1.0)
+		return false;
+	const vec2 uv = (vec2(texel) + 0.5) / vec2(size);
+	const float row = u_Reflection.History.w > 0.5 ? 1.0 - uv.y : uv.y;
+	const vec4 clip = u_Reflection.InverseViewProjection
+					* vec4(uv.x * 2.0 - 1.0, row * 2.0 - 1.0, depth, 1.0);
+	P = clip.xyz / clip.w;
+	N = OctDecode(surface.rg);
+	roughness = clamp(surface.b, 0.0, 1.0);
+	return true;
+}
+
+void main()
+{
+	const ivec2 texel = ivec2(gl_FragCoord.xy);
+	const ivec2 size = textureSize(u_Accumulated, 0);
+	const vec4 centre = texelFetch(u_Accumulated, texel, 0);
+	o_Blurred = centre;
+#ifdef RV_SIGNAL_PAIR
+	const vec4 centre2 = texelFetch(u_Accumulated2, texel, 0);
+	o_Blurred2 = centre2;
+	vec3 sum2 = vec3(0.0);
+#endif
+	if (centre.a <= 0.0)
+		return;
+
+	vec3 P, N;
+	float roughness;
+	if (!SurfaceAt(texel, size, P, N, roughness))
+		return;
+
+	const float young = 1.0 - clamp((centre.a - 1.0) / (kBlurFrames - 1.0), 0.0, 1.0);
+	// No gloss window here: the footprint bound below already says how
+	// far a lobe allows; mirrors have no footprint and get no blur.
+	float radius = kYoungRadius * young * young;
+	if (radius < 0.5)
+		return;
+
+	// The lobe's footprint per axis, in texels, as the resolve measures it.
+	const float eyeDistance = length(P - u_Scene.CameraPosition.xyz);
+	const float imageDistance = max(texelFetch(u_ImageDistance, texel, 0).a, 0.0);
+	const float footprint = imageDistance * kLobeWidth * roughness * roughness;
+	vec2 texelSize = vec2(eyeDistance * 0.0015);
+	{
+		vec3 Pn, Nn;
+		float rn;
+		float best = 1e9;
+		if (SurfaceAt(clamp(texel + ivec2(1, 0), ivec2(0), size - 1), size, Pn, Nn, rn)) best = min(best, length(Pn - P));
+		if (SurfaceAt(clamp(texel - ivec2(1, 0), ivec2(0), size - 1), size, Pn, Nn, rn)) best = min(best, length(Pn - P));
+		if (best < 1e8) texelSize.x = max(best, eyeDistance * 0.0002);
+		best = 1e9;
+		if (SurfaceAt(clamp(texel + ivec2(0, 1), ivec2(0), size - 1), size, Pn, Nn, rn)) best = min(best, length(Pn - P));
+		if (SurfaceAt(clamp(texel - ivec2(0, 1), ivec2(0), size - 1), size, Pn, Nn, rn)) best = min(best, length(Pn - P));
+		if (best < 1e8) texelSize.y = max(best, eyeDistance * 0.0002);
+	}
+#ifdef RV_SIGNAL_DIFFUSE
+	// A diffuse signal has no lobe to bound it: a plain radius does.
+	const vec2 reach = min(vec2(radius), vec2(u_Reflection.Blur.w));
+#else
+	const vec2 reach = min(vec2(radius), footprint / texelSize * (1.0 + kYoungOverreach * young * young));
+#endif
+	// Radius is two sigmas; this pass carries its share at its stride, and a
+	// seven-tap window supports a sigma of about one and a half.
+	const int stride = max(int(u_Reflection.Probe.z + 0.5), 1);
+	const vec2 sigma = min(0.5 * reach * kPassShare / float(stride), vec2(1.5));
+	if (max(sigma.x, sigma.y) < 0.15)
+		return;
+	const vec2 invTwoSigmaSq = 0.5 / max(sigma * sigma, vec2(0.0001));
+	const float planeTolerance = 0.02 + 0.01 * eyeDistance;
+
+	vec3 sum = vec3(0.0);
+	float weightSum = 0.0;
+	for (int y = -kMaxRadius; y <= kMaxRadius; ++y)
+	{
+		for (int x = -kMaxRadius; x <= kMaxRadius; ++x)
+		{
+			const ivec2 at = clamp(texel + ivec2(x, y) * stride, ivec2(0), size - 1);
+			const vec4 f = texelFetch(u_Accumulated, at, 0);
+			if (f.a <= 0.0)
+				continue;
+			vec3 Pn, Nn;
+			float rn;
+			if (!SurfaceAt(at, size, Pn, Nn, rn))
+				continue;
+			float w = exp(-(float(x * x) * invTwoSigmaSq.x + float(y * y) * invTwoSigmaSq.y));
+			w *= pow(max(dot(N, Nn), 0.0), 8.0);
+			w *= exp(-abs(dot(N, Pn - P)) / planeTolerance);
+			w *= abs(rn - roughness) < 0.2 ? 1.0 : 0.0;
+			sum += f.rgb * w;
+#ifdef RV_SIGNAL_PAIR
+			sum2 += texelFetch(u_Accumulated2, at, 0).rgb * w;
+#endif
+			weightSum += w;
+		}
+	}
+	if (weightSum > 0.0)
+	{
+		o_Blurred = vec4(sum / weightSum, centre.a);
+#ifdef RV_SIGNAL_PAIR
+		o_Blurred2 = vec4(sum2 / weightSum, centre2.a);
+#endif
+	}
+}

@@ -1,0 +1,13 @@
+Material: metalic shader.001
+BaseColor: [0.55, 0.56, 0.6, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0.9
+Roughness: 0.4
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 17335332257928165549

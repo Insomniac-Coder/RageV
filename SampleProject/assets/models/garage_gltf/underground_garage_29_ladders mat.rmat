@@ -1,0 +1,16 @@
+Material: ladders mat
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 1
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 16410175969424628821
+  Normal: 17489167039532914333
+  Roughness: 10049835014614440822
+  Metallic: 16112807419303036126

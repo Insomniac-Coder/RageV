@@ -178,6 +178,20 @@ namespace RageV
 
 		// What the last SelectLod decided about the skirts.
 		bool SkirtsDrawn() const { return m_SkirtsDrawn; }
+
+		// What the last SelectLod decided and why, for the benchmark's terrain
+		// line (RT-2.1): how many chunks the distance rule alone would have
+		// put at each level, how many of them the ground's veto then held
+		// finer, how many the neighbour cap did, and where they ended up.
+		struct LodReport
+		{
+			uint32_t Chunks = 0;
+			uint32_t ByDistance[kLevels] = {};
+			uint32_t Final[kLevels] = {};
+			uint32_t Vetoed = 0;
+			uint32_t Capped = 0;
+		};
+		const LodReport& GetLodReport() const { return m_LodReport; }
 		// How many of the chunk's selected mesh's indices to draw this frame:
 		// all of them, or the surface alone while the camera is under the
 		// ground. The shadow pass and the acceleration structures do not ask
@@ -272,5 +286,9 @@ namespace RageV
 		RHI::Ref<RHI::RHITexture> m_WeightMap;
 		RHI::Ref<LayeredMaterial> m_Layers;
 		bool m_SkirtsDrawn = true;
+		LodReport m_LodReport;
+		// The levels before the neighbour cap, so the report can say how many
+		// chunks it moved; a member so that no frame allocates it.
+		std::vector<int> m_LevelsBeforeCap;
 	};
 }

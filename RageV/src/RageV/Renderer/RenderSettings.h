@@ -198,11 +198,22 @@ namespace RageV
 		float AoRays;
 		float GiRays;
 		float Spread;
-		// **Lamps shaded per pixel on the water** (WR-16 S4). Zero shades
-		// every lamp that reaches the surface, which is what Off means and
-		// what the engine did before S4. This is the single biggest lever in
-		// WR-16: four took Headland from 58.9 to 34.4 ms.
-		int   Lamps;
+		// **Reflection samples a glossy pixel gathers, in eights** (WR-16 R3,
+		// 2026-09-06). Every pixel fires one reflection ray; the resolve then
+		// gathers the neighbours' rays, re-aimed through this pixel's lobe,
+		// and that count is the quality dial: 8 x this many taps (Quality 32,
+		// Off 24, Balanced 16, Performance 8). A tap is about thirteen texture
+		// reads; the resolve is 1.5 ms at 24 taps, 1600x900. The name is the
+		// column's old one (rays per pixel, 2026-09-05), kept because saved
+		// projects carry it. Past ~16 taps on a glossy floor the disc runs out
+		// of texels (it is 10 x 1 texels there) and more taps land on the same
+		// rays -- see R3's table in RENDERING-REVAMP.
+		float MirrorRays;
+		// **Rays per pixel** (the owner's name, RT-1): the lights a pixel chooses
+		// by importance, shades and traces -- one shadow ray each -- on land
+		// (the direct-light signal, RT-first T5) and on the water (WR-16 S4).
+		// Zero shades every light: the reference arm.
+		int   RaysPerPixel;
 		// **At what size the sea's mirror ray is traced** (WR-16 S5): 1 a ray
 		// per pixel inside the water draw, 2 a pass at half the width and
 		// height, 4 a quarter. A smaller pass has one fragment where the
@@ -216,12 +227,12 @@ namespace RageV
 		switch (level)
 		{
 			//                                          shadow thinning                          cutoff  water   refraction    AO    GI  spread  lamps
-			case RayOptimisation::Quality:     return { ShadowRayFalloff::Linear, 300.0f, 600.0f, 0.0f,   0.0f,   2.0f, 1.0f / 256.0f, 8.0f, 4.0f, 3.0f, 8, 2 };
-			case RayOptimisation::Balanced:    return { ShadowRayFalloff::Linear, 150.0f, 300.0f, 0.125f, 0.0f,   2.0f, 1.0f / 256.0f, 6.0f, 3.0f, 3.0f, 4, 2 };
-			case RayOptimisation::Performance: return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   300.0f, 2.0f, 1.0f / 256.0f, 4.0f, 2.0f, 2.0f, 2, 4 };
+			case RayOptimisation::Quality:     return { ShadowRayFalloff::Linear, 300.0f, 600.0f, 0.0f,   0.0f,   2.0f, 1.0f / 256.0f, 8.0f, 4.0f, 3.0f, 4.0f, 8, 2 };
+			case RayOptimisation::Balanced:    return { ShadowRayFalloff::Linear, 150.0f, 300.0f, 0.125f, 0.0f,   2.0f, 1.0f / 256.0f, 6.0f, 3.0f, 3.0f, 2.0f, 4, 2 };
+			case RayOptimisation::Performance: return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   300.0f, 2.0f, 1.0f / 256.0f, 4.0f, 2.0f, 2.0f, 1.0f, 2, 4 };
 			// Off: the reference. Every shadow ray traced, every light its
 			// full range, a ray per pixel on the water and every lamp shaded.
-			default:                           return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   0.0f,   1.0f, 0.0f,          8.0f, 4.0f, 3.0f, 0, 1 };
+			default:                           return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   0.0f,   1.0f, 0.0f,          8.0f, 4.0f, 3.0f, 3.0f, 0, 1 };
 		}
 	}
 
@@ -283,6 +294,20 @@ namespace RageV
 		// motion should lower it -- which is the whole reason this is a number
 		// and not a constant. ENGINE-NOTES 7r.
 		float TemporalFeedback = 0.6f;
+
+		// The feedback for a pixel that did not move at all -- reprojected to
+		// within a few thousandths of a texel of where it was. Such a pixel
+		// cannot ghost: its history is this surface, and the only cost of
+		// keeping more of it is a slower response to a real change of light.
+		// What it buys is the jitter's flicker at edges: at 0.9 every frame
+		// moves a bright edge a tenth of the way to whichever side the
+		// jitter landed on (3.3 levels a frame on the garage's wall edges,
+		// parked, against 1.0 with no anti-aliasing); at 0.98 it is 0.9.
+		// Zero means "the same as TemporalFeedback". Per project because no
+		// signal the resolve reads separates still steel from far water,
+		// whose sparkle changes every frame at a few thousandths of a texel
+		// of motion and smears into bands at 0.98 (the bridge, 2026-09-02).
+		float TemporalStillFeedback = 0.0f;
 
 		// How far the per-frame sub-pixel offset reaches, as a fraction of a
 		// pixel. Ignored by every other mode.
@@ -451,7 +476,7 @@ namespace RageV
 		//
 		// **It lives here because a win that only exists behind a hand-typed
 		// flag does not ship.** Until 2026-09-05 the only way to turn S4 on
-		// was `--light-sampling=4` on a command line: no settings field and no
+		// was `--rays-per-pixel=4` on a command line: no settings field and no
 		// project key, so the editor, a packaged build and bench_night.py all
 		// drew and measured the unsampled frame while the handoff reported the
 		// sampled one. The default stays zero -- turning it on changes every
@@ -460,7 +485,7 @@ namespace RageV
 		// The target scores the candidates: 0 the cheap irradiance S1 measured
 		// unusable on water, 1 the same with the specular lobe's magnitude,
 		// which is what the glitter needs, 2 the exact term.
-		// `--light-sampling=K[,target]` overrides both for one run.
+		// `--rays-per-pixel=K[,target]` overrides both for one run.
 
 
 		// How far from its share a tile may be moved: the dearest may have this

@@ -1,0 +1,243 @@
+// **The rough surfaces' rays, shared across their neighbourhood.**
+//
+// A wall at roughness 0.5 draws one ray a frame (the trace scales its count
+// by the gloss window) and reflects a wide lobe: the one ray hits the tube
+// or the dark ceiling, and on its own it is a bright dot or nothing. The
+// accumulator then averages that dot over the frames behind it, and under
+// motion the dot's history is looked for at the depth *this* frame's ray
+// went, which is a different depth every frame -- a trail of dots across
+// the wall (measured 2026-09-05, `zoom_noaa.png`). Stochastic screen-space
+// reflections answer this with a resolve: every pixel's rays are also its
+// neighbours', weighed by whether the neighbour is the same reflector, so
+// a 7x7 patch of one-ray pixels is a 49-ray estimate before any frame is
+// averaged with any other. The kernel grows with roughness and is nothing
+// on a mirror, whose single exact ray has nothing to share.
+//
+// The distance the rays travelled (the alpha) is averaged the same way, so
+// the accumulator's image distance is the patch's, not one ray's.
+//
+// RT_Temporal_Reconstruction design (2026-09-06), "spatial denoising",
+// placed before the temporal pass as SSSR places it: less variance in is
+// less history needed.
+#type vertex
+#version 460 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 460 core
+
+#define RV_TRACE_ONLY
+#include "include/pbr_fragment.glsl"
+
+layout(location = 0) in vec2 v_UV;
+
+// ReflectionTrace's estimate: rgb the radiance, a the mean distance its
+// rays travelled, or below zero where nothing is glossy.
+layout(set = 3, binding = 0) uniform sampler2D u_Fresh;
+layout(set = 3, binding = 1) uniform sampler2D u_Depth;
+// The scene's surface: normal (octahedral, zero to one), roughness in b.
+layout(set = 3, binding = 2) uniform sampler2D u_Surface;
+// The trace's second attachment: ray direction (octahedral) and pdf.
+layout(set = 3, binding = 3) uniform sampler2D u_Hit;
+
+layout(push_constant) uniform ReflectionParams
+{
+	mat4 InverseViewProjection;
+	mat4 PreviousViewProjection;
+	// w: one where a texture row runs the other way up from a projected
+	// coordinate. The rest unused here; the block is the accumulator's.
+	vec4 History;
+	// z: the stride between taps, in texels. One for the first pass; two
+	// for the second, which reads the first's output and so reaches twice
+	// as far for the same taps -- the dilated (a-trous) second pass every
+	// SVGF-class denoiser uses to get a wide kernel cheaply.
+	vec4 Probe;
+} u_Reflection;
+
+layout(location = 0) out vec4 o_Resolved;
+
+// The widest the kernel gets, in texels each way, at the rough end of the
+// gloss window.
+// The resolve is a ratio estimator over the neighbours' hit points
+// (Stachowiak, "Stochastic Screen-Space Reflections", SIGGRAPH 2015; the
+// same shape in Frostbite's and Unreal's SSR). A neighbour's ray found a
+// point X in the scene; seen from THIS texel, X lies in some direction
+// inside or outside this texel's lobe, and its radiance is a sample of the
+// lobe's integral with weight lobe(here, towards X) / pdf(the neighbour's
+// draw). Averaging neighbours' radiances outright (the footprint kernel
+// tried on 2026-09-06) estimates the picture seen from the neighbours'
+// points -- a parallax blur on top of the lobe's own, measured at a
+// doubled band edge -- and brightens dark floor through the tonemap. The
+// re-aim removes both: a band is as wide as the lobe and no wider, and a
+// puddle texel with a narrow lobe among rough neighbours keeps only the
+// hits that fall inside it.
+//
+// Taps: a Vogel spiral scaled to the lobe's footprint on the surface,
+// per axis in texels (a floor is foreshortened), rotated per texel and
+// frame so the pattern's own noise averages away in the accumulator.
+// Taps per texel: the preset's MirrorRays column, in eights (WR-16 R3) --
+// Quality 32, Off 24, Balanced 16, Performance 8. Read in main.
+const int kMaxTaps = 64;
+// The lobe's reach as a tangent per unit of GGX alpha: three quarters of
+// the energy sits inside tan = 2.8 alpha. The weights handle the rest.
+const float kLobeWidth = 2.8;
+// The disc is a fifth of that. A neighbour's sample is the scene seen from
+// the neighbour's point; averaging over a disc blurs the picture by the
+// disc's size over the lobe's, squared -- a disc the size of the lobe
+// (2026-09-06, first two attempts) doubled the bands' edges and rounded
+// them into blobs; a fifth costs four percent and still gathers 24
+// independent rays. The lobe-ratio weight below cannot help here: on a
+// flat floor every neighbour's lobe is this one's, the ratio is one, and
+// the estimator is a plain average of whatever the disc holds.
+const float kReuseFraction = 0.2;
+const int kMaxReach = 24;
+// The weight is this lobe's density at the re-aimed direction over the
+// neighbour's draw: one between equals, more where the neighbour's lobe is
+// the wider (its draw was the less likely here), capped so a tail draw
+// cannot become a firefly.
+const float kMaxWeight = 4.0;
+
+bool SurfaceAt(ivec2 texel, ivec2 size, out vec3 P, out vec3 N, out float roughness)
+{
+	const vec4 surface = texelFetch(u_Surface, texel, 0);
+	const float depth = texelFetch(u_Depth, texel, 0).r;
+	if (surface.b <= 0.0 || depth >= 1.0)
+		return false;
+	const vec2 uv = (vec2(texel) + 0.5) / vec2(size);
+	const float row = u_Reflection.History.w > 0.5 ? 1.0 - uv.y : uv.y;
+	const vec4 clip = u_Reflection.InverseViewProjection
+					* vec4(uv.x * 2.0 - 1.0, row * 2.0 - 1.0, depth, 1.0);
+	P = clip.xyz / clip.w;
+	N = OctDecode(surface.rg);
+	roughness = clamp(surface.b, 0.0, 1.0);
+	return true;
+}
+
+float Rotation(ivec2 texel)
+{
+	// Interleaved gradient noise, advanced by the frame.
+	const vec2 f = vec2(texel) + 5.588238 * float(int(u_Scene.GlobalIllumination.y) & 63);
+	return 6.2831853 * fract(52.9829189 * fract(0.06711056 * f.x + 0.00583715 * f.y));
+}
+
+void main()
+{
+	const ivec2 texel = ivec2(gl_FragCoord.xy);
+	const ivec2 size = textureSize(u_Fresh, 0);
+	const vec4 fresh = texelFetch(u_Fresh, texel, 0);
+	o_Resolved = fresh;
+	if (fresh.a < 0.0)
+		return;
+
+	vec3 P, N;
+	float roughness;
+	if (!SurfaceAt(texel, size, P, N, roughness))
+		return;
+	const float alpha = roughness * roughness;
+	if (alpha < 1.0e-4)
+		return;   // a mirror: its one ray is the whole lobe
+	const vec3 V = normalize(u_Scene.CameraPosition.xyz - P);
+	const float NoV = max(dot(N, V), 1.0e-3);
+
+	// The footprint in texels per axis: a lobe of half-width tan reaches a
+	// hit at distance H over a disc of radius H * tan on the surface; a
+	// texel's size in metres is measured from its neighbours, the smaller
+	// of each side so an edge's far neighbour cannot inflate it.
+	const float eyeDistance = length(P - u_Scene.CameraPosition.xyz);
+	// The hit distance that sizes the disc is the 3x3 minimum (ReBLUR): a
+	// texel's own ray landed on the tube or the wall behind it by chance,
+	// and the wall's wide disc would drag the tube's band across it.
+	float hitDistance = max(fresh.a, 0.0);
+	for (int y = -1; y <= 1; ++y)
+		for (int x = -1; x <= 1; ++x)
+		{
+			const float d = texelFetch(u_Fresh, clamp(texel + ivec2(x, y), ivec2(0), size - 1), 0).a;
+			if (d >= 0.0)
+				hitDistance = min(hitDistance, d);
+		}
+	const float footprint = hitDistance * kLobeWidth * alpha * kReuseFraction;
+	vec2 texelSize = vec2(eyeDistance * 0.0015);
+	{
+		vec3 Pn, Nn;
+		float rn;
+		float best = 1e9;
+		if (SurfaceAt(clamp(texel + ivec2(1, 0), ivec2(0), size - 1), size, Pn, Nn, rn)) best = min(best, length(Pn - P));
+		if (SurfaceAt(clamp(texel - ivec2(1, 0), ivec2(0), size - 1), size, Pn, Nn, rn)) best = min(best, length(Pn - P));
+		if (best < 1e8) texelSize.x = max(best, eyeDistance * 0.0002);
+		best = 1e9;
+		if (SurfaceAt(clamp(texel + ivec2(0, 1), ivec2(0), size - 1), size, Pn, Nn, rn)) best = min(best, length(Pn - P));
+		if (SurfaceAt(clamp(texel - ivec2(0, 1), ivec2(0), size - 1), size, Pn, Nn, rn)) best = min(best, length(Pn - P));
+		if (best < 1e8) texelSize.y = max(best, eyeDistance * 0.0002);
+	}
+	const vec2 reach = min(footprint / texelSize, vec2(float(kMaxReach)));
+	if (max(reach.x, reach.y) < 0.5)
+		return;
+	const float planeTolerance = 0.02 + 0.01 * eyeDistance;
+	const float rotation = Rotation(texel);
+
+	const int taps = min(clamp(int(u_Scene.Indirect.w + 0.5), 1, 8) * 8, kMaxTaps);
+
+	vec3 sum = vec3(0.0);
+	float distanceSum = 0.0;
+	float weightSum = 0.0;
+	for (int i = -1; i < taps; ++i)
+	{
+		ivec2 at = texel;
+		float r = 0.0;
+		if (i >= 0)
+		{
+			r = sqrt((float(i) + 0.5) / float(taps));
+			const float theta = float(i) * 2.39996323 + rotation;
+			at = clamp(texel + ivec2(round(reach * r * vec2(cos(theta), sin(theta)))), ivec2(0), size - 1);
+			if (at == texel)
+				continue;
+		}
+		const vec4 f = texelFetch(u_Fresh, at, 0);
+		if (f.a < 0.0)
+			continue;
+		vec3 Pn, Nn;
+		float rn;
+		if (!SurfaceAt(at, size, Pn, Nn, rn))
+			continue;
+		if (dot(N, Nn) < 0.9 || abs(dot(N, Pn - P)) > planeTolerance)
+			continue;
+		const vec4 h = texelFetch(u_Hit, at, 0);
+		const vec3 X = Pn + OctDecode(h.xy) * f.a;
+		const vec3 toX = X - P;
+		const float distanceHere = max(length(toX), 1.0e-3);
+		const vec3 L = toX / distanceHere;
+		if (dot(N, L) <= 0.0)
+			continue;
+		const vec3 H = normalize(L + V);
+		// BRDF cos / pdf with the Fresnel and the Smith terms dropped: they
+		// are the same for every tap to within the ratio's normalisation.
+		// The pdf's own NoH / 4VoH is kept in the neighbour's frame, as the
+		// trace wrote it; the solid-angle change of the re-aim (a distance
+		// ratio squared) is ignored, as the shipped resolves ignore it.
+		// Both densities at the SAME direction, the re-aimed one: this lobe's,
+		// and the neighbour's as if it had drawn it (its own normal, roughness
+		// and view). Equal lobes give exactly one whatever the parallax. The
+		// draw's own pdf at its own direction (h.z, v8) put the parallax shift
+		// into the ratio as noise and a dark bias; it is kept in the
+		// attachment for the day the estimator needs it.
+		const vec3 Vn = normalize(u_Scene.CameraPosition.xyz - Pn);
+		const vec3 Hn = normalize(L + Vn);
+		const float pdfHere = DistributionGGX(N, H, roughness) * max(dot(N, H), 1.0e-4)
+							/ (4.0 * max(dot(V, H), 1.0e-4));
+		const float pdfTheirs = DistributionGGX(Nn, Hn, rn) * max(dot(Nn, Hn), 1.0e-4)
+							  / (4.0 * max(dot(Vn, Hn), 1.0e-4));
+		const float w = min(pdfHere / max(pdfTheirs, 1.0e-4), kMaxWeight) * exp(-2.0 * r * r);
+		sum += f.rgb * w;
+		distanceSum += distanceHere * w;
+		weightSum += w;
+	}
+	if (weightSum > 0.0)
+		o_Resolved = vec4(sum / weightSum, distanceSum / weightSum);
+}

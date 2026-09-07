@@ -1,0 +1,16 @@
+Material: concrete.006
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 12640065353244372851
+  Normal: 12640065353244372851
+  Roughness: 9560932107674483687
+  Metallic: 9083434654723617515

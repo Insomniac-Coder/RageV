@@ -1,0 +1,13 @@
+Material: Material.014
+BaseColor: [0.52, 0.54, 0.58, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 0.9
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [11, 13]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 17921698546520040763

@@ -333,6 +333,12 @@ namespace RageV
 		// aspect is not serialized: it belongs to the surface being drawn into,
 		// not to the scene.
 		void OnRenderRuntime(float aspectRatio = 0.0f);
+		// The lit half of a frame drawn under the G-buffer pass (RT-first
+		// step 1a, docs/RT-FIRST.md): the meshes' lighting, then everything
+		// OnRender draws after its meshes -- sky, grid, world text, icons,
+		// particles -- which OnRender stashed instead of drawing. Called by
+		// the frame graph's "Scene" pass; a no-op when nothing was stashed.
+		void OnRenderLit();
 		// Draws through the viewport's own camera, which needs no entity.
 		//
 		// `grid` draws the editor's ground plane after the sky. Passed in rather
@@ -874,6 +880,11 @@ namespace RageV
 		// scene, and the scene reflects a probe -- without this the second
 		// probe in a scene would capture the first one's reflection of it, and
 		// a probe would capture itself.
+		// What OnRender draws after its meshes, as one function so the lit
+		// pass can draw it later (RT-first step 1a).
+		void RenderTail(const Camera& camera, const Mat4& cameraTransform,
+						const RHI::Ref<RHI::RHITexture>& sky, Vec2 jitter,
+						const ViewportGridSettings* grid, const EditorIconSettings* icons);
 		bool m_CapturingProbes = false;
 
 		// This frame's delta, remembered by whichever update ran, for the

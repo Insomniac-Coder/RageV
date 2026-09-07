@@ -407,6 +407,13 @@ namespace RageV::RHI
 		AlphaBlend,    // src.a, 1-src.a
 		Additive,      // one, one
 		PremultipliedAlpha,
+		// AlphaBlend for the colour, and the destination's alpha attenuated
+		// by the source's coverage rather than replaced: what was drawn
+		// underneath keeps saying how much of it is there. The transparent
+		// resolve draws with it, because the scene's alpha is the traced
+		// reflection's weight (reflection_composite.rvshader) and a pane of
+		// glass over a wet floor covers that reflection by its opacity.
+		AlphaBlendUnder,   // colour src.a, 1-src.a; alpha zero, 1-src.a
 
 		// The two halves of weighted-blended order-independent transparency.
 		// They are always used together, on two attachments of one draw, which

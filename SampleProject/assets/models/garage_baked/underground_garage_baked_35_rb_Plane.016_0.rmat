@@ -1,0 +1,15 @@
+Material: rb_Plane.016_0
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 8690351031045289958
+  Roughness: 15249774801638679424
+  Metallic: 17401368756862958916

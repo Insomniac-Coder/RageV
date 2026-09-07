@@ -1,0 +1,16 @@
+Material: pbr_ladder_4_copy_0
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 1
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 9787137902382672040
+  Normal: 13086547136367428997
+  Roughness: 4119999052116719606
+  Metallic: 15556950545673065968

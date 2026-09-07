@@ -81,6 +81,10 @@ namespace RageV
 		struct ScreenReflections
 		{
 			RHI::Ref<RHI::RHITexture> Texture;
+			// The traced form's second attachment: the reflector under each
+			// texel of Texture, which the lit shader tests a fragment against
+			// before taking the picture. Null for the screen-space trace.
+			RHI::Ref<RHI::RHITexture> Surface;
 			float Intensity = 0.0f;
 		};
 		static void SetScreenReflections(const ScreenReflections* reflections);
@@ -128,6 +132,12 @@ namespace RageV
 		// lit fragment -- as how glossy a surface has to be to earn one.
 		static void SetReflectionGloss(const Vec2& window);
 		static Vec2 GetReflectionGloss();
+		// How many rays a glossy pixel draws from its roughness lobe for the
+		// traced reflection (the preset's MirrorRays). The average the tile
+		// allocator will scale once the mirror lane exists (RAY-BUDGET-DESIGN
+		// Part III 4.3.4, lane B.g); until then, the count itself.
+		static void SetMirrorRays(int rays);
+		static int GetMirrorRays();
 
 		// --- the ray budget ------------------------------------------------
 		//
@@ -244,7 +254,9 @@ namespace RageV
 									 uint32_t samples = 1,
 									 RHI::Format velocity = RHI::Format::Undefined,
 									 RHI::Format normal = RHI::Format::Undefined,
-									 RHI::Format indirect = RHI::Format::Undefined);
+									 RHI::Format indirect = RHI::Format::Undefined,
+									 RHI::Format albedo = RHI::Format::Undefined,
+									 RHI::Format surfaceId = RHI::Format::Undefined);
 
 		// What the last SetTargetFormats said. Anything that renders the scene
 		// into a target of its own -- a reflection probe face -- has to match

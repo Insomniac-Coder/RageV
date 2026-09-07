@@ -23,6 +23,11 @@ namespace RageV
 	{
 		Mat4 ViewProjection{ 1.0f };
 		Vec2 Jitter{ 0.0f, 0.0f };
+		// RT-6.3: where the eye was. The reflection accumulator needs it to
+		// rebuild last frame's reflection direction -- the one thing that
+		// changes on a mirror the camera orbits while every surface test it
+		// has says nothing has changed at all.
+		Vec4 Eye{ 0.0f, 0.0f, 0.0f, 0.0f };
 	};
 
 	// Somewhere for a temporal filter to keep last frame's result.
@@ -71,9 +76,14 @@ namespace RageV
 		// to get out of step.
 		//
 		// Undefined means one attachment, exactly as before.
+		// **And a third**, for the reflection accumulator, which remembers the
+		// reflector under each texel (normal, plane, image distance) and what
+		// it learned about it (roughness, moments, which history it took).
 		void Prepare(RHI::RHIDevice& device, uint32_t width, uint32_t height,
 					 RHI::Format format, const char* name = "TemporalHistory",
-					 RHI::Format secondFormat = RHI::Format::Undefined);
+					 RHI::Format secondFormat = RHI::Format::Undefined,
+					 RHI::Format thirdFormat = RHI::Format::Undefined,
+					 RHI::Format fourthFormat = RHI::Format::Undefined);
 
 		// This frame's output, and last frame's. Null before Prepare.
 		const RHI::Ref<RHI::RHIRenderTarget>& Current() const  { return m_Targets[m_Cursor]; }
@@ -116,6 +126,8 @@ namespace RageV
 		// silently keeping the old one would leave a pass writing an
 		// attachment that does not exist.
 		RHI::Format m_SecondFormat = RHI::Format::Undefined;
+		RHI::Format m_ThirdFormat = RHI::Format::Undefined;
+		RHI::Format m_FourthFormat = RHI::Format::Undefined;   // the pair kind's twin (RT-first T5)
 		bool m_Valid = false;
 	};
 }

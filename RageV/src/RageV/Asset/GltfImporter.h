@@ -47,6 +47,15 @@ namespace RageV::Assets
 		int BaseColorTexture = -1;
 		int NormalTexture = -1;
 		int MetallicRoughnessTexture = -1;
+
+		// **FBX ships roughness and metalness as two images**, where glTF packs
+		// them into one and the loader splits it back apart. These are those
+		// two. A format that states them separately says so here rather than
+		// being packed and unpacked again for the other format's convention --
+		// and the engine samples them separately anyway, so the packed slot
+		// above is glTF's special case rather than the general one.
+		int RoughnessTexture = -1;
+		int MetallicTexture = -1;
 		int OcclusionTexture = -1;
 		int EmissiveTexture = -1;
 	};

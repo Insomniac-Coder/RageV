@@ -130,7 +130,17 @@ namespace RageV
 									RHI::Format outputFormat,
 									float feedback, bool hasHistory,
 									const RHI::Ref<RHI::RHITexture>& moments,
-									RHI::Format momentsFormat);
+									RHI::Format momentsFormat,
+									Math::Vec2 jitter, float stillFeedback,
+									 // RT-6: the identity lanes, this frame's and last
+									 // frame's. Null on either leaves the resolve on the
+									 // colour box alone, which is what it had before.
+									 const RHI::Ref<RHI::RHITexture>& guideCurrent = nullptr,
+									 const RHI::Ref<RHI::RHITexture>& guidePrevious = nullptr,
+									 // RT-6.2: the G-buffer's normal attachment, whose B and A
+									 // are roughness and metallic. Null leaves the clamp one
+									 // shape for every surface, which is what it was.
+									 const RHI::Ref<RHI::RHITexture>& material = nullptr);
 
 		// Depth of field, in the three passes it takes. On the linear HDR
 		// scene, after the anti-aliasing resolve and before bloom -- see
@@ -395,6 +405,36 @@ namespace RageV
 								  RHI::Format outputFormat,
 								  RHI::Format depthOutputFormat);
 
+		// RT-6: the identity lanes packed into one RGBA32F for next frame's
+		// resolve -- clip depth, the octahedral normal, the signed object id.
+		static void TaaGuide(RHI::RHICommandList& cmd,
+							 const RHI::Ref<RHI::RHITexture>& depth,
+							 const RHI::Ref<RHI::RHITexture>& surface,
+							 const RHI::Ref<RHI::RHITexture>& surfaceId,
+							 RHI::Format outputFormat);
+
+		// RT-3.1: the G-buffer's three guidance lanes onto a signal's own grid,
+		// one whole texel each, never averaged. `divisor` is how many
+		// full-resolution texels there are to a side of the target's.
+		static void GuideDownsample(RHI::RHICommandList& cmd,
+									const RHI::Ref<RHI::RHITexture>& depth,
+									const RHI::Ref<RHI::RHITexture>& surface,
+									const RHI::Ref<RHI::RHITexture>& velocity,
+									uint32_t divisor,
+									RHI::Format depthFormat,
+									RHI::Format surfaceFormat,
+									RHI::Format velocityFormat);
+
+		// RT-3.1: a signal at its own resolution up to the lit pass's, weighted
+		// by each tap's agreement with this pixel's depth. `srcWidth`/`srcHeight`
+		// are the *source* grid the four taps are walked on.
+		static void SignalUpsample(RHI::RHICommandList& cmd,
+							   const RHI::Ref<RHI::RHITexture>& signal,
+							   const RHI::Ref<RHI::RHITexture>& depth,
+							   uint32_t srcWidth, uint32_t srcHeight,
+							   float nearClip, float farClip,
+							   RHI::Format outputFormat);
+
 		static void SsaoApply(RHI::RHICommandList& cmd,
 							  const RHI::Ref<RHI::RHITexture>& scene,
 							  const RHI::Ref<RHI::RHITexture>& occlusion,
@@ -475,6 +515,21 @@ namespace RageV
 		// ramp, and `frameMix` how much of the frame shows through: 0.2 for a
 		// person, 0 for a test that reads the picture as data -- at any other
 		// value a pixel moves when the scene moves.
+		// The traced reflection's accumulated picture, added to the frame
+		// after its temporal filter by the weight the lit shader left in the
+		// frame's alpha (reflection_composite.rvshader).
+		// RT-6.1: with the motion lanes it also writes the velocity the temporal
+		// resolve should reproject each pixel by -- the image's where the pixel is
+		// mostly reflection, the surface's otherwise -- into a second attachment.
+		// Null on either leaves it a single-attachment pass, as it was.
+		static void ReflectionComposite(RHI::RHICommandList& cmd,
+										const RHI::Ref<RHI::RHITexture>& scene,
+										const RHI::Ref<RHI::RHITexture>& reflection,
+										RHI::Format outputFormat,
+										const RHI::Ref<RHI::RHITexture>& reflectionMotion = nullptr,
+										const RHI::Ref<RHI::RHITexture>& velocity = nullptr,
+										RHI::Format motionFormat = RHI::Format::Undefined);
+
 		static void DebugView(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& frame,
 							  const RHI::Ref<RHI::RHITexture>& aux,
 							  const RHI::Ref<RHI::RHIBuffer>& counts,
@@ -534,6 +589,20 @@ namespace RageV
 			WaterBackdropCopy,
 			// WR-16 S0: the heat map of one number per pixel.
 			DebugView,
+			// The traced reflection added after the temporal filter.
+			ReflectionComposite,
+			// RT-3: the traced bounce brought up to the G-buffer's resolution,
+			// joint-bilateral. Since RT-3.1 it runs at the *end* of the chain,
+			// after the contract has filtered the signal at its own resolution.
+			SignalUpsample,
+			// RT-3.1: the G-buffer's depth, normal and velocity lanes downsampled
+			// by selection to a signal's own grid, so the contract's surface tests
+			// stay honest there.
+			GuideDownsample,
+			// RT-6: the G-buffer's depth, normal and id packed into one lane and
+			// kept, so next frame's temporal resolve can ask whether the history
+			// it reprojected to is the same surface.
+			TaaGuide,
 			Count
 		};
 
@@ -578,11 +647,27 @@ namespace RageV
 							 // the pipeline cache key, so the single-attachment
 							 // pipelines every other pass uses are untouched.
 							 RHI::Format secondOutputFormat = RHI::Format::Undefined,
+							 // RT-3.1: a third, for the guidance downsample's three lanes.
+							 RHI::Format thirdOutputFormat = RHI::Format::Undefined,
 							 // Bound at binding 5 when the shader declares it:
 							 // the ray counters for the passes that count (the
 							 // traced occlusion pass, the temporal resolve) and
 							 // the per-pixel debug counts for the debug view
 							 // (WR-16 S0). A storage buffer either way.
-							 const RHI::Ref<RHI::RHIBuffer>& counters = nullptr);
+							 const RHI::Ref<RHI::RHIBuffer>& counters = nullptr,
+							 // **RT-6: bindings 6 and 7.** Four is the acceleration
+							 // structure and five the counters, so the fifth and sixth
+							 // images a pass may want start at six. Only the temporal
+							 // resolve declares them: the identity lanes now and as they
+							 // were last frame.
+							 const RHI::Ref<RHI::RHITexture>& fifth = nullptr,
+							 Sampling fifthSampling = Sampling::Point,
+							 const RHI::Ref<RHI::RHITexture>& sixth = nullptr,
+							 Sampling sixthSampling = Sampling::Point,
+							 // RT-6.2: binding 8. The temporal resolve's material lane --
+							 // the G-buffer's normal attachment, whose B and A are the
+							 // roughness and the metallic the clamp is shaped by.
+							 const RHI::Ref<RHI::RHITexture>& seventh = nullptr,
+							 Sampling seventhSampling = Sampling::Point);
 	};
 }

@@ -28,11 +28,37 @@ namespace RageV
 		// state, which is easier to diagnose from here than from the picture.
 		static bool IsReady();
 
+		// The G-buffer pass (RT-first step 1a, docs/RT-FIRST.md): available
+		// once its shader variant compiled; active when the frame graph has
+		// given it a pass of its own, in which case EndScene draws only the
+		// G-buffer and DrawLit, from the pass that follows, draws the lighting.
+		static bool GBufferPassAvailable();
+		static void SetGBufferPassActive(bool active);
+		static bool IsGBufferPassActive();
+		// RT-first T5: whether the DirectTrace pass runs this frame, told to
+		// the scene block (RayRates.w bit 22) before BeginScene fills it.
+		static void SetDirectSignal(bool requested);
+		// RT-2: whether the occlusion signal runs this frame (RayRates.w bit 23),
+		// and the texture the lit draw reads it from.
+		static void SetAoSignal(bool requested);
+		static void SetScreenOcclusion(const RHI::Ref<RHI::RHITexture>& occlusion);
+		// RT-3: whether the traced bounce is *this* frame's signal rather than
+		// last frame's history (RayRates.w bit 24), and the texture the lit draw
+		// reads it from. Under the signal the GI trace runs between the G-buffer
+		// and the lit pass and the lit shader fetches by texel; with it off the
+		// one-frame-late buffer of 7av is read through the reprojection, which is
+		// the reference arm and the only path the screen-space forms can take.
+		static void SetGiSignal(bool requested);
+		static void SetScreenIndirectSignal(const RHI::Ref<RHI::RHITexture>& indirect);
+		static void DrawLit();
+
 		static void SetTargetFormats(RHI::Format color, RHI::Format depth,
 									 uint32_t samples = 1,
 									 RHI::Format velocity = RHI::Format::Undefined,
 									 RHI::Format normal = RHI::Format::Undefined,
-									 RHI::Format indirect = RHI::Format::Undefined);
+									 RHI::Format indirect = RHI::Format::Undefined,
+									 RHI::Format albedo = RHI::Format::Undefined,
+									 RHI::Format surfaceId = RHI::Format::Undefined);
 		// At most this many emissive rectangles reach the shader. Past the cap
 		// the bounce falls back to finding *those* emitters by hemisphere
 		// sampling -- noisier, and still correct, which is the right way
@@ -244,6 +270,80 @@ namespace RageV
 										 const RHI::Ref<RHI::RHITexture>& position,
 										 float downscale);
 
+		// The opaque surfaces' glossy reflection in a pass of its own, and the
+		// pass that averages it over frames; the lit shader composites the result
+		// through the screen-reflection hook a frame late (reflection_trace.rvshader).
+		static void TraceReflections(const RHI::Ref<RHI::RHITexture>& surface,
+									 const RHI::Ref<RHI::RHITexture>& depth,
+									 const RHI::Ref<RHI::RHITexture>& budget,
+									 float giAverage);
+		// The rough surfaces' rays shared across their neighbourhood before
+		// any frame is averaged (reflection_resolve.rvshader).
+		static void ResolveReflections(const RHI::Ref<RHI::RHITexture>& fresh,
+									   const RHI::Ref<RHI::RHITexture>& hit,
+									   const RHI::Ref<RHI::RHITexture>& depth,
+									   const RHI::Ref<RHI::RHITexture>& surface);
+		// **The reconstruction contract (RT-first T4, docs/RT-FIRST.md).** One
+		// temporal accumulator and one young-history blur for every stochastic
+		// signal, in two kinds: Specular reprojects by the surface and by the
+		// virtual image and bounds its blur by the lobe; Diffuse reprojects by
+		// the surface alone and bounds its blur by a radius. Each signal owns
+		// a TemporalHistory of three attachments (picture + frames, reflector
+		// normal/plane/image distance, roughness + moments + choice/refusal)
+		// and a slot for its resource sets. The numbers are what the
+		// reflections were tuned to over 2026-09-05/06; other signals start
+		// from ReflectionSignal() and change what they measure.
+		struct SignalParams
+		{
+			enum class Kind { Specular, Diffuse };
+			Kind Type = Kind::Specular;
+			int Slot = 0;                  // 0 reflections, 1 shadows, 2 occlusion, 3 irradiance
+			float Memory = 64.0f;          // frames kept standing still
+			float Fewest = 4.0f;           // the floor for a rough surface (a mirror keeps 1)
+			float Slack = 1.0f;            // texels of travel per frame that halve the memory
+			float BoundWidth = 3.0f;       // the history bound, in neighbourhood spreads, on a rough surface
+			float SmearTexels = 6.0f;      // the average may span this much travel
+			float MovingMemory = 8.0f;     // and never fewer frames than this while moving
+			float SilhouetteMemory = 4.0f; // the floor at a silhouette whose other side moves
+			float YoungRadius = 12.0f;     // the blur at one frame of history, texels
+			float BlurFrames = 32.0f;      // gone by this many frames
+			float YoungOverreach = 1.5f;   // Specular: how far past the lobe while young
+			float MaxRadius = 8.0f;        // Diffuse: the radius bound, texels
+			float PairMemory = 0.0f;       // Pair: the twin's own memory in frames; zero shares the first payload's
+		};
+		static SignalParams ReflectionSignal();
+		// RT-first T5: the direct light's tuning -- a diffuse-kind signal in
+		// slot 1 whose two payloads (diffuse before the albedo, specular
+		// complete) share one history.
+		static SignalParams DirectSignal();
+		// RT-2: the occlusion signal's tuning -- a diffuse-kind scalar in slot 2,
+		// low-frequency enough to keep a young blur.
+		static SignalParams AoSignal();
+		// RT-3: the traced bounce's tuning -- a diffuse-kind RGB signal in slot 3.
+		static SignalParams GiSignal();
+
+		// The accumulated picture blurred by how few frames stand behind each
+		// pixel (reflection_blur.rvshader), for the composite to read.
+		static void BlurSignal(const SignalParams& signal,
+							   const RHI::Ref<RHI::RHITexture>& accumulated,
+							   const RHI::Ref<RHI::RHITexture>& depth,
+							   const RHI::Ref<RHI::RHITexture>& surface,
+							   const RHI::Ref<RHI::RHITexture>& imageDistance,
+							   int stride,
+							   const RHI::Ref<RHI::RHITexture>& accumulated2 = nullptr);
+
+		static void AccumulateSignal(const SignalParams& signal,
+									 const RHI::Ref<RHI::RHITexture>& fresh,
+									 const RHI::Ref<RHI::RHITexture>& depth,
+									 const RHI::Ref<RHI::RHITexture>& surface,
+									 const RHI::Ref<RHI::RHITexture>& previous,
+									 const RHI::Ref<RHI::RHITexture>& previousSurface,
+									 const RHI::Ref<RHI::RHITexture>& previousExtra,
+									 const RHI::Ref<RHI::RHITexture>& velocity,
+									 CameraMotion& motion, bool hasHistory,
+									 const RHI::Ref<RHI::RHITexture>& fresh2 = nullptr,
+									 const RHI::Ref<RHI::RHITexture>& previous2 = nullptr);
+
 		static void ShadeWaterLamps(const RHI::Ref<RHI::RHITexture>& surface,
 									const RHI::Ref<RHI::RHITexture>& material,
 									const RHI::Ref<RHI::RHITexture>& position,
@@ -264,6 +364,12 @@ namespace RageV
 
 		static void SetWaterLamps(const RHI::Ref<RHI::RHITexture>& diffuse,
 								  const RHI::Ref<RHI::RHITexture>& specular);
+		// RT-first T5: the direct light for the lit draw -- the DirectTrace
+		// pass's pair (or its accumulated form), added by the lit shader where
+		// its loop used to trace. Set by the "Scene" pass before the lit draw
+		// and cleared after; committed onto the lit sets in DrawLit.
+		static void SetDirectLight(const RHI::Ref<RHI::RHITexture>& diffuse,
+								   const RHI::Ref<RHI::RHITexture>& specular);
 
 		// Resets the per-frame scene-slot pool. Called by Renderer::BeginFrame.
 		static void BeginFrame();
@@ -523,6 +629,28 @@ namespace RageV
 		static unsigned int GetTriangleCount();
 		static unsigned int GetIndirectDrawCount();
 
+		// The terrain's levels of detail this frame (RT-2.1's measurement):
+		// the chunks drawn at each level with their triangles, and what the
+		// level rule decided -- how many chunks distance alone would have put
+		// at each level, how many the ground's error veto then held finer,
+		// how many the neighbour cap did. Counted by the scene's terrain draw
+		// once per camera view; the pending draws are rasterised by the
+		// G-buffer half and the lit half both, so a chunk here is two draws.
+		static constexpr int kTerrainLevels = 4;
+		struct TerrainStats
+		{
+			uint32_t Chunks = 0;
+			uint32_t Drawn[kTerrainLevels] = {};
+			uint32_t Triangles[kTerrainLevels] = {};
+			uint32_t ByDistance[kTerrainLevels] = {};
+			uint32_t Vetoed = 0;
+			uint32_t Capped = 0;
+		};
+		static void CountTerrainChunk(int level, uint32_t triangles);
+		static void ReportTerrainLod(uint32_t chunks, const uint32_t* byDistance,
+									 uint32_t vetoed, uint32_t capped);
+		static const TerrainStats& GetTerrainStats();
+
 		// The area emitters the traced bounce aims shadow rays at, and how
 		// many of those carry a per-texel aiming table.
 		//
@@ -627,6 +755,17 @@ namespace RageV
 											RHI::Format targetColor,
 											const GiTraceView& view, int rays);
 		static bool CanTraceGlobalIllumination();
+		// RT-first T5: the direct light of every opaque pixel, chosen (K per
+		// pixel; zero shades every light), shaded and traced from the G-buffer
+		// into two pictures (diffuse before the albedo, specular complete).
+		static void TraceDirectLight(RHI::RHICommandList& cmd,
+									 const RHI::Ref<RHI::RHITexture>& depth,
+									 const RHI::Ref<RHI::RHITexture>& surface,
+									 const RHI::Ref<RHI::RHITexture>& albedo,
+									 const RHI::Ref<RHI::RHITexture>& surfaceId,
+									 RHI::Format targetColor,
+									 const GiTraceView& view, int rays);
+		static bool CanTraceDirectLight();
 
 		// Whether the lit pass reads material textures through the bindless
 		// heap this session (ENGINE-NOTES 7al): the device can, and

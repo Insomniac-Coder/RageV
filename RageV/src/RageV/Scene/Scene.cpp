@@ -4794,6 +4794,37 @@ namespace RageV
 		}
 	}
 
+	namespace
+	{
+		// What OnRender stashes under the G-buffer pass for OnRenderLit
+		// (RT-first step 1a). One scene draws at a time; the owner says whose.
+		struct LitTail
+		{
+			Scene* Owner = nullptr;
+			Camera View;
+			Mat4 CameraTransform;
+			RHI::Ref<RHI::RHITexture> Sky;
+			Vec2 Jitter{ 0.0f, 0.0f };
+			bool HasGrid = false;
+			ViewportGridSettings Grid;
+			bool HasIcons = false;
+			EditorIconSettings Icons;
+		};
+		LitTail g_LitTail;
+	}
+
+	void Scene::OnRenderLit()
+	{
+		Renderer3D::DrawLit();
+		if (g_LitTail.Owner != this)
+			return;
+		g_LitTail.Owner = nullptr;
+		RenderTail(g_LitTail.View, g_LitTail.CameraTransform, g_LitTail.Sky, g_LitTail.Jitter,
+				   g_LitTail.HasGrid ? &g_LitTail.Grid : nullptr,
+				   g_LitTail.HasIcons ? &g_LitTail.Icons : nullptr);
+		g_LitTail.Sky = nullptr;
+	}
+
 	void Scene::OnRender(const Camera& viewCamera, const Mat4& cameraTransform,
 						 const ViewportGridSettings* grid,
 						 const EditorIconSettings* icons)
@@ -5174,7 +5205,16 @@ namespace RageV
 													ProbeSlotFor(centre), component.Static,
 													terrain.DrawIndexCount(chunk),
 													&transform.PreviousWorld);
+						Renderer3D::CountTerrainChunk(chunk.Level, terrain.DrawIndexCount(chunk) / 3);
 					}
+
+					// The benchmark's terrain line (RT-2.1): what the level
+					// rule decided for this camera, beside what was drawn.
+					static_assert(Terrain::kLevels == Renderer3D::kTerrainLevels,
+								  "the terrain's level count and the renderer's stats disagree");
+					const Terrain::LodReport& report = terrain.GetLodReport();
+					Renderer3D::ReportTerrainLod(report.Chunks, report.ByDistance,
+												 report.Vetoed, report.Capped);
 				});
 			}
 
@@ -5245,6 +5285,29 @@ namespace RageV
 			Renderer3D::EndScene();
 
 		}
+		// Under the G-buffer pass (RT-first step 1a) the meshes above wrote
+		// the G-buffer and their lighting waits for the "Scene" pass; so does
+		// everything below, which OnRenderLit draws there from this stash.
+		if (Renderer3D::IsGBufferPassActive())
+		{
+			g_LitTail.Owner = this;
+			g_LitTail.View = camera;
+			g_LitTail.CameraTransform = cameraTransform;
+			g_LitTail.Sky = sky;
+			g_LitTail.Jitter = jitter;
+			g_LitTail.HasGrid = grid != nullptr;
+			if (grid) g_LitTail.Grid = *grid;
+			g_LitTail.HasIcons = icons != nullptr;
+			if (icons) g_LitTail.Icons = *icons;
+			return;
+		}
+		RenderTail(camera, cameraTransform, sky, jitter, grid, icons);
+	}
+
+	void Scene::RenderTail(const Camera& camera, const Mat4& cameraTransform,
+						   const RHI::Ref<RHI::RHITexture>& sky, Vec2 jitter,
+						   const ViewportGridSettings* grid, const EditorIconSettings* icons)
+	{
 
 		// After the meshes. The depth test is what keeps the sky out of the
 		// pixels the scene already covers, and it has nothing to test against

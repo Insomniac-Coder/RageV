@@ -1,0 +1,16 @@
+Material: pbr_Plane.003_0
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 15032798341216061321
+  Normal: 12769443563278030942
+  Roughness: 4084524819903229706
+  Metallic: 13103842297893131626

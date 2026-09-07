@@ -38,6 +38,8 @@
 //   --raytracing=on|off     override the project's ray tracing checkbox (on
 //                           falls back to shadow maps on a device without ray
 //                           queries)
+//   --reflection-pass=on|off the traced glossy reflection as a pass with an
+//                           accumulator (on) or in-line in the lit shader (off)
 //   --rt-reflections=on|off override the ray-traced reflections option (needs
 //                           ray tracing on and bindless materials)
 //   --rt-ao=on|off          override the ray-traced ambient occlusion option
@@ -87,28 +89,17 @@
 //   --casting-lights=N      measurement only: under rays, only the first N
 //                           positional lights keep a shadow ray; the rest
 //                           light without one (WR-16 S0's light-count sweep)
-//   --light-sampling=K[,target]  WR-16 S4: a live surface with more lamps
-//                           reaching it than K scores them cheaply, keeps K
-//                           by weighted reservoir sampling, and shades and
-//                           traces only those -- the unbiased estimate S1
-//                           measured. target is 'term' (the default: the
-//                           unshadowed term's luminance, the water's own lobe
-//                           with its Fresnel and masking) or 'irradiance'
-//                           (S1's cheap target, kept as the arm it lost as).
-//   --shade-lights=N        measurement only (WR-16 S4's sizing): a fragment
-//                           or a traced hit shades at most N positional
-//                           lamps and skips the rest where the eighty-byte
-//                           read begins -- the cheap sixteen-byte walk stays,
-//                           as a sampler's would. The picture is wrong on
-//                           purpose; the frame time bounds what choosing a
-//                           few lamps per pixel can win.
-//   --shadow-budget=K[,full] measurement only (WR-16 S1): each pixel traces
-//                           K shadow rays in all, to K lamps chosen by
-//                           importance from its cluster list, and takes the
-//                           lamps' light through the unbiased sampling
-//                           weights; 1, 2, 4 or 8. Replaces the thinning.
-//                           ",full" weighs candidates by their whole
-//                           unshadowed term instead of the cheap irradiance.
+//   --rays-per-pixel=K[,target]  the lights a pixel chooses by importance,
+//                           shades and traces (one shadow ray each), on land
+//                           (the direct-light signal) and on the water (WR-16
+//                           S4); zero shades every light -- the reference arm.
+//                           target is 'term' (the default: the unshadowed
+//                           term's luminance) or 'irradiance' (S1's cheap
+//                           target). --light-sampling is the old name, still
+//                           read.
+//   --terrain-lod-error=R    the terrain's LOD veto: the error a chunk may
+//                           carry as a fraction of its distance (0 = the
+//                           engine's 0.0003). A measurement flag (RT-2.1).
 //   --debug-view=rays|lights|confidence|importance|importance-gi
 //                           replace the picture with a heat map: rays cast
 //                           per pixel, lights walked per pixel, the temporal
@@ -316,18 +307,6 @@ namespace RageV
 		// first N positional lights keep their shadow ray. Negative -- the
 		// default -- leaves every light as authored.
 		int   CastingLights = -1;
-		// --shadow-budget=K: a measurement (WR-16 S1, the fixed-budget
-		// pre-check). Under rays each pixel traces K shadow rays in all, to K
-		// lamps chosen by weighted reservoir sampling on a cheap importance
-		// (unshadowed irradiance), and takes the lamps' light through the
-		// importance-sampling weights -- unbiased, and as noisy as K allows.
-		// Zero, the default, leaves the per-light rays and the thinning as
-		// they are. Carried to the shader in RayRates.w, K in the low four
-		// bits and the target above them: `--shadow-budget=K,full` weighs the
-		// candidates by their whole unshadowed term instead of the cheap
-		// irradiance -- the S4 design question the water's glitter forces.
-		int   ShadowBudget = 0;
-		bool  ShadowBudgetFullTarget = false;
 
 		// --tile-dead-band=<rays> and --tile-dwell=<frames>: WR-16 S3's two
 		// stillness levers, overridden for one run so the sixty-second still
@@ -346,38 +325,19 @@ namespace RageV
 		bool  HasTileSmoothOverride = false;
 		float TileSmoothOverride = 1.0f;
 
-		// --shade-lights=N: a measurement (WR-16 S4's sizing, 2026-09-04).
-		// A fragment or a traced hit walks every lamp's sixteen-byte cull
-		// record as it does today -- as S4's sampler would, to score
-		// candidates -- but only the first N lamps past that record are read
-		// in full and shaded at all; the rest cost nothing, ray included.
-		//
-		// **Why this and not --casting-lights.** That flag removes the shadow
-		// ray and leaves the shading, which is the half the calibration found
-		// bigger: 77 to 125 lamps evaluated per fragment. S2 made the static
-		// pixels cheap by leaving fully baked lamps to the field, but the
-		// water is live by the standing rule and still shades every lamp that
-		// reaches it. This flag bounds what S4's "shade only the survivors"
-		// can win, which nothing shipped can show. The picture is wrong on
-		// purpose (the lamps past N are simply absent).
-		//
-		// Negative -- the default -- shades every lamp. Carried to the shader
-		// in RayRates.w's bits 8 and up, as N + 1 so that zero means off.
-		int   ShadeLights = -1;
 
-		// --light-sampling=K[,target]: WR-16 S4's sampler. K reservoirs per
-		// pixel over the cell's lamps, scored by the target, and only the K
-		// survivors shaded and traced. Zero -- the default -- leaves every
-		// lamp shaded as it is today. The target: 0 the cheap irradiance S1
-		// measured unusable on the water, 1 the same with the specular lobe's
-		// magnitude added, which is what the water's glitter needs. Carried
-		// in RayRates.w's bits 16-19 and 20-21.
-		// Set only when the flag was given, so `--light-sampling=0` can turn
-		// the sampler OFF for one run against a project that carries it on --
-		// which is the A/B the measurement scripts need.
-		bool  HasLightSamplingOverride = false;
-		int   LightSampling = 0;
-		int   LightSamplingTarget = 1;
+		// --rays-per-pixel=K[,target] (RT-1; --light-sampling is the old name):
+		// the lights a pixel chooses by importance, shades and traces -- on
+		// land in the DirectTrace pass (RT-first T5), on the water in its lamp
+		// passes (WR-16 S4). Zero shades every light. The target: 0 the cheap
+		// irradiance S1 measured unusable on the water, 1 the same with the
+		// specular lobe's magnitude added. Carried in RayRates.w's bits 16-19
+		// and 20-21. Set only when the flag was given, so `--rays-per-pixel=0`
+		// turns the sampling OFF for one run against a project that carries it
+		// on -- the A/B the measurement scripts need.
+		bool  HasRaysPerPixelOverride = false;
+		int   RaysPerPixel = 0;
+		int   RaysPerPixelTarget = 1;
 		// --water-lamp-pass=on|off (WR-16 S4b): whether the sea's lamps are
 		// chosen and shaded in their own two passes, or by the sampler inside
 		// the water shader. The same estimate either way -- the passes add the
@@ -385,6 +345,32 @@ namespace RageV
 		// two arms are what says what that reuse is worth. On by default
 		// wherever --light-sampling asks for lamps at all.
 		bool  WaterLampPass = true;
+		// --direct-signal=on|off (RT-first T5): whether the direct light of
+		// every opaque pixel is chosen, shaded and traced in the DirectTrace
+		// pass from the G-buffer (on, the default) or by the lit shader's own
+		// loop, a ray to every light (off -- the reference arm and the A/B).
+		bool  DirectSignal = true;
+		// --ao-signal=on|off (RT-2): whether the ambient occlusion is computed
+		// from the G-buffer before the lit pass, settled on the contract and
+		// applied to the ambient terms in the lit shader (on, the default), or
+		// multiplied over the shaded frame afterwards as it was (off, the A/B).
+		bool  AoSignal = true;
+		// RT-3: --gi-signal=off puts the traced bounce back on the
+		// one-frame-late buffer and gi_denoise, which is the reference arm.
+		bool  GiSignal = true;
+		// RT-6: --taa-geometry=off puts the temporal resolve back on the
+		// colour box alone, which is the reference arm.
+		bool  TaaGeometry = true;
+		// A measurement dial for the reflection signal's young-history blur,
+		// in texels; negative means the tuning's own value.
+		float ReflectionBlurRadius = -1.0f;
+		// --terrain-lod-error=<ratio>: the terrain's ground veto, the LOD
+		// error a chunk may carry as a fraction of its distance
+		// (Terrain::kLevelErrorRatio when 0, the default). A measurement
+		// flag (RT-2.1): the veto exists for the ray tracer, which traces
+		// level 0 whatever is drawn, so loosening it is a cost experiment
+		// and not a setting.
+		float TerrainLevelError = 0.0f;
 		// --water-lamp-reuse=on|off: whether the lamp passes keep the choice
 		// across frames and read the neighbours', or start from this pixel's
 		// own sweep every frame. Off is the same estimate the sampler inside
@@ -515,7 +501,11 @@ namespace RageV
 		float DebugViewMix = 0.2f;
 
 		enum class DebugViewMode { None, Rays, Lights, Confidence, Importance,
-								   GiImportance };
+								   GiImportance, Reflection, ReflectionImage,
+								   ReflectionChoice, ReflectionPicture,
+								   DirectLight, DirectRefusal, Occlusion,
+							   // RT-3: the settled bounce, and its refusals.
+							   GiLight, GiRefusal };
 		DebugViewMode DebugView = DebugViewMode::None;
 
 		// **--gi-source=baked|realtime.** Which form of indirect light to use,
@@ -593,6 +583,18 @@ namespace RageV
 		// --rt-reflections=on|off and --rt-ao=on|off (ENGINE-NOTES 7ao), for
 		// the checks that render one scene both ways.
 		bool         HasRayReflectionsOverride = false;
+		// --reflection-pass=on|off: the traced glossy reflection in its own pass
+		// with the accumulator behind it (on, the default when traced reflections
+		// are on), or cast in-line by the lit shader as before it existed. A
+		// measurement flag, for A/B at one camera; not a setting.
+		bool         HasReflectionPassOverride = false;
+		bool         ReflectionPassOverride = true;
+		// --reflection-history=on|off: whether the reflection accumulator
+		// reads its previous frame at all. Off, every frame is the pass's
+		// own estimate -- the isolation test the temporal design asks for
+		// first: a smear that survives this is not the history's.
+		bool         HasReflectionHistoryOverride = false;
+		bool         ReflectionHistoryOverride = true;
 		bool         RayReflectionsOverride = false;
 		bool         HasRayAoOverride = false;
 		bool         RayAoOverride = false;

@@ -1,6 +1,961 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-05 (second entry).
+**Read this first.** Updated 2026-09-07 evening, after RT-3 and RT-3.1: **the twelfth entry below is this session's hand-off**, the tenth (2026-09-06) the complete one for the RT-first state (recipes, flags, traps, what is where). `docs/RT-SERIES.md` is the one list with the records of RT-1, RT-2, RT-2.1, RT-3 and RT-3.1. Nothing is committed. **RT-6's geometric half is done** -- the temporal resolve refuses a history by depth, normal and object id, with a neighbour search before it gives up, and the bridge is visibly sharper for it (`build/rt3/taa_car_sidebyside.png`). Its still-feedback half is deferred by the owner to RT-8, because the sea reads zero velocity and nothing in the G-buffer says "water". **Open from the owner and not yet started: improve the denoiser and accumulation, and make the ground reflection less blurry** -- the reflection signal's young blur is `YoungRadius = 12`, and a validated history (RT-6, RT-5) is the precondition for weakening it. The AO look is accepted; the deferred resolve is **RT-2.2**, owner-filed for the end of the series.
+
+## 2026-09-07, evening: RT-3 and RT-3.1 done -- the bounce is a signal of this frame, and both signals now filter at their own resolution -- UNCOMMITTED
+
+**RT-3.1 (owner-directed, after RT-3's cost was reported):** the contract no longer runs at full resolution on a half-resolution signal. A `Guidance downsample` puts the G-buffer's depth, normal and velocity lanes on the signal's grid by selection, the contract runs there, and one joint bilateral `SignalUpsample` ends the chain -- for the occlusion as well as the bounce. **The GI chain 0.891 -> 0.268 ms, the occlusion 0.732 -> 0.258; the garage 16.62 -> 14.97 ms with the signal on and 11.63 -> 11.39 at its own baked setting.** The picture is 0.08-0.12 levels on the garage and the camp; **on the bridge the cables and suspenders darken (signed -0.577 over the cable band, worst 207) because one-to-two-pixel geometry is where half-resolution filtering loses** -- the owner's word is that the cables are a known problem with a flicker of their own, to be dealt with separately, so this is evidence for that work rather than a blocker. Two ideas were measured and rejected: a normal term in the upsample (0.081 -> 0.079 levels for 0.28 ms) and nearest-to-camera guidance selection (0.190 -> 0.299 on the bridge). **The lesson, owner-stated: do not take the easy approach.** RT-3's own first landing upsampled first because it avoided touching code four signals share; that was the smaller diff, not the better design. RT-3.1's full record is in `docs/RT-SERIES.md`.
+
+**Read this, then RT-3's record in `docs/RT-SERIES.md` (it has the audit table, every number and the open items), then the tenth entry below for everything else -- its recipes, flags and traps all still hold.** The owner's instruction this session was "start RT-3". Both builds and both staged shader folders are at the RT-3 state (`cmp` clean on `pbr_fragment.glsl`, `gi_upsample.rvshader`, `gi_denoise.rvshader`, `rtgi_trace.rvshader`); no process left running; no scene copy left in the scenes folder; the probe edits made in the runtime's shader copy were restored and verified with `cmp`.
+
+### What RT-3 did
+
+- **The traced bounce runs between the G-buffer and the lit pass**, is upsampled to the lit pass's grid by a new joint bilateral pass, is settled by the reconstruction contract, and is read by texel at binding 16 -- the same binding the one-frame-late buffer used, with `RayRates.w` **bit 24** saying which of the two is in it. `gi_denoise` and its one frame of latency are gone from the traced path; the screen-space forms keep both, because their gather reads the lit image.
+- **`gi_denoise` audited against the contract's four properties** (the table is in RT-3's record). It loses on three -- it has no surface reprojection, no geometric tests and no motion-capped memory, and its own header admits the colour clamp cannot stand in for them on a near-uniform signal. **It wins on one:** its bound accumulates in a range-compressed space and bounds the fresh sample against its neighbours before building the box. That is written down as an open item for RT-5, not merged blind: it changes what all four signals average.
+- **The picture is unchanged and the reference arm is bit-identical.** Garage 0.098 levels mean, camp 0.079, no structure in either diff image at x8; `--gi-signal=off` reproduces the pre-RT-3 build exactly (0.0000). The bridge and the baked garage build zero signal passes and are untouched (Headland against RT-2.1's still: 0.034 levels).
+- **The cost is +1.06 ms of GI passes on the garage, +0.66 on the camp**, and where it goes is not the trace: the contract's accumulate and three blurs run at *full* resolution on a *half*-resolution signal, so they pay four times the texels they carry information for. Halving them is worth about 0.63 ms and needs the contract taught a scale. **That is a decision waiting on the owner.**
+- **The lag RT-3 removes is not visible in either scene**, and the honest reason is that the whole traced bounce is worth +0.383 levels in the garage and +0.588 in the camp. Measured directly: the reference at frame N is forty times closer to the signal at frame N than at N-1.
+
+### Traps paid this session (the first is the one to read)
+
+- **A signal can be computed every frame and read by nobody, and no comparison of finished frames will say so.** The GI signal's intensity was gated on the *old* buffer's history, so the lit shader's branch never ran. The arms still differed, by a plausible-looking 0.799 levels -- entirely the old chain being switched off. **What caught it: a probe writing a bright constant into every texel of the upsample moved the frame by exactly the same 0.799.** That equality is the test. Do it once per new signal, in the runtime's staged shader copy only, before believing any number: `o_Color = vec4(3.0, 0.0, 0.0, 1.0);` and restore with `cp` + `cmp`.
+- **The contract's alpha is a frame count; `gi_denoise`'s is a validity flag.** Anything moved from the old buffer onto the contract must be re-read: `o_Accumulated = vec4(kept, frames)` runs to 64, and zero means no surface stood there. The lit shader was multiplying the bounce by it. Same class as 7ay's linear-depth-in-alpha.
+- **`SetTexture` with a null texture segfaults** -- no validation message, no `[Vulkan]` line. The moment a "have this" flag can be true before its texture exists, every binding site for it needs the fallback.
+- **A guard marker must not be a substring of anything else in the file.** `if has(s, '16777216')` matched `16777216.0`, a hash divisor used eight times in `pbr_fragment.glsl`, and the patch reported itself already applied. Guard on a whole distinctive line.
+- **`FrameGraphBuilder.cpp` is mixed LF and CRLF within one file** (the debug-view block is LF, the rest CRLF). `tools/scripts/garage/session_2026_09_07/rep.py` tries both and asserts the match count; every patch this session went through it, and it caught two anchors that would otherwise have silently done nothing.
+- **`PostProcess::Shader` has a `static_assert` and a fixed-size array** that must both grow with the enum.
+
+### What changed in code (all uncommitted, on top of the RT-2.1 state)
+
+**New:** `RageVEditor/assets/shaders/gi_upsample.rvshader`. **Changed:** `PostProcess.h/.cpp` (`Shader::GiUpsample` at index 35, the array and assert to 36, `PostProcess::GiUpsample`), `Renderer3D.h/.cpp` (`SetGiSignal`, `SetScreenIndirectSignal`, `GiSignal()` tuning, `GiSignalRequested` as `RayRates.w` bit 24, binding 16 re-committed on the lit sets in `DrawLit`, `haveIndirect` no longer requiring a texture, both binding-16 sites guarded against null), `FrameGraphBuilder.h/.cpp` (`FrameDesc::GiLight`; the `giSignal` gate resolved above the intensity block; the `GI trace` / `GI upsample` / contract chain before the lit pass; the old post-lit chain gated on `!giSignal`; the two debug views and their log names), `include/pbr_fragment.glsl` (the bit-24 branch: `texelFetch` at `gl_FragCoord.xy`, the irradiance taken whole, the count read as validity), `EngineConfig.h/.cpp` (`GiSignal`, `--gi-signal=on|off`, `DebugViewMode::GiLight`/`GiRefusal`, `--debug-view=gi-light|gi-refusal`), `RuntimeLayer.h/.cpp` and `EditorLayer.h/.cpp` (a `TemporalHistory` per view).
+
+**Scripts** (records, not tools to re-run -- `patch_rt3e.py` applied five of its six sections and stopped, and `patch_rt3e2.py` is the sixth): `tools/scripts/garage/session_2026_09_07/{rep,patch_rt3a,patch_rt3b,patch_rt3c,patch_rt3d,patch_rt3e,patch_rt3e2,patch_rt3f,patch_rt3g,patch_rt3h,note_rt3_done,note_rt3_handoff}.py`. Captures and diffs in `build/rt3/`; garage bursts `rt3f_off*`, `rt3f_on*` in `build/garage_burst/`; logs in `build/bin/Release/RageVRuntime/rt3_*.log` and `camp_*.log`.
+
+### The new flags
+
+`--gi-signal=on|off` (the bounce as this frame's signal / the one-frame-late buffer and `gi_denoise`; off is the reference arm), `--debug-view=gi-light` (the settled bounce as the lit shader reads it, ramp 1.0 -- it early-returns and ignores `--debug-view-mix`), `--debug-view=gi-refusal` (why each texel's history was refused, ramp 6.0, the reflections' codes). Both read `currentGi` and draw black with a named warning when the signal is off.
+
+### Last status and the questions put to the owner
+
+**Last status:** RT-3 reported as done; nothing reverted, nothing committed; the garage (baked and forced-realtime), the camp and the bridge all run clean with zero shader errors and no Vulkan messages.
+
+**The questions:**
+1. **The contract's resolution.** It runs at full resolution on a half-resolution signal and its four passes are 0.85 ms of the garage's 0.89 ms GI chain. Running them at half and upsampling last is worth about 0.63 ms but needs the contract taught a scale for its G-buffer lookups -- shared code, four signals. **Take the 0.63 ms, or leave the shared code alone?** (RT-2's occlusion signal made the same trade silently; it is the same lever there.)
+2. **`gi_denoise`'s bound.** Range compression and a firefly bound on the fresh sample are the one thing the old denoiser did better, and a hemisphere estimate wants both. Filed for RT-5, where the bound is the subject. **Confirm that is the right place, or pull it forward?**
+3. **The bounce is worth under 0.6 levels in both test scenes.** That is why RT-3 has no picture to show for itself. It is a question about the scenes or the GI settings rather than about the item -- worth a look, or leave it?
+4. **RT-4 is next on the list** (reflections as an instance of the shared code, traced from the G-buffer). **Green signal?**
+
+## 2026-09-07: RT-2.1 done -- the terrain's cost was the parallax march at mip 0, not the raster -- UNCOMMITTED, halted on the owner's instruction after the report
+
+**Read this, then RT-2.1's record in `docs/RT-SERIES.md`, then the tenth entry below for everything else (its recipes, flags and traps all still hold).** The owner's instructions this session: "AO looks fine, proceed with RT-2.1 first", then "after completing RT-2.1 stop the work and update the hand-off". Both done. Both builds and both staged shader folders are at the RT-2.1 state (`cmp` clean on `include/pbr_fragment.glsl`); no process left running; the test scene copy (`rt21_noterrain.rage` and the `.meta` the engine made for it) deleted from the scenes folder; the chunk size back at 64.
+
+### What RT-2.1 found and did (the numbers are in its record)
+
+- **The measurement first, as filed.** The terrain at Headland is 184 chunks and 751 K triangles, not 4.6 M (that was the whole frame's *triangles submitted*). The LOD veto is worth 0.15 ms a pass; the draw count nothing; the pixel count not it either. A scene without the terrain: G-buffer 0.08 ms, lit 0.26, the frame 10.5 against 20.3. The parallax march of the four terrain layers at mip 0 was 5.4 ms of the frame -- every fetch a cache miss at a kilometre.
+- **The fix:** the march reads the height at the pixel's own mip (`FootprintLod`, from explicit derivatives). Headland 20.3 → 14.5 ms (G-buffer 3.64 → 0.70, lit 4.36 → 2.20); the garage unchanged; the stills bit-close (mean 0.001 levels, max 0.7; the garage 0.000). One shader file changed: `include/pbr_fragment.glsl`.
+- **The instruments, permanent:** the benchmark's `terrain:` line (chunks drawn per level with triangles; what distance alone wanted; how many the veto and the cap held finer) -- `Terrain::LodReport`, `Renderer3D::TerrainStats`, printed by `FrameProfiler`; `--terrain-lod-error=<ratio>` (a measurement flag for the veto, 0 = the engine's 0.0003); `tools/scripts/garage/session_2026_09_07/terrain_lod.py` (the offline replica of SelectLod, prices a rule change without a rebuild); `diff_still.py` (two stills → mean/p99/max levels, per region, a signed x8 image).
+- **The resolve, not built:** worth ~0.6 ms at Headland now; the raster kept, the material read from the G-buffer; gated on the albedo lane (8-bit linear today; sRGB8 or 16F first). **Owner-filed as RT-2.2 (2026-09-07), for the end of the RT series** -- its row is in RT-SERIES.md.
+
+### Last status and the questions put to the owner
+
+**Last status:** RT-2.1 reported as done; halted on the owner's word ("after completing RT-2.1 stop the work and update the hand-off"); nothing reverted, nothing committed; Headland, the garage and the raster mode run clean.
+
+**The questions, exactly as asked:**
+1. **The deferred resolve.** It is now worth about 0.6 ms at Headland (the material sampled a second time by the lit pass), and it needs the G-buffer's albedo lane in sRGB8 or 16F first, or the lit pass bands in the dark tones. **Answered by the owner 2026-09-07: noted as RT-2.2, to be looked into at the end of the series.**
+2. **RT-3 is next on the list** (GI as a signal this frame). **Green signal?** -- still open.
+
+### Traps paid this session
+
+- **A `//` comment appended inside a `\`-continued macro line eats the backslash.** The first parallax-off test did that in the runtime's shader copy: 12 compile errors, the layered shader gone, the terrain silently undrawn, and the pass times read as a spectacular win. Every run's line now prints `errors N` (`Shader compilation failed` + `[Vulkan]`) and it must be 0 before a number is believed.
+- **Pin `--frame-time` for benchmarks too, not only for stills.** Unpinned, the scene's clock runs on the wall clock and the visible chunk set at frame 60 differs between a 50 FPS and a 100 FPS run (184 against 132 chunks), which looks like resolution-dependent culling and is not.
+- **The benchmark's *triangles submitted* is every pass that counts a draw** -- shadow maps, water, G-buffer half and lit half -- never one pass's number.
+- **A scene copy in the scenes folder gets a `.meta` made for it on first load;** delete both.
+- **Reading a mip in a march is not a look change up close:** the footprint's level is zero there. Measure the picture anyway (the diff images are what settled it), and measure the garage beside the bridge -- the material path and the layered path both changed.
+
+### What changed in code (all uncommitted, on top of the RT-2 state)
+
+`RageVEditor/assets/shaders/include/pbr_fragment.glsl` (`FootprintLod`; `Parallax` and `ParallaxLayer` take the mip; the material's call site computes it before its branch; the two SHADE_LAYER call sites pass the per-layer derivatives'), `RageV/src/RageV/Renderer/Terrain.h/.cpp` (`LodReport`, filled by `SelectLod`; the veto's ratio from the flag), `Renderer3D.h/.cpp` (`TerrainStats`, `CountTerrainChunk`, `ReportTerrainLod`, `GetTerrainStats`; reset with the draw counts), `Scene.cpp` (the terrain draw counts its chunks and reports the terrain's LodReport), `Core/FrameProfiler.cpp` (the `terrain:` benchmark line), `Core/EngineConfig.h/.cpp` (`TerrainLevelError`, `--terrain-lod-error`). Scripts: `tools/scripts/garage/session_2026_09_07/{patch_rt21a,patch_rt21b,patch_rt21c,note_rt21_done}.py` (records; the files on disk are the truth), `terrain_lod.py`, `diff_still.py`, `pbr_fragment.glsl.before_rt21` (the shader before the fix, for a bypass test). Captures and diffs in `build/rt21/`; logs `build/bin/Release/RageVRuntime/rt21_*.log`.
+
+## 2026-09-06, late night: RT-first T1–T5, RT-1, RT-2 built and measured -- UNCOMMITTED, halted at the usage limit, context wiped after this
+
+**Read this first, then `docs/RT-SERIES.md` (the one list, with the records of RT-1 and RT-2 and the S-series status), then `docs/RT-FIRST.md` §2c–2d (T4 and T5's records).** Everything is uncommitted (195 modified files by `git status`; committing and pushing stay the owner's call). Both builds (`build/bin/Release/RageVRuntime`, `RageVEditor`) and both staged shader folders match the source at the RT-2 state (verified with `cmp` on every shader touched: `direct_trace`, `reflection_accumulate`, `reflection_blur`, `pbr_skinned`, `debug_view`, `include/pbr_fragment.glsl`). No process was left running; no `showroom_burst.rage` copy is left in the scenes folder.
+
+### Where things stand
+
+- **The owner's directive:** the engine goes RT-first; everything RT reads the G-buffer; the T and R series are folded into the RT series (`docs/RT-SERIES.md`); the S series (WR-16's) is closed on its own, its remains live in RT-8/9/10; the WR series (18 items, some to revisit for the G-buffer) comes after the RT series. The protocol: one item per green signal, report after each, solo, propose architecture before building; the owner's decisions are deliberate; explain before executing anything they question.
+- **Done and measured:** T1 (G-buffer / lit split), T2 (greying), T3 (ids), T4 (the reconstruction contract), T5 (the direct light as a signal), RT-1 (the lit shader walks no light under the signal; the field's loss in the pass; ray de-dup; `Lamps` → `RaysPerPixel`; the S1/S4 instruments removed), RT-2 (the skinned and layered kinds into the G-buffer; the ambient occlusion as a signal applied to ambient only).
+- **Next:** RT-3 (GI as a signal this frame), **only on the owner's green signal**. The order and the complexity of every item are in RT-SERIES.md.
+
+### Last status and the questions put to the owner (they said they will look later; do not act on these unasked)
+
+**Last status:** RT-2 reported as done at 2026-09-06 late night; halted on the owner's word at the usage limit with the context wiped; nothing reverted, nothing committed; the garage and the bridge run clean on the RT-2 build under rays and in raster.
+
+**The questions, exactly as asked:**
+1. **The AO look.** The occlusion signal now darkens the ambient terms only; the old chain darkened the whole frame. On the garage the lamps' pools on the graffiti wall are +8 levels of 25, the poles +7.7, the car +1.1, the floor unchanged (`build/garage_burst/rt2_ao_diff_signed_x8.png`). Physically the occlusion belongs to the ambient terms under RT. **Do you accept the new look, or do you want the same signal applied to the direct light too (one multiply)?**
+2. **Everything in the G-buffer has a price on terrain.** With the skinned and layered kinds in the G-buffer the pending kinds are rasterised twice; Headland's 4.6 M-triangle terrain took the G-buffer pass from 0.08 to 3.3 ms (the old path 14.4 → 18.1 ms). **Answered by the owner 2026-09-06: filed as RT-2.1, RT-2's sub-task (the measurement of the terrain LOD first, then the deferred resolve of the plain kinds); its row is in RT-SERIES.md.**
+3. **RT-3 is next on the list** (GI as a signal this frame). **Green signal?**
+
+**Answered on question 2 (the owner asked whether a deferred resolve gets the 3.3 ms back):** roughly that much and not more. The 3.3 ms is the terrain's second rasterisation; a deferred resolve of the plain kinds removes the lit pass's rasterisation (about the same vertex/raster work), so Headland returns to about 14–15 ms, but the G-buffer pass itself stays. It costs G-buffer lanes for what the lit shader reads outside the G-buffer today -- emissive (the tubes), the coat's wrap and anisotropy with its tangent, sheen -- a medium item. **Measure first whether the far terrain chunks are drawn at too fine a LOD** (4.6 M triangles for that view): if so, most of the cost comes back in both passes with no renderer change. That measurement is the first thing to do on resume if the owner takes this up.
+
+### Decisions waiting on the owner (RT-2's record has the numbers)
+
+1. **The AO look.** The signal darkens the ambient terms only; the old post chain darkened the whole frame. On the garage the lamps' pools on the graffiti wall are +8 levels of 25, the poles +7.7, the floor unchanged (`build/garage_burst/rt2_ao_diff_signed_x8.png`). Physically right for RT; if the old look is wanted, applying the same signal to the direct light is one multiply in `pbr_fragment.glsl` (where `screenOcclusion` is applied, ~line 5350).
+2. **The G-buffer's cost on terrain** -- now **RT-2.1** in RT-SERIES.md (owner-filed as RT-2's sub-task): the pending kinds rasterise twice; Headland's terrain took the G-buffer pass from 0.08 to 3.3 ms (the old path 14.4 → 18.1 ms). Measure the far terrain's LOD first; then the deferred resolve of the plain kinds, which gets back the second rasterisation and not the G-buffer pass.
+3. **K = 8 costs what every light costs** in the direct pass (the eight full shades); RT-9's per-tile K and RT-10's reuse are the levers.
+
+### The recipes (all from `C:/Users/ism19/Code/RageV`, Git Bash)
+
+- **Build:** `"C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe" --build build --config Release --target RageVRuntime --target RageVEditor` (~2 min). **Shaders are not built -- stage them:** `cp RageVEditor/assets/shaders/<file>.rvshader build/bin/Release/{RageVRuntime,RageVEditor}/assets/shaders/` and the include `include/pbr_fragment.glsl` into `.../assets/shaders/include/`. A stale staged copy is the first suspect for any "nothing changed" result.
+- **Benchmark (garage):** `cd build/bin/Release/RageVRuntime && ./RageVRuntime.exe --project=C:/Users/ism19/Code/RageV/SampleProject --scene=scenes/showroom.rage --rhi=vulkan --render-defaults=off --vsync=off --width=1600 --height=900 --benchmark=60 --import-cache=off --camera=-2.3,0.72,-2,11,0,4 [flags] > log` -- read `frame  mean`, the "render graph, by pass" table, `rays per frame`, `lights per fragment`, and `grep -c "Shader compilation failed"` (must be 0) and `grep "\[Vulkan\]"` (must be empty).
+- **Captures (garage):** `python tools/scripts/garage/burst.py <tag> --speed=0 --stop=0.1 --frames=20 --from=150 --extra=<flag>...` for 20 parked frames `<tag>_150..169`; `--speed=1.5 --stop=2.0 --frames=160 --from=30` for the dolly (frames 30..189, moving to ~120); `--parked <tag> --extra=--debug-view=...` for one frame. Output in `build/garage_burst/`. burst.py needs the garage's orbit script (`ShowroomCamera`) and cannot run the bridge.
+- **The bridge (no burst.py):** the runtime directly with `--scene=scenes/GoldenGateDemo.rage --screenshot=<png> --screenshot-frame=60 --screenshot-count=1 --frame-time=0.0166 --camera=<pose>`; poses in `tools/scripts/bench_night.py` (`CAMERAS`): Headland `500,89.47,-1100,0.01,-157.08,8.88`, Deck `0,76.4,950,0.01,0,0`, Pier `70,4.5,705,0.01,-46.98,-2.86`, Glitter `500,2.5,180,0.01,-90,-1.146`.
+- **Metrics:** `tools/scripts/garage/session_2026_09_06/parked_stats.py <arm>` (per-frame change 170-189 + drift), `smear_metric.py <arm>`, `edge_shake.py <arm>_still`; the region boxes used in every comparison (fractions of 2000x1230 mapped to the capture size): floor y 880-1180 x 300-1700, car y 560-760 x 560-900, wall y 250-550 x 1020-1220, poles y 250-800 x 1100-1500, tubes/ceiling y 0-250 x 300-1700. Diff images: signed mean over frames, x8 or x16, green = arm brighter, red = darker.
+- **Reference arms and their captures:** `r5_still` / `r5_dolly` (the accepted reflection state), `t5_off_still` = `rt1_off_still` (the old lit loop, every light -- bit-identical across RT-1's edits), `rt1_raw_still` (the direct pass with the accumulator bypassed: 0.0335 against the loop), `rt1_bridge_*_off.png` / `rt2_bridge_headland_*.png`, `rt2_ao_on/off_still`.
+
+### The flags that matter now
+
+`--direct-signal=on|off` (the direct light as a signal / the old loop), `--ao-signal=on|off` (the occlusion signal / the old post chain), `--rays-per-pixel=K[,target]` (K lights a pixel on land and water; 0 = every light -- **on the bridge 0 also turns the water's lamp passes off and the sea walks every lamp in its own shader: 28 ms; use the preset for timing**; `--light-sampling` is the old name, still read), `--rt-reflections=off`, `--ray-tracing=off` (raster; SSAO rides the signal path too), `--debug-view=direct-light|direct-refusal|ao|reflection|reflection-refusal|reflection-picture|rays|lights`. **`--reflection-history=off` is not a contract bypass** (with the pair it produced +41 levels on the floor); to see a signal raw, stage a one-line bypass in `reflection_accumulate.rvshader` (`kept = fresh.rgb; kept2 = fresh2.rgb; frames = 1.0;` before the writes, under `RV_SIGNAL_PAIR`) into the runtime copy only, capture, restore -- and only on a build whose young blur is off for that signal, or the blur at one frame of history smears the test.
+
+### What is where (the code of T5, RT-1, RT-2)
+
+`RageVEditor/assets/shaders/direct_trace.rvshader` (the direct pass: K lights by reservoir on a cheap score, the field's loss and its clamp, ray de-dup, the counters' flush); `include/pbr_fragment.glsl` (set 0 bindings 26/27 direct pair and 28 occlusion under `RV_DIRECT_SIGNAL_INPUT` / `RV_SCREEN_OCCLUSION_INPUT`; the `RayRates.w` bits 22 and 23; `total = 0` under the signal; `ClusterCellFor`; the G-buffer's `o_Albedo.a` = specular scalar, `o_SurfaceId` = (signed id, floor(shadingRoughness*65535) + occlusion); the S1/S4 instruments gone); `reflection_accumulate.rvshader` / `reflection_blur.rvshader` (`RV_SIGNAL_PAIR`, the twin's memory from `Tuning.w`); `Renderer3D.cpp` (`TraceDirectLight`, `SetDirectLight/SetDirectSignal/SetAoSignal/SetScreenOcclusion`, `DirectSignal()`/`AoSignal()`, the pair pipelines as passes 6/7, the skinned/layered/pending G-buffer sets and `DrawGBufferPending`, the six lit-kind sets re-committed in `DrawLit`); `FrameGraphBuilder.cpp` (`addSignal` hoisted above the G-buffer pass; the DirectTrace → accumulate → blurs chain; the Occlusion compute → upsample → accumulate → blurs chain; the budget map's Prepare and imports hoisted; the debug views); `EngineConfig` (`DirectSignal`, `AoSignal`, `RaysPerPixel*`, the views); `RenderSettings.h` (`RaysPerPixel` in the preset); `TemporalHistory` (a fourth attachment); the layers' `DirectLight` slots. Every patch is a script in `tools/scripts/garage/session_2026_09_06/` (`patch_rt_t5a..g`, `patch_rt1a/b`, `patch_rt2a/2a2/2b`, the `note_*` docs scripts) -- **they are records, not tools to re-run: several applied in halves and the files on disk are the truth.**
+
+### Traps paid for this session (read before patching anything)
+
+- **Anchors from comment-stripped listings fail:** every `grep -v "//"` listing hid comment lines that sit between the lines you anchor on. Anchor on single lines, or read the raw text (`cat -A`) first. A block anchor that fails after an earlier `rep` in the same script leaves the earlier files saved and the rest unapplied -- **never re-run a half-applied script whole; guard each section (`if 'marker' in s`) or split it.**
+- **A global text replace eats what you just inserted:** `s.replace('light-sampling', 'rays-per-pixel')` rewrote the alias line added a few lines earlier; found only because the ray count said K = 8 where K = 4 was asked. After a rename, grep for the alias.
+- **`Renderer3D.cpp` is CRLF throughout** (7454/7454 lines), with a blank line between `DrawLitBody(...)` and its closing brace; `pbr_fragment.glsl` has mixed endings in places (`t4_prelude.py`'s `rep` tries both).
+- **Descriptor sets:** the RHI errors when a set is rewritten after being bound in this frame's command buffer (`VulkanPipeline.cpp` ~644); set layouts come from reflection, so a binding a variant never references is not in its layout and `SetTexture` on it is an error -- guard declarations per variant and set only the sets whose pipelines declare them. The G-buffer pass binds only the G-buffer sets, so the lit-kind sets can be re-committed in `DrawLit`.
+- **The pending draws' G-buffer sets must index the CPU visibility list** (`slot.Visible`), not the GPU cull's (`IndirectView.Instances`); and `TransparentBegin` is computed by the lit draw, so a G-buffer-half helper must find the opaque range itself. The first landing drew nothing for exactly these two reasons.
+- **The lit shader's specular-antialiased roughness is not in `o_Surface`** on purpose; the id lane carries it (16 bits; 10 bits moved chrome by three levels).
+- **The young-history blur smears hard shadow edges; the specular twin wants a short clamped memory; the accumulator's jitter handling is right as it is** -- all three measured, T5's record.
+- **The flat-pixel per-frame change during a 1.5 m/s dolly is texture displacement, not noise**: it cannot attribute "the wall's motion noise" to any signal (tried for the direct light and the AO). A reprojected reference is needed (RT-5/RT-6).
+- **A counter changes what it counts** stays true: the direct pass had to flush its own ray counters (`FlushRayCounters(false)` under `RV_RAY_COUNTERS`) or its rays were invisible to `rays per frame`.
+
+## 2026-09-06, night: one ray + a hit-point resolve, silhouettes kept, the TAA's still feedback, LD sampling -- edge flicker at the no-AA floor, 10.9 ms -- UNCOMMITTED
+
+**Read this first; it supersedes the eighth entry's "next" list.** Everything is uncommitted. Both builds (`RageVRuntime`, `RageVEditor`) are at this state and both staged shader folders match source (verified: `taa_resolve`, `reflection_trace`, `reflection_resolve`, `reflection_accumulate`). The eighth entry's footprint patch was applied, measured, and **replaced**; its lesson is below. Every script is in `tools/scripts/garage/session_2026_09_06/` (`patch_ratio.py` + `patch_ratio_cpp.py`, `patch_v8/v9/v10/v12/v15.py`, `patch_taa_filtered.py` + `patch_taa_2.py`, `patch_still_feedback.py`; `smear_metric.py`, `freq_split.py`, `bias_check.py`, `parked_stats.py`, `edge_shake.py`, `refs_bias.sh`, `make_old_resolve.py`).
+
+**The owner this session:** accumulation is faster and accepted; noise still there; "jitter on the object edges"; smudging "still there but seems less bad"; the footprint build's floor "too blurry / too smooth", then "different results in different tests" -- that was the editor still holding the v5 build while the runtime had v6 (only the runtime target had been rebuilt; **always build both targets**); "the flickering edges issue still persists" (before the TAA work below); "you have the freedom to tear apart and rebuild the renderer"; and two documents to read (the second, `Roughness_Aware_RT_Improvements.md`, drove v15).
+
+### What the pipeline is now
+
+1. **Trace (`reflection_trace.rvshader`): one ray per texel**, from a low-discrepancy sequence -- Halton (2, 3) progressive over the accumulator's 64-frame memory, rotated per texel by the R2 lattice (`GlossyReflectionLD`) -- and a **second attachment** with the ray's octahedral direction and pdf (`o_Hit`; `traceDesc.ExtraColors`, the trace pipeline's second colour format). `count` is computed then forced to 1: the preset's MirrorRays column no longer applies to reflections (remap it to the resolve's taps, see the list below).
+2. **Resolve (`reflection_resolve.rvshader`, one pass; Resolve2/3 removed):** a Vogel spiral of 24 taps over an ellipse that is **a fifth** (`kReuseFraction`) of the lobe's footprint on the surface (`hitDistance * 2.8 * alpha`, alpha = roughness^2, per-axis texel size from the neighbours' positions), the hit distance being the **3x3 minimum** of the fresh buffer (ReBLUR) so a texel whose ray hit the wall behind the tube cannot drag the band across it. Each tap's hit point is re-aimed from this texel; the weight is this lobe's pdf at the re-aimed direction over the neighbour's pdf **for the same direction** (`pdfHere / pdfTheirs`, cap 4) times a Gaussian over the ellipse. The stored pdf (`h.z`) is not read any more; keep it.
+3. **Accumulate (`reflection_accumulate.rvshader`):** `HistoryAt` searches the 3x3 around the reprojected texel for a matching surface (SVGF); **at a silhouette texel (any 3x3 neighbour on another surface, `AtSilhouette`) the texel's own history is kept whichever side it showed** -- under jitter the side flips every frame, and the average across the flip is the coverage-weighted picture, which is what TAA's colour is at that texel. The bound still clamps it. Full memory there (an 8-frame cap, tried as v14, flickered at 2.7 against 1.5).
+4. **TAA (`taa_resolve.rvshader`):** blends a **filtered current** -- the 3x3 weighted by a Gaussian (sigma 0.5) centred on the unjittered pixel centre (`kJitterSign = 1.0` measured best of -1/0/+1); the jitter travels in a `TemporalParams { PostParams; vec2 Jitter; float StillFeedback; }` block (`PostProcess::TemporalResolve` takes `jitter, stillFeedback`; the SSAO accumulate passes the jitter and 0). **`RenderSettings::TemporalStillFeedback`** (registry field "Still feedback", 0 = same as Feedback) replaces the switched-off `kStillFeedback` constant; **`SampleProject.rvproject` sets 0.98** (the garage has no water; the bridge keeps it off -- the water's sparkle smears into bands at 0.98, 2026-09-02, and nothing the resolve reads tells still steel from far water).
+
+### The numbers
+
+**Parked edge flicker** (`edge_shake.py`; fixed camera from frame 0, frames 150-169; per-frame change on edge pixels / bright edges, wall | poles | car | tubes):
+- no anti-aliasing: 0.99/1.03 | 1.08/1.24 | 1.21/6.17 | 0.85/0.63 -- the floor
+- v9 TAA, reflections on: 4.01/8.13 | 2.93/5.44 | 1.88/6.36 | 2.87/3.54
+- v9 TAA, reflections off: 2.77/3.33 | 2.70/4.76 | 1.86/7.05 | 2.47/3.90 -- **the base TAA flickers on its own**
+- still feedback 0.98, reflections off: 1.60/0.91 | 1.66/1.51 | 1.19/1.89 | 1.46/1.24
+- neighbour search alone (v10): 3.77/6.94 -- little; filtered current alone (v11b): 3.96/7.48 -- little
+- **all of it (v13 = silhouette rule + still feedback + filtered current): 1.46/1.05 | 1.58/1.41 | 1.18/1.81 | 1.68/1.31 -- at the no-AA floor.** The reflection layer's silhouettes, composited after TAA on jittered geometry, were the larger half; the TAA's 0.9 feedback on still pixels the other.
+
+**Bias against the truth** (`bias_check.py`, `ref=endpose_old_unclamped.png` -- the old 4-ray resolve with the history clamp off, 400 frames; signed 9x9 low-frequency difference on the floor, mean / mean|.|): v6 footprint +2.7 / 5.3 (blur, and brighter dark floor through the tonemap); v7 hit-point disc the size of the lobe -0.5 / 13.3 (round blobs); v9 -3.2 / 7.1; v15 -3.5 / 7.2; no resolve at all (1 ray) -1.5 / 2.7; disc = full footprint -0.2 / 8.2. **The clamp is not a bias**: clamp on vs off identical at both the old (0.0) and the new (+0.3) estimator. **The -3 darkening of v9/v15 is unexplained** -- v8 (pdf at the draw's own direction) and v9 (both pdfs at the re-aimed direction) are identical to the hundredth on the floor, so the weight formula is not it; candidates are the cap, the Gaussian's interaction with the 3x3-minimum disc, or the tonemap's concavity on the residual grain. Test first: `w = Gaussian only` (no ratio).
+
+**Grain** (HF energy of the converged floor, std of img - 9x9 mean): truth 16.9 (holds real detail and residual grain), v6 7.4 (over-blurred), v9 11.3, v15 12.0. **Parked drift** (floor, over 1/4/8/16 frames): v5 1.24/1.82/2.41/3.31, v6 1.07/1.10/1.16/1.32, v9 1.13/1.47/1.81/2.41, v15 1.09/1.44/1.81/2.32. **Settle** (floor vs its own converged still, 5/20/60 frames after the stop): v9 10.6/7.6/5.3, **v15 10.8/6.6/3.3** -- the LD sequence converges faster, as the note promised. **Frame cost** (`bench_reflection.py`, owner's camera, 1600x900): **10.9 ms** against the sixth entry's 15.8 and v5's 17.8; the in-line "off" arm 26.4. The per-pass columns read 0.00 since the pass names changed; the counters need re-pointing.
+
+**Under motion** the metric against the v5 references cannot judge the silhouette rule (an averaged edge texel against a single-sided reference reads as a 20-level "ghost"); the `poles_motion_v9_v12.png` sheet shows no trails at frames 70 and 100. Floor moving f70: v5 20.5, v6 18.1, v9 19.4, v15 similar -- the moving floor's error is not moved by any of this; it is the short history under motion showing the 1-ray estimate (see the list: the tubes as lights).
+
+### The lessons, in one place
+1. **Averaging neighbours' samples is a parallax blur.** A neighbour's sample is the scene seen from the neighbour's point; the blur is (disc / lobe footprint)^2, on top of the lobe's own. The ratio estimator does not remove it: on a flat floor every neighbour's lobe is this one's, the ratio is one, and the estimate is a plain average of the disc. So the disc must be small against the footprint (a fifth), sized by the neighbourhood minimum hit distance, and the ratio only handles roughness/normal differences (puddles among rough floor).
+2. **Three staged variants identical to the hundredth means the variant did nothing, not that staging failed** -- prove staging with a red-output variant (done: it is used; no shader cache is written).
+3. **A converged reference made under one rule cannot judge a texel that another rule averages** (silhouettes).
+4. **Build both targets**; the editor staged folder is separate.
+5. `--frames=1` runs write `<tag>.png` and the analysis then crashes on the name -- harmless; `endpose_v12.png` was rendered with v15 staged and deleted.
+
+### The engine review the owner asked for: what hinders low noise / no smear, ranked
+
+> **Now a task series: `docs/RENDERING-REVAMP.md`, "WR-16 R" (R1-R11), owner-set 2026-09-06 night, in build order with full briefs. Process: report after each task, start the next only on the owner's green signal. R1 is done. The list below is the review as given; the briefs supersede it.**
+1. **The tubes are lit only by chance.** The floor's grain, the blotches and the slow moving-floor convergence are rare bright hits of thin emissive tubes by GGX rays. The fix is at the source: the tubes as **area lights for the specular term (LTC line lights, WR-8)** with the traced ray excluding their emission (no double count). Biggest win for noise and realism; a day or two; the owner's own line-light design.
+2. **Shadows and GI have no signal of their own.** WR-15's soft shadows and RTGI hit shading live inside the 6000-line lit fragment header; TAA is their only denoiser, and under motion TAA rejects. Give shadow visibility (then AO/GI) its own buffer with a small temporal+spatial denoiser -- the reflection accumulator is the template (history + surface + moments, confidence tests, a bound).
+3. **The composite after TAA leaves the reflection layer's silhouettes to the accumulator.** Parked, the silhouette rule fixes it; a moving silhouette (a car driving past a wall) may trail. The industry composites before TAA with reflection-aware motion; the honest alternative here is a jitter-aware resolve of the reflection layer itself.
+4. **The TAA's still feedback is per project because the water cannot be told apart.** Give the water an honest velocity (its wave motion is analytic) or a flag in the velocity attachment, then 0.98 can be the default and the bridge keeps its sparkle.
+5. **The ray preset column is dead for reflections** (one ray now). Remap MirrorRays to the resolve's tap count; expose `kReuseFraction` and `kLobeWidth` as one render setting each if they are ever tuned per scene.
+6. ~~`SupersampleFactor: 2`~~ -- **withdrawn (owner's question, 2026-09-06 night):** the factor applies only when AA is SSAA (`FrameGraphBuilder.cpp`, `supersample = aa == SSAA ? factor : 1`); the project's AA is TAA, so it draws at window size and nothing pays four times. The eighth entry's claim was a misreading of the project file.
+7. **The accumulator's memory is time-driven** (64 frames, shortened by motion). The design notes want confidence-driven: variance from the moments should set it (short where the signal is noisy, long where stable). Small change, measurable with `parked_stats.py` and `smear_metric.py`.
+8. **Debug views** for the reflection pipeline: history length, confidence/refusal reason, disc reach, roughness. The notes' section 23; tuning is blind without them.
+9. The **bench's per-pass counters** read zero since the passes were renamed -- re-point them.
+10. **The stale files** in the staged folders (`gi_spatial`, `reflect_despeckle`, `rtreflect_trace.rvshader`) have no source; delete at the next clean build.
+
+### Research read this session (sources)
+- Stachowiak, "Stochastic Screen-Space Reflections", SIGGRAPH 2015 (Frostbite): store hit points, resolve by reusing neighbours' hit points with weight `localBrdf(hit) / hitPdf`, cone-fit blur by roughness and hit distance -- https://www.ea.com/frostbite/news/stochastic-screen-space-reflections , https://h3.gd/stochastic-ssr/
+- Karis, "High Quality Temporal Supersampling", SIGGRAPH 2014 (Unreal): un-jitter the current frame in the resolve with a Blackman-Harris filter over the neighbourhood; NVIDIA TXAA does the same -- https://pdf4pro.com/view/high-quality-temporal-supersampling-6ac605.html , https://alextardif.com/TAA.html
+- Zhdan, "ReBLUR: A Hierarchical Recurrent Denoiser", Ray Tracing Gems II ch. 49 / NVIDIA NRD: blur radius bounded by the lobe ("fat" reflections below roughness 0.1 were a bug), hit distance left spatially unprocessed to stay unbiased, anti-firefly on by default, virtual-motion history amount -- https://github.com/NVIDIA-RTX/NRD , https://deepwiki.com/NVIDIA-RTX/NRD/3.1-reblur
+
+### Next, in order
+1. The -3 darkening: `w = Gaussian only` variant, then the tonemap check (compare in linear through the `reflection` debug view).
+2. The tubes as line lights for the specular term (list item 1) -- ask the owner to start it.
+3. Confidence-driven memory from the moments (item 7); then try memory 32.
+4. The water's velocity/flag so still feedback can be the default (item 4).
+5. Remap the ray preset to taps; re-point the bench counters; the debug views.
+
+**Traps this session:** patch scripts must take their "old" text from the file, not from a `grep -v "//"` listing (three assertion failures); when a patch script fails midway, its earlier files are written -- re-run only the remaining half; `sed -i` with a raw Windows path uppercases the line; `python -` heredocs must use forward-slash paths; the runtime writes no shader cache (`SampleProject/cache` holds models/textures only); a killed burst leaves `assets/scenes/showroom_burst.rage` -- check after every run.
+
+## 2026-09-06, evening: the smear metric is valid, the noise is diagnosed, the fix is written and NOT YET APPLIED -- UNCOMMITTED, HALTED AT THE USAGE LIMIT
+
+**Read this first; it supersedes the seventh entry's "next" list.** The owner halted at the usage limit with "do not remove any changes, leave the project as it is". Nothing was applied after the seventh entry: source, staged shaders (`build/bin/Release/RageVRuntime/assets/shaders`) and the Release build still match each other (verified: `reflection_resolve.rvshader` identical, no `kLobeWidth` in source, no `ReflectionResolve3` in the frame graph). Three stale files in the staged folder (`gi_spatial`, `reflect_despeckle`, `rtreflect_trace.rvshader`) have no source and are loaded by nothing; ignore them. The session's scripts are saved in `tools/scripts/garage/session_2026_09_06/` because the scratchpad dies with the session.
+
+**The owner's words this session:** "accumulation seems much faster but now the noticeable noise still exists"; "I noticed jitter on the object edges"; "smudging is still there but the faster accumulation makes it seem slightly less bad". So the settle is accepted; noise, edge jitter and smudging under motion remain. The standing rules from the seventh entry hold: no deterministic mirror ray, no fixed shadows, no clamp on the tubes, optimise the stochastic pipeline.
+
+**Done this session, with numbers (1600x900, `burst.py`, Slider 1.5 m/s for 2 s, frames 30-189):**
+
+1. **Attribution finished (seventh entry's item 1).** Per-frame change under the dolly (frames 60-100) in the pole band / its edges / the back wall between the poles, and parked after the stop (frames 170-189, floor/wall/car):
+   - yesterday's build, reflections on: 5.46 / 58.3 / 4.42, parked 1.30 / 0.82 / 1.03
+   - v5, reflections on: 7.13 / 65.9 / 5.42, parked 1.24 / 0.92 / 1.17
+   - v5, `--rt-reflections=off`, new TAA: 6.05 / 52.2 / 5.53, parked 1.33 / 0.79 / 1.20
+   - v5, reflections off, committed TAA: identical to the line above to the hundredth -- **the TAA alpha change is not the wall's noise**
+   - v5, reflections off, `--aa=none` (frames 30-117 only): 7.45 / 53.4 / 5.99
+   The wall's change under motion is the same with reflections off. The diff sheet (`build/garage_burst/wall_attr_sheet.png`, script `wall_sheet.py`) shows it lives on the contours of the wall's blurry dark shadow shapes sliding through the band-following window: legitimate parallax, in every arm alike. Split into edge/flat pixels the wall's flat change is 3.8-4.6 in every arm. **Verdict: the back wall's motion "noise" is not the reflection pass and not the TAA; do not chase it with the accumulator.** (The `cand_noao` arm, called identical in the seventh entry, measures 8.33 / 62.4 / 7.75 -- it was not identical; it was probably an intermediate build. Unresolved, low priority.)
+
+2. **Edge jitter, parked, is not the reflection layer.** Per-frame change on edge pixels (gradient > 12) with the camera parked, frames 170-189: v5 floor 1.61 / car 2.40 / wall 4.23 / poles 2.80; reflections off 2.45 / 2.33 / 5.04 / 2.56; yesterday's build 2.28 / 2.03 / 5.16 / 2.54. The edges shake as much with reflections off, and shook the same yesterday. The TAA (`taa_resolve.rvshader`) already has YCoCg clipping, Karis weighting, moments and a motion-aware clamp, so it is not a missing basic; it is a base-TAA property that predates this work. Under motion the reflection layer's own edge error is large (poles edge 17 moving vs 4.8 parked, table below), so the owner's "jitter on the object edges" may be the moving case; an isolating reference (`--rt-reflections=off` converged at the frame-70 pose, compared with `attr_norefl_70`) was planned and not rendered. **Park this behind the noise fix.**
+
+3. **The smear metric is valid now.** The Slider-stop references were one tick late. `StopAfter = n/60 - 0.0166` lands on the burst's frame n to 0 px (car shift 0 at frames 70, 100 and the end pose): `ref70b.png` (StopAfter 1.1501), `ref100b.png` (1.6501), `endpose_ref.png` (2.0), each frame 400 of its own run, all v5. `(n-1)*0.0166` was still 1 px off; `n/60` was 3 px. Script `pose_shift.py` measures the shift; `smear_metric.py <arm>` prints the table; `freq_split.py <arm>` splits it by frequency (9x9 box) and writes `floor_smear_sheet.png`.
+
+   |frame - converged at the same pose|, v5, all / edge / flat pixels:
+   - moving f70: floor 20.5 / 29.8 / 13.6, car 5.4 / 11.2 / 2.7, wall 10.3 / 28.7 / 3.9, poles 5.0 / 17.1 / 2.6
+   - moving f100: floor 20.2 / 28.7 / 14.0, car 5.4 / 10.8 / 3.0, wall 3.0 / 7.4 / 2.7, poles 4.1 / 11.0 / 2.5
+   - parked, 5 frames after the stop: floor 15.8 / 23.9 / 9.0; 20 after: 12.0 / 18.5 / 6.6; 60 after: 9.9 / 15.7 / 5.1; car 60 after 2.3 / 5.4 / 1.3; wall 1.8 / 3.1 / 1.7; poles 2.0 / 4.8 / 1.3
+   By frequency (floor total / low / high): moving 20.5 / 11.9 / 8.6; parked 60 after 9.9 / 2.8 / 7.1. Car moving 5.4 / 2.1 / 3.2, parked 2.3 / 0.7 / 1.5.
+
+4. **The diagnosis.** Parked, the floor differs from its own converged picture by 7 levels of texel-scale grain that changes only 1.2 a frame: two independent 64-frame averages of a per-frame estimate whose per-texel standard deviation works out at about 55 levels on a floor whose mean is ~87 (an EMA with alpha 1/64 changes 0.022 sigma a frame and keeps 0.09 sigma). The per-frame estimate is that noisy because **the resolve's spatial kernel does almost nothing on the floor**: `sigma = 1.8 * smoothstep(0.05, 0.45, roughness)` is 0.3-0.9 texels for a floor roughness of 0.15-0.25, so one to five taps of the 49 carry weight, and the whole lobe's blur is left to time. The lobe's real footprint on the floor is about 30 texels wide at 1600x900: a hit at H ~ 4 m (the tubes) through a lobe of tan ~ 1.5 * alpha (alpha = roughness squared ~ 0.06) is a disc of radius ~0.37 m on the floor, ~27 texels horizontally at 11 m and only ~3 vertically (the floor is foreshortened ~1/sin 6 deg). The sheet `floor_smear_sheet.png` shows it: the moving frame's tube bands are narrow, sharp and grainy; the converged picture's are wide and soft. **Time is doing the lobe's blur, and time is what smears.** With the spatial kernel doing it, the fresh frame is already the soft band, the history is not needed for variance, and the memory under motion can be short (less smear) -- ReBLUR's balance (blur radius scales with hit distance and roughness, inversely with accumulated frames).
+
+**The fix, written and not applied: `tools/scripts/garage/session_2026_09_06/patch_footprint.py`.** Run it from anywhere (it chdirs to the repo; every replacement asserts a unique match). It does two things:
+   - `reflection_resolve.rvshader`: the kernel is an ellipse from the lobe's footprint. `footprint = hitDistance * kLobeWidth * alpha` (metres on the surface, `kLobeWidth = 1.5`, `alpha = roughness^2`, hit distance is `fresh.a`); the texel's size in metres per axis is measured from the +-1 neighbours' positions (the smaller of each side, so an edge's far neighbour cannot inflate it; fallback `eyeDistance * 0.0015`); `sigma = 0.5 * footprint / texelSize * kPassShare / stride`, `kPassShare = 1/sqrt(3)` so three passes add to the whole, clamped to 1.5 per pass (a seven-tap window's support), skip below 0.15. A new tap weight `exp(-|f.a - hitDistance| / max(0.3 * hitDistance, 0.05))` keeps a differently-hit tap (the car's reflected edge against the ceiling) out of this texel's blur. Mirrors get no radius; the car in the floor (near hit) a small one; the tubes in the floor the wide one.
+   - `FrameGraphBuilder.cpp`: a third pass `ReflectionResolve3` at stride 4 reading `resolved2`; the accumulator reads `resolved3`. Reach 3 + 6 + 12 = 21 texels each side for 3 x 49 taps.
+   Then rebuild (`cmake` is at the path in memory `project_ragev_build_and_run`; `--build build --config Release`), check the staged resolve shader matches source, and run the tests below.
+
+**How to judge it (the bias test is the point):** the v5 references (`ref70b`, `ref100b`, `endpose_ref`) are converged pictures of the *unfiltered* estimator, so they are the truth the kernel must not depart from. Render `burst.py v6 --speed=1.5 --stop=2.0 --frames=160 --from=30`, then `smear_metric.py v6_burst` and `freq_split.py v6_burst`. Pass: parked-60-after floor low-frequency error stays near v5's 2.8 (a rise means over-blur: lower `kLobeWidth`, 1.0 first) while the high-frequency 7.1 falls hard; moving f70 floor falls from 20.5, low from 11.9. Then `bench_reflection.py` for the cost (v5 was 17.80 +-0.45 ms; each resolve pass is ~0.5-0.8 ms; interleave A/B runs, the GPU drifts a millisecond). If the grain falls as expected, next try memory 32 (`push.History.y` in `Renderer3D::AccumulateReflections` and the debug-view scale in `FrameGraphBuilder.cpp`, both 64 now) for faster settle and less smear under motion, judged by the same metric. If the floor's roughness map is speckled (the garage floor material was not checked; `showroom_bayfloor.rmat` says roughness 1 but the garage floor is a baked PBR import), the `|rn - roughness| < 0.2` gate may reject many taps; loosen it to a smooth weight then.
+
+**After that, in order:** (a) the isolating edge reference under motion (`--rt-reflections=off` converged at the frame-70 pose vs `attr_norefl_70`) to say whether the moving edge jitter is the reflection layer's; if it is, the composite adds a picture whose silhouettes are on the jittered geometry with no anti-aliasing of their own -- a neighbour-search history fetch (SVGF style: when the centre's surface test fails, take a matching 3x3 neighbour's history) is the in-design fix; (b) ReBLUR's `virtualHistoryAmount` (seventh entry item 3); (c) performance (item 4; the `SupersampleFactor: 2` question is still with the owner); (d) the tubes as area lights (item 5).
+
+**Traps this session:** `sed -i "8s/.../"` with a raw Windows path uppercased the whole line -- write scripts with forward-slash paths; a bash heredoc turned `'\\'` into `'\'` -- again, forward slashes; the scratchpad is per session, so anything worth keeping goes under `tools/scripts/garage/`; a `--frames=1 --from=400` run writes `<tag>.png` (no frame number); the pole-band peak-column check is meaningless with reflections off (the peak was the poles' reflection).
+
+## 2026-09-06, later: the owner's verdict, the pre-bridge comparison, and the accumulator's flow fixed -- UNCOMMITTED, HALTED TO CLEAR CONTEXT
+
+**Read this before the sixth entry below it; this one supersedes its "open" list.** The owner halted the session to clear context, with "do not undo anything". Nothing was undone. The Release build, every staged shader and the script module match the source (verified); no burst scene copy is left in `scenes/`; no runtime is running.
+
+**The owner's rules, stated hard this session, in their words:**
+- "Realism modern >> old; performance and stability old >> modern." The settled look of the stochastic (lobe-sampled) reflections is wanted.
+- "I DO NOT WANT THE OLD REFLECTION AND SHADOWS BACK." No deterministic mirror ray, no fixed shadow pattern, no clamp on the tubes -- all three were proposed and refused as workarounds ("a scene-based fix instead of an actual fix").
+- "Find a way to optimise the current engine and remove smearing caused by accumulation, do research online if needed." Stop calling the noise a design consequence.
+- The list to clear: smearing on any movement, noise (blotches on the back wall), unstable/shaky edges, the settle after motion, and a frame-time regression they see.
+
+**Where the build stands (v5), on top of the sixth entry's pipeline:**
+1. The accumulator places the image by roughness as well as curvature: `image = travelled * dominant(NoV, roughness) / (1 + 2 * travelled * k)`, Lagarde's fit as NVIDIA's ReBLUR uses it (`reflection_accumulate.rvshader`). A rough lobe's blur slides less than a mirror image; looked up at the mirror's parallax it landed on a neighbour's picture.
+2. The parked memory is 64 frames, not 24 (`Renderer3D::AccumulateReflections`, `push.History.y`; the `reflection` debug view scales to 64). Reason below.
+3. The resolve runs twice: stride 1 then stride 2 on its own output (`ReflectionResolve2`, `Probe.z` is the stride) -- the dilated (a-trous) second pass, 13 texels of reach for 7 taps.
+4. A blur after the accumulator, before the composite (`reflection_blur.rvshader`, `Renderer3D::BlurReflections`, pass `ReflectionBlur`): radius fades with the frames behind the pixel, full at one frame, nothing at sixteen; the accumulator's own history stays sharp. Measured to change almost nothing under this dolly (history rarely drops below five frames), kept because it is right for faster motion.
+5. The roughness test in the history is a gross one only (|dr| <= 0.5); the resolve's kernel width is continuous in roughness. Both were suspected for the parked flicker and were not it.
+
+**The measurements that decided things (all 1600x900, `burst.py`, the Slider dolly 1.5 m/s for 2 s):**
+
+- **The flow, and its cause.** Parked, the change over 1/4/8/16 frames on the floor: no history at all 16/16/16/16 (pure noise, flat); the sixth entry's build 2.1/4.5/6.4/8.7 (grows: a 24-frame running average sliding over rare bright tube hits rearranges the blotches -- that *is* the "flowing"); the pre-bridge-era build (yesterday) 1.3/2.6/3.9/5.8 (same shape, smaller because its bound clipped the bright hits); **v5 1.25/2.0/2.7/3.7 -- below yesterday's.** Wall v5 1.3/1.2/1.2/1.4 (flat: noise, no drift; yesterday 0.8), car 0.9/1.0/0.9/1.0 (yesterday 1.0/1.3/1.2/1.5). Four rays on the walls instead of one did not move the floor's drift (the floor already draws four), which is what pointed at the window length rather than the ray count.
+- **Under motion** the per-frame change in the pole band / its edges / the back wall: yesterday 5.5 / 58 / 4.4; every build since 7.1-7.5 / 63-66 / 5.2-5.5, no candidate moved it (mirrors keeping 4 frames, slack x3, rays 4, the weight unfiltered or half-filtered by TAA, the image by roughness, the blur, memory 64). **This metric measures legitimate change plus noise; a crisp moving band changes more than a smeared one, so it cannot show smear.** Do not chase it.
+- **Attribution: the wall's motion noise is mostly not the reflections.** With `--rt-reflections=off` the back wall still changes 5.5 a frame under the dolly (with reflections 5.4; yesterday's build with reflections 4.4). So something outside the reflection pass changed between yesterday's build and today's, or the soft shadows (WR-15, re-rolled per frame under TAA) are the wall's noise. The isolating test -- reflections off with the committed `taa_resolve.rvshader` staged, and with `--aa=none` -- rendered its first arm (`attr_norefl_oldtaa`, 160 frames, in `build/garage_burst`) and was killed by the owner before the second and before analysis. **Run the analysis on that arm and render the no-AA arm first thing.** (The kill left the committed TAA staged for a while; it is restored, verified.)
+- **Smear under motion, measured against a converged still at the same pose:** references made by running the dolly itself and stopping at the frame (`ref70x`, `ref100x`, StopAfter 1.1667 / 1.6667 s, frame 400) still sit 6 px off the burst's frame on the floor, 3 on the car, 1-3 on the wall (the Slider's stop lands on a different tick than the burst's frame), so the numbers -- floor 25 moving vs 10 parked, car 9.5 vs 2.8, wall 4-13 vs 2 -- include a pose error and are **not yet a smear measurement**. Fix the pose (read the camera position at the frame, or stop the Slider by frame count) before drawing anything from them.
+- **The pre-bridge engine, built and compared.** Worktree `C:/Users/ism19/Code/RageV-before` at `89bf8c9` (the last commit before the water component and the Golden Gate, 2026-08-30), built Release with today's vendor folder copied in (its `.gitmodules` lacks SPIRV-Cross, so `submodule update` fails; copy `RageV/vendor/*` from the main tree), its module built with `Slider.cpp` as `SampleProject/bin/Release/Sample.before.dll`. Both engines run the *old* project (`BURST_PROJECT`, `BURST_SCENE`, `BURST_CAM`, `BURST_MODE=2` env in `burst.py`; mode 2 is authored into the scene copy since no managed scripts run there). Studio, mode 2, same dolly: pre-bridge floor parked 0.94 / moving 5.5 / residual after settling 0.9; the sixth entry's build 1.14 / 6.9 / 2.7. Sheets `engines_studio.png`, `engines_studio_mode2.png`: the old floor mirrors the car cleanly, today's speckles mid-dolly. **The architectural difference is two things: the old engine fired one deterministic mirror ray per pixel blended with the probe by roughness (no variance, no accumulation), and its shadows were hard.** Both are what the owner does not want back.
+- **Frame cost** (`bench_reflection.py`, 1600x900, 200-300 frames, owner's camera): v5 17.80 +-0.45 ms with the window-scaled rays, 19.93 unscaled, 26.0 in-line; the sixth entry's build was 15.83, so the second resolve, the blur and the third attachment cost about 2 ms. At the owner's window (2000x1230) the frame is ~27 ms and the trace pass is 14.6 of it: **the project renders at `SupersampleFactor: 2`, four times the pixels, and the trace pays for every one [WRONG -- the factor only applies under SSAA and the project uses TAA; see the ninth entry's list, item 6].** No regression against the hand-off's own 27.9 ms condition (now 11.4 at that camera and size); what the owner sees as a regression is unmeasured -- ask for the two frame rates and where.
+
+**Research read (2026-09-06):** NVIDIA NRD ReBLUR -- virtual position by the thin lens with curvature (`I = O / (2 k O + 1)`), `GetSpecularDominantFactor(NoV, roughness)` scaling how far along the dominant direction the virtual point sits, a `virtualHistoryAmount` blending surface- and virtual-reprojected histories by roughness, dominant-direction importance, confidence, normal and roughness similarity, `finalSpecular = lerp(surfaceMotionResult, virtualMotionResult, virtualHistoryAmount)`, accumulation weight `historyConfidence / (1 + historyLength)`. AMD FidelityFX SSSR/Denoiser -- reprojection by the reflected object's own depth, ray count by roughness, tile classification, spatio-temporal denoise. Sources: github.com/NVIDIA-RTX/NRD, deepwiki.com/NVIDIA-RTX/NRD/4.1-temporal-accumulation, gpuopen.com/fidelityfx-sssr, gpuopen.com/fidelityfx-denoiser, the ReBLUR chapter (Ray Tracing Gems II, ch. 49).
+
+**Next, in order, all inside the current stochastic design:**
+1. Finish the attribution (the killed test): if the wall's motion noise is the soft shadows, that is a separate item and not the accumulator's.
+2. A smear metric that works: exact-pose converged references (fix the Slider/frame offset), then |moving - converged| vs |parked - converged| per surface.
+3. ReBLUR's `virtualHistoryAmount`: blend the surface and image histories by roughness and their agreement instead of picking one (both candidates already exist in `HistoryAt`).
+4. Performance: one stochastic ray per pixel with the resolve doing the lobe (the old ray count, the modern estimator), the rough surfaces' trace at half resolution, and the `SupersampleFactor: 2` question put to the owner.
+5. The tubes as area lights for the specular term (the owner's line-light design): rare bright hits in a rough lobe are the variance that makes blotches; next-event estimation removes it at the source.
+
+**Traps this session:** a bash heredoc over ~110 lines fails silently before running -- every patch that mattered went through a script file; `--rt-ao=off` does not apply under the project's settings (an arm with it was identical); a killed burst leaves `scenes/showroom_burst.rage(.meta)` -- delete it; a killed staging test leaves a variant shader staged -- `diff -q` every shader in `build/bin/Release/RageVRuntime/assets/shaders` against source; the worktree build needs the vendor folder copied and `cmake --preset vs2022`; `bench_reflection.py` restores the trace shader in `finally`; the per-pass benchmark lines are `scene/<Pass>  <cpu>  <gpu>`.
+
+**Files this entry adds:** `reflection_blur.rvshader`, the second resolve pass, `tools/scripts/garage/burst_zoom.py`, `burst.py` env parameters and mode-2 authoring, the worktree `RageV-before` (not in the repo), frames `v4_*`, `v5_*`, `cand_*`, `attr_*`, `before*`, `today*`, `ref*` in `build/garage_burst/`.
+
+## 2026-09-06: the reflection's temporal reconstruction, rebuilt confidence-driven and composited after TAA -- UNCOMMITTED, MEASURED
+
+**Where it stands.** The owner handed over `Downloads/RT_Temporal_Reconstruction_Anti_Smearing (1).md` ("learn from the industry, don't care how big") and this is that design applied to the traced reflection: every history decision is evidence-driven, the picture has its own temporal filter and never passes through TAA, and the frame's own temporal filter is a separate final layer (the design's section 41). Built, built clean, measured with the dolly and parked bursts below. **The owner has not yet looked at it.** Two things for that look: the reflection is now brighter than it was, because the old bound biased it dark by a third (measured against an unclamped converged reference, below), and the "flowing" of the previous build is measured gone parked and should be judged by eye under the mouse orbit. Everything is uncommitted on top of the garage work. **Frame cost** (`bench_reflection.py`, 1600x900, 300 frames, the owner's camera, A B C C B A, spread as +-): the pass with the window-scaled ray count **15.83 +-0.19 ms**; the same pass drawing the preset's full count on every glossy pixel 18.08 +-0.07; `--reflection-pass=off`, the old in-line rays in the lit shader, 25.77 +-0.06. So the pass is 10 ms under in-line and the window scaling is worth 2.3 ms. The report's per-pass lines did not parse (0.00) and the ray counter reads 0.04 M for the pass arms against 5.89 M in-line: **the WR-16 counters count the lit shader's rays only, the pass's are uncounted** -- a gap to close in the trace shader.
+
+**Built, by the design's sections:**
+
+1. **Isolation and debug views** (sections 23, 24). `--reflection-history=off`: the accumulator reads no previous frame, every frame is the pass's own resolved estimate. `--debug-view=reflection` (frames of history, 24 white), `reflection-image` (the image distance it reprojects by, 20 m white), `reflection-choice` (black none, half the ramp the surface's old place, white the image's).
+2. **History is three attachments** (section 6; `TemporalHistory::Prepare` takes a third format): radiance + frames; the reflector under the texel -- octahedral normal, plane offset n.P, image distance (-1 none); and roughness, the first two luminance moments of the fresh estimate, and which candidate the texel took.
+3. **Validity** (sections 8-12): a history texel must face the same way (dot >= 0.8), lie on the same plane (0.05 + 0.01 x eye distance, the offset is a half float), and not be a mirror where this is rough or the reverse (|dr| <= 0.5 -- a tighter roughness test refused the wet floor's own history whenever the jitter sampled its roughness map a texel over). Refused is refused: frames restart at one, nothing is blended in (section 12). Two candidates in order: the image's old place, then the surface's.
+4. **The image distance is accumulated** (section 36, "ray-hit reprojection is not sufficient by itself"): the frames behind the surface settle it (1/min(frames+1, 8) toward this frame's), and `ReflectionResolve` averages it across the rough neighbourhood first, so one ray's hit does not decide where a rough pixel's history is looked for.
+5. **Variance** (sections 19, 20): moments over 16 frames; the neighbourhood bound (mean +- k sd of the resolved fresh 3x3, k widened to 12 on mirrors) never squeezes tighter than twice the pixel's own temporal sigma.
+6. **Confidence-driven memory** (sections 13-17, 34): the memory shortens by how far the picture moved on screen, in texels, on the unjittered grid; a mirror forgets four times faster and down to one frame (its fresh estimate is exact), a rough surface keeps at least four.
+7. **Spatial resolve** (section 5, "spatial denoising", placed before the temporal pass as SSSR does): `reflection_resolve.rvshader`, a 7x7 Gaussian whose sigma is continuous in roughness (nothing on a mirror), weighed by normal, plane and roughness likeness; radiance and hit distance alike. A wall at roughness 0.5 draws one ray (the trace scales its count by the gloss window) and reflects a lobe: this is where its dots stopped trailing.
+8. **Composite after TAA** (section 41): `reflection_composite.rvshader` via `PostProcess::ReflectionComposite`, a pass straight after `ReflectionAccumulate` (which is after the TAA resolve and before bloom), adding *this frame's* accumulated picture at *this texel* by the weight in the scene's alpha. The lit shader gives up its probe by the share (`prefiltered *= 1 - share`) and writes `share x luminance(F0 envBRDF.x + envBRDF.y) x occlusion` into `o_Color.a` (which used to carry the base colour's alpha, read by nothing). `taa_resolve` filters the alpha like the colour (clamped to the 3x3 range). The transparent resolve draws with a new `BlendPreset::AlphaBlendUnder` (colour as AlphaBlend, alpha zero / 1-src.a) so glass over a glossy floor attenuates the weight by its coverage instead of replacing it. Water writes weight zero.
+9. **The picture lives on the unjittered grid.** The accumulator's history lookup takes last frame's jitter back out of the jittered matrix's projection (`c.thenNdc = clip.xy/w - Jitter.zw`), the lit shader's share read subtracts it too (7af's design, restored), the composite reads at the pixel. The fresh estimate arrives at the jittered position and is one part in twenty-four; what accumulates is the average over the dither -- the temporal resolve's own structure.
+
+**Measured (1600x900, `burst.py`, the Slider dolly at 1.5 m/s for 2 s then still, frames 30-189; parked bursts 20 frames from 150):**
+
+- **Brightness, against an unclamped converged reference** (the accumulator with no bound and a 200-frame memory, parked, frame 260 -- `v3_truth.png`): floor 89.2, wall 16.6, car 49.9, poles 41.6. This build parked: 87.5 / 17.7 / 49.4 / 38.9. The previous build: 59.7 / 10.7 / 42.8 / 32.7. **The old 3-sd bound clipped the rare bright tube hits out of a skewed one-to-four-ray estimate every frame and biased the floor a third dark.** The in-line reference is biased dark too (display-space averaging of noise, and TAA's Karis blend), so its distance is no longer a smear metric; the crops are. The page's still has a far brighter floor than the old render, so this moves toward it -- but TUBE_RADIANCE (100), the bloom (threshold 12) and ReflectionFloor were tuned against the dark-biased picture and are the owner's to retune.
+- **The smear:** mid-dolly with TAA the floor's tube bands are crisp (`floor_v3f.png` / `floor_v3e.png`, row 2) where the previous build's are trails (row 1) and the no-AA arm is crisp with grain (row 3). The trailing-edge streak beside the poles is gone (`zoom_v3f_poles.png`).
+- **The wobble ("flowing"):** parked floor, mean frame-to-frame change and the correlation of consecutive changes: previous build 1.29 (+0.06); the picture on the jittered grid added after TAA 9.4 (-0.42: a two-frame oscillation, the Halton x offset alternates sign); the same resampled back by the jitter 5.3 (0.00) and with the sign flipped 8.6 (-0.49, the sign check); **the unjittered grid 2.06 (-0.07)**; no AA at all 1.71. Car: 0.94 against the previous 1.03. The roughness test and the stepped resolve kernel were suspected first and were not it (9.5 with both changed), but were tightened anyway.
+- **Choice map:** parked, 93-98% of glossy texels take the image candidate, none the surface fallback, 2-7% none (silhouettes); mid-dolly 99% image. **Memory map:** parked 22-24 frames everywhere glossy (the doubled-jitter proof from the fifth entry: 13.4 with it back).
+- **Isolation arm** (`--reflection-history=off`): 16 levels a frame of grain on the floor, as the design predicts for no history.
+
+**Open, in the order to take them:**
+
+- The owner's eye: brightness (retune the tubes / bloom / ReflectionFloor or keep), and the orbit under the mouse for any flow the dolly does not show.
+- The weight is a luminance: a coloured metal's reflection loses its tint. The surface attachment's alpha (metallic) has no reader and could carry a hue if it matters.
+- Transparents draw before TAA: the composite adds the opaque reflection over glass, attenuated by coverage, not refracted.
+- `water_accumulate.rvshader` adds the jitter on top of a jittered matrix (the same defect the fifth entry found); the sea also still gets traced by the reflection pass (the trace does not know a water pixel). Both need the bridge measured before touching.
+- A mirror in fast motion keeps one frame: its reflection is one frame's sampling. `fewest` for mirrors could be two.
+- The GI hook (pbr_fragment ~5266) subtracts the previous jitter from a jittered-grid buffer, half a pixel off; GI is smooth, left alone.
+
+**Tools:** `burst_zoom.py` (poles / floor / diff crops of any arms and frames, band-following), `burst.py --parked`, `bench_reflection.py` (arms scaled / unscaled / off, palindrome, now reports resolve and composite). Frames and sheets in `build/garage_burst/` (v3*, floor_v3f, zoom_v3f_poles, flow_diffs, v3_truth).
+
+**Traps met:** `sample` is a GLSL keyword (the TAA patch used it as a name); `PostData::Shaders` is a fixed array with a static_assert -- grow both with the enum; the shell heredoc fails past ~110 lines, write a script file instead; `--jitter-scale` is not a flag (an arm with it was a plain repeat, identical to two decimals -- the renders are deterministic, which is useful); a gradient-energy "sharpness" metric is grain, not sharpness; a mean |frame - reference| against a noisy reference is biased by the reference's noise.
+
+## 2026-09-05, late night: the reflection smear -- accumulator rebuilt, the smear is TAA's -- UNCOMMITTED, STOPPED MID-TASK
+
+**Where it stopped.** Owner's report: reflections smear under camera
+motion, worst on the chrome poles beside the car; the wall behind settles
+over about a second; the frame is slow. Four defects found by reading;
+all four fixed, built and measured; and the one that makes the smear the
+owner sees is identified and **not built** -- the session limit landed
+first. Nothing is reverted. The Release build and every staged shader are
+the current source (verified with diff), the script module is rebuilt with
+`Slider.cpp`, no scene copy is left behind. Resume at "What to build next".
+
+**Fixed, built, measured (the accumulator, the hook, the trace):**
+
+1. **The accumulator looked for a pole's history on the wall behind it.**
+   It reprojected every image the ray's full distance behind the surface --
+   exact for the floor, wrong for a convex pole, whose image sits almost at
+   its own surface (mirror equation, d / (1 + 2dk)) -- and accepted whatever
+   glossy texel it landed on: no test for the same reflector, and under the
+   High window (0.25-0.6) every roughness-0.5 concrete surface in the
+   garage is glossy. Now (`reflection_accumulate.rvshader`): curvature
+   from the neighbouring normals two texels out (half-float quantisation
+   reads as a metre-scale curve one texel out), a second attachment on the
+   history carrying the reflector (octahedral normal, plane offset n.P,
+   image distance, -1 for none), a same-reflector test (dot >= 0.8, plane
+   within 0.05 + 0.01 x eye distance), the surface's own old place as the
+   fallback candidate, the memory shortening measured with each frame's
+   jitter taken out of its own coordinate, and a mirror forgetting four
+   times faster than a rough surface (slack x 0.25, floor one frame -- it
+   has no grain to average). The pipeline has two attachments, the pair's
+   `Prepare` takes the second format for the traced form only,
+   `AccumulateReflections` takes `previousSurface` (binding 4).
+2. **The jitter was applied twice.** The camera reaching `BeginScene` is
+   already jittered (`Scene.cpp` `JitterProjection`), so the matrix every
+   `CameraMotion` remembers carries last frame's jitter, and the
+   accumulator added `Jitter.zw` again. **Measured with the new
+   `--debug-view=reflection`** (the accumulator's frames as the heat ramp,
+   24 = white, `--debug-view-mix=0`; invert the ramp to a count): parked,
+   floor 24.0 with the fix and 13.4 with the jitter put back; pole band
+   22.3 vs 14.8; left wall 22.3 vs 16.3. The hook subtracted the previous
+   jitter as well (7af's design) and now reads at the jittered previous
+   position -- the texel the surface was actually written to.
+   **`water_accumulate.rvshader` has the same doubled line** under a
+   comment claiming the matrix carries no jitter (it does now); not
+   touched, the bridge has to be measured first. The indirect hook
+   (`thenNDC - u_Scene.Jitter.zw`, pbr_fragment ~5266) has the same
+   half-pixel error; left, GI is smooth.
+3. **The hook took the picture at full share, without the gloss window.** A
+   roughness-0.5 wall got 100% of a four-ray stochastic estimate where the
+   in-line path gave it 20% -- the wall that "settles". Now
+   `reflectionWindow` multiplies the share, `reflectionLift` lets a mirror
+   trust its first frame (its rays do not scatter; fading it in over four
+   read as the reflection blinking off), and `reflection_trace.rvshader`
+   scales its ray count by the window (walls draw one ray, not four).
+   **Frame cost not measured yet**: `tools/scripts/garage/bench_reflection.py`
+   is written for it (A B C C B A over scaled / unscaled / pass off, the
+   palindrome the build-and-run memory demands) and was never run.
+4. **The hook had no disocclusion test** (7af: "nothing rejects that yet").
+   A wall pixel a pole has just uncovered maps to where the pole was and
+   took a fifth of the chrome's tube reflection for a frame. Now the hook
+   reads the second attachment (`u_ScreenReflectionSurface`, set 0 binding
+   19, point-sampled, filled in the scene set and the lamp set,
+   `Renderer::ScreenReflections::Surface`) and refuses a different
+   reflector. Measured: it changed a one-to-two-pixel line at the pole
+   edges and nothing else (`diff_new2.png`, right column).
+
+**Measured, and what it says.** All at 1600x900, `burst.py`: a copy of the
+scene with the camera's orbit script swapped for `Slider` (1.5 m/s along
+world X for 2 s, then still), frames 30-189, `--frame-time=0.0166`, the
+band of the four poles right of the car following them across the frame
+(`burst_compare.py`, BAND). The reference is `--reflection-pass=off`: the
+in-line rays, exact on a mirror, no history.
+
+- Old accumulator logic vs new vs in-line: motion 2.83 / 3.33 levels from
+  the reference, still 4.68 / 4.84, peaks 4.75 / 4.92. **No visible
+  difference in the pole band, and the owner saw none** ("visible in all
+  runs, no major difference"). The "settle 69 frames" the script prints is
+  an artefact (the last frame compared with itself); the trace files show
+  about ten frames to a noise floor of 1.2-1.5 levels a frame.
+- `--aa=none`, pass vs in-line (`zoom_noaa.png`): a faint streak beside the
+  poles survives without TAA, the hook's disocclusion (item 4), minor.
+- **The floor is where the smear lives** (`floor_f100.png`, frame 100
+  mid-dolly, six crops): without TAA the pass keeps the tube bands sharp
+  under motion (top right) and so does in-line (top left, speckled). With
+  TAA every arm smears them into trails -- in-line included (middle left),
+  old, new, new2 alike. **The visible smear is TAA reprojecting the
+  reflections by surface velocity; a reflection moves differently from its
+  surface, and the 3x3 clip cannot catch a wide soft band two pixels
+  off.** The accumulator's reprojection is right; TAA undoes it a pass
+  later.
+- The pass differs from in-line on the poles by softness (a bilinear read
+  of a one-pixel line at a fractional position, then TAA), not by
+  displacement.
+
+**What to build next: composite the accumulated picture after the
+temporal filter -- this frame's picture, at this texel.** Facts gathered
+for it, so it can start without re-reading:
+
+- Pass order (`grep 'graph.AddPass("'`): Scene -> Water* -> Transparent ->
+  ResolveTransparent -> Overlay -> SSAA resolve / TAA resolve -> Budget
+  importance / reduce / allocate -> **ReflectionTrace -> ReflectionAccumulate**
+  -> GI -> SSAO -> Fog -> SSR -> DoF -> Motion -> Bloom prefilter ->
+  Tonemap -> FXAA/SMAA -> Debug view -> UI. A `ReflectionComposite` pass
+  straight after `ReflectionAccumulate` lands after TAA and before bloom,
+  on the linear HDR image, and can read **this frame's** accumulated
+  picture at the **current texel**: no reprojection, no one-frame lag, no
+  disocclusion, and the picture never passes through TAA. It also runs
+  identically under no AA / MSAA / FXAA (the owner's rule).
+- The exact weight (7af's whole argument) is written, not guessed: the
+  opaque lit shader's HDR alpha is `baseColor.a` (pbr_fragment ~5960,
+  `o_Color = vec4(color, baseColor.a)`) and `taa_resolve` passes
+  `current.a` through untouched; `oit_resolve` reads its own accumulation
+  alpha, not the scene's. So alpha can carry W = luminance of
+  (F0 * envBRDF.x + envBRDF.y) * occlusion * reflectionWindow * share.
+  The lit shader suppresses its probe by the share (`prefiltered *= 1 -
+  share`) instead of mixing the trace in, and the composite adds
+  W x traced. A coloured metal's tint is lost to the scalar -- fine in the
+  garage, say so. The surface attachment's alpha (metallic) has no reader
+  in any pass compiled with the trace (grep), a second scalar if wanted.
+- `share` in the lit shader still comes from last frame's frames count
+  (the hook's read, same-reflector test and all) -- only the four-frame
+  ramp; the composite reads this frame's alpha. They disagree only while a
+  fresh history ramps.
+- Transparents draw before TAA, so the composite adds the opaque
+  reflection over glass where glass covers a glossy floor. Debt to state,
+  small here.
+- Alternative, cheaper and compromised: blend the velocity attachment
+  toward the virtual point's velocity by the reflection's share of the
+  pixel (the image distance is in the second attachment). Mis-reprojects
+  the AO and GI histories on reflective pixels. Not recommended.
+- The owner's dial, not to be moved without asking (flicker-bridge rule):
+  variance clipping in `taa_resolve` instead of the min/max box.
+
+**Tools added this session.** `--debug-view=reflection` (EngineConfig,
+FrameGraphBuilder, `debug_view.rvshader` mode 5, scale 24).
+`SampleProject/Source/Slider.cpp`: a native dolly, `Speed` m/s along world
+X for `StopAfter` s then still -- a yaw about the eye cannot show a
+reprojection that finds the wrong surface (every point on a sight line
+lands on one texel under rotation), only a translation does; the module
+rebuilt at `SampleProject/bin/Release/Sample.dll`.
+`tools/scripts/garage/burst.py` (scene copy with the Slider, burst,
+deletes the copy; `--parked`, `--analyse`, `--extra=--flag`),
+`burst_compare.py` (reference arm, moving band, per-frame traces, crop
+sheet), `bench_reflection.py` (unrun). Frames and sheets in
+`build/garage_burst/` (not in git): `old_burst`, `new_burst`, `new2_burst`,
+`inline_burst`, `noaa_burst`, `noaa_inline_burst` x 160 frames each,
+`new_memory.png` / `jit_memory.png` (the jitter proof), `zoom_poles.png`,
+`zoom_noaa.png`, `zoom_new2.png`, `diff_new2.png`, `floor_f100.png`.
+
+**Traps met.** A scratch script staged variants of the accumulator into
+`build/bin/Release/RageVRuntime/assets/shaders/` for the A/B bursts, so a
+run the owner launched during one may have been on the old logic; all
+staged shaders equal source now. A bash heredoc holding apostrophes fails
+in this session's tool -- use the Write tool for shader files and long
+text. The gradient-energy "sharpness" metric is dominated by grain and
+says nothing; the floor crops did. The per-frame `settle` in
+`burst_compare.py` compares the last frame with itself -- read the trace
+files.
+
+## 2026-09-05, night: the garage -- PBR bake done, pillars and ceiling fixed, lighting is next -- UNCOMMITTED
+
+**Start here.** Everything below is uncommitted. The last picture of the
+session is `build/garage_shots/side_pbr9.png` (`engine_pbr9_preset.png` is
+the same frame from the preset-driven build): the garage rebuilt from the
+Blender bake, the tubes reflected in the wet floor as soft bands, a
+`Half bake` spot under each tube, the .blend's two lights, the car under
+the tube field. Numbers against the still: ceiling 8.4 vs 51.3, walls 30.5
+vs 52.6, floor 23.5 vs 124.5. The chain to reproduce it:
+`python tools/scripts/garage/rebuild_pbr.py <tag> --no-import --bake`
+(add a fresh `bake_pbr.py` run first if the Blender side changed).
+
+**Engine changes this session** (all uncommitted): sub-primitive parenting
+(`AssetManager`), sibling-aware material names (`AssetManager`),
+`KHR_materials_emissive_strength` (`GltfImporter`), the glossy traced
+reflection (`pbr_fragment.glsl`: `GlossyReflection`, `MirrorHash`,
+`kGlossySamples`), `RayOptimisationPreset::MirrorRays` with
+`Renderer::SetMirrorRays/GetMirrorRays` and `Indirect.w`. Scene-side:
+`ReflectionFloor: 16` and DoF off in the showroom post profile.
+
+**Open, in the owner's order:** (1) the ceiling is unlit because every
+spot points down -- point lights instead, or a second upward spot per
+tube; (2) the mirror lane in the tile allocator (Part III 4.3.4) so the
+glossy count is per tile, then ReSTIR-style reuse of the directions for
+the grain; (3) "line lights" -- the owner will raise it; not built.
+
+**What is left is light, in three parts, and the owner should pick the order:**
+
+1. *Nothing lights the near half of the room.* The invented point lights sit
+   at the far end; the .blend's 785 W area light hangs above the near floor
+   and its 1000 W point sits by the far wall, and neither is in the scene.
+   There is no area light type; a hybrid spot or point stand-in where the
+   area light is, plus the point, is the cheap version.
+2. *The tubes light almost nothing directly.* 16 emitter slots for ~125
+   emissive faces. Options: raise `kMaxAreaEmitters` (cost per fragment),
+   merge each row of bars into one emitter mesh, or a real tube light type.
+3. *The reflections are mirror-sharp where the still's are soft.* The traced
+   form casts one mirror ray and weights it against the probe by roughness;
+   the still's floor is 0.23 rough with a wet layer, so its bands are wide.
+   Softening needs a roughness-sampled ray direction with temporal
+   accumulation, or a roughness-driven blur of the traced result -- engine
+   work, worth measuring before choosing.
+
+Exposure and tone mapping come after those, not before.
+
+### What the owner asked for, in order, and where each stands
+
+1. **A fresh model and PBR set from the .blend** -- DONE. `tools/scripts/garage/bake_pbr.py`
+   (headless Blender 5.2 against `Downloads/Underground+Garage+Scene.blend`,
+   ~3 min on the GPU) applies every modifier, flips the shell inward, bakes
+   albedo / roughness / metallic / tangent normals per object where a
+   material cannot be exported as-is, bakes the graffiti decals to RGBA
+   sheets, rewires, drops the artist's UVs and exports `GLTF_SEPARATE` to
+   `assets/models/garage_pbr/` plus an FBX to `build/garage_export/` and the
+   baked state to `build/garage_pbr_baked.blend`. The scene runs on the glTF.
+2. **The misplaced pillars** -- FIXED, engine defect. `AssetManager::InstantiateModel`
+   parented the second and later primitives of a multi-material node with
+   `SetParent`'s default *keep world transform*, so each got the inverse of
+   its parent's transform and rendered at the model's origin at unit scale
+   (the columns' olive band). One argument: `keepWorldTransform=false`.
+3. **The missing ceiling** -- FIXED, export defect. The shell mesh is four
+   walls only; the ceiling is two bevelled slab *arrays* (`Plane.003/.010`)
+   and the beams an array (`Cube.001`), and no earlier export applied
+   modifiers, so one slab and one beam arrived. The bake script converts
+   every modifier-bearing object to a mesh first (51 objects).
+4. **Decals with no alpha** -- FIXED. The exporter derived their alpha from
+   the image channel, not from the graph that turns the black paint into the
+   hole. The bake reads the graph's own alpha (behind a Light Path mix for
+   two of them) through an EMIT pass and writes MASK materials.
+5. **Emissive strengths** -- the importer now reads
+   `KHR_materials_emissive_strength` (`GltfImporter.cpp`); no script patches
+   them any more. Blinking Light is 55.7 orange, the tubes 16, the panel 100.
+6. **The camera behind the page's wide still** (CGTrader 86f1415c73, kept in
+   `tools/scripts/garage/reference/`): `solve_camera.py` from pillar
+   positions gives glTF (-4.05, 2.36, 15.91), yaw 3.2 deg, pitch 1.4 deg down,
+   44.6 mm -- scene position (-4.05, 2.36, 29.9). `gt3.py` renders Cycles
+   there; `build/garage_shots/solve_check.png` shows it against the still:
+   pillars and wall land within ~2% of the frame, the vertical is ~4% off
+   (camera a little high or the pitch a little down). A Workbench silhouette
+   scan (`camscan.py`) put it at (-3.55, 1.96, 18.91), 39.8 mm, but its
+   floor/ceiling scoring never fired (Workbench colours come out through the
+   view transform, not as set) so trust it for x only. `compare.py` now
+   renders at the first solve with FOV 43.9 and compares against the still.
+7. **The car on the near side** -- DONE in `migrate.py`: root and its four
+   lamps moved to (-3.5, 0, 20), ten metres in front of the still's eye; the
+   orbit script's target follows.
+8. **Depth of field** -- OFF in `assets/post/showroom.rvpostprofile` (the
+   still is sharp end to end); its `.meta` SourceHash was zeroed so the cache
+   re-reads it.
+9. **Every tube a light source, reflected in the wet floor** -- OPEN, and the
+   whole of what is left. Findings:
+   - The engine traces reflection rays (project: RayTracedReflections High)
+     and with them *on* the floor was darker than with them off: a mirror
+     ray that hits a **Static** surface reads that surface's light from the
+     irradiance field (`pbr_fragment.glsl`, "A reflection or refraction hit
+     on a static surface takes the fully baked lights' direct light from the
+     field"), and no field had been baked for the garage. `rebuild_pbr.py
+     --bake` now solves one (`--bake=force`, Vulkan, 8000 frames; the first
+     run wrote a 53x12x60 field in 1283 frames). The volume and probe were
+     resized to the whole room in `migrate.py` (extents 24 x 3.5 x 27.5 at
+     1 m, probe influence 42).
+   - The area-emitter list feeding next-event estimation holds **16**
+     (`Renderer3D::kMaxAreaEmitters`), first come. The garage has 61 bars
+     with two emissive slots each plus the panel and the fixture: ~125. The
+     other ~109 light nothing directly on rough surfaces; they still show in
+     mirror rays and in the field's solve. Options to discuss, not decided:
+     raise the cap (cost per fragment), merge each row of bars into one
+     emitter mesh (the studio rig's own argument), or real area lights.
+   - The .blend has two real lights the scene never got (`lights_blend.py`):
+     `Area.001` 785 W (0.59, 0.80, 1.0), 1.9 x 0.32 m at glTF (-6.1, 6.5,
+     18.7) -- above the near floor -- and `Light.001` 1000 W point at (4.6,
+     2.8, -12.9). The 13 invented point lights reach none of the near floor.
+   - The debug view `--debug-view=rays` showed rays only on the car: static
+     surfaces do not trace per fragment, by design of the static split.
+
+### Why the floor reflected nothing -- two causes, both found after the bake
+
+Probes that changed nothing: garage non-Static (`static_test.py`), realtime GI
+instead of the field, hybrid room lights, a re-solved field. What did:
+
+1. **The traced mirror ray is clamped to `probe * 8 + ReflectionFloor`**
+   (`pbr_fragment.glsl`, "Bound the ray by the probe it is replacing";
+   `PostSettings::ReflectionFloor`, default 0.05). The garage probe is a dark
+   room with thin bright tubes, so the tubes' 16 was crushed to ~0.05 on
+   every glossy surface. The engine's own `ssr_mirror.rage` shows it too: a
+   bright yellow cube reflects as dim grey. `showroom.rvpostprofile` now has
+   `ReflectionFloor: 16` (the tubes' radiance, as the setting's own comment
+   prescribes for night scenes); with it the ceiling pipes and fittings
+   sparkle with the tubes, which is the specular the owner asked for.
+2. **The floor slab is inside out.** After its geometry nodes, `Plane.016` is a
+   1.9 m slab whose top faces (y = 0.03) point down and whose bottom faces
+   (y = -1.88) point up. The engine culled the real top, showed the underside
+   two metres low, and every mirror ray from it hit the true top from behind
+   and returned the floor's own texel -- so even a roughness-0.02 floor with
+   the clamp lifted reflected nothing. `bake_pbr.py` now flips any closed mesh
+   with negative signed volume after the modifiers are applied. The last run
+   of the session (`engine_pbr6`, log and picture beside the others) is the
+   first with both fixes in.
+
+**Line lights.** The owner asked whether the tubes need them. There is no
+line or tube light type; the tubes are emissive meshes, lit into the scene
+by the 16-slot NEE emitter list, the field solve, and mirror rays. A tube
+light (representative-point specular, Karis 2013) is a day or two of engine
+work and would light rough surfaces from all 61 bars without the cap. Put
+it on the table against raising the cap or merging rows once the floor
+reflects.
+
+### The reflection pass and its accumulator -- SHIPPED 2026-09-05 night
+
+The glossy rays moved out of the lit shader into `ReflectionTrace`
+(`reflection_trace.rvshader`, `Renderer3D::TraceReflections`): a fullscreen
+pass after the allocator that reads the scene pass's surface attachment
+(world normal octahedral, roughness, metallic) and depth, rebuilds the
+point through the inverse view-projection (row flipped on Vulkan, clip z =
+the depth as written), draws MirrorRays from the GGX lobe -- scaled per
+tile by the allocator's GI lane over its average when the map ran -- and
+writes the mean radiance, alpha -1 where nothing is glossy. Then
+`ReflectionAccumulate` (`reflection_accumulate.rvshader`,
+`Renderer3D::AccumulateReflections`) reprojects last frame's picture by
+the scene velocity, bounds it to the fresh 3x3's mean +- 3 sd, and blends
+1/frames up to 24 frames; alpha = frames. The pair is the idle SSR history
+(`desc.Reflections`), advanced after the pass; the lit shader composites
+it a frame late through the SSR hook with intensity 1/8 (share = frames/8)
+and casts no in-line rays while the hook is live (`ScreenReflections.x >
+0`). Both passes bind the lamp passes' set 0, which exists whenever ray
+shadows and bindless do. Result at the still's framing: floor third 22.4
+against 23.5 for four in-line rays, with far less grain
+(`crop_floor_pbr11.png`: still / in-line / pass).
+
+Two traps, both paid for: **the surface attachment's octahedral normal is
+in zero to one** -- a decode that assumes minus one to one folds every
+normal and the floor's reflection vanishes entirely (the hook replaces the
+in-line answer with the pass's black); `octahedral.glsl` is guarded and
+already reached through the lit header, so call `OctDecode`. And **a
+shader edit can be staged by copying it into
+`build/bin/Release/RageVRuntime/assets/shaders/`** (and the editor's twin)
+without a build; three diagnostic renders that painted the floor by
+reach / P.y / N.y found the decode in four minutes. Under a moving eye the
+history is read at the surface's old place while the reflection slides;
+24 frames keeps that a softening -- not measured yet with the flicker
+protocol, which is the next check. `compare.py --car=<m>,<w>x<h>` renders
+the car shot at a distance and size.
+
+### The accumulator under motion, and the car's shine -- measured 2026-09-05 night
+
+**Burst capture, the method:** copy `showroom.rage`, replace the camera's
+`ShowroomCamera` managed script with the engine's `Rotator` native script
+(`Speed: 0.06` rad/s about Y), run the runtime with `--screenshot-count=200
+--screenshot-frame=40 --frame-time=0.0166` and the `--camera` of the shot;
+delete the copy. 200 frames under a slow yaw in ninety seconds. Measured on
+the floor band: the reflection slid 135 px over the burst with no jump, but
+its peak lost 9% and its 99th percentile 16% -- a running average of a
+moving picture is motion blur, and the memory only shortened past a
+two-pixel slack. On a faster orbit the share coupled to the frame count
+(frames/8, memory floor 6) dropped the picture to three quarters probe and
+back: the fade-then-reappear the owner saw. Fixed: memory = 24 / (1 +
+moved_px), floor 4; the hook trusts the picture at four frames (intensity
+1/4); the history bound widens to 12 sd on surfaces under roughness 0.08
+(a tube's line on car paint has dark neighbours and was pulled down every
+frame). `--reflection-pass=on|off` renders the pass or the old in-line rays
+for A/B at one camera. `compare.py --car=<m>,<w>x<h>` is the car shot; the
+runtime caps the height at the screen's work area (1570 of 1600).
+
+**The car reads less shiny than in the studio, and the pass is not why.**
+At 7 m, pass vs in-line: bonnet 37.2 vs 38.0, windshield 37.8 vs 38.2,
+headlamp 38.9 vs 39.5 -- identical. The old white studio, same car, same
+distance (`car7_studio.png`): bonnet 59.1, windshield 53.8, headlamp 75.3.
+Turning the 20 tube spots into point lights so the ceiling is lit
+(`car7_ceiling.png`): bonnet 39.6, windshield 42.9 -- a little. The car and
+its glass reflect dark concrete and thin tubes at 16 where the studio had
+white walls and a panel at 100; the paint (roughness 0.18, F0 0.04) and the
+glass (0.04, F0 0.12) are the studio's own materials. Levers, the owner's
+call: brighter or more emissive content overhead (the tubes' strength, a
+lit ceiling), an off-frame emissive light card above the car (the
+photographer's softbox), or accept the garage's own look.
+
+**The tubes were made brighter for the car's sake (owner: "make the lamps
+strong enough to cast a stronger reflection on the car").** `rebuild_pbr.py`
+step 1b sets the `light` material's emissive to TUBE_COLOUR x TUBE_RADIANCE
+after the import -- an absolute value, idempotent -- and the post profile's
+`ReflectionFloor` must sit at or above it. 16 (the .blend's) gave bonnet
+37.2 / windshield 37.8 at 7 m; 40 gave 40.5 / 45.8 with walls 39.6 and floor
+33.7 at the still's framing; 100 (the ceiling panel's own value) gave bonnet
+44.5 / windshield 55.6 / headlamp 42.5 against the studio's 59.1 / 53.8 /
+75.3, floor 42.2 at the still's framing, and is what the scene ships with.
+Bloom was pulled back with it (threshold 12, intensity 0.03, clamp 12; was
+2.4 / 0.08 / 28) because the brighter tubes flared.
+The tubes themselves were already clipped white at 16, so this changes what
+they light and reflect, not how they look. The field is re-baked with them.
+
+**OPEN, owner's report at the end of the session: the accumulator still takes
+about two seconds to settle after the camera stops.** Two seconds is ~120
+frames against a 24-frame memory, so it is not the memory alone: candidates
+are the share fading in (frames/4, but frames restart at 1 wherever the
+reprojected history was refused -- off-screen, or `past.a <= 0` where last
+frame's texel was not glossy), the roughness-widened bound letting a stale
+history linger on smooth paint, and TAA's own history on top. The burst
+method above measures it: yaw for 100 frames, stop, and plot the floor
+band's peak per frame after the stop. To be worked on after the context
+clears; the owner asked for it to be noted, not fixed, tonight.
+
+### Line lights -- the owner's design, read 2026-09-05 night
+
+`Downloads/Line_Light_RT_Design.md`: a finite cylinder emitter -- p0, p1,
+radius, colour, intensity *per unit length*, a bleed angle. The body emits
+only perpendicular to its axis; the end caps emit into their hemisphere
+widened by the bleed with a smoothstep off the 90-degree plane; the
+interior never bleeds. Direct light is the integral over the emitter with a
+shadow ray per sample: body samples along t and phi, cap samples on the
+discs, importance toward the closest point on the segment, counts by
+projected size, soft shadows from the radius, accumulated over frames;
+culled by a capsule; a ReSTIR reservoir keeps (light, t, phi, region). Not
+N point lights. Roadmap: Phase 1 analytic (closest point, zero radius),
+Phase 2 RT (radius, stochastic samples, shadow rays, accumulation), Phase 3
+optimisation (importance, adaptive counts through the budget, capsule
+culling, ReSTIR).
+
+Where each piece lands here: `LightType` gains `Line`; `Light` gains the
+second endpoint, radius and bleed (registry, inspector, C#); `GpuLight`
+carries axis and length in spare lanes (three mirrors, edited in step --
+7at); the cluster builder takes the capsule's AABB; the lit shader's
+per-light term gets a `Line` branch -- Phase 1 the closest point on the
+segment as the representative point for specular plus the
+perpendicular-only weighting, Phase 2 a drawn (t, phi) per frame with one
+shadow ray through the lamps' own TraceShadow, weighted by the body/cap
+rule, into S4's reconstruction stage (the water's accumulate pass is the
+shape); the hit-shading light walk and the field solve take the same branch
+so a Half bake line light bounces; the allocator's shadow-ray lane sets the
+count. The garage's 20 tubes become 20 line lights of 3.07 m at radius
+0.075 and intensity per metre, and the 20 stand-in spots come out.
+Estimate: Phase 1 two days, Phase 2 three to four, Phase 3 with the budget.
+Not started.
+
+### Traps found this session (all cost time)
+
+- **The runtime imports every model file under `assets/`.** Two model files
+  in one folder that share a stem (`x.gltf` and `x.fbx`) wrote `.rmat` files
+  with the same names and overwrote each other -- 23 of 83 scene materials
+  went unresolved mid-bake. **Fixed in the importer (2026-09-05 night):**
+  `InstantiateModel` names the materials `<stem>.<ext>_<n>_<name>.rmat`
+  when a sibling model shares the stem, and warns; a model that stands
+  alone keeps its names and handles. The FBX lives in `build/garage_export/`
+  anyway. The old `assets/models/garage/` has exactly this pair (`.fbx` +
+  `.glb`), as do `limb` and `spacecheck` in `models/`; the garage folders
+  `garage/`, `garage_gltf/`, `garage_baked/`, `garage_lit/` (310 MB) are
+  superseded and can go.
+- **Half baked** (owner's word): the room's invented lights were
+  `Mobility: Realtime`, so nothing of them was ever in the field. `migrate.py`
+  now writes them `Hybrid Full Bake` (far share in the field, near share
+  live within HybridRadius); the three mode-switched lamps stay Realtime,
+  since a baked lamp cannot be switched. `static_test.py` is the non-static
+  probe described under item 9.
+- `compare.py`'s old camera `0,1.8,-12,26,0,3` matched nothing: 26 m nearer
+  the wall than the artist's camera and dead centre. Every number taken with
+  it compared two different shots.
+- The bake's folder wipe must `rmtree` the FBX exporter's `<name>.fbm`
+  directory; `os.remove` on it raises PermissionError.
+- Workbench renders in background mode ignore `image_settings` (locked to
+  FFMPEG); use `save_render`. Their pixel values pass through the view
+  transform, so flat object colours are not the values you set.
+- Cycles' DIFFUSE colour pass of a metal is black: force Metallic to zero
+  for the albedo bake. Blender has no metallic bake: wire the metallic source
+  to Emission and bake EMIT. A Principled's Alpha scales its emission too:
+  set Alpha to one while baking alpha through EMIT.
+- The bake target is the *active* UV layer; texture lookups use the
+  *render-active* one. Keep the artist's layer render-active until every
+  bake is done, then remove it so `bake_uv` becomes TEXCOORD_0.
+
+### Files
+
+Engine: `AssetManager.cpp` (sub-primitive parenting), `GltfImporter.cpp`
+(emissive strength). Tools, all in `tools/scripts/garage/`: `bake_pbr.py`,
+`survey_blend.py`, `decal_graphs.py`, `solve_camera.py`, `camscan.py`,
+`gt3.py`, `static_flags.py`, `rebuild_pbr.py`, and `migrate.py` /
+`compare.py` changed as described. Scene: `showroom.rage` regenerated by
+`rebuild_pbr.py` (hand edits will be lost on the next rebuild -- put them in
+`migrate.py`). `assets/baked/showroom/field_c5ec17ae370dcbbb_*` is the
+garage's first field (from the run with broken materials; the running
+rebuild replaces it).
+
+
+## 2026-09-05, evening: the showroom becomes the underground garage — IN PROGRESS, UNCOMMITTED
+
+**Start here: a fresh PBR bake of the whole garage out of Blender, and a fresh
+model export with it.** The owner asked for exactly that, in those words, at
+the end of the session. Everything below is what was learned getting there,
+so the next session does not relearn it. **The tree is uncommitted** (see the
+end) and the owner will clear context and restart on this section.
+
+### The target, and how to measure against it
+
+**Judge against Cycles, never against the marketing stills.** The artist's
+`.blend` (`C:\Users\ism19\Downloads\Underground+Garage+Scene.blend`, 80 MB,
+46 packed images) renders the reference exactly. Blender 5.2 is installed at
+`C:\Program Files\Blender Foundation\Blender 5.2\blender.exe`. One command
+makes the truth:
+
+    blender --background --factory-startup <blend> --python tools/scripts/garage/gt2.py
+
+-> `build/garage_shots/blender_truth.png` (a copy is kept at
+`tools/scripts/garage/reference/blender_truth_1280x720.png`). Then
+`python tools/scripts/garage/compare.py <tag>` renders the engine at the
+matched framing (`--camera=0,1.8,-12,26,0,3`, scene FOV 39.6 = the artist's
+50 mm) and prints mean levels per third of the frame plus a side-by-side.
+Last numbers (engine_v4): ceiling 84 vs truth 45, walls 39 vs 44, **floor 20
+vs 92**. Walls are right; the floor is the whole gap; the ceiling is the
+tubes blowing out under ACES where Cycles had Filmic High Contrast.
+
+The owner's standing instructions this session, verbatim in spirit: **the
+lights are fine, leave them; the camera position is not the problem; the
+textures and materials are what is wrong; stop asking and work; judge it
+yourself before showing it.** Four hours were lost answering about lighting
+and framing when the complaint was textures. Do not repeat that.
+
+### Why the textures were wrong — every cause, all verified
+
+1. **The room's concrete and the floor use Object-space texture coordinates**
+   (`coords.py` proves it: `concrete`, `concrete.006`, `wet road.001` all
+   `source=Object`). No exchange format carries that — FBX, OBJ and glTF all
+   pin the image to the UV map instead, which is a different layout. **They
+   must be baked in Blender**, and that is the only fix.
+2. **The room shell (`Cube`) has outward normals.** Cycles draws both sides;
+   the engine culls the back, so walls and ceiling were simply absent and the
+   graffiti quads floated in front of sky. That is also why the pillars looked
+   like they went "above the ceiling" — nothing capped them. Fix:
+   `bpy.ops.mesh.normals_make_consistent(inside=True)` on `Cube` before export.
+   The columns are correctly placed (world y −0.85..6.73).
+3. **A bake lands in TEXCOORD_1 unless the artist's UV layer is removed** —
+   the exporter writes layers in order and `GltfImporter` reads TEXCOORD_0
+   only (`MeshVertex` has one UV set). Baked textures were being sampled
+   through the artist's layout: the "wrong tiling" the owner spotted. Remove
+   the original layer **after** baking (see 4), so `bake_uv` is the only one.
+4. **Removing the artist's UV layer before baking blacks out any material
+   that reads it by name** — the floor's puddle and grunge textures do. Ten
+   objects baked black in `bake5.py` for this reason (floor included). The
+   ordering is fixed in `bake5.py` but **that fixed version has not been run**.
+5. **glTF drops emissive strength** (`emissiveFactor` is 0..1). The tubes are
+   `light` 16, `light2` 12, the ceiling panel `Material.001` 100, the wall
+   fixture `Blinking Light` 8, colour (0.34, 0.63, 1.0). `rebuild.py`
+   multiplies them back in after import. A lit (COMBINED) bake carries them
+   in the picture instead.
+6. **Blender's FBX exporter carried textures for 4 of 13 textured materials**
+   because the rest sit behind Mapping and Group nodes it does not follow.
+   glTF carries all of them. Use glTF, `GLTF_SEPARATE`: **GLB (embedded
+   images) crashes this file's export**, and Blender also crashes if another
+   Blender instance is open. `GLTF_SEPARATE` exports fully and only crashes on
+   shutdown after `EXPORTED` — that crash is harmless.
+7. `Material.014` (the shell) is `Metallic 1` in the file — in Cycles a blurred
+   mirror of a bright room, in our unlit environment near-black. `rebuild.py`
+   sets it to diffuse concrete as a flagged deviation.
+8. **`Cylinder.013`–`.022` (the columns) are linked duplicates of one mesh.**
+   Object-space projection is identical for all ten, so bake once per
+   `mesh.data`, not per object — and a per-object material swap on a shared
+   mesh overwrites the others (the first bake did exactly that).
+9. The scene's output format is locked to FFMPEG; write renders with
+   `bpy.data.images['Render Result'].save_render()`.
+10. Cycles renders through **Filmic / High Contrast**; the engine tone-maps
+    with ACES. Contrast will differ until matched; do not chase it with
+    exposure alone.
+
+### What is already right in the current scene
+
+Geometry, hierarchy and placement (garage root at z = +14 so the graffiti
+wall sits ~13 m behind the car); the graffiti decals with real artwork and a
+working alpha cut-out (`graffitistuff.png`); the two-tone olive/grey columns
+(baked); every UV-mapped material straight from Blender's glTF exporter; the
+floor's baked albedo and roughness (top faces only, `TEXCOORD_0`); the shell
+facing inward; `Static` on every garage mesh. The **lit bake** (`bake5.py`,
+`garage_lit/`) exists but is invalid — 10 black objects, cause 4 above.
+
+### The plan for next session — the owner's ask
+
+**A complete PBR set from Blender, and a fresh model export**, then import
+and measure. One Blender script, run headless against the `.blend`:
+
+1. For each mesh **once per `mesh.data`** (linked duplicates), sorted by area:
+   add `bake_uv` (smart project; `cube_project` + push non-top faces off the
+   page for the floor), resolution by area (2048 for >400 m², 1024, 512, 256).
+   Keep the artist's UV layer until every bake is done.
+2. Bake, direct and indirect **off**, colour on: `DIFFUSE` (albedo),
+   `ROUGHNESS`, `NORMAL` (tangent, OpenGL/+Y — check `check_tangent_frame.py`
+   for which the engine wants), and `EMIT` for the tubes and panel. Metallic
+   cannot be baked; take the Principled scalar. `bake4.py` is the working
+   template for colour + roughness on the floor and columns; extend it to
+   every mesh and add NORMAL/EMIT.
+3. Rewire each object's own material copy to the baked images, remove the
+   artist's UV layer, flip `Cube` inward, export `GLTF_SEPARATE` to
+   `SampleProject/assets/models/garage_pbr/`.
+4. `python tools/scripts/garage/rebuild.py <tag>` with `G`/the glTF path
+   pointed at `garage_pbr` — it re-imports through `rvimport`, migrates the
+   studio scene (`migrate.py`, from `showroom.rage.studio.bak` =
+   `git show 81b172f:SampleProject/assets/scenes/showroom.rage`), sets
+   `Static`, restores emissive strengths, and runs `compare.py`.
+5. Read the numbers and the side-by-side. The floor must come up from 20
+   toward 92: that is reflection of the tubes, which needs the floor's baked
+   roughness (~0.23) **and** an engine that reflects emissive surfaces —
+   verify with a mirror-floor test that the tubes appear in it before
+   blaming the bake.
+
+**The alternative that guarantees the look:** `bake5.py`'s lit bake
+(COMBINED, Cycles' finished lighting per object, imported as an emissive map
+over a black base so the engine relights nothing; the car stays live and still
+reflects in the floor). With the UV ordering fixed it should bake clean; run
+it with `rebuild_lit.py`. Its emissive scalar stays 1.0 so nothing joins the
+16-emitter list. The owner asked for the PBR set first; keep this as plan B.
+
+### Tooling (all in `tools/scripts/garage/`, paths rewritten to the repo)
+
+`gt2.py` truth render · `compare.py` matched render + numbers · `migrate.py`
+studio→garage scene rebuild (one-time transform; the scene is hand-owned
+after) · `fix1.py` Static flags (handles an existing `Static:` line) ·
+`rebuild.py` / `rebuild_lit.py` the whole import→scene→measure chain ·
+`bake4.py` PBR bake (floor + columns) · `bake5.py` lit bake · `coords.py`
+which coordinate source each texture uses · `inspect_blend.py`,
+`extract_blend.py`, `lights_blend.py` what the .blend contains ·
+`export_sep.py` plain glTF export · `scene_util.py`/`edit_util.py` helpers.
+Every one runs as `blender --background --factory-startup <blend> --python
+<script>` or plain `python`. **Close Blender before running any of them.**
+
+A colour-code render (every material a distinct flat emissive, see the
+session's `colourcode` approach) is the fastest way to learn which surface is
+which material; it found the missing shell in one frame.
+
+### Engine and repo changes this session — ALL UNCOMMITTED
+
+- `FbxImporter.cpp`: embedded textures extracted beside the model
+  (`ExtractTexture`, mirrors the glTF path); Phong roughness/metallic/alpha
+  maps read from `ShininessExponent`/`ReflectionFactor`/`TransparencyFactor`.
+- `GltfImporter.h`: `ImportedMaterial::RoughnessTexture` / `MetallicTexture`;
+  `AssetManager.cpp` honours them; **`MeshCook` bumped to version 3** to
+  carry them (the cache silently dropped them otherwise — the same class of
+  bug its version-2 comment records).
+- Deleted: `showroom2` and `showroom-mark85` scenes, metas, bakes, models,
+  generators, 11 orphaned materials/profiles/LUTs, `SuitLights.cs`, two rows
+  in `mark_static.py` (366 MB, all recoverable from git).
+- `SampleProject/assets/models/garage/` (FBX + extracted textures + `blend/`
+  recovered textures), `garage_gltf/`, `garage_baked/`, `garage_lit/` — the
+  successive imports; only the newest matters, the rest can go.
+- `showroom.rage` migrated to the garage (514 entities, 13 invented lights the
+  owner said to keep for now, probe and volume resized, modes repurposed,
+  FOV 39.6); `showroom.rvpostprofile` bloom pulled back (threshold 2.4,
+  intensity 0.08, exposure 0.42).
+- `docs/NEXT.md` carries the earlier "parked" brief; treat this section as
+  the live one.
+
+No bake of the engine's own irradiance/probe has been run for the garage;
+the old studio bake files are stale for it.
 
 ## 2026-09-05, later: the night frame from 57.6 ms to 27.9
 

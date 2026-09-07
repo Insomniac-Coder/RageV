@@ -58,6 +58,7 @@ private:
 	// And last frame's screen-space reflection trace, for this frame's
 	// lighting. ENGINE-NOTES 7af.
 	RageV::TemporalHistory m_Reflections;
+	RageV::TemporalHistory m_DirectLight;   // RT-first T5
 	// Indirect diffuse, one frame late (ENGINE-NOTES 7av).
 	RageV::TemporalHistory m_Indirect;
 	// One texel per 16x16 tile: what the ray budget gave each tile last
@@ -65,6 +66,10 @@ private:
 	RageV::TemporalHistory m_RayBudget;
 	// Ray-traced occlusion's accumulation. See FrameDesc::Occlusion.
 	RageV::TemporalHistory m_Occlusion;
+	// RT-3: the traced bounce's accumulation. See FrameDesc::GiLight.
+	RageV::TemporalHistory m_GiLight;
+	// RT-6: last frame's identity lanes. See FrameDesc::TaaGuide.
+	RageV::TemporalHistory m_TaaGuide;
 	// WR-16 S4b: the sea's four choices a pixel, kept from frame to frame.
 	RageV::TemporalHistory m_WaterChoices;
 	RageV::TemporalHistory m_WaterLampLight;

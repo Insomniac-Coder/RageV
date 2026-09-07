@@ -311,9 +311,12 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.History = &m_History;
 	frame.Exposure = &m_Exposure;
 	frame.Reflections = &m_Reflections;
+	frame.DirectLight = &m_DirectLight;
 	frame.Indirect = &m_Indirect;
 	frame.RayBudget = &m_RayBudget;
 	frame.Occlusion = &m_Occlusion;
+	frame.GiLight = &m_GiLight;
+	frame.TaaGuide = &m_TaaGuide;
 
 	// The loop's frame time, straight through. Not a clock read here: this is
 	// the number --frame-time pins, and driving the adaptation from it is the
@@ -322,6 +325,10 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.DrawScene = [this](RGPassContext& context)
 	{
 		m_Scene->OnRenderRuntime((float)context.Width / (float)context.Height);
+	};
+	frame.DrawSceneLit = [this](RGPassContext&)
+	{
+		m_Scene->OnRenderLit();
 	};
 
 	// The game's own UI, over the finished image. The whole reason the UI layer
