@@ -6,6 +6,7 @@
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Scene/Components.h"
 #include "RageV/Core/Log.h"
+#include "RageV/Core/EngineConfig.h"
 
 #include <cmath>
 #include <cstring>
@@ -379,6 +380,11 @@ namespace RageV
 									  Math::Length(Vec3(world[1])),
 									  Math::Length(Vec3(world[2])));
 		const float width = GetChunkWidth() * scale;
+		m_LodReport = LodReport{};
+		m_LodReport.Chunks = (uint32_t)m_Chunks.size();
+		// The veto's ratio: the engine's, or the measurement flag's (RT-2.1).
+		const float errorRatio = EngineConfig::Get().TerrainLevelError > 0.0f
+			? EngineConfig::Get().TerrainLevelError : kLevelErrorRatio;
 
 		for (Chunk& chunk : m_Chunks)
 		{
@@ -393,11 +399,15 @@ namespace RageV
 			// kilometres away errs by tens of metres at the coarsest level
 			// and is held finer, because a straight line across a cliff face
 			// is a triangle hanging off the skyline.
-			int level = LevelFor(distance, width);
-			const float budget = distance * kLevelErrorRatio;
+			const int wanted = LevelFor(distance, width);
+			int level = wanted;
+			const float budget = distance * errorRatio;
 			while (level > 0 && chunk.LevelError[level] * scale > budget)
 				--level;
 			chunk.Level = level;
+			m_LodReport.ByDistance[wanted]++;
+			if (level < wanted)
+				m_LodReport.Vetoed++;
 		}
 
 		// **No neighbour more than one level away.** Without this a refined
@@ -406,6 +416,9 @@ namespace RageV
 		// has to be tall enough to hide, and a wall that tall is visible from
 		// outside the slope it hangs under. Two sweeps settle a 16x16 field;
 		// the loop is bounded by the level count either way.
+		m_LevelsBeforeCap.resize(m_Chunks.size());
+		for (size_t i = 0; i < m_Chunks.size(); ++i)
+			m_LevelsBeforeCap[i] = m_Chunks[i].Level;
 		for (int pass = 0; pass < kLevels; ++pass)
 		{
 			bool changed = false;
@@ -428,6 +441,13 @@ namespace RageV
 			}
 			if (!changed)
 				break;
+		}
+
+		for (size_t i = 0; i < m_Chunks.size(); ++i)
+		{
+			m_LodReport.Final[m_Chunks[i].Level]++;
+			if (m_Chunks[i].Level < m_LevelsBeforeCap[i])
+				m_LodReport.Capped++;
 		}
 
 		// The skirts, only from above the ground. A skirt is a vertical drop

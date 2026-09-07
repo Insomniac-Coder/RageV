@@ -2,6 +2,7 @@
 #include "FrameGraphBuilder.h"
 #include "LightGlow.h"
 #include "PostProcess.h"
+#include "TextureLoader.h"
 #include "RageV/Core/EngineConfig.h"
 #include "RageV/Core/FrameProfiler.h"
 #include "RayShadows.h"
@@ -47,6 +48,15 @@ namespace RageV
 		// because five places have to agree about it -- the target, the six
 		// renderers, the UI world layer, the probe face and the resolve.
 		constexpr Format kIndirectFormat = Format::R16G16B16A16_SFLOAT;
+		// The G-buffer's albedo + metallic and the surface id (RT-first step
+		// 1a). Albedo in eight bits linear for now (sRGB storage once the
+		// attachment path is checked); the id a float, exact to 2^24, so the
+		// graph's Vec4 clear serves it.
+		constexpr Format kAlbedoFormat = Format::R8G8B8A8_UNORM;
+		// r: the object's id, negative for a Static surface; g: the roughness
+		// the lit shader shades analytic lights with (specular-antialiased,
+		// RT-first T5) -- o_Surface keeps the raw one for the traced lobes.
+		constexpr Format kSurfaceIdFormat = Format::R32G32_SFLOAT;
 
 		// Radius of the tent filter on the way back up, in texels of the level
 		// being read. Wider is smoother and starts to look like a box.
@@ -361,8 +371,8 @@ namespace RageV
 				: desc.Render.RtOptimisation);
 		// The lamp count the water passes are gated on: the level's, unless a
 		// measurement run asked for another.
-		const int rtLamps = config.HasLightSamplingOverride
-							   ? config.LightSampling : rtPreset.Lamps;
+		const int rtLamps = config.HasRaysPerPixelOverride
+							   ? config.RaysPerPixel : rtPreset.RaysPerPixel;
 
 		const bool debugCounts = debugView
 							  && (config.DebugView == EngineConfig::DebugViewMode::Rays
@@ -445,7 +455,8 @@ namespace RageV
 		// record of how that goes. ENGINE-NOTES 7z.
 		sceneDesc.SampleDepth = true;
 		Renderer::SetTargetFormats(sceneDesc.Color, sceneDesc.Depth, (uint32_t)msaa,
-								   Format::R16G16_SFLOAT, kNormalFormat, kIndirectFormat);
+								   Format::R16G16_SFLOAT, kNormalFormat, kIndirectFormat,
+								   kAlbedoFormat, kSurfaceIdFormat);
 		// The UI renderer's *world* layer draws inside the scene pass -- world
 		// text, and the editor's light and camera marks -- so it takes the
 		// scene's sample count. Its screen-space layer is set separately, down
@@ -502,6 +513,11 @@ namespace RageV
 		// probe face all had to be told as well.
 		const uint32_t indirectIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
 		sceneDesc.ExtraColors.push_back(kIndirectFormat);
+		// The G-buffer's two (RT-first step 1a).
+		const uint32_t albedoIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
+		sceneDesc.ExtraColors.push_back(kAlbedoFormat);
+		const uint32_t surfaceIdIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
+		sceneDesc.ExtraColors.push_back(kSurfaceIdFormat);
 
 		// **The sea's surface** (WR-16 S4b): the octahedral normal, the
 		// roughness the footprint block chose and the wind angle in one
@@ -640,6 +656,7 @@ namespace RageV
 			// A budget may spend fewer rays on a thing. It may not decide the
 			// thing is no longer in the picture.
 			Renderer::SetReflectionGloss(RayDetailGloss(reflectionDetail));
+			Renderer::SetMirrorRays((int)rtPreset.MirrorRays);
 		}
 		const AoDetail rayAo = ResolveRayTracedAmbientOcclusion(desc.Render);
 		const bool rayOcclusion = rayAo != AoDetail::Off;
@@ -792,11 +809,32 @@ namespace RageV
 		RGResource previousReflections = kRGInvalid;
 		RGResource currentReflections = kRGInvalid;
 
-		if (wantReflections)
+		// The pair serves two producers that never run together: the screen-space
+		// trace, or the traced glossy pass and its accumulator (below the
+		// allocator). Either way the lit shader reads last frame's through the
+		// same hook; the intensity is the share of it to trust per frame behind
+		// the value for the traced form, whose alpha counts frames.
+		const bool tracedReflections = rayReflections && desc.Reflections != nullptr
+									  && !(config.HasReflectionPassOverride
+										   && !config.ReflectionPassOverride);
+		if (wantReflections || tracedReflections)
 		{
 			TemporalHistory& reflections = *desc.Reflections;
+			// The traced form keeps a second attachment beside the picture:
+			// the reflector under each texel, which the accumulator tests a
+			// history against before averaging with it. The screen-space
+			// trace has no such test and keeps the one it had.
+			// RT-6.1: the fourth lane is the virtual image's screen motion, which
+			// the composite hands to the temporal resolve so a reflection can be
+			// reprojected by its own movement rather than by the floor's.
 			reflections.Prepare(Renderer::GetDevice(), desc.Width, desc.Height,
-								Format::R16G16B16A16_SFLOAT, "ScreenReflections");
+								Format::R16G16B16A16_SFLOAT, "ScreenReflections",
+								tracedReflections ? Format::R16G16B16A16_SFLOAT
+												  : Format::Undefined,
+								tracedReflections ? Format::R16G16B16A16_SFLOAT
+												  : Format::Undefined,
+								tracedReflections ? Format::R16G16B16A16_SFLOAT
+												  : Format::Undefined);
 
 			if (reflections.Current() && reflections.Previous())
 			{
@@ -811,7 +849,12 @@ namespace RageV
 				if (reflections.HasHistory())
 				{
 					reflectionsForScene.Texture = reflections.Previous()->GetColorTexture(0);
-					reflectionsForScene.Intensity = Math::Max(desc.Post.SsrIntensity, 0.0f);
+					reflectionsForScene.Surface = tracedReflections
+												 ? reflections.Previous()->GetColorTexture(1)
+												 : nullptr;
+					reflectionsForScene.Intensity = tracedReflections
+												   ? 1.0f / 4.0f
+												   : Math::Max(desc.Post.SsrIntensity, 0.0f);
 				}
 			}
 		}
@@ -839,6 +882,23 @@ namespace RageV
 							   && PostProcess::IsReady()
 							   && (!voxelWanted || voxelGi);
 
+		// RT-3: the traced bounce as a signal of *this* frame -- traced from the
+		// G-buffer between it and the lit pass, upsampled to the lit pass's
+		// resolution and settled on the same contract the direct light and the
+		// occlusion take. The traced form only: the screen-space gather reads the
+		// lit image, so it cannot run before the pass that makes it and stays on
+		// the one-frame-late buffer of 7av. `--gi-signal=off` is the reference
+		// arm and puts the traced form back on that buffer too.
+		//
+		// Resolved *here*, above the block that fills the intensity, and not
+		// beside RT-2's gate further down: what that block decides is whether
+		// the lit shader believes there is a bounce at all, and under the
+		// signal the answer cannot come from the old buffer's history.
+		const bool giSignal = Renderer3D::GBufferPassAvailable() && rayGi && wantIndirect
+						   && config.GiSignal && PostProcess::IsReady()
+						   && desc.GiLight != nullptr
+						   && Renderer3D::CanTraceGlobalIllumination();
+
 		Renderer::ScreenIndirect indirectForScene;
 		RGResource previousIndirect = kRGInvalid;
 		RGResource currentIndirect = kRGInvalid;
@@ -848,7 +908,18 @@ namespace RageV
 		// estimate underneath it is four rays wide.
 		const float giFeedback = Math::Clamp(desc.Post.GiDenoise, 0.0f, 0.98f);
 
-		if (wantIndirect)
+		// **RT-3: and the intensity is live at once, with no history behind
+		// it.** Indirect.x is what the lit shader reads as "there is a bounce
+		// to add, at this strength"; the block below sets it only when the
+		// one-frame-late pair has a frame in it, which is right for a buffer
+		// written last frame and wrong for a signal computed for this one.
+		// The texture stays null on purpose -- binding 16 is overwritten with
+		// the settled signal in DrawLit, and what is bound before that is the
+		// 1x1 transparent black every other set gets.
+		if (giSignal)
+			indirectForScene.Intensity = Math::Max(desc.Post.GiIntensity, 0.0f);
+
+		if (wantIndirect && !giSignal)
 		{
 			TemporalHistory& indirect = *desc.Indirect;
 			// **A second attachment, for what the denoiser remembers.** Frames
@@ -883,6 +954,9 @@ namespace RageV
 		}
 		else if (desc.Indirect)
 		{
+			// Invalidated under the signal too: the one-frame-late chain is not
+			// running, and a history left standing would be resumed as truth the
+			// frame --gi-signal=off puts it back in service.
 			desc.Indirect->Invalidate();
 		}
 
@@ -924,43 +998,13 @@ namespace RageV
 			}
 		}
 
-		graph.AddPass("Scene",
-			[&](RGPassBuilder& builder)
-			{
-				// Colour, velocity and the surface description. Not the
-				// transparency attachments: a pipeline's declared colour
-				// formats have to match what the pass binds, and the pass
-				// that accumulates transparency binds a different pair --
-				// which is what WriteAttachments is for. Every pipeline
-				// drawing here declares all three of these.
-				builder.WriteAttachments(sceneHDR,
-					{ { 0, desc.ClearColor },
-					  // Zero is "did not move", which is what anything that
-					  // never writes velocity should read back as.
-					  { velocityIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
-					  // And zero here decodes to "no surface": SSR reads it as
-					  // "no reflection", so sky, grid and text never reflect.
-					  { normalIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
-					  // Traced indirect diffuse (7av). **The subset is what
-					  // `layout(location = N)` counts, not the target** --
-					  // which is what made the first attempt measure +0.00
-					  // with the attachment declared, the six renderers swept
-					  // and the probe face widened: location 3 had nothing
-					  // behind it because this list stopped at three.
-					  { indirectIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
-				builder.SetClearColor(desc.ClearColor);
-
-				// Declared here even though the PBR shader binds it through
-				// the scene set rather than through the graph: the graph is
-				// what moves the imported target into a readable layout
-				// before this pass, and it can only do that for a read it
-				// knows about.
-				if (previousReflections != kRGInvalid)
-					builder.Sample(previousReflections);
-				if (previousIndirect != kRGInvalid)
-					builder.Sample(previousIndirect);
-			},
-			[draw = desc.DrawScene, jitter, reflectionsForScene, indirectForScene,
+		// **RT-first step 1a: the G-buffer pass, then the lit pass.** The scene
+		// callback (uploads, the cull, the G-buffer draw) runs in "GBuffer",
+		// which binds velocity, normal, albedo, id and the depth; "Scene"
+		// preserves that depth and draws the lighting through DrawLit. Any
+		// ray-traced signal pass added between the two reads a finished
+		// G-buffer. Without the G-buffer shader the old single pass stands.
+		auto drawScene = 			[draw = desc.DrawScene, jitter, reflectionsForScene, indirectForScene,
 			 motion = desc.History ? &desc.History->Motion() : nullptr](RGPassContext& context)
 			{
 				// Last frame's reflection trace, for the lighting. Set and
@@ -1013,7 +1057,696 @@ namespace RageV
 				Renderer::SetCameraMotion(nullptr);
 				Renderer::SetJitter(Vec2(0.0f, 0.0f));
 				Renderer::SetScreenReflections(nullptr);
-			});
+			};
+		// The reconstruction contract as passes (RT-first T4), for any signal:
+		// the accumulate and the three a-trous blurs. Above the G-buffer pass
+		// because the direct light (T5) runs between it and the lit pass.
+		struct SignalPassNames { const char* Accumulate; const char* Blur[3]; };
+		// **RT-3.1: which buffers the contract validates against, and at what
+		// scale.** The accumulate and the blurs read the surface under each texel
+		// with `texelFetch(..., ivec2(gl_FragCoord.xy))`, so the lanes they read
+		// have to be on the signal's own grid. At full resolution that is the
+		// G-buffer itself and `Divisor` is one -- which is what the reflections
+		// and the direct light pass, so nothing changes for them. A signal traced
+		// at half or quarter passes the downsampled lanes and its divisor, and the
+		// whole contract runs there instead of at four or sixteen times the texels.
+		struct SignalGuidance
+		{
+			RGResource Depth = kRGInvalid;      // kRGInvalid means the G-buffer's own
+			RGResource Surface = kRGInvalid;
+			RGResource Velocity = kRGInvalid;
+			uint32_t   Divisor = 1;
+		};
+		auto addSignal = [&](const SignalPassNames& names, Renderer3D::SignalParams params,
+							 RGResource fresh, RGResource current, RGResource previous, bool hasHistory,
+							 CameraMotion* motion, RGTargetDesc blurDesc, bool pair,
+							 SignalGuidance guide = {}) -> RGResource
+		{
+			// **The texel-denominated tuning follows the grid.** Every one of these
+			// four is counted in texels of the signal's own target, and a texel at
+			// half resolution covers twice the screen: unscaled, a signal moved down
+			// would hold its history through twice the camera motion before the
+			// smear cap bit, and blur half as far across the picture. Scaling them
+			// keeps what they mean -- a distance on screen -- the same.
+			if (guide.Divisor > 1)
+			{
+				const float scale = 1.0f / (float)guide.Divisor;
+				params.Slack *= scale;
+				params.SmearTexels *= scale;
+				params.YoungRadius *= scale;
+				params.MaxRadius *= scale;
+			}
+			const RGResource guideDepth = guide.Depth != kRGInvalid ? guide.Depth : sceneHDR;
+			const RGResource guideSurface = guide.Surface != kRGInvalid ? guide.Surface : sceneHDR;
+			const RGResource guideVelocity = guide.Velocity != kRGInvalid ? guide.Velocity : sceneHDR;
+			// The lane index inside whichever target: the G-buffer keeps its
+			// attachments, the guidance target has one lane apiece.
+			const uint32_t guideNormalLane = guide.Surface != kRGInvalid ? 1u : normalIndex;
+			const uint32_t guideVelocityLane = guide.Velocity != kRGInvalid ? 2u : velocityIndex;
+			const bool ownGuide = guide.Depth != kRGInvalid;
+			graph.AddPass(names.Accumulate,
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(current);
+					builder.Sample(fresh);
+					builder.Sample(sceneHDR);
+					if (ownGuide)
+						builder.Sample(guideDepth);
+					if (hasHistory)
+						builder.Sample(previous);
+					builder.DisableDepth();
+				},
+				[params, fresh, sceneHDR, current, previous, hasHistory, motion, pair,
+				 guideDepth, guideSurface, guideVelocity, guideNormalLane, guideVelocityLane, ownGuide]
+				(RGPassContext& context)
+				{
+					Renderer3D::AccumulateSignal(params,
+						context.Color(fresh),
+						// The guidance target keeps its depth in a colour lane; the
+						// G-buffer's is a depth attachment. Both are a sampler2D whose
+						// red is clip depth as written, which is all the shader reads.
+						ownGuide ? context.Color(guideDepth) : context.Depth(sceneHDR),
+						context.Color(guideSurface, guideNormalLane),
+						hasHistory ? context.Color(previous) : nullptr,
+						hasHistory ? context.Color(previous, 1) : nullptr,
+						hasHistory ? context.Color(previous, 2) : nullptr,
+						context.Color(guideVelocity, guideVelocityLane),
+						*motion, hasHistory,
+						pair ? context.Color(fresh, 1) : nullptr,
+						pair && hasHistory ? context.Color(previous, 3) : nullptr);
+				});
+			// Three blur passes at strides 1, 2, 4: each reads the previous
+			// pass's output; the first reads the history itself, which is
+			// never written here.
+			blurDesc.ExtraColors.clear();
+			if (pair)
+				blurDesc.ExtraColors.push_back(blurDesc.Color);
+			RGResource blurred = kRGInvalid;
+			RGResource blurInput = current;
+			const std::string base = blurDesc.Name;
+			for (int pass = 0; pass < 3; ++pass)
+			{
+				blurDesc.Name = base + (pass == 0 ? "" : pass == 1 ? "2" : "4");
+				const RGResource output = graph.CreateTarget(blurDesc);
+				const RGResource input = blurInput;
+				const int stride = 1 << pass;
+				graph.AddPass(names.Blur[pass],
+					[&](RGPassBuilder& builder)
+					{
+						builder.Write(output);
+						builder.Sample(input);
+						if (input != current)
+							builder.Sample(current);
+						builder.Sample(sceneHDR);
+						if (ownGuide)
+							builder.Sample(guideDepth);
+						builder.DisableDepth();
+					},
+					[params, input, current, sceneHDR, stride, pair,
+					 guideDepth, guideSurface, guideNormalLane, ownGuide](RGPassContext& context)
+					{
+						Renderer3D::BlurSignal(params, context.Color(input),
+											   ownGuide ? context.Color(guideDepth)
+													: context.Depth(sceneHDR),
+											   context.Color(guideSurface, guideNormalLane),
+											   context.Color(current, 1),
+											   stride,
+											   // the twin: attachment 3 of the accumulated target, 1 of a blurred one
+											   pair ? context.Color(input, input == current ? 3 : 1) : nullptr);
+					});
+				blurInput = output;
+				blurred = output;
+			}
+			return blurred;
+		};
+		// **RT-3.1: the guidance lanes at a divisor, built once and shared.** GI
+		// and the occlusion can sit on different rungs of their own dials; two
+		// signals on the same rung should pay for one downsample between them.
+		// Keyed by divisor, and the pass is added the first time one is asked for,
+		// so a frame with no reduced-resolution signal adds nothing at all.
+		std::map<uint32_t, SignalGuidance> guidanceCache;
+		auto guidanceFor = [&](uint32_t divisor) -> SignalGuidance
+		{
+			if (divisor <= 1 || !PostProcess::IsReady())
+				return {};
+			const auto found = guidanceCache.find(divisor);
+			if (found != guidanceCache.end())
+				return found->second;
+
+			RGTargetDesc guideDesc;
+			guideDesc.Name = "Guidance";
+			// Depth in full precision: it is fed straight to the inverse
+			// view-projection, and a half float near the far plane rebuilds a
+			// position metres from where the surface is.
+			guideDesc.Color = Format::R32_SFLOAT;
+			guideDesc.ExtraColors = { kNormalFormat, Format::R16G16_SFLOAT };
+			guideDesc.Depth = Format::Undefined;
+			guideDesc.Scale = 1.0f / (float)divisor;
+			const RGResource guide = graph.CreateTarget(guideDesc);
+
+			graph.AddPass("Guidance downsample",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(guide);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[sceneHDR, normalIndex, velocityIndex, divisor](RGPassContext& context)
+				{
+					PostProcess::GuideDownsample(context.Cmd,
+												 context.Depth(sceneHDR),
+												 context.Color(sceneHDR, normalIndex),
+												 context.Color(sceneHDR, velocityIndex),
+												 divisor, Format::R32_SFLOAT,
+												 kNormalFormat, Format::R16G16_SFLOAT);
+				});
+
+			SignalGuidance made;
+			made.Depth = guide;
+			made.Surface = guide;
+			made.Velocity = guide;
+			made.Divisor = divisor;
+			guidanceCache.emplace(divisor, made);
+			return made;
+		};
+		// **RT-6: the identity lanes, kept for next frame's temporal resolve.**
+		// Declared here and filled by a pass added after the G-buffer below; the
+		// resolve reads `Previous` and, for this frame's side of the comparison,
+		// `Current` -- so the pass has to have run by then, which it has, being
+		// hundreds of lines earlier in the graph.
+		RGResource taaGuideCurrent = kRGInvalid;
+		RGResource taaGuidePrevious = kRGInvalid;
+		bool taaGuideHasHistory = false;
+
+		// The depth-to-view reconstruction every screen-space pass takes; above
+		// the G-buffer pass since RT-2, because the occlusion signal runs there.
+		PostProcess::ViewReconstruction reconstruction;
+		reconstruction.NearClip = desc.NearClip;
+		reconstruction.FarClip = desc.FarClip;
+		reconstruction.InvProjection0 = desc.InvProjection0;
+		reconstruction.InvProjection1 = desc.InvProjection1;
+		reconstruction.View = desc.View;
+		// What the scene was drawn through, so a pass that reconstructs a
+		// position from its depth can take it back out again (7bq).
+		reconstruction.JitterX = jitter.x;
+		reconstruction.JitterY = jitter.y;
+		// The ray budget's tile map, prepared and imported here so the passes
+		// before the lit pass (RT-2's occlusion) can read last frame's allocation;
+		// the allocator's own passes run after TAA as before.
+		// Sixteen: one number per 256 pixels. Small enough that a wave never
+		// straddles two allocations, large enough that the map is a few
+		// thousand texels rather than a few million.
+		constexpr uint32_t kTileSize = 16;
+		uint32_t budgetTilesX = 0;
+		uint32_t budgetTilesY = 0;
+		RGResource budgetPrevious = kRGInvalid;
+		RGResource budgetCurrent = kRGInvalid;
+		bool budgetHasHistory = false;
+		if (desc.RayBudget && PostProcess::IsReady())
+		{
+			budgetTilesX = Math::Max((desc.Width + kTileSize - 1) / kTileSize, 1u);
+			budgetTilesY = Math::Max((desc.Height + kTileSize - 1) / kTileSize, 1u);
+			TemporalHistory& budget = *desc.RayBudget;
+			budget.Prepare(Renderer::GetDevice(), budgetTilesX, budgetTilesY,
+						   Format::R16G16B16A16_SFLOAT, "RayBudget");
+			if (budget.Current() && budget.Previous())
+			{
+				budgetHasHistory = budget.HasHistory();
+				budgetPrevious = graph.Import(budget.Previous(), "RayBudgetPrevious");
+				budgetCurrent = graph.Import(budget.Current(), "RayBudgetCurrent");
+			}
+		}
+		const bool gbufferPass = Renderer3D::GBufferPassAvailable();
+		// The flag is up only around the scene callback, so a probe face or a
+		// shadow caster drawn outside the graph keeps the single-pass path.
+		// RT-first T5: the direct light as a signal -- the DirectTrace pass
+		// between the G-buffer and the lit pass, K lights per pixel (the
+		// preset's count, or --rays-per-pixel), the lit shader adding its two
+		// pictures. Needs the split, rays, a place to keep the history, the
+		// shader, and not --direct-signal=off (the reference arm).
+		const bool directSignal = gbufferPass && ResolveRayTracing(desc.Render)
+							   && config.DirectSignal && desc.DirectLight != nullptr
+							   && Renderer3D::CanTraceDirectLight();
+		const int directRays = config.HasRaysPerPixelOverride ? config.RaysPerPixel
+															   : rtPreset.RaysPerPixel;
+		// RT-2: the ambient occlusion as a signal -- computed from the G-buffer
+		// before the lit pass, settled on the contract, applied to the ambient
+		// terms in the lit shader. RTAO under rays, SSAO in raster; needs the
+		// split, a place to keep the history, and not --ao-signal=off.
+		const AoDetail aoSignalLevel = rayOcclusion ? rayAo : desc.Post.AmbientOcclusion;
+		const bool aoSignal = gbufferPass && aoSignalLevel != AoDetail::Off && PostProcess::IsReady()
+						   && config.AoSignal && desc.Occlusion != nullptr;
+		auto drawGBuffer = [drawScene, directSignal, aoSignal, giSignal](RGPassContext& context)
+		{
+			Renderer3D::SetGBufferPassActive(true);
+			// Told before BeginScene fills the scene block, whose RayRates.w
+			// bits 22, 23 and 24 are the lit shader's switches.
+			Renderer3D::SetDirectSignal(directSignal);
+			Renderer3D::SetAoSignal(aoSignal);
+			Renderer3D::SetGiSignal(giSignal);
+			drawScene(context);
+			Renderer3D::SetDirectSignal(false);
+			Renderer3D::SetAoSignal(false);
+			Renderer3D::SetGiSignal(false);
+			Renderer3D::SetGBufferPassActive(false);
+		};
+		if (gbufferPass)
+		{
+			graph.AddPass("GBuffer",
+				[&](RGPassBuilder& builder)
+				{
+					builder.WriteAttachments(sceneHDR,
+						{ { velocityIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
+						  { normalIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
+						  { albedoIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
+						  { surfaceIdIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
+					builder.SetClearColor(desc.ClearColor);
+					if (previousReflections != kRGInvalid)
+						builder.Sample(previousReflections);
+					if (previousIndirect != kRGInvalid)
+						builder.Sample(previousIndirect);
+				},
+				drawGBuffer);
+		}
+		// **RT-6: written here, straight after the G-buffer.** Everything the
+		// resolve validates against is final by this point and nothing has yet
+		// drawn over it -- the water and the transparent kinds write none of
+		// these lanes, so waiting would keep the same values at more risk.
+		// Only under TAA: no other filter reads a history per pixel, and a
+		// full-resolution RGBA32F pair is not something to allocate for nobody.
+		if (gbufferPass && desc.TaaGuide && PostProcess::IsReady()
+			&& aa == AntiAliasing::TAA && config.TaaGeometry)
+		{
+			TemporalHistory& guide = *desc.TaaGuide;
+			guide.Prepare(Renderer::GetDevice(),
+						  desc.Width * (uint32_t)supersample,
+						  desc.Height * (uint32_t)supersample,
+						  Format::R32G32B32A32_SFLOAT, "TaaGuide");
+			if (guide.Current() && guide.Previous())
+			{
+				taaGuideCurrent = graph.Import(guide.Current(), "TaaGuideCurrent");
+				taaGuidePrevious = graph.Import(guide.Previous(), "TaaGuidePrevious");
+				taaGuideHasHistory = guide.HasHistory();
+				graph.AddPass("TAA guide",
+					[&](RGPassBuilder& builder)
+					{
+						builder.Write(taaGuideCurrent);
+						builder.Sample(sceneHDR);
+						builder.DisableDepth();
+					},
+					[sceneHDR, normalIndex, surfaceIdIndex](RGPassContext& context)
+					{
+						PostProcess::TaaGuide(context.Cmd,
+											  context.Depth(sceneHDR),
+											  context.Color(sceneHDR, normalIndex),
+											  context.Color(sceneHDR, surfaceIdIndex),
+											  Format::R32G32B32A32_SFLOAT);
+					});
+				// Swapped once the pass is declared, like every other pair here:
+				// what was written this frame is what the next frame reads.
+				guide.Advance();
+			}
+		}
+		else if (desc.TaaGuide)
+		{
+			// A history left standing would be resumed as truth the frame TAA or
+			// the test comes back on, and it would describe another camera.
+			desc.TaaGuide->Invalidate();
+		}
+		RGResource directTraced = kRGInvalid;
+		RGResource directLit = kRGInvalid;      // what the lit pass adds: the blurred pair
+		RGResource currentDirect = kRGInvalid;  // the accumulated pair, for the debug views
+		if (directSignal)
+		{
+			RGTargetDesc directDesc;
+			directDesc.Name = "DirectTrace";
+			directDesc.Color = Format::R16G16B16A16_SFLOAT;
+			directDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT };
+			directDesc.Depth = Format::Undefined;
+			directDesc.Scale = (float)supersample;
+			directTraced = graph.CreateTarget(directDesc);
+			Renderer3D::GiTraceView directView;
+			directView.NearClip = desc.NearClip;
+			directView.FarClip = desc.FarClip;
+			directView.InvProjection0 = desc.InvProjection0;
+			directView.InvProjection1 = desc.InvProjection1;
+			directView.View = desc.View;
+			graph.AddPass("DirectTrace",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(directTraced);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[sceneHDR, normalIndex, albedoIndex, surfaceIdIndex, directView, directRays]
+				(RGPassContext& context)
+				{
+					Renderer3D::TraceDirectLight(context.Cmd,
+												 context.Depth(sceneHDR),
+												 context.Color(sceneHDR, normalIndex),
+												 context.Color(sceneHDR, albedoIndex),
+												 context.Color(sceneHDR, surfaceIdIndex),
+												 Format::R16G16B16A16_SFLOAT,
+												 directView, directRays);
+				});
+			// The contract: the pair accumulated over the frames behind it
+			// (surface reprojection, the tests, the bound, the motion-capped
+			// memory) and blurred while young. Four attachments: the diffuse,
+			// the surface, the extra, the specular twin.
+			directLit = directTraced;
+			TemporalHistory& direct = *desc.DirectLight;
+			direct.Prepare(Renderer::GetDevice(),
+						   desc.Width * (uint32_t)supersample, desc.Height * (uint32_t)supersample,
+						   Format::R16G16B16A16_SFLOAT, "DirectLight",
+						   Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
+						   Format::R16G16B16A16_SFLOAT);
+			if (direct.Current() && direct.Previous())
+			{
+				const RGResource previousDirect = graph.Import(direct.Previous(), "DirectPrevious");
+				currentDirect = graph.Import(direct.Current(), "DirectCurrent");
+				const bool directHistory = direct.HasHistory();
+				RGTargetDesc directBlurDesc = directDesc;
+				directBlurDesc.Name = "DirectBlurred";
+				static const SignalPassNames kDirectPasses =
+					{ "DirectAccumulate", { "DirectBlur", "DirectBlur2", "DirectBlur4" } };
+				directLit = addSignal(kDirectPasses, Renderer3D::DirectSignal(),
+									  directTraced, currentDirect, previousDirect, directHistory,
+									  &direct.Motion(), directBlurDesc, true);
+				direct.Advance();
+			}
+		}
+		else if (desc.DirectLight)
+		{
+			desc.DirectLight->Invalidate();
+		}
+		RGResource occlusionLit = kRGInvalid;       // what the lit pass reads
+		RGResource currentOcclusion = kRGInvalid;   // the accumulated signal, for the debug view
+		if (aoSignal)
+		{
+			// The compute at its own resolution (RTAO's half, SSAO's rung), from
+			// the G-buffer's depth and normal, exactly as the post chain did it.
+			const uint32_t aoTaps = aoSignalLevel == AoDetail::Full    ? 8u
+								  : aoSignalLevel == AoDetail::Quarter ? 2u
+																	   : 4u;
+			const uint32_t aoDivisor = rayOcclusion                       ? 2u
+									 : aoSignalLevel == AoDetail::Full     ? 2u
+									 : aoSignalLevel == AoDetail::Quarter  ? 4u
+																		   : 2u;
+			const uint32_t aoWidth = Math::Max(desc.Width / aoDivisor, 1u);
+			const uint32_t aoHeight = Math::Max(desc.Height / aoDivisor, 1u);
+			RGTargetDesc aoRawDesc;
+			aoRawDesc.Name = "OcclusionRaw";
+			aoRawDesc.Color = Format::R16G16B16A16_SFLOAT;
+			aoRawDesc.Depth = Format::Undefined;
+			aoRawDesc.Scale = 1.0f / (float)aoDivisor;
+			const RGResource aoRaw = graph.CreateTarget(aoRawDesc);
+			const float aoRadius = desc.Post.AoRadius;
+			const float aoIntensity = desc.Post.AoIntensity;
+			const float aoFrame = (float)(Renderer::GetFrameCount() % 64u);
+			const bool aoBudget = rayOcclusion && budgetPrevious != kRGInvalid && budgetHasHistory;
+			graph.AddPass("OcclusionCompute",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(aoRaw);
+					builder.Sample(sceneHDR);
+					if (aoBudget)
+						builder.Sample(budgetPrevious);
+					builder.DisableDepth();
+				},
+				[sceneHDR, normalIndex, aoWidth, aoHeight, reconstruction, aoRadius,
+				 rayOcclusion, aoTaps, aoFrame, aoBudget, budgetPrevious](RGPassContext& context)
+				{
+					if (rayOcclusion)
+					{
+						RayGpuScope rayTime(context.Cmd);
+						PostProcess::RtaoCompute(context.Cmd, context.Depth(sceneHDR),
+												 context.Color(sceneHDR, normalIndex),
+												 RayShadows::GetStructure(),
+												 aoBudget ? context.Color(budgetPrevious) : nullptr,
+												 aoWidth, aoHeight, reconstruction,
+												 aoRadius, aoTaps, Format::R16G16B16A16_SFLOAT,
+												 aoFrame);
+					}
+					else
+					{
+						PostProcess::SsaoCompute(context.Cmd, context.Depth(sceneHDR),
+												 context.Color(sceneHDR, normalIndex),
+												 aoWidth, aoHeight, reconstruction,
+												 aoRadius, Format::R16G16B16A16_SFLOAT);
+					}
+				});
+			// **RT-3.1: the resolve at the occlusion's own resolution, not the
+			// frame's.** Against a white scene the apply shader is a joint
+			// bilateral resample with the intensity curve folded in; run at 1:1 the
+			// resample collapses to a passthrough and what is left is the part the
+			// contract needs -- the depth stripped out of the green channel, where
+			// the compute pass keeps it for its own tap weights, and the scalar
+			// replicated into RGB. Without that the contract's bound and moments,
+			// which are built from Luma(rgb), would be almost entirely a distance in
+			// metres. Doing it here also keeps RT-2's order: the intensity curve is
+			// applied before accumulation, as it was when the look was accepted.
+			const SignalGuidance aoGuide = guidanceFor(aoDivisor);
+			RGTargetDesc aoDesc = aoRawDesc;
+			aoDesc.Name = "OcclusionFresh";
+			const RGResource aoFresh = graph.CreateTarget(aoDesc);
+			graph.AddPass("OcclusionResolve",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(aoFresh);
+					builder.Sample(aoRaw);
+					builder.Sample(sceneHDR);
+					if (aoGuide.Depth != kRGInvalid)
+						builder.Sample(aoGuide.Depth);
+					builder.DisableDepth();
+				},
+				[aoRaw, sceneHDR, aoWidth, aoHeight, aoIntensity, aoGuide,
+				 nearZ = desc.NearClip, farZ = desc.FarClip](RGPassContext& context)
+				{
+					// The depth on this pass's own grid: the guidance lane where there
+					// is one, and it holds clip depth exactly as the G-buffer wrote it,
+					// which is what LinearDepth in the shader expects either way.
+					PostProcess::SsaoApply(context.Cmd, TextureLoader::White(Renderer::GetDevice()),
+										   context.Color(aoRaw),
+										   aoGuide.Depth != kRGInvalid
+											   ? context.Color(aoGuide.Depth)
+											   : context.Depth(sceneHDR),
+										   aoWidth, aoHeight, nearZ, farZ, aoIntensity,
+										   Format::R16G16B16A16_SFLOAT);
+				});
+			RGResource aoSettled = aoFresh;
+			TemporalHistory& occlusion = *desc.Occlusion;
+			occlusion.Prepare(Renderer::GetDevice(), aoWidth, aoHeight,
+							  Format::R16G16B16A16_SFLOAT, "OcclusionSignal",
+							  Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT);
+			if (occlusion.Current() && occlusion.Previous())
+			{
+				const RGResource previousOcclusion = graph.Import(occlusion.Previous(), "OcclusionPrevious");
+				currentOcclusion = graph.Import(occlusion.Current(), "OcclusionCurrent");
+				RGTargetDesc aoBlurDesc = aoDesc;
+				aoBlurDesc.Name = "OcclusionBlurred";
+				static const SignalPassNames kOcclusionPasses =
+					{ "OcclusionAccumulate", { "OcclusionBlur", "OcclusionBlur2", "OcclusionBlur4" } };
+				aoSettled = addSignal(kOcclusionPasses, Renderer3D::AoSignal(),
+									  aoFresh, currentOcclusion, previousOcclusion, occlusion.HasHistory(),
+									  &occlusion.Motion(), aoBlurDesc, false, aoGuide);
+				occlusion.Advance();
+			}
+
+			// And up to the lit pass's grid, once, at the end.
+			RGTargetDesc aoFullDesc;
+			aoFullDesc.Name = "OcclusionFull";
+			aoFullDesc.Color = Format::R16G16B16A16_SFLOAT;
+			aoFullDesc.Depth = Format::Undefined;
+			aoFullDesc.Scale = (float)supersample;
+			const RGResource aoFull = graph.CreateTarget(aoFullDesc);
+			graph.AddPass("OcclusionUpsample",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(aoFull);
+					builder.Sample(aoSettled);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[aoSettled, sceneHDR, aoWidth, aoHeight,
+				 nearZ = desc.NearClip, farZ = desc.FarClip](RGPassContext& context)
+				{
+					PostProcess::SignalUpsample(context.Cmd, context.Color(aoSettled),
+											   context.Depth(sceneHDR),
+											   aoWidth, aoHeight, nearZ, farZ,
+											   Format::R16G16B16A16_SFLOAT);
+				});
+			occlusionLit = aoFull;
+		}
+		// --- RT-3: the bounce, traced and settled before the lighting ------
+		//
+		// The same three stages RT-2 gave the occlusion, for the same reason.
+		// The trace runs at the quality dial's own resolution (half, at Medium
+		// and below) because indirect light is the lowest-frequency thing in
+		// the frame and was the only term that ever paid full rate for itself.
+		// The upsample brings it to the lit pass's grid, where the contract's
+		// surface tests are honest -- a half-resolution texel sits on the
+		// corner of four full-resolution ones and 'the surface under this
+		// texel' has four answers there. Then the contract, unchanged.
+		RGResource giLit = kRGInvalid;        // what the lit pass reads
+		RGResource currentGi = kRGInvalid;    // the accumulated signal, for the debug view
+		if (giSignal)
+		{
+			const uint32_t giDivisor = RayDetailDivisor(giDetail);
+			const uint32_t giTraceWidth = Math::Max(desc.Width / giDivisor, 1u);
+			const uint32_t giTraceHeight = Math::Max(desc.Height / giDivisor, 1u);
+			RGTargetDesc giRawDesc;
+			giRawDesc.Name = "GiRaw";
+			giRawDesc.Color = Format::R16G16B16A16_SFLOAT;
+			giRawDesc.Depth = Format::Undefined;
+			giRawDesc.Scale = 1.0f / (float)giDivisor;
+			const RGResource giRaw = graph.CreateTarget(giRawDesc);
+
+			Renderer3D::GiTraceView giView;
+			giView.NearClip = desc.NearClip;
+			giView.FarClip = desc.FarClip;
+			giView.InvProjection0 = desc.InvProjection0;
+			giView.InvProjection1 = desc.InvProjection1;
+			giView.View = desc.View;
+
+			// Last frame's allocation, the way RT-2's occlusion reads it: the
+			// allocator's own passes still run after TAA, so what is available
+			// this early is the previous map.
+			const bool giBudget = budgetPrevious != kRGInvalid && budgetHasHistory;
+			graph.AddPass("GI trace",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(giRaw);
+					builder.Sample(sceneHDR);
+					if (giBudget)
+						builder.Sample(budgetPrevious);
+					builder.DisableDepth();
+				},
+				[sceneHDR, normalIndex, giView, giBudget, budgetPrevious,
+				 rays = RayDetailRays(giDetail)](RGPassContext& context)
+				{
+					RayGpuScope rayTime(context.Cmd);
+					Renderer3D::TraceGlobalIllumination(context.Cmd,
+													   context.Depth(sceneHDR),
+													   context.Color(sceneHDR, normalIndex),
+													   giBudget ? context.Color(budgetPrevious) : nullptr,
+													   Format::R16G16B16A16_SFLOAT,
+													   giView, rays);
+				});
+
+			// **RT-3.1: the contract runs here, at the trace's own resolution.**
+			// It used to run after a full-resolution upsample, which paid four
+			// times the texels for a signal that carries information at one in
+			// four -- 0.85 ms of RT-3's 0.89 ms chain. Filtering where the signal
+			// was traced and upsampling once at the end is the arrangement every
+			// real-time denoiser uses, and the guidance downsample above is what
+			// keeps the contract's surface tests honest on the coarser grid.
+			const SignalGuidance giGuide = guidanceFor(giDivisor);
+			RGTargetDesc giDesc = giRawDesc;
+			giDesc.Name = "GiSettled";
+			RGResource giSettled = giRaw;
+			TemporalHistory& gi = *desc.GiLight;
+			gi.Prepare(Renderer::GetDevice(), giTraceWidth, giTraceHeight,
+					   Format::R16G16B16A16_SFLOAT, "GiSignal",
+					   Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT);
+			if (gi.Current() && gi.Previous())
+			{
+				const RGResource previousGi = graph.Import(gi.Previous(), "GiPrevious");
+				currentGi = graph.Import(gi.Current(), "GiCurrent");
+				RGTargetDesc giBlurDesc = giDesc;
+				giBlurDesc.Name = "GiBlurred";
+				static const SignalPassNames kGiPasses =
+					{ "GiAccumulate", { "GiBlur", "GiBlur2", "GiBlur4" } };
+				giSettled = addSignal(kGiPasses, Renderer3D::GiSignal(),
+									  giRaw, currentGi, previousGi, gi.HasHistory(),
+									  &gi.Motion(), giBlurDesc, false,
+									  giGuide);
+				gi.Advance();
+			}
+
+			// And one joint bilateral upsample at the end, onto the lit pass's
+			// grid, which is the only place the lit shader can read it by texel.
+			RGTargetDesc giFullDesc;
+			giFullDesc.Name = "GiFull";
+			giFullDesc.Color = Format::R16G16B16A16_SFLOAT;
+			giFullDesc.Depth = Format::Undefined;
+			giFullDesc.Scale = (float)supersample;
+			const RGResource giFull = graph.CreateTarget(giFullDesc);
+			graph.AddPass("GI upsample",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(giFull);
+					builder.Sample(giSettled);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[giSettled, sceneHDR, giTraceWidth, giTraceHeight,
+				 nearZ = desc.NearClip, farZ = desc.FarClip](RGPassContext& context)
+				{
+					PostProcess::SignalUpsample(context.Cmd, context.Color(giSettled),
+											   context.Depth(sceneHDR),
+											   giTraceWidth, giTraceHeight, nearZ, farZ,
+											   Format::R16G16B16A16_SFLOAT);
+				});
+			giLit = giFull;
+		}
+		else if (desc.GiLight)
+		{
+			desc.GiLight->Invalidate();
+		}
+		graph.AddPass("Scene",
+			[&](RGPassBuilder& builder)
+			{
+				builder.WriteAttachments(sceneHDR,
+					{ { 0, desc.ClearColor },
+					  { velocityIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
+					  { normalIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
+					  { indirectIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
+				builder.SetClearColor(desc.ClearColor);
+				if (gbufferPass)
+					builder.PreserveDepth();
+				if (previousReflections != kRGInvalid)
+					builder.Sample(previousReflections);
+				if (previousIndirect != kRGInvalid)
+					builder.Sample(previousIndirect);
+				if (directLit != kRGInvalid)
+					builder.Sample(directLit);
+				if (occlusionLit != kRGInvalid)
+					builder.Sample(occlusionLit);
+				if (giLit != kRGInvalid)
+					builder.Sample(giLit);
+			},
+			gbufferPass ? std::function<void(RGPassContext&)>(
+							  [drawLit = desc.DrawSceneLit, jitter, directLit, occlusionLit, giLit,
+							   motion = desc.History ? &desc.History->Motion() : nullptr](RGPassContext& context)
+							  {
+								  // The lit half: the same edges the scene callback
+								  // had (viewport, jitter, camera motion), for the
+								  // glow, the sky and the particles it draws.
+								  LightGlow::SetViewport(context.Width, context.Height);
+								  Renderer::SetJitter(jitter);
+								  Renderer::SetCameraMotion(motion);
+								  // RT-first T5: the direct light for the lit draw.
+								  Renderer3D::SetDirectLight(
+									  directLit != kRGInvalid ? context.Color(directLit, 0) : nullptr,
+									  directLit != kRGInvalid ? context.Color(directLit, 1) : nullptr);
+								  Renderer3D::SetScreenOcclusion(
+									  occlusionLit != kRGInvalid ? context.Color(occlusionLit) : nullptr);
+								  // RT-3: this frame's bounce, onto binding 16 in place of
+								  // last frame's buffer. Null leaves that binding alone.
+								  Renderer3D::SetScreenIndirectSignal(
+									  giLit != kRGInvalid ? context.Color(giLit) : nullptr);
+								  if (drawLit)
+									  drawLit(context);
+								  else
+									  Renderer3D::DrawLit();
+								  Renderer3D::SetDirectLight(nullptr, nullptr);
+								  Renderer3D::SetScreenOcclusion(nullptr);
+								  Renderer3D::SetScreenIndirectSignal(nullptr);
+								  Renderer::SetCameraMotion(nullptr);
+								  Renderer::SetJitter(Vec2(0.0f, 0.0f));
+								  LightGlow::SetViewport(0, 0);
+							  })
+						: std::function<void(RGPassContext&)>(drawScene));
 
 		// The overlay goes into the HDR target rather than over the finished
 		// image, because it depth-tests against the scene it annotates. The
@@ -1416,6 +2149,128 @@ namespace RageV
 		// is not incidental. A threshold applied to a frame that is wobbling
 		// by half a pixel flickers along every bright edge, and a glow that
 		// shimmers is more obvious than the aliasing it was hiding.
+		// RT-6.1: the composite's velocity lane, when it ran.
+		RGResource reflectionMotion = kRGInvalid;
+		// --- the opaque glossy reflection, traced and averaged -----------------
+		//
+		// **RT-6.1: before the temporal resolve, and it hands the resolve the
+		// motion to reproject by.** The chain reads only the G-buffer and the
+		// scene's structure, never the lit colour, so it lifts above the resolve
+		// cleanly; the tile map it reads becomes last frame's, as RT-2's
+		// occlusion and RT-3's bounce already read it. Moving it without the
+		// motion lane was tried on 2026-09-07 and smeared the wet floor into
+		// horizontal bands, because the resolve dragged the reflection along the
+		// floor's velocity; the composite now says which motion each pixel has.
+		// What it writes is still read a frame late through the screen-reflection
+		// hook (reflection_trace.rvshader), which this does not affect.
+		// Gated on the traced form being on; inside, a pixel with no glossy
+		// surface casts nothing, which is the check a scene with none passes.
+		if (tracedReflections && currentReflections != kRGInvalid)
+		{
+			RGTargetDesc traceDesc;
+			traceDesc.Name = "ReflectionTrace";
+			traceDesc.Color = Format::R16G16B16A16_SFLOAT;
+			// The ray's direction and pdf, for the resolve's ratio estimator.
+			traceDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT };
+			traceDesc.Depth = Format::Undefined;
+			traceDesc.Scale = (float)supersample;
+			const RGResource traced = graph.CreateTarget(traceDesc);
+			const bool budgetBound = budgetPrevious != kRGInvalid && budgetHasHistory;
+
+			graph.AddPass("ReflectionTrace",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(traced);
+					builder.Sample(sceneHDR);
+					if (budgetBound)
+						builder.Sample(budgetPrevious);
+					builder.DisableDepth();
+				},
+				[sceneHDR, normalIndex, budgetMap = budgetPrevious, budgetBound,
+				 giAverage = rtPreset.GiRays](RGPassContext& context)
+				{
+					Renderer3D::TraceReflections(context.Color(sceneHDR, normalIndex),
+												 context.Depth(sceneHDR),
+												 budgetBound ? context.Color(budgetMap) : nullptr,
+												 giAverage);
+				});
+
+			// The rough surfaces' rays, shared across their neighbourhood
+			// before any frame is averaged (reflection_resolve.rvshader).
+			RGTargetDesc resolveDesc = traceDesc;
+			resolveDesc.Name = "ReflectionResolve";
+			resolveDesc.ExtraColors.clear();
+			const RGResource resolved = graph.CreateTarget(resolveDesc);
+			graph.AddPass("ReflectionResolve",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(resolved);
+					builder.Sample(traced);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[traced, sceneHDR, normalIndex](RGPassContext& context)
+				{
+					Renderer3D::ResolveReflections(context.Color(traced),
+												   context.Color(traced, 1),
+												   context.Depth(sceneHDR),
+												   context.Color(sceneHDR, normalIndex));
+				});
+			// The previous frame's picture, surface and moments, when there is one.
+			// **The reconstruction contract (RT-first T4).** The accumulate and
+			// the three young-history blurs are one helper for any signal:
+			// reflections here; shadows, occlusion and irradiance to follow.
+			const bool reflectionHistory = desc.Reflections && desc.Reflections->HasHistory() && previousReflections != kRGInvalid;
+			RGTargetDesc reflectionBlurDesc = traceDesc;
+			reflectionBlurDesc.Name = "ReflectionBlurred";
+			static const SignalPassNames kReflectionPasses = { "ReflectionAccumulate", { "ReflectionBlur", "ReflectionBlur2", "ReflectionBlur4" } };
+			const RGResource blurredReflections = addSignal(kReflectionPasses, Renderer3D::ReflectionSignal(),
+															resolved, currentReflections, previousReflections,
+															reflectionHistory, &desc.Reflections->Motion(),
+															reflectionBlurDesc, false);
+			{
+				const RGResource blurred = blurredReflections;
+
+				RGTargetDesc compositeDesc;
+				compositeDesc.Name = "ReflectionComposited";
+				compositeDesc.Color = Format::R16G16B16A16_SFLOAT;
+				// RT-6.1: and the velocity the resolve reprojects by, per pixel.
+				compositeDesc.ExtraColors = { Format::R16G16_SFLOAT };
+				compositeDesc.Depth = Format::Undefined;
+				const RGResource composited = graph.CreateTarget(compositeDesc);
+				const RGResource before = shaded;
+				graph.AddPass("ReflectionComposite",
+					[&](RGPassBuilder& builder)
+					{
+						builder.Write(composited);
+						builder.Sample(before);
+						builder.Sample(blurred);
+						builder.Sample(currentReflections);
+						builder.Sample(sceneHDR);
+						builder.DisableDepth();
+					},
+					[before, blurred, currentReflections, sceneHDR, velocityIndex]
+					(RGPassContext& context)
+					{
+						PostProcess::ReflectionComposite(context.Cmd, context.Color(before),
+														 context.Color(blurred),
+														 Format::R16G16B16A16_SFLOAT,
+														 // RT-6.1: the accumulator's fourth lane and
+														 // the scene's, and the lane it writes.
+														 context.Color(currentReflections, 3),
+														 context.Color(sceneHDR, velocityIndex),
+														 Format::R16G16_SFLOAT);
+					});
+				shaded = composited;
+				// The resolve reads this instead of the scene's lane.
+				reflectionMotion = composited;
+			}
+
+			// Swapped here for the reason the SSR chain swaps: what was written
+			// this frame is what the next frame reads.
+			desc.Reflections->Advance();
+		}
+
 		// This frame's temporal history, for the debug view's confidence
 		// map: attachment 1 of it carries the validity lane (WR-16 S0).
 		RGResource temporalCurrent = kRGInvalid;
@@ -1445,6 +2300,7 @@ namespace RageV
 				temporalCurrent = current;
 				const RGResource source = shaded;
 				const float feedback = desc.Render.TemporalFeedback;
+				const float stillFeedback = desc.Render.TemporalStillFeedback;
 				const bool hasHistory = history.HasHistory();
 
 				graph.AddPass("TAA resolve",
@@ -1452,25 +2308,58 @@ namespace RageV
 					{
 						builder.Write(current);
 						builder.Sample(source);
+						builder.Sample(sceneHDR);
 						builder.Sample(previous);
+						if (reflectionMotion != kRGInvalid)
+							builder.Sample(reflectionMotion);
+						if (taaGuideCurrent != kRGInvalid)
+						{
+							builder.Sample(taaGuideCurrent);
+							builder.Sample(taaGuidePrevious);
+						}
 						builder.DisableDepth();
 					},
-					[source, previous, velocityIndex, feedback, hasHistory](RGPassContext& context)
+					[source, sceneHDR, previous, velocityIndex, normalIndex, feedback, stillFeedback,
+					 hasHistory, jitter, taaGuideCurrent, taaGuidePrevious, taaGuideHasHistory,
+					 reflectionMotion](RGPassContext& context)
 					{
 						PostProcess::TemporalResolve(
 							context.Cmd,
 							context.Color(source),
 							context.Color(previous),
-							// The velocity attachment of the scene target,
-							// which is the same target `source` is when SSAA
-							// is off -- and SSAA and TAA cannot both be on.
-							context.Color(source, velocityIndex),
+							// **RT-6.1: the composite's lane where the reflection ran**,
+							// which is the scene's velocity everywhere the pixel is
+							// mostly its surface and the virtual image's where it is
+							// mostly reflection. Otherwise the scene's own attachment,
+							// which is the same target `source` is when SSAA is off --
+							// and SSAA and TAA cannot both be on.
+							reflectionMotion != kRGInvalid
+								? context.Color(reflectionMotion, 1)
+								: context.Color(sceneHDR, velocityIndex),
 							context.Width, context.Height,
 							Format::R16G16B16A16_SFLOAT, feedback, hasHistory,
 							// Attachment 1 of the same history: last frame's
 							// count and moments.
 							hasHistory ? context.Color(previous, 1) : nullptr,
-							Format::R16G16B16A16_SFLOAT);
+							Format::R16G16B16A16_SFLOAT, jitter, stillFeedback,
+							// RT-6: the identity lanes. Only once the pair holds a real
+							// frame -- on the first frame `Previous` is whatever the
+							// driver left, and comparing against that refuses every
+							// pixel, which would look like the resolve having stopped.
+							taaGuideCurrent != kRGInvalid && taaGuideHasHistory
+								? context.Color(taaGuideCurrent) : nullptr,
+							taaGuidePrevious != kRGInvalid && taaGuideHasHistory
+								? context.Color(taaGuidePrevious) : nullptr,
+							// RT-6.2: the material under each pixel -- the G-buffer's
+							// normal attachment, whose B and A are the roughness and the
+							// metallic that decide how far the clamp may open.
+							// **From the G-buffer, not from `source`** -- since RT-6.1 put the
+							// reflection composite above this pass, `source` is the composite's
+							// target and carries a colour and a motion lane and nothing else.
+							// A G-buffer lane index into it reads nothing at all, which is a
+							// black material and a clamp that never opens -- measured
+							// bit-identical, at 2 and at 40, before this was corrected.
+							context.Color(sceneHDR, normalIndex));
 					});
 
 				shaded = current;
@@ -1486,16 +2375,6 @@ namespace RageV
 		// the projection's inverse diagonal, and the view rotation that
 		// brings the scene's world normal into that reconstruction. One
 		// value, so the two passes cannot disagree about it. ENGINE-NOTES 7ae.
-		PostProcess::ViewReconstruction reconstruction;
-		reconstruction.NearClip = desc.NearClip;
-		reconstruction.FarClip = desc.FarClip;
-		reconstruction.InvProjection0 = desc.InvProjection0;
-		reconstruction.InvProjection1 = desc.InvProjection1;
-		reconstruction.View = desc.View;
-		// What the scene was drawn through, so a pass that reconstructs a
-		// position from its depth can take it back out again (7bq).
-		reconstruction.JitterX = jitter.x;
-		reconstruction.JitterY = jitter.y;
 
 
 		// --- SSAO --------------------------------------------------------------
@@ -1546,29 +2425,22 @@ namespace RageV
 
 		RGResource rayBudgetMap = kRGInvalid;
 		bool hasRayBudget = false;
-		uint32_t budgetTilesX = 0;
-		uint32_t budgetTilesY = 0;
 
 		if (desc.RayBudget && PostProcess::IsReady())
 		{
 			// Sixteen: one number per 256 pixels. Small enough that a wave never
 			// straddles two allocations, large enough that the map is a few
 			// thousand texels rather than a few million.
-			constexpr uint32_t kTileSize = 16;
-			budgetTilesX = Math::Max((desc.Width + kTileSize - 1) / kTileSize, 1u);
-			budgetTilesY = Math::Max((desc.Height + kTileSize - 1) / kTileSize, 1u);
 
 			TemporalHistory& budget = *desc.RayBudget;
-			budget.Prepare(Renderer::GetDevice(), budgetTilesX, budgetTilesY,
-				   Format::R16G16B16A16_SFLOAT, "RayBudget");
 
 			if (budget.Current() && budget.Previous())
 			{
-				const bool hasHistory = budget.HasHistory();
-				const RGResource previous =
-					graph.Import(budget.Previous(), "RayBudgetPrevious");
-				const RGResource current =
-					graph.Import(budget.Current(), "RayBudgetCurrent");
+				const bool hasHistory = budgetHasHistory;
+				// Imported above the G-buffer pass (RT-2), where the occlusion
+				// signal reads last frame's allocation.
+				const RGResource previous = budgetPrevious;
+				const RGResource current = budgetCurrent;
 
 				RGTargetDesc tileDesc;
 				tileDesc.Name = "ImportanceTiles";
@@ -1730,6 +2602,7 @@ namespace RageV
 		{
 			desc.RayBudget->Invalidate();
 		}
+
 		if (wantIndirect && !rayGi && currentIndirect != kRGInvalid)
 		{
 			// ENGINE-NOTES 7az. High gathers at full resolution; the two below
@@ -1892,7 +2765,11 @@ namespace RageV
 			// next frame reads.
 			desc.Indirect->Advance();
 		}
-		else if (wantIndirect && rayGi && currentIndirect != kRGInvalid
+		// Only when the signal did not run: with `--gi-signal=on` the trace and
+		// its accumulation happen above the lit pass and this whole chain --
+		// the trace, gi_denoise, and the one frame of latency they carry -- is
+		// what RT-3 replaced. Kept whole as the reference arm.
+		else if (wantIndirect && rayGi && !giSignal && currentIndirect != kRGInvalid
 				 && Renderer3D::CanTraceGlobalIllumination())
 		{
 			// **The traced form, in a pass of its own** (ENGINE-NOTES 7bs).
@@ -2024,7 +2901,9 @@ namespace RageV
 		// rather than smearing the extra detail back off, which is the rule
 		// the GI dial already follows (7az).
 		const AoDetail aoLevel = rayOcclusion ? rayAo : desc.Post.AmbientOcclusion;
-		if (aoLevel != AoDetail::Off && PostProcess::IsReady())
+		// Under the occlusion signal (RT-2) the lit shader has applied it already;
+		// this post chain is the old path, kept as the A/B (--ao-signal=off).
+		if (aoLevel != AoDetail::Off && PostProcess::IsReady() && !aoSignal)
 		{
 			// **What the rung buys depends on which form is running.** The
 			// traced one spends rays and always runs at the frame's own
@@ -2193,7 +3072,7 @@ namespace RageV
 							builder.DisableDepth();
 						},
 						[raw, sceneHDR, previousAo, velocityIndex,
-						 halfWidth, halfHeight, has = aoHasHistory](RGPassContext& context)
+						 halfWidth, halfHeight, has = aoHasHistory, jitter](RGPassContext& context)
 						{
 							// The same feedback the indirect buffer uses.
 							// Occlusion is low frequency and has no highlights,
@@ -2206,7 +3085,7 @@ namespace RageV
 								halfWidth, halfHeight,
 								Format::R16G16B16A16_SFLOAT, 0.9f, has,
 								has ? context.Color(previousAo, 1) : nullptr,
-								Format::R16G16B16A16_SFLOAT);
+								Format::R16G16B16A16_SFLOAT, jitter, 0.0f);
 						});
 
 					aoAccumulated = currentAo;
@@ -3046,14 +3925,53 @@ namespace RageV
 									? Math::Min(rtPreset.GiRays
 												* Math::Max(rtPreset.Spread, 1.0f),
 											kTileRayCeiling)
+							  // The accumulator's longest memory, so a full
+							  // history reads white and a refused one black;
+							  // its image distance in metres, twenty white;
+							  // and which history it took, half the ramp for
+							  // the surface's old place, white for the image's.
+							  : view == EngineConfig::DebugViewMode::Reflection ? Renderer3D::ReflectionSignal().Memory
+							  : view == EngineConfig::DebugViewMode::ReflectionChoice ? 6.0f
+							  : view == EngineConfig::DebugViewMode::ReflectionImage ? 20.0f
+							  : view == EngineConfig::DebugViewMode::ReflectionPicture ? 4.0f
+							  // The direct light's accumulated diffuse over four; its
+							  // refusal reason on the same ramp as the reflections'.
+							  : view == EngineConfig::DebugViewMode::DirectLight ? 64.0f
+							  : view == EngineConfig::DebugViewMode::DirectRefusal ? 6.0f
+							  : view == EngineConfig::DebugViewMode::Occlusion ? 1.0f
+							  // RT-3: the bounce is albedo-free irradiance and dim --
+							  // one is the ramp that shows a room's indirect at all,
+							  // where the direct light's sixty-four leaves it black.
+							  : view == EngineConfig::DebugViewMode::GiLight ? 1.0f
+							  : view == EngineConfig::DebugViewMode::GiRefusal ? 6.0f
 									: 1.0f;
+			const bool reflectionView = view == EngineConfig::DebugViewMode::Reflection
+									 || view == EngineConfig::DebugViewMode::ReflectionImage
+									 || view == EngineConfig::DebugViewMode::ReflectionChoice
+									 || view == EngineConfig::DebugViewMode::ReflectionPicture;
 			// The texture-backed modes' source, when it ran this frame.
 			const RGResource auxResource = view == EngineConfig::DebugViewMode::Confidence
 										 ? temporalCurrent
 										 : (view == EngineConfig::DebugViewMode::Importance
 											|| view == EngineConfig::DebugViewMode::GiImportance)
-											   ? rayBudgetMap : kRGInvalid;
-			const uint32_t auxAttachment = view == EngineConfig::DebugViewMode::Confidence ? 1u : 0u;
+											   ? rayBudgetMap
+										 : reflectionView
+											   ? (tracedReflections ? currentReflections : kRGInvalid)
+										 : (view == EngineConfig::DebugViewMode::DirectLight
+											|| view == EngineConfig::DebugViewMode::DirectRefusal)
+											   ? currentDirect
+										 : view == EngineConfig::DebugViewMode::Occlusion
+											   ? currentOcclusion
+										 : (view == EngineConfig::DebugViewMode::GiLight
+											|| view == EngineConfig::DebugViewMode::GiRefusal)
+											   ? currentGi
+											   : kRGInvalid;
+			const uint32_t auxAttachment = view == EngineConfig::DebugViewMode::Confidence ? 1u
+										 : view == EngineConfig::DebugViewMode::ReflectionImage ? 1u
+										 : view == EngineConfig::DebugViewMode::ReflectionChoice ? 2u
+										 : view == EngineConfig::DebugViewMode::DirectRefusal ? 2u
+										 : view == EngineConfig::DebugViewMode::GiRefusal ? 2u
+										 : 0u;
 
 			// Said once: a view whose source is not running draws a dark map,
 			// and the log should say why rather than leave it to be guessed.
@@ -3064,9 +3982,23 @@ namespace RageV
 				RV_CORE_WARN("Debug view: {0} has no source this frame ({1}); the map stays dark",
 							 view == EngineConfig::DebugViewMode::Confidence ? "confidence"
 								 : view == EngineConfig::DebugViewMode::GiImportance ? "importance-gi"
+								 : reflectionView ? "reflection"
+								 // RT-3: without these two the message named every
+								 // unlisted mode "importance", which is a diagnostic
+								 // telling you about a pass you did not ask for.
+								 : view == EngineConfig::DebugViewMode::GiLight ? "gi-light"
+								 : view == EngineConfig::DebugViewMode::GiRefusal ? "gi-refusal"
+								 : view == EngineConfig::DebugViewMode::Occlusion ? "ao"
+								 : view == EngineConfig::DebugViewMode::DirectLight ? "direct-light"
+								 : view == EngineConfig::DebugViewMode::DirectRefusal ? "direct-refusal"
 								 : "importance",
 							 view == EngineConfig::DebugViewMode::Confidence
 								 ? "the temporal resolve runs under TAA only"
+								 : reflectionView
+								 ? "the traced reflection pass is off"
+								 : (view == EngineConfig::DebugViewMode::GiLight
+									|| view == EngineConfig::DebugViewMode::GiRefusal)
+								 ? "the GI signal is off (--gi-signal, or the scene bakes its GI)"
 								 : "the ray budget's tile allocator is off");
 			}
 

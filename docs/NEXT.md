@@ -1,5 +1,15 @@
 # RageV — the one list
 
+> **2026-09-07: RT-2.1 done (records in `docs/RT-SERIES.md`): the terrain's cost was the parallax march at mip 0, not the raster -- Headland 20.3 → 14.5 ms, the picture unchanged; HANDOFF.md's eleventh entry is this session's hand-off. The AO look is accepted. Next is RT-3 on the owner's green signal; the deferred resolve is RT-2.2, owner-filed for the end of the series.**
+
+> **2026-09-06 late night: RT-1 and RT-2 are done (records in `docs/RT-SERIES.md`); HANDOFF.md's tenth entry is the complete hand-off for a wiped context. Next is RT-3 on the owner's green signal, after they judge RT-2's two open decisions (the AO look; the G-buffer's cost on terrain). The T and R series are one RT series now — `docs/RT-SERIES.md` is the order; the WR series comes after it.**
+
+> **2026-09-06 late night, owner-set: the engine goes RT-first. The plan is `docs/RT-FIRST.md` (three steps in order: the G-buffer and RT mode as a real mode; one reconstruction contract for every stochastic signal; direct light sampling at ray hits). The WR-16 R series is paused where it stands and folds into it. Step 1 starts once the owner answers the questions in RT-FIRST.md §4.**
+
+
+> **2026-09-06 night, owner-set: the next engine work is the WR-16 R series in `docs/RENDERING-REVAMP.md` (R1-R3 done, R4 shelved; **R12 next**, the short memory under motion with a wide young-history blur, then R5), one task at a time, reporting after each and waiting for the owner's green signal. Read HANDOFF.md's ninth entry first.**
+
+
 **Read this before picking up work.** Written 2026-08-27, because there were
 three roadmaps running at once and no single place that said what to do next.
 
@@ -400,7 +410,7 @@ Written here because they are cross-cutting and easy to lose.
 
 ## ⭐ Parked, owner-set 2026-09-05: the showroom becomes an underground garage
 
-**Back burner, to be picked up after the BRDF work.** The brief: delete the
+**Picked up the same evening -- IN PROGRESS and uncommitted. The live state and plan are HANDOFF.md, third 2026-09-05 entry; the brief below is superseded by it.** **The reflection smear the garage exposed became its own item on 2026-09-05/06: the traced reflection's temporal reconstruction was rebuilt confidence-driven and composited after TAA -- HANDOFF.md, sixth entry (2026-09-06), and the RT_Temporal_Reconstruction design it follows.** The brief: delete the
 Ironman and Mark 85 showroom scenes, and replace the hand-built studio in
 `showroom.rage` with `Underground+Garage+Scene.fbx`, the car parked inside it,
 camera opened out. Everything below was measured on 2026-09-05 so the work can

@@ -186,6 +186,9 @@ struct InstanceData
 	// argument taken to its end: with it here, the material is not in the sort
 	// key at all.
 	vec4 Indices;
+	// x: the object's id (the record's index + 1) for the G-buffer, every
+	// stage alike (RT-first T3); y, z, w spare.
+	vec4 Extra;
 };
 
 layout(std430, set = 0, binding = 7) readonly buffer InstanceBlock

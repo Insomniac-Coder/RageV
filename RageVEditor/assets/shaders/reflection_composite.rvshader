@@ -1,0 +1,119 @@
+// **The traced reflection, added after the frame's temporal filter.**
+//
+// The lit shader used to composite the accumulated picture itself, a frame
+// late through the screen-reflection hook, and the frame's temporal filter
+// then ran over the result. That filter reprojects by the *surface's*
+// motion, and a reflection does not move with its surface: as the eye
+// slides, the tube's image slides across the wet floor, and the filter's
+// history -- fetched where the floor was -- holds the image where it used
+// to be. Its 3x3 clip cannot catch a wide soft band two pixels off, so the
+// bands smeared into trails under every arm of the 2026-09-05 burst,
+// in-line rays included, and were sharp in every arm without the filter
+// (`floor_f100.png`). The accumulator's own reprojection, by the image,
+// had already got it right; the filter undid it a pass later.
+//
+// So the picture stays out of that filter. The lit shader gives up its
+// probe by the share it would have given the trace and writes the exact
+// weight the trace would have carried -- the split-sum term, the occlusion,
+// the gloss window, the share -- into the scene's alpha, which the filter
+// carries through; this pass, after it, adds the weight times the picture
+// the accumulator wrote *this frame*, at *this texel*. No reprojection, no
+// frame of lag, no history to disagree with the pixel under it.
+//
+// What it costs, stated: the picture's own anti-aliasing is the
+// accumulator's averaging of jittered frames, not the filter's, so a
+// mirror in fast motion (memory one frame) shows its reflection at one
+// frame's sampling; a coloured metal's tint is lost to the scalar weight
+// (the attachment has one channel to spare); and a transparent drawn over
+// a glossy floor attenuates the weight by its coverage (the resolve's blend
+// preset) rather than refracting the reflection. RT_Temporal_Reconstruction
+// design (2026-09-06), section 41: the final temporal filter is a separate
+// layer, not the mechanism that makes an invalid history usable.
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+// **RT-6.1: the motion the temporal resolve should reproject this pixel by.**
+// The scene's velocity lane where the pixel is mostly its surface, the
+// virtual image's where it is mostly reflection. Which is what lets this
+// pass run *before* the resolve instead of after it -- see the note at the
+// top, and RT-6.1's record for what happens without it.
+layout(location = 1) out vec2 o_Motion;
+
+// The frame after its temporal filter, alpha the reflection weight.
+layout(set = 0, binding = 0) uniform sampler2D u_Scene;
+// This frame's accumulated reflection, alpha the frames behind it (zero
+// where nothing glossy stood).
+layout(set = 0, binding = 1) uniform sampler2D u_Reflection;
+// The accumulator's fourth lane: how far the picture at this texel moved,
+// already in the velocity lane's units. Zero where it had no history.
+layout(set = 0, binding = 2) uniform sampler2D u_ReflectionMotion;
+// The scene's own velocity, for everything that is not mostly a reflection.
+layout(set = 0, binding = 3) uniform sampler2D u_Velocity;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;        // PostParams' shared header
+	float TexelY;
+	float A;
+	float B;
+	float C;
+	float FlipY;
+} u_Params;
+
+void main()
+{
+	// See PostProcess::Dispatch: the two backends do not store a rendered
+	// image the same way up, so one of them samples flipped. Both inputs
+	// are rendered images, so both flip together.
+	const bool flip = u_Params.FlipY > 0.5;
+	const vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+	const vec4 scene = texture(u_Scene, uv);
+	// At this pixel: the accumulator keeps its picture on the unjittered
+	// grid (reflection_accumulate.rvshader says how), so the texel under
+	// the pixel is the pixel's. (Read as a jittered-grid picture the
+	// reflection wobbled by the dither on top of the resolved frame, and
+	// resampled back by the jitter it still changed by five levels a frame,
+	// parked -- 2026-09-06.)
+	const vec4 reflection = texture(u_Reflection, uv);
+	const vec3 added = reflection.a > 0.0 ? max(reflection.rgb, vec3(0.0)) : vec3(0.0);
+	const float weight = max(scene.a, 0.0);
+	// The weight has done its work; nothing after this reads the alpha.
+	o_Color = vec4(scene.rgb + weight * added, 0.0);
+
+	// **Which motion this pixel moves by -- chosen, never averaged.**
+	//
+	// A pixel is a surface plus a reflection of something else, and the two
+	// move differently: as the eye slides, a tube's image slides across the
+	// wet floor at its own rate while the floor slides at the floor's. There
+	// is one history to fetch and one velocity to fetch it with, so the honest
+	// answer is to follow whichever of the two the pixel is mostly made of.
+	// Averaging them would give a velocity that describes neither -- the same
+	// reason every velocity read in this engine is point sampled.
+	//
+	// The threshold is the reflection carrying more of the pixel's brightness
+	// than everything else in it, which on the garage floor is the wet
+	// concrete under the tubes and the car, and is not the dry wall behind a
+	// faint sheen.
+	const vec3 kLuma = vec3(0.2126, 0.7152, 0.0722);
+	const float reflected = dot(weight * added, kLuma);
+	const float rest = dot(max(scene.rgb, vec3(0.0)), kLuma);
+	const vec2 surfaceMotion = texture(u_Velocity, uv).xy;
+	const vec2 imageMotion = texture(u_ReflectionMotion, uv).xy;
+	// A zero lane means the accumulator had no history to measure a shift
+	// from; the surface's motion is the better guess then, not a standstill.
+	const bool haveImage = dot(imageMotion, imageMotion) > 0.0;
+	o_Motion = (reflected > rest && haveImage) ? imageMotion : surfaceMotion;
+}

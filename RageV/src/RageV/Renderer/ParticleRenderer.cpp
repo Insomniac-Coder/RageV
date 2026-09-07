@@ -326,7 +326,10 @@ namespace RageV
 			// The composite covers the screen and has nothing to test.
 			resolve.DepthStencil.DepthTestEnable = false;
 			resolve.DepthStencil.DepthWriteEnable = false;
-			resolve.Blend = BlendPreset::AlphaBlend;
+			// Under, not over, for the alpha: the scene's alpha is the traced
+			// reflection's weight (reflection_composite.rvshader), and glass
+			// over a glossy floor covers that reflection by its opacity.
+			resolve.Blend = BlendPreset::AlphaBlendUnder;
 			resolve.ColorFormats = { s_Data->TargetColor };
 			resolve.Samples = s_Data->TargetSamples;
 			resolve.DepthFormat = Format::Undefined;

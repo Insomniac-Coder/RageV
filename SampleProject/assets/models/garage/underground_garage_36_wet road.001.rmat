@@ -1,0 +1,13 @@
+Material: wet road.001
+BaseColor: [0.33, 0.34, 0.36, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0
+Roughness: 0.11
+Occlusion: 1
+NormalScale: 1
+Specular: 0.7
+HeightScale: 0.05
+Tiling: [0.15, 0.15]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 11274843874505885228

@@ -164,6 +164,7 @@ void main()
 	v_Surface       = instance.Surface;
 	// y is 0 whatever the instance says: water is always live (7cx).
 	v_Instance      = vec2(instance.Indices.y, 0.0);
+	v_ObjectId      = instance.Extra.x;
 	v_MaterialIndex = instance.Indices.z;
 
 	gl_Position = u_Scene.ViewProjection * world;

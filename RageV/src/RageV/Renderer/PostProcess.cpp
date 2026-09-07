@@ -91,6 +91,10 @@ namespace RageV
 				case 31: return "assets/shaders/tile_budget.rvshader";
 				case 32: return "assets/shaders/water_backdrop.rvshader";
 				case 33: return "assets/shaders/debug_view.rvshader";
+				case 34: return "assets/shaders/reflection_composite.rvshader";
+				case 35: return "assets/shaders/signal_upsample.rvshader";
+				case 36: return "assets/shaders/gbuffer_guide.rvshader";
+				case 37: return "assets/shaders/taa_guide.rvshader";
 				default: return "assets/shaders/fog.rvshader";
 			}
 		}
@@ -111,13 +115,15 @@ namespace RageV
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not -- so the number is
 			// asserted against it in Init instead, where the enum is in scope.
-			std::array<Ref<RHIShader>, 34> Shaders;
+			std::array<Ref<RHIShader>, 38> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
 			// The second format is Undefined for every pass but the one that
 			// writes two attachments, so those keys are unchanged.
-			std::map<std::tuple<int, Format, Format>, Ref<RHIPipeline>> Pipelines;
+			// RT-3.1: four, since the guidance downsample added a third colour
+			// attachment -- a pipeline built for two attachments cannot serve three.
+			std::map<std::tuple<int, Format, Format, Format>, Ref<RHIPipeline>> Pipelines;
 
 			Ref<RHISampler> Sampler;
 			Ref<RHISampler> PointSampler;
@@ -173,7 +179,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 34,
+		static_assert((int)Shader::Count <= 38,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -319,7 +325,11 @@ namespace RageV
 							   const Ref<RHIBuffer>& storage,
 							   const Ref<RHIAccelerationStructure>& structure,
 							   Format secondOutputFormat,
-							   const Ref<RHIBuffer>& counters)
+							   Format thirdOutputFormat,
+							   const Ref<RHIBuffer>& counters,
+							   const Ref<RHITexture>& fifth, Sampling fifthSampling,
+							   const Ref<RHITexture>& sixth, Sampling sixthSampling,
+							   const Ref<RHITexture>& seventh, Sampling seventhSampling)
 	{
 		if (!s_Data || !s_Data->Ready || !first)
 			return;
@@ -327,7 +337,8 @@ namespace RageV
 			return;
 
 		const int index = (int)shader;
-		const auto key = std::make_tuple(index, outputFormat, secondOutputFormat);
+		const auto key = std::make_tuple(index, outputFormat, secondOutputFormat,
+										 thirdOutputFormat);
 
 		auto it = s_Data->Pipelines.find(key);
 		if (it == s_Data->Pipelines.end())
@@ -356,6 +367,11 @@ namespace RageV
 			// and gets exactly the single-attachment pipeline it had.
 			if (secondOutputFormat != Format::Undefined)
 				desc.ColorFormats.push_back(secondOutputFormat);
+			// RT-3.1: and a third, for the guidance downsample. Ordered, not
+			// optional: a third without a second would build a pipeline whose
+			// attachment one is the shader's two.
+			if (thirdOutputFormat != Format::Undefined)
+				desc.ColorFormats.push_back(thirdOutputFormat);
 			desc.DepthFormat = Format::Undefined;
 
 			it = s_Data->Pipelines.emplace(key, s_Data->Device->CreatePipeline(desc)).first;
@@ -422,6 +438,16 @@ namespace RageV
 		// The frame's acceleration structure, for the one pass that traces.
 		if (structure)
 			set->SetAccelerationStructure(4, structure);
+
+		// RT-6: bindings 6 and 7, past the structure and the counters. The
+		// temporal resolve's identity lanes -- this frame's and last frame's.
+		if (fifth)
+			set->SetTexture(6, fifth, samplerFor(fifthSampling));
+		if (sixth)
+			set->SetTexture(7, sixth, samplerFor(sixthSampling));
+		// RT-6.2: the material lane, for the resolve alone.
+		if (seventh)
+			set->SetTexture(8, seventh, samplerFor(seventhSampling));
 
 		// The counters, for the passes that count and the one that draws
 		// them (WR-16 S0). Only when the caller passed one, which it does
@@ -868,7 +894,7 @@ namespace RageV
 				 &params, sizeof(params), Sampling::Point, Sampling::Point,
 				 budget ? budget : s_Data->Black, Sampling::Point,
 				 nullptr, Sampling::Point,
-				 nullptr, structure, Format::Undefined,
+				 nullptr, structure, Format::Undefined, Format::Undefined,
 				 // The taps are counted (WR-16 S0). The shader declares the
 				 // binding unconditionally, and it only compiles where the
 				 // counters exist -- the same condition, ray query.
@@ -1193,6 +1219,84 @@ namespace RageV
 				 nullptr, nullptr, depthOutputFormat);
 	}
 
+	// RT-6: the identity lanes, packed and kept. Straight after the G-buffer
+	// pass, so what it keeps is the opaque surface the velocity lane also
+	// describes -- see the shader's own note on why that matters for the sea.
+	void PostProcess::TaaGuide(RHICommandList& cmd, const Ref<RHITexture>& depth,
+							   const Ref<RHITexture>& surface,
+							   const Ref<RHITexture>& surfaceId, Format outputFormat)
+	{
+		if (!s_Data || !depth || !surface || !surfaceId)
+			return;
+
+		PostParams params;
+		// Every lane point sampled: this is a copy, and an id blended between
+		// two objects names neither of them.
+		Dispatch(cmd, Shader::TaaGuide, outputFormat, depth, surface,
+				 &params, sizeof(params), Sampling::Point, Sampling::Point,
+				 surfaceId, Sampling::Point);
+	}
+
+	// RT-3.1: the guidance downsample. One dispatch, three attachments, each
+	// a whole G-buffer texel -- the shader's own note has why selection and
+	// not averaging, and which texel it selects.
+	void PostProcess::GuideDownsample(RHICommandList& cmd, const Ref<RHITexture>& depth,
+									  const Ref<RHITexture>& surface,
+									  const Ref<RHITexture>& velocity,
+									  uint32_t divisor, Format depthFormat,
+									  Format surfaceFormat, Format velocityFormat)
+	{
+		if (!s_Data || !depth || !surface)
+			return;
+
+		PostParams params;
+		params.A = (float)Math::Max(divisor, 1u);
+
+		// Every lane point sampled: this pass exists to stop the hardware
+		// averaging surfaces, and a linear filter on any of the three would
+		// put back exactly what it is here to prevent.
+		Dispatch(cmd, Shader::GuideDownsample, depthFormat, depth, surface,
+				 &params, sizeof(params), Sampling::Point, Sampling::Point,
+				 velocity ? velocity : TextureLoader::TransparentBlack(*s_Data->Device),
+				 Sampling::Point, nullptr, Sampling::Point, nullptr, nullptr,
+				 surfaceFormat, velocityFormat);
+	}
+
+	// RT-3: the joint bilateral upsample of the traced bounce. The same
+	// shape as SsaoApply's -- the four source texels around each pixel,
+	// bilinear weights times a depth agreement -- with two differences: the
+	// value carried is RGB irradiance rather than a scalar, and the taps'
+	// depths are fetched from the depth buffer rather than read out of the
+	// source's spare channel, which this signal does not have.
+	void PostProcess::SignalUpsample(RHICommandList& cmd, const Ref<RHITexture>& signal,
+								 const Ref<RHITexture>& depth,
+								 uint32_t srcWidth, uint32_t srcHeight,
+								 float nearClip, float farClip, Format outputFormat)
+	{
+		if (!s_Data || !signal || !depth)
+			return;
+
+		PostParams params;
+		params.A = 0.0f;
+		params.B = nearClip;
+		params.C = farClip;
+		// **The source's texel size, not the frame's** -- the upsample walks
+		// the grid it is reading, the way SsaoApply walks the occlusion's.
+		params.TexelSize = { 1.0f / (float)Math::Max(srcWidth, 1u),
+							 1.0f / (float)Math::Max(srcHeight, 1u) };
+
+		// The taps land on exact source texel centres, so the linear filter
+		// hands each one back whole and the weighting is the shader's own.
+		// The depth is point sampled: a depth halfway between two surfaces is
+		// the depth of neither.
+		// The signal linear -- the taps land on exact source texel centres, so
+		// the filter hands each one back whole and the weighting is the
+		// shader's own. The depth point: a depth halfway between two surfaces
+		// is the depth of neither.
+		Dispatch(cmd, Shader::SignalUpsample, outputFormat, signal, depth,
+				 &params, sizeof(params), Sampling::Linear, Sampling::Point);
+	}
+
 	void PostProcess::SsaoApply(RHICommandList& cmd, const Ref<RHITexture>& scene,
 								const Ref<RHITexture>& occlusion,
 								const Ref<RHITexture>& depth,
@@ -1457,9 +1561,37 @@ namespace RageV
 									  const Ref<RHITexture>& velocity,
 									  uint32_t width, uint32_t height, Format outputFormat,
 									  float feedback, bool hasHistory,
-									  const Ref<RHITexture>& moments, Format momentsFormat)
+									  const Ref<RHITexture>& moments, Format momentsFormat,
+									  Math::Vec2 jitter, float stillFeedback,
+									  const Ref<RHITexture>& guideCurrent,
+									  const Ref<RHITexture>& guidePrevious,
+									  const Ref<RHITexture>& material)
 	{
-		PostParams params;
+		// The base block, then this frame's jitter (clip units, as the scene
+		// block carries it): the resolve filters the current frame around
+		// the unjittered pixel centre before blending it.
+		struct TemporalParams
+		{
+			PostParams Base;
+			Vec2 Jitter{ 0.0f };
+			// The feedback for a pixel that did not move; zero for "the same".
+			float StillFeedback = 0.0f;
+			// RT-6: whether the geometric test may run this frame.
+			float Geometry = 0.0f;
+			// RT-6.2: whether the material lane is bound.
+			float Material = 0.0f;
+			float Pad2 = 0.0f;
+			float Pad3 = 0.0f;
+		};
+		TemporalParams full;
+		full.Jitter = jitter;
+		full.StillFeedback = Math::Clamp(stillFeedback, 0.0f, 0.98f);
+		// Both lanes, and a history to compare against: with either missing the
+		// test would be comparing this frame to uninitialised memory, which
+		// refuses every pixel and turns the resolve off without saying so.
+		full.Geometry = (guideCurrent && guidePrevious && hasHistory) ? 1.0f : 0.0f;
+		full.Material = material ? 1.0f : 0.0f;
+		PostParams& params = full.Base;
 		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
 							 1.0f / (float)Math::Max(height, 1u) };
 		// Clamped short of 1, which would be a filter that never accepts a new
@@ -1485,18 +1617,27 @@ namespace RageV
 		// measurement per pixel, and the average of two pixels' motion is the
 		// motion of nothing.
 		Dispatch(cmd, Shader::TaaResolve, outputFormat, current, history,
-				 &params, sizeof(params), Sampling::Point, Sampling::Linear,
+				 &full, sizeof(full), Sampling::Point, Sampling::Linear,
 				 velocity, Sampling::Point,
 				 // Binding 3 is filled whether or not there are moments to
 				 // read, for GiDenoise's reason: a declared binding with
 				 // nothing bound is undefined behaviour, and params.C is what
 				 // says the black is not data.
 				 moments ? moments : s_Data->Black, Sampling::Point,
-				 nullptr, nullptr, momentsFormat,
+				 nullptr, nullptr, momentsFormat, Format::Undefined,
+				 // RT-6's two lanes ride at bindings 6 and 7, after the counters
+				 // below -- see the Dispatch declaration for why they start there.
 				 // The validity lane's count (WR-16 S0): declared by the
 				 // shader under RV_RAY_COUNTERS, which Init defines exactly
 				 // where RayCounters is available, so the two agree.
-				 RayCounters::IsAvailable() ? RayCounters::Buffer() : nullptr);
+				 RayCounters::IsAvailable() ? RayCounters::Buffer() : nullptr,
+				 // RT-6: the identity lanes at bindings 6 and 7. Point sampled -- an
+				 // id interpolated between two objects names neither of them.
+				 guideCurrent, Sampling::Point, guidePrevious, Sampling::Point,
+				 // RT-6.2: the roughness and metallic under this pixel. Point, like
+				 // everything else describing a surface: halfway between two
+				 // materials is a third material that is not there.
+				 material, Sampling::Point);
 	}
 
 	void PostProcess::GiDenoise(RHICommandList& cmd, const Ref<RHITexture>& current,
@@ -1546,6 +1687,24 @@ namespace RageV
 		Dispatch(cmd, Shader::Blit, outputFormat, source, nullptr, &params, sizeof(params));
 	}
 
+	void PostProcess::ReflectionComposite(RHICommandList& cmd, const Ref<RHITexture>& scene,
+										  const Ref<RHITexture>& reflection, Format outputFormat,
+										  const Ref<RHITexture>& reflectionMotion,
+										  const Ref<RHITexture>& velocity, Format motionFormat)
+	{
+		if (!s_Data || !scene || !reflection)
+			return;
+		PostParams params;
+		// The two pictures linear, so a supersampled one averages down to an
+		// output pixel rather than picking a texel of it. **The two motion lanes
+		// point** (RT-6.1): a velocity is a measurement per pixel, and the
+		// average of two pixels' motion is the motion of nothing.
+		Dispatch(cmd, Shader::ReflectionComposite, outputFormat, scene, reflection,
+				 &params, sizeof(params), Sampling::Linear, Sampling::Linear,
+				 reflectionMotion, Sampling::Point, velocity, Sampling::Point,
+				 nullptr, nullptr, motionFormat);
+	}
+
 	void PostProcess::DebugView(RHICommandList& cmd, const Ref<RHITexture>& frame,
 								const Ref<RHITexture>& aux, const Ref<RHIBuffer>& counts,
 								int mode, float scale, float frameMix,
@@ -1573,6 +1732,6 @@ namespace RageV
 		Dispatch(cmd, Shader::DebugView, outputFormat, frame, aux ? aux : s_Data->Black,
 				 &params, sizeof(params), Sampling::Linear, Sampling::Point,
 				 nullptr, Sampling::Point, nullptr, Sampling::Point,
-				 nullptr, nullptr, Format::Undefined, counts);
+				 nullptr, nullptr, Format::Undefined, Format::Undefined, counts);
 	}
 }

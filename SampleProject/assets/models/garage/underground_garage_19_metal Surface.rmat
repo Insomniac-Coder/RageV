@@ -1,0 +1,11 @@
+Material: metal Surface
+BaseColor: [0.055, 0.058, 0.065, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0.75
+Roughness: 0.42
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]

@@ -1,0 +1,15 @@
+Material: pbr_Bottom_light_bars.029_0
+BaseColor: [0.08117173, 0.08117173, 0.08117173, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0.9590909
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  Normal: 5148183731043548463
+  Roughness: 16939906655734974938
+  Metallic: 10560352792359111219

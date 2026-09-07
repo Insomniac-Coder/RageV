@@ -672,11 +672,18 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.History = &m_SceneHistory;
 	scene.Exposure = &m_SceneExposure;
 	scene.Reflections = &m_SceneReflections;
+	scene.DirectLight = &m_SceneDirectLight;
 	scene.Indirect = &m_SceneIndirect;
 	scene.RayBudget = &m_SceneRayBudget;
 	scene.Occlusion = &m_SceneOcclusion;
+	scene.GiLight = &m_SceneGiLight;
+	scene.TaaGuide = &m_SceneTaaGuide;
 	// The loop's frame time, not a clock read here. ENGINE-NOTES 7y.
 	scene.DeltaSeconds = ts.GetSeconds();
+	scene.DrawSceneLit = [this](RGPassContext&)
+	{
+		m_Scene->OnRenderLit();
+	};
 	scene.DrawScene = [this](RGPassContext&)
 	{
 		if (m_UseEditorCamera)
@@ -813,10 +820,17 @@ void EditorLayer::OnUpdate(Timestep ts)
 		game.History = &m_GameHistory;
 		game.Exposure = &m_GameExposure;
 		game.Reflections = &m_GameReflections;
+		game.DirectLight = &m_GameDirectLight;
 		game.Indirect = &m_GameIndirect;
 		game.RayBudget = &m_GameRayBudget;
 		game.Occlusion = &m_GameOcclusion;
+		game.GiLight = &m_GameGiLight;
+		game.TaaGuide = &m_GameTaaGuide;
 		game.DeltaSeconds = ts.GetSeconds();
+		game.DrawSceneLit = [this](RGPassContext&)
+		{
+			m_Scene->OnRenderLit();
+		};
 		game.DrawScene = [this](RGPassContext&)
 		{
 			m_Scene->OnRenderRuntime(m_GameViewportSize.x / m_GameViewportSize.y);

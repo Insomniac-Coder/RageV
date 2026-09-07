@@ -27,6 +27,9 @@ namespace RageV
 		// Draws the scene into the HDR target. Everything after that is the
 		// same regardless of what drew it.
 		std::function<void(RGPassContext&)> DrawScene;
+		// The lit half under the G-buffer pass (RT-first step 1a): the
+		// scene's OnRenderLit. Null means Renderer3D::DrawLit alone.
+		std::function<void(RGPassContext&)> DrawSceneLit;
 
 		// Drawn into the HDR target after the scene, with the depth buffer
 		// still attached -- collider wireframes need to be occluded by the
@@ -134,6 +137,11 @@ namespace RageV
 		// reflections and no error, the same shape as TAA with no History.
 		TemporalHistory* Reflections = nullptr;
 
+		// RT-first T5: where the direct light keeps its accumulated pair. Null
+		// means the DirectTrace pass cannot run for this caller and the lit
+		// shader traces its own rays, as a probe capture and scenetest want.
+		TemporalHistory* DirectLight = nullptr;
+
 		// Where global illumination keeps last frame's indirect diffuse for
 		// this frame's lighting to read. ENGINE-NOTES 7av.
 		//
@@ -185,6 +193,22 @@ namespace RageV
 		//
 		// Null disables it, and then AO behaves exactly as it did.
 		TemporalHistory* Occlusion = nullptr;
+
+		// RT-3: the traced bounce's accumulation, when it runs as a signal of
+		// this frame. Its own history and not `Indirect` above, deliberately:
+		// that one is the one-frame-late buffer with two attachments and the
+		// contract wants three, and keeping them apart is what lets
+		// `--gi-signal=off` be a true reference arm rather than the same
+		// storage in a different shape. Null disables the signal, and the
+		// traced bounce goes back through gi_denoise and `Indirect`.
+		TemporalHistory* GiLight = nullptr;
+
+		// RT-6: the G-buffer's depth, normal and object id, kept for the next
+		// frame's temporal resolve to validate its history against. The
+		// G-buffer itself is single-buffered and transient, so a copy is the
+		// only way last frame's identity survives into this one. Null leaves
+		// the resolve on the colour box alone.
+		TemporalHistory* TaaGuide = nullptr;
 
 		// **The frame time the loop handed down**, and the reason it is passed
 		// rather than measured: an adaptation driven by this is a function of

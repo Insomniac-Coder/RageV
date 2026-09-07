@@ -8,24 +8,18 @@ Project:
     MsaaSamples: 4
     SupersampleFactor: 2
     TemporalFeedback: 0.9
+    TemporalStillFeedback: 0.98
     TemporalJitterScale: 1
     TemporalJitterPhase: 8
     ShadowsEnabled: true
     RayTracing: true
     RayTracedReflections: High
+    RayTracedWaterRefraction: true
+    RayTracedSkyVisibility: Off
     RayTracedAmbientOcclusion: Full
     RayTracedGlobalIllumination: High
-    RayTracedWaterRefraction: true
     RayTracedGiSource: Baked
     RtOptimisation: Quality
-    RayCostShadow: 0.4
-    RayCostWater: 0.77
-    RayCostReflection: 3.62
-    RayCostGi: 0
-    RayCostAo: 0.12
-    RayBudget: Fractional
-    RayBudgetMs: 4
-    RayBudgetFraction: 0.4
     ShadowDistance: 40
     ShadowSplitLambda: 0.85
     ShadowNormalOffset: 0.9

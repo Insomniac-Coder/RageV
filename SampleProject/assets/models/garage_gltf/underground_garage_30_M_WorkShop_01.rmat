@@ -1,0 +1,14 @@
+Material: M_WorkShop_01
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0.14705884
+Roughness: 0.7618691
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Blend: Blend
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 5695405637499621971

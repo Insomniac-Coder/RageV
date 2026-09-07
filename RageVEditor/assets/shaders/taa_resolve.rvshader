@@ -81,6 +81,22 @@ layout(set = 0, binding = 2) uniform sampler2D u_Velocity;
 // sampled: a count is not a thing to interpolate.
 layout(set = 0, binding = 3) uniform sampler2D u_Moments;
 
+// **RT-6: the identity lanes, this frame's and last frame's.** Packed by
+// taa_guide.rvshader: clip depth in x, the octahedral shading normal in yz,
+// the signed object id in w. Bindings 6 and 7 because 4 is the acceleration
+// structure and 5 the counters. Point sampled -- an id interpolated between
+// two objects names neither, and a depth halfway between two surfaces is the
+// depth of neither.
+layout(set = 0, binding = 6) uniform sampler2D u_GuideCurrent;
+layout(set = 0, binding = 7) uniform sampler2D u_GuidePrevious;
+
+// **RT-6.2: what the surface under this pixel is made of.** The G-buffer's
+// normal attachment, whose B is roughness and A is metallic -- the same lane
+// every other pass reads its normal from, so this costs a binding and no
+// pass. Point sampled: halfway between two materials is a third material
+// that is not there.
+layout(set = 0, binding = 8) uniform sampler2D u_Material;
+
 // **WR-16 S0: the validity lane, and its count.** `o_Moments.w` is now one
 // where this pixel reused its history and zero where it did not -- the one
 // per-pixel validity the ray budget's temporal consumers will read instead
@@ -145,7 +161,157 @@ layout(push_constant) uniform Params
 	// first frame after a resize has a pair with nothing in it.
 	float HasMoments;
 	float FlipY;
+	// This frame's jitter in clip units (the scene block's Jitter.xy).
+	vec2  Jitter;
+	// The feedback for a pixel that did not move at all (RenderSettings::
+	// TemporalStillFeedback); zero means Feedback. See kStillWithinTexels.
+	float StillFeedback;
+	// RT-6: one when the identity lanes are bound and hold a real frame, so
+	// the geometric test runs; zero on the first frame, after a resize, and
+	// under --taa-geometry=off, which is the reference arm.
+	float Geometry;
+	// RT-6.2: one when the material lane is bound.
+	float Material;
+	float Pad2;
+	float Pad3;
 } u_Params;
+
+// **How far the box may open on a surface whose shading does not depend on
+// where the eye is.**
+//
+// The neighbourhood box exists to catch a history that has gone wrong. On a
+// smooth metal it earns that every frame: the pixel's colour is a function
+// of view direction, so last frame's is genuinely a different answer and the
+// box cannot be too tight. On rough concrete it does not: the shading is the
+// same from any angle, the history is *right*, and clipping it toward the
+// local mean every frame is not protection -- it is the blur. It removes
+// precisely the detail the accumulation spent thirty frames building, which
+// is why a wet floor's gravel and a brick wall's grain go soft under motion
+// while a chrome pole stays crisp.
+//
+// Two is the width, and what stops it ghosting is that everything else the
+// resolve does still holds: the geometric test (RT-6) has already refused a
+// history that is a different surface, the pixel's own temporal spread still
+// sets the floor, and light that genuinely changes on a static rough surface
+// -- a shadow crossing a floor -- moves the whole neighbourhood, so the box
+// moves with it rather than being escaped.
+const float kStableWiden = 2.0;
+
+// **How far the three tests may disagree before the history is refused.**
+//
+// Depth is compared *relative* to the depth itself, because a depth buffer's
+// own precision falls off that way and a fixed tolerance in clip units is a
+// millimetre near and a hundred metres far. Two per cent is loose enough
+// that a surface sliding under the camera passes and tight enough that a
+// wall behind a moving object does not.
+const float kDepthTolerance = 0.02;
+// The normal, as a cosine. 0.9 is about twenty-five degrees: a curved
+// surface turning under the camera keeps its history, a face meeting
+// another face at an edge does not.
+const float kNormalTolerance = 0.9;
+
+// Octahedral decode, the same one the G-buffer encodes with. Local, so this
+// pass pulls in no lighting header for two lines of arithmetic.
+vec3 DecodeOct(vec2 e)
+{
+	vec3 n = vec3(e.xy, 1.0 - abs(e.x) - abs(e.y));
+	const float t = max(-n.z, 0.0);
+	n.xy += vec2(n.x >= 0.0 ? -t : t, n.y >= 0.0 ? -t : t);
+	return normalize(n);
+}
+
+// **Which texel near `pastUv` holds this surface's history?** Three
+// questions, and any one of them saying no is enough --
+//
+// The id is the exact one and the other two are its safety net: an id
+// matches across a whole object, so a wall occluding itself -- a corner
+// turning out of view -- passes the id and fails the plane. Neither test
+// alone is the answer, which is why all three are here.
+//
+// A pixel with no surface under it now, or none there last frame, is not a
+// disocclusion to refuse: it is the sky, and the sky reprojects perfectly
+// well. Left to the box, exactly as it was before this test existed.
+bool Matches(vec4 now, vec4 was)
+{
+	// Sky on either side: nothing to compare, and nothing that ghosts.
+	if (now.x >= 1.0 || was.x >= 1.0)
+		return true;
+
+	// **The object, first.** Exactly equal or it is not the same object --
+	// the lane holds a whole number the G-buffer wrote, negated for a static
+	// surface, so an epsilon here would only let neighbouring ids through.
+	if (abs(now.w - was.w) > 0.5)
+		return false;
+
+	// **Then the depth**, which catches an object occluding itself.
+	if (abs(now.x - was.x) > kDepthTolerance * max(now.x, 1.0e-4))
+		return false;
+
+	// **Then the normal**, which catches the two faces of a corner: same
+	// object, same distance, and a different surface all the same.
+	return dot(DecodeOct(now.yz), DecodeOct(was.yz)) >= kNormalTolerance;
+}
+
+// **The reprojected texel, or the nearest neighbour that is this surface,
+// or nothing.** Returns the texel to read the history from and whether one
+// was found; `bilinear` says whether the centre itself matched, because
+// only then are the texels between it and its neighbours this surface too.
+//
+// The search is SVGF's and `reflection_accumulate` already runs it for the
+// same reason: at a silhouette the reprojection is right to within the
+// resampling and it is the *rounding* that lands on the far side of an
+// edge. Refusing there trades a ghost for aliasing; taking the neighbour
+// that kept this surface's history keeps the picture, one texel over.
+ivec2 MatchingTexel(vec2 uv, vec2 pastUv, out bool found, out bool bilinear)
+{
+	const ivec2 size = textureSize(u_GuideCurrent, 0);
+	const ivec2 nowTexel = clamp(ivec2(uv * vec2(size)), ivec2(0), size - 1);
+	const ivec2 centre = clamp(ivec2(pastUv * vec2(size)), ivec2(0), size - 1);
+	const vec4 now = texelFetch(u_GuideCurrent, nowTexel, 0);
+
+	const ivec2 offsets[9] = ivec2[9](ivec2(0, 0), ivec2(1, 0), ivec2(-1, 0),
+									  ivec2(0, 1), ivec2(0, -1), ivec2(1, 1),
+									  ivec2(-1, -1), ivec2(1, -1), ivec2(-1, 1));
+	for (int k = 0; k < 9; ++k)
+	{
+		const ivec2 at = clamp(centre + offsets[k], ivec2(0), size - 1);
+		if (Matches(now, texelFetch(u_GuidePrevious, at, 0)))
+		{
+			found = true;
+			bilinear = (k == 0);
+			return at;
+		}
+	}
+	found = false;
+	bilinear = false;
+	return centre;
+}
+
+// **The current sample is filtered around the unjittered pixel centre
+// before it is blended** (Unreal's filtered current). The raw sample at a
+// bright edge is one side or the other depending on where the jitter put
+// it, and at a feedback of 0.9 every frame moved the pixel a tenth of the
+// way there: parked, bright edges changed 3.3 levels a frame with no
+// reflections in the picture and 1.0 with no anti-aliasing at all
+// (2026-09-06). A Gaussian over the 3x3, centred where the pixel's own
+// centre actually is this frame, gives the coverage instead of the coin.
+// The box and the moments keep the raw taps: they describe what the pixel
+// can be, and the filter must not narrow that.
+// **RT-6.4: 0.5 -> 0.15** (owner-asked). This is the blur, and RT-6.2
+// found it by elimination: the material-aware clamp measured flat because
+// on a detailed surface the neighbourhood box is already wide, so the
+// clamp only bites where there is no detail to lose. This filter bites
+// everywhere, every frame. Narrowed, the garage reads wall 22.86 -> 23.28,
+// floor 9.02 -> 9.53, poles 13.74 -> 14.32, at about four per cent more
+// frame-to-frame change. **Settled at 0.25 on the owner's eye** -- 0.15
+// read a shade too sharp to them, and 0.25 keeps most of the detail for
+// half the extra change.
+// frame-to-frame change -- and the jitter's edge wobble that the filter
+// exists for is now also held by the geometric test and the neighbour
+// search (RT-6), which did not exist when 0.5 was chosen.
+const float kFilterSigma = 0.25;
+const float kJitterSign = 1.0;
+
 
 // **How many frames a pixel may remember**, for the warm-up below. Once 1/n
 // falls under the configured feedback the feedback governs, so the count
@@ -201,7 +367,9 @@ const float kTemporalSigma = 2.0;
 // they arise instead, by the thin-member distance fade in the material.
 // Set at or below the configured feedback, the max() below picks the
 // configured number and nothing here changes the picture.
-const float kStillFeedback = 0.0;
+// **A render setting since 2026-09-06** (`u_Params.StillFeedback`,
+// RenderSettings::TemporalStillFeedback): the garage has no water and its
+// edges flickered at 0.9; the bridge keeps it off.
 const float kStillWithinTexels = 0.003;
 
 // **How many frames the moments remember**, and it is shorter than the
@@ -322,7 +490,19 @@ void main()
 
 	// Off the edge of the image there is no history, and clamping would smear
 	// the border pixel inward along whatever direction the camera turned.
-	if (any(lessThan(historyUV, vec2(0.0))) || any(greaterThan(historyUV, vec2(1.0))))
+	// **RT-6: off the edge, or a different surface.** The second is the one
+	// the colour box could never be trusted with. The two are one branch
+	// because the consequence is identical -- there is no history for this
+	// pixel, so this frame stands alone and the count restarts.
+	const bool offScreen = any(lessThan(historyUV, vec2(0.0)))
+						|| any(greaterThan(historyUV, vec2(1.0)));
+	bool geometryFound = true;
+	bool geometryBilinear = true;
+	ivec2 historyTexel = ivec2(0);
+	if (!offScreen && u_Params.Geometry > 0.5)
+		historyTexel = MatchingTexel(uv, historyUV, geometryFound, geometryBilinear);
+	const bool disoccluded = !offScreen && u_Params.Geometry > 0.5 && !geometryFound;
+	if (offScreen || disoccluded)
 	{
 		o_Color = current;
 		// Disoccluded: the count starts again here. Carrying the old one would
@@ -333,10 +513,25 @@ void main()
 		return;
 	}
 
-	// The 3x3 neighbourhood, in YCoCg, as a box.
+	// The 3x3 neighbourhood, in YCoCg, as a box -- and the alpha's range
+	// beside it. The alpha is the traced reflection's weight, which the
+	// composite after this pass multiplies into a picture that never came
+	// through here (reflection_composite.rvshader); filtered like the
+	// colour, its edge at a chrome pole's silhouette is as smooth as the
+	// pole's.
 	vec3 centreYCoCg = ToYCoCg(current.rgb);
 	vec3 lowest = centreYCoCg;
 	vec3 highest = centreYCoCg;
+	float alphaLow = current.a;
+	float alphaHigh = current.a;
+	// The jitter in texels; a rendered sample at texel offset o sits at
+	// o - jitter on the unjittered grid.
+	vec2 jitterTexels = u_Params.Jitter * 0.5 / u_Params.TexelSize;
+	jitterTexels.y = u_Params.FlipY > 0.5 ? -jitterTexels.y : jitterTexels.y;
+	jitterTexels *= kJitterSign;
+	const float twoSigmaSq = 2.0 * kFilterSigma * kFilterSigma;
+	float filterWeight = exp(-dot(jitterTexels, jitterTexels) / twoSigmaSq);
+	vec3 filtered = current.rgb * filterWeight;
 
 	for (int y = -1; y <= 1; y++)
 	{
@@ -345,12 +540,19 @@ void main()
 			if (x == 0 && y == 0)
 				continue;
 
-			vec3 neighbour = ToYCoCg(
-				texture(u_Current, uv + u_Params.TexelSize * vec2(x, y)).rgb);
+			const vec4 tap = texture(u_Current, uv + u_Params.TexelSize * vec2(x, y));
+			vec3 neighbour = ToYCoCg(tap.rgb);
 			lowest = min(lowest, neighbour);
 			highest = max(highest, neighbour);
+			alphaLow = min(alphaLow, tap.a);
+			alphaHigh = max(alphaHigh, tap.a);
+			const vec2 offset = vec2(x, y) - jitterTexels;
+			const float w = exp(-dot(offset, offset) / twoSigmaSq);
+			filtered += tap.rgb * w;
+			filterWeight += w;
 		}
 	}
+	centreYCoCg = ToYCoCg(filtered / max(filterWeight, 1.0e-6));
 
 	// Bilinear, deliberately, and this was tested rather than assumed.
 	//
@@ -395,9 +597,15 @@ void main()
 						   ? texture(u_Moments, historyUV) : vec4(0.0);
 	const float frames = min(prevMoments.x + 1.0, kMaxFrames);
 	const float motionTexels = length(velocity / u_Params.TexelSize);
+	// **Still, and known to be the same surface** (RT-6). The velocity test
+	// alone says a pixel did not move; it cannot say the thing that did not
+	// move is the thing that was there before. Reaching this line already
+	// means the geometric test passed, so the two together are what the long
+	// still feedback is safe to stand on -- and where the identity lanes are
+	// not bound this is exactly the old test, unchanged.
 	const float stillness = motionTexels < kStillWithinTexels ? 1.0 : 0.0;
 	const float feedback = mix(u_Params.Feedback,
-							   max(u_Params.Feedback, kStillFeedback), stillness);
+							   max(u_Params.Feedback, u_Params.StillFeedback), stillness);
 	const float alpha = max(1.0 / frames, 1.0 - feedback);
 	const float momentAlpha = max(alpha, 1.0 / kMomentFrames);
 	const float momMean = mix(prevMoments.y, currentLuma, momentAlpha);
@@ -417,11 +625,33 @@ void main()
 	// was, and a genuinely still image changes by nothing.
 	const vec3 boxCentre = 0.5 * (lowest + highest);
 	vec3 boxExtent = max(0.5 * (highest - lowest), vec3(1e-5));
+
+	// **RT-6.2: widened by how view-stable the surface is.** Rough carries it
+	// and metal takes it away -- a rough *metal* is still a metal, its lobe is
+	// wide but it is entirely a function of the view. The window starts where
+	// a surface stops behaving like a mirror (0.15, the gloss threshold the
+	// reflection accumulator uses for the same distinction) and is fully open
+	// by half rough, which is ordinary concrete, brick and paint.
+	if (u_Params.Material > 0.5)
+	{
+		const vec4 material = texelFetch(u_Material, ivec2(gl_FragCoord.xy), 0);
+		const float stability = (1.0 - clamp(material.a, 0.0, 1.0))
+							  * smoothstep(0.15, 0.5, clamp(material.b, 0.0, 1.0));
+		boxExtent *= mix(1.0, kStableWiden, stability);
+	}
 	const float widen = max(1.0, kTemporalSigma * temporalSigma / boxExtent.x);
 	boxExtent *= widen;
 
-	vec3 history = ToYCoCg(texture(u_History, historyUV).rgb);
+	// **Bilinear where the reprojected texel itself matched; that texel's own
+	// value where a neighbour served.** The texels between the two belong to
+	// the other side of the edge, and a filtered read across them is exactly
+	// the blend the surface test just refused.
+	const vec4 historySample = (u_Params.Geometry > 0.5 && !geometryBilinear)
+							 ? texelFetch(u_History, historyTexel, 0)
+							 : texture(u_History, historyUV);
+	vec3 history = ToYCoCg(historySample.rgb);
 	history = ClipToBox(history, boxCentre, boxExtent);
+	const float historyAlpha = clamp(historySample.a, alphaLow, alphaHigh);
 
 	// Compressed, mixed, expanded. The mix is the feedback fraction once the
 	// pixel is warm and less than it while it is not -- the brightness
@@ -430,5 +660,5 @@ void main()
 	vec3 blended = Expand(mix(Compress(centreYCoCg), Compress(history),
 							  1.0 - alpha));
 
-	o_Color = vec4(ToRGB(blended), current.a);
+	o_Color = vec4(ToRGB(blended), mix(current.a, historyAlpha, 1.0 - alpha));
 }

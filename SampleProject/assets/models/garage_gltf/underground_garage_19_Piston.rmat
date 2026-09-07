@@ -1,0 +1,16 @@
+Material: Piston
+BaseColor: [1, 1, 1, 1]
+Emissive: [0, 0, 0, 1]
+Metallic: 0.8772727
+Roughness: 1
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]
+Maps:
+  BaseColor: 2923295576803280967
+  Normal: 2923295576803280967
+  Roughness: 1154846669526156137
+  Metallic: 3782283344895369967

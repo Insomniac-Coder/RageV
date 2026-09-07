@@ -1,0 +1,63 @@
+// RT-6: the G-buffer's identity lanes, kept for next frame's temporal resolve.
+//
+// **Why a copy exists at all.** The temporal resolve has to answer one
+// question about every pixel -- "is the history I reprojected to the same
+// surface that is under me now?" -- and until RT-6 it answered with colour
+// alone: a 3x3 neighbourhood box, which rejects a history only where the
+// neighbourhood *varies*. That is the wrong way round. It is strictest where
+// the picture has detail, which is where the history is usually right, and
+// blindest across a flat wall, which is exactly where a ghost of the object
+// that used to be in front of it survives. Depth, normal and object id answer
+// the question directly, and the G-buffer already holds all three -- for *this*
+// frame. It is single-buffered, so last frame's are gone by the time the
+// resolve runs, and this pass is what keeps them.
+//
+// **One attachment, sixteen bytes.** Three separate lanes would be twenty and
+// three attachments to carry; packed, the whole test reads one texel:
+//   .x  clip depth, as the G-buffer wrote it. Full precision, because the
+//       comparison below is relative and a half float at the far plane
+//       quantises to steps larger than the tolerance.
+//   .yz the shading normal, octahedral, as o_Surface stores it.
+//   .w  the object id, signed for a Static surface, as o_SurfaceId stores it.
+//
+// **Written from the G-buffer, not from the frame.** It runs straight after
+// the G-buffer pass, so what it keeps is the opaque surface -- the same
+// surface the velocity lane describes. The water and the transparent kinds
+// write neither, so a pixel of sea keeps the opaque behind it here and in the
+// velocity, and the two agree about what they are describing. That agreement
+// is the whole of why this is honest for those pixels; making the sea itself
+// tell the resolve what it is doing is RT-8's, and until then the resolve
+// treats it exactly as it did before.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Guide;
+
+layout(set = 0, binding = 0) uniform sampler2D u_Depth;
+layout(set = 0, binding = 1) uniform sampler2D u_Surface;    // oct normal in rg
+layout(set = 0, binding = 2) uniform sampler2D u_SurfaceId;  // signed object id in r
+
+void main()
+{
+	// By texel on every lane. This pass is a copy, and every consumer of what
+	// it writes addresses it by texel too -- a filtered read here would blend
+	// two objects' ids into a third that names neither of them.
+	const ivec2 texel = ivec2(gl_FragCoord.xy);
+	const vec4 surface = texelFetch(u_Surface, texel, 0);
+	o_Guide = vec4(texelFetch(u_Depth, texel, 0).r,
+				   surface.rg,
+				   texelFetch(u_SurfaceId, texel, 0).r);
+}

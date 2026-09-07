@@ -1903,14 +1903,53 @@ namespace RageV::Assets
 			splitMetallicRoughness(source.MetallicRoughnessTexture,
 								   desc.RoughnessMap, desc.MetallicMap);
 
+			// A format that ships the two maps separately says which is which,
+			// and that answer stands over the split -- which is a no-op for such
+			// a file, because nothing set the packed slot it reads.
+			assign(source.RoughnessTexture, desc.RoughnessMap);
+			assign(source.MetallicTexture, desc.MetallicMap);
+
 			// Named after the model and the material's index, not just its
 			// name: a glTF may carry two materials called "Material", and two
 			// models certainly may.
+			//
+			// **And after the model's extension, when a sibling shares its
+			// stem.** `x.gltf` and `x.fbx` in one folder used to write the
+			// same `x_<n>_<name>.rmat` files, and since the project scan
+			// imports every model it finds, whichever came second silently
+			// replaced the other's materials -- 23 of a scene's 83 went
+			// unresolved mid-run (2026-09-05, the garage). Only then, so every
+			// model that stands alone keeps the names and handles it has.
 			std::error_code error;
 			const std::filesystem::path modelRelative =
 				std::filesystem::relative(path, Registry::Root(), error);
-			const std::string stem = error ? path.stem().string()
-										   : modelRelative.stem().string();
+			std::string stem = error ? path.stem().string()
+									 : modelRelative.stem().string();
+			{
+				bool sibling = false;
+				std::error_code listError;
+				for (const auto& entry : std::filesystem::directory_iterator(
+						 path.parent_path(), listError))
+				{
+					if (entry.path() == path || entry.path().stem() != path.stem())
+						continue;
+					std::string extension = entry.path().extension().string();
+					std::transform(extension.begin(), extension.end(), extension.begin(),
+								   [](unsigned char c) { return (char)std::tolower(c); });
+					if (ModelImporter::IsModelExtension(extension))
+					{
+						sibling = true;
+						break;
+					}
+				}
+				if (sibling)
+				{
+					stem += path.extension().string();
+					RV_CORE_WARN("Model '{0}' shares its name with another model file in "
+								 "the same folder; its materials are named '{1}_<n>_...' "
+								 "so neither import overwrites the other's", path.string(), stem);
+				}
+			}
 
 			const std::filesystem::path materialPath =
 				modelRelative.parent_path() /
@@ -2031,7 +2070,15 @@ namespace RageV::Assets
 				if (p > 0)
 				{
 					target = scene.CreateEntity(model.Primitives[index].Name);
-					scene.SetParent(target, entity);
+					// The child sits exactly where its node does: identity local
+					// transform. SetParent's default keeps the child's *world*
+					// placement instead -- the same trap the node loop below
+					// documents -- and with the node's own transform already set
+					// it handed every extra primitive the inverse of its parent,
+					// so the second material of a mesh rendered at the model's
+					// origin at unit scale. The garage's two-tone columns showed
+					// it: ten olive bands stacked at the root, none on a column.
+					scene.SetParent(target, entity, /*keepWorldTransform*/ false);
 				}
 
 				auto& mesh = target.AddComponent<MeshComponent>();

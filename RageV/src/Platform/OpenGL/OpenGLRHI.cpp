@@ -801,6 +801,10 @@ namespace RageV::GL
 				enable();
 				funcs(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 				break;
+			case BlendPreset::AlphaBlendUnder:
+				enable();
+				funcs(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+				break;
 			case BlendPreset::Additive:
 				enable();
 				funcs(GL_SRC_ALPHA, GL_ONE, GL_ONE, GL_ONE);

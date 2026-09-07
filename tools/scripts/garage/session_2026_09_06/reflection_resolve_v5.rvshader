@@ -1,0 +1,150 @@
+// **The rough surfaces' rays, shared across their neighbourhood.**
+//
+// A wall at roughness 0.5 draws one ray a frame (the trace scales its count
+// by the gloss window) and reflects a wide lobe: the one ray hits the tube
+// or the dark ceiling, and on its own it is a bright dot or nothing. The
+// accumulator then averages that dot over the frames behind it, and under
+// motion the dot's history is looked for at the depth *this* frame's ray
+// went, which is a different depth every frame -- a trail of dots across
+// the wall (measured 2026-09-05, `zoom_noaa.png`). Stochastic screen-space
+// reflections answer this with a resolve: every pixel's rays are also its
+// neighbours', weighed by whether the neighbour is the same reflector, so
+// a 7x7 patch of one-ray pixels is a 49-ray estimate before any frame is
+// averaged with any other. The kernel grows with roughness and is nothing
+// on a mirror, whose single exact ray has nothing to share.
+//
+// The distance the rays travelled (the alpha) is averaged the same way, so
+// the accumulator's image distance is the patch's, not one ray's.
+//
+// RT_Temporal_Reconstruction design (2026-09-06), "spatial denoising",
+// placed before the temporal pass as SSSR places it: less variance in is
+// less history needed.
+#type vertex
+#version 460 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 460 core
+
+#define RV_TRACE_ONLY
+#include "include/pbr_fragment.glsl"
+
+layout(location = 0) in vec2 v_UV;
+
+// ReflectionTrace's estimate: rgb the radiance, a the mean distance its
+// rays travelled, or below zero where nothing is glossy.
+layout(set = 3, binding = 0) uniform sampler2D u_Fresh;
+layout(set = 3, binding = 1) uniform sampler2D u_Depth;
+// The scene's surface: normal (octahedral, zero to one), roughness in b.
+layout(set = 3, binding = 2) uniform sampler2D u_Surface;
+
+layout(push_constant) uniform ReflectionParams
+{
+	mat4 InverseViewProjection;
+	mat4 PreviousViewProjection;
+	// w: one where a texture row runs the other way up from a projected
+	// coordinate. The rest unused here; the block is the accumulator's.
+	vec4 History;
+	// z: the stride between taps, in texels. One for the first pass; two
+	// for the second, which reads the first's output and so reaches twice
+	// as far for the same taps -- the dilated (a-trous) second pass every
+	// SVGF-class denoiser uses to get a wide kernel cheaply.
+	vec4 Probe;
+} u_Reflection;
+
+layout(location = 0) out vec4 o_Resolved;
+
+// The widest the kernel gets, in texels each way, at the rough end of the
+// gloss window.
+const int kMaxRadius = 3;
+// The lobe's half-width as a tangent, per unit of GGX alpha (roughness
+// squared). GGX keeps three quarters of its energy inside tan = 2.8 alpha
+// and half inside about 1.5; the kernel is meant to gather the lobe's own
+// blur and no more, so it sits at the half-energy width. Measured against
+// the unfiltered estimator's converged picture (2026-09-06): see HANDOFF.
+const float kLobeWidth = 1.5;
+// Three passes at strides 1, 2, 4 (the a-trous ladder) share the footprint:
+// each carries footprint / sqrt(3) so their variances add to the whole.
+const float kPassShare = 0.57735;
+
+bool SurfaceAt(ivec2 texel, ivec2 size, out vec3 P, out vec3 N, out float roughness)
+{
+	const vec4 surface = texelFetch(u_Surface, texel, 0);
+	const float depth = texelFetch(u_Depth, texel, 0).r;
+	if (surface.b <= 0.0 || depth >= 1.0)
+		return false;
+	const vec2 uv = (vec2(texel) + 0.5) / vec2(size);
+	const float row = u_Reflection.History.w > 0.5 ? 1.0 - uv.y : uv.y;
+	const vec4 clip = u_Reflection.InverseViewProjection
+					* vec4(uv.x * 2.0 - 1.0, row * 2.0 - 1.0, depth, 1.0);
+	P = clip.xyz / clip.w;
+	N = OctDecode(surface.rg);
+	roughness = clamp(surface.b, 0.0, 1.0);
+	return true;
+}
+
+void main()
+{
+	const ivec2 texel = ivec2(gl_FragCoord.xy);
+	const ivec2 size = textureSize(u_Fresh, 0);
+	const vec4 fresh = texelFetch(u_Fresh, texel, 0);
+	o_Resolved = fresh;
+	if (fresh.a < 0.0)
+		return;
+
+	vec3 P, N;
+	float roughness;
+	if (!SurfaceAt(texel, size, P, N, roughness))
+		return;
+
+	// Nothing on a mirror, the full kernel by the far edge of the window.
+	// **The width is continuous in the roughness.** A kernel that stepped
+	// from one texel to two at a threshold stepped every frame the jitter
+	// sampled the wet floor's roughness map a texel over, and the floor's
+	// texture crawled (measured 2026-09-06). The taps are always the full
+	// square; the Gaussian decides how many of them count.
+	const int radius = kMaxRadius;
+	const int stride = max(int(u_Reflection.Probe.z + 0.5), 1);
+	const float eyeDistance = length(P - u_Scene.CameraPosition.xyz);
+	const float planeTolerance = 0.02 + 0.01 * eyeDistance;
+
+	const float sigma = float(kMaxRadius) * 0.6 * smoothstep(0.05, 0.45, roughness);
+	if (sigma < 0.15)
+		return;
+
+	vec3 sum = vec3(0.0);
+	float distanceSum = 0.0;
+	float weightSum = 0.0;
+	for (int y = -radius; y <= radius; ++y)
+	{
+		for (int x = -radius; x <= radius; ++x)
+		{
+			const ivec2 at = clamp(texel + ivec2(x, y) * stride, ivec2(0), size - 1);
+			const vec4 f = texelFetch(u_Fresh, at, 0);
+			if (f.a < 0.0)
+				continue;
+			vec3 Pn, Nn;
+			float rn;
+			if (!SurfaceAt(at, size, Pn, Nn, rn))
+				continue;
+			// A neighbour counts for as much as it is this reflector: near,
+			// facing the same way, on the same plane, about as rough.
+			float w = exp(-float(x * x + y * y) / (2.0 * sigma * sigma));
+			w *= pow(max(dot(N, Nn), 0.0), 8.0);
+			w *= exp(-abs(dot(N, Pn - P)) / planeTolerance);
+			w *= abs(rn - roughness) < 0.2 ? 1.0 : 0.0;
+			sum += f.rgb * w;
+			distanceSum += f.a * w;
+			weightSum += w;
+		}
+	}
+	if (weightSum > 0.0)
+		o_Resolved = vec4(sum / weightSum, distanceSum / weightSum);
+}

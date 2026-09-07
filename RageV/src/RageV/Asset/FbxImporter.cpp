@@ -8,6 +8,8 @@
 #include "ufbx.h"
 
 #include <algorithm>
+#include <cstring>
+#include <fstream>
 #include <unordered_map>
 
 namespace RageV::Assets
@@ -95,13 +97,107 @@ namespace RageV::Assets
 				: relative;
 		}
 
+		// --- embedded textures ------------------------------------------------
+		//
+		// **An FBX may carry its pixels rather than name them**, and for the
+		// exporters people actually use that is the ordinary case rather than the
+		// exotic one: "embed media" writes the bytes into the file itself and
+		// leaves the filename pointing into a .fbm folder that only ever existed
+		// beside the artist own copy. Every such texture used to resolve to
+		// nothing here -- ResolveTexturePath looks on disk, and the disk has
+		// never heard of that folder, nor of the absolute path beside it, which
+		// names a desktop on a computer that is not this one.
+		//
+		// So they are written out beside the model, which is the answer
+		// GltfImporter::ExtractImage already gives for a GLB buffer view and for
+		// exactly the same reason: a material stores a *handle*, the registry
+		// mints handles for files, and pixels that live only inside a model file
+		// can never have one. It also makes each texture an ordinary project
+		// asset, so packaging and cooking need no special case for it.
+		//
+		// The name comes from ufbx own file index rather than the texture name,
+		// so a re-import lands on the same file and every material that referred
+		// to it keeps working -- and two textures sharing one image share one
+		// file, because ufbx has already deduplicated them.
+		std::string ExtractTexture(const std::filesystem::path& directory,
+								   const std::string& stem,
+								   const ufbx_texture* texture)
+		{
+			// The texture own blob, or the video record where the exporter hung it
+			// there instead. Both are the same picture.
+			ufbx_blob content = texture->content;
+			if (content.size == 0 && texture->video)
+				content = texture->video->content;
+			if (content.size == 0 || !content.data)
+				return {};
+
+			const uint8_t* bytes = (const uint8_t*)content.data;
+
+			// From the bytes, not from whatever extension the artist path carried:
+			// the magic number is what stb will sniff on the way back in, and an
+			// exporter that names a JPEG .png would otherwise leave behind a file
+			// nothing can read. Same rule and same reason as the glTF path.
+			static const uint8_t kPngMagic[8] =
+				{ 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+			const char* extension = ".bin";
+			if (content.size >= 8 && std::memcmp(bytes, kPngMagic, 8) == 0)
+				extension = ".png";
+			else if (content.size >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8)
+				extension = ".jpg";
+
+			const unsigned index = texture->has_file ? texture->file_index
+													 : texture->typed_id;
+			const std::string name = stem + "_" + std::to_string(index) + extension;
+			const std::filesystem::path file = directory / name;
+
+			std::error_code error;
+			if (!std::filesystem::exists(file, error))
+			{
+				// A model loaded out of a pak has no directory to write into, and a
+				// shipped game has no reason to: it ships the extracted texture as
+				// an ordinary asset already.
+				if (!std::filesystem::is_directory(directory, error))
+				{
+					RV_CORE_WARN("{0} carries its textures inside the file and there is "
+								 "nowhere to extract them to; its materials fall back to "
+								 "their scalar parameters", stem);
+					return {};
+				}
+
+				std::ofstream out(file, std::ios::binary | std::ios::trunc);
+				if (!out || !out.write((const char*)bytes, (std::streamsize)content.size))
+				{
+					RV_CORE_WARN("Could not write {0}", file.string());
+					return {};
+				}
+
+				RV_CORE_INFO("Extracted embedded texture to {0} ({1} bytes)",
+							 name, content.size);
+			}
+
+			return name;
+		}
+
 		int AddTexture(ImportedModel& model, const std::filesystem::path& directory,
 					   const ufbx_texture* texture, bool srgb)
 		{
 			if (!texture)
 				return -1;
 
-			const std::string path = ResolveTexturePath(directory, texture);
+			std::string path = ResolveTexturePath(directory, texture);
+
+			// Nothing of that name on disk. If the file brought the pixels with
+			// it, write them out and refer to where they landed -- a filename
+			// from a machine nobody has is worth less than the picture itself.
+			std::error_code error;
+			if (path.empty() || !std::filesystem::exists(directory / path, error))
+			{
+				const std::string extracted =
+					ExtractTexture(directory, model.Name, texture);
+				if (!extracted.empty())
+					path = extracted;
+			}
+
 			if (path.empty())
 				return -1;
 
@@ -204,13 +300,32 @@ namespace RageV::Assets
 											  isPbr ? pbr.ambient_occlusion.texture
 													: nullptr, false);
 
-			// FBX keeps metalness and roughness as separate maps where glTF
-			// packs them into one. The engine's packed slot is filled by the
-			// glTF path only; here the roughness map is the one that matters
-			// and metalness usually is not textured at all.
-			out.MetallicRoughnessTexture = AddTexture(model, directory,
-													  isPbr ? pbr.roughness.texture
-															: nullptr, false);
+			// **FBX keeps metalness and roughness as two maps**, and the engine
+			// samples them as two, so they go straight into their own slots. The
+			// packed slot is glTF's, and the channel split it triggers is not
+			// wanted here.
+			//
+			// For a real PBR material ufbx has already found them. For the two
+			// FBX builtins they arrive under the names the format carried before
+			// it had PBR at all: the roughness map connected to ShininessExponent
+			// and the metalness map to ReflectionFactor, which is where every
+			// exporter writing a Principled BSDF through FBX puts them.
+			//
+			// **This takes the map and still refuses the number**, which is the
+			// line the colour and the normal map are already on. A map connected
+			// to a slot is the artist's own image whatever the slot is called; a
+			// roughness *derived* from a shininess exponent is a quantity ufbx
+			// invented, and that is what stays refused above. The log below names
+			// the slot a map came out of, because an exporter that genuinely meant
+			// a shininess map would land here too and only the picture can tell.
+			out.RoughnessTexture = AddTexture(model, directory,
+											  isPbr ? pbr.roughness.texture
+													: source.fbx.specular_exponent.texture,
+											  false);
+			out.MetallicTexture = AddTexture(model, directory,
+											 isPbr ? pbr.metalness.texture
+												   : source.fbx.reflection_factor.texture,
+											 false);
 
 			if (out.BaseColorTexture >= 0)  out.Params.MapFlags |= MaterialMap_BaseColor;
 			if (out.NormalTexture >= 0)     out.Params.MapFlags |= MaterialMap_Normal;
@@ -218,6 +333,8 @@ namespace RageV::Assets
 			if (out.EmissiveTexture >= 0)   out.Params.MapFlags |= MaterialMap_Emissive;
 			if (out.MetallicRoughnessTexture >= 0)
 				out.Params.MapFlags |= MaterialMap_Roughness | MaterialMap_Metallic;
+			if (out.RoughnessTexture >= 0)  out.Params.MapFlags |= MaterialMap_Roughness;
+			if (out.MetallicTexture >= 0)   out.Params.MapFlags |= MaterialMap_Metallic;
 
 			// **Transparency, which FBX states two ways and glTF states one.**
 			// A PBR material carries an `opacity`; the two FBX builtins carry a
@@ -243,8 +360,13 @@ namespace RageV::Assets
 			};
 
 			const float opacity = opacityOf();
+			// TransparencyFactor as well as TransparencyColor: an exporter picks
+			// one and they mean the same thing. Reading only the colour slot is
+			// why a cut-out sheet -- a workshop prop, a leaf card -- came in as an
+			// opaque rectangle with its alpha sitting unread in the file.
 			const bool hasOpacityMap = (isPbr && pbr.opacity.texture) != 0
-									|| source.fbx.transparency_color.texture != nullptr;
+									|| source.fbx.transparency_color.texture != nullptr
+									|| source.fbx.transparency_factor.texture != nullptr;
 
 			if (opacity < 0.999f || hasOpacityMap)
 			{
@@ -254,6 +376,18 @@ namespace RageV::Assets
 				// the renderer reads it from -- BaseColor.a is the alpha for
 				// every material in this engine, textured or not.
 				out.Params.BaseColor.w *= Math::Clamp(opacity, 0.0f, 1.0f);
+			}
+
+			if (!isPbr && (out.RoughnessTexture >= 0 || out.MetallicTexture >= 0))
+			{
+				// Named, because this is the one reading here that an exporter could
+				// have meant differently, and a picture is the only way to settle it.
+				RV_CORE_INFO("FBX material {0}: taking the map on {1} as roughness{2}. "
+							 "Its scalars stay at the engine defaults.",
+							 out.Name,
+							 out.RoughnessTexture >= 0 ? "ShininessExponent" : "(none)",
+							 out.MetallicTexture >= 0
+								 ? " and the map on ReflectionFactor as metalness" : "");
 			}
 
 			if (!isPbr)

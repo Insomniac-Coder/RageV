@@ -392,9 +392,12 @@ namespace RageV
 			//     7cx) and 0 for a moving one. Two meanings in one lane that
 			//     never meet: a skinned mesh is never static.
 			Vec4 Indices{ 0.0f };
+			// x: the object's id, the record's index + 1, for the G-buffer's
+			// surface id (RT-first T3). Every fill sets it; y, z, w spare.
+			Vec4 Extra{ 0.0f };
 		};
-		static_assert(sizeof(InstanceData) == 256,
-					  "Must match InstanceData in include/scene_vertex.glsl");
+		static_assert(sizeof(InstanceData) == 272,
+					  "Must match InstanceData in include/scene_block.glsl");
 
 		// One submitted mesh, held until EndScene can sort them.
 		//
@@ -568,12 +571,44 @@ namespace RageV
 			// what they should.
 			Ref<RHIShader>   WaterTraceShader;
 			Ref<RHIPipeline> WaterTracePipeline;
+			// The opaque surfaces' glossy reflection in a pass of its own, and the
+			// pass that averages it over frames (RAY-BUDGET-DESIGN Part III 4.3.4;
+			// reflection_trace.rvshader says why).
+			Ref<RHIShader>   ReflectionTraceShader;
+			Ref<RHIPipeline> ReflectionTracePipeline;
+			Ref<RHIShader>   ReflectionAccumulateShader;
+			Ref<RHIPipeline> ReflectionAccumulatePipeline;
+			Ref<RHIShader>   ReflectionResolveShader;
+			Ref<RHIPipeline> ReflectionResolvePipeline;
+			Ref<RHIShader>   ReflectionBlurShader;
+			Ref<RHIPipeline> ReflectionBlurPipeline;
+			// The diffuse kind of the same two (RT-first T4): compiled with
+			// RV_SIGNAL_DIFFUSE, for shadows, occlusion and irradiance.
+			Ref<RHIShader>   SignalAccumulateDiffuseShader;
+			Ref<RHIPipeline> SignalAccumulateDiffusePipeline;
+			Ref<RHIShader>   SignalBlurDiffuseShader;
+			Ref<RHIPipeline> SignalBlurDiffusePipeline;
+			// The diffuse kind with the second payload (RV_SIGNAL_PAIR, RT-first
+			// T5): the direct light's diffuse and specular halves in one history.
+			Ref<RHIShader>   SignalAccumulateDiffusePairShader;
+			Ref<RHIPipeline> SignalAccumulateDiffusePairPipeline;
+			Ref<RHIShader>   SignalBlurDiffusePairShader;
+			Ref<RHIPipeline> SignalBlurDiffusePairPipeline;
 			// The two pictures the second pass writes, handed to the water
 			// pass the way the backdrop is.
 			Ref<RHITexture>  WaterLampDiffuse;
 			// WR-16 S5: the half-resolution mirror pass's picture.
 			Ref<RHITexture>  WaterReflection;
 			Ref<RHITexture>  WaterLampSpecular;
+			// RT-first T5: the direct light the lit draw adds (SetDirectLight).
+			Ref<RHITexture>  DirectDiffuse;
+			Ref<RHITexture>  DirectSpecular;
+			Ref<RHITexture>  ScreenOcclusion;   // RT-2: the occlusion signal the lit draw reads
+			// RT-3: this frame's traced bounce, settled on the contract. Null
+			// when the signal is off, and then binding 16 keeps last frame's
+			// buffer as it always did.
+			Ref<RHITexture>  ScreenIndirectSignal;
+			bool             GiSignalRequested = false;
 			// --lamp-probe: thirty-two floats one water pixel writes about its
 			// own arithmetic, read back and printed.
 			Ref<RHIBuffer>   LampProbe;
@@ -604,6 +639,12 @@ namespace RageV
 			// its own holding the depth and surface it reconstructs from.
 			Ref<RHIShader>   GiShader;
 			Ref<RHIPipeline> GiPipeline;
+			// RT-first T5: the direct-light trace pass, and whether the frame
+			// graph runs it this frame (the lit shader's switch).
+			Ref<RHIShader>   DirectShader;
+			Ref<RHIPipeline> DirectPipeline;
+			bool             DirectSignalRequested = false;
+			bool             AoSignalRequested = false;      // RT-2
 
 			// The depth prepass: the lit pipeline's twin with an empty
 			// fragment stage and colour writes masked off. Null when the
@@ -612,6 +653,23 @@ namespace RageV
 			// the pipeline and skips when there is not one.
 			Ref<RHIShader>   PrepassShader;
 			Ref<RHIPipeline> PrepassPipeline;
+			// The G-buffer pass's shaders and pipelines (RT-first step 1a):
+			// the lit shader compiled with RV_GBUFFER, opaque and cutout.
+			Ref<RHIShader>   GBufferShader;
+			Ref<RHIShader>   MaskedGBufferShader;
+			// The skinned and layered kinds' G-buffer variants (RT-2): the same
+			// sources with RV_GBUFFER, so every opaque kind is in the G-buffer.
+			Ref<RHIShader>   SkinnedGBufferShader;
+			Ref<RHIShader>   LayeredGBufferShader;
+			Ref<RHIPipeline> GBufferPipeline;
+			Ref<RHIPipeline> MaskedGBufferPipeline;
+			Ref<RHIPipeline> SkinnedGBufferPipeline;
+			Ref<RHIPipeline> LayeredGBufferPipeline;
+			// Set by the frame graph when the G-buffer has a pass of its own;
+			// LitPending while EndScene has drawn the G-buffer and DrawLit
+			// has not yet drawn the lighting.
+			bool GBufferPassActive = false;
+			bool LitPending = false;
 			Ref<RHIShader>   IrradianceFillShader;
 			Ref<RHIPipeline> IrradianceFillPipeline;
 			// The target the fill rasterises into, and the set its outputs are
@@ -781,6 +839,8 @@ namespace RageV
 			// Traced indirect diffuse (7av). Undefined everywhere the
 			// scene target does not carry it.
 			Format TargetIndirect = Format::Undefined;
+			Format TargetAlbedo = Format::Undefined;
+			Format TargetSurfaceId = Format::Undefined;
 			bool   PipelineDirty = true;
 			bool   Wireframe = false;
 
@@ -810,11 +870,20 @@ namespace RageV
 				// Its depth and surface inputs, which change per view rather
 				// than per scene.
 				Ref<RHIResourceSet> GiInputs;
+				Ref<RHIResourceSet> DirectInputs;   // RT-first T5: the G-buffer, set 3
 				// The prepass's set 0. Its own object because its layout is a
 				// subset of everything else's: the prepass shader has no
 				// fragment stage worth the name, so only the three bindings
 				// the *vertex* stage reads survive reflection.
 				Ref<RHIResourceSet> PrepassSet;
+				Ref<RHIResourceSet> GBufferSet;
+				Ref<RHIResourceSet> MaskedGBufferSet;
+				Ref<RHIResourceSet> SkinnedGBufferSet;   // RT-2: the pending kinds' G-buffer sets
+				Ref<RHIResourceSet> LayeredGBufferSet;
+				// The pending static and masked draws' G-buffer sets: slot.Set's shape
+				// (the CPU visibility list), where GBufferSet carries the GPU cull's.
+				Ref<RHIResourceSet> PendingGBufferSet;
+				Ref<RHIResourceSet> PendingMaskedGBufferSet;
 				// The emissive rectangles, uploaded per frame. On the GI pass's
 				// own set rather than set 0, which four other shaders reflect
 				// and which the comment on GiInputs is about.
@@ -918,6 +987,13 @@ namespace RageV
 				Ref<RHIResourceSet> LampAccumulateInputs;
 				// WR-16 S5's mirror pass, which reads the same surface trio.
 				Ref<RHIResourceSet> WaterTraceInputs;
+				// The opaque reflection pass and its accumulator, one input set each.
+				Ref<RHIResourceSet> ReflectionTraceInputs;
+				// One per signal slot (SignalParams::Slot): the accumulate and
+				// blur inputs of reflections, shadows, occlusion, irradiance.
+				Ref<RHIResourceSet> SignalAccumulateInputs[4];
+				Ref<RHIResourceSet> ReflectionResolveInputs;
+				Ref<RHIResourceSet> SignalBlurInputs[4];
 				// And the transparent pipeline's *GPU-driven* set: the same
 				// instance table read through the indices the blended cull
 				// wrote instead of the ones the sort produced. One binding
@@ -1161,6 +1237,8 @@ namespace RageV
 			// How many of DrawCalls were indirect, so a reader can tell which
 			// half of the frame the counts above are approximate for.
 			unsigned int IndirectDraws = 0;
+			// The terrain's levels this frame (RT-2.1), see Renderer3D.h.
+			Renderer3D::TerrainStats Terrain;
 
 			bool Ready = false;
 		};
@@ -1454,6 +1532,8 @@ namespace RageV
 		// The pipeline costs one compile at startup and nothing per frame when
 		// no pass draws with it.
 		s_Data->GiShader = nullptr;
+		s_Data->DirectShader = nullptr;
+		s_Data->DirectPipeline = nullptr;
 		if (s_Data->Bindless && s_Data->RayShadowsOn)
 		{
 			std::vector<std::string> traceDefines;
@@ -1490,6 +1570,66 @@ namespace RageV
 				}
 			}
 
+			// The opaque reflection pass and its accumulator, under the same
+			// defines for the same reason, and only when the traced form is on:
+			// GlossyReflection and TraceReflection live under RV_RAY_REFLECTIONS.
+			s_Data->ReflectionTraceShader = nullptr;
+			s_Data->ReflectionResolveShader = nullptr;
+			s_Data->ReflectionAccumulateShader = nullptr;
+			s_Data->ReflectionBlurShader = nullptr;
+			s_Data->SignalAccumulateDiffuseShader = nullptr;
+			s_Data->SignalBlurDiffuseShader = nullptr;
+			s_Data->SignalAccumulateDiffusePairShader = nullptr;
+			s_Data->SignalBlurDiffusePairShader = nullptr;
+			// The signal contract's shaders load for shadows as well as for
+			// reflections (RT-first T5: the direct light rides the pair kind).
+			if (s_Data->RayReflectionsOn || s_Data->RayShadowsOn)
+			{
+				std::vector<std::string> diffuseDefines = traceDefines;
+				diffuseDefines.push_back("RV_SIGNAL_DIFFUSE");
+				std::vector<std::string> pairDefines = diffuseDefines;
+				pairDefines.push_back("RV_SIGNAL_PAIR");
+				for (int pass = 0; pass < 8; ++pass)
+				{
+					const char* file = pass == 0 ? "assets/shaders/reflection_trace.rvshader"
+									 : pass == 1 ? "assets/shaders/reflection_resolve.rvshader"
+									 : (pass == 2 || pass == 4 || pass == 6) ? "assets/shaders/reflection_accumulate.rvshader"
+												 : "assets/shaders/reflection_blur.rvshader";
+					Ref<RHIShader>& target = pass == 0 ? s_Data->ReflectionTraceShader
+										   : pass == 1 ? s_Data->ReflectionResolveShader
+										   : pass == 2 ? s_Data->ReflectionAccumulateShader
+										   : pass == 3 ? s_Data->ReflectionBlurShader
+										   : pass == 4 ? s_Data->SignalAccumulateDiffuseShader
+										   : pass == 5 ? s_Data->SignalBlurDiffuseShader
+										   : pass == 6 ? s_Data->SignalAccumulateDiffusePairShader
+													   : s_Data->SignalBlurDiffusePairShader;
+					if (auto shader = ShaderCompiler::CompileFromFile(file, pass >= 6 ? pairDefines
+																		  : pass >= 4 ? diffuseDefines : traceDefines))
+					{
+						target = s_Data->Device->CreateShader(*shader);
+					}
+					else
+					{
+						RV_CORE_ERROR("Renderer3D: {0} did not compile; the lit shader keeps "
+									  "casting its mirror rays in-line", file);
+					}
+				}
+			}
+
+			// RT-first T5: the direct light from the G-buffer, under rays only.
+			if (s_Data->RayShadowsOn)
+			{
+				if (auto direct = ShaderCompiler::CompileFromFile("assets/shaders/direct_trace.rvshader",
+																 traceDefines))
+				{
+					s_Data->DirectShader = s_Data->Device->CreateShader(*direct);
+				}
+				else
+				{
+					RV_CORE_ERROR("Renderer3D: assets/shaders/direct_trace.rvshader did not compile; "
+								  "the lit shader keeps tracing a shadow ray to every light");
+				}
+			}
 			if (auto gi = ShaderCompiler::CompileFromFile("assets/shaders/rtgi_trace.rvshader",
 														 traceDefines))
 			{
@@ -1575,16 +1715,6 @@ namespace RageV
 					EnsureDebugCounts(1, 1);
 			}
 		}
-		// `--shadow-budget=K` (WR-16 S1), on the same rule as the counts
-		// above: a run without the flag pays nothing. The instrument holds
-		// eight reservoirs of a lamp's whole term in the lit shader, and a
-		// declaration spends the registers whether or not the branch that
-		// fills it runs -- so compiled in unconditionally it cost 0.84 ms of
-		// the showroom's frame with K at zero (bisect, 2026-09-05). A
-		// command-line measurement flag, read once, so deciding it here at
-		// compile time is the whole of it.
-		if (EngineConfig::Get().ShadowBudget > 0)
-			defines.push_back("RV_SHADOW_BUDGET");
 		if (s_Data->RayReflectionsOn)
 			defines.push_back("RV_RAY_REFLECTIONS");
 		if (s_Data->RayGlobalIlluminationOn)
@@ -1670,6 +1800,39 @@ namespace RageV
 				RV_CORE_ERROR("Renderer3D: the alpha-cutout variant of pbr.rvshader did "
 							  "not compile; masked materials will draw as solid");
 			}
+		}
+		// The G-buffer variants (RT-first step 1a): the same source, the
+		// surface written out before the lighting.
+		s_Data->GBufferShader = nullptr;
+		s_Data->MaskedGBufferShader = nullptr;
+		s_Data->SkinnedGBufferShader = nullptr;
+		s_Data->LayeredGBufferShader = nullptr;
+		{
+			std::vector<std::string> gbuffer = defines;
+			gbuffer.push_back("RV_GBUFFER");
+			if (auto compiledGBuffer = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader", gbuffer))
+				s_Data->GBufferShader = s_Data->Device->CreateShader(*compiledGBuffer);
+			else
+				RV_CORE_WARN("Renderer3D: the G-buffer variant of pbr.rvshader did not compile; "
+							 "drawing with the depth prepass and no G-buffer pass");
+			// The skinned and layered kinds (RT-2): without these the terrain and
+			// the characters were outside every pre-lit signal.
+			if (auto compiledSkinned = ShaderCompiler::CompileFromFile("assets/shaders/pbr_skinned.rvshader", gbuffer))
+				s_Data->SkinnedGBufferShader = s_Data->Device->CreateShader(*compiledSkinned);
+			else
+				RV_CORE_WARN("Renderer3D: the skinned G-buffer variant did not compile; "
+							 "skinned meshes stay outside the G-buffer");
+			if (auto compiledLayered = ShaderCompiler::CompileFromFile("assets/shaders/pbr_layered.rvshader", gbuffer))
+				s_Data->LayeredGBufferShader = s_Data->Device->CreateShader(*compiledLayered);
+			else
+				RV_CORE_WARN("Renderer3D: the layered G-buffer variant did not compile; "
+							 "terrain stays outside the G-buffer");
+			gbuffer.push_back("RV_ALPHA_CUTOUT");
+			if (auto compiledMasked = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader", gbuffer))
+				s_Data->MaskedGBufferShader = s_Data->Device->CreateShader(*compiledMasked);
+			else
+				RV_CORE_WARN("Renderer3D: the cutout G-buffer variant did not compile; "
+							 "masked materials will not write the G-buffer");
 		}
 
 		// **The same shader, compiled to write two attachments instead of
@@ -2095,14 +2258,15 @@ namespace RageV
 
 	void Renderer3D::SetTargetFormats(Format color, Format depth, uint32_t samples,
 									   Format velocity, Format normal,
-									   Format indirect)
+									   Format indirect, Format albedo, Format surfaceId)
 	{
 		if (!s_Data)
 			return;
 		if (s_Data->TargetColor == color && s_Data->TargetDepth == depth &&
 			s_Data->TargetSamples == samples &&
 			s_Data->TargetVelocity == velocity && s_Data->TargetNormal == normal &&
-			s_Data->TargetIndirect == indirect && s_Data->Pipeline)
+			s_Data->TargetIndirect == indirect && s_Data->TargetAlbedo == albedo &&
+			s_Data->TargetSurfaceId == surfaceId && s_Data->Pipeline)
 			return;
 
 		s_Data->TargetColor = color;
@@ -2110,8 +2274,26 @@ namespace RageV
 		s_Data->TargetVelocity = velocity;
 		s_Data->TargetNormal = normal;
 		s_Data->TargetIndirect = indirect;
+		s_Data->TargetAlbedo = albedo;
+		s_Data->TargetSurfaceId = surfaceId;
 		s_Data->TargetDepth = depth;
 		s_Data->PipelineDirty = true;
+	}
+
+	bool Renderer3D::GBufferPassAvailable()
+	{
+		return s_Data && s_Data->GBufferShader != nullptr;
+	}
+
+	void Renderer3D::SetGBufferPassActive(bool active)
+	{
+		if (s_Data)
+			s_Data->GBufferPassActive = active;
+	}
+
+	bool Renderer3D::IsGBufferPassActive()
+	{
+		return s_Data && s_Data->GBufferPassActive;
 	}
 
 	void Renderer3D::SetIrradianceVolumes(const Ref<IrradianceVolume>& volume,
@@ -2777,6 +2959,49 @@ namespace RageV
 		{
 			s_Data->MaskedPipeline = nullptr;
 		}
+		// The G-buffer pipelines: their pass binds velocity, normal, albedo
+		// and surface id, in that order, and the depth.
+		s_Data->GBufferPipeline = nullptr;
+		s_Data->MaskedGBufferPipeline = nullptr;
+		s_Data->SkinnedGBufferPipeline = nullptr;
+		s_Data->LayeredGBufferPipeline = nullptr;
+		if (s_Data->GBufferShader && s_Data->TargetVelocity != Format::Undefined
+			&& s_Data->TargetNormal != Format::Undefined && s_Data->TargetAlbedo != Format::Undefined
+			&& s_Data->TargetSurfaceId != Format::Undefined)
+		{
+			GraphicsPipelineDesc gbuffer = desc;
+			gbuffer.Name = "Renderer3D.gbuffer";
+			gbuffer.Shader = s_Data->GBufferShader;
+			gbuffer.ColorFormats = { s_Data->TargetVelocity, s_Data->TargetNormal,
+									 s_Data->TargetAlbedo, s_Data->TargetSurfaceId };
+			gbuffer.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque,
+										   BlendPreset::Opaque, BlendPreset::Opaque };
+			s_Data->GBufferPipeline = s_Data->Device->CreatePipeline(gbuffer);
+			if (s_Data->MaskedGBufferShader)
+			{
+				gbuffer.Name = "Renderer3D.gbuffer.masked";
+				gbuffer.Shader = s_Data->MaskedGBufferShader;
+				s_Data->MaskedGBufferPipeline = s_Data->Device->CreatePipeline(gbuffer);
+			}
+			if (s_Data->SkinnedGBufferShader)
+			{
+				gbuffer.Name = "Renderer3D.gbuffer.skinned";
+				gbuffer.Shader = s_Data->SkinnedGBufferShader;
+				s_Data->SkinnedGBufferPipeline = s_Data->Device->CreatePipeline(gbuffer);
+			}
+			if (s_Data->LayeredGBufferShader)
+			{
+				gbuffer.Name = "Renderer3D.gbuffer.layered";
+				gbuffer.Shader = s_Data->LayeredGBufferShader;
+				s_Data->LayeredGBufferPipeline = s_Data->Device->CreatePipeline(gbuffer);
+			}
+			for (auto& frame : s_Data->SceneSlots)
+				for (auto& slot : frame)
+				{
+					slot.GBufferSet = nullptr;
+					slot.MaskedGBufferSet = nullptr;
+				}
+		}
 
 		// **The prepass twin: same everything, minus the colour.**
 		//
@@ -3028,6 +3253,70 @@ namespace RageV
 			s_Data->WaterTracePipeline = nullptr;
 		}
 
+		// The opaque reflection pass and its accumulator: RGBA16F, the radiance
+		// with a mark in the alpha (a miss below zero for the trace, the frames
+		// behind the value for the accumulator). The accumulator writes a
+		// second: the reflector under each texel -- normal, plane, image
+		// distance -- which is what the next frame tests a history against
+		// before averaging with it (reflection_accumulate.rvshader).
+		for (int pass = 0; pass < 8; ++pass)
+		{
+			const Ref<RHIShader>& shader = pass == 0 ? s_Data->ReflectionTraceShader
+										 : pass == 1 ? s_Data->ReflectionResolveShader
+										 : pass == 2 ? s_Data->ReflectionAccumulateShader
+										 : pass == 3 ? s_Data->ReflectionBlurShader
+										 : pass == 4 ? s_Data->SignalAccumulateDiffuseShader
+										 : pass == 5 ? s_Data->SignalBlurDiffuseShader
+										 : pass == 6 ? s_Data->SignalAccumulateDiffusePairShader
+													  : s_Data->SignalBlurDiffusePairShader;
+			Ref<RHIPipeline>& target = pass == 0 ? s_Data->ReflectionTracePipeline
+									 : pass == 1 ? s_Data->ReflectionResolvePipeline
+									 : pass == 2 ? s_Data->ReflectionAccumulatePipeline
+									 : pass == 3 ? s_Data->ReflectionBlurPipeline
+									 : pass == 4 ? s_Data->SignalAccumulateDiffusePipeline
+									 : pass == 5 ? s_Data->SignalBlurDiffusePipeline
+									 : pass == 6 ? s_Data->SignalAccumulateDiffusePairPipeline
+												  : s_Data->SignalBlurDiffusePairPipeline;
+			if (!shader)
+			{
+				target = nullptr;
+				continue;
+			}
+			GraphicsPipelineDesc reflection;
+			reflection.Name = pass == 0 ? "Renderer3D.reflection.trace"
+							: pass == 1 ? "Renderer3D.reflection.resolve"
+							: pass == 2 ? "Renderer3D.reflection.accumulate"
+							: pass == 3 ? "Renderer3D.reflection.blur"
+							: pass == 4 ? "Renderer3D.signal.accumulate.diffuse"
+							: pass == 5 ? "Renderer3D.signal.blur.diffuse"
+							: pass == 6 ? "Renderer3D.signal.accumulate.pair"
+										: "Renderer3D.signal.blur.pair";
+			reflection.Shader = shader;
+			reflection.Topology = PrimitiveTopology::TriangleList;
+			reflection.Rasterizer.Cull = CullMode::None;
+			reflection.Blend = BlendPreset::Opaque;
+			reflection.DepthStencil.DepthTestEnable = false;
+			reflection.DepthStencil.DepthWriteEnable = false;
+			reflection.ColorFormats = { Format::R16G16B16A16_SFLOAT };
+			reflection.BlendPerAttachment = { BlendPreset::Opaque };
+			// The trace writes its ray's direction and pdf beside the radiance;
+			// the accumulator its surface and moments beside the picture.
+			// The accumulators write the picture, the surface and the extra;
+			// the pair kind a fourth (the twin) and its blur a second.
+			// **RT-6.1: and the specular accumulate a fourth of its own** -- the
+			// virtual image's screen motion, which is the one thing the temporal
+			// resolve cannot work out for itself and needs if the reflection is
+			// ever to pass through it.
+			const int extras = pass == 0 ? 1 : pass == 2 ? 3 : pass == 4 ? 2 : pass == 6 ? 3 : pass == 7 ? 1 : 0;
+			for (int extra = 0; extra < extras; ++extra)
+			{
+				reflection.ColorFormats.push_back(Format::R16G16B16A16_SFLOAT);
+				reflection.BlendPerAttachment.push_back(BlendPreset::Opaque);
+			}
+			reflection.DepthFormat = Format::Undefined;
+			target = s_Data->Device->CreatePipeline(reflection);
+		}
+
 		// WR-16 S4c: the same two attachments again, because what it writes is
 		// the same pair of pictures with the frames behind them averaged in.
 		if (s_Data->WaterAccumulateShader)
@@ -3120,6 +3409,7 @@ namespace RageV
 		s_Data->Triangles = 0;
 		s_Data->Culled = 0;
 		s_Data->IndirectDraws = 0;
+		s_Data->Terrain = TerrainStats{};
 	}
 
 	void Renderer3D::EnsureDebugCounts(uint32_t width, uint32_t height)
@@ -3225,6 +3515,9 @@ namespace RageV
 		{
 			motion->ViewProjection = viewProjection;
 			motion->Jitter = jitter;
+			// RT-6.3: and where it was seen from.
+			motion->Eye = Vec4(cameraTransform[3][0], cameraTransform[3][1],
+							   cameraTransform[3][2], 1.0f);
 		}
 
 		// Last frame's reflection trace, if this chain has one and the
@@ -3261,7 +3554,12 @@ namespace RageV
 
 		// The same two numbers for the indirect buffer, read the same way.
 		const Renderer::ScreenIndirect* indirect = Renderer::GetScreenIndirect();
-		const bool haveIndirect = indirect && indirect->Texture && indirect->Intensity > 0.0f;
+		// RT-3: under the signal there is no texture here -- the settled bounce
+		// is bound onto binding 16 in DrawLit, after this runs -- so the test is
+		// the intensity and the switch, not a texture that arrives later.
+		const bool haveIndirect = indirect && indirect->Intensity > 0.0f
+							   && (indirect->Texture != nullptr
+								   || s_Data->GiSignalRequested);   // RT-3
 		// z carries the traced reflection's firefly floor, which had been a
 		// constant in the shader. Here because this vec4's zw were the only
 		// pair in the block already declared in *both* mirrors and written as
@@ -3269,7 +3567,8 @@ namespace RageV
 		// and scene_vertex.glsl in step, and 7at is the note about what
 		// happens on OpenGL when that is done to one of them only.
 		s_Data->Scene.Indirect = Vec4(haveIndirect ? indirect->Intensity : 0.0f,
-									  rowSign, Renderer::GetReflectionFloor(), 0.0f);
+									  rowSign, Renderer::GetReflectionFloor(),
+									  (float)Renderer::GetMirrorRays());
 		s_Data->Scene.CameraPosition = Vec4(Vec3(cameraTransform[3]), 1.0f);
 		s_Data->Scene.Ambient = Vec4(environment.AmbientColor, environment.AmbientIntensity);
 
@@ -3410,21 +3709,24 @@ namespace RageV
 				: Vec4((float)(uint32_t)preset.Shape, preset.Start, preset.End, preset.Floor);
 			// WR-18: the water's ray rate and refraction reach, the preset's or
 			// the run's.
-			// .w: WR-16 S1's fixed shadow budget per pixel, a measurement;
-			// zero leaves the per-light rays and the thinning alone.
+			// .w: the rays per pixel (bits 16-19) and the score's target (20-21),
+			// the direct-light signal's switch (bit 22).
 			s_Data->Scene.RayRates = Vec4(
 				config.HasRayRateOverride ? config.RayRateOverride : preset.RayRate,
 				config.HasRefractionFloorOverride ? config.RefractionFloorOverride
 												  : preset.RefractionFloor,
 				config.HitLights ? 0.0f : 1.0f,
-				// .w again: S1's budget in the low five bits, and above them
-				// S4's sizing flag --shade-lights=N as N + 1 (zero is off).
-				// Both are whole numbers well inside a float's exact range.
-				(float)(config.ShadowBudget + (config.ShadowBudgetFullTarget ? 16 : 0)
-						+ (config.ShadeLights >= 0 ? 256 * (config.ShadeLights + 1) : 0)
-						+ 65536 * (config.HasLightSamplingOverride
-									   ? config.LightSampling : preset.Lamps)
-						+ 1048576 * config.LightSamplingTarget));
+				// Whole numbers well inside a float's exact range.
+				(float)(65536 * (config.HasRaysPerPixelOverride
+									 ? config.RaysPerPixel : preset.RaysPerPixel)
+						+ 1048576 * config.RaysPerPixelTarget
+						// bit 22: the DirectTrace pass runs this frame (RT-first T5);
+						// bit 23: the occlusion signal does (RT-2).
+						+ (s_Data->DirectSignalRequested ? 4194304 : 0)
+						+ (s_Data->AoSignalRequested ? 8388608 : 0)
+						// bit 24: the traced bounce is this frame's, read by texel
+						// rather than reprojected out of last frame's (RT-3).
+						+ (s_Data->GiSignalRequested ? 16777216 : 0)));
 		}
 
 		const uint32_t cascadeCount = ShadowMap::HasCascades() ? ShadowMap::GetCascadeCount() : 0;
@@ -3752,10 +4054,25 @@ namespace RageV
 		// harmless extra.
 		if (s_Data->PrepassPipeline && !slot.PrepassSet)
 			slot.PrepassSet = s_Data->Device->CreateResourceSet(s_Data->PrepassPipeline, 0);
+		if (s_Data->GBufferPipeline && !slot.GBufferSet)
+			slot.GBufferSet = s_Data->Device->CreateResourceSet(s_Data->GBufferPipeline, 0);
+		if (s_Data->MaskedGBufferPipeline && !slot.MaskedGBufferSet)
+			slot.MaskedGBufferSet = s_Data->Device->CreateResourceSet(s_Data->MaskedGBufferPipeline, 0);
+		if (s_Data->SkinnedGBufferPipeline && !slot.SkinnedGBufferSet)
+			slot.SkinnedGBufferSet = s_Data->Device->CreateResourceSet(s_Data->SkinnedGBufferPipeline, 0);
+		if (s_Data->GBufferPipeline && !slot.PendingGBufferSet)
+			slot.PendingGBufferSet = s_Data->Device->CreateResourceSet(s_Data->GBufferPipeline, 0);
+		if (s_Data->MaskedGBufferPipeline && !slot.PendingMaskedGBufferSet)
+			slot.PendingMaskedGBufferSet = s_Data->Device->CreateResourceSet(s_Data->MaskedGBufferPipeline, 0);
+		if (s_Data->LayeredGBufferPipeline && !slot.LayeredGBufferSet)
+			slot.LayeredGBufferSet = s_Data->Device->CreateResourceSet(s_Data->LayeredGBufferPipeline, 0);
 
 		Ref<RHIResourceSet> targets[] = { slot.Set, slot.SkinnedSet, slot.LayeredSet,
 										  slot.MaskedSet, slot.GpuSet, slot.MaskedGpuSet,
-										  slot.TransparentSet, slot.TransparentGpuSet };
+										  slot.TransparentSet, slot.TransparentGpuSet,
+										  slot.GBufferSet, slot.MaskedGBufferSet,
+										  slot.SkinnedGBufferSet, slot.LayeredGBufferSet,
+										  slot.PendingGBufferSet, slot.PendingMaskedGBufferSet };
 
 		for (const Ref<RHIResourceSet>& sceneSet : targets)
 		{
@@ -3812,19 +4129,48 @@ namespace RageV
 		sceneSet->SetTexture(12, haveReflections ? reflections->Texture
 												 : TextureLoader::TransparentBlack(*s_Data->Device),
 							 s_Data->EnvironmentSampler);
+		// And the reflector under it, point sampled: a plane is not a thing
+		// to interpolate across a silhouette. Binding 19; 17 and 18 are the
+		// visible-instance buffer and the irradiance field.
+		sceneSet->SetTexture(19, haveReflections && reflections->Surface
+									 ? reflections->Surface
+									 : TextureLoader::TransparentBlack(*s_Data->Device),
+							 s_Data->PointSampler);
 
 		// Last frame's indirect diffuse, or a 1x1 transparent black whose
 		// alpha -- the confidence -- is zero (7av). Binding 16: 7 is the
 		// instance buffer and 11 the bone buffer, both in the vertex stage of
 		// a shader that includes this one, and one binding with two descriptor
 		// types is a pipeline that does not build.
-		sceneSet->SetTexture(16, haveIndirect ? indirect->Texture
-											  : TextureLoader::TransparentBlack(*s_Data->Device),
+		// RT-3: `haveIndirect` can now be true with no texture behind it -- the
+		// signal's picture is bound in DrawLit, after this. Transparent black
+		// until then, never the null the switch alone would hand over.
+		sceneSet->SetTexture(16, haveIndirect && indirect->Texture
+									 ? indirect->Texture
+									 : TextureLoader::TransparentBlack(*s_Data->Device),
 							 s_Data->EnvironmentSampler);
 
 		// The structure the shadow ray traces into, only where the layout
 		// declares it. This frame's when one was built, the empty one when
 		// not; never left unwritten.
+		// RT-first T5: the direct-light pair, on the lit-kind sets alone -- the
+		// only pipelines whose fragment references the bindings (a binding a
+		// pipeline does not reference is not in its layout). Black here; the
+		// frame's pictures are committed in DrawLit, after the pass has run.
+		if (s_Data->RayShadowsOn
+			&& (sceneSet == slot.Set || sceneSet == slot.SkinnedSet || sceneSet == slot.LayeredSet
+				|| sceneSet == slot.MaskedSet || sceneSet == slot.GpuSet || sceneSet == slot.MaskedGpuSet))
+		{
+			sceneSet->SetTexture(26, TextureLoader::TransparentBlack(*s_Data->Device), s_Data->PointSampler);
+			sceneSet->SetTexture(27, TextureLoader::TransparentBlack(*s_Data->Device), s_Data->PointSampler);
+		}
+		// RT-2: the occlusion signal's binding on the same lit-kind sets, rays
+		// or not (SSAO rides it in raster); white until the lit draw fills it.
+		if (sceneSet == slot.Set || sceneSet == slot.SkinnedSet || sceneSet == slot.LayeredSet
+			|| sceneSet == slot.MaskedSet || sceneSet == slot.GpuSet || sceneSet == slot.MaskedGpuSet)
+		{
+			sceneSet->SetTexture(28, TextureLoader::White(*s_Data->Device), s_Data->PointSampler);
+		}
 		if (s_Data->RayShadowsOn)
 			sceneSet->SetAccelerationStructure(RayShadows::kBinding, RayShadows::GetStructure());
 
@@ -3967,7 +4313,11 @@ namespace RageV
 											  ? reflections->Texture
 											  : TextureLoader::TransparentBlack(*s_Data->Device),
 										 s_Data->EnvironmentSampler);
-				slot.LampSet->SetTexture(16, haveIndirect
+				slot.LampSet->SetTexture(19, haveReflections && reflections->Surface
+											  ? reflections->Surface
+											  : TextureLoader::TransparentBlack(*s_Data->Device),
+										 s_Data->PointSampler);
+				slot.LampSet->SetTexture(16, haveIndirect && indirect->Texture
 											  ? indirect->Texture
 											  : TextureLoader::TransparentBlack(*s_Data->Device),
 										 s_Data->EnvironmentSampler);
@@ -4035,6 +4385,366 @@ namespace RageV
 		s_Data->MaterialScratch.clear();
 		s_Data->MaterialIndex.clear();
 		s_Data->SceneActive = true;
+	}
+
+	// The lit half of EndScene (RT-first step 1a): the indirect sweeps,
+	// the pending draws by kind and bucket, the light glow, and the hand-over
+	// to the transparent pass. Called by EndScene when the G-buffer has no
+	// pass of its own, by DrawLit from the "Scene" pass when it has.
+	static void DrawLitBody(RHICommandList* cmd, Renderer3DData::SceneSlot& slot,
+							uint32_t count, bool haveIndirect)
+	{
+		DrawKind boundKind = DrawKind::Static;
+		DrawBucket boundBucket = DrawBucket::Opaque;
+		bool anyPipelineBound = false;
+		if (haveIndirect && slot.GpuSet)
+		{
+			const std::vector<GpuCull::Slot>& indirect = s_Data->IndirectSlots;
+			const uint32_t slotCount =
+				Math::Min((uint32_t)indirect.size(), s_Data->IndirectView.SlotCount);
+
+			// **Two sweeps, opaque then masked**, rather than one that rebinds
+			// whenever the kind changes. The table is in creation order, so
+			// cutouts are scattered through it; sweeping twice costs one extra
+			// pipeline bind and sorting the table would cost a sort.
+			//
+			// Opaque first, so every cutout is tested against a depth buffer
+			// the solid geometry has already filled -- the same order the CPU
+			// path's buckets produce, and for the same reason.
+			for (int sweep = 0; sweep < 2; sweep++)
+			{
+			const bool maskedSweep = sweep == 1;
+			if (maskedSweep && (!s_Data->MaskedPipeline || !slot.MaskedGpuSet))
+				continue;
+
+			bool sweepBound = false;
+
+			for (uint32_t i = 0; i < slotCount; i++)
+			{
+				const GpuCull::Slot& entry = indirect[i];
+				if (!entry.MeshRef)
+					continue;
+				if ((entry.MaskedMaterial != nullptr) != maskedSweep)
+					continue;
+
+				if (!sweepBound)
+				{
+					cmd->BindPipeline(maskedSweep ? s_Data->MaskedPipeline : s_Data->Pipeline);
+					cmd->BindResourceSet(0, maskedSweep ? slot.MaskedGpuSet : slot.GpuSet);
+					if (s_Data->Bindless)
+						cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+					sweepBound = true;
+				}
+
+				// Where this slot's survivors begin in the index buffer. Not
+				// the draw's firstInstance, for the reason scene_vertex.glsl
+				// gives.
+				ObjectPushConstants object;
+				object.BaseInstance = (int32_t)entry.InstanceBase;
+				cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+
+				cmd->BindVertexBuffer(0, entry.MeshRef->GetVertexBuffer());
+				cmd->BindIndexBuffer(entry.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+				cmd->DrawIndexedIndirect(s_Data->IndirectView.Commands,
+										 (uint64_t)i * sizeof(GpuCull::SlotCommand),
+										 1, sizeof(GpuCull::SlotCommand));
+
+				// The draw is counted, and its triangles at the count that was
+				// *submitted* -- the slot's reserved length. How many of them
+				// survive is in device memory the CPU never reads back, which
+				// is the point; reporting nothing at all instead made the
+				// panel read as broken on every frame this path drew.
+				s_Data->DrawCalls++;
+				s_Data->IndirectDraws++;
+				s_Data->Triangles +=
+					(entry.MeshRef->GetIndexCount() / 3) * entry.InstanceCount;
+			}
+			}
+
+			// The loop below has to bind its own pipeline and set again.
+			anyPipelineBound = false;
+		}
+
+		// **Where the opaque list ends.** The sort put every blended draw in one
+		// block at the end, so this is a scan for the first of them rather than
+		// a partition -- and when there are none it is `count`, which is the
+		// loop the renderer has always run.
+		//
+		// Masked draws are *before* this point, not after: they write depth and
+		// belong to the opaque pass. They form their own runs within it,
+		// because the merge below compares the whole bucket.
+		s_Data->TransparentBegin = count;
+		for (uint32_t i = 0; i < count; i++)
+		{
+			if (s_Data->Pending[i].Bucket == DrawBucket::Blended)
+			{
+				s_Data->TransparentBegin = i;
+				break;
+			}
+		}
+
+		const uint32_t opaqueCount = s_Data->TransparentBegin;
+
+
+		// One draw per run of identical mesh and bound material state.
+		uint32_t start = 0;
+		while (start < opaqueCount)
+		{
+			uint32_t end = start + 1;
+			// Kind as well: a run is one pipeline, and under bindless the
+			// material key is zero for every material, so without it only
+			// the mesh pointer separates a static run from a skinned one at
+			// a kind boundary -- the same shape as the transparent bit
+			// above: a field the sort separates and the merge forgot.
+			while (end < opaqueCount &&
+				   s_Data->Pending[end].Bucket == s_Data->Pending[start].Bucket &&
+				   s_Data->Pending[end].Kind == s_Data->Pending[start].Kind &&
+				   s_Data->Pending[end].MeshKey == s_Data->Pending[start].MeshKey &&
+				   s_Data->Pending[end].MaterialKey == s_Data->Pending[start].MaterialKey &&
+				   s_Data->Pending[end].IndexCount == s_Data->Pending[start].IndexCount)
+			{
+				end++;
+			}
+
+			const PendingDraw& first = s_Data->Pending[start];
+
+			// Static opaque runs go as meshlets when the pipeline exists and
+			// the mesh cut cleanly; every other kind -- skinned, layered,
+			// blended, a mesh the cut refused -- takes its classic pipeline
+			// in the same pass. The scene set is the same object on both
+			// paths: the descriptor layouts are identically defined (the
+			// coarse stage flags in VulkanPipeline are what make that true),
+			// so one fill serves both front ends.
+			if (first.Kind == DrawKind::Static && s_Data->MeshletLitPipeline &&
+				first.MeshRef && slot.Set)
+			{
+				const Mesh::MeshletBuffers& meshlets =
+					first.MeshRef->GetMeshletBuffers(*s_Data->Device);
+				if (meshlets.Count > 0)
+				{
+					while (slot.MeshletCursor >= slot.MeshletSets.size())
+						slot.MeshletSets.push_back(nullptr);
+					Ref<RHIResourceSet>& meshletSet =
+						slot.MeshletSets[slot.MeshletCursor];
+					if (!meshletSet)
+					{
+						meshletSet = s_Data->Device->CreateResourceSet(
+							s_Data->MeshletLitPipeline, 3);
+					}
+
+					if (meshletSet)
+					{
+						slot.MeshletCursor++;
+
+						meshletSet->SetStorageBuffer(0, meshlets.Meshlets);
+						meshletSet->SetStorageBuffer(1, meshlets.Vertices);
+						meshletSet->SetStorageBuffer(2, meshlets.Triangles);
+						meshletSet->SetStorageBuffer(3, first.MeshRef->GetVertexBuffer());
+						meshletSet->Commit();
+
+						// A different push-constant interface disturbs every
+						// bound set on the switch, so everything is rebound
+						// here and the classic loop rebinds its own after.
+						cmd->BindPipeline(s_Data->MeshletLitPipeline);
+						cmd->BindResourceSet(0, slot.Set);
+						if (s_Data->Bindless)
+							cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+						else if (first.MaterialRef)
+							first.MaterialRef->Bind(*cmd, s_Data->MeshletLitPipeline, 1);
+						cmd->BindResourceSet(3, meshletSet);
+						anyPipelineBound = false;
+
+						ObjectPushConstants object;
+						object.BaseInstance = (int32_t)start;
+						cmd->PushConstants(ShaderStage::Mesh, 0, sizeof(object), &object);
+
+						cmd->DrawMeshTasks(meshlets.Count, end - start, 1);
+						s_Data->DrawCalls++;
+						s_Data->Triangles += (first.IndexCount / 3) * (end - start);
+
+						start = end;
+						continue;
+					}
+				}
+			}
+
+			// Each kind needs its own pipeline. Without one the run is skipped
+			// rather than drawn by another: a skinned mesh through the static
+			// pipeline reads joint indices as texture coordinates and scatters
+			// across the world, and a layered chunk through it binds a set the
+			// layout does not describe.
+			// **Masked replaces the static pipeline only.** A skinned or a
+			// layered cutout would each need their own variant and neither
+			// exists yet, so one of those falls back to drawing solid -- the
+			// same choice the skinned transparent path documents, and for the
+			// same reason: a visible material with a hard edge missing beats
+			// a material that does not draw.
+			const bool masked = first.Bucket == DrawBucket::Masked;
+			const Ref<RHIPipeline>& pipeline =
+				first.Kind == DrawKind::Skinned ? s_Data->SkinnedPipeline
+				: first.Kind == DrawKind::Layered ? s_Data->LayeredPipeline
+				: (masked && s_Data->MaskedPipeline) ? s_Data->MaskedPipeline
+				: s_Data->Pipeline;
+			if (!pipeline)
+			{
+				start = end;
+				continue;
+			}
+
+			const Ref<RHIResourceSet>& sceneSet =
+				first.Kind == DrawKind::Skinned ? slot.SkinnedSet
+				: first.Kind == DrawKind::Layered ? slot.LayeredSet
+				: (masked && s_Data->MaskedPipeline && slot.MaskedSet) ? slot.MaskedSet
+				: slot.Set;
+			if (!sceneSet)
+			{
+				start = end;
+				continue;
+			}
+
+			if (!anyPipelineBound || boundKind != first.Kind || boundBucket != first.Bucket)
+			{
+				cmd->BindPipeline(pipeline);
+				cmd->BindResourceSet(0, sceneSet);
+				// The heap, at the set every bindless shader declares it at.
+				// Once per pipeline, not per run: nothing about it changes
+				// between draws, which is the point of it.
+				if (s_Data->Bindless)
+					cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+				boundKind = first.Kind;
+				boundBucket = first.Bucket;
+				anyPipelineBound = true;
+			}
+
+			// Any material in the run would do: the key is exactly the state
+			// this binds, so they are interchangeable by construction. On the
+			// bindless path there is nothing to bind -- the maps are heap
+			// slots in the record the instance names -- and set 1 is empty.
+			// A layered run binds its own set 1 on *both* paths: the block is
+			// the layers' scalars and, bindless, their heap slots (7aq).
+			if (first.Kind == DrawKind::Layered)
+			{
+				if (first.LayeredRef)
+					first.LayeredRef->Bind(*cmd, pipeline, 1);
+			}
+			else if (first.MaterialRef && !s_Data->Bindless)
+			{
+				first.MaterialRef->Bind(*cmd, pipeline, 1);
+			}
+
+			ObjectPushConstants object;
+			object.BaseInstance = (int32_t)start;
+			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+
+			cmd->BindVertexBuffer(0, first.MeshRef->GetVertexBuffer());
+			cmd->BindIndexBuffer(first.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+			cmd->DrawIndexed(first.IndexCount, end - start);
+
+			s_Data->DrawCalls++;
+			s_Data->Triangles += (first.IndexCount / 3) * (end - start);
+
+			start = end;
+		}
+
+		// **The lights' glow, last of the opaque pass** (WR-5, first half).
+		// After every opaque draw so the depth it tests against is complete,
+		// and before the transparent pass so the water composites over it
+		// where it should. The buffer is the one the lit draws just read.
+		// Draws nothing outside the scene pass proper -- a probe face or a
+		// cascade never receives a viewport -- and nothing in a scene whose
+		// lights have no size.
+		LightGlow::Draw(*cmd, slot.Lights, (uint32_t)Math::Max(s_Data->Scene.LightCount, 0));
+
+		// **Kept, not cleared, when something blended is still waiting.** The
+		// transparent pass runs later in the same frame and reads the same
+		// records, the same instance table and the same bound sets -- all of
+		// which are alive until the next BeginScene, which clears them.
+		if (s_Data->TransparentBegin >= count)
+		{
+			s_Data->Pending.clear();
+			s_Data->Instances.clear();
+			s_Data->TransparentBegin = 0;
+		}
+	}
+
+	// RT-2: the pending draws' G-buffer half -- DrawLitBody's vertex path with
+	// each kind's G-buffer pipeline and set, no meshlets, no glow. What is not
+	// here is not in the G-buffer, and no pre-lit signal sees it.
+	static void DrawGBufferPending(RHICommandList* cmd, Renderer3DData::SceneSlot& slot,
+								   uint32_t count)
+	{
+		// The opaque range, found as the lit draw finds it (TransparentBegin is
+		// its, computed later): up to the first blended draw.
+		uint32_t opaqueCount = count;
+		for (uint32_t i = 0; i < count; i++)
+		{
+			if (s_Data->Pending[i].Bucket == DrawBucket::Blended)
+			{
+				opaqueCount = i;
+				break;
+			}
+		}
+		DrawKind boundKind = DrawKind::Static;
+		DrawBucket boundBucket = DrawBucket::Opaque;
+		bool anyPipelineBound = false;
+		uint32_t start = 0;
+		while (start < opaqueCount)
+		{
+			uint32_t end = start + 1;
+			while (end < opaqueCount &&
+				   s_Data->Pending[end].Bucket == s_Data->Pending[start].Bucket &&
+				   s_Data->Pending[end].Kind == s_Data->Pending[start].Kind &&
+				   s_Data->Pending[end].MeshKey == s_Data->Pending[start].MeshKey &&
+				   s_Data->Pending[end].MaterialKey == s_Data->Pending[start].MaterialKey &&
+				   s_Data->Pending[end].IndexCount == s_Data->Pending[start].IndexCount)
+			{
+				end++;
+			}
+			const PendingDraw& first = s_Data->Pending[start];
+			const bool masked = first.Bucket == DrawBucket::Masked;
+			const Ref<RHIPipeline>& pipeline =
+				first.Kind == DrawKind::Skinned ? s_Data->SkinnedGBufferPipeline
+				: first.Kind == DrawKind::Layered ? s_Data->LayeredGBufferPipeline
+				: (masked && s_Data->MaskedGBufferPipeline) ? s_Data->MaskedGBufferPipeline
+				: s_Data->GBufferPipeline;
+			const Ref<RHIResourceSet>& gbufferSet =
+				first.Kind == DrawKind::Skinned ? slot.SkinnedGBufferSet
+				: first.Kind == DrawKind::Layered ? slot.LayeredGBufferSet
+				: (masked && s_Data->MaskedGBufferPipeline && slot.PendingMaskedGBufferSet) ? slot.PendingMaskedGBufferSet
+				: slot.PendingGBufferSet;
+			if (!pipeline || !gbufferSet || !first.MeshRef)
+			{
+				start = end;
+				continue;
+			}
+			if (!anyPipelineBound || boundKind != first.Kind || boundBucket != first.Bucket)
+			{
+				cmd->BindPipeline(pipeline);
+				cmd->BindResourceSet(0, gbufferSet);
+				if (s_Data->Bindless)
+					cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+				boundKind = first.Kind;
+				boundBucket = first.Bucket;
+				anyPipelineBound = true;
+			}
+			if (first.Kind == DrawKind::Layered)
+			{
+				if (first.LayeredRef)
+					first.LayeredRef->Bind(*cmd, pipeline, 1);
+			}
+			else if (first.MaterialRef && !s_Data->Bindless)
+			{
+				first.MaterialRef->Bind(*cmd, pipeline, 1);
+			}
+			ObjectPushConstants object;
+			object.BaseInstance = (int32_t)start;
+			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+			cmd->BindVertexBuffer(0, first.MeshRef->GetVertexBuffer());
+			cmd->BindIndexBuffer(first.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+			cmd->DrawIndexed(first.IndexCount, end - start);
+			s_Data->DrawCalls++;
+			start = end;
+		}
 	}
 
 	void Renderer3D::EndScene()
@@ -4595,6 +5305,25 @@ namespace RageV
 								   (uint64_t)instanceRows * sizeof(InstanceData));
 		slot.Set->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
 								   (uint64_t)Math::Max(count, 1u) * sizeof(uint32_t));
+		// The pending static and masked draws' G-buffer sets (RT-2): slot.Set's
+		// buffers, so BaseInstance indexes the same visibility list.
+		for (const Ref<RHIResourceSet>& pendingSet : { slot.PendingGBufferSet, slot.PendingMaskedGBufferSet })
+		{
+			if (!pendingSet)
+				continue;
+			pendingSet->SetStorageBuffer(7, slot.Instances, 0,
+										 (uint64_t)instanceRows * sizeof(InstanceData));
+			pendingSet->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
+										 (uint64_t)Math::Max(count, 1u) * sizeof(uint32_t));
+			if (s_Data->Bindless)
+			{
+				pendingSet->SetStorageBuffer(13, slot.Materials, 0,
+											 (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
+					pendingSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+			}
+			pendingSet->Commit();
+		}
 
 		// The same instance table, read through the indices the cull pass
 		// wrote instead of the ones the sort produced. One binding apart, and
@@ -4626,6 +5355,22 @@ namespace RageV
 					slot.GpuSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
 			}
 			slot.GpuSet->Commit();
+			for (const Ref<RHIResourceSet>& gbufferSet : { slot.GBufferSet, slot.MaskedGBufferSet })
+			{
+				if (!gbufferSet)
+					continue;
+				gbufferSet->SetStorageBuffer(7, slot.Instances, 0,
+											 (uint64_t)instanceRows * sizeof(InstanceData));
+				gbufferSet->SetStorageBuffer(kVisibleBinding, s_Data->IndirectView.Instances);
+				if (s_Data->Bindless)
+				{
+					gbufferSet->SetStorageBuffer(13, slot.Materials, 0,
+												 (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+					if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
+						gbufferSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+				}
+				gbufferSet->Commit();
+			}
 
 			// The masked indirect set carries identical contents; only the
 			// pipeline it was allocated against differs.
@@ -4715,6 +5460,24 @@ namespace RageV
 			}
 			slot.SkinnedSet->Commit();
 		}
+		if (slot.SkinnedGBufferSet)
+		{
+			// The skinned kind's G-buffer set (RT-2): the same buffers as its lit set.
+			slot.SkinnedGBufferSet->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
+													 (uint64_t)Math::Max(count, 1u) * sizeof(uint32_t));
+			slot.SkinnedGBufferSet->SetStorageBuffer(7, slot.Instances, 0,
+													 (uint64_t)instanceRows * sizeof(InstanceData));
+			slot.SkinnedGBufferSet->SetStorageBuffer(11, slot.Bones, 0,
+													 (uint64_t)boneCount * sizeof(Mat4));
+			if (s_Data->Bindless)
+			{
+				slot.SkinnedGBufferSet->SetStorageBuffer(13, slot.Materials, 0,
+														 (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
+					slot.SkinnedGBufferSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+			}
+			slot.SkinnedGBufferSet->Commit();
+		}
 
 		if (slot.TransparentSet)
 		{
@@ -4754,6 +5517,22 @@ namespace RageV
 			slot.TransparentGpuSet->Commit();
 		}
 
+		if (slot.LayeredGBufferSet)
+		{
+			// The layered kind's G-buffer set (RT-2): the same buffers as its lit set.
+			slot.LayeredGBufferSet->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
+													 (uint64_t)Math::Max(count, 1u) * sizeof(uint32_t));
+			slot.LayeredGBufferSet->SetStorageBuffer(7, slot.Instances, 0,
+													 (uint64_t)instanceRows * sizeof(InstanceData));
+			if (s_Data->Bindless)
+			{
+				slot.LayeredGBufferSet->SetStorageBuffer(13, slot.Materials, 0,
+														 (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
+					slot.LayeredGBufferSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+			}
+			slot.LayeredGBufferSet->Commit();
+		}
 		if (slot.LayeredSet)
 		{
 			slot.LayeredSet->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
@@ -4811,13 +5590,10 @@ namespace RageV
 
 		// Bound per run rather than once, because the run decides which of the
 		// three pipelines draws it.
-		DrawKind boundKind = DrawKind::Static;
 		// The bucket is part of what a bound pipeline is, not just the kind:
 		// masked and opaque share a kind and differ in pipeline, so tracking
 		// only the kind would draw a cutout run through whichever of the two
 		// happened to be bound.
-		DrawBucket boundBucket = DrawBucket::Opaque;
-		bool anyPipelineBound = false;
 
 		// **The GPU-driven half, first.** Its instance counts live in device
 		// memory and its draws depend on nothing the loop below decides, so
@@ -4842,316 +5618,85 @@ namespace RageV
 		// It costs a second rasterisation of the same geometry, at four
 		// samples, writing nothing but depth. Whether that trade pays is a
 		// measurement and not an argument.
-		if (haveIndirect && slot.PrepassSet && s_Data->PrepassPipeline)
+		// **The G-buffer pass (RT-first step 1a, docs/RT-FIRST.md).** With a
+		// pass of its own the geometry is walked here for depth, velocity,
+		// normal + roughness, albedo + metallic and the surface id -- opaque
+		// then cutout -- and the lighting is drawn by DrawLit from the pass
+		// that follows, so a ray-traced signal can run between the two with
+		// a G-buffer to read. Without it, the depth prepass as before.
+		const bool split = s_Data->GBufferPassActive;
+		if (split && haveIndirect && slot.GBufferSet && s_Data->GBufferPipeline)
+		{
+			const std::vector<GpuCull::Slot>& indirect = s_Data->IndirectSlots;
+			const uint32_t slotCount =
+				Math::Min((uint32_t)indirect.size(), s_Data->IndirectView.SlotCount);
+			for (int sweep = 0; sweep < 2; sweep++)
+			{
+				const bool maskedSweep = sweep == 1;
+				if (maskedSweep && (!s_Data->MaskedGBufferPipeline || !slot.MaskedGBufferSet))
+					continue;
+				bool sweepBound = false;
+				for (uint32_t i = 0; i < slotCount; i++)
+				{
+					const GpuCull::Slot& entry = indirect[i];
+					if (!entry.MeshRef)
+						continue;
+					if ((entry.MaskedMaterial != nullptr) != maskedSweep)
+						continue;
+					if (!sweepBound)
+					{
+						cmd->BindPipeline(maskedSweep ? s_Data->MaskedGBufferPipeline : s_Data->GBufferPipeline);
+						cmd->BindResourceSet(0, maskedSweep ? slot.MaskedGBufferSet : slot.GBufferSet);
+						if (s_Data->Bindless)
+							cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+						sweepBound = true;
+					}
+					ObjectPushConstants object;
+					object.BaseInstance = (int32_t)entry.InstanceBase;
+					cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+					cmd->BindVertexBuffer(0, entry.MeshRef->GetVertexBuffer());
+					cmd->BindIndexBuffer(entry.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+					cmd->DrawIndexedIndirect(s_Data->IndirectView.Commands,
+											 (uint64_t)i * sizeof(GpuCull::SlotCommand),
+											 1, sizeof(GpuCull::SlotCommand));
+				}
+			}
+		}
+		else if (!split && haveIndirect && slot.PrepassSet && s_Data->PrepassPipeline)
 		{
 			cmd->BindPipeline(s_Data->PrepassPipeline);
 			cmd->BindResourceSet(0, slot.PrepassSet);
-
 			const std::vector<GpuCull::Slot>& indirect = s_Data->IndirectSlots;
 			const uint32_t slotCount =
 				Math::Min((uint32_t)indirect.size(), s_Data->IndirectView.SlotCount);
-
 			for (uint32_t i = 0; i < slotCount; i++)
 			{
 				const GpuCull::Slot& entry = indirect[i];
 				if (!entry.MeshRef)
 					continue;
-
-				// **Never a cutout.** The prepass writes depth with no fragment
-				// stage, so it would lay down depth for texels the lit pass is
-				// about to discard -- and a hole whose depth was already
-				// written occludes whatever is behind it. Masked slots are
-				// simply absent from this pass; they write their own depth in
-				// the lit pass, which is what the depth test then reads.
 				if (entry.MaskedMaterial)
 					continue;
-
 				ObjectPushConstants object;
 				object.BaseInstance = (int32_t)entry.InstanceBase;
 				cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
-
 				cmd->BindVertexBuffer(0, entry.MeshRef->GetVertexBuffer());
 				cmd->BindIndexBuffer(entry.MeshRef->GetIndexBuffer(), IndexType::UInt32);
 				cmd->DrawIndexedIndirect(s_Data->IndirectView.Commands,
 										 (uint64_t)i * sizeof(GpuCull::SlotCommand),
 										 1, sizeof(GpuCull::SlotCommand));
 			}
-
-			// **Deliberately not counted.** The draw and triangle totals
-			// describe what the scene is made of, and this draws the same
-			// geometry a second time -- adding it would report the showroom as
-			// twice the scene it is. The cost is not hidden: it lands in the
-			// scene pass's GPU time, which is where the profiler looks.
 		}
-
-		if (haveIndirect && slot.GpuSet)
+		if (split)
 		{
-			const std::vector<GpuCull::Slot>& indirect = s_Data->IndirectSlots;
-			const uint32_t slotCount =
-				Math::Min((uint32_t)indirect.size(), s_Data->IndirectView.SlotCount);
-
-			// **Two sweeps, opaque then masked**, rather than one that rebinds
-			// whenever the kind changes. The table is in creation order, so
-			// cutouts are scattered through it; sweeping twice costs one extra
-			// pipeline bind and sorting the table would cost a sort.
-			//
-			// Opaque first, so every cutout is tested against a depth buffer
-			// the solid geometry has already filled -- the same order the CPU
-			// path's buckets produce, and for the same reason.
-			for (int sweep = 0; sweep < 2; sweep++)
-			{
-			const bool maskedSweep = sweep == 1;
-			if (maskedSweep && (!s_Data->MaskedPipeline || !slot.MaskedGpuSet))
-				continue;
-
-			bool sweepBound = false;
-
-			for (uint32_t i = 0; i < slotCount; i++)
-			{
-				const GpuCull::Slot& entry = indirect[i];
-				if (!entry.MeshRef)
-					continue;
-				if ((entry.MaskedMaterial != nullptr) != maskedSweep)
-					continue;
-
-				if (!sweepBound)
-				{
-					cmd->BindPipeline(maskedSweep ? s_Data->MaskedPipeline : s_Data->Pipeline);
-					cmd->BindResourceSet(0, maskedSweep ? slot.MaskedGpuSet : slot.GpuSet);
-					if (s_Data->Bindless)
-						cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
-					sweepBound = true;
-				}
-
-				// Where this slot's survivors begin in the index buffer. Not
-				// the draw's firstInstance, for the reason scene_vertex.glsl
-				// gives.
-				ObjectPushConstants object;
-				object.BaseInstance = (int32_t)entry.InstanceBase;
-				cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
-
-				cmd->BindVertexBuffer(0, entry.MeshRef->GetVertexBuffer());
-				cmd->BindIndexBuffer(entry.MeshRef->GetIndexBuffer(), IndexType::UInt32);
-				cmd->DrawIndexedIndirect(s_Data->IndirectView.Commands,
-										 (uint64_t)i * sizeof(GpuCull::SlotCommand),
-										 1, sizeof(GpuCull::SlotCommand));
-
-				// The draw is counted, and its triangles at the count that was
-				// *submitted* -- the slot's reserved length. How many of them
-				// survive is in device memory the CPU never reads back, which
-				// is the point; reporting nothing at all instead made the
-				// panel read as broken on every frame this path drew.
-				s_Data->DrawCalls++;
-				s_Data->IndirectDraws++;
-				s_Data->Triangles +=
-					(entry.MeshRef->GetIndexCount() / 3) * entry.InstanceCount;
-			}
-			}
-
-			// The loop below has to bind its own pipeline and set again.
-			anyPipelineBound = false;
+			// The pending draws -- skinned, layered, and any static the GPU did
+			// not cull -- into the G-buffer too (RT-2), with their own kinds'
+			// G-buffer pipelines; the lit half redraws them over this depth.
+			DrawGBufferPending(cmd, slot, count);
+			s_Data->LitPending = true;
+			return;
 		}
+		DrawLitBody(cmd, slot, count, haveIndirect);
 
-		// **Where the opaque list ends.** The sort put every blended draw in one
-		// block at the end, so this is a scan for the first of them rather than
-		// a partition -- and when there are none it is `count`, which is the
-		// loop the renderer has always run.
-		//
-		// Masked draws are *before* this point, not after: they write depth and
-		// belong to the opaque pass. They form their own runs within it,
-		// because the merge below compares the whole bucket.
-		s_Data->TransparentBegin = count;
-		for (uint32_t i = 0; i < count; i++)
-		{
-			if (s_Data->Pending[i].Bucket == DrawBucket::Blended)
-			{
-				s_Data->TransparentBegin = i;
-				break;
-			}
-		}
-
-		const uint32_t opaqueCount = s_Data->TransparentBegin;
-
-
-		// One draw per run of identical mesh and bound material state.
-		uint32_t start = 0;
-		while (start < opaqueCount)
-		{
-			uint32_t end = start + 1;
-			// Kind as well: a run is one pipeline, and under bindless the
-			// material key is zero for every material, so without it only
-			// the mesh pointer separates a static run from a skinned one at
-			// a kind boundary -- the same shape as the transparent bit
-			// above: a field the sort separates and the merge forgot.
-			while (end < opaqueCount &&
-				   s_Data->Pending[end].Bucket == s_Data->Pending[start].Bucket &&
-				   s_Data->Pending[end].Kind == s_Data->Pending[start].Kind &&
-				   s_Data->Pending[end].MeshKey == s_Data->Pending[start].MeshKey &&
-				   s_Data->Pending[end].MaterialKey == s_Data->Pending[start].MaterialKey &&
-				   s_Data->Pending[end].IndexCount == s_Data->Pending[start].IndexCount)
-			{
-				end++;
-			}
-
-			const PendingDraw& first = s_Data->Pending[start];
-
-			// Static opaque runs go as meshlets when the pipeline exists and
-			// the mesh cut cleanly; every other kind -- skinned, layered,
-			// blended, a mesh the cut refused -- takes its classic pipeline
-			// in the same pass. The scene set is the same object on both
-			// paths: the descriptor layouts are identically defined (the
-			// coarse stage flags in VulkanPipeline are what make that true),
-			// so one fill serves both front ends.
-			if (first.Kind == DrawKind::Static && s_Data->MeshletLitPipeline &&
-				first.MeshRef && slot.Set)
-			{
-				const Mesh::MeshletBuffers& meshlets =
-					first.MeshRef->GetMeshletBuffers(*s_Data->Device);
-				if (meshlets.Count > 0)
-				{
-					while (slot.MeshletCursor >= slot.MeshletSets.size())
-						slot.MeshletSets.push_back(nullptr);
-					Ref<RHIResourceSet>& meshletSet =
-						slot.MeshletSets[slot.MeshletCursor];
-					if (!meshletSet)
-					{
-						meshletSet = s_Data->Device->CreateResourceSet(
-							s_Data->MeshletLitPipeline, 3);
-					}
-
-					if (meshletSet)
-					{
-						slot.MeshletCursor++;
-
-						meshletSet->SetStorageBuffer(0, meshlets.Meshlets);
-						meshletSet->SetStorageBuffer(1, meshlets.Vertices);
-						meshletSet->SetStorageBuffer(2, meshlets.Triangles);
-						meshletSet->SetStorageBuffer(3, first.MeshRef->GetVertexBuffer());
-						meshletSet->Commit();
-
-						// A different push-constant interface disturbs every
-						// bound set on the switch, so everything is rebound
-						// here and the classic loop rebinds its own after.
-						cmd->BindPipeline(s_Data->MeshletLitPipeline);
-						cmd->BindResourceSet(0, slot.Set);
-						if (s_Data->Bindless)
-							cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
-						else if (first.MaterialRef)
-							first.MaterialRef->Bind(*cmd, s_Data->MeshletLitPipeline, 1);
-						cmd->BindResourceSet(3, meshletSet);
-						anyPipelineBound = false;
-
-						ObjectPushConstants object;
-						object.BaseInstance = (int32_t)start;
-						cmd->PushConstants(ShaderStage::Mesh, 0, sizeof(object), &object);
-
-						cmd->DrawMeshTasks(meshlets.Count, end - start, 1);
-						s_Data->DrawCalls++;
-						s_Data->Triangles += (first.IndexCount / 3) * (end - start);
-
-						start = end;
-						continue;
-					}
-				}
-			}
-
-			// Each kind needs its own pipeline. Without one the run is skipped
-			// rather than drawn by another: a skinned mesh through the static
-			// pipeline reads joint indices as texture coordinates and scatters
-			// across the world, and a layered chunk through it binds a set the
-			// layout does not describe.
-			// **Masked replaces the static pipeline only.** A skinned or a
-			// layered cutout would each need their own variant and neither
-			// exists yet, so one of those falls back to drawing solid -- the
-			// same choice the skinned transparent path documents, and for the
-			// same reason: a visible material with a hard edge missing beats
-			// a material that does not draw.
-			const bool masked = first.Bucket == DrawBucket::Masked;
-			const Ref<RHIPipeline>& pipeline =
-				first.Kind == DrawKind::Skinned ? s_Data->SkinnedPipeline
-				: first.Kind == DrawKind::Layered ? s_Data->LayeredPipeline
-				: (masked && s_Data->MaskedPipeline) ? s_Data->MaskedPipeline
-				: s_Data->Pipeline;
-			if (!pipeline)
-			{
-				start = end;
-				continue;
-			}
-
-			const Ref<RHIResourceSet>& sceneSet =
-				first.Kind == DrawKind::Skinned ? slot.SkinnedSet
-				: first.Kind == DrawKind::Layered ? slot.LayeredSet
-				: (masked && s_Data->MaskedPipeline && slot.MaskedSet) ? slot.MaskedSet
-				: slot.Set;
-			if (!sceneSet)
-			{
-				start = end;
-				continue;
-			}
-
-			if (!anyPipelineBound || boundKind != first.Kind || boundBucket != first.Bucket)
-			{
-				cmd->BindPipeline(pipeline);
-				cmd->BindResourceSet(0, sceneSet);
-				// The heap, at the set every bindless shader declares it at.
-				// Once per pipeline, not per run: nothing about it changes
-				// between draws, which is the point of it.
-				if (s_Data->Bindless)
-					cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
-				boundKind = first.Kind;
-				boundBucket = first.Bucket;
-				anyPipelineBound = true;
-			}
-
-			// Any material in the run would do: the key is exactly the state
-			// this binds, so they are interchangeable by construction. On the
-			// bindless path there is nothing to bind -- the maps are heap
-			// slots in the record the instance names -- and set 1 is empty.
-			// A layered run binds its own set 1 on *both* paths: the block is
-			// the layers' scalars and, bindless, their heap slots (7aq).
-			if (first.Kind == DrawKind::Layered)
-			{
-				if (first.LayeredRef)
-					first.LayeredRef->Bind(*cmd, pipeline, 1);
-			}
-			else if (first.MaterialRef && !s_Data->Bindless)
-			{
-				first.MaterialRef->Bind(*cmd, pipeline, 1);
-			}
-
-			ObjectPushConstants object;
-			object.BaseInstance = (int32_t)start;
-			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
-
-			cmd->BindVertexBuffer(0, first.MeshRef->GetVertexBuffer());
-			cmd->BindIndexBuffer(first.MeshRef->GetIndexBuffer(), IndexType::UInt32);
-			cmd->DrawIndexed(first.IndexCount, end - start);
-
-			s_Data->DrawCalls++;
-			s_Data->Triangles += (first.IndexCount / 3) * (end - start);
-
-			start = end;
-		}
-
-		// **The lights' glow, last of the opaque pass** (WR-5, first half).
-		// After every opaque draw so the depth it tests against is complete,
-		// and before the transparent pass so the water composites over it
-		// where it should. The buffer is the one the lit draws just read.
-		// Draws nothing outside the scene pass proper -- a probe face or a
-		// cascade never receives a viewport -- and nothing in a scene whose
-		// lights have no size.
-		LightGlow::Draw(*cmd, slot.Lights, (uint32_t)Math::Max(s_Data->Scene.LightCount, 0));
-
-		// **Kept, not cleared, when something blended is still waiting.** The
-		// transparent pass runs later in the same frame and reads the same
-		// records, the same instance table and the same bound sets -- all of
-		// which are alive until the next BeginScene, which clears them.
-		if (s_Data->TransparentBegin >= count)
-		{
-			s_Data->Pending.clear();
-			s_Data->Instances.clear();
-			s_Data->TransparentBegin = 0;
-		}
 	}
 
 	bool Renderer3D::HasTransparent()
@@ -5487,6 +6032,31 @@ namespace RageV
 			Vec4 Trace{ 0.0f, 1.0f, 0.0f, 0.0f };
 		};
 
+		// The reflection accumulator's push block (reflection_accumulate.rvshader):
+		// its own, because it needs two matrices and the lamp block above has
+		// one, and every lamp pipeline pushes that block's size.
+		struct ReflectionPushConstants
+		{
+			Mat4 InverseViewProjection{ 1.0f };
+			Mat4 PreviousViewProjection{ 1.0f };
+			Vec4 History{ 0.0f, 24.0f, 6.0f, 0.0f };
+			Vec4 Probe{ 3.0f, 2.0f, 0.0f, 0.0f };
+		};
+		// The accumulate and blur passes' block (RT-first T4): the same four,
+		// then the signal's tuning and its blur's, from SignalParams.
+		struct SignalPushConstants
+		{
+			Mat4 InverseViewProjection{ 1.0f };
+			Mat4 PreviousViewProjection{ 1.0f };
+			Vec4 History{ 0.0f, 64.0f, 4.0f, 0.0f };
+			Vec4 Probe{ 3.0f, 1.0f, 0.0f, 0.0f };
+			Vec4 Tuning{ 6.0f, 8.0f, 4.0f, 0.0f };
+			Vec4 Blur{ 12.0f, 32.0f, 1.5f, 8.0f };
+			// RT-6.3: last frame's eye in xyz; w is one when it is real, so the
+			// first frame of a chain does not compare against the origin.
+			Vec4 PreviousEye{ 0.0f, 0.0f, 0.0f, 0.0f };
+		};
+
 		// Fifty-six floats, the same slots the shader's comment names -- the
 		// last eight added when the passes reported every lamp blocked and
 		// nothing in the report could say from where.
@@ -5653,6 +6223,13 @@ namespace RageV
 		// because a history of choices belongs to its chain, and the editor
 		// draws two chains from two cameras in one frame.
 		motion.ViewProjection = s_Data->Scene.ViewProjection;
+		// **RT-6.3: and the eye that went with it.** Each signal keeps its own
+		// motion record -- this is the signal's, not the temporal resolve's -- so
+		// recording the eye where the scene records TAA's left this one's w at
+		// zero and switched the direction test off without saying so (measured
+		// bit-identical, 2026-09-07).
+		motion.Eye = Vec4(s_Data->Scene.CameraPosition.x, s_Data->Scene.CameraPosition.y,
+						  s_Data->Scene.CameraPosition.z, 1.0f);
 
 		cmd->BindPipeline(s_Data->WaterChoosePipeline);
 		cmd->BindResourceSet(0, slot.LampSet);
@@ -5706,6 +6283,281 @@ namespace RageV
 		cmd->BindPipeline(s_Data->WaterTracePipeline);
 		cmd->BindResourceSet(0, slot.LampSet);
 		cmd->BindResourceSet(3, slot.WaterTraceInputs);
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
+		cmd->Draw(3);
+	}
+
+	// The opaque surfaces' glossy reflection, traced from the scene pass's
+	// surface and depth (reflection_trace.rvshader). `budget` is the tile
+	// allocator's map when it ran this frame, whose GI lane over `giAverage`
+	// scales the preset's MirrorRays per tile; null otherwise.
+	void Renderer3D::TraceReflections(const RHI::Ref<RHITexture>& surface,
+									  const RHI::Ref<RHITexture>& depth,
+									  const RHI::Ref<RHITexture>& budget,
+									  float giAverage)
+	{
+		if (!s_Data || !s_Data->ReflectionTracePipeline || !s_Data->ActiveScene)
+			return;
+		RHICommandList* cmd = Renderer::GetCommandList();
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!cmd || !slot.LampSet || !surface || !depth)
+			return;
+
+		if (!slot.ReflectionTraceInputs)
+			slot.ReflectionTraceInputs =
+				s_Data->Device->CreateResourceSet(s_Data->ReflectionTracePipeline, 3);
+		if (!slot.ReflectionTraceInputs)
+			return;
+
+		slot.ReflectionTraceInputs->SetTexture(0, surface, s_Data->PointSampler);
+		slot.ReflectionTraceInputs->SetTexture(1, depth, s_Data->PointSampler);
+		// A declared binding must be filled: the surface stands in for the map
+		// when the allocator did not run, and Trace.w says so.
+		slot.ReflectionTraceInputs->SetTexture(2, budget ? budget : surface, s_Data->PointSampler);
+		slot.ReflectionTraceInputs->Commit();
+
+		LampPushConstants push;
+		push.PreviousViewProjection = Math::Inverse(s_Data->Scene.ViewProjection);
+		push.History.y = Math::Max(giAverage, 1.0f);
+		FillLampFlip(push, *s_Data);
+		const Vec2 gloss = Renderer::GetReflectionGloss();
+		push.Trace = Vec4(0.0f, gloss.x, gloss.y, budget ? 1.0f : 0.0f);
+
+		cmd->BindPipeline(s_Data->ReflectionTracePipeline);
+		cmd->BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd->BindResourceSet(3, slot.ReflectionTraceInputs);
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
+		cmd->Draw(3);
+	}
+
+	// The rough surfaces' rays shared across their neighbourhood
+	// (reflection_resolve.rvshader): the trace's estimate in, the same shape
+	// out with every rough pixel averaged with the neighbours that are the
+	// same reflector. Nothing happens to a mirror.
+	void Renderer3D::ResolveReflections(const RHI::Ref<RHITexture>& fresh,
+										const RHI::Ref<RHITexture>& hit,
+										const RHI::Ref<RHITexture>& depth,
+										const RHI::Ref<RHITexture>& surface)
+	{
+		if (!s_Data || !s_Data->ReflectionResolvePipeline || !s_Data->ActiveScene)
+			return;
+		RHICommandList* cmd = Renderer::GetCommandList();
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!cmd || !slot.LampSet || !fresh || !hit || !depth || !surface)
+			return;
+
+		if (!slot.ReflectionResolveInputs)
+			slot.ReflectionResolveInputs =
+				s_Data->Device->CreateResourceSet(s_Data->ReflectionResolvePipeline, 3);
+		if (!slot.ReflectionResolveInputs)
+			return;
+
+		slot.ReflectionResolveInputs->SetTexture(0, fresh, s_Data->PointSampler);
+		slot.ReflectionResolveInputs->SetTexture(1, depth, s_Data->PointSampler);
+		slot.ReflectionResolveInputs->SetTexture(2, surface, s_Data->PointSampler);
+		slot.ReflectionResolveInputs->SetTexture(3, hit, s_Data->PointSampler);
+		slot.ReflectionResolveInputs->Commit();
+
+		ReflectionPushConstants push;
+		push.InverseViewProjection = Math::Inverse(s_Data->Scene.ViewProjection);
+		push.History.w = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+
+		cmd->BindPipeline(s_Data->ReflectionResolvePipeline);
+		cmd->BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd->BindResourceSet(3, slot.ReflectionResolveInputs);
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
+		cmd->Draw(3);
+	}
+
+	// The accumulated picture blurred by how few frames stand behind each
+	// pixel (reflection_blur.rvshader): wide at one frame, nothing at sixteen.
+	void Renderer3D::BlurSignal(const SignalParams& signal,
+								const RHI::Ref<RHITexture>& accumulated,
+								const RHI::Ref<RHITexture>& depth,
+								const RHI::Ref<RHITexture>& surface,
+								const RHI::Ref<RHITexture>& imageDistance,
+								int stride,
+								const RHI::Ref<RHITexture>& accumulated2)
+	{
+		const bool diffuse = signal.Type == SignalParams::Kind::Diffuse;
+		const Ref<RHIPipeline>& pipeline = accumulated2 ? s_Data->SignalBlurDiffusePairPipeline
+										 : diffuse ? s_Data->SignalBlurDiffusePipeline
+												   : s_Data->ReflectionBlurPipeline;
+		if (!s_Data || !pipeline || !s_Data->ActiveScene)
+			return;
+		RHICommandList* cmd = Renderer::GetCommandList();
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!cmd || !slot.LampSet || !accumulated || !depth || !surface || !imageDistance)
+			return;
+		const int index = Math::Clamp(signal.Slot, 0, 3);
+		Ref<RHIResourceSet>& inputs = slot.SignalBlurInputs[index];
+		if (!inputs)
+			inputs = s_Data->Device->CreateResourceSet(pipeline, 3);
+		if (!inputs)
+			return;
+		inputs->SetTexture(0, accumulated, s_Data->PointSampler);
+		inputs->SetTexture(1, depth, s_Data->PointSampler);
+		inputs->SetTexture(2, surface, s_Data->PointSampler);
+		inputs->SetTexture(3, imageDistance, s_Data->PointSampler);
+		if (accumulated2)
+			inputs->SetTexture(4, accumulated2, s_Data->PointSampler);
+		inputs->Commit();
+
+		SignalPushConstants push;
+		push.InverseViewProjection = Math::Inverse(s_Data->Scene.ViewProjection);
+		push.History.y = signal.BlurFrames;
+		push.History.w = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+		push.Probe.z = (float)Math::Max(stride, 1);
+		push.Tuning = { signal.SmearTexels, signal.MovingMemory, signal.SilhouetteMemory, signal.PairMemory };
+		push.Blur = { signal.YoungRadius, signal.BlurFrames, signal.YoungOverreach, signal.MaxRadius };
+
+		cmd->BindPipeline(pipeline);
+		cmd->BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd->BindResourceSet(3, inputs);
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
+		cmd->Draw(3);
+	}
+
+	// The frames behind the reflection, averaged in (reflection_accumulate.rvshader),
+	// reprojected by the reflection's image through last frame's camera, which
+	// `motion` remembers between calls. `previousSurface` and `previousExtra`
+	// are the pair's second and third attachments from last frame -- the
+	// reflector under each texel and what was learned of it -- which the pass
+	// tests a history against before trusting it.
+	Renderer3D::SignalParams Renderer3D::ReflectionSignal()
+	{
+		SignalParams signal;
+		signal.Type = SignalParams::Kind::Specular;
+		signal.Slot = 0;
+		// A measurement dial, not a setting: the young blur is what hides the
+		// noise of a short history under motion, and how much of it is still
+		// needed is a question for a sweep now that the resolve validates by
+		// geometry (RT-6). Negative leaves the tuning alone.
+		// **No young-history blur** (RT-6.1, 2026-09-07). Twelve texels of it
+		// existed to stand in for a temporal filter the reflection never got: the
+		// composite ran after the resolve, so the sharpest content in the frame
+		// had no anti-aliasing but its own accumulator's, whose memory shortens
+		// under motion by design. RT-6.1 gives the resolve the virtual image's
+		// motion, the composite moves above it, and the blur has nothing left to
+		// hide. Measured on the garage floor mid-dolly (detail = high-frequency
+		// energy, change = frame to frame):
+		//   after the resolve,  blur 12  -- 6.77 / 5.87   (what shipped)
+		//   after the resolve,  blur  3  -- 10.70 / 8.86  (sharp, and grainy)
+		//   before it + motion, blur  0  -- 9.00 / 5.98   (this)
+		// A third more detail than what shipped at the same stability, and the
+		// grain of the sharp arm without it (`build/rt3/rt61_decision.png`).
+		// Between 3 and 0 the blur barely moves anything now (8.51 -> 9.00),
+		// which is the measurement saying it has stopped doing work.
+		signal.YoungRadius = 0.0f;
+		const float radius = EngineConfig::Get().ReflectionBlurRadius;
+		if (radius >= 0.0f)
+			signal.YoungRadius = radius;
+		return signal;
+	}
+
+	Renderer3D::SignalParams Renderer3D::DirectSignal()
+	{
+		SignalParams signal;
+		signal.Type = SignalParams::Kind::Diffuse;
+		signal.Slot = 1;
+		// No young-history blur: measured on the garage's dolly, a spatial blur
+		// across a hard shadow edge on a flat wall costs more than the K-sample
+		// noise it removes (5.8 levels against 2.7 without it); the temporal
+		// average and TAA carry the noise instead.
+		signal.YoungRadius = 0.0f;
+		// The specular twin forgets in four frames (measured: halves the still
+		// bias, cuts the motion error on every region against the shared memory).
+		signal.PairMemory = 4.0f;
+		// The direct light has no mirror end: the young-history blur is bounded
+		// in texels (MaxRadius) and the rough-surface floor applies everywhere.
+		return signal;
+	}
+
+	void Renderer3D::AccumulateSignal(const SignalParams& signal,
+									  const RHI::Ref<RHITexture>& fresh,
+									  const RHI::Ref<RHITexture>& depth,
+									  const RHI::Ref<RHITexture>& surface,
+									  const RHI::Ref<RHITexture>& previous,
+									  const RHI::Ref<RHITexture>& previousSurface,
+									  const RHI::Ref<RHITexture>& previousExtra,
+									  const RHI::Ref<RHITexture>& velocity,
+									  CameraMotion& motion, bool hasHistory,
+									  const RHI::Ref<RHITexture>& fresh2,
+									  const RHI::Ref<RHITexture>& previous2)
+	{
+		const bool diffuse = signal.Type == SignalParams::Kind::Diffuse;
+		const Ref<RHIPipeline>& pipeline = fresh2 ? s_Data->SignalAccumulateDiffusePairPipeline
+										 : diffuse ? s_Data->SignalAccumulateDiffusePipeline
+												   : s_Data->ReflectionAccumulatePipeline;
+		if (!s_Data || !pipeline || !s_Data->ActiveScene)
+			return;
+		RHICommandList* cmd = Renderer::GetCommandList();
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!cmd || !slot.LampSet || !fresh || !depth || !surface)
+			return;
+		const int index = Math::Clamp(signal.Slot, 0, 3);
+		Ref<RHIResourceSet>& inputs = slot.SignalAccumulateInputs[index];
+		if (!inputs)
+			inputs = s_Data->Device->CreateResourceSet(pipeline, 3);
+		if (!inputs)
+			return;
+		const Ref<RHISampler>& historySampler =
+			s_Data->WaterClampSampler ? s_Data->WaterClampSampler : s_Data->PointSampler;
+		inputs->SetTexture(0, fresh, s_Data->PointSampler);
+		inputs->SetTexture(1, depth, s_Data->PointSampler);
+		inputs->SetTexture(2, previous && hasHistory ? previous : fresh, historySampler);
+		inputs->SetTexture(3, surface, s_Data->PointSampler);
+		inputs->SetTexture(4, previousSurface && hasHistory ? previousSurface : surface,
+						   s_Data->PointSampler);
+		inputs->SetTexture(5, previousExtra && hasHistory ? previousExtra : surface,
+						   s_Data->PointSampler);
+		// The scene's velocity, for the silhouette rule; black where the
+		// target has none, which reads as still.
+		inputs->SetTexture(6, velocity ? velocity : TextureLoader::TransparentBlack(*s_Data->Device),
+						   s_Data->PointSampler);
+		if (fresh2)
+		{
+			inputs->SetTexture(7, fresh2, s_Data->PointSampler);
+			inputs->SetTexture(8, previous2 && hasHistory ? previous2 : fresh2, historySampler);
+		}
+		inputs->Commit();
+
+		SignalPushConstants push;
+		push.InverseViewProjection = Math::Inverse(s_Data->Scene.ViewProjection);
+		push.PreviousViewProjection = motion.ViewProjection;
+		push.PreviousEye = motion.Eye;
+		const EngineConfig& config = EngineConfig::Get();
+		const bool readHistory = !(config.HasReflectionHistoryOverride
+								   && !config.ReflectionHistoryOverride);
+		push.History.x = previous && previousSurface && previousExtra && hasHistory
+					   && readHistory ? 1.0f : 0.0f;
+		push.History.y = signal.Memory;
+		push.History.z = signal.Fewest;
+		push.History.w = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+		push.Probe.x = signal.BoundWidth;
+		push.Probe.y = signal.Slack;
+		push.Tuning = { signal.SmearTexels, signal.MovingMemory, signal.SilhouetteMemory, signal.PairMemory };
+		push.Blur = { signal.YoungRadius, signal.BlurFrames, signal.YoungOverreach, signal.MaxRadius };
+		motion.ViewProjection = s_Data->Scene.ViewProjection;
+		// **RT-6.3: and the eye that went with it.** Each signal keeps its own
+		// motion record -- this is the signal's, not the temporal resolve's -- so
+		// recording the eye where the scene records TAA's left this one's w at
+		// zero and switched the direction test off without saying so (measured
+		// bit-identical, 2026-09-07).
+		motion.Eye = Vec4(s_Data->Scene.CameraPosition.x, s_Data->Scene.CameraPosition.y,
+						  s_Data->Scene.CameraPosition.z, 1.0f);
+
+		cmd->BindPipeline(pipeline);
+		cmd->BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd->BindResourceSet(3, inputs);
 		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
 		cmd->Draw(3);
 	}
@@ -5822,6 +6674,13 @@ namespace RageV
 		push.Probe.x = lamps.WaterLampClamp;
 		// This frame's camera answers the next frame's "where was this point".
 		motion.ViewProjection = s_Data->Scene.ViewProjection;
+		// **RT-6.3: and the eye that went with it.** Each signal keeps its own
+		// motion record -- this is the signal's, not the temporal resolve's -- so
+		// recording the eye where the scene records TAA's left this one's w at
+		// zero and switched the direction test off without saying so (measured
+		// bit-identical, 2026-09-07).
+		motion.Eye = Vec4(s_Data->Scene.CameraPosition.x, s_Data->Scene.CameraPosition.y,
+						  s_Data->Scene.CameraPosition.z, 1.0f);
 
 		cmd->BindPipeline(s_Data->WaterAccumulatePipeline);
 		cmd->BindResourceSet(0, slot.LampSet);
@@ -5850,6 +6709,168 @@ namespace RageV
 			return;
 		s_Data->WaterLampDiffuse = diffuse;
 		s_Data->WaterLampSpecular = specular;
+	}
+
+	void Renderer3D::SetDirectSignal(bool requested)
+	{
+		if (s_Data)
+			s_Data->DirectSignalRequested = requested;
+	}
+
+	void Renderer3D::SetDirectLight(const RHI::Ref<RHITexture>& diffuse,
+									const RHI::Ref<RHITexture>& specular)
+	{
+		if (!s_Data)
+			return;
+		s_Data->DirectDiffuse = diffuse;
+		s_Data->DirectSpecular = specular;
+	}
+
+	void Renderer3D::SetAoSignal(bool requested)
+	{
+		if (s_Data)
+			s_Data->AoSignalRequested = requested;
+	}
+
+	void Renderer3D::SetScreenOcclusion(const RHI::Ref<RHITexture>& occlusion)
+	{
+		if (s_Data)
+			s_Data->ScreenOcclusion = occlusion;
+	}
+
+	void Renderer3D::SetGiSignal(bool requested)
+	{
+		if (s_Data)
+			s_Data->GiSignalRequested = requested;
+	}
+
+	void Renderer3D::SetScreenIndirectSignal(const RHI::Ref<RHITexture>& indirect)
+	{
+		if (s_Data)
+			s_Data->ScreenIndirectSignal = indirect;
+	}
+
+	Renderer3D::SignalParams Renderer3D::AoSignal()
+	{
+		SignalParams signal;
+		signal.Type = SignalParams::Kind::Diffuse;
+		signal.Slot = 2;
+		// Occlusion is low-frequency: the young-history blur stays, bounded at
+		// six texels, and the moving memory floor is the direct light's.
+		signal.YoungRadius = 6.0f;
+		signal.MaxRadius = 6.0f;
+		return signal;
+	}
+
+	Renderer3D::SignalParams Renderer3D::GiSignal()
+	{
+		SignalParams signal;
+		signal.Type = SignalParams::Kind::Diffuse;
+		signal.Slot = 3;
+		// **The lowest-frequency signal in the frame, and the sparsest
+		// estimate under it.** One to four cosine rays at half resolution is
+		// four samples of a hemisphere: gi_denoise met that with a 0.98
+		// feedback and a 3x3 spatial blend, and the contract meets it with a
+		// long memory and the widest young blur any signal here takes.
+		signal.YoungRadius = 12.0f;
+		signal.MaxRadius = 10.0f;
+		// **The bound, widened, and the reason is the upsample above it.**
+		// The contract builds its bound from the fresh 3x3's spread, which
+		// assumes the neighbours are independent estimates. After a joint
+		// bilateral upsample from half resolution they are not -- four
+		// full-resolution texels share one traced sample -- so the measured
+		// spread understates the real variance and a bound built from it
+		// would refuse a history that was never wrong. The temporal floor
+		// (the pixel's own measured fluctuation) is what actually holds this
+		// signal; this keeps the spatial ceiling from fighting it.
+		signal.BoundWidth = 6.0f;
+		return signal;
+	}
+
+	bool Renderer3D::CanTraceDirectLight()
+	{
+		return s_Data && s_Data->DirectShader != nullptr;
+	}
+
+	// RT-first T5 (docs/RT-FIRST.md 2d): the shape of TraceGlobalIllumination
+	// -- set 0 is the scene's trace-only set, set 3 the G-buffer, the view in
+	// the push block -- with two colour targets.
+	void Renderer3D::TraceDirectLight(RHICommandList& cmd,
+									  const Ref<RHITexture>& depth,
+									  const Ref<RHITexture>& surface,
+									  const Ref<RHITexture>& albedo,
+									  const Ref<RHITexture>& surfaceId,
+									  Format targetColor,
+									  const GiTraceView& view, int rays)
+	{
+		if (!s_Data || !s_Data->DirectShader || !depth || !surface || !albedo || !surfaceId)
+			return;
+		if (!s_Data->ActiveScene)
+			return;
+		if (!s_Data->DirectPipeline)
+		{
+			GraphicsPipelineDesc direct;
+			direct.Name = "Renderer3D.direct.trace";
+			direct.Shader = s_Data->DirectShader;
+			direct.Topology = PrimitiveTopology::TriangleList;
+			direct.Rasterizer.Cull = CullMode::None;
+			direct.Blend = BlendPreset::Opaque;
+			direct.DepthStencil.DepthTestEnable = false;
+			direct.DepthStencil.DepthWriteEnable = false;
+			direct.ColorFormats = { targetColor, targetColor };
+			direct.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque };
+			direct.DepthFormat = Format::Undefined;
+			s_Data->DirectPipeline = s_Data->Device->CreatePipeline(direct);
+			for (auto& frame : s_Data->SceneSlots)
+				for (auto& slot : frame)
+					slot.DirectInputs = nullptr;
+		}
+		if (!s_Data->DirectPipeline)
+			return;
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!slot.LampSet)
+			return;
+		if (!slot.DirectInputs)
+			slot.DirectInputs = s_Data->Device->CreateResourceSet(s_Data->DirectPipeline, 3);
+		if (!slot.DirectInputs)
+			return;
+		slot.DirectInputs->SetTexture(0, depth, s_Data->PointSampler);
+		slot.DirectInputs->SetTexture(1, surface, s_Data->PointSampler);
+		slot.DirectInputs->SetTexture(2, albedo, s_Data->PointSampler);
+		slot.DirectInputs->SetTexture(3, surfaceId, s_Data->PointSampler);
+		slot.DirectInputs->Commit();
+
+		struct DirectParams
+		{
+			float NearClip, FarClip, InvP0, InvP1;
+			float FlipY, Rays, Frame, Animated;
+			Vec4  CameraRow0, CameraRow1, CameraRow2, CameraPosition;
+		} params{};
+		params.NearClip = view.NearClip;
+		params.FarClip = view.FarClip;
+		params.InvP0 = view.InvProjection0;
+		params.InvP1 = view.InvProjection1;
+		params.FlipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+		params.Rays = (float)Math::Clamp(rays, 0, 8);
+		// The same frame index and the same "is there a filter" test the lit
+		// shader's own draws use, so a sample walks exactly as it did there.
+		params.Frame = s_Data->Scene.GlobalIllumination.y;
+		const Vec4& jitter = s_Data->Scene.Jitter;
+		params.Animated = (jitter.x != 0.0f || jitter.y != 0.0f || jitter.z != 0.0f || jitter.w != 0.0f)
+						? 1.0f : 0.0f;
+		const Mat4 camera = Math::Inverse(view.View);
+		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0], 0.0f);
+		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);
+		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], 0.0f);
+		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2], 0.0f);
+
+		cmd.BindPipeline(s_Data->DirectPipeline);
+		cmd.BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd.BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd.BindResourceSet(3, slot.DirectInputs);
+		cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
+		cmd.Draw(3);
 	}
 
 	void Renderer3D::BeginShadow(const Mat4& viewProjection)
@@ -6049,6 +7070,53 @@ namespace RageV
 		const float record = s_Data->Bindless ? (float)RegisterMaterial(effective) : 0.0f;
 
 		instance.Indices = { 0.0f, (float)probe, record, isStatic ? 1.0f : 0.0f };
+		// The object's id for the G-buffer (RT-first T3): this record's index
+		// plus one, stable for as long as the scene's draw order is.
+		instance.Extra = { (float)(index + 1), 0.0f, 0.0f, 0.0f };
+	}
+
+	void Renderer3D::DrawLit()
+	{
+		if (!s_Data || !s_Data->LitPending || !s_Data->ActiveScene)
+			return;
+		s_Data->LitPending = false;
+		RHICommandList* cmd = Renderer::GetCommandList();
+		if (!cmd || !s_Data->Pipeline)
+			return;
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		const bool haveIndirect = s_Data->IndirectView.IsValid() && !s_Data->IndirectSlots.empty();
+		// RT-first T5: this frame's direct light onto the lit-kind sets. Legal
+		// here and nowhere earlier: in split mode the G-buffer pass binds only
+		// the G-buffer and prepass sets, so none of these has been bound yet,
+		// and a set rewritten after a bind is what the RHI refuses.
+		const bool directPair = s_Data->RayShadowsOn && s_Data->DirectDiffuse && s_Data->DirectSpecular;
+		if (directPair || s_Data->ScreenOcclusion || s_Data->ScreenIndirectSignal)
+		{
+			const Ref<RHIResourceSet> litSets[] = { slot.Set, slot.SkinnedSet, slot.LayeredSet,
+													slot.MaskedSet, slot.GpuSet, slot.MaskedGpuSet };
+			for (const Ref<RHIResourceSet>& litSet : litSets)
+			{
+				if (!litSet)
+					continue;
+				if (directPair)
+				{
+					litSet->SetTexture(26, s_Data->DirectDiffuse, s_Data->PointSampler);
+					litSet->SetTexture(27, s_Data->DirectSpecular, s_Data->PointSampler);
+				}
+				if (s_Data->ScreenOcclusion)
+					litSet->SetTexture(28, s_Data->ScreenOcclusion, s_Data->PointSampler);   // RT-2
+				// RT-3: binding 16 stops being last frame's buffer and becomes this
+				// frame's settled bounce. The same binding on purpose: the lit
+				// shader reads one indirect image either way, and a set layout comes
+				// from reflection -- a second sampler would need a second
+				// declaration on six pipelines to carry the same picture. Bit 24 of
+				// RayRates.w is what tells the shader which one it is holding.
+				if (s_Data->ScreenIndirectSignal)
+					litSet->SetTexture(16, s_Data->ScreenIndirectSignal, s_Data->EnvironmentSampler);
+				litSet->Commit();
+			}
+		}
+		DrawLitBody(cmd, slot, (uint32_t)s_Data->Pending.size(), haveIndirect);
 	}
 
 	void Renderer3D::DrawSceneIndirect(const GpuCull::View& view,
@@ -6532,6 +7600,7 @@ namespace RageV
 							 params.Occlusion, params.NormalScale };
 		// No bones, and the probe the scene picked for this object.
 		instance.Indices = { 0.0f, (float)probe, 0.0f, isStatic ? 1.0f : 0.0f };
+		instance.Extra = { (float)(&instance - s_Data->Instances.data() + 1), 0.0f, 0.0f, 0.0f };
 
 		{
 			const Vec3 eye = Vec3(s_Data->Scene.CameraPosition);
@@ -6582,6 +7651,7 @@ namespace RageV
 		instance.Surface = { params.Metallic, params.Roughness,
 							 params.Occlusion, params.NormalScale };
 		instance.Indices = { 0.0f, (float)probe, 0.0f, 0.0f };
+		instance.Extra = { (float)(&instance - s_Data->Instances.data() + 1), 0.0f, 0.0f, 0.0f };
 
 		{
 			const Vec3 eye = Vec3(s_Data->Scene.CameraPosition);
@@ -6664,6 +7734,7 @@ namespace RageV
 		instance.Surface = { params.Metallic, params.Roughness,
 							 params.Occlusion, params.NormalScale };
 		instance.Indices = { (float)base, (float)probe, 0.0f, (float)prevBase };
+		instance.Extra = { (float)(&instance - s_Data->Instances.data() + 1), 0.0f, 0.0f, 0.0f };
 
 		// The same depth the other two submission paths carry, so a skinned
 		// run is ordered front to back like the runs beside it rather than
@@ -6716,6 +7787,7 @@ namespace RageV
 		instance.Surface = { params.Metallic, params.Roughness,
 							 params.Occlusion, params.NormalScale };
 		instance.Indices = { 0.0f, (float)probe, 0.0f, isStatic ? 1.0f : 0.0f };
+		instance.Extra = { (float)(&instance - s_Data->Instances.data() + 1), 0.0f, 0.0f, 0.0f };
 
 		{
 			const Vec3 eye = Vec3(s_Data->Scene.CameraPosition);
@@ -6764,4 +7836,30 @@ namespace RageV
 	unsigned int Renderer3D::GetDrawCallCount() { return s_Data ? s_Data->DrawCalls : 0; }
 	unsigned int Renderer3D::GetTriangleCount() { return s_Data ? s_Data->Triangles : 0; }
 	unsigned int Renderer3D::GetIndirectDrawCount() { return s_Data ? s_Data->IndirectDraws : 0; }
+
+	void Renderer3D::CountTerrainChunk(int level, uint32_t triangles)
+	{
+		if (!s_Data || level < 0 || level >= kTerrainLevels)
+			return;
+		s_Data->Terrain.Drawn[level]++;
+		s_Data->Terrain.Triangles[level] += triangles;
+	}
+
+	void Renderer3D::ReportTerrainLod(uint32_t chunks, const uint32_t* byDistance,
+									  uint32_t vetoed, uint32_t capped)
+	{
+		if (!s_Data)
+			return;
+		s_Data->Terrain.Chunks += chunks;
+		for (int i = 0; i < kTerrainLevels; i++)
+			s_Data->Terrain.ByDistance[i] += byDistance[i];
+		s_Data->Terrain.Vetoed += vetoed;
+		s_Data->Terrain.Capped += capped;
+	}
+
+	const Renderer3D::TerrainStats& Renderer3D::GetTerrainStats()
+	{
+		static const TerrainStats kNone;
+		return s_Data ? s_Data->Terrain : kNone;
+	}
 }

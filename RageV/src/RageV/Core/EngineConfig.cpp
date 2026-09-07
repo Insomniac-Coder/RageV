@@ -170,6 +170,18 @@ namespace RageV
 			return ParseBool(value, config.RayReflectionsOverride);
 		}
 
+		if (key == "reflection-pass" || key == "reflectionpass")
+		{
+			config.HasReflectionPassOverride = true;
+			return ParseBool(value, config.ReflectionPassOverride);
+		}
+
+		if (key == "reflection-history" || key == "reflectionhistory")
+		{
+			config.HasReflectionHistoryOverride = true;
+			return ParseBool(value, config.ReflectionHistoryOverride);
+		}
+
 		if (key == "rt-ao" || key == "rtao")
 		{
 			config.HasRayAoOverride = true;
@@ -395,6 +407,43 @@ namespace RageV
 		if (key == "water-lamp-pass" || key == "waterlamppass")
 			return ParseBool(value, config.WaterLampPass);
 
+		if (key == "direct-signal" || key == "directsignal")
+			return ParseBool(value, config.DirectSignal);
+
+		if (key == "ao-signal" || key == "aosignal")
+			return ParseBool(value, config.AoSignal);
+
+		// RT-3: the reference arm for the traced bounce as a signal.
+		if (key == "gi-signal" || key == "gisignal")
+			return ParseBool(value, config.GiSignal);
+
+		// RT-6: the reference arm for the resolve's geometric test.
+		if (key == "taa-geometry" || key == "taageometry")
+			return ParseBool(value, config.TaaGeometry);
+
+		// The reflection signal's young blur, in texels, for a sweep.
+		if (key == "reflection-blur" || key == "reflectionblur")
+		{
+			try { config.ReflectionBlurRadius = std::stof(value); }
+			catch (...) { RV_CORE_WARN("reflection-blur expects a number of texels; got '{0}'", value); return false; }
+			return true;
+		}
+
+		if (key == "terrain-lod-error" || key == "terrainloderror")
+		{
+			try
+			{
+				const float ratio = std::stof(value);
+				config.TerrainLevelError = ratio > 0.0f ? ratio : 0.0f;
+			}
+			catch (...)
+			{
+				RV_CORE_WARN("terrain-lod-error expects a ratio, got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
 		if (key == "water-lamp-reuse" || key == "waterlampreuse")
 			return ParseBool(value, config.WaterLampReuse);
 
@@ -565,7 +614,8 @@ namespace RageV
 			return true;
 		}
 
-		if (key == "light-sampling" || key == "lightsampling")
+		if (key == "rays-per-pixel" || key == "raysperpixel"
+			|| key == "light-sampling" || key == "lightsampling")   // the old name, still read (RT-1)
 		{
 			std::string count = value;
 			const size_t comma = value.find(',');
@@ -574,70 +624,26 @@ namespace RageV
 				const std::string target = ToLower(value.substr(comma + 1));
 				count = value.substr(0, comma);
 				if (target == "exact")
-					config.LightSamplingTarget = 2;
+					config.RaysPerPixelTarget = 2;
 				else if (target == "term" || target == "peak")
-					config.LightSamplingTarget = 1;
+					config.RaysPerPixelTarget = 1;
 				else if (target == "irradiance" || target == "cheap")
-					config.LightSamplingTarget = 0;
+					config.RaysPerPixelTarget = 0;
 				else
 				{
-					RV_CORE_WARN("light-sampling's target is 'term' or 'irradiance'; got '{0}'",
+					RV_CORE_WARN("rays-per-pixel's target is 'term' or 'irradiance'; got '{0}'",
 								 target);
 					return false;
 				}
 			}
 			try
 			{
-				config.LightSampling = Math::Clamp(std::stoi(count), 0, 8);
-				config.HasLightSamplingOverride = true;
+				config.RaysPerPixel = Math::Clamp(std::stoi(count), 0, 8);
+				config.HasRaysPerPixelOverride = true;
 			}
 			catch (const std::exception&)
 			{
-				RV_CORE_WARN("light-sampling expects a whole number from 0 to 8; got '{0}'", value);
-				return false;
-			}
-			return true;
-		}
-
-		if (key == "shade-lights" || key == "shadelights")
-		{
-			try
-			{
-				config.ShadeLights = Math::Clamp(std::stoi(value), 0, 255);
-			}
-			catch (const std::exception&)
-			{
-				RV_CORE_WARN("shade-lights expects a whole number from 0 to 255; got '{0}'", value);
-				return false;
-			}
-			return true;
-		}
-
-		if (key == "shadow-budget" || key == "shadowbudget")
-		{
-			// K, optionally followed by ",full" for the full-term target.
-			std::string count = value;
-			config.ShadowBudgetFullTarget = false;
-			const size_t comma = value.find(',');
-			if (comma != std::string::npos)
-			{
-				const std::string target = ToLower(value.substr(comma + 1));
-				count = value.substr(0, comma);
-				if (target == "full")
-					config.ShadowBudgetFullTarget = true;
-				else if (target != "cheap")
-				{
-					RV_CORE_WARN("shadow-budget's target is 'cheap' or 'full'; got '{0}'", target);
-					return false;
-				}
-			}
-			try
-			{
-				config.ShadowBudget = Math::Clamp(std::stoi(count), 0, 8);
-			}
-			catch (const std::exception&)
-			{
-				RV_CORE_WARN("shadow-budget expects a whole number from 0 to 8; got '{0}'", value);
+				RV_CORE_WARN("rays-per-pixel expects a whole number from 0 to 8; got '{0}'", value);
 				return false;
 			}
 			return true;
@@ -729,10 +735,54 @@ namespace RageV
 			else if (lowered == "importance-gi" || lowered == "importancegi"
 					 || lowered == "allocation-gi" || lowered == "gi")
 				config.DebugView = EngineConfig::DebugViewMode::GiImportance;
+			// The traced reflection accumulator's memory: how many frames
+			// stand behind each glossy texel, black for none and white for
+			// its full 24. A parked camera should read white on every glossy
+			// surface; where it reads less, the history is being refused or
+			// shortened, which is what the mode is for finding.
+			else if (lowered == "reflection" || lowered == "reflections")
+				config.DebugView = EngineConfig::DebugViewMode::Reflection;
+			// The image distance the accumulator reprojects by, metres up
+			// to twenty as the ramp; and which history each texel took:
+			// black none, the ramp's middle the surface's old place, white
+			// the image's.
+			else if (lowered == "reflection-image" || lowered == "reflectionimage")
+				config.DebugView = EngineConfig::DebugViewMode::ReflectionImage;
+			// The integer part is why the texel's own history was refused (0
+			// kept, 1 off screen, 2 none, 3 normal, 4 plane, 5 roughness), the
+			// fraction which candidate served (0 none, .25 surface, .5 image);
+			// the ramp runs 0..6 (RT-first T4).
+			else if (lowered == "reflection-choice" || lowered == "reflectionchoice"
+					 || lowered == "reflection-refusal" || lowered == "reflectionrefusal")
+				config.DebugView = EngineConfig::DebugViewMode::ReflectionChoice;
+			// The accumulated reflection picture itself, radiance over four,
+			// straight to the output: the reflection layer alone, for tests
+			// that need it apart from everything TAA and GI do to the frame.
+			else if (lowered == "reflection-picture" || lowered == "reflectionpicture")
+				config.DebugView = EngineConfig::DebugViewMode::ReflectionPicture;
+			// RT-first T5: the direct light's accumulated diffuse (before the
+			// albedo, over four), and the reason its history was refused.
+			else if (lowered == "direct-light" || lowered == "directlight")
+				config.DebugView = EngineConfig::DebugViewMode::DirectLight;
+			else if (lowered == "direct-refusal" || lowered == "directrefusal")
+				config.DebugView = EngineConfig::DebugViewMode::DirectRefusal;
+			// RT-2: the accumulated occlusion signal, as the lit shader reads it.
+			else if (lowered == "ao" || lowered == "occlusion")
+				config.DebugView = EngineConfig::DebugViewMode::Occlusion;
+			// RT-3: the settled bounce the lit shader adds -- albedo-free
+			// irradiance, and dim, so the ramp is one rather than the direct
+			// light's sixty-four; and why each texel's history was refused, on
+			// the reflections' ramp. `gi` is taken by the budget's importance
+			// map, so these are named in full.
+			else if (lowered == "gi-light" || lowered == "gilight")
+				config.DebugView = EngineConfig::DebugViewMode::GiLight;
+			else if (lowered == "gi-refusal" || lowered == "girefusal")
+				config.DebugView = EngineConfig::DebugViewMode::GiRefusal;
 			else
 			{
-				RV_CORE_WARN("debug-view expects rays, lights, confidence, importance or "
-							 "importance-gi; got '{0}'",
+				RV_CORE_WARN("debug-view expects rays, lights, confidence, importance, "
+							 "importance-gi, reflection, reflection-image or "
+							 "reflection-choice; got '{0}'",
 							 value);
 				return false;
 			}

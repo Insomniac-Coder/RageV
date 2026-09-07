@@ -1,0 +1,1264 @@
+{
+ "BezierCurve.001": {
+  "baked": false
+ },
+ "BezierCurve.003": {
+  "baked": false
+ },
+ "Blinking Light In Casing": {
+  "baked": false
+ },
+ "Bottom light bars.001": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.002": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.501,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.003": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.004": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.005": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.501,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.006": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.007": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.008": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.501,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.009": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.010": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.011": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.501,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.012": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.013": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.014": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5009,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.015": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0334
+  },
+  "res": 256
+ },
+ "Bottom light bars.016": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.017": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5009,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.018": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.019": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.020": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.501,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.021": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.022": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.023": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.501,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.024": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.025": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.026": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.501,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.027": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.028": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.029": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.501,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.030": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.031": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.032": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.033": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.501,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.034": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.501,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.035": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.036": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.037": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.501,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.038": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.039": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.040": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5009,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.041": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0334
+  },
+  "res": 256
+ },
+ "Bottom light bars.042": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.043": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5009,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.044": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.045": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.046": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5009,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.047": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.048": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.049": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5009,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.050": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0334
+  },
+  "res": 256
+ },
+ "Bottom light bars.051": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.052": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.501,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.053": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0334
+  },
+  "res": 256
+ },
+ "Bottom light bars.054": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.055": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.501,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.056": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0334
+  },
+  "res": 256
+ },
+ "Bottom light bars.057": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Bottom light bars.058": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.501,
+   "rough": 0.0337
+  },
+  "res": 256
+ },
+ "Bottom light bars.059": {
+  "area": 0.1,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.5008,
+   "rough": 0.0333
+  },
+  "res": 256
+ },
+ "Bottom light bars.237": {
+  "area": 1.5,
+  "baked": true,
+  "materials": [
+   "metal Surface",
+   "light",
+   "light2",
+   "Surface"
+  ],
+  "means": {
+   "normal": 0.502,
+   "rough": 0.8009
+  },
+  "res": 256
+ },
+ "Cube": {
+  "area": 2659.1,
+  "baked": true,
+  "materials": [
+   "Material.014"
+  ],
+  "means": {
+   "col": 0.3532,
+   "normal": 0.5017
+  },
+  "res": 4096
+ },
+ "Cube.001": {
+  "baked": false
+ },
+ "Cube.002": {
+  "baked": false
+ },
+ "Cube.014": {
+  "baked": false
+ },
+ "Cylinder": {
+  "baked": false
+ },
+ "Cylinder.001": {
+  "baked": false
+ },
+ "Cylinder.002": {
+  "baked": false
+ },
+ "Cylinder.003": {
+  "baked": false
+ },
+ "Cylinder.004": {
+  "baked": false
+ },
+ "Cylinder.005": {
+  "baked": false
+ },
+ "Cylinder.006": {
+  "baked": false
+ },
+ "Cylinder.007": {
+  "baked": false
+ },
+ "Cylinder.008": {
+  "baked": false
+ },
+ "Cylinder.012": {
+  "area": 9.5,
+  "baked": true,
+  "materials": [
+   "TexturesCom_MachineryHeavy0091_S",
+   "Piston"
+  ],
+  "means": {
+   "col": 0.2465,
+   "normal": 0.5003,
+   "rough": 0.7428
+  },
+  "res": 512
+ },
+ "Cylinder.013": {
+  "area": 27.7,
+  "baked": true,
+  "materials": [
+   "concrete.006",
+   "concrete"
+  ],
+  "means": {
+   "col": 0.4587,
+   "normal": 0.5007,
+   "rough": 0.3329
+  },
+  "res": 1024
+ },
+ "Cylinder.014": {
+  "baked": false,
+  "shares": "Cylinder.013"
+ },
+ "Cylinder.015": {
+  "baked": false,
+  "shares": "Cylinder.013"
+ },
+ "Cylinder.016": {
+  "baked": false,
+  "shares": "Cylinder.013"
+ },
+ "Cylinder.017": {
+  "baked": false,
+  "shares": "Cylinder.013"
+ },
+ "Cylinder.018": {
+  "baked": false,
+  "shares": "Cylinder.013"
+ },
+ "Cylinder.019": {
+  "baked": false,
+  "shares": "Cylinder.013"
+ },
+ "Cylinder.020": {
+  "baked": false,
+  "shares": "Cylinder.013"
+ },
+ "Cylinder.021": {
+  "baked": false,
+  "shares": "Cylinder.013"
+ },
+ "Cylinder.022": {
+  "baked": false,
+  "shares": "Cylinder.013"
+ },
+ "Cylinder.052": {
+  "baked": false
+ },
+ "Cylinder.054": {
+  "baked": false
+ },
+ "Cylinder.055": {
+  "baked": false
+ },
+ "Cylinder.056": {
+  "baked": false
+ },
+ "Cylinder.057": {
+  "baked": false
+ },
+ "Cylinder.058": {
+  "baked": false
+ },
+ "Cylinder.059": {
+  "baked": false
+ },
+ "Cylinder.060": {
+  "baked": false
+ },
+ "Cylinder.061": {
+  "baked": false
+ },
+ "Cylinder.062": {
+  "baked": false
+ },
+ "Cylinder.063": {
+  "baked": false
+ },
+ "Cylinder.064": {
+  "baked": false
+ },
+ "Cylinder.065": {
+  "baked": false
+ },
+ "Cylinder.066": {
+  "baked": false
+ },
+ "Cylinder.067": {
+  "baked": false
+ },
+ "P_WorkShop_TyrePile_01_B-2": {
+  "area": 17.0,
+  "baked": true,
+  "materials": [
+   "M_WorkShop_01"
+  ],
+  "means": {
+   "alpha": 0.63,
+   "col": 0.1739
+  },
+  "res": 1024
+ },
+ "Plane.001": {
+  "baked": false
+ },
+ "Plane.003": {
+  "area": 2574.0,
+  "baked": true,
+  "materials": [
+   "concrete.006"
+  ],
+  "means": {
+   "col": 0.332,
+   "normal": 0.5022,
+   "rough": 0.2116
+  },
+  "res": 4096
+ },
+ "Plane.007": {
+  "baked": false
+ },
+ "Plane.010": {
+  "baked": false,
+  "shares": "Plane.003"
+ },
+ "Plane.016": {
+  "area": 6023.9,
+  "baked": true,
+  "materials": [
+   "wet road.001"
+  ],
+  "means": {
+   "col": 0.3561,
+   "normal": 0.502,
+   "rough": 0.2441
+  },
+  "res": 4096
+ },
+ "ladder 4 copy": {
+  "area": 17.8,
+  "baked": true,
+  "materials": [
+   "ladders mat"
+  ],
+  "means": {
+   "col": 0.3927,
+   "metal": 0.9605,
+   "normal": 0.502,
+   "rough": 0.5364
+  },
+  "res": 1024
+ },
+ "pipe.001": {
+  "area": 57.3,
+  "baked": true,
+  "materials": [
+   "metalic shader.001"
+  ],
+  "means": {
+   "col": 0.1122,
+   "normal": 0.5014,
+   "rough": 0.1329
+  },
+  "res": 1024
+ },
+ "pipe.004": {
+  "baked": false,
+  "shares": "pipe.001"
+ },
+ "pipe.005": {
+  "baked": false,
+  "shares": "pipe.001"
+ },
+ "pipe.007": {
+  "area": 15.7,
+  "baked": true,
+  "materials": [
+   "car shader_2"
+  ],
+  "means": {
+   "col": 0.4663,
+   "metal": 0.3636,
+   "normal": 0.5015,
+   "rough": 0.5222
+  },
+  "res": 1024
+ },
+ "pipe.008": {
+  "baked": false,
+  "shares": "pipe.007"
+ },
+ "pipe.020": {
+  "baked": false,
+  "shares": "pipe.001"
+ },
+ "scribble1": {
+  "area": 8.7,
+  "baked": true,
+  "materials": [
+   "scribble1.001"
+  ],
+  "means": {
+   "alpha": 0.3473,
+   "col": 0.0471
+  },
+  "res": 1024
+ },
+ "scribble1.001": {
+  "baked": false,
+  "shares": "scribble1"
+ },
+ "scribble2": {
+  "area": 5.0,
+  "baked": true,
+  "materials": [
+   "scribble2.001"
+  ],
+  "means": {
+   "alpha": 0.3915,
+   "col": 0.0585
+  },
+  "res": 1024
+ },
+ "scribble2.003": {
+  "area": 18.8,
+  "baked": true,
+  "materials": [
+   "scribble2.001"
+  ],
+  "means": {
+   "alpha": 0.2075,
+   "col": 0.0481
+  },
+  "res": 1024
+ },
+ "scribble3.001": {
+  "area": 5.3,
+  "baked": true,
+  "materials": [
+   "scribble3.001"
+  ],
+  "means": {
+   "alpha": 0.236,
+   "col": 0.0821
+  },
+  "res": 1024
+ },
+ "scribble3.005": {
+  "baked": false,
+  "shares": "scribble3.001"
+ },
+ "scribbles": {
+  "area": 7.5,
+  "baked": true,
+  "materials": [
+   "scribbles"
+  ],
+  "means": {
+   "alpha": 0.1976,
+   "col": 0.0
+  },
+  "res": 1024
+ },
+ "scribbles.004": {
+  "area": 25.9,
+  "baked": true,
+  "materials": [
+   "scribbles"
+  ],
+  "means": {
+   "alpha": 0.1744,
+   "col": 0.0
+  },
+  "res": 1024
+ },
+ "scribbles.025": {
+  "area": 25.1,
+  "baked": true,
+  "materials": [
+   "scribbles"
+  ],
+  "means": {
+   "alpha": 0.3263,
+   "col": 0.0
+  },
+  "res": 1024
+ }
+}

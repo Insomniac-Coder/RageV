@@ -42,4 +42,8 @@ layout(location = 8) out vec4 v_PrevClipPos;
 // Which record of the frame's material buffer this instance reads, straight
 // out of Indices.z. Read only by the bindless fragment variant.
 layout(location = 9) flat out float v_MaterialIndex;
+// The object's id for the G-buffer (RT-first step 1a): the instance
+// record's index plus one, straight out of Indices.x; zero where a stage
+// has none. The denoisers' "same surface" test reads it.
+layout(location = 15) flat out float v_ObjectId;
 

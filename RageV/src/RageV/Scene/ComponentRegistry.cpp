@@ -1694,6 +1694,11 @@ namespace
 		// The cascade dials mean nothing to a traced shadow (7an): with ray
 		// tracing on, no map of any kind is rendered. Asked of what runs, not
 		// of the checkbox alone: a ticked box on OpenGL renders maps.
+		// The note the shadow-map dials carry while shadows are ray-traced
+		// (RT-first T2, 2026-09-06): greyed, not hidden -- the owner's call.
+		constexpr const char* kCascadesUnderRays =
+			"Shadows are ray-traced while ray tracing is on; the cascades are not drawn.";
+
 		bool UsesCascades(const void* block)
 		{
 			const auto* render = static_cast<const RenderSettings*>(block);
@@ -1862,6 +1867,14 @@ namespace
 							"square of it: two is four times the pixels shaded, four "
 							"is sixteen.")))),
 
+				Field<&RenderSettings::TemporalStillFeedback>("TemporalStillFeedback",
+					Named("Still feedback", OnlyWhen(UsesTaa,
+						Drag(0.005f, 0.0f, 0.98f,
+							"TAA feedback for pixels that did not move at all. Zero "
+							"uses Feedback. Raise it (0.98) where the scene is still "
+							"geometry: it removes the jitter's edge flicker. Leave it "
+							"where far water sparkles: that smears into bands.")))),
+
 				Field<&RenderSettings::TemporalFeedback>("TemporalFeedback",
 					Named("Feedback", OnlyWhen(UsesTaa,
 						Drag(0.005f, 0.0f, 0.98f,
@@ -2027,26 +2040,26 @@ namespace
 				// controller (S3) reads a measured number, never a guess.
 
 				Field<&RenderSettings::ShadowDistance>("ShadowDistance",
-					Named("Distance", OnlyWhen(UsesCascades,
+					Named("Distance", OnlyWhen(CastsShadows, DisabledWhen(RayTracingOn, kCascadesUnderRays,
 						Drag(0.5f, 1.0f, 500.0f,
 							"How far from the camera shadows are drawn at all. Not "
 							"the far plane: past this distance the texels are so "
-							"large the shadow is worse than none.")))),
+							"large the shadow is worse than none."))))),
 
 				Field<&RenderSettings::ShadowSplitLambda>("ShadowSplitLambda",
-					Named("Split lambda", OnlyWhen(UsesCascades,
+					Named("Split lambda", OnlyWhen(CastsShadows, DisabledWhen(RayTracingOn, kCascadesUnderRays,
 						Slider(0.0f, 1.0f,
 							"Blend between a logarithmic cascade split, which "
 							"distributes texels correctly and starves the far "
-							"cascades, and a uniform one, which does the reverse.")))),
+							"cascades, and a uniform one, which does the reverse."))))),
 
 				Field<&RenderSettings::ShadowNormalOffset>("ShadowNormalOffset",
-					Named("Normal offset", OnlyWhen(UsesCascades,
+					Named("Normal offset", OnlyWhen(CastsShadows, DisabledWhen(RayTracingOn, kCascadesUnderRays,
 						Drag(0.05f, 0.0f, 8.0f,
 							"How far along the surface normal a sample is pushed, in "
 							"shadow texels. Raising it removes acne and starts "
 							"detaching shadows from their casters; no value has "
-							"neither.")))),
+							"neither."))))),
 
 				// These reallocate render targets when they change, so they are
 				// absent from the script surface -- but they are in this list,
@@ -2054,16 +2067,16 @@ namespace
 				// setting the panel edits and nothing saves is the exact bug
 				// this registry exists to prevent.
 				Field<&RenderSettings::ShadowCascades>("ShadowCascades",
-					Named("Cascades", OnlyWhen(UsesCascades,
+					Named("Cascades", OnlyWhen(CastsShadows, DisabledWhen(RayTracingOn, kCascadesUnderRays,
 						Drag(0.05f, 1, 4,
 							"More cascades means better texel density near the "
-							"camera and more scene renders.")))),
+							"camera and more scene renders."))))),
 
 				Field<&RenderSettings::ShadowResolution>("ShadowResolution",
-					Named("Resolution", OnlyWhen(CastsShadows,
+					Named("Resolution", OnlyWhen(CastsShadows, DisabledWhen(RayTracingOn, kCascadesUnderRays,
 						Drag(8.0f, 256, 8192,
 							"Per cascade, square. The single biggest lever on both "
-							"quality and cost: four 2048 maps is 64 MB of depth.")))),
+							"quality and cost: four 2048 maps is 64 MB of depth."))))),
 			};
 		}
 

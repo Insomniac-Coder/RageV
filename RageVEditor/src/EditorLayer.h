@@ -445,6 +445,8 @@ private:
 	// reason there are two. ENGINE-NOTES 7af.
 	RageV::TemporalHistory m_SceneReflections;
 	RageV::TemporalHistory m_GameReflections;
+	RageV::TemporalHistory m_SceneDirectLight;   // RT-first T5
+	RageV::TemporalHistory m_GameDirectLight;
 	// WR-16 S4b: the sea's choices, one per chain like every history here.
 	RageV::TemporalHistory m_SceneWaterChoices;
 	RageV::TemporalHistory m_GameWaterChoices;
@@ -466,6 +468,15 @@ private:
 	// cameras, and a shared pair would have each dragging the other's image.
 	RageV::TemporalHistory m_SceneOcclusion;
 	RageV::TemporalHistory m_GameOcclusion;
+	// RT-3: the traced bounce's accumulation, one per view for the reason
+	// every other history here is one per view -- the two cameras are not
+	// consecutive frames of anything.
+	RageV::TemporalHistory m_SceneGiLight;
+	RageV::TemporalHistory m_GameGiLight;
+	// RT-6: last frame's identity lanes, one per view -- the two cameras
+	// are not consecutive frames of anything.
+	RageV::TemporalHistory m_SceneTaaGuide;
+	RageV::TemporalHistory m_GameTaaGuide;
 
 	// What both viewport textures are, and what the post chain's last pass
 	// writes. ImGui samples them, so they are LDR.

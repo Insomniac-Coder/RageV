@@ -1,0 +1,11 @@
+Material: light2
+BaseColor: [0.85, 0.9, 1, 1]
+Emissive: [3.4, 4.3, 5.6, 1]
+Metallic: 0
+Roughness: 0.35
+Occlusion: 1
+NormalScale: 1
+Specular: 0.5
+HeightScale: 0.05
+Tiling: [1, 1]
+UvOffset: [0, 0]

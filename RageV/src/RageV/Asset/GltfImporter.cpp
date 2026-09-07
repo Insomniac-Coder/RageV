@@ -270,8 +270,18 @@ namespace RageV::Assets
 					out.Params.MapFlags |= MaterialMap_Roughness | MaterialMap_Metallic;
 			}
 
-			out.Params.EmissiveColor = { source.emissive_factor[0], source.emissive_factor[1],
-										 source.emissive_factor[2], 1.0f };
+			// KHR_materials_emissive_strength: emissiveFactor is clamped to 0..1
+			// by the core spec, so an emitter brighter than white -- a strip
+			// light at 16, a ceiling panel at 100 -- arrives through this
+			// extension's scalar, which Blender writes for any Emission
+			// Strength above one. Read it here, where the material is made,
+			// rather than multiplied back into the .rmat by a script that has
+			// to know the numbers (the garage's rebuild.py did exactly that).
+			const float emissiveStrength = source.has_emissive_strength
+									? source.emissive_strength.emissive_strength : 1.0f;
+			out.Params.EmissiveColor = { source.emissive_factor[0] * emissiveStrength,
+										 source.emissive_factor[1] * emissiveStrength,
+										 source.emissive_factor[2] * emissiveStrength, 1.0f };
 			out.Params.NormalScale = source.normal_texture.scale != 0.0f
 								   ? source.normal_texture.scale : 1.0f;
 
