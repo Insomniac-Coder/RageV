@@ -79,6 +79,11 @@ layout(set = 0, binding = 1) uniform sampler2D u_History;
 layout(set = 0, binding = 2) uniform sampler2D u_Velocity;
 // Last frame's counter and moments, reprojected with the colour. Point
 // sampled: a count is not a thing to interpolate.
+// **RT-6.6: and read at the same texel the colour is.** When RT-6's
+// neighbour search recovers a history one texel over, the count and the
+// fluctuation belong to that texel too. Reading them at the centre -- the
+// texel the search had just rejected -- weights this pixel's blend by a
+// surface it is not blending.
 layout(set = 0, binding = 3) uniform sampler2D u_Moments;
 
 // **RT-6: the identity lanes, this frame's and last frame's.** Packed by
@@ -513,6 +518,21 @@ void main()
 		return;
 	}
 
+	// **RT-6.6: where the history is read from, decided once.** The colour,
+	// the count and the moments have to come from the same texel or the
+	// blend is weighted by a surface it is not blending: `prevMoments.x` is
+	// the frame count that sets how much of this frame enters at all, and
+	// `.y`/`.z` set the floor the box may not narrow below.
+	//
+	// RT-6 added the neighbour search and moved only the colour. `u_Moments`
+	// is point sampled, so this was never a filtering question -- the colour
+	// came from the neighbour and the moments from the centre, which is the
+	// texel the search had just rejected as a different surface.
+	//
+	// **One bool rather than the condition written at each read**, because
+	// the defect was exactly the second copy of that condition going missing.
+	const bool neighbourServed = u_Params.Geometry > 0.5 && !geometryBilinear;
+
 	// The 3x3 neighbourhood, in YCoCg, as a box -- and the alpha's range
 	// beside it. The alpha is the traced reflection's weight, which the
 	// composite after this pass multiplies into a picture that never came
@@ -594,7 +614,10 @@ void main()
 	// few frames behind it the estimate moves freely, and once 1/n falls
 	// below the configured feedback the feedback governs.
 	const vec4 prevMoments = u_Params.HasMoments > 0.5
-						   ? texture(u_Moments, historyUV) : vec4(0.0);
+						   ? (neighbourServed
+							  ? texelFetch(u_Moments, historyTexel, 0)
+							  : texture(u_Moments, historyUV))
+						   : vec4(0.0);
 	const float frames = min(prevMoments.x + 1.0, kMaxFrames);
 	const float motionTexels = length(velocity / u_Params.TexelSize);
 	// **Still, and known to be the same surface** (RT-6). The velocity test
@@ -646,7 +669,7 @@ void main()
 	// value where a neighbour served.** The texels between the two belong to
 	// the other side of the edge, and a filtered read across them is exactly
 	// the blend the surface test just refused.
-	const vec4 historySample = (u_Params.Geometry > 0.5 && !geometryBilinear)
+	const vec4 historySample = neighbourServed
 							 ? texelFetch(u_History, historyTexel, 0)
 							 : texture(u_History, historyUV);
 	vec3 history = ToYCoCg(historySample.rgb);

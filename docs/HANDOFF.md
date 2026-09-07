@@ -1,6 +1,60 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-07 evening, after RT-3 and RT-3.1: **the twelfth entry below is this session's hand-off**, the tenth (2026-09-06) the complete one for the RT-first state (recipes, flags, traps, what is where). `docs/RT-SERIES.md` is the one list with the records of RT-1, RT-2, RT-2.1, RT-3 and RT-3.1. Nothing is committed. **RT-6's geometric half is done** -- the temporal resolve refuses a history by depth, normal and object id, with a neighbour search before it gives up, and the bridge is visibly sharper for it (`build/rt3/taa_car_sidebyside.png`). Its still-feedback half is deferred by the owner to RT-8, because the sea reads zero velocity and nothing in the G-buffer says "water". **Open from the owner and not yet started: improve the denoiser and accumulation, and make the ground reflection less blurry** -- the reflection signal's young blur is `YoungRadius = 12`, and a validated history (RT-6, RT-5) is the precondition for weakening it. The AO look is accepted; the deferred resolve is **RT-2.2**, owner-filed for the end of the series.
+**Read this first.** Updated 2026-09-07 night: **the whole RT-first series is committed and merged to `main`** (`d34c905`, merged as `ddc7827` -- the sentence "nothing is committed" below was true when it was written and is not now), and **the thirteenth entry is the current hand-off**: two outside reviews were read against the code and filed, adding **six items -- RT-6.6 through RT-6.11 and RT-14**, of which **RT-6.6 is done and measured** (its record is in RT-SERIES.md; uncommitted). `docs/RT-SERIES.md` now opens with a status table; read that before picking anything up. The twelfth entry is the RT-3 / RT-3.1 hand-off, the tenth (2026-09-06) the complete one for the RT-first state (recipes, flags, traps, what is where). `docs/RT-SERIES.md` is the one list with the records of RT-1, RT-2, RT-2.1, RT-3 and RT-3.1. Nothing is committed. **RT-6's geometric half is done** -- the temporal resolve refuses a history by depth, normal and object id, with a neighbour search before it gives up, and the bridge is visibly sharper for it (`build/rt3/taa_car_sidebyside.png`). Its still-feedback half is deferred by the owner to RT-8, because the sea reads zero velocity and nothing in the G-buffer says "water". **Open from the owner and not yet started: improve the denoiser and accumulation, and make the ground reflection less blurry** -- the reflection signal's young blur is `YoungRadius = 12`, and a validated history (RT-6, RT-5) is the precondition for weakening it. The AO look is accepted; the deferred resolve is **RT-2.2**, owner-filed for the end of the series.
+
+## 2026-09-07, night: two outside reviews read against the code, six items filed -- COMMITTED (`ddc7827` on `main`)
+
+**RT-6.6 was built at the owner's word; the rest is filing.** Two independent reviews of the codebase were checked line by line and filed into `docs/RT-SERIES.md`, which now opens with a **status table** (nine of twenty-eight closed, three part-done, sixteen open).
+
+**Five verified defects, each filed with the line that shows it:**
+
+- **RT-6.6 -- the moments are read at a different texel than the colour.** `taa_resolve.rvshader` fetches the colour at `historyTexel` when RT-6's neighbour search recovers one, and the moments at `historyUV` always. So the blend weight (`prevMoments.x`) and the variance floor belong to a different surface than the colour being blended, on 1.1-1.7% of the garage's pixels a frame and 3.5-4.2% of the bridge's. **This is RT-6's own defect** -- it added the search and did not move the moments with it. No trade-off; do it first.
+- **RT-6.7 -- `Matches()` accepts any history where *either* side is sky** (`now.x >= 1.0 || was.x >= 1.0`). Right when both are sky, wrong at the transition, which is a disocclusion in both directions. **The garage cannot show it -- it has no sky**; the bridge is nothing else.
+- **RT-6.8 -- the 3x3 colour box takes all nine taps whatever surface they are on.** The complement of RT-6: the history side learned the question and the box side never did, so the box is widest exactly at silhouettes. May reopen RT-6.2.
+- **RT-6.9 -- nothing detects a camera cut.** Every `Invalidate()` in the frame graph means "this filter did not run"; a teleport or an editor-to-game camera switch reprojects across the discontinuity. RT-6.3 already stores the previous eye.
+- **RT-6.10 -- the reflection accumulator never validates what the ray hit.** A static mirror, a static camera, a moving reflected object: every reflector test passes and RT-6.3's direction test passes too, because `R` did not swing. **The one hole RT-6.3 cannot close by construction.** `o_Surface.a` already carries the virtual image distance and is *smoothed* across frames rather than compared.
+
+**RT-6.11** re-measures Catmull-Rom history: it was built, measured flat and reverted, but its stated reason (*"the clip is discarding the history the sharper kernel would have preserved"*) stopped being true when RT-6 landed. **RT-14** is the G-buffer bandwidth audit, last, measure-before-packing.
+
+**Scope added:** RT-9 gains its real precondition -- the confidence already exists per signal and is discarded every frame, so one *lane* is what makes it buildable, not the "unified `RTConfidence`" architecture the first review proposes. RT-12 gains a per-test rejection-reason enum (the reflection accumulator has `g_Refusal`; TAA has nothing). RT-8 gains a note that both reviewers independently rate the water P0.
+
+**The lesson worth carrying:** about twenty of the fifty suggestions asked for things already built, and two of the five real defects were **this series' own**, introduced by RT-6 and invisible in any finished frame. Neither would have been found by looking at a picture. `docs/RT-SERIES.md` section "The two outside reviews" has the full accounting.
+
+
+### Found while running RT-6.6: the asset hash does not survive a checkout, and the import cache pays for it
+
+**Symptom.** Running the runtime once rewrites about twenty `.meta` files --
+`SourceHash` only, on `.rage`, `.rmat`, `.gltf` and `.rvpostprofile`. The tree
+was clean before the run, so the committed hashes disagree with what the engine
+computes on the files as they sit on disk.
+
+**Mechanism, established rather than guessed.** `Registry::HashFile`
+(`AssetRegistry.cpp:257`) is FNV-1a over the file's **raw bytes**, opened
+`std::ios::binary`. This repository has `core.autocrlf = true` and a
+`.gitattributes` that names only *binary* formats, so every text asset is stored
+LF and **checked out CRLF**. `showroom.rage` is 276,042 bytes in the index and
+285,817 on disk -- identical content, 9,775 line endings. Different bytes,
+different hash.
+
+**What it costs, and it is not the dirty tree.** `ImportCache.cpp:142` names the
+cooked file `<name>.<HashHex(SourceHash)>.<cooked>`. A changed hash is a changed
+cache key, so **every text-sourced asset re-imports after a checkout**.
+
+**The irony is written above the function.** Its own comment says the hash is
+content rather than modification time because *"a checkout, a copy or a touch all
+move the timestamp without changing anything, and re-importing every model after
+a git operation is exactly the kind of thing that makes an asset pipeline feel
+slow."* The design intent was to survive a git operation; `autocrlf` rewrites the
+bytes it hashes, so it does not.
+
+**The fix is one line per format in `.gitattributes`**, not a code change -- the
+hash is right and git's rewriting is the problem. Pinning `*.rage`, `*.rmat`,
+`*.gltf`, `*.rvpostprofile` (and the `*.meta` sidecars) to `text eol=lf` stops
+the checkout rewriting them and the hashes go stable. **It costs one more churn
+event**: those files are CRLF on disk now and would be rewritten to LF once.
+**Not done here** -- it is a repository-wide line-ending policy with a
+whole-tree diff, and that is the owner's call. The twenty `.meta` changes from
+this session were reverted rather than folded into RT-6.6's commit.
 
 ## 2026-09-07, evening: RT-3 and RT-3.1 done -- the bounce is a signal of this frame, and both signals now filter at their own resolution -- UNCOMMITTED
 

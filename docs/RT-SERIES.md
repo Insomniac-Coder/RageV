@@ -29,6 +29,43 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 - **R9 (GI audit)** and **R10 (the tubes as line lights)** keep their intent and become RT-3 and RT-7.
 - **R5's silhouette rule** (the hit-distance test at silhouettes, restricted to same-surface neighbours) is inside RT-4; the G-buffer id makes "same surface" a lookup instead of a heuristic.
 
+## Status at a glance
+
+**Nine of twenty-eight items are closed, three more are part-done, sixteen are open.** Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
+
+| # | status | effort | risk | in a line |
+|---|---|---|---|---|
+| RT-1 | ✅ done 2026-09-06 | — | — | the lit shader stops walking lights under RT |
+| RT-2 | ✅ done 2026-09-06 | — | — | ambient occlusion as a signal |
+| RT-2.1 | ✅ done 2026-09-07 | — | — | the parallax march at mip 0, not the raster |
+| RT-2.2 | open, **at the end of the series** | 1 d | low | the deferred resolve; the albedo lane widens first |
+| RT-3 | ✅ done 2026-09-07 | — | — | GI as a signal of this frame |
+| RT-3.1 | ✅ done 2026-09-07 | — | — | the contract at each signal's own resolution |
+| RT-4 | **partial** — the composite measurement answered (it stays after the resolve); the trace's move and R11 open | 2 d | moderate | reflections as an instance of the shared code |
+| RT-5 | open | 3-4 d | **high** | the contract validates by the G-buffer; the blur goes |
+| RT-6 | ✅ geometric half done 2026-09-07; **the still-feedback half waits on RT-8** | — | — | TAA on the G-buffer |
+| RT-6.1 | ✅ done 2026-09-07 | — | — | the reflection's virtual-image motion lane |
+| RT-6.2 | ✅ measured, **negative, not shipped** | — | — | the material-aware clamp does nothing |
+| RT-6.3 | ✅ done 2026-09-07 | — | — | the reflection-direction test |
+| RT-6.4 | ✅ done 2026-09-07 | — | — | the current-sample filter down; the tests fade |
+| RT-6.5 | open | 0.5-1 d | low | the accumulator tests the material, not just roughness |
+| **RT-6.6** | ✅ **done 2026-09-07** | — | — | the moments follow the texel the colour came from |
+| **RT-6.7** | open — **new** | 1 d | moderate | the sky/geometry transition is a disocclusion |
+| **RT-6.8** | open — **new** | 1-1.5 d | moderate | the colour box is built from this surface only |
+| **RT-6.9** | open — **new** | 0.5 d | low | a camera cut throws the history away |
+| **RT-6.10** | open — **new** | 1 d / 2-3 d | low-moderate | the accumulator validates what the ray hit |
+| **RT-6.11** | open — **new** | 0.5 d | low | Catmull-Rom re-measured; its negative result expired |
+| RT-7 | open | 4-5 d | moderate-high | the tubes as LTC line lights |
+| RT-8 | open | 4-6 d | **high** | the water on the G-buffer |
+| RT-9 | open | 2-3 d | moderate | the budget's shadow lane, and confidence drives allocation |
+| RT-10 | open | 5-7 d | **high** | ReSTIR DI on the G-buffer |
+| RT-11 | open | 1-2 d | low-moderate | next-event estimation at GI and reflection hits |
+| RT-12 | open | 0.5-1 d | low | the signal debug views, complete |
+| RT-13 | **skinned + layered ✅ done inside RT-2**; transparent open | 0.5 d to decide | low | every opaque surface in the G-buffer |
+| **RT-14** | open — **new** | 1 d to measure | low | the G-buffer's bandwidth, measured before anything is packed |
+
+**Six new items on 2026-09-07**, all from two outside reviews of the codebase — five verified defects and one expired negative result. The section after the complexity table records what those reviews got right, what they asked for that already exists, and the one place they were argued with.
+
 ## The RT series, in build order
 
 | # | what | from | why RT-first changes it | size |
@@ -43,13 +80,20 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-5** | **The contract validates by the G-buffer, and the blur starts to go.** History rejection by id, depth and normal (not colour alone); the grazing-angle plane test fixed (the ceiling and far pipes are refused every frame today — T5's refusal view); the bound relaxed for a long, converged history so a skewed K-sample estimate stops biasing it (−0.16 on the floor today); the evidence-driven anti-lag with a noise floor and a hold, gated by "same surface, no motion" (what R4 wanted, done where it can be known); the young blur weakened signal by signal and measured out. | T13 (half), R4 redesigned, T5's open items | The reprojection is right (measured); what the G-buffer adds is *knowing* the surface, which no colour test can. | medium |
 | **RT-6** | **TAA on the G-buffer.** One shared reprojection for TAA and every signal; disocclusion told by depth, normal and id, the colour clamp kept for what geometry cannot tell; the still-feedback rule read from the G-buffer's velocity per pixel instead of a project constant (0.98 in the garage, forced to 0 on the bridge today). | T13 (half), R12's direction | The owner's expectation, and the precondition for a weaker blur everywhere. | medium — **✅ geometric half done 2026-09-07, record below; the still-feedback half waits on RT-8** |
 | **RT-6.5** | **The accumulator tests the material, not just the roughness.** Its history gate checks the reflector's normal, plane and roughness, and roughness alone does not separate a metal from a dielectric: a boundary between them passes today, and the two shade nothing alike. Add the surface id (the G-buffer lane RT-6 already keeps) and the metallic, as a further term of RT-6.4's match confidence rather than a fourth cutoff. **§4C of the owner's specular specification.** Overlaps RT-5, which names id rejection for the contract in general; this is the reflection accumulator's own gap and is small enough to do first. | owner's spec §4C, RT-6.3's record | The one validation axis the accumulator has never had, and the cheapest left. | small |
+| **RT-6.6** | **The moments follow the texel the colour came from.** RT-6's neighbour search picks a history texel and reads the colour there (`texelFetch(u_History, historyTexel)`), while the moments are still read at the reprojected uv (`texture(u_Moments, historyUV)`). So on every pixel the search recovers, the blend weight and the variance floor belong to a **different surface** than the colour being blended: `prevMoments.x` sets the alpha and `.y`/`.z` set the box's floor, and both are wrong exactly where the search fired -- 1.1-1.7% of the garage's pixels a frame, 3.5-4.2% of the bridge's. Return the resolved texel from `MatchingTexel` and point-sample both there. | second review P0 §2, verified in the shader | **RT-6's own defect:** it added the search and did not move the moments with it. | small -- **no trade-off to measure, do it first** |
+| **RT-6.7** | **The sky/geometry transition is a disocclusion, and today it is the one thing that always passes.** `Matches()` opens with `if (now.x >= 1.0 \|\| was.x >= 1.0) return true;` -- the history is accepted whenever *either* side is sky. That is right when both are sky and wrong at the transition, which is exactly where geometry appearing inherits stale sky and geometry leaving inherits a stale object. Both sky, accept; one of the two, refuse; otherwise the id, depth and normal tests unchanged. **The garage cannot show this** (interior, no sky); the bridge is nothing else -- cables, suspenders, lamp standards and tower ribs against sky, and RT-3.1 already measured that band as this engine's worst thin-geometry case. **Two-sided, and that is the whole item:** refusing sends the pixel to the current frame whole when the nine-tap search also fails, trading a ghost for aliasing on the members that already flicker. | second review P0 §1, verified in the shader | The header argues for the current form (*"the sky reprojects perfectly well"*) and is right about one of the two cases it covers. | small to write; **a measurement, not a landing** |
+| **RT-6.8** | **The colour box is built from this surface only.** The exact complement of RT-6: the *history* side learned to ask whether a texel is this surface and the *box* side never did. The 3x3 takes all nine taps whatever they are, so at a silhouette the box spans two surfaces and is **widest precisely where disocclusion happens** -- too wide to catch the wrong history it exists to catch. Gate each tap with the `Matches()` the resolve already has; fall back to a narrower neighbourhood or the centre sample where too few agree. **It may reopen RT-6.2**, whose flat result rested on *"on a detailed surface the box is already wide"* -- part of that width at an edge is a foreign surface, not detail. | second review P0 §3, verified in the shader | Eight guide fetches and their decodes on every pixel; the fallback rule is the design. | small-medium |
+| **RT-6.9** | **A camera cut throws the history away.** Every `Invalidate()` in the frame graph means "this filter did not run this frame"; nothing detects a discontinuity in the camera itself -- a teleport, an editor-to-game camera switch, a scene load, an FOV jump. Reprojecting across one of those is meaningless and what it produces is a whole frame of smear. RT-6.3 already records the previous eye in `CameraMotion`, so the position test is a subtraction. **Prefer the explicit signal where the engine knows** (scene load, camera replacement) and keep a distance/angle heuristic only for what it cannot. | second review P1 §9, verified (no such check exists) | The one temporal failure with no gradual version: it is a whole frame or nothing. | small |
+| **RT-6.10** | **The accumulator validates what the ray *hit*, not only what it bounced off.** Both reviewers found this independently, and it is the one hole **RT-6.3 cannot close by construction**: a static polished wall, a static camera, a moving object in the reflection. Every reflector test passes -- same plane, same normal, same roughness -- and the direction test passes too, because the eye did not move and so `R` did not swing. The memory stays full and the moving object smears. The quantity is already carried: `o_Surface.a` is the virtual image distance, and today it is **smoothed across frames** (`image = mix(atSurface.reflector.a, image, 1/n)`) rather than compared. Small version: a confidence on that comparison, roughness-scaled like RT-6.3's, folded into RT-6.4's `matchConfidence`. Full version: the hit's instance id, which needs a payload lane the reflection trace does not have. **Do the small one first and measure whether the id is still wanted.** Pairs with RT-6.5 -- that is the reflector's identity, this is the reflected content's. | first review §10, second review P0/P1 §5, verified | The reflection tests every property of the mirror and none of the picture in it. | small (the distance); medium (the id) |
+| **RT-6.11** | **Catmull-Rom history, re-measured -- an expired negative result.** It was built, measured flat (19.830 against 19.774 moving, 3.817 against 3.816 still) and reverted, and `taa_resolve.rvshader`'s header keeps the reasoning: *"the neighbourhood clip is discarding the history the sharper kernel would have preserved, so the kernel has nothing to do."* **RT-6 changed exactly that** -- the geometric test and the neighbour search keep history the clip used to throw away, so the premise the measurement rested on is gone. Point-sample where a neighbour served (a sharp filter across an edge is the blend the surface test just refused) and leave disocclusions on the current frame. | second review P1 §8, against this repository's own record | A reverted result whose reason stopped being true is worth one afternoon. | small -- a re-measure, not a feature |
 | **RT-7** | **The tubes as lights the rays can sample.** Emissive geometry becomes a light with endpoints (luminaire binding, WR-9); LTC line lights for the specular term (WR-8); the direct pass shades them like any lamp, so the floor's tube reflections stop depending on rare hits; rays skip the lens emission (no double count). | T9, R10, WR-8, WR-9 | The variance the reconstruction has been fighting all week is removed at its source. | large |
-| **RT-8** | **The water on the G-buffer.** The water's surface prepass becomes a G-buffer layer (position, normal, roughness, wind, id, velocity — R7 lands here); its direct light comes through `DirectTrace`, its choose/shade/accumulate passes fold into the contract, its mirror and refraction rays are signals (WR-18's half-res pass); TAA gets its motion. | T12, R7, S4, S5, WR-18 | The sea is the one surface with its own copy of every system. | large |
-| **RT-9** | **The budget's shadow lane and the one dial.** The allocator widened to K per tile (S3's widening), the direct pass reading the tile map like GI does, "rays per pixel" the one setting across land and water; the counters honest for every pass. **And the allocation driven by temporal confidence** (owner's spec §10, filed here 2026-09-07): fewer rays where the history is trusted, more where it was refused, most where a pixel was just disoccluded or its reflection direction swung -- all three of which are now measured per pixel (RT-6, RT-6.3, RT-6.4) and thrown away. The constraint is the specification's: **do not raise the ray count globally**, spend the same budget where reconstruction cannot answer. | S3, WR-16, owner's "rays per pixel" | Now there is a consumer to size the lane for (Part IV decision H). | medium |
+| **RT-8** | **The water on the G-buffer.** The water's surface prepass becomes a G-buffer layer (position, normal, roughness, wind, id, velocity — R7 lands here); its direct light comes through `DirectTrace`, its choose/shade/accumulate passes fold into the contract, its mirror and refraction rays are signals (WR-18's half-res pass); TAA gets its motion. **Both outside reviewers rate this P0 independently** (2026-09-07), on the argument this record already makes: a water pixel's colour and its temporal metadata describe different surfaces, and no temporal filter can reconstruct that. It stays where the owner put it in the order -- the note is here so the priority argument is on the record. | T12, R7, S4, S5, WR-18 | The sea is the one surface with its own copy of every system. | large |
+| **RT-9** | **The budget's shadow lane and the one dial.** The allocator widened to K per tile (S3's widening), the direct pass reading the tile map like GI does, "rays per pixel" the one setting across land and water; the counters honest for every pass. **And the allocation driven by temporal confidence** (owner's spec §10, filed here 2026-09-07): fewer rays where the history is trusted, more where it was refused, most where a pixel was just disoccluded or its reflection direction swung -- all three of which are now measured per pixel (RT-6, RT-6.3, RT-6.4) and thrown away. The constraint is the specification's: **do not raise the ray count globally**, spend the same budget where reconstruction cannot answer. **Its precondition, named by both reviews and filed here 2026-09-07: the confidence exists and is thrown away every frame.** RT-6.3's direction agreement, RT-6.4's match confidence, RT-6's found-or-refused and the moments' validity lane are each computed and discarded at the end of the pass that made them. One lane storing the number the filters already produce is what makes this item buildable -- **the larger "unified `RTConfidence`" architecture the first review proposes is not needed to start**, and building it before there is a consumer is how four signals' tuning gets coupled for nothing. | S3, WR-16, owner's "rays per pixel" | Now there is a consumer to size the lane for (Part IV decision H). | medium |
 | **RT-10** | **ReSTIR DI on the G-buffer.** The choose/shade split (the water had it) for every opaque pixel, temporal and spatial reuse of the choice validated by id, depth and normal, feeding the same contract. | T10, S4, WR-16 M4 | The many-light scenes (the bridge: 78 lights a pixel) are where K = 4 is not enough. | large |
 | **RT-11** | **Next-event estimation at GI and reflection hits** with the resampled light (the 7 M rays the hits trace today, chosen by importance). | T11 | The last place a ray shades every light. | medium |
-| **RT-12** | **Signal debug views, complete:** history length, refusal, reach, the K choice, the raw fresh picture, per signal, on one log ramp (the direct-light view saturates at any linear scale). **Plus the confidence set** (owner's spec §11, filed here 2026-09-07): the combined history confidence, the reflection direction as RGB and its frame-to-frame difference, and the rejection reason split by which test refused it -- depth, normal, material, disocclusion -- and the rays actually allocated per pixel. **This session hit plumbing that was declared, bound, read and never connected three separate times**, each caught only by staging an absurd constant and checking the frame moved; a refusal-and-confidence view would have caught all three in one look. | R6 remainder | Tune with views, not the final image. | small |
+| **RT-12** | **Signal debug views, complete:** history length, refusal, reach, the K choice, the raw fresh picture, per signal, on one log ramp (the direct-light view saturates at any linear scale). **Plus the confidence set** (owner's spec §11, filed here 2026-09-07): the combined history confidence, the reflection direction as RGB and its frame-to-frame difference, and the rejection reason split by which test refused it -- depth, normal, material, disocclusion -- and the rays actually allocated per pixel. **This session hit plumbing that was declared, bound, read and never connected three separate times**, each caught only by staging an absurd constant and checking the frame moved; a refusal-and-confidence view would have caught all three in one look. **And the rejection reason as an enum, per test** (both reviews, 2026-09-07): the reflection accumulator already writes one (`g_Refusal`, in the integer part of `o_Extra.b`) and TAA writes none, so a TAA ghost cannot be traced to the test that let it through. One small integer lane -- off screen, id, depth, normal, sky transition, material, direction, hit -- coloured by reason. | R6 remainder | Tune with views, not the final image. | small |
 | **RT-13** | **Surfaces outside the G-buffer join it: skinned, layered (terrain), and transparent (the car's glass, OIT).** RT-1 found the first two on the bridge -- the G-buffer pass draws only the plain and masked kinds, so under the direct-light signal the terrain and the characters had no light in the pass and none from the loop; they keep the loop for now (`RV_SKINNED` / `RV_LAYERED` compile without the signal's inputs). The fix is a G-buffer variant per kind and their draw in the G-buffer pass; transparent surfaces decide between a thin layer and the in-shader path. | RT-1's finding, new | Every opaque surface must be in the G-buffer or every signal skips it. | **skinned + layered ✅ done inside RT-2** (see its record); transparent: decide first, small |
+| **RT-14** | **The G-buffer's bandwidth, measured before anything is packed.** Both reviewers raise it and both put it last, which is right: the lanes have grown with every item in this series -- surface, id, velocity, RT-6's TAA guide pair, RT-6.1's fourth reflection attachment -- and nothing has ever measured what they cost. **Profile first:** write and read bandwidth per pass, cache behaviour, where the pass time actually goes. Then A/B any packing against a diff image. Candidates: the id lane's width, the velocity format, the TAA guide's sixteen bytes, and the albedo lane -- which **RT-2.2 wants widened, not narrowed**, so the two are decided together or not at all. **Do not pack on theory:** RT-2.1 measured a "doubled rasterisation" that turned out to be a parallax march, and the same mistake inside a format change is a picture regression bought for nothing. | first review §20-21, second review's ordering | The one item both reviews agree comes after everything else. | small to measure; unknown to act on |
 
 **Verification, every item:** the reference arm is the old path where one exists (`--direct-signal=off` and its siblings), a converged still against it (diff images, no structure beyond grain, mean under a level), the dolly arms (`parked_stats`, `smear_metric`, `edge_shake`), the ray counters, and the bridge's three cameras for anything the garage cannot show (sized lamps, 78 lights, the baked field with a moving car).
 
@@ -67,6 +111,13 @@ Effort is solo days at this week's pace (build, measure, report, wait); risk is 
 | RT-4 | 2 d + a measurement day | moderate | Whether the reflection should pass through TAA is an open measurement, not a design choice: the ninth entry found compositing after TAA on jittered geometry to be the larger half of the edge flicker, and TAA's clamp may ghost mirror content the other way. R11's −3 levels has had every obvious suspect ruled out already. |
 | RT-5 | 3–4 d | **high** | The anti-lag was tried twice and both failed on a still (the R4 spotting); the bound cannot be relaxed without reopening lag on a light switch — one trade measured on four metrics at once (parked drift, the Switcher's settle, the dolly, the edge shake). The id needs a history lane the accumulator does not have yet. |
 | RT-6 | 3 d | moderate | TAA changes are visible on every pixel of every scene; geometric disocclusion needs last frame's depth, normal and id kept (the G-buffer is single-buffered today); the velocity-driven still rule is wrong on the sea until RT-8 writes its motion, so it ships with a guard or after RT-8. |
+| RT-6.5 | 0.5-1 d | low | The id lane is already kept for TAA; the work is deciding how a metal/dielectric boundary should weigh against a normal that still matches, and it folds into RT-6.4's confidence rather than adding a cutoff. |
+| RT-6.6 | 0.5 d | low | Nothing to trade -- the moments must describe the colour they weight. The only care is that both reads move together; a second `texture()` left behind reintroduces the same bug at a different texel. |
+| RT-6.7 | 1 d, most of it measuring | moderate | Three lines to write. The risk is entirely that it buys a ghost fix with aliasing on the bridge's sub-pixel members, and **the garage cannot participate in the measurement at all** -- it has no sky. Three cameras under the flicker protocol. |
+| RT-6.8 | 1-1.5 d | moderate | The fallback where too few neighbours match is the design: the centre sample alone reintroduces flicker, a wide fallback reintroduces the problem. Eight fetches on every pixel of every frame is a real cost to measure, and RT-6.2 may need re-running afterwards. |
+| RT-6.9 | 0.5 d | low | Choosing which engine events fire it explicitly is most of it. The heuristic thresholds are the part that can be wrong, and one set too tight throws the history away during a fast pan. |
+| RT-6.10 | 1 d the distance; 2-3 d the id | low-moderate | The image distance is a *derived* quantity -- curvature and the lobe are folded into it -- so its tolerance is not the ray's own and needs sweeping. The id version needs a payload lane through the reflection trace and its history. |
+| RT-6.11 | 0.5 d | low | A re-measure of code that already existed once. The only new work is the point-sample rule where a neighbour served. |
 | RT-7 | 4–5 d | moderate–high | A new light type (endpoints, length) through the scene data, the light record and the editor; the LTC fit tables (or the representative-point capsule first, which WR-7 half has); the sealed-room rule — a pixel that takes the analytic term must never also receive the lens emission from a ray — and a seam-free roughness window between the analytic term and the traced mirror. Verified against the 400-frame unclamped truth. |
 | RT-8 | 4–6 d | **high** | The sea has bitten every session (the prepass crossing, lamps that cast nothing, the choice reuse); it is a second G-buffer layer, not a lane, with its own BRDF; the Gerstner velocity needs the wave evaluated twice per vertex; every check is the bridge at three cameras under the flicker protocol. |
 | RT-9 | 2–3 d | moderate | The tile map's four lanes are full (a second map or a repack); the allocator's restlessness has a history — the sixty-second still test at 0.01 changes per tile per second is the bar, and the direct signal's own temporal moments are the new importance input to get right. |
@@ -74,8 +125,23 @@ Effort is solo days at this week's pace (build, measure, report, wait); risk is 
 | RT-11 | 1–2 d | low–moderate | Mostly RT-1's score applied at the hit; the noise it moves into GI and reflections must be absorbed by their contracts, measured on the reflection arms. |
 | RT-12 | 0.5–1 d | low | Plumbing; the log ramp is the only design. |
 | RT-13 | 0.5 d to decide; 2–3 d if a layer | low | Deciding is most of it; a thin transparent layer is a bounded copy of the water's prepass. |
+| RT-14 | 1 d to measure | low | The measurement *is* the item; whether anything follows is what it decides. It collides with RT-2.2, which widens the albedo lane rather than narrowing it -- the two are decided together. |
 
 **Dependencies:** RT-9 wants RT-1's cheap score; RT-10 builds on RT-9's lane and RT-5's validation; RT-6's velocity rule wants RT-8 or a guard; RT-7 carries WR-9 inside it. **The whole series at this pace: roughly seven to eight weeks of solo days**, front-loaded with the medium items so the high-risk ones (RT-5, RT-8, RT-10) land on a validated contract.
+
+## The two outside reviews (2026-09-07)
+
+Two independent reviews of the codebase, read against the code rather than taken on their word. Roughly fifty suggestions between them: **five are real defects, verified at the line**; about twenty describe work already built (both were written against a picture of the engine that predates most of RT-6.x); the rest restate this list back to it.
+
+**The five, and where each is filed:** the moments read at a different texel than the colour (RT-6.6), the sky/geometry transition always passing the history test (RT-6.7), the colour box spanning two surfaces at a silhouette (RT-6.8), no camera-cut invalidation anywhere in the frame graph (RT-6.9), and the reflection accumulator never validating what the ray hit (RT-6.10). The second review found the first four; both found the fifth independently.
+
+**Two of them are this series' own defects, and that is the useful part.** RT-6.6 is RT-6's: it added the neighbour search and did not move the moments with it, so the search mis-weights every pixel it recovers. RT-6.8 is RT-6's other half: the history side learned to ask whether a texel is this surface and the box side was never asked the same question. Neither would have been found by looking at a frame — both need someone reading the shader against what it claims to do.
+
+**What they asked for that already exists,** recorded so it is not re-litigated: variance-based history clamping (`ClipToBox` plus the `kTemporalSigma` moments floor, and the accumulator's own spread bound), reflection-direction validation and its roughness scaling (RT-6.3), disocclusion detection (RT-6), material-aware reflection validation (RT-6.5, filed), confidence-driven ray allocation (RT-9), the debug views (RT-12), ReSTIR DI, NEE and line lights (RT-10, RT-11, RT-7), the water's integration (RT-8), and per-signal temporal parameters (the contract's `SignalParams`).
+
+**Where they were argued with.** The first review's central proposal is a unified `RTConfidence` built as its own phase before anything consumes it. The pieces already exist per signal; what is missing is a *lane*, not an architecture, and coupling four signals' tuning together before there is a consumer is a cost with no return. Filed as RT-9's precondition instead. The second review's Catmull-Rom suggestion is a result this repository already measured and reverted — but its stated reason stopped being true when RT-6 landed, which is why RT-6.11 re-measures rather than dismisses it.
+
+**One thing both reviews are right about that is not a code change:** they independently rate the water's G-buffer integration P0, above most of what is above it in this order. That is the owner's call and the argument is now on the record in RT-8's row.
 
 ## Records
 
@@ -546,6 +612,93 @@ obvious next question asked -- *the accumulator already computes the right
 motion; why does the resolve not have it?* -- because both times the conclusion
 was "the composite must stay after the resolve" rather than "the resolve is
 missing a lane". A constraint that comes from a missing input is not a law.
+
+### RT-6.6 — ✅ done 2026-09-07 (uncommitted)
+
+**The defect, from the second outside review, verified at the line.** RT-6 taught
+the resolve to search the eight neighbours for a history belonging to this
+surface and to fetch the colour from whichever texel won. It did not move the
+*moments* with it: they stayed at `texture(u_Moments, historyUV)`, and
+`u_Moments` is bound `Sampling::Point`, so that resolves to the **centre texel
+-- the one the search had just rejected as a different surface**. Never a
+filtering question; two different texels.
+
+Both of the things the moments exist for were therefore wrong on every pixel the
+search recovered: `prevMoments.x` is the frame count that sets `alpha =
+max(1/frames, 1 - feedback)`, and `.y`/`.z` set the temporal sigma the box may
+not narrow below.
+
+**The fix is one bool.** `neighbourServed` is computed once and used by the
+colour read and the moments read both, because the defect was exactly the second
+copy of that condition going missing. Three lines of code; the rest is comment.
+
+**It fires where the search fires, and only there.** Mean |d| **0.104 levels**
+over a 100-frame dolly, with **1.5-2.0% of pixels off by more than one level** --
+against RT-6's independently measured neighbour-recovery rate of **1.1-1.7% of
+the garage's pixels a frame**. Those two numbers matching is the liveness proof
+this session's three dead-plumbing defects taught us to demand.
+
+| where it lands | concentration (share of the difference over share of the frame) |
+|---|---|
+| wall | 2.34x |
+| ceiling (the tube band) | 2.19x |
+| car | 1.61x |
+| poles | 1.50x |
+| floor | **0.80x** |
+
+The strongest 5% of edges carry 12.2% of the difference, 2.43x their area.
+`build/garage_burst/rt66_where.png` is the frame beside the map: it is the tube
+fixtures, the ceiling beams, the car's silhouette and the vertical pipes, and
+**nothing on the flat floor or the flat wall**.
+
+**Parked is not inert, and that was not expected.** 0.059 levels mean, 0.54% of
+pixels off by more than two -- about 60% of the dolly's effect, with a camera
+that is not moving. **The jitter is why:** it moves the projection a fraction of
+a pixel each frame, so at a silhouette the *coverage* flips between frames, the
+guide lane genuinely describes a different surface, and the search fires. The
+same mechanism as the suspender rope the shader header describes, seen from the
+other side. So this fix reaches parked thin geometry, which is where the moments
+floor was designed to matter in the first place.
+
+**And that is where the win shows.** Parked, pixels swinging more than four
+levels between consecutive frames -- the flicker that the temporal sigma floor
+exists to stop:
+
+| region | before | after | |
+|---|---|---|---|
+| ceiling | 5.690% | **5.434%** | −4.5% |
+| car | 8.179% | **7.921%** | −3.2% |
+| wall | 6.789% | 6.748% | −0.6% |
+| poles | 3.830% | 3.811% | −0.5% |
+| floor | 0.163% | 0.163% | 0.0% |
+
+Mean per-frame change is flat (−1.5% to +1.4%), so this is fewer *hard* swings
+rather than a general smoothing -- and the floor, which has no thin geometry,
+does not move at all. **The mechanism reads straight through:** the sigma floor
+keeps a thin member's history when the jitter misses it, and it was being
+computed from the fluctuation of the pixel on the *other side of the edge*.
+
+**Mid-dolly, the two proxies, as hints only.** Change −0.09% to −0.74%; detail
+−0.26% to −1.41% on four regions and +0.50% on the floor. RT-6's record already
+warns that both reward keeping history, and this fix does keep more of it (the
+recovered surface's count is generally higher than the rejected centre's), so
+neither number can settle direction. **The parked hard-swing count above is the
+one that can**, because parked with a pinned timestep the true picture is
+static, so a swing is flicker and nothing else.
+
+**Cost: none found.** Frame mean, A,B,B,A: after 10.70 ms, before 10.54, with
+each arm varying 0.13-0.28 ms on its own; the TAA resolve's own pass went the
+other way (0.203 ms after against 0.225 before). Two runs an arm rather than the
+four-run palindrome, so the honest claim is **no cost above about 0.3 ms**, not
+zero -- proportionate for one `texelFetch` replacing one `texture` on under two
+per cent of pixels.
+
+**Where the review was right and this record was not.** RT-6's own record
+describes the neighbour search and says "the history fetch turns point where a
+neighbour served, because the texels between belong to the other side of the
+edge" -- the exact argument for moving the moments, applied to the colour and
+not to them. The defect was one sentence away from being written down, twice,
+and was found by someone reading the shader from outside.
 
 ### RT-6.2 / RT-6.3 — material-aware temporal work, 2026-09-07 (uncommitted)
 
