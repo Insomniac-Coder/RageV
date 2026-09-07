@@ -197,13 +197,22 @@ layout(push_constant) uniform Params
 // is why a wet floor's gravel and a brick wall's grain go soft under motion
 // while a chrome pole stays crisp.
 //
-// Two is the width, and what stops it ghosting is that everything else the
-// resolve does still holds: the geometric test (RT-6) has already refused a
-// history that is a different surface, the pixel's own temporal spread still
-// sets the floor, and light that genuinely changes on a static rough surface
-// -- a shadow crossing a floor -- moves the whole neighbourhood, so the box
-// moves with it rather than being escaped.
-const float kStableWiden = 2.0;
+// **Eight, and it is measured rather than guessed** (owner, 2026-09-07).
+// It sat at two only because a wider clamp *might* smear behind a moving
+// object and no scene here had one. `showroom_moving.rage` now does -- a
+// chrome cube crossing a matte wall with the camera still -- and in the band
+// the cube has just vacated the residue against the no-history truth is
+// **8.56 levels at widen 1, 2, 4 and 8 alike**. The arms are live (1 against
+// 8 differs by 0.108 levels across the frame) and differ by 0.021 in the
+// trail: the clamp width simply does not reach the ghost.
+//
+// What stops it ghosting is everything else the resolve does: RT-6's
+// geometric test has already refused a history that is a different surface,
+// the pixel's own temporal spread still sets the floor, and light that
+// genuinely changes on a static rough surface -- a shadow crossing a floor
+// -- moves the whole neighbourhood, so the box moves with it rather than
+// being escaped. Worth +1.43% detail over widen 1 on the garage dolly.
+const float kStableWiden = 8.0;
 
 // **How far the three tests may disagree before the history is refused.**
 //
