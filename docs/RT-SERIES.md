@@ -873,42 +873,60 @@ and the garage may simply not have many such boundaries that a reprojection
 crosses.
 
 
-**The other half -- the object id, argued out rather than deferred, and the axis
-that is genuinely missing named instead.**
+**The other half -- the object id. Nothing was built, and here is why.**
 
-RT-6.5 was filed as "add the surface id **and** the metallic". With RT-14's
-price in hand (a fifth attachment is 16 B/pixel on a history budget already at
-128, feeding a pass that is 96% pixel-bound), the question is whether an object
-id earns it *in this accumulator*. It does not, and the reason is specific:
+**In plain words.** This pass takes each pixel that shows a reflection and
+reuses last frame's answer for it, so the reflection is not rebuilt from
+scratch every frame and does not boil with noise. Before reusing, it asks: *is
+this the same mirror as last frame?* Today it checks three things -- is the
+surface in the same place, does it face the same way, is it about as shiny --
+and RT-6.5 added a fourth, is it metal or not.
 
-**A reflection history describes the reflected image, not the reflector's own
-shading.** That image is a function of the reflector's position, normal and
-BRDF -- nothing else. Two texels that agree on normal, on plane, on roughness
-and now on metallic **reflect the same image**, whatever objects they belong to,
-so an id test there would refuse a history that is correct. This is exactly
-where the accumulator differs from RT-6's TAA test, which *does* need identity:
-there the pixel's colour is the surface's own shading, which depends on its
-albedo and its lighting, so two surfaces agreeing geometrically still differ.
-The same test is right in one pass and wrong in the other.
+The plan was to also check *is this the same object?* Every object carries a
+number, so the two numbers could be compared.
 
-**What is genuinely missing is not an id, and the second review named it: a
-compact BSDF signature** (*"long-term, a compact BSDF identity/hash is cleaner
-than adding individual comparisons indefinitely"*). Roughness and metallic are
-most of that signature; the piece still absent is **F0's colour** -- gold and
-chrome at the same roughness are both metal and reflect the room in different
-colours, and today they pass every test this accumulator has. For a metal, F0 is
-the albedo, and the G-buffer's albedo lane already carries it.
+**It would not help, and it would hurt.** What this pass remembers is **the
+picture in the mirror**, not the mirror itself. What shows up in a mirror
+depends on exactly three things: where the mirror is, which way it faces, and
+how shiny it is. Nothing else. So if two patches of surface agree on all of
+those, they show **the same reflection** -- even when they belong to two
+different objects, like two panels of the same wall, or a floor tile and the
+tile beside it. Comparing object numbers would throw away an answer that was
+correct, and the pass would fall back to a noisier one.
 
-So the honest state of §4C: **its named case is closed** (*"at minimum
-distinguish metallic vs non-metallic"*), the object id is closed as
-not-applicable-here with the reason, and **the coloured-metal boundary is filed
-as the one real remaining axis** -- to be carried by a BSDF hash if a future lane
-is ever bought, priced by RT-14 at 16 B/pixel.
+**The same check is right elsewhere, which is what made it look right here.**
+TAA -- the anti-aliasing filter, RT-6 -- does need the object number, because
+there the pixel's colour is *the object's own* colour and lighting. Two objects
+that happen to line up in space still look different, so identity matters. Here
+it does not. One check, correct in one pass and wrong in the other.
 
-**This half is reasoning, not measurement, and is marked as such.** Measuring it
-would need the id bound into the accumulator and stored per texel -- the same
-plumbing as building it. If the owner wants the number rather than the argument,
-that is the cost.
+**What is actually still missing.** Take gold and chrome, polished to exactly
+the same degree. Both are metal, so the new metal check passes. Both are
+equally shiny, so the shininess check passes. They sit in the same plane facing
+the same way, so those pass too. And yet **gold tints everything it reflects
+yellow and chrome does not** -- the two show different pictures, and this pass
+cannot currently tell them apart. That is the real remaining gap, and it is
+about *the colour a metal casts on its reflection*, not about which object it
+is. It is also what the second reviewer actually asked for: they wrote "a
+compact BSDF identity/hash", meaning a short summary of how a surface reflects
+light, rather than a list of separate comparisons. Shininess and metal-or-not
+are most of that summary; the tint colour is the part still absent. The engine
+already stores it -- for a metal, the tint is the surface's own colour, which
+the G-buffer's colour lane holds.
+
+**What not building it saves.** There is no spare room left in what this pass
+stores -- all four of its storage slots are full -- so an object number would
+need a fifth. RT-14 measured what that costs: 16 bytes for every pixel on
+screen, added to a per-pixel budget already at 128, feeding a pass whose cost
+grows directly with pixel count. Not free, and spent on a check that would make
+the picture slightly worse.
+
+**Honest limit: this half is reasoning, not a measurement**, and is marked so.
+To *measure* that the object check helps nothing, the object number would have
+to be plumbed into this pass and stored per pixel -- which is the same work as
+simply building it. So the choice was between an argument and paying the cost to
+disprove the argument. If the number is wanted rather than the reasoning, that
+is what it costs.
 
 **Cost: +0.009 ms on the reflection accumulate pass** (0.3155 against 0.3065,
 A,B,B,A, and both on-runs sat above both off-runs, so this is a real ~3% of that
