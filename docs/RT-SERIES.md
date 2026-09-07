@@ -143,6 +143,45 @@ Two independent reviews of the codebase, read against the code rather than taken
 
 **One thing both reviews are right about that is not a code change:** they independently rate the water's G-buffer integration P0, above most of what is above it in this order. That is the owner's call and the argument is now on the record in RT-8's row.
 
+## Open, parked for later: **no test scene has a moving object**
+
+**The immediate case.** `kStableWiden` in `taa_resolve.rvshader` sets how far the
+colour clamp may open on matte surfaces -- concrete, paint, brick -- whose
+appearance does not change with viewing angle, and whose history is therefore
+right. It is at **2**. RT-6.2's re-run swept it:
+
+| widen | detail | frame-to-frame change |
+|---|---|---|
+| **2 (shipped)** | +0.70% | −0.06% |
+| 4 | +1.09% | −0.12% |
+| 8 | +1.43% | −0.14% |
+
+Better on every metric available, at every step, with parked flicker unchanged.
+**Not adopted, and it cannot be adopted on this evidence**, because the failure a
+looser clamp risks is a **smear trailing an object that moves across a matte
+surface** -- and neither the garage nor the bridge has a moving object. Only the
+camera moves. Every number above was measured in a scene where the thing that
+would go wrong cannot happen. (Owner's correction, 2026-09-07: the bridge has no
+moving car either; an earlier note in this session said otherwise and was wrong.)
+
+**And it is not only this setting.** The same gap blocks or weakens several
+things:
+
+- **RT-6.2's value**, above.
+- **RT-6.10**, whose whole subject is *a static mirror, a static camera and a
+  moving object in the reflection*. It was built and shown live, but the case it
+  exists for has never been rendered.
+- **RT-5's anti-lag**, which is about a signal responding to change.
+- Any claim about **ghosting** at all. Both dolly metrics in this repository
+  reward keeping history, which is what a ghost is, so the only honest arbiter is
+  a crop -- of something moving.
+
+**What would close it:** one test scene with an object crossing the frame -- a
+matte wall behind it for RT-6.2, a polished surface reflecting it for RT-6.10.
+The engine already has the pieces (`Slider.cpp` moves an entity at a set speed,
+and `burst.py` already swaps a camera script into a scene copy the same way).
+Filed rather than built, at the owner's word: **revisit later.**
+
 ## Records
 
 ### RT-1 — ✅ done 2026-09-06, late evening (uncommitted, both copies staged)
