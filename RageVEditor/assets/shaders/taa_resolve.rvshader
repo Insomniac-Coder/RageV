@@ -225,6 +225,19 @@ vec3 DecodeOct(vec2 e)
 	return normalize(n);
 }
 
+// **RT-12: why the reprojected texel was refused**, in the reflection
+// accumulator's own encoding so the two views read alike. Set by the
+// centre tap only -- the neighbours are candidates, not this pixel's
+// history, and their reasons are not this pixel's story.
+const uint kKept        = 0u;
+const uint kOffScreen   = 1u;
+const uint kNoHistory   = 2u;
+const uint kSkyCrossing = 3u;
+const uint kObjectId    = 4u;
+const uint kDepth       = 5u;
+const uint kNormal      = 6u;
+uint g_Refusal = kKept;
+
 // **Which texel near `pastUv` holds this surface's history?** Three
 // questions, and any one of them saying no is enough --
 //
@@ -236,9 +249,12 @@ vec3 DecodeOct(vec2 e)
 // A pixel with no surface under it now, or none there last frame, is not a
 // disocclusion to refuse: it is the sky, and the sky reprojects perfectly
 // well. Left to the box, exactly as it was before this test existed.
-bool Matches(vec4 now, vec4 was)
+bool Matches(vec4 now, vec4 was, bool centre)
 {
 	// Sky on either side: nothing to compare, and nothing that ghosts.
+	// (RT-6.7 changes this to "both, or neither"; it is filed separately
+	// and its reason code kSkyCrossing is already reserved here so the two
+	// items do not have to touch the same lines twice.)
 	if (now.x >= 1.0 || was.x >= 1.0)
 		return true;
 
@@ -246,15 +262,26 @@ bool Matches(vec4 now, vec4 was)
 	// the lane holds a whole number the G-buffer wrote, negated for a static
 	// surface, so an epsilon here would only let neighbouring ids through.
 	if (abs(now.w - was.w) > 0.5)
+	{
+		if (centre) g_Refusal = kObjectId;
 		return false;
+	}
 
 	// **Then the depth**, which catches an object occluding itself.
 	if (abs(now.x - was.x) > kDepthTolerance * max(now.x, 1.0e-4))
+	{
+		if (centre) g_Refusal = kDepth;
 		return false;
+	}
 
 	// **Then the normal**, which catches the two faces of a corner: same
 	// object, same distance, and a different surface all the same.
-	return dot(DecodeOct(now.yz), DecodeOct(was.yz)) >= kNormalTolerance;
+	if (dot(DecodeOct(now.yz), DecodeOct(was.yz)) < kNormalTolerance)
+	{
+		if (centre) g_Refusal = kNormal;
+		return false;
+	}
+	return true;
 }
 
 // **The reprojected texel, or the nearest neighbour that is this surface,
@@ -280,7 +307,7 @@ ivec2 MatchingTexel(vec2 uv, vec2 pastUv, out bool found, out bool bilinear)
 	for (int k = 0; k < 9; ++k)
 	{
 		const ivec2 at = clamp(centre + offsets[k], ivec2(0), size - 1);
-		if (Matches(now, texelFetch(u_GuidePrevious, at, 0)))
+		if (Matches(now, texelFetch(u_GuidePrevious, at, 0), k == 0))
 		{
 			found = true;
 			bilinear = (k == 0);
@@ -464,8 +491,10 @@ void main()
 	{
 		o_Color = current;
 		// One frame seen, and its luminance is the whole of what is known.
-		// Validity zero: nothing was reused.
-		o_Moments = vec4(1.0, currentLuma, currentLuma * currentLuma, 0.0);
+		// RT-12: the reason lane, where zero still means "reused" so the
+		// validity WR-16 S0 put here survives as `w == 0`.
+		o_Moments = vec4(1.0, currentLuma, currentLuma * currentLuma,
+						  float(kNoHistory));
 		CountTemporal(false);
 		return;
 	}
@@ -513,7 +542,12 @@ void main()
 		// Disoccluded: the count starts again here. Carrying the old one would
 		// tell the next frame to trust the fluctuation of a surface that is
 		// not the one now under this pixel.
-		o_Moments = vec4(1.0, currentLuma, currentLuma * currentLuma, 0.0);
+		// RT-12: off screen has no clause to blame; a disocclusion carries the
+		// clause that refused the centre, plus the half that says the search
+		// found nothing either.
+		o_Moments = vec4(1.0, currentLuma, currentLuma * currentLuma,
+						  offScreen ? float(kOffScreen)
+									: float(g_Refusal) + 0.5);
 		CountTemporal(false);
 		return;
 	}
@@ -636,8 +670,12 @@ void main()
 	// Only for a pixel that did not move: on water and anything else whose
 	// shading legitimately changes in place, the fluctuation is the picture.
 	const float temporalSigma = sqrt(max(momMeanSq - momMean * momMean, 0.0)) * stillness;
-	// Validity one: this pixel's history was reprojected and blended in.
-	o_Moments = vec4(frames, momMean, momMeanSq, 1.0);
+	// RT-12: reached here the history was reused, so the reason is whatever
+	// refused the *centre* texel -- zero when it matched outright, and the
+	// clause that sent the search to a neighbour otherwise. That difference
+	// is the one the view exists to show: a recovered pixel and a
+	// disoccluded one are a half apart on the ramp, not a whole category.
+	o_Moments = vec4(frames, momMean, momMeanSq, float(g_Refusal));
 	CountTemporal(true);
 
 	// **Never clamp tighter than this pixel is known to fluctuate.** Widened

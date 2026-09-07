@@ -534,6 +534,9 @@ namespace RageV
 							  const RHI::Ref<RHI::RHITexture>& aux,
 							  const RHI::Ref<RHI::RHIBuffer>& counts,
 							  int mode, float scale, float frameMix,
+							  // RT-12: how to show the number, rather than which
+							  // view this is. See debug_view.rvshader's block.
+							  int display, int channel, bool fromCounts, bool logRamp,
 							  RHI::Format outputFormat);
 
 		// The indirect buffer's temporal stage (ENGINE-NOTES 7av): this

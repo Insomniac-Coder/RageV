@@ -719,6 +719,9 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "debug-view-log" || key == "debugviewlog")
+			return ParseBool(value, config.DebugViewLog);
+
 		if (key == "debug-view" || key == "debugview")
 		{
 			const std::string lowered = ToLower(value);
@@ -760,6 +763,43 @@ namespace RageV
 			// that need it apart from everything TAA and GI do to the frame.
 			else if (lowered == "reflection-picture" || lowered == "reflectionpicture")
 				config.DebugView = EngineConfig::DebugViewMode::ReflectionPicture;
+			// **RT-12.** The temporal resolve's refusal, in the reflection
+			// accumulator's encoding: the clause in the integer part (0 kept,
+			// 1 off screen, 2 no history, 3 sky crossing, 4 object id, 5 depth,
+			// 6 normal), and a half added where the nine-tap search found
+			// nothing either -- so a recovered pixel and a disoccluded one are
+			// half a band apart rather than indistinguishable.
+			else if (lowered == "taa-refusal" || lowered == "taarefusal")
+				config.DebugView = EngineConfig::DebugViewMode::TaaRefusal;
+			// The frames behind each texel, per signal. Black is a history just
+			// refused; white is the signal's full memory -- so this doubles as
+			// the confidence *as applied*, because a shortened memory is
+			// precisely what RT-6.3's direction test and RT-6.4's match
+			// confidence do to a pixel.
+			else if (lowered == "direct-history" || lowered == "directhistory")
+				config.DebugView = EngineConfig::DebugViewMode::DirectHistory;
+			else if (lowered == "gi-history" || lowered == "gihistory")
+				config.DebugView = EngineConfig::DebugViewMode::GiHistory;
+			else if (lowered == "ao-history" || lowered == "aohistory")
+				config.DebugView = EngineConfig::DebugViewMode::AoHistory;
+			// The pixel's own temporal spread, per signal.
+			else if (lowered == "reflection-sigma" || lowered == "reflectionsigma")
+				config.DebugView = EngineConfig::DebugViewMode::ReflectionSigma;
+			else if (lowered == "direct-sigma" || lowered == "directsigma")
+				config.DebugView = EngineConfig::DebugViewMode::DirectSigma;
+			else if (lowered == "gi-sigma" || lowered == "gisigma")
+				config.DebugView = EngineConfig::DebugViewMode::GiSigma;
+			else if (lowered == "ao-sigma" || lowered == "aosigma")
+				config.DebugView = EngineConfig::DebugViewMode::AoSigma;
+			else if (lowered == "ao-refusal" || lowered == "aorefusal")
+				config.DebugView = EngineConfig::DebugViewMode::AoRefusal;
+			// The reflector's stored normal as RGB, and the virtual image's
+			// motion in texels: what the direction test reads, and what a
+			// swinging reflection does on screen.
+			else if (lowered == "reflection-normal" || lowered == "reflectionnormal")
+				config.DebugView = EngineConfig::DebugViewMode::ReflectionNormal;
+			else if (lowered == "reflection-motion" || lowered == "reflectionmotion")
+				config.DebugView = EngineConfig::DebugViewMode::ReflectionMotion;
 			// RT-first T5: the direct light's accumulated diffuse (before the
 			// albedo, over four), and the reason its history was refused.
 			else if (lowered == "direct-light" || lowered == "directlight")

@@ -3914,92 +3914,184 @@ namespace RageV
 			// shadow rays plus a few, lights at the busiest cluster, the
 			// allocation at three times the AO average (RayBudgetSpread's
 			// ceiling); confidence is two colours and needs no scale.
-			const float busiest = (float)Math::Max(Renderer3D::GetMaxCellLoad(), 1u);
-			const float scale = view == EngineConfig::DebugViewMode::Rays ? busiest + 8.0f
-							  : view == EngineConfig::DebugViewMode::Lights ? busiest
-							  : view == EngineConfig::DebugViewMode::Importance
-									? Math::Min(rtPreset.AoRays
-												* Math::Max(rtPreset.Spread, 1.0f),
-											kTileRayCeiling)
-							  : view == EngineConfig::DebugViewMode::GiImportance
-									? Math::Min(rtPreset.GiRays
-												* Math::Max(rtPreset.Spread, 1.0f),
-											kTileRayCeiling)
-							  // The accumulator's longest memory, so a full
-							  // history reads white and a refused one black;
-							  // its image distance in metres, twenty white;
-							  // and which history it took, half the ramp for
-							  // the surface's old place, white for the image's.
-							  : view == EngineConfig::DebugViewMode::Reflection ? Renderer3D::ReflectionSignal().Memory
-							  : view == EngineConfig::DebugViewMode::ReflectionChoice ? 6.0f
-							  : view == EngineConfig::DebugViewMode::ReflectionImage ? 20.0f
-							  : view == EngineConfig::DebugViewMode::ReflectionPicture ? 4.0f
-							  // The direct light's accumulated diffuse over four; its
-							  // refusal reason on the same ramp as the reflections'.
-							  : view == EngineConfig::DebugViewMode::DirectLight ? 64.0f
-							  : view == EngineConfig::DebugViewMode::DirectRefusal ? 6.0f
-							  : view == EngineConfig::DebugViewMode::Occlusion ? 1.0f
-							  // RT-3: the bounce is albedo-free irradiance and dim --
-							  // one is the ramp that shows a room's indirect at all,
-							  // where the direct light's sixty-four leaves it black.
-							  : view == EngineConfig::DebugViewMode::GiLight ? 1.0f
-							  : view == EngineConfig::DebugViewMode::GiRefusal ? 6.0f
-									: 1.0f;
-			const bool reflectionView = view == EngineConfig::DebugViewMode::Reflection
-									 || view == EngineConfig::DebugViewMode::ReflectionImage
-									 || view == EngineConfig::DebugViewMode::ReflectionChoice
-									 || view == EngineConfig::DebugViewMode::ReflectionPicture;
-			// The texture-backed modes' source, when it ran this frame.
-			const RGResource auxResource = view == EngineConfig::DebugViewMode::Confidence
-										 ? temporalCurrent
-										 : (view == EngineConfig::DebugViewMode::Importance
-											|| view == EngineConfig::DebugViewMode::GiImportance)
-											   ? rayBudgetMap
-										 : reflectionView
-											   ? (tracedReflections ? currentReflections : kRGInvalid)
-										 : (view == EngineConfig::DebugViewMode::DirectLight
-											|| view == EngineConfig::DebugViewMode::DirectRefusal)
-											   ? currentDirect
-										 : view == EngineConfig::DebugViewMode::Occlusion
-											   ? currentOcclusion
-										 : (view == EngineConfig::DebugViewMode::GiLight
-											|| view == EngineConfig::DebugViewMode::GiRefusal)
-											   ? currentGi
-											   : kRGInvalid;
-			const uint32_t auxAttachment = view == EngineConfig::DebugViewMode::Confidence ? 1u
-										 : view == EngineConfig::DebugViewMode::ReflectionImage ? 1u
-										 : view == EngineConfig::DebugViewMode::ReflectionChoice ? 2u
-										 : view == EngineConfig::DebugViewMode::DirectRefusal ? 2u
-										 : view == EngineConfig::DebugViewMode::GiRefusal ? 2u
-										 : 0u;
+			// **RT-12: one place per view.** Where its number comes from, which
+			// attachment and channel it is, and how it is displayed -- together,
+			// because they were four parallel ternary chains and a hardcoded
+			// ordinal in the shader, and three of fourteen views had drifted out
+			// of agreement without anything failing.
+			//
+			// Display: 0 a ramp, 1 the picture, 2 two colours, 3 a vector in rg,
+			// 4 an octahedral normal. Channel: 0 r, 1 g, 2 b, 3 a, 4 the standard
+			// deviation the moments in g and b describe.
+			struct ViewSpec
+			{
+				float       Scale = 1.0f;
+				RGResource  Aux = kRGInvalid;
+				uint32_t    Attachment = 0u;
+				int         Display = 0;
+				int         Channel = 3;
+				bool        FromCounts = false;
+				const char* Name = "";
+				const char* Missing = "";
+			};
 
+			const float busiest = (float)Math::Max(Renderer3D::GetMaxCellLoad(), 1u);
+			const RGResource reflectionAux = tracedReflections ? currentReflections
+															   : kRGInvalid;
+			static constexpr const char* kMissingReflection = "the traced reflection pass is off";
+			static constexpr const char* kMissingDirect = "the direct-light signal is off (--direct-signal)";
+			static constexpr const char* kMissingGi = "the GI signal is off (--gi-signal, or the scene bakes its GI)";
+			static constexpr const char* kMissingAo = "the occlusion signal is off (--ao-signal)";
+			static constexpr const char* kMissingBudget = "the ray budget's tile allocator is off";
+			static constexpr const char* kMissingTaa = "the temporal resolve runs under TAA only";
+
+			ViewSpec spec;
+			switch (view)
+			{
+			case EngineConfig::DebugViewMode::Rays:
+				spec.Scale = busiest + 8.0f; spec.FromCounts = true; spec.Name = "rays";
+				break;
+			case EngineConfig::DebugViewMode::Lights:
+				spec.Scale = busiest; spec.FromCounts = true; spec.Name = "lights";
+				break;
+			// The resolve's validity as two colours: kept or refused. Zero means
+			// kept, in the accumulator's encoding, which RT-12 gave the resolve
+			// too -- so this is now the same question as taa-refusal asked as a
+			// yes or no.
+			case EngineConfig::DebugViewMode::Confidence:
+				spec.Aux = temporalCurrent; spec.Attachment = 1; spec.Channel = 3;
+				spec.Display = 2; spec.Name = "confidence"; spec.Missing = kMissingTaa;
+				break;
+			// **RT-12: and the same lane as a ramp, which is the new part.** The
+			// clause that refused the reprojected texel, 0..6, plus a half where
+			// the nine-tap search found nothing either.
+			case EngineConfig::DebugViewMode::TaaRefusal:
+				spec.Aux = temporalCurrent; spec.Attachment = 1; spec.Channel = 3;
+				spec.Scale = 7.0f; spec.Name = "taa-refusal"; spec.Missing = kMissingTaa;
+				break;
+			case EngineConfig::DebugViewMode::Importance:
+				spec.Aux = rayBudgetMap; spec.Channel = 0;
+				spec.Scale = Math::Min(rtPreset.AoRays * Math::Max(rtPreset.Spread, 1.0f),
+									   kTileRayCeiling);
+				spec.Name = "importance"; spec.Missing = kMissingBudget;
+				break;
+			case EngineConfig::DebugViewMode::GiImportance:
+				spec.Aux = rayBudgetMap; spec.Channel = 1;
+				spec.Scale = Math::Min(rtPreset.GiRays * Math::Max(rtPreset.Spread, 1.0f),
+									   kTileRayCeiling);
+				spec.Name = "importance-gi"; spec.Missing = kMissingBudget;
+				break;
+			// The reflection accumulator's own four, unchanged in meaning.
+			case EngineConfig::DebugViewMode::Reflection:
+				spec.Aux = reflectionAux; spec.Attachment = 0; spec.Channel = 3;
+				spec.Scale = Math::Max(Renderer3D::ReflectionSignal().Memory, 1.0f);
+				spec.Name = "reflection"; spec.Missing = kMissingReflection;
+				break;
+			case EngineConfig::DebugViewMode::ReflectionImage:
+				spec.Aux = reflectionAux; spec.Attachment = 1; spec.Channel = 3;
+				spec.Scale = 20.0f; spec.Name = "reflection-image";
+				spec.Missing = kMissingReflection;
+				break;
+			case EngineConfig::DebugViewMode::ReflectionChoice:
+				spec.Aux = reflectionAux; spec.Attachment = 2; spec.Channel = 3;
+				spec.Scale = 6.0f; spec.Name = "reflection-choice";
+				spec.Missing = kMissingReflection;
+				break;
+			case EngineConfig::DebugViewMode::ReflectionPicture:
+				spec.Aux = reflectionAux; spec.Attachment = 0; spec.Display = 1;
+				spec.Scale = 4.0f; spec.Name = "reflection-picture";
+				spec.Missing = kMissingReflection;
+				break;
+			// RT-12: new. The stored reflector normal, and the virtual image's
+			// motion in the velocity lane's units -- RT-6.1 has written the
+			// second since it landed and nothing has ever looked at it.
+			case EngineConfig::DebugViewMode::ReflectionNormal:
+				spec.Aux = reflectionAux; spec.Attachment = 1; spec.Display = 4;
+				spec.Name = "reflection-normal"; spec.Missing = kMissingReflection;
+				break;
+			case EngineConfig::DebugViewMode::ReflectionMotion:
+				spec.Aux = reflectionAux; spec.Attachment = 3; spec.Display = 3;
+				spec.Scale = 0.02f; spec.Name = "reflection-motion";
+				spec.Missing = kMissingReflection;
+				break;
+			// **The three that were wrong.** direct-light and ao rendered the
+			// frame count instead of the picture, and direct-refusal rendered raw
+			// radiance instead of its refusal ramp.
+			case EngineConfig::DebugViewMode::DirectLight:
+				spec.Aux = currentDirect; spec.Attachment = 0; spec.Display = 1;
+				spec.Scale = 64.0f; spec.Name = "direct-light";
+				spec.Missing = kMissingDirect;
+				break;
+			case EngineConfig::DebugViewMode::DirectRefusal:
+				spec.Aux = currentDirect; spec.Attachment = 2; spec.Channel = 3;
+				spec.Scale = 6.0f; spec.Name = "direct-refusal";
+				spec.Missing = kMissingDirect;
+				break;
+			case EngineConfig::DebugViewMode::Occlusion:
+				spec.Aux = currentOcclusion; spec.Attachment = 0; spec.Display = 1;
+				spec.Scale = 1.0f; spec.Name = "ao"; spec.Missing = kMissingAo;
+				break;
+			case EngineConfig::DebugViewMode::AoRefusal:
+				spec.Aux = currentOcclusion; spec.Attachment = 2; spec.Channel = 3;
+				spec.Scale = 6.0f; spec.Name = "ao-refusal"; spec.Missing = kMissingAo;
+				break;
+			case EngineConfig::DebugViewMode::GiLight:
+				spec.Aux = currentGi; spec.Attachment = 0; spec.Display = 1;
+				spec.Scale = 1.0f; spec.Name = "gi-light"; spec.Missing = kMissingGi;
+				break;
+			case EngineConfig::DebugViewMode::GiRefusal:
+				spec.Aux = currentGi; spec.Attachment = 2; spec.Channel = 3;
+				spec.Scale = 6.0f; spec.Name = "gi-refusal"; spec.Missing = kMissingGi;
+				break;
+			case EngineConfig::DebugViewMode::ReflectionSigma:
+				spec.Aux = reflectionAux; spec.Attachment = 2; spec.Channel = 4;
+				spec.Scale = 0.25f; spec.Name = "reflection-sigma"; spec.Missing = kMissingReflection;
+				break;
+			case EngineConfig::DebugViewMode::DirectHistory:
+				spec.Aux = currentDirect; spec.Attachment = 0; spec.Channel = 3;
+				spec.Scale = Math::Max(Renderer3D::DirectSignal().Memory, 1.0f);
+				spec.Name = "direct-history"; spec.Missing = kMissingDirect;
+				break;
+			case EngineConfig::DebugViewMode::DirectSigma:
+				spec.Aux = currentDirect; spec.Attachment = 2; spec.Channel = 4;
+				spec.Scale = 0.25f; spec.Name = "direct-sigma"; spec.Missing = kMissingDirect;
+				break;
+			case EngineConfig::DebugViewMode::GiHistory:
+				spec.Aux = currentGi; spec.Attachment = 0; spec.Channel = 3;
+				spec.Scale = Math::Max(Renderer3D::GiSignal().Memory, 1.0f);
+				spec.Name = "gi-history"; spec.Missing = kMissingGi;
+				break;
+			case EngineConfig::DebugViewMode::GiSigma:
+				spec.Aux = currentGi; spec.Attachment = 2; spec.Channel = 4;
+				spec.Scale = 0.25f; spec.Name = "gi-sigma"; spec.Missing = kMissingGi;
+				break;
+			case EngineConfig::DebugViewMode::AoHistory:
+				spec.Aux = currentOcclusion; spec.Attachment = 0; spec.Channel = 3;
+				spec.Scale = Math::Max(Renderer3D::AoSignal().Memory, 1.0f);
+				spec.Name = "ao-history"; spec.Missing = kMissingAo;
+				break;
+			case EngineConfig::DebugViewMode::AoSigma:
+				spec.Aux = currentOcclusion; spec.Attachment = 2; spec.Channel = 4;
+				spec.Scale = 0.10f; spec.Name = "ao-sigma"; spec.Missing = kMissingAo;
+				break;
+			default:
+				break;
+			}
+
+			const float scale = spec.Scale;
+			const RGResource auxResource = spec.Aux;
+			const uint32_t auxAttachment = spec.Attachment;
 			// Said once: a view whose source is not running draws a dark map,
 			// and the log should say why rather than leave it to be guessed.
+			// RT-12: the name and the reason come from the view's own row, so a
+			// new view cannot be described as whichever one the chain ended on --
+			// which is what happened before RT-3 added two of its own.
 			static EngineConfig::DebugViewMode s_Said = EngineConfig::DebugViewMode::None;
-			if (auxResource == kRGInvalid && mode >= 2 && s_Said != view)
+			if (!spec.FromCounts && auxResource == kRGInvalid && s_Said != view)
 			{
 				s_Said = view;
 				RV_CORE_WARN("Debug view: {0} has no source this frame ({1}); the map stays dark",
-							 view == EngineConfig::DebugViewMode::Confidence ? "confidence"
-								 : view == EngineConfig::DebugViewMode::GiImportance ? "importance-gi"
-								 : reflectionView ? "reflection"
-								 // RT-3: without these two the message named every
-								 // unlisted mode "importance", which is a diagnostic
-								 // telling you about a pass you did not ask for.
-								 : view == EngineConfig::DebugViewMode::GiLight ? "gi-light"
-								 : view == EngineConfig::DebugViewMode::GiRefusal ? "gi-refusal"
-								 : view == EngineConfig::DebugViewMode::Occlusion ? "ao"
-								 : view == EngineConfig::DebugViewMode::DirectLight ? "direct-light"
-								 : view == EngineConfig::DebugViewMode::DirectRefusal ? "direct-refusal"
-								 : "importance",
-							 view == EngineConfig::DebugViewMode::Confidence
-								 ? "the temporal resolve runs under TAA only"
-								 : reflectionView
-								 ? "the traced reflection pass is off"
-								 : (view == EngineConfig::DebugViewMode::GiLight
-									|| view == EngineConfig::DebugViewMode::GiRefusal)
-								 ? "the GI signal is off (--gi-signal, or the scene bakes its GI)"
-								 : "the ray budget's tile allocator is off");
+							 spec.Name, spec.Missing);
 			}
 
 			if (debugCounts && counts)
@@ -4025,13 +4117,16 @@ namespace RageV
 					builder.DisableDepth();
 				},
 				[tonemapped, auxResource, auxAttachment, counts, mode, scale, format,
+				 display = spec.Display, channel = spec.Channel,
+				 fromCounts = spec.FromCounts, logRamp = config.DebugViewLog,
 				 frameMix = config.DebugViewMix]
 				(RGPassContext& context)
 				{
 					PostProcess::DebugView(context.Cmd, context.Color(tonemapped),
 										   auxResource != kRGInvalid
 											   ? context.Color(auxResource, auxAttachment) : nullptr,
-										   counts, mode, scale, frameMix, format);
+										   counts, mode, scale, frameMix,
+										   display, channel, fromCounts, logRamp, format);
 				});
 		}
 

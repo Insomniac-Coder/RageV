@@ -500,12 +500,40 @@ namespace RageV
 		// test that reads the picture as data.
 		float DebugViewMix = 0.2f;
 
+		// **--debug-view-log**: put the ramp on a logarithmic scale.
+		//
+		// RT-12 filed this as part of the item, and two records had already
+		// tripped over it: the direct light saturates at any linear scale,
+		// and RT-2 recorded the occlusion view reading "near-white on a
+		// linear ramp". A frame count, a ray count and a radiance are all
+		// quantities whose interesting range is the bottom decade.
+		bool  DebugViewLog = false;
+
 		enum class DebugViewMode { None, Rays, Lights, Confidence, Importance,
 								   GiImportance, Reflection, ReflectionImage,
 								   ReflectionChoice, ReflectionPicture,
 								   DirectLight, DirectRefusal, Occlusion,
 							   // RT-3: the settled bounce, and its refusals.
-							   GiLight, GiRefusal };
+							   GiLight, GiRefusal,
+							   // **RT-12.** The temporal resolve's own refusal, which did not
+							   // exist before: a TAA ghost could be seen and never traced to the
+							   // clause that let it through.
+							   TaaRefusal,
+							   // The frames standing behind each texel, per signal -- the
+							   // reflection has had one since T4 and the other three never did,
+							   // though they write the very same lane.
+							   DirectHistory, GiHistory, AoHistory,
+							   // What each signal's estimate has been doing: sqrt(E[x^2] - E[x]^2)
+							   // from the two moments the contract keeps. The temporal variance of
+							   // the specification's §11, and the number every bound here is
+							   // floored at.
+							   ReflectionSigma, DirectSigma, GiSigma, AoSigma,
+							   // The occlusion's refusals, never exposed until now.
+							   AoRefusal,
+							   // The reflector's stored normal, and the virtual image's motion
+							   // (RT-6.1): what the direction test reads, and what a swinging
+							   // reflection does on screen.
+							   ReflectionNormal, ReflectionMotion };
 		DebugViewMode DebugView = DebugViewMode::None;
 
 		// **--gi-source=baked|realtime.** Which form of indirect light to use,

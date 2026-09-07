@@ -1708,6 +1708,7 @@ namespace RageV
 	void PostProcess::DebugView(RHICommandList& cmd, const Ref<RHITexture>& frame,
 								const Ref<RHITexture>& aux, const Ref<RHIBuffer>& counts,
 								int mode, float scale, float frameMix,
+								int display, int channel, bool fromCounts, bool logRamp,
 								Format outputFormat)
 	{
 		if (!s_Data || !frame || !counts)
@@ -1720,6 +1721,12 @@ namespace RageV
 		{
 			PostParams Base;
 			float FrameMix = 0.2f;
+			// RT-12. Forty-four bytes in all, well inside the 128 every
+			// device guarantees.
+			float Display = 0.0f;
+			float Channel = 3.0f;
+			float FromCounts = 0.0f;
+			float LogRamp = 0.0f;
 		};
 
 		DebugViewParams params;
@@ -1727,6 +1734,10 @@ namespace RageV
 		params.Base.B = Math::Max(scale, 1.0e-6f);
 		params.Base.C = aux ? 1.0f : 0.0f;
 		params.FrameMix = Math::Clamp(frameMix, 0.0f, 1.0f);
+		params.Display = (float)display;
+		params.Channel = (float)channel;
+		params.FromCounts = fromCounts ? 1.0f : 0.0f;
+		params.LogRamp = logRamp ? 1.0f : 0.0f;
 		// The frame linear, the auxiliary point: a validity flag and a tile
 		// map are both things a filtered read would invent values between.
 		Dispatch(cmd, Shader::DebugView, outputFormat, frame, aux ? aux : s_Data->Black,

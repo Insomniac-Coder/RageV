@@ -57,7 +57,8 @@ layout(std430, set = 0, binding = 5) readonly buffer DebugCountBlock
 layout(push_constant) uniform Params
 {
 	vec2  TexelSize;
-	// 0 rays, 1 lights, 2 confidence, 3 importance (AO), 4 importance (GI).
+	// Which lane of the counts buffer, when FromCounts says to read it:
+	// 0 rays, 1 lights. Meaningless otherwise.
 	float Mode;
 	// The value that maps to the top of the ramp.
 	float Scale;
@@ -72,7 +73,36 @@ layout(push_constant) uniform Params
 	// still test read 21 changes per tile per second with a dwell that
 	// allowed at most 2 before this existed.
 	float FrameMix;
+	// **RT-12: what to do, rather than which view this is.**
+	//
+	// This pass used to decide how to display a number by testing the
+	// view's ordinal, and the test was wrong for three of fourteen views
+	// -- silently, because a heat map has no obviously correct picture to
+	// be compared against. An ordinal is not a property of a view; the
+	// channel and the display are, and the frame graph knows both.
+	//
+	// Display: 0 ramp, 1 picture (rgb over the scale, straight out),
+	//          2 two colours (kept or refused), 3 a vector in rg,
+	//          4 an octahedral normal in rg.
+	// Channel: 0 r, 1 g, 2 b, 3 a, 4 the standard deviation the second
+	//          and first moments in g and b describe.
+	float Display;
+	float Channel;
+	// Whether the value comes from the counts buffer rather than u_Aux.
+	float FromCounts;
+	// Whether the ramp is logarithmic (--debug-view-log).
+	float LogRamp;
 } u_Params;
+
+// The G-buffer's octahedral decode, for the normal display. Local, as
+// it is in every other pass that needs two lines of it.
+vec3 DecodeOct(vec2 e)
+{
+	vec3 n = vec3(e.xy, 1.0 - abs(e.x) - abs(e.y));
+	const float t = max(-n.z, 0.0);
+	n.xy += vec2(n.x >= 0.0 ? -t : t, n.y >= 0.0 ? -t : t);
+	return normalize(n);
+}
 
 // A dark-to-bright ramp with distinct hues per band, so a number is read off
 // by colour rather than by brightness alone: black, blue, cyan, green,
@@ -97,51 +127,77 @@ void main()
 	const vec2 uv = vec2(v_UV.x, u_Params.FlipY > 0.5 ? 1.0 - v_UV.y : v_UV.y);
 	const vec3 frame = texture(u_Frame, uv).rgb;
 
-	const int mode = int(u_Params.Mode + 0.5);
+	const float scale = max(u_Params.Scale, 1.0e-6);
+	const int display = int(u_Params.Display + 0.5);
 	float value = 0.0;
 	bool known = true;
-	if (mode == 0 || mode == 1)
+
+	if (u_Params.FromCounts > 0.5)
 	{
 		// The counts are at the scene target's size, which under SSAA is
 		// not the output's: address by fraction, not by fragment.
+		const int lane = int(u_Params.Mode + 0.5);
 		const uvec2 px = uvec2(clamp(uv, vec2(0.0), vec2(0.9999))
 							   * vec2(u_DebugCounts.Width, u_DebugCounts.Height));
 		const uint index = px.y * u_DebugCounts.Width + px.x;
 		if (index < u_DebugCounts.Pixels)
-			value = float(u_DebugCounts.Counts[(mode == 1 ? u_DebugCounts.Pixels : 0u) + index]);
-	}
-	else if (mode == 2)
-	{
-		// The validity lane: one reused, zero not. Shown as a two-colour
-		// map -- the ramp's top for reused, its red for rejected -- because
-		// a fraction between them does not exist.
-		known = u_Params.AuxValid > 0.5;
-		value = texture(u_Aux, uv).w > 0.5 ? 1.0 : 5.0 / 6.0;
-	}
-	else if (mode == 8 || mode == 10 || mode == 12)   // reflection-picture, direct-light, ao: the picture over the scale
-	{
-		// The accumulated reflection picture, radiance over the scale, as
-		// it is: no ramp, no frame under it (--debug-view=reflection-picture).
-		known = u_Params.AuxValid > 0.5;
-		o_Color = vec4(known ? texture(u_Aux, uv).rgb / max(u_Params.Scale, 1.0e-6) : vec3(0.0), 1.0);
-		return;
-	}
-	else if (mode >= 5)
-	{
-		// The reflection accumulator's attachments, one number each in the
-		// alpha: the frames behind each glossy texel (5), the image distance
-		// it reprojects by (6), which history it took (7).
-		known = u_Params.AuxValid > 0.5;
-		value = texture(u_Aux, uv).a;
+			value = float(u_DebugCounts.Counts[(lane == 1 ? u_DebugCounts.Pixels : 0u) + index]);
 	}
 	else
 	{
 		known = u_Params.AuxValid > 0.5;
-		const vec4 budget = texture(u_Aux, uv);
-		value = mode == 3 ? budget.r : budget.g;
+		const vec4 aux = texture(u_Aux, uv);
+
+		// The three displays that write a colour rather than a number, and
+		// none of them takes the frame underneath: a picture, a direction and
+		// a normal are measurements to be read on their own.
+		if (display == 1)
+		{
+			o_Color = vec4(known ? aux.rgb / scale : vec3(0.0), 1.0);
+			return;
+		}
+		if (display == 3)
+		{
+			// A signed pair about grey, so zero motion is flat and the two
+			// directions of each axis are distinguishable.
+			const vec2 v = clamp(aux.rg / scale, vec2(-1.0), vec2(1.0));
+			o_Color = vec4(known ? vec3(0.5 + 0.5 * v.x, 0.5 + 0.5 * v.y, 0.5)
+								 : vec3(0.0), 1.0);
+			return;
+		}
+		if (display == 4)
+		{
+			const vec3 n = DecodeOct(aux.rg);
+			o_Color = vec4(known ? 0.5 + 0.5 * n : vec3(0.0), 1.0);
+			return;
+		}
+
+		const int channel = int(u_Params.Channel + 0.5);
+		value = channel == 0 ? aux.r
+			  : channel == 1 ? aux.g
+			  : channel == 2 ? aux.b
+			  : channel == 3 ? aux.a
+				// The moments: E[x^2] - E[x]^2, floored at zero because a
+				// half float's rounding can make a converged pixel's variance
+				// very slightly negative.
+				: sqrt(max(aux.b - aux.g * aux.g, 0.0));
+
+		// Two colours: the ramp's top where the history was kept and its red
+		// where it was not. Zero means kept, in the accumulator's encoding and
+		// now in the resolve's too, so the test is against zero rather than
+		// against a validity flag that no longer exists.
+		if (display == 2)
+			value = value < 0.5 ? scale : scale * (5.0 / 6.0);
 	}
 
-	const float t = known ? value / max(u_Params.Scale, 1.0e-6) : 0.0;
+	float t = known ? value / scale : 0.0;
+	// **The logarithmic ramp** (--debug-view-log). A frame count, a ray count
+	// and a radiance all have their interesting range in the bottom decade,
+	// and a linear ramp spends six of its seven bands above it. Anchored so
+	// zero stays zero and one stays one, which keeps the two ramps readable
+	// against each other.
+	if (u_Params.LogRamp > 0.5)
+		t = log2(1.0 + 31.0 * clamp(t, 0.0, 1.0)) / 5.0;
 	// A zero stays the frame, dimmed, so "no rays here" reads as the scene
 	// and not as the ramp's black -- unless nothing is mixed in, where a
 	// zero has to read as black or it is not a measurement.
