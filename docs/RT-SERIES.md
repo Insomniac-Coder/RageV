@@ -31,7 +31,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 
 ## Status at a glance
 
-**Thirteen of twenty-eight items are closed, three more are part-done, twelve are open.** (2026-09-07 night.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
+**Fifteen of twenty-eight items are closed, three more are part-done, ten are open.** (2026-09-07, end of day.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
 
 | # | status | effort | risk | in a line |
 |---|---|---|---|---|
@@ -48,7 +48,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-6.2 | ✅ **re-run 2026-09-07: the negative result expired** | — | — | the material-aware clamp, live on RT-6.8's box |
 | RT-6.3 | ✅ done 2026-09-07 | — | — | the reflection-direction test |
 | RT-6.4 | ✅ done 2026-09-07 | — | — | the current-sample filter down; the tests fade |
-| RT-6.5 | ✅ **done 2026-09-07** — the metallic; the id deferred to RT-14 | — | — | the accumulator tests the material, not just roughness |
+| RT-6.5 | ✅ **done 2026-09-07** — the metallic **and** the object id | — | — | the accumulator tests the material and the identity, not just roughness |
 | **RT-6.6** | ✅ **done 2026-09-07** | — | — | the moments follow the texel the colour came from |
 | **RT-6.7** | ✅ **done 2026-09-07** — correct, and measurably unreachable | — | — | the sky/geometry transition is a disocclusion |
 | **RT-6.8** | ✅ **done 2026-09-07** | — | — | the colour box is built from this surface only |
