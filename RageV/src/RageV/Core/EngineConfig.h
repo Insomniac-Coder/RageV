@@ -533,7 +533,12 @@ namespace RageV
 							   // The reflector's stored normal, and the virtual image's motion
 							   // (RT-6.1): what the direction test reads, and what a swinging
 							   // reflection does on screen.
-							   ReflectionNormal, ReflectionMotion };
+							   ReflectionNormal, ReflectionMotion,
+							   // **§11.** The reflection direction as RGB, and how far it
+							   // swung since last frame -- the one quantity that changes
+							   // on a mirror an orbiting camera looks at while every
+							   // surface test says nothing has changed at all.
+							   ReflectionDirection, ReflectionDirectionDelta };
 		DebugViewMode DebugView = DebugViewMode::None;
 
 		// **--gi-source=baked|realtime.** Which form of indirect light to use,

@@ -43,6 +43,10 @@ layout(set = 0, binding = 0) uniform sampler2D u_Frame;
 // (confidence) or the ray budget's tile map (importance). Black when the
 // mode has none or the source is not running this frame.
 layout(set = 0, binding = 1) uniform sampler2D u_Aux;
+// **RT-12: the same lane, last frame.** Only the direction-difference
+// view reads it; every other view leaves it bound to black. Binding 2
+// is Dispatch's velocity slot, which this pass has never used.
+layout(set = 0, binding = 2) uniform sampler2D u_AuxPrev;
 // The per-pixel counts (rays, lights). Bound at the post-process passes'
 // storage slot; read only here.
 layout(std430, set = 0, binding = 5) readonly buffer DebugCountBlock
@@ -98,9 +102,17 @@ layout(push_constant) uniform Params
 // it is in every other pass that needs two lines of it.
 vec3 DecodeOct(vec2 e)
 {
+	// **The engine's encoding is [0,1]^2, not [-1,1]^2** -- see
+	// include/octahedral.glsl, whose OctEncode ends `e * 0.5 + 0.5`. This
+	// copy omitted the matching `e * 2 - 1` and read the square through the
+	// wrong fold. Kept local rather than included, for the reason the original
+	// gives (no lighting header for four lines of arithmetic) -- but now it is
+	// the same four lines.
+	e = e * 2.0 - 1.0;
 	vec3 n = vec3(e.xy, 1.0 - abs(e.x) - abs(e.y));
-	const float t = max(-n.z, 0.0);
-	n.xy += vec2(n.x >= 0.0 ? -t : t, n.y >= 0.0 ? -t : t);
+	if (n.z < 0.0)
+		n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0,
+										n.y >= 0.0 ? 1.0 : -1.0);
 	return normalize(n);
 }
 
@@ -171,6 +183,15 @@ void main()
 			o_Color = vec4(known ? 0.5 + 0.5 * n : vec3(0.0), 1.0);
 			return;
 		}
+		// **RT-12: the reflection direction** (specification §11), stored
+		// octahedrally in zw by the accumulator. About grey, so the three
+		// axes are readable and a flat surface reads as one colour.
+		if (display == 5)
+		{
+			const vec3 r = DecodeOct(aux.zw);
+			o_Color = vec4(known ? 0.5 + 0.5 * r : vec3(0.0), 1.0);
+			return;
+		}
 
 		const int channel = int(u_Params.Channel + 0.5);
 		value = channel == 0 ? aux.r
@@ -181,6 +202,16 @@ void main()
 				// half float's rounding can make a converged pixel's variance
 				// very slightly negative.
 				: sqrt(max(aux.b - aux.g * aux.g, 0.0));
+
+		// **RT-12: how far the reflection direction swung since last
+		// frame** -- `1 - dot(R_now, R_prev)`, the specification's
+		// `reflectionDifference`, from two stored vectors. This is the
+		// quantity RT-6.3 shortens the memory by, and the one no surface
+		// test can see: on a mirror the camera orbits, every other test
+		// passes and this is the only thing that moved.
+		if (display == 6)
+			value = 1.0 - dot(DecodeOct(aux.zw),
+							  DecodeOct(texture(u_AuxPrev, uv).zw));
 
 		// Two colours: the ramp's top where the history was kept and its red
 		// where it was not. Zero means kept, in the accumulator's encoding and

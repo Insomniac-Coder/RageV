@@ -532,6 +532,9 @@ namespace RageV
 
 		static void DebugView(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& frame,
 							  const RHI::Ref<RHI::RHITexture>& aux,
+							  // RT-12 §11: the same lane one frame back, for the
+							  // direction difference. Null for every other view.
+							  const RHI::Ref<RHI::RHITexture>& auxPrevious,
 							  const RHI::Ref<RHI::RHIBuffer>& counts,
 							  int mode, float scale, float frameMix,
 							  // RT-12: how to show the number, rather than which

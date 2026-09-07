@@ -682,7 +682,17 @@ void main()
 	// shader's o_Velocity with the sign the other way round and the halving
 	// left off. Zero with no history: nothing to difference, and the resolve
 	// then keeps the surface's motion, which is what it did before this.
-	o_Motion = vec4(g_HaveMotion ? g_ImageMotion : vec2(0.0), 0.0, 0.0);
+	// **RT-12: and the reflection direction itself, in the two channels
+	// this attachment has always had spare.** RT-6.1 sized it RGBA16F for
+	// a two-channel motion and left zw at zero; a unit vector is exactly
+	// two channels octahedrally, and this pass computes the direction
+	// anyway for RT-6.3's test. So the specification's §11 view costs no
+	// bandwidth, no matrix and no uniform buffer -- and next frame this
+	// same lane, read from the previous history, is what makes
+	// `1 - dot(R_now, R_prev)` a difference of two stored vectors rather
+	// than a reconstruction from two cameras.
+	o_Motion = vec4(g_HaveMotion ? g_ImageMotion : vec2(0.0),
+					OctEncode(reflect(sight, N)));
 #endif
 	o_Accumulated = vec4(kept, frames);
 #ifdef RV_SIGNAL_PAIR

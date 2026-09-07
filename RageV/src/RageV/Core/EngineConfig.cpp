@@ -800,6 +800,17 @@ namespace RageV
 				config.DebugView = EngineConfig::DebugViewMode::ReflectionNormal;
 			else if (lowered == "reflection-motion" || lowered == "reflectionmotion")
 				config.DebugView = EngineConfig::DebugViewMode::ReflectionMotion;
+			// The reflection direction (specification §11), stored
+			// octahedrally in the motion lane's two spare channels, and its
+			// frame-to-frame difference against the previous history. The
+			// difference wants --debug-view-log: a mirror's whole tolerance
+			// is cos(1.8 degrees), which is 0.0005 on a 0.1 ramp.
+			else if (lowered == "reflection-direction" || lowered == "reflectiondirection")
+				config.DebugView = EngineConfig::DebugViewMode::ReflectionDirection;
+			else if (lowered == "reflection-direction-delta"
+					 || lowered == "reflectiondirectiondelta"
+					 || lowered == "reflection-direction-difference")
+				config.DebugView = EngineConfig::DebugViewMode::ReflectionDirectionDelta;
 			// RT-first T5: the direct light's accumulated diffuse (before the
 			// albedo, over four), and the reason its history was refused.
 			else if (lowered == "direct-light" || lowered == "directlight")

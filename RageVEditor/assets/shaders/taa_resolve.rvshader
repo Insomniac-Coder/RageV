@@ -219,9 +219,17 @@ const float kNormalTolerance = 0.9;
 // pass pulls in no lighting header for two lines of arithmetic.
 vec3 DecodeOct(vec2 e)
 {
+	// **The engine's encoding is [0,1]^2, not [-1,1]^2** -- see
+	// include/octahedral.glsl, whose OctEncode ends `e * 0.5 + 0.5`. This
+	// copy omitted the matching `e * 2 - 1` and read the square through the
+	// wrong fold. Kept local rather than included, for the reason the original
+	// gives (no lighting header for four lines of arithmetic) -- but now it is
+	// the same four lines.
+	e = e * 2.0 - 1.0;
 	vec3 n = vec3(e.xy, 1.0 - abs(e.x) - abs(e.y));
-	const float t = max(-n.z, 0.0);
-	n.xy += vec2(n.x >= 0.0 ? -t : t, n.y >= 0.0 ? -t : t);
+	if (n.z < 0.0)
+		n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0,
+										n.y >= 0.0 ? 1.0 : -1.0);
 	return normalize(n);
 }
 

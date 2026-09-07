@@ -691,6 +691,50 @@ buffer or a second pass. What is delivered instead comes from stored data and
 answers the same questions: `reflection-normal` is the direction test's input,
 and `reflection-motion` is what a swinging reflection actually does on screen.
 
+
+**§11 delivered after all, and the deferral's reason was wrong** (owner: *"build
+the piece that you didn't build"*). The first reading was that a world-space
+reflection direction needs an inverse view-projection and a camera in a
+push-constant block already at the 128 bytes Vulkan guarantees. Two observations
+remove the problem entirely: **`o_Motion` has two spare channels** -- RT-6.1
+sized it `R16G16B16A16_SFLOAT` for a two-channel motion and writes zero into zw
+-- and **a unit vector is exactly two channels octahedrally**. So the
+accumulator, which computes `reflect(sight, N)` for RT-6.3's test anyway, stores
+the direction; and the previous frame's copy of the same lane makes
+`1 - dot(R_now, R_prev)` -- the specification's `reflectionDifference` -- a
+difference of two stored vectors instead of a reconstruction from two cameras.
+No matrix, no uniform buffer, no bandwidth. `reflection-direction` and
+`reflection-direction-delta`, twenty-seven views in all.
+
+**And on its first honest look the new view found a real defect.** It showed a
+hard vertical seam down the middle of a flat floor, where a reflection direction
+must vary smoothly; `reflection-normal` over the same band was uniform to within
+a level, so the normal was innocent and the decode was not.
+
+`include/octahedral.glsl` encodes to **[0,1]²** and its header says the users
+"must agree exactly ... a second copy of either half is how those stop
+agreeing". `taa_resolve.rvshader` made exactly that second copy: a local
+`DecodeOct` missing the `e * 2 - 1` step, reading a [0,1] encoding as [-1,1].
+The G-buffer writes `OctEncode(N)`, `taa_guide` copies it through untouched, and
+**the temporal resolve has decoded it wrongly since RT-6 landed**.
+
+*What that did and did not break.* Both sides go through the same wrong
+function, so `dot(f(a), f(b)) >= 0.9` still tested whether two normals are
+similar -- which is why RT-6 measured a sensible refusal rate and a sharper
+bridge. What it was not is the test its constant describes: `kNormalTolerance =
+0.9` is documented as "about twenty-five degrees" and under the wrong fold it
+was some other angle, distorted worst near the octahedron's diagonals -- where a
+sideways-pointing normal lands, which is walls and the flanks of pillars.
+Corrected in both shaders. **The frame moves by mean 0.086 levels, p99 1.00, max
+165, 0.69% of pixels beyond two** -- small, real, and now the tolerance means
+what it says. The floor seam went from 84 levels to 20, and the residual is a
+pure red-channel gradient with green and blue constant, which is exactly a flat
+reflector's `R.x` varying across the image.
+
+**The lesson, and it is the item's own justification:** RT-12 was built to make
+the instruments trustworthy, and the first thing the finished instrument did was
+find a two-year-old convention mismatch in the pass RT-6.7 is about to change.
+
 **Verified:** all twenty-five views render (each differs from the plain frame),
 each takes the branch its name implies (the mix=1.0 test, now a repeatable
 check), the log ramp moves the picture (ao-history 161.7 -> 186.8 mean), and the

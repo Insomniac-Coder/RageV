@@ -1706,7 +1706,9 @@ namespace RageV
 	}
 
 	void PostProcess::DebugView(RHICommandList& cmd, const Ref<RHITexture>& frame,
-								const Ref<RHITexture>& aux, const Ref<RHIBuffer>& counts,
+								const Ref<RHITexture>& aux,
+								const Ref<RHITexture>& auxPrevious,
+								const Ref<RHIBuffer>& counts,
 								int mode, float scale, float frameMix,
 								int display, int channel, bool fromCounts, bool logRamp,
 								Format outputFormat)
@@ -1742,7 +1744,10 @@ namespace RageV
 		// map are both things a filtered read would invent values between.
 		Dispatch(cmd, Shader::DebugView, outputFormat, frame, aux ? aux : s_Data->Black,
 				 &params, sizeof(params), Sampling::Linear, Sampling::Point,
-				 nullptr, Sampling::Point, nullptr, Sampling::Point,
+				 // RT-12 §11: binding 2, Dispatch's velocity slot, which this
+				 // pass has never used. Point: a direction is a measurement.
+				 auxPrevious ? auxPrevious : s_Data->Black, Sampling::Point,
+				 nullptr, Sampling::Point,
 				 nullptr, nullptr, Format::Undefined, Format::Undefined, counts);
 	}
 }

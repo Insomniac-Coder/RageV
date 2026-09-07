@@ -3927,6 +3927,9 @@ namespace RageV
 			{
 				float       Scale = 1.0f;
 				RGResource  Aux = kRGInvalid;
+				// RT-12 §11: the same attachment one frame back, for the
+				// direction difference. Every other view leaves it invalid.
+				RGResource  AuxPrev = kRGInvalid;
 				uint32_t    Attachment = 0u;
 				int         Display = 0;
 				int         Channel = 3;
@@ -4009,6 +4012,23 @@ namespace RageV
 				spec.Aux = reflectionAux; spec.Attachment = 1; spec.Display = 4;
 				spec.Name = "reflection-normal"; spec.Missing = kMissingReflection;
 				break;
+			// **§11.** The direction the accumulator stores octahedrally in
+			// the motion lane's spare channels, and the swing since last
+			// frame against the previous history. Both need the reflection
+			// pass; the difference needs a previous frame as well, so it
+			// reports "no source" rather than differencing against black.
+			case EngineConfig::DebugViewMode::ReflectionDirection:
+				spec.Aux = reflectionAux; spec.Attachment = 3; spec.Display = 5;
+				spec.Name = "reflection-direction"; spec.Missing = kMissingReflection;
+				break;
+			case EngineConfig::DebugViewMode::ReflectionDirectionDelta:
+				spec.Aux = (tracedReflections && previousReflections != kRGInvalid)
+						 ? currentReflections : kRGInvalid;
+				spec.AuxPrev = previousReflections; spec.Attachment = 3;
+				spec.Display = 6; spec.Scale = 0.1f;
+				spec.Name = "reflection-direction-delta";
+				spec.Missing = kMissingReflection;
+				break;
 			case EngineConfig::DebugViewMode::ReflectionMotion:
 				spec.Aux = reflectionAux; spec.Attachment = 3; spec.Display = 3;
 				spec.Scale = 0.02f; spec.Name = "reflection-motion";
@@ -4080,6 +4100,7 @@ namespace RageV
 
 			const float scale = spec.Scale;
 			const RGResource auxResource = spec.Aux;
+			const RGResource auxPrevResource = spec.AuxPrev;
 			const uint32_t auxAttachment = spec.Attachment;
 			// Said once: a view whose source is not running draws a dark map,
 			// and the log should say why rather than leave it to be guessed.
@@ -4114,9 +4135,12 @@ namespace RageV
 					builder.Sample(tonemapped);
 					if (auxResource != kRGInvalid)
 						builder.Sample(auxResource);
+					if (auxPrevResource != kRGInvalid)
+						builder.Sample(auxPrevResource);
 					builder.DisableDepth();
 				},
-				[tonemapped, auxResource, auxAttachment, counts, mode, scale, format,
+				[tonemapped, auxResource, auxPrevResource, auxAttachment, counts,
+				 mode, scale, format,
 				 display = spec.Display, channel = spec.Channel,
 				 fromCounts = spec.FromCounts, logRamp = config.DebugViewLog,
 				 frameMix = config.DebugViewMix]
@@ -4125,6 +4149,8 @@ namespace RageV
 					PostProcess::DebugView(context.Cmd, context.Color(tonemapped),
 										   auxResource != kRGInvalid
 											   ? context.Color(auxResource, auxAttachment) : nullptr,
+										   auxPrevResource != kRGInvalid
+											   ? context.Color(auxPrevResource, auxAttachment) : nullptr,
 										   counts, mode, scale, frameMix,
 										   display, channel, fromCounts, logRamp, format);
 				});
