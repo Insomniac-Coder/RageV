@@ -48,7 +48,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-6.2 | ✅ **re-run 2026-09-07: the negative result expired** | — | — | the material-aware clamp, live on RT-6.8's box |
 | RT-6.3 | ✅ done 2026-09-07 | — | — | the reflection-direction test |
 | RT-6.4 | ✅ done 2026-09-07 | — | — | the current-sample filter down; the tests fade |
-| RT-6.5 | open | 0.5-1 d | low | the accumulator tests the material, not just roughness |
+| RT-6.5 | ✅ **done 2026-09-07** — the metallic; the id deferred to RT-14 | — | — | the accumulator tests the material, not just roughness |
 | **RT-6.6** | ✅ **done 2026-09-07** | — | — | the moments follow the texel the colour came from |
 | **RT-6.7** | ✅ **done 2026-09-07** — correct, and measurably unreachable | — | — | the sky/geometry transition is a disocclusion |
 | **RT-6.8** | ✅ **done 2026-09-07** | — | — | the colour box is built from this surface only |
@@ -740,6 +740,66 @@ each takes the branch its name implies (the mix=1.0 test, now a repeatable
 check), the log ramp moves the picture (ao-history 161.7 -> 186.8 mean), and the
 rendered frame is unchanged. `--debug-view=taa-refusal` mid-dolly:
 `build/garage_burst/rt12_taa_71.png`.
+
+### RT-6.5 — ✅ done 2026-09-07 (§4C of the owner's specular specification)
+
+**The gap.** Every history test the reflection accumulator had asked about the
+reflector's geometry -- same plane, same facing -- with one material question,
+roughness, at a tolerance of 0.5. **Roughness does not separate a metal from a
+dielectric.** Brushed steel and painted plaster at the same roughness pass every
+test the accumulator has and shade nothing alike: one is a mirror of the room,
+the other is mostly its own albedo. At the boundary the history was accepted
+whole.
+
+**Where it went, and the shape that was rejected.** The contract's three
+attachments are full and RT-12 took the last two spare channels for §11. So:
+
+- *A fifth attachment* would hold a surface id **and** the metallic honestly --
+  and the contract is **shared by four signals**, so it is bandwidth on all four
+  every frame for one signal's test. Both outside reviews warn about exactly
+  this lane growth (§20), and **RT-14 is filed to measure the G-buffer's
+  bandwidth before anything is added to it.** Adding a lane the week before
+  measuring whether the existing lanes are affordable is the wrong order.
+- *The metallic packed into the roughness channel's integer part* is free.
+  `o_Extra.r` has exactly one reader and one writer, roughness lives in [0,1],
+  and a half float at magnitude two still resolves about 0.002 -- far finer than
+  a test whose tolerance is 0.5.
+
+The second. **The surface id is deferred to after RT-14, with its reason
+recorded, rather than dropped.** A mismatch scales the memory to `kMaterialAgree
+= 0.15` instead of refusing the history -- RT-6.3's argument, that refusing
+trades a smear for the noise of a one-frame estimate on the surfaces that show
+noise worst.
+
+**It lands exactly and only where it claims to.** Garage dolly, on against the
+pre-change shader: mean 0.032 levels, 0.23% of pixels beyond two, max 73.
+
+| where it lands | concentration |
+|---|---|
+| **wall** (the chrome poles against the graffiti) | **4.55x** |
+| **poles** | **3.15x** |
+| car | 0.68x |
+| ceiling | 0.40x |
+| **floor** (uniform dielectric, no boundary) | **0.00x** |
+
+**And only 0.88x on geometric edges** -- below their share of the frame. So this
+is a *material*-boundary change and not an edge change, which is the distinction
+the item is about and the sharpest targeting of anything measured this session.
+The floor reading exactly zero is the control: one material, no boundary,
+nothing to do.
+
+**The region averages do not move** (detail and change within 0.04% everywhere),
+because 0.23% of pixels cannot shift a regional mean -- and **the crop is
+inconclusive at this magnitude**, which is said plainly rather than dressed up.
+What is demonstrated is that the mechanism fires precisely at metal/dielectric
+boundaries and nowhere else; what is not demonstrated is a visible improvement,
+and the garage may simply not have many such boundaries that a reprojection
+crosses.
+
+**Cost: +0.009 ms on the reflection accumulate pass** (0.3155 against 0.3065,
+A,B,B,A, and both on-runs sat above both off-runs, so this is a real ~3% of that
+pass rather than noise). The frame is unmoved at 10.63 against 10.61. No new
+texture fetch -- a pack, an unpack and a compare.
 
 ### RT-6.2 re-run — the negative result has expired (owner-asked, after RT-6.8)
 

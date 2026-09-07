@@ -141,6 +141,10 @@ int g_Refusal = 0;
 // when a candidate is accepted, so the motion write below has something to
 // difference against.
 vec2 g_ImageMotion = vec2(0.0);
+// RT-6.5: this pixel's metallic, for the history gate. A global for the
+// same reason the motion is one -- HistoryAt is called from two places and
+// threading one more parameter through both says nothing the name does not.
+float g_Metallic = 0.0;
 bool g_HaveMotion = false;
 
 layout(location = 0) out vec4 o_Accumulated;
@@ -366,6 +370,31 @@ bool AtSilhouette(ivec2 texel, ivec2 size, vec3 P, vec3 N, float eyeDistance, ou
 	return silhouette;
 }
 
+// **RT-6.5: how much a history is worth when the material underneath it
+// changed.** A metal and a dielectric at the same roughness pass every
+// other test this accumulator has and shade nothing alike -- one is a
+// mirror of the room, the other is mostly its own albedo.
+//
+// Scaled, not refused, for RT-6.3's reason: refusing trades a smear for the
+// noise of a one-frame estimate, on exactly the surfaces that show noise
+// worst. A sixth of the memory is short enough that the fresh rays take
+// over within a few frames and long enough that they are not read alone.
+const float kMaterialAgree = 0.15;
+
+// **The roughness channel carries the metallic in its integer part.**
+// Roughness is in [0,1] and the whole integer part of `o_Extra.r` was
+// unused; a half float at magnitude two still resolves about 0.002, which
+// is far finer than a test whose tolerance is 0.5. The alternative was a
+// fifth attachment on a contract four signals share, a week before RT-14
+// measures whether the lanes already there are affordable.
+float PackMaterial(float roughness, float metallic)
+{
+	return clamp(roughness, 0.0, 1.0) + (metallic >= 0.5 ? 2.0 : 0.0);
+}
+
+bool  UnpackMetal(float packed)     { return packed >= 1.5; }
+float UnpackRoughness(float packed) { return packed - (packed >= 1.5 ? 2.0 : 0.0); }
+
 bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 			   float eyeDistance, bool silhouette, out Candidate c)
 {
@@ -441,7 +470,9 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 				if (k == 0) g_Refusal = 4;
 				continue;
 			}
-			if (abs(c.extra.r - roughness) > 0.5)
+			// RT-6.5: the same cutoff, on the roughness unpacked from beside the
+			// metallic. Unchanged in behaviour -- what is new is the bit above it.
+			if (abs(UnpackRoughness(c.extra.r) - roughness) > 0.5)
 			{
 				if (k == 0) g_Refusal = 5;
 				continue;
@@ -451,9 +482,18 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 			// changes that sharply -- what the eye sees as the camera turns is the
 			// memory stepping out rather than a reflection catching up. Full trust
 			// well inside each tolerance, falling to none at its edge.
+			//
+			// **RT-6.5: and by whether it is even the same kind of surface.** The
+			// one axis nothing here has ever tested: a metal/dielectric boundary
+			// passes the normal, the plane and the roughness, and the two sides
+			// reflect nothing alike. Multiplied in like the rest, so a candidate
+			// marginal on two counts is worth less than one marginal on either.
+			const float material = UnpackMetal(c.extra.r) == (g_Metallic >= 0.5)
+								 ? 1.0 : kMaterialAgree;
 			c.matchConfidence = smoothstep(0.8, 0.94, facing)
 							  * (1.0 - smoothstep(0.35 * planeTolerance, planeTolerance,
-												  offPlane));
+												  offPlane))
+							  * material;
 		}
 		// Bilinear where the texel itself matched; the neighbour's own value
 		// where it did not, since the texels between belong to the other side.
@@ -505,6 +545,9 @@ void main()
 	const vec3 sight = (P - eye) / max(eyeDistance, 1.0e-4);
 	const vec4 surface = texelFetch(u_Surface, texel, 0);
 	const float roughness = clamp(surface.b, 0.0, 1.0);
+	// RT-6.5: the G-buffer's normal attachment carries the metallic in a,
+	// beside the roughness in b. Read here once, used by every candidate.
+	g_Metallic = clamp(surface.a, 0.0, 1.0);
 	const float luma = Luma(fresh.rgb);
 
 	// The image behind the surface: the ray's distance for a flat mirror,
@@ -705,5 +748,8 @@ void main()
 	o_Surface = vec4(surface.rg, dot(N, P), image);
 	// choice in the fraction (0 none, 0.25 the surface's history, 0.5 the
 	// image's), the refusal reason in the integer part.
-	o_Extra = vec4(roughness, momMean, momMeanSq, 0.5 * choice + float(g_Refusal));
+	// RT-6.5: the roughness with the metallic in its integer part, so the
+	// next frame can tell a metal from a dielectric at the same roughness.
+	o_Extra = vec4(PackMaterial(roughness, g_Metallic), momMean, momMeanSq,
+				   0.5 * choice + float(g_Refusal));
 }
