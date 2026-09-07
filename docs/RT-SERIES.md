@@ -31,7 +31,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 
 ## Status at a glance
 
-**Nine of twenty-eight items are closed, three more are part-done, sixteen are open.** Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
+**Thirteen of twenty-eight items are closed, three more are part-done, twelve are open.** (2026-09-07 night.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
 
 | # | status | effort | risk | in a line |
 |---|---|---|---|---|
