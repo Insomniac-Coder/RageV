@@ -741,6 +741,56 @@ check), the log ramp moves the picture (ao-history 161.7 -> 186.8 mean), and the
 rendered frame is unchanged. `--debug-view=taa-refusal` mid-dolly:
 `build/garage_burst/rt12_taa_71.png`.
 
+### RT-6.5, the fourth check — ✅ **built 2026-09-07** (owner-instructed, after it was wrongly argued away)
+
+**It should not have needed instructing twice.** The first pass at RT-6.5 shipped
+the metallic and *argued* the object id away instead of building it, on the
+reasoning that two patches agreeing on position, facing and shininess reflect the
+same image. **That ignored the tolerance.** The plane test accepts anything within
+`0.05 + 0.01 * eyeDistance` metres -- **25 cm at twenty metres**. Two different
+flat objects 20 cm apart, same facing, same material, pass every other check and
+reflect **different** images because they sit at different depths. Nothing else
+here can see that.
+
+**What was built.** The G-buffer's object id is bound into the accumulator, kept
+per texel in a **fifth attachment** on the reflection history, and compared in
+`HistoryAt`. The penalty is **shaped by how marginal the plane test was**: a
+different object that is genuinely coplanar keeps its history -- there the old
+argument does hold -- while one out near the tolerance edge drops to
+`kIdAgree = 0.25` of its memory, because that is the case the plane test was
+never tight enough to catch. Multiplied into RT-6.4's match confidence like every
+other term.
+
+**Measured, and the honest result is that this scene barely exercises it.**
+
+| arm | vs the test neutralised in-place |
+|---|---|
+| shipped (soft, plane-weighted) | mean 0.000, max **0.7** |
+| probe: **hard refusal** on any id mismatch | mean 0.012, max 33.3, **0.05% of pixels** |
+
+The probe is the liveness proof -- the plumbing is connected, and even at maximum
+severity only **one pixel in two thousand** carries a history from a different
+object that passed all the other tests. The garage is a room of large coplanar
+surfaces; a scene of many small separate objects at similar depths is where this
+earns its place.
+
+**The cost, which is the real question.** `scene/ReflectionAccumulate` reads
+**0.380 ms against 0.3155** before the attachment (different builds, same
+machine, so treat it as about **+0.06 ms**), plus **16 bytes a pixel** on a
+history budget RT-14 measured at 128. So: a fifth of that pass, and an eighth of
+the history budget, for a test that moves 0.05% of pixels here.
+
+**Shipped because the owner asked for it, and the trade is now measured rather
+than argued.** If the numbers say remove it, the removal is the same five files.
+What is not in question any more is whether it works: it does, and the reason it
+looks quiet is the scene rather than the code.
+
+**The method note worth keeping.** Both arms were produced by neutralising the
+test *inside the current shader*, so they shared one binary and one descriptor
+layout. Staging an older shader against a newer binary -- which is what was done
+an hour earlier while debugging the metal tint -- produces a broken arm, not a
+reference, and nearly buried a working fix.
+
 ### 2026-09-07: **a light at zero intensity stops participating**, and the studio rig follows the car
 
 **Two owner-asked fixes, from reading the garage's light list.**

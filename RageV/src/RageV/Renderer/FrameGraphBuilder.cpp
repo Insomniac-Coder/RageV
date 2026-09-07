@@ -834,6 +834,13 @@ namespace RageV
 								tracedReflections ? Format::R16G16B16A16_SFLOAT
 												  : Format::Undefined,
 								tracedReflections ? Format::R16G16B16A16_SFLOAT
+												  : Format::Undefined,
+								// RT-6.5: the object id under each texel, so the next frame's
+								// history test can ask whether it is the same object -- the
+								// one thing position, facing and material cannot answer,
+								// because the plane test's tolerance is a quarter of a metre
+								// at twenty.
+								tracedReflections ? Format::R16G16B16A16_SFLOAT
 												  : Format::Undefined);
 
 			if (reflections.Current() && reflections.Previous())
@@ -1117,6 +1124,8 @@ namespace RageV
 					builder.DisableDepth();
 				},
 				[params, fresh, sceneHDR, current, previous, hasHistory, motion, pair,
+				 surfaceIdIndex,
+				 specular = params.Type != Renderer3D::SignalParams::Kind::Diffuse,
 				 guideDepth, guideSurface, guideVelocity, guideNormalLane, guideVelocityLane, ownGuide]
 				(RGPassContext& context)
 				{
@@ -1133,7 +1142,13 @@ namespace RageV
 						context.Color(guideVelocity, guideVelocityLane),
 						*motion, hasHistory,
 						pair ? context.Color(fresh, 1) : nullptr,
-						pair && hasHistory ? context.Color(previous, 3) : nullptr);
+						pair && hasHistory ? context.Color(previous, 3) : nullptr,
+						// RT-6.5: the G-buffer's object id, and this signal's own copy of
+						// it from last frame. Only the specular accumulate keeps a fifth
+						// attachment for it; the diffuse kinds pass null and the binding
+						// falls back to the surface, which is what it did before.
+						specular ? context.Color(sceneHDR, surfaceIdIndex) : nullptr,
+						specular && hasHistory ? context.Color(previous, 4) : nullptr);
 				});
 			// Three blur passes at strides 1, 2, 4: each reads the previous
 			// pass's output; the first reads the history itself, which is

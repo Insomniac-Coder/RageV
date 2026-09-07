@@ -83,7 +83,12 @@ namespace RageV
 					 RHI::Format format, const char* name = "TemporalHistory",
 					 RHI::Format secondFormat = RHI::Format::Undefined,
 					 RHI::Format thirdFormat = RHI::Format::Undefined,
-					 RHI::Format fourthFormat = RHI::Format::Undefined);
+					 RHI::Format fourthFormat = RHI::Format::Undefined,
+					 // RT-6.5: and a fifth, for the reflection accumulator's object
+					 // id -- the one history test that position, facing and material
+					 // cannot stand in for, because the plane test's tolerance is a
+					 // quarter of a metre at twenty.
+					 RHI::Format fifthFormat = RHI::Format::Undefined);
 
 		// This frame's output, and last frame's. Null before Prepare.
 		const RHI::Ref<RHI::RHIRenderTarget>& Current() const  { return m_Targets[m_Cursor]; }
@@ -128,6 +133,7 @@ namespace RageV
 		RHI::Format m_SecondFormat = RHI::Format::Undefined;
 		RHI::Format m_ThirdFormat = RHI::Format::Undefined;
 		RHI::Format m_FourthFormat = RHI::Format::Undefined;   // the pair kind's twin (RT-first T5)
+		RHI::Format m_FifthFormat = RHI::Format::Undefined;    // the reflector's object id (RT-6.5)
 		bool m_Valid = false;
 	};
 }

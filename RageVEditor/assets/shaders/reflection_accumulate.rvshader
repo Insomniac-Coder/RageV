@@ -98,6 +98,13 @@ layout(set = 3, binding = 5) uniform sampler2D u_HistoryExtra;
 // The scene's velocity attachment (clip units, as TAA reads it): what the
 // surfaces around a silhouette are doing, for the rule below.
 layout(set = 3, binding = 6) uniform sampler2D u_Velocity;
+// **RT-6.5: who this surface is, and who it was.** The G-buffer's id
+// lane (signed object id in r), and the copy this pass kept last frame.
+// The fourth history test: position, facing and shininess can all agree
+// across two different objects, because the plane test's tolerance is
+// 0.05 + 0.01 * eyeDistance -- a quarter of a metre at twenty.
+layout(set = 3, binding = 9) uniform sampler2D u_SurfaceId;
+layout(set = 3, binding = 10) uniform sampler2D u_HistoryIdent;
 #ifdef RV_SIGNAL_PAIR
 // The second payload (RT-first T5): a signal of two pictures -- the direct
 // light's diffuse and specular halves -- sharing every test above. Its fresh
@@ -145,6 +152,9 @@ vec2 g_ImageMotion = vec2(0.0);
 // same reason the motion is one -- HistoryAt is called from two places and
 // threading one more parameter through both says nothing the name does not.
 float g_Metallic = 0.0;
+// RT-6.5: this pixel's object id, for the same reason -- HistoryAt is
+// called from two places and this is the same value at both.
+float g_ObjectId = 0.0;
 bool g_HaveMotion = false;
 
 layout(location = 0) out vec4 o_Accumulated;
@@ -164,6 +174,8 @@ layout(location = 3) out vec4 o_Accumulated2;
 // Only on the specular variant: a diffuse signal moves with its surface, so
 // its motion *is* the velocity lane's and a second copy would say nothing.
 layout(location = 3) out vec4 o_Motion;
+// RT-6.5: the object id under this texel, for the next frame's test.
+layout(location = 4) out vec4 o_Ident;
 #endif
 
 // How many frames the moments remember: enough to know the grain's
@@ -381,6 +393,20 @@ bool AtSilhouette(ivec2 texel, ivec2 size, vec3 P, vec3 N, float eyeDistance, ou
 // over within a few frames and long enough that they are not read alone.
 const float kMaterialAgree = 0.15;
 
+// **RT-6.5: and how much a history from a *different object* is worth.**
+//
+// Not a flat penalty, because whether the id matters depends on how
+// marginal the plane test was. Two different objects that are genuinely
+// coplanar, facing the same way and of the same material reflect the
+// same image -- refusing there would throw away a correct history. Two
+// different objects out at the edge of the plane tolerance are up to a
+// quarter of a metre apart at twenty metres and reflect *different*
+// images, and that is the case no other test here can see.
+//
+// So the penalty follows the plane residual: none when the candidate is
+// well inside the tolerance, most of it at the edge.
+const float kIdAgree = 0.25;
+
 // **The roughness channel carries the metallic in its integer part.**
 // Roughness is in [0,1] and the whole integer part of `o_Extra.r` was
 // unused; a half float at magnitude two still resolves about 0.002, which
@@ -490,10 +516,21 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 			// marginal on two counts is worth less than one marginal on either.
 			const float material = UnpackMetal(c.extra.r) == (g_Metallic >= 0.5)
 								 ? 1.0 : kMaterialAgree;
+			// **RT-6.5's fourth check: is it the same object?** Weighted by how
+			// far out the plane test was -- see kIdAgree. A coplanar neighbour
+			// of another object is reflecting what this one reflects and keeps
+			// its history; one near the tolerance's edge is at a different
+			// depth and does not.
+			const float wasId = texelFetch(u_HistoryIdent, pastTexel, 0).r;
+			const float idPenalty =
+				abs(wasId - g_ObjectId) < 0.5
+					? 1.0
+					: mix(1.0, kIdAgree,
+						  smoothstep(0.2, 1.0, offPlane / max(planeTolerance, 1.0e-5)));
 			c.matchConfidence = smoothstep(0.8, 0.94, facing)
 							  * (1.0 - smoothstep(0.35 * planeTolerance, planeTolerance,
 												  offPlane))
-							  * material;
+							  * material * idPenalty;
 		}
 		// Bilinear where the texel itself matched; the neighbour's own value
 		// where it did not, since the texels between belong to the other side.
@@ -548,6 +585,10 @@ void main()
 	// RT-6.5: the G-buffer's normal attachment carries the metallic in a,
 	// beside the roughness in b. Read here once, used by every candidate.
 	g_Metallic = clamp(surface.a, 0.0, 1.0);
+	// RT-6.5: and who it is. The id lane's r, as the G-buffer wrote it --
+	// a whole number, negated for a static surface, so it is compared and
+	// never interpolated.
+	g_ObjectId = texelFetch(u_SurfaceId, texel, 0).r;
 	const float luma = Luma(fresh.rgb);
 
 	// The image behind the surface: the ray's distance for a flat mirror,
@@ -736,6 +777,8 @@ void main()
 	// than a reconstruction from two cameras.
 	o_Motion = vec4(g_HaveMotion ? g_ImageMotion : vec2(0.0),
 					OctEncode(reflect(sight, N)));
+	// RT-6.5: who this texel was, for the next frame's fourth check.
+	o_Ident = vec4(g_ObjectId, 0.0, 0.0, 0.0);
 #endif
 	o_Accumulated = vec4(kept, frames);
 #ifdef RV_SIGNAL_PAIR

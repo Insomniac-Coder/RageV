@@ -345,7 +345,11 @@ namespace RageV
 									 const RHI::Ref<RHI::RHITexture>& velocity,
 									 CameraMotion& motion, bool hasHistory,
 									 const RHI::Ref<RHI::RHITexture>& fresh2 = nullptr,
-									 const RHI::Ref<RHI::RHITexture>& previous2 = nullptr);
+									 const RHI::Ref<RHI::RHITexture>& previous2 = nullptr,
+									 // RT-6.5: the G-buffer's object id, and this pass's own
+									 // copy of it from last frame -- the fourth history test.
+									 const RHI::Ref<RHI::RHITexture>& surfaceId = nullptr,
+									 const RHI::Ref<RHI::RHITexture>& previousIdent = nullptr);
 
 		static void ShadeWaterLamps(const RHI::Ref<RHI::RHITexture>& surface,
 									const RHI::Ref<RHI::RHITexture>& material,

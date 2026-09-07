@@ -3307,7 +3307,10 @@ namespace RageV
 			// virtual image's screen motion, which is the one thing the temporal
 			// resolve cannot work out for itself and needs if the reflection is
 			// ever to pass through it.
-			const int extras = pass == 0 ? 1 : pass == 2 ? 3 : pass == 4 ? 2 : pass == 6 ? 3 : pass == 7 ? 1 : 0;
+			// **RT-6.5: the specular accumulate writes a fifth** -- the object
+			// id under each texel, the one history test position, facing and
+			// material cannot stand in for.
+			const int extras = pass == 0 ? 1 : pass == 2 ? 4 : pass == 4 ? 2 : pass == 6 ? 3 : pass == 7 ? 1 : 0;
 			for (int extra = 0; extra < extras; ++extra)
 			{
 				reflection.ColorFormats.push_back(Format::R16G16B16A16_SFLOAT);
@@ -6495,7 +6498,9 @@ namespace RageV
 									  const RHI::Ref<RHITexture>& velocity,
 									  CameraMotion& motion, bool hasHistory,
 									  const RHI::Ref<RHITexture>& fresh2,
-									  const RHI::Ref<RHITexture>& previous2)
+									  const RHI::Ref<RHITexture>& previous2,
+									  const RHI::Ref<RHITexture>& surfaceId,
+									  const RHI::Ref<RHITexture>& previousIdent)
 	{
 		const bool diffuse = signal.Type == SignalParams::Kind::Diffuse;
 		const Ref<RHIPipeline>& pipeline = fresh2 ? s_Data->SignalAccumulateDiffusePairPipeline
@@ -6532,6 +6537,13 @@ namespace RageV
 			inputs->SetTexture(7, fresh2, s_Data->PointSampler);
 			inputs->SetTexture(8, previous2 && hasHistory ? previous2 : fresh2, historySampler);
 		}
+		// **RT-6.5: who this surface is, and who it was.** A declared binding must
+		// be filled whichever kind is running, so the surface lane stands in where
+		// there is no id -- its r is a packed normal there, which compares unequal
+		// and so shortens a memory rather than reading as another object's history.
+		inputs->SetTexture(9, surfaceId ? surfaceId : surface, s_Data->PointSampler);
+		inputs->SetTexture(10, previousIdent && hasHistory ? previousIdent
+							   : (surfaceId ? surfaceId : surface), s_Data->PointSampler);
 		inputs->Commit();
 
 		SignalPushConstants push;
