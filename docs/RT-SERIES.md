@@ -872,6 +872,44 @@ boundaries and nowhere else; what is not demonstrated is a visible improvement,
 and the garage may simply not have many such boundaries that a reprojection
 crosses.
 
+
+**The other half -- the object id, argued out rather than deferred, and the axis
+that is genuinely missing named instead.**
+
+RT-6.5 was filed as "add the surface id **and** the metallic". With RT-14's
+price in hand (a fifth attachment is 16 B/pixel on a history budget already at
+128, feeding a pass that is 96% pixel-bound), the question is whether an object
+id earns it *in this accumulator*. It does not, and the reason is specific:
+
+**A reflection history describes the reflected image, not the reflector's own
+shading.** That image is a function of the reflector's position, normal and
+BRDF -- nothing else. Two texels that agree on normal, on plane, on roughness
+and now on metallic **reflect the same image**, whatever objects they belong to,
+so an id test there would refuse a history that is correct. This is exactly
+where the accumulator differs from RT-6's TAA test, which *does* need identity:
+there the pixel's colour is the surface's own shading, which depends on its
+albedo and its lighting, so two surfaces agreeing geometrically still differ.
+The same test is right in one pass and wrong in the other.
+
+**What is genuinely missing is not an id, and the second review named it: a
+compact BSDF signature** (*"long-term, a compact BSDF identity/hash is cleaner
+than adding individual comparisons indefinitely"*). Roughness and metallic are
+most of that signature; the piece still absent is **F0's colour** -- gold and
+chrome at the same roughness are both metal and reflect the room in different
+colours, and today they pass every test this accumulator has. For a metal, F0 is
+the albedo, and the G-buffer's albedo lane already carries it.
+
+So the honest state of §4C: **its named case is closed** (*"at minimum
+distinguish metallic vs non-metallic"*), the object id is closed as
+not-applicable-here with the reason, and **the coloured-metal boundary is filed
+as the one real remaining axis** -- to be carried by a BSDF hash if a future lane
+is ever bought, priced by RT-14 at 16 B/pixel.
+
+**This half is reasoning, not measurement, and is marked as such.** Measuring it
+would need the id bound into the accumulator and stored per texel -- the same
+plumbing as building it. If the owner wants the number rather than the argument,
+that is the cost.
+
 **Cost: +0.009 ms on the reflection accumulate pass** (0.3155 against 0.3065,
 A,B,B,A, and both on-runs sat above both off-runs, so this is a real ~3% of that
 pass rather than noise). The frame is unmoved at 10.63 against 10.61. No new
