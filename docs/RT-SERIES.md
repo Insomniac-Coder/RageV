@@ -741,48 +741,57 @@ check), the log ramp moves the picture (ao-history 161.7 -> 186.8 mean), and the
 rendered frame is unchanged. `--debug-view=taa-refusal` mid-dolly:
 `build/garage_burst/rt12_taa_71.png`.
 
-### Found 2026-09-07: **coloured metals reflect in grey** -- a real defect, and a fix that failed its own measurement
+### ✅ Fixed 2026-09-07: **coloured metals reflected in grey**
 
-**The defect, which the engine's own comment admits.** The traced reflection is
-added to the frame by a **single number** carried in the scene's alpha, and the
-lit shader makes that number by collapsing a colour to its brightness:
+**The defect, which the engine's own comment admitted.** The traced reflection
+reaches the frame through a **single number** in the scene's alpha, and the lit
+shader made it by collapsing a colour to its brightness:
 
 ```glsl
 // One channel, so a coloured metal's tint is not carried.
-reflectionWeight = reflectionShare
-                 * dot((F0 * envBRDF.x + envBRDF.y) * occlusion, luma);
+reflectionWeight = reflectionShare * dot((F0 * envBRDF.x + envBRDF.y) * occlusion, luma);
 ```
 
-`F0` is what a surface reflects head-on, and **for a metal it is the metal's own
-colour**. Gold's F0 is gold; copper's is copper. Collapsing it to a luminance
-throws that away, so **every coloured metal in the engine reflects the room in
-grey**. The probe's half of the reflection keeps its tint -- that multiply is a
-colour, one line above -- so only the *traced* half is affected, which is why it
-has gone unnoticed: the two halves disagree and the probe covers for it.
+`F0` is what a surface reflects head-on and **for a metal it is the metal's own
+colour** -- gold's F0 is gold. Collapsed to a luminance, it was thrown away, so
+every coloured metal reflected the room in **grey**. The probe's half kept its
+tint (that multiply is a colour, one line above), which is why the two halves
+disagreed quietly for so long.
 
-**The fix that was tried, and why it is not committed.** Apply the tint at the
-trace instead: `reflection_trace` already reads the surface lane, reconstructs
-the world point and includes `pbr_fragment.glsl`, so it needs only the albedo
-lane bound to build F0 and multiply its picture by `F0 * envBRDF.x + envBRDF.y`
-in colour; the lit shader then owes only the scalar `reflectionShare *
-occlusion`. Algebraically the two are the same up to colour-versus-luminance.
+**The fix: the trace applies the tint's hue, and nothing else.**
+`reflection_trace` already reads the surface, rebuilds the world point and
+includes `pbr_fragment.glsl`, so it needed one binding -- the albedo lane -- to
+build the same `F0` and multiply by `reflectance / luminance(reflectance)`: **a
+tint whose brightness is exactly one.** The lit shader keeps its weight
+untouched, so the amount of reflection is bit-for-bit what it was and only the
+colour moves. Measured: frame mean **−0.08%**, regions 0.005 to 0.268 levels.
 
-**Measured, they are not.** The garage floor went from a mean of 16/21/26 to
-63/83/100 -- **about four times brighter, uniformly on all three channels**,
-which a colour-versus-luminance swap cannot produce: it is a missing scalar, not
-a hue. The shader cache was ruled out as the cause (`SetCacheDirectory` is never
-called and no `.spv` exists on disk, so both arms compiled fresh). **Reverted
-rather than shipped**, because a change whose effect is four times what the
-algebra predicts is not understood, and shipping it would trade a known defect
-for an unknown one.
+**Two wrong turns, both worth keeping.**
 
-**Still open, and worth its own item.** Likely suspects for the missing scalar:
-the trace's `dot(N, V)` uses the G-buffer's stored normal while the lit shader's
-`NdotV` uses the shading normal (normal-mapped, and on the wet floor they differ
-sharply at grazing angles, where `envBRDF.y` is largest); and the roughness the
-trace reads may be the stored one where the lit shader uses the specular-AA
-widened one. Either would change `envBRDF` between the two sites. `patch_gold.py`
-is kept with the attempt and this reasoning, marked not-applied.
+1. *The full-colour version.* Multiplying by the raw `reflectance` and reducing
+   the lit shader's weight to its scalar part is algebraically the same and
+   physically cleaner. It measured **four times brighter on the garage floor**
+   and was reverted -- then the revert was itself wrong (below). Re-measured
+   honestly it is about **7% darker** than the baseline, which is the
+   colour-versus-luminance difference plus the two sites evaluating `envBRDF`
+   from different normals and roughnesses. **Left for later**, because the
+   hue-only fix removes the defect without depending on reconciling them.
+2. **The four times was a broken baseline, not a broken fix, and that is the
+   lesson.** The "before" arm staged the *old* trace shader against a **new
+   binary** that binds a fourth texture the old shader never declares. That arm
+   read floor 16/21/26 and frame mean 26.4 where every committed-state capture
+   reads 68/90/95 and 43.6 -- it was not a reference at all. **Staging a shader
+   whose bindings do not match the binary does not give you the old behaviour;
+   it gives you nonsense.** The A/B that settled this instead neutralised the
+   tint *inside the current shader*, so both arms shared one binary and one
+   descriptor layout.
+
+**Live but nearly invisible here, and the reason is the scene.** The garage's
+metals are chrome (neutral albedo, so a neutral tint) and the car's clearcoat
+(mostly probe-lit); its floor and walls are dielectrics, whose F0 is grey by
+definition. A scene with gold, copper or brass is what would show it. Shipped
+anyway: it is the right physics, it costs one texture fetch in a pass already
+90% pixel-bound, and it is not a thing to rediscover later.
 
 ### RT-14 — ✅ done 2026-09-07. **The G-buffer is not where the memory is, and packing it would be work for nothing.**
 

@@ -276,6 +276,9 @@ namespace RageV
 		static void TraceReflections(const RHI::Ref<RHI::RHITexture>& surface,
 									 const RHI::Ref<RHI::RHITexture>& depth,
 									 const RHI::Ref<RHI::RHITexture>& budget,
+									 // The albedo lane: F0's colour, so a metal's
+									 // reflection carries the metal's own tint.
+									 const RHI::Ref<RHI::RHITexture>& albedo,
 									 float giAverage);
 		// The rough surfaces' rays shared across their neighbourhood before
 		// any frame is averaged (reflection_resolve.rvshader).

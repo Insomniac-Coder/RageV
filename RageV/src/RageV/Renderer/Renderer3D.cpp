@@ -6294,6 +6294,7 @@ namespace RageV
 	void Renderer3D::TraceReflections(const RHI::Ref<RHITexture>& surface,
 									  const RHI::Ref<RHITexture>& depth,
 									  const RHI::Ref<RHITexture>& budget,
+									  const RHI::Ref<RHITexture>& albedo,
 									  float giAverage)
 	{
 		if (!s_Data || !s_Data->ReflectionTracePipeline || !s_Data->ActiveScene)
@@ -6314,6 +6315,11 @@ namespace RageV
 		// A declared binding must be filled: the surface stands in for the map
 		// when the allocator did not run, and Trace.w says so.
 		slot.ReflectionTraceInputs->SetTexture(2, budget ? budget : surface, s_Data->PointSampler);
+		// The albedo lane, for the metal's own colour. A declared binding must
+		// be filled, and the surface stands in where the G-buffer did not run --
+		// its rgb is then a normal, which makes a nonsense tint rather than a
+		// crash, and that path does not trace.
+		slot.ReflectionTraceInputs->SetTexture(3, albedo ? albedo : surface, s_Data->PointSampler);
 		slot.ReflectionTraceInputs->Commit();
 
 		LampPushConstants push;

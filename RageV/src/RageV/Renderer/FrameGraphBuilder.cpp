@@ -2186,12 +2186,13 @@ namespace RageV
 						builder.Sample(budgetPrevious);
 					builder.DisableDepth();
 				},
-				[sceneHDR, normalIndex, budgetMap = budgetPrevious, budgetBound,
+				[sceneHDR, normalIndex, albedoIndex, budgetMap = budgetPrevious, budgetBound,
 				 giAverage = rtPreset.GiRays](RGPassContext& context)
 				{
 					Renderer3D::TraceReflections(context.Color(sceneHDR, normalIndex),
 												 context.Depth(sceneHDR),
 												 budgetBound ? context.Color(budgetMap) : nullptr,
+												 context.Color(sceneHDR, albedoIndex),
 												 giAverage);
 				});
 

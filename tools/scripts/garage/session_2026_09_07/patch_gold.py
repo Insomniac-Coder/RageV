@@ -1,15 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Coloured metals reflect in colour again -- ATTEMPTED, REVERTED, NOT APPLIED.
-
-**Do not run this.** It is kept as the record of a real defect and of a fix
-that did not survive its own measurement: applied, it made the garage floor
-about four times brighter, a uniform scale on all three channels, which a
-colour-versus-luminance swap cannot produce. The two formulations should be
-algebraically identical, so a scalar went missing somewhere this did not find.
-The shader cache was ruled out (SetCacheDirectory is never called and no .spv
-exists on disk, so both arms compiled fresh). The defect below is real and
-still open; this particular fix is not the answer.
-
+"""Coloured metals reflect in colour again.
 
 **The defect, and the code admitted it.** The traced reflection is added to the
 frame by a single number carried in the scene's alpha, and the lit shader made

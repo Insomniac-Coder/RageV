@@ -56,6 +56,12 @@ layout(location = 0) in vec2 v_UV;
 layout(set = 3, binding = 0) uniform sampler2D u_Surface;
 layout(set = 3, binding = 1) uniform sampler2D u_Depth;
 layout(set = 3, binding = 2) uniform sampler2D u_Budget;
+// **The albedo lane, for the metal's own colour.** rgb is the albedo and
+// a is the dielectric specular scalar -- exactly what the lit shader
+// builds F0 from, and F0 for a metal *is* the metal's colour. Without it
+// this pass hands the compositor an untinted picture and a coloured metal
+// reflects the room in grey.
+layout(set = 3, binding = 3) uniform sampler2D u_Albedo;
 
 layout(push_constant) uniform LampParams
 {
@@ -173,7 +179,42 @@ void main()
 				  ? hit.Sky
 				  : ShadeTraced(hit, ProbeIrradiance(hit.Normal, u_Lamps.Trace.x));
 	const float travelled = hit.Missed ? 1.0e4 : length(hit.Position - P);
-	o_Reflection = vec4(min(radiance, vec3(64.0)), travelled);
+
+	// **The surface's own reflectance, in colour.** The same split-sum term
+	// the lit shader applies to the probe -- F0 * envBRDF.x + envBRDF.y --
+	// built from the same F0: 0.08 * specular for a dielectric, the albedo
+	// itself for a metal. Applied here rather than in the composite because
+	// the composite has one scalar and no way to know the surface, and this
+	// pass already has the normal, the view vector and the roughness.
+	//
+	// The lit shader used to do this and collapse it to a luminance, because
+	// the weight it passes on has one channel. That is what made gold reflect
+	// grey. Stored tinted, the picture is what it always should have been.
+	const vec4 albedo = texelFetch(u_Albedo, texel, 0);
+	const vec3 F0 = mix(vec3(0.08 * clamp(albedo.a, 0.0, 1.0)), albedo.rgb,
+						clamp(surface.a, 0.0, 1.0));
+	const vec2 envBRDF = EnvBRDF(max(dot(N, V), 0.0), roughness);
+	const vec3 reflectance = F0 * envBRDF.x + envBRDF.y;
+	// **Only the tint's hue, never its magnitude.**
+	//
+	// The lit shader already sends the compositor the right *amount* of
+	// reflection -- the split-sum term collapsed to a luminance -- and that
+	// number is correct. What it cannot send is the *colour*, because it has
+	// one channel, and its own comment said so: "one channel, so a coloured
+	// metal's tint is not carried". F0 for a metal is the metal's own colour,
+	// so gold has been reflecting the room in grey.
+	//
+	// So this multiplies by the reflectance **divided by its own luminance** --
+	// a tint whose brightness is exactly one. The picture's magnitude is
+	// therefore bit-for-bit what it was and only its hue changes, which is the
+	// whole of the defect. Applying the reflectance raw was tried first and made
+	// the garage floor four times brighter: the magnitude this pass computes and
+	// the one the lit shader computes do not agree, and finding out why is a
+	// separate question from carrying the colour. This fix does not depend on
+	// the answer.
+	const float tintLuma = dot(reflectance, vec3(0.2126, 0.7152, 0.0722));
+	const vec3 tint = tintLuma > 1.0e-5 ? reflectance / tintLuma : vec3(1.0);
+	o_Reflection = vec4(min(radiance, vec3(64.0)) * tint, travelled);
 	// GGX sampled by its distribution of half vectors: pdf(L) = D(H) NoH / (4 VoH).
 	const vec3 H = normalize(direction + V);
 	const float pdf = DistributionGGX(N, H, roughness) * max(dot(N, H), 1.0e-4)
