@@ -50,7 +50,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-6.4 | ✅ done 2026-09-07 | — | — | the current-sample filter down; the tests fade |
 | RT-6.5 | open | 0.5-1 d | low | the accumulator tests the material, not just roughness |
 | **RT-6.6** | ✅ **done 2026-09-07** | — | — | the moments follow the texel the colour came from |
-| **RT-6.7** | open — **new** | 1 d | moderate | the sky/geometry transition is a disocclusion |
+| **RT-6.7** | **written, unmeasured** — blocked on RT-12 | 1 d | moderate | the sky/geometry transition is a disocclusion |
 | **RT-6.8** | open — **new** | 1-1.5 d | moderate | the colour box is built from this surface only |
 | **RT-6.9** | open — **new** | 0.5 d | low | a camera cut throws the history away |
 | **RT-6.10** | open — **new** | 1 d / 2-3 d | low-moderate | the accumulator validates what the ray hit |
@@ -613,7 +613,43 @@ motion; why does the resolve not have it?* -- because both times the conclusion
 was "the composite must stay after the resolve" rather than "the resolve is
 missing a lane". A constraint that comes from a missing input is not a law.
 
-### RT-6.6 — ✅ done 2026-09-07 (uncommitted)
+### RT-6.7 — written, and the measurement was invalid. Parked behind RT-12.
+
+**The code is done** (`tools/scripts/garage/session_2026_09_07/patch_rt67.py`,
+not applied): `Matches()` accepts only when *both* sides are sky and refuses the
+transition, letting the nine-tap search recover a neighbour before the pixel
+falls through to the current frame. **Not committed, because RT-6.7 is written
+and unmeasured** and a temporal change with no valid arm is not a result.
+
+**Both arms of the A/B were worthless, for different reasons, and only a probe
+said so.** The diff was bit-identical on the bridge *and* the garage, which is
+this session's fourth encounter with the same signature.
+
+- **The garage control was parked, which cannot show this change.** The probe
+  confirms the convention is real there -- **0.56% of the garage's pixels sit at
+  depth >= 1.0** -- but parked, a sky pixel was sky last frame too, so
+  `nowSky && wasSky` returns true exactly as `now || was` did. Only a *moving*
+  sky boundary can differ, and no dolly arm was captured.
+- **On the bridge the `Geometry`-gated probe never fired at all**, so
+  `u_Params.Geometry <= 0.5` there. What that is *not*: TAA is on (an
+  unconditional probe turns the whole bridge frame red, so `taa_resolve` runs),
+  the TAA guide pass runs (`scene/TAA guide 0.037 ms` in the bridge benchmark),
+  `GBufferPassAvailable()` is a global rather than per scene, `TaaGeometry`
+  defaults true, and the runtime does set `desc.TaaGuide`
+  (`RuntimeLayer.cpp:319`). **`--aa=taa` produces a byte-identical bridge frame**,
+  so the mode is not being changed by it either. The remaining candidate is the
+  history validity that gates the two lanes into `Dispatch`
+  (`taaGuideHasHistory`, and TAA's own `hasHistory`), and one-off probes could
+  not separate them.
+
+**This is why RT-12 comes first, and the owner called it** (2026-09-07): *"I
+think you should finish the debug views one, it might help you with other things
+on the list."* Four probes were spent this session asking questions a refusal
+and confidence view answers by being looked at -- is the test running here, on
+which pixels, and which of its clauses refused. RT-6.7's measurement is a
+half-hour once that view exists and was not converging without it.
+
+### RT-6.6 — ✅ done 2026-09-07 (committed, `1058ff6`)
 
 **The defect, from the second outside review, verified at the line.** RT-6 taught
 the resolve to search the eight neighbours for a history belonging to this
