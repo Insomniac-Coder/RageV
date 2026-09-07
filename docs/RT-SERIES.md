@@ -741,6 +741,52 @@ check), the log ramp moves the picture (ao-history 161.7 -> 186.8 mean), and the
 rendered frame is unchanged. `--debug-view=taa-refusal` mid-dolly:
 `build/garage_burst/rt12_taa_71.png`.
 
+### 2026-09-07: **a light at zero intensity stops participating**, and the studio rig follows the car
+
+**Two owner-asked fixes, from reading the garage's light list.**
+
+**Nothing filtered on intensity, anywhere.** Not when the scene collected lights,
+not when they were binned into clusters. A light at zero was uploaded, occupied
+cluster cells across its whole `Range`, and was walked and scored by **every
+fragment** -- always losing the reservoir draw, because its contribution is zero.
+It cost the scan and bought nothing.
+
+| garage, 1600x900 | before | after |
+|---|---|---|
+| lights in the scene | 30 | **24** |
+| lights per fragment | 26.4 avg, 29 max | **22.1 avg, 23 max** |
+| at traced hits | 29.9 avg | **23.9 avg** |
+
+Six of the seven the scene file writes as zero. The seventh is non-zero at
+runtime -- `ShowroomMode` and `ShowroomLights` set intensities from script, so
+**the filter reads the live value and not the file's**, which is the right way
+round and was worth confirming rather than assuming.
+
+**The picture moves slightly, and it is noise rather than bias.** 0.212 levels
+mean absolute -- but **+0.044 signed on a frame mean of 44**, which is +0.1%,
+with 8.7% of pixels brighter against 6.4% darker and the floor and wall signed
+at −0.001 and −0.012. The direct pass draws K lights a pixel by weighted
+reservoir, so shortening the candidate list changes *which* lights are drawn
+even where the removed ones had zero weight: the estimator lands differently,
+with the same expectation. Checking the *signed* mean is what separates that
+from a real shift, and mean-absolute alone would not have.
+
+**Safe for the bake, which was the one thing it could break.** `CollectLights()`
+also feeds `LightingHash()`, and a changed hash invalidates the baked field --
+1283 frames for this scene. It does not change: the hash already skips Realtime
+lights, every zero-intensity light here is Realtime, and every baked light here
+is non-zero. A *baked* light at zero would change the hash, and should, since a
+light contributing nothing is not part of the lighting the hash names.
+
+**And the studio rig follows the car.** `Key Light`, `Kicker Left` and `Kicker
+Right` are a three-point product rig -- a key above and in front, two rim lights
+on the flanks -- built centred on **x = 0**. The car moved to **x = −4.3** this
+morning and the rig did not, which left **`Kicker Right` 7.7 m from a car it has
+a range of 7 to reach**: lighting nothing. The key was 4.3 m off centre and the
+left kicker had crossed to the car's inboard side. All three take the same −2 m
+the car, the headlamps and the tail lights already took. It was flagged when the
+car moved and then not done, which is how it survived a day.
+
 ### ✅ Fixed 2026-09-07: **coloured metals reflected in grey**
 
 **The defect, which the engine's own comment admitted.** The traced reflection

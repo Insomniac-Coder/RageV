@@ -2924,6 +2924,34 @@ namespace RageV
 			data.Direction = Math::Normalize(Vec3(transform.World * Vec4(0.0f, 0.0f, -1.0f, 0.0f)));
 			data.Color = light.Light.Color;
 			data.Intensity = light.Light.Intensity;
+			// **A light at zero intensity is not a light.** Nothing filtered on
+			// this before, so a dark light was uploaded, occupied cluster cells
+			// across its whole Range, and was walked and scored by every
+			// fragment -- always losing the reservoir draw, because its
+			// contribution is zero. It cost the scan and nothing else. The
+			// garage carries eight of them, of thirty, for a scene already
+			// walking 26.4 lights a fragment: most of a third of the work.
+			//
+			// Kept in the scene rather than deleted is the right authoring --
+			// the other lighting mode's rig, switched by value rather than by
+			// adding and removing entities -- so the filter belongs here, at
+			// the point the renderer is told what exists.
+			//
+			// **The one thing this could break, and does not.** CollectLights
+			// also feeds LightingHash, and a changed hash invalidates a baked
+			// field -- 1283 frames for this scene. The hash already skips
+			// Realtime lights (Light.h), every zero-intensity light in this
+			// project is Realtime, and every baked light in it is non-zero, so
+			// nothing moves. A *baked* light at zero would change the hash, and
+			// should: a light contributing nothing is not part of the lighting
+			// the hash names. That costs one re-bake, once.
+			//
+			// The colour is not tested. A black colour contributes nothing
+			// either, but zero intensity is the way a light is switched off in
+			// practice, and a test nobody's data exercises is a test nobody
+			// maintains.
+			if (!(data.Intensity > 0.0f))
+				continue;
 			data.Range = light.Light.Range;
 			data.InnerCone = light.Light.InnerCone;
 			data.OuterCone = light.Light.OuterCone;

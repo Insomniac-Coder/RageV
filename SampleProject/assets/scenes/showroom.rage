@@ -9729,7 +9729,7 @@ Entities:
     TagComponent:
       Tag: Key Light
     TransformComponent:
-      Position: [0, 5.2, 1.2]
+      Position: [-2, 5.2, 1.2]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
@@ -9745,7 +9745,7 @@ Entities:
     TagComponent:
       Tag: Kicker Left
     TransformComponent:
-      Position: [-3.4, 1.5, -2.6]
+      Position: [-5.4, 1.5, -2.6]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
@@ -9761,7 +9761,7 @@ Entities:
     TagComponent:
       Tag: Kicker Right
     TransformComponent:
-      Position: [3.4, 1.5, -2.6]
+      Position: [1.4, 1.5, -2.6]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     LightComponent:
