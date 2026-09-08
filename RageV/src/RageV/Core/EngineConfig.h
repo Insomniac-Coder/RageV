@@ -445,6 +445,28 @@ namespace RageV
 		// accumulate and blur at the trace's own resolution first, and the four
 		// taps become the upsample at the end rather than the whole of it.
 		bool  WaterRayContract = true;
+		// **--water-direct=on|off (RT-8 job 1): who makes the sea's light.**
+		//
+		// On, the shared DirectTrace pass does, over the sea's own layer and
+		// with the sea's lobe -- one pass where the sea kept two of its own
+		// (choose, then shade) doing what DirectTrace has done for every other
+		// surface since RT-first T5: score the lamps that reach a point, keep
+		// K by reservoir sampling, shade them, trace their shadow rays.
+		//
+		// Off, those two passes run as before. The switch changes who makes
+		// the light and nothing about what happens to it afterwards -- both
+		// arms write the same pair into the same contract.
+		//
+		// **Off by default, and the reason is a measurement, not a doubt about
+		// the code.** The shared pass makes a visibly cleaner sea -- speckle
+		// 1.279 -> 1.174 at the pier with the contrast unchanged, and level at
+		// the glitter camera -- but it costs **2.78 ms against the two private
+		// passes' 1.18**, because it casts about 0.86 M more shadow rays for
+		// the same picture. Fourteen per cent of the frame for eight per cent
+		// of one noise metric is the wrong trade until that ray count is
+		// understood; finding where the extra rays go is what is left of RT-8
+		// job 1, and it is a day's work, not a redesign.
+		bool  WaterDirect = false;
 		// **Four and two, chosen on the picture** (2026-09-04). Sixteen and
 		// four take the flicker furthest -- 2.01% of pixels blinking against
 		// the shipped preset's 3.84 -- but they cost the sea a third of its

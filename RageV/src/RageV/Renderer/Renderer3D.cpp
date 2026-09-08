@@ -662,6 +662,11 @@ namespace RageV
 			// graph runs it this frame (the lit shader's switch).
 			Ref<RHIShader>   DirectShader;
 			Ref<RHIPipeline> DirectPipeline;
+			// RT-8 job 1: the same shader again, over the sea's layer and with
+			// the sea's lobe. A second compile rather than a runtime branch,
+			// because the branch would sit inside the light loop.
+			Ref<RHIShader>   DirectWaterShader;
+			Ref<RHIPipeline> DirectWaterPipeline;
 			bool             DirectSignalRequested = false;
 			bool             AoSignalRequested = false;      // RT-2
 
@@ -889,7 +894,9 @@ namespace RageV
 				// Its depth and surface inputs, which change per view rather
 				// than per scene.
 				Ref<RHIResourceSet> GiInputs;
-				Ref<RHIResourceSet> DirectInputs;   // RT-first T5: the G-buffer, set 3
+				Ref<RHIResourceSet> DirectInputs;        // RT-first T5: the G-buffer, set 3
+				// RT-8 job 1: the same four slots, carrying the sea's layer.
+				Ref<RHIResourceSet> DirectWaterInputs;
 				// The prepass's set 0. Its own object because its layout is a
 				// subset of everything else's: the prepass shader has no
 				// fragment stage worth the name, so only the three bindings
@@ -1555,6 +1562,8 @@ namespace RageV
 		s_Data->GiShader = nullptr;
 		s_Data->DirectShader = nullptr;
 		s_Data->DirectPipeline = nullptr;
+		s_Data->DirectWaterShader = nullptr;
+		s_Data->DirectWaterPipeline = nullptr;
 		if (s_Data->Bindless && s_Data->RayShadowsOn)
 		{
 			std::vector<std::string> traceDefines;
@@ -1649,6 +1658,23 @@ namespace RageV
 				{
 					RV_CORE_ERROR("Renderer3D: assets/shaders/direct_trace.rvshader did not compile; "
 								  "the lit shader keeps tracing a shadow ray to every light");
+				}
+				// RT-8 job 1: and once more for the sea. A failure here leaves
+				// the water passes doing their own choosing and shading, which
+				// is what they did before -- so it is a warning, not an error.
+				{
+					std::vector<std::string> waterDefines = traceDefines;
+					waterDefines.push_back("RV_DIRECT_WATER");
+					if (auto sea = ShaderCompiler::CompileFromFile(
+							"assets/shaders/direct_trace.rvshader", waterDefines))
+					{
+						s_Data->DirectWaterShader = s_Data->Device->CreateShader(*sea);
+					}
+					else
+					{
+						RV_CORE_WARN("Renderer3D: direct_trace.rvshader did not compile for the "
+									 "sea; the water keeps its own choose and shade passes");
+					}
 				}
 			}
 			if (auto gi = ShaderCompiler::CompileFromFile("assets/shaders/rtgi_trace.rvshader",
@@ -6481,9 +6507,11 @@ namespace RageV
 		push.History.y = signal.BlurFrames;
 		push.History.w = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
 		push.Probe.z = (float)Math::Max(stride, 1);
-		// RT-8: and the same flag the accumulate sets, from the same lane, so a
-		// signal cannot have one pass reading a position and the other a depth.
-		push.Probe.w = signal.PositionLane ? 1.0f : 0.0f;
+		// RT-8: and the same bitfield the accumulate sets, from the same lane,
+		// so a signal cannot have one pass reading a layer one way and the
+		// other reading it another.
+		push.Probe.w = (signal.PositionLane ? 1.0f : 0.0f)
+					 + (signal.UpNormalLane ? 2.0f : 0.0f);
 		push.Tuning = { signal.SmearTexels, signal.MovingMemory, signal.SilhouetteMemory, signal.PairMemory };
 		push.Blur = { signal.YoungRadius, signal.BlurFrames, signal.YoungOverreach, signal.MaxRadius };
 
@@ -6574,6 +6602,8 @@ namespace RageV
 		signal.Slot = 4;
 		// The sea knows where it is; the depth buffer under it does not.
 		signal.PositionLane = true;
+		// And its normal always points up, so it is stored as two components.
+		signal.UpNormalLane = true;
 		// The glint's memory, in the pair's own slot. EngineConfig keeps the
 		// dial the sweep moved, so a run can still ask for another number.
 		signal.PairMemory = (float)Math::Max(EngineConfig::Get().WaterLampMemoryGlint, 1);
@@ -6627,6 +6657,7 @@ namespace RageV
 		SignalParams signal = ReflectionSignal();
 		signal.Slot = 5;
 		signal.PositionLane = true;
+		signal.UpNormalLane = true;
 		// The sea is one surface, and its layer carries no id lane.
 		signal.NoObjectId = true;
 		return signal;
@@ -6704,9 +6735,13 @@ namespace RageV
 		push.History.w = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
 		push.Probe.x = signal.BoundWidth;
 		push.Probe.y = signal.Slack;
-		// RT-8: one where the depth slot carries the layer's own position.
-		// The w lane, because the blur's z is its stride.
-		push.Probe.w = signal.PositionLane ? 1.0f : 0.0f;
+		// **RT-8: what shape this layer is, as a bitfield.** Bit 0: the depth
+		// slot carries the layer's own position rather than clip depth. Bit 1:
+		// its normal lane is two horizontal components with the vertical
+		// recovered rather than octahedral. The w lane, because the blur's z is
+		// its stride.
+		push.Probe.w = (signal.PositionLane ? 1.0f : 0.0f)
+					 + (signal.UpNormalLane ? 2.0f : 0.0f);
 		// RT-8: and which signal this is, so the counters can keep the sea's
 		// numbers apart from the reflections'. The blur has no use for z.
 		push.Probe.z = (float)index;
@@ -6995,6 +7030,103 @@ namespace RageV
 	bool Renderer3D::CanTraceDirectLight()
 	{
 		return s_Data && s_Data->DirectShader != nullptr;
+	}
+
+	bool Renderer3D::CanTraceDirectWater()
+	{
+		return s_Data && s_Data->DirectWaterShader != nullptr;
+	}
+
+	// **RT-8 job 1: the sea's direct light, through the pass every other
+	// surface uses.**
+	//
+	// The sea kept its own copy of this -- `water_choose` scores every lamp
+	// that reaches a patch and keeps four by reservoir sampling, `water_shade`
+	// shades them and traces their shadow rays -- and DirectTrace has done
+	// exactly that for the rest of the frame since RT-first T5, with the same
+	// reservoir and the same ray. The one thing that is genuinely the sea's is
+	// the lobe, and that is a branch inside DirectTerm rather than a pass.
+	//
+	// The four slots carry the sea's layer instead of the G-buffer's: position
+	// where the depth would be, the normal with the RMS slope and the wind
+	// angle, the albedo with the specular dial, and the id slot unused because
+	// a sea is one surface, never static, with nothing baked into it.
+	void Renderer3D::TraceDirectWater(RHICommandList& cmd,
+									  const Ref<RHITexture>& position,
+									  const Ref<RHITexture>& surface,
+									  const Ref<RHITexture>& material,
+									  Format targetColor,
+									  const GiTraceView& view, int rays)
+	{
+		if (!s_Data || !s_Data->DirectWaterShader || !position || !surface || !material)
+			return;
+		if (!s_Data->ActiveScene)
+			return;
+		if (!s_Data->DirectWaterPipeline)
+		{
+			GraphicsPipelineDesc direct;
+			direct.Name = "Renderer3D.direct.water";
+			direct.Shader = s_Data->DirectWaterShader;
+			direct.Topology = PrimitiveTopology::TriangleList;
+			direct.Rasterizer.Cull = CullMode::None;
+			direct.Blend = BlendPreset::Opaque;
+			direct.DepthStencil.DepthTestEnable = false;
+			direct.DepthStencil.DepthWriteEnable = false;
+			direct.ColorFormats = { targetColor, targetColor };
+			direct.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque };
+			direct.DepthFormat = Format::Undefined;
+			s_Data->DirectWaterPipeline = s_Data->Device->CreatePipeline(direct);
+			for (auto& frame : s_Data->SceneSlots)
+				for (auto& slot : frame)
+					slot.DirectWaterInputs = nullptr;
+		}
+		if (!s_Data->DirectWaterPipeline)
+			return;
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!slot.LampSet)
+			return;
+		if (!slot.DirectWaterInputs)
+			slot.DirectWaterInputs =
+				s_Data->Device->CreateResourceSet(s_Data->DirectWaterPipeline, 3);
+		if (!slot.DirectWaterInputs)
+			return;
+		slot.DirectWaterInputs->SetTexture(0, position, s_Data->PointSampler);
+		slot.DirectWaterInputs->SetTexture(1, surface, s_Data->PointSampler);
+		slot.DirectWaterInputs->SetTexture(2, material, s_Data->PointSampler);
+		// Declared and unread: a declared binding left empty is a validation
+		// error, and the sea has no id lane to put here.
+		slot.DirectWaterInputs->SetTexture(3, surface, s_Data->PointSampler);
+		slot.DirectWaterInputs->Commit();
+
+		struct DirectParams
+		{
+			float NearClip, FarClip, InvP0, InvP1;
+			float FlipY, Rays, Frame, Animated;
+			Vec4  CameraRow0, CameraRow1, CameraRow2, CameraPosition;
+		} params{};
+		params.NearClip = view.NearClip;
+		params.FarClip = view.FarClip;
+		params.InvP0 = view.InvProjection0;
+		params.InvP1 = view.InvProjection1;
+		params.FlipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+		params.Rays = (float)Math::Clamp(rays, 0, 8);
+		params.Frame = s_Data->Scene.GlobalIllumination.y;
+		const Vec4& jitter = s_Data->Scene.Jitter;
+		params.Animated = (jitter.x != 0.0f || jitter.y != 0.0f || jitter.z != 0.0f || jitter.w != 0.0f)
+						? 1.0f : 0.0f;
+		const Mat4 camera = Math::Inverse(view.View);
+		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0], 0.0f);
+		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);
+		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], 0.0f);
+		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2], 0.0f);
+
+		cmd.BindPipeline(s_Data->DirectWaterPipeline);
+		cmd.BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd.BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd.BindResourceSet(3, slot.DirectWaterInputs);
+		cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
+		cmd.Draw(3);
 	}
 
 	// RT-first T5 (docs/RT-FIRST.md 2d): the shape of TraceGlobalIllumination

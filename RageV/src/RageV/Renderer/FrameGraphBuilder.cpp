@@ -1175,6 +1175,9 @@ namespace RageV
 			// SignalParams::PositionLane, which this sets so the two cannot
 			// disagree about one binding.
 			bool       PositionLane = false;
+			// RT-8: and whether the normal lane is the sea's two-component form
+			// rather than octahedral -- see SignalParams::UpNormalLane.
+			bool       UpNormalLane = false;
 		};
 		auto addSignal = [&](const SignalPassNames& names, Renderer3D::SignalParams params,
 							 RGResource fresh, RGResource current, RGResource previous, bool hasHistory,
@@ -1210,6 +1213,7 @@ namespace RageV
 			// carries it to both shaders. Set here rather than trusted to the
 			// caller, so a signal cannot describe one binding two ways.
 			params.PositionLane = params.PositionLane || guide.PositionLane;
+			params.UpNormalLane = params.UpNormalLane || guide.UpNormalLane;
 			graph.AddPass(names.Accumulate,
 				[&](RGPassBuilder& builder)
 				{
@@ -1991,7 +1995,59 @@ namespace RageV
 								Format::R32G32B32A32_UINT, "WaterLampChoices",
 								Format::R32G32B32A32_UINT);
 
-				if (choices.Current() && choices.Previous())
+				// **RT-8 job 1: who makes the sea's light.**
+				//
+				// The two passes below are the sea's own copy of what
+				// DirectTrace has done for every other surface since RT-first
+				// T5: score the lamps that reach a point, keep K of them by
+				// reservoir sampling, shade them, trace their shadow rays. The
+				// one thing that is genuinely the sea's is the lobe --
+				// anisotropic Beckmann about the wind rather than GGX -- and
+				// that is a branch inside DirectTerm, not a pass.
+				//
+				// So under --water-direct the two become one, and the pair it
+				// writes goes into the same contract the private pair went
+				// into. Everything downstream is untouched.
+				const bool seaDirect = EngineConfig::Get().WaterDirect
+									&& Renderer3D::CanTraceDirectWater();
+				RGTargetDesc lampDesc;
+				lampDesc.Name = seaDirect ? "WaterDirectLight" : "WaterLampLight";
+				lampDesc.Color = Format::R16G16B16A16_SFLOAT;
+				lampDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT };
+				lampDesc.Depth = Format::Undefined;
+				lampDesc.Scale = (float)supersample;
+				if (seaDirect)
+				{
+					waterLamps = graph.CreateTarget(lampDesc);
+					Renderer3D::GiTraceView seaView;
+					seaView.NearClip = desc.NearClip;
+					seaView.FarClip = desc.FarClip;
+					seaView.InvProjection0 = desc.InvProjection0;
+					seaView.InvProjection1 = desc.InvProjection1;
+					seaView.View = desc.View;
+					const RGResource seaLight = waterLamps;
+					graph.AddPass("DirectWaterTrace",
+						[&](RGPassBuilder& builder)
+						{
+							builder.Write(seaLight);
+							builder.Sample(waterSurface);
+							builder.DisableDepth();
+						},
+						[waterSurface, seaView, rtLamps](RGPassContext& context)
+						{
+							// The sea's layer in the four slots the G-buffer
+							// uses: position where a depth would be, the normal
+							// with the RMS slope and the wind angle, the albedo
+							// with the specular dial.
+							Renderer3D::TraceDirectWater(context.Cmd,
+														 context.Color(waterSurface, 2),
+														 context.Color(waterSurface, 0),
+														 context.Color(waterSurface, 1),
+														 Format::R16G16B16A16_SFLOAT,
+														 seaView, rtLamps);
+						});
+				}
+				if (!seaDirect && choices.Current() && choices.Previous())
 				{
 					const RGResource pastChoices =
 						graph.Import(choices.Previous(), "WaterChoicesPrevious");
@@ -2017,12 +2073,7 @@ namespace RageV
 								choices.Motion(), choices.HasHistory());
 						});
 
-					RGTargetDesc lampDesc;
-					lampDesc.Name = "WaterLampLight";
-					lampDesc.Color = Format::R16G16B16A16_SFLOAT;
-					lampDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT };
-					lampDesc.Depth = Format::Undefined;
-					lampDesc.Scale = (float)supersample;
+					// Declared above, so both arms write the same shape.
 					waterLamps = graph.CreateTarget(lampDesc);
 
 					graph.AddPass("WaterShadeLamps",
@@ -2058,114 +2109,118 @@ namespace RageV
 					//
 					// From here on the water draw reads this pair instead, so
 					// `waterLamps` becomes the accumulated one.
-					// **RT-8 job 3: the same averaging, on the contract.** The
-					// sea's surface pass already writes the three lanes the
-					// contract validates against -- its normal, its position
-					// and its motion -- so nothing is downsampled or copied to
-					// get here; the guidance points straight at them. The
-					// private pass below is the other arm of --water-contract,
-					// kept so the two can be compared rather than argued over.
-					if (desc.WaterLampLight && EngineConfig::Get().WaterLampAccumulate
-						&& EngineConfig::Get().WaterContract)
-					{
-						TemporalHistory& light = *desc.WaterLampLight;
-						// The pair's four: the scattered half, the surface, the
-						// extra, the glinting twin. The same shape the direct
-						// light's history has, because it is the same signal.
-						light.Prepare(Renderer::GetDevice(),
-									  desc.Width * (uint32_t)supersample,
-									  desc.Height * (uint32_t)supersample,
-									  Format::R16G16B16A16_SFLOAT, "WaterLampSignal",
-									  Format::R16G16B16A16_SFLOAT,
-									  Format::R16G16B16A16_SFLOAT,
-									  Format::R16G16B16A16_SFLOAT);
-						if (light.Current() && light.Previous())
-						{
-							const RGResource pastLight =
-								graph.Import(light.Previous(), "WaterLightPrevious");
-							const RGResource newLight =
-								graph.Import(light.Current(), "WaterLightCurrent");
-							SignalGuidance seaGuide;
-							seaGuide.Depth = waterSurface;
-							seaGuide.Surface = waterSurface;
-							seaGuide.Velocity = waterSurface;
-							seaGuide.DepthLane = 2;      // world position, w the mask
-							seaGuide.NormalLane = 0;     // octahedral normal, roughness
-							seaGuide.VelocityLane = 3;   // the wave's own screen motion
-							seaGuide.PositionLane = true;
-							RGTargetDesc seaBlurDesc = lampDesc;
-							seaBlurDesc.Name = "WaterLampBlurred";
-							static const SignalPassNames kWaterPasses =
-								{ "WaterLampAccumulate",
-								  { "WaterLampBlur", "WaterLampBlur2", "WaterLampBlur4" } };
-							waterLamps = addSignal(kWaterPasses,
-												   Renderer3D::WaterLampSignal(),
-												   waterLamps, newLight, pastLight,
-												   light.HasHistory(), &light.Motion(),
-												   seaBlurDesc, true, seaGuide);
-							light.Advance();
-						}
-					}
-					else if (desc.WaterLampLight && EngineConfig::Get().WaterLampAccumulate)
-					{
-						TemporalHistory& light = *desc.WaterLampLight;
-						// RT-8 job 3: and a third attachment, the sea's surface a
-						// frame back -- octahedral normal, plane distance, mask.
-						// Full float because the plane distance is a world
-						// coordinate and the bay is a kilometre across.
-						light.Prepare(Renderer::GetDevice(),
-									  desc.Width * (uint32_t)supersample,
-									  desc.Height * (uint32_t)supersample,
-									  Format::R16G16B16A16_SFLOAT, "WaterLampAverage",
-									  Format::R16G16B16A16_SFLOAT,
-									  Format::R32G32B32A32_SFLOAT);
-
-						if (light.Current() && light.Previous())
-						{
-							const RGResource pastLight =
-								graph.Import(light.Previous(), "WaterLightPrevious");
-							const RGResource newLight =
-								graph.Import(light.Current(), "WaterLightCurrent");
-							const RGResource rawLamps = waterLamps;
-
-							graph.AddPass("WaterAccumulateLamps",
-								[&](RGPassBuilder& builder)
-								{
-									builder.Write(newLight);
-									builder.Sample(pastLight);
-									builder.Sample(rawLamps);
-									builder.Sample(waterSurface);
-									builder.DisableDepth();
-								},
-								[rawLamps, waterSurface, pastLight, &light]
-								(RGPassContext& context)
-								{
-									Renderer3D::AccumulateWaterLamps(
-										context.Color(rawLamps, 0),
-										context.Color(rawLamps, 1),
-										context.Color(waterSurface, 2),
-										context.Color(pastLight, 0),
-										context.Color(pastLight, 1),
-										light.Motion(), light.HasHistory(),
-										// RT-8: attachment 3 is the wave's own motion.
-										context.Color(waterSurface, 3),
-										// RT-8 job 3's measurement: the sea's normal
-										// now, and its surface a frame back.
-										context.Color(waterSurface, 0),
-										context.Color(pastLight, 2));
-								});
-
-							waterLamps = newLight;
-							light.Advance();
-						}
-					}
-
 					// The swap. The camera that drew the choices is recorded
 					// by the pass itself, when it has used the one before it:
 					// a history of choices is per chain, and the editor draws
 					// two chains from two cameras in one frame.
 					choices.Advance();
 				}
+				// **RT-8 job 1: and the averaging runs for whichever arm made the
+				// light.** It used to sit inside the choose-and-shade branch,
+				// which was right while that branch was the only producer.
+				// **RT-8 job 3: the same averaging, on the contract.** The
+				// sea's surface pass already writes the three lanes the
+				// contract validates against -- its normal, its position
+				// and its motion -- so nothing is downsampled or copied to
+				// get here; the guidance points straight at them. The
+				// private pass below is the other arm of --water-contract,
+				// kept so the two can be compared rather than argued over.
+				if (desc.WaterLampLight && EngineConfig::Get().WaterLampAccumulate
+					&& EngineConfig::Get().WaterContract)
+				{
+					TemporalHistory& light = *desc.WaterLampLight;
+					// The pair's four: the scattered half, the surface, the
+					// extra, the glinting twin. The same shape the direct
+					// light's history has, because it is the same signal.
+					light.Prepare(Renderer::GetDevice(),
+								  desc.Width * (uint32_t)supersample,
+								  desc.Height * (uint32_t)supersample,
+								  Format::R16G16B16A16_SFLOAT, "WaterLampSignal",
+								  Format::R16G16B16A16_SFLOAT,
+								  Format::R16G16B16A16_SFLOAT,
+								  Format::R16G16B16A16_SFLOAT);
+					if (light.Current() && light.Previous())
+					{
+						const RGResource pastLight =
+							graph.Import(light.Previous(), "WaterLightPrevious");
+						const RGResource newLight =
+							graph.Import(light.Current(), "WaterLightCurrent");
+						SignalGuidance seaGuide;
+						seaGuide.Depth = waterSurface;
+						seaGuide.Surface = waterSurface;
+						seaGuide.Velocity = waterSurface;
+						seaGuide.DepthLane = 2;      // world position, w the mask
+						seaGuide.NormalLane = 0;     // octahedral normal, roughness
+						seaGuide.VelocityLane = 3;   // the wave's own screen motion
+						seaGuide.PositionLane = true;
+						seaGuide.UpNormalLane = true;
+						RGTargetDesc seaBlurDesc = lampDesc;
+						seaBlurDesc.Name = "WaterLampBlurred";
+						static const SignalPassNames kWaterPasses =
+							{ "WaterLampAccumulate",
+							  { "WaterLampBlur", "WaterLampBlur2", "WaterLampBlur4" } };
+						waterLamps = addSignal(kWaterPasses,
+											   Renderer3D::WaterLampSignal(),
+											   waterLamps, newLight, pastLight,
+											   light.HasHistory(), &light.Motion(),
+											   seaBlurDesc, true, seaGuide);
+						light.Advance();
+					}
+				}
+				else if (desc.WaterLampLight && EngineConfig::Get().WaterLampAccumulate)
+				{
+					TemporalHistory& light = *desc.WaterLampLight;
+					// RT-8 job 3: and a third attachment, the sea's surface a
+					// frame back -- octahedral normal, plane distance, mask.
+					// Full float because the plane distance is a world
+					// coordinate and the bay is a kilometre across.
+					light.Prepare(Renderer::GetDevice(),
+								  desc.Width * (uint32_t)supersample,
+								  desc.Height * (uint32_t)supersample,
+								  Format::R16G16B16A16_SFLOAT, "WaterLampAverage",
+								  Format::R16G16B16A16_SFLOAT,
+								  Format::R32G32B32A32_SFLOAT);
+
+					if (light.Current() && light.Previous())
+					{
+						const RGResource pastLight =
+							graph.Import(light.Previous(), "WaterLightPrevious");
+						const RGResource newLight =
+							graph.Import(light.Current(), "WaterLightCurrent");
+						const RGResource rawLamps = waterLamps;
+
+						graph.AddPass("WaterAccumulateLamps",
+							[&](RGPassBuilder& builder)
+							{
+								builder.Write(newLight);
+								builder.Sample(pastLight);
+								builder.Sample(rawLamps);
+								builder.Sample(waterSurface);
+								builder.DisableDepth();
+							},
+							[rawLamps, waterSurface, pastLight, &light]
+							(RGPassContext& context)
+							{
+								Renderer3D::AccumulateWaterLamps(
+									context.Color(rawLamps, 0),
+									context.Color(rawLamps, 1),
+									context.Color(waterSurface, 2),
+									context.Color(pastLight, 0),
+									context.Color(pastLight, 1),
+									light.Motion(), light.HasHistory(),
+									// RT-8: attachment 3 is the wave's own motion.
+									context.Color(waterSurface, 3),
+									// RT-8 job 3's measurement: the sea's normal
+									// now, and its surface a frame back.
+									context.Color(waterSurface, 0),
+									context.Color(pastLight, 2));
+							});
+
+						waterLamps = newLight;
+						light.Advance();
+					}
+				}
+
 			}
 
 			// --- WR-16 S5: the sea's mirror ray, in a pass of its own -------
@@ -2279,6 +2334,7 @@ namespace RageV
 						seaRayGuide.Velocity = seaGuideTarget;
 						seaRayGuide.Divisor = (uint32_t)traceScale;
 						seaRayGuide.PositionLane = true;
+						seaRayGuide.UpNormalLane = true;
 						RGTargetDesc mirrorBlurDesc = traceDesc;
 						mirrorBlurDesc.Name = "WaterReflectionBlurred";
 						static const SignalPassNames kMirrorPasses =

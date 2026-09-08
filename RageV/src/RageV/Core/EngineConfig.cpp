@@ -530,6 +530,8 @@ namespace RageV
 			return ParseBool(value, config.WaterContract);
 		if (key == "water-ray-contract" || key == "waterraycontract")
 			return ParseBool(value, config.WaterRayContract);
+		if (key == "water-direct" || key == "waterdirect")
+			return ParseBool(value, config.WaterDirect);
 		if (key == "water-lamp-slack" || key == "waterlampslack")
 		{
 			try

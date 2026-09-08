@@ -320,6 +320,12 @@ namespace RageV
 			// exact rather than reconstructed, and the only shape that works
 			// for a layer the depth buffer does not describe.
 			bool PositionLane = false;
+			// **RT-8: and how it encodes a normal.** The G-buffer's is
+			// octahedral; the sea's is two horizontal components with the
+			// vertical recovered, because a sea's normal always points up.
+			// Reading one as the other is silent and costs the sea a seventh of
+			// its brightness -- it was measured doing exactly that.
+			bool UpNormalLane = false;
 			// **RT-8: whether this layer has object ids at all.** The contract
 			// weighs a history by whether it came from the same object, which
 			// needs a lane saying which object -- the G-buffer has one and the
@@ -827,6 +833,18 @@ namespace RageV
 									 RHI::Format targetColor,
 									 const GiTraceView& view, int rays);
 		static bool CanTraceDirectLight();
+		// RT-8 job 1: and whether the sea can take the same route.
+		static bool CanTraceDirectWater();
+		// **RT-8 job 1: the direct light over the sea's own layer.** Its
+		// position where a depth would be -- the sea writes no depth and the
+		// buffer under it holds the seabed -- its normal with the RMS slope
+		// and the wind angle beside it, its albedo with the specular dial.
+		static void TraceDirectWater(RHI::RHICommandList& cmd,
+									 const RHI::Ref<RHI::RHITexture>& position,
+									 const RHI::Ref<RHI::RHITexture>& surface,
+									 const RHI::Ref<RHI::RHITexture>& material,
+									 RHI::Format targetColor,
+									 const GiTraceView& view, int rays);
 
 		// Whether the lit pass reads material textures through the bindless
 		// heap this session (ENGINE-NOTES 7al): the device can, and

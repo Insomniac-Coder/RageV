@@ -106,7 +106,23 @@ const float kPassShare = 0.57735;   // three passes share the variance
 // depth slot is a position-and-mask lane, xyz the world point and w the mask.**
 // That is not a workaround for the sea; it is the more exact of the two, and
 // any future layer with a position of its own can take the same route.
-bool PositionLane() { return u_Reflection.Probe.w > 0.5; }
+// A bitfield, not a flag: a layer describes itself in one number.
+bool PositionLane() { return (int(u_Reflection.Probe.w + 0.5) & 1) != 0; }
+bool UpNormalLane() { return (int(u_Reflection.Probe.w + 0.5) & 2) != 0; }
+
+// **RT-8: how this layer encodes a normal.** Octahedral for the G-buffer, and
+// two horizontal components with the vertical recovered for the sea -- whose
+// normal always points up, so nothing is lost and nothing is quantised. That
+// is the better encoding for a sea and a different one from the rest of the
+// frame, and reading one as the other is silent: the lobe simply points
+// somewhere it should not. Measured when it was: the sea's mid-tones a seventh
+// dimmer and its highlight a third narrower.
+vec3 DecodeSurfaceNormal(vec2 e)
+{
+	if (UpNormalLane())
+		return vec3(e.x, sqrt(max(1.0 - dot(e, e), 0.0)), e.y);
+	return OctDecode(e);
+}
 
 bool SurfaceAt(ivec2 texel, ivec2 size, out vec3 P, out vec3 N, out float roughness)
 {
@@ -118,7 +134,7 @@ bool SurfaceAt(ivec2 texel, ivec2 size, out vec3 P, out vec3 N, out float roughn
 		if (surface.b <= 0.0 || depthLane.w <= 0.5)
 			return false;
 		P = depthLane.xyz;
-		N = OctDecode(surface.rg);
+		N = DecodeSurfaceNormal(surface.rg);
 		roughness = clamp(surface.b, 0.0, 1.0);
 		return true;
 	}
@@ -130,7 +146,7 @@ bool SurfaceAt(ivec2 texel, ivec2 size, out vec3 P, out vec3 N, out float roughn
 	const vec4 clip = u_Reflection.InverseViewProjection
 					* vec4(uv.x * 2.0 - 1.0, row * 2.0 - 1.0, depth, 1.0);
 	P = clip.xyz / clip.w;
-	N = OctDecode(surface.rg);
+	N = DecodeSurfaceNormal(surface.rg);
 	roughness = clamp(surface.b, 0.0, 1.0);
 	return true;
 }
