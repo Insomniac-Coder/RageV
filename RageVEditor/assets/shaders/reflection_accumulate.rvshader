@@ -675,8 +675,10 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 			// plane is a different point of the surface, so its residual is shape
 			// and not travel), and the object id matches exactly.
 			const float wasId = texelFetch(u_HistoryIdent, pastTexel, 0).r;
+			// RT-8: on a layer with no ids the id half of this is vacuously
+			// true -- there is one object, so the history is always its own.
 			const bool sameMover = dot(objectShift, objectShift) > 0.0 && k == 0
-				  && abs(wasId - g_ObjectId) < 0.5;
+				  && (u_Reflection.PreviousEye.w > 1.5 || abs(wasId - g_ObjectId) < 0.5);
 			if (offPlane > planeTolerance && !sameMover)
 			{
 				if (k == 0) g_Refusal = 4;
@@ -711,8 +713,17 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 			// reflector tests cannot ask -- a static mirror, a static camera and a
 			// moving object in the reflection pass every one of them.
 			const float hit = HitConfidence(g_FreshImage, c.reflector.a, roughness);
+			// **RT-8: a layer with no object ids does not get an id test.** The
+			// sea is one surface and its layer carries no id lane, so the test
+			// would be comparing this frame's packed normal against last
+			// frame's -- which on a turning wave differs every frame and would
+			// shorten the memory for a reason that is not there. The engine
+			// says so in PreviousEye.w: zero no eye, one an eye, two an eye on
+			// a layer with no ids. Read as `> 1.5`, so the direction test's
+			// `> 0.5` above is untouched.
+			const bool noIds = u_Reflection.PreviousEye.w > 1.5;
 			const float idPenalty =
-				abs(wasId - g_ObjectId) < 0.5
+				(noIds || abs(wasId - g_ObjectId) < 0.5)
 					? 1.0
 					: mix(1.0, kIdAgree,
 						  smoothstep(0.2, 1.0, offPlane / max(planeTolerance, 1.0e-5)));

@@ -371,6 +371,7 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 			};
 			frame.WaterReservoirs = &m_WaterChoices;
 			frame.WaterLampLight = &m_WaterLampLight;
+			frame.WaterReflectionLight = &m_WaterReflectionLight;
 		}
 	}
 

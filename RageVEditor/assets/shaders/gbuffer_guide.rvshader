@@ -55,7 +55,12 @@ void main()
 layout(location = 0) in vec2 v_UV;
 
 // The three the contract reads, on the signal's grid.
-layout(location = 0) out float o_Depth;      // raw clip depth, as written
+// **RT-8: a whole texel, not a red channel.** The lane is clip depth for
+// every signal that sits on the G-buffer, and the sea's own position with a
+// mask in w for the one that does not -- see SignalParams::PositionLane. An
+// R32_SFLOAT target keeps the red and drops the rest, so the depth users are
+// unchanged; the sea's target is four floats and keeps all four.
+layout(location = 0) out vec4 o_Depth;       // clip depth in r, or a position and mask
 layout(location = 1) out vec4  o_Surface;    // the normal lane, whole
 layout(location = 2) out vec2  o_Velocity;   // screen motion, whole
 
@@ -85,7 +90,7 @@ void main()
 	const ivec2 depthSize = textureSize(u_Depth, 0);
 	const ivec2 at = clamp(src, ivec2(0), depthSize - 1);
 
-	o_Depth = texelFetch(u_Depth, at, 0).r;
+	o_Depth = texelFetch(u_Depth, at, 0);
 	// Clamped separately: the lanes are all the scene target's attachments and
 	// so all one size today, but a lane that ever differs would silently read
 	// the wrong surface rather than the edge one.

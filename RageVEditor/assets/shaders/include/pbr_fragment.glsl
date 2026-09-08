@@ -973,6 +973,11 @@ layout(set = 3, binding = 6) uniform sampler2D u_WaterLampSpecular;
 // radiance, a the distance it travelled -- negative where that pass found
 // no sea. Bound black and unread when the pass did not run.
 layout(set = 3, binding = 8) uniform sampler2D u_WaterReflection;
+// **RT-8 job 2: the ray distances beside the picture.** The traced
+// reflection used to carry its own in alpha; once it goes through the
+// contract that alpha is a frame count, and the distance is on the
+// accumulate's surface attachment. Bit 12 of WorldGridScale.w says which.
+layout(set = 3, binding = 9) uniform sampler2D u_WaterReflectionDistance;
 #if !defined(RV_WATER_SURFACE)
 // **The lamp probe, on the water draw's own set** (2026-09-04). The passes and
 // this draw disagree about whether a lamp is visible from the same pixel, and
@@ -5675,6 +5680,9 @@ void main()
 			// A negative alpha is "no sea in that texel" and is refused
 			// outright rather than faded, because it is not a dimmer answer,
 			// it is no answer.
+			// RT-8 job 2: one where the picture has been accumulated, so the
+			// distance comes from the texture beside it rather than its alpha.
+			const bool s5Settled = (int(u_Scene.WorldGridScale.w + 0.5) & 4096) != 0;
 			const vec2 s5Size = vec2(textureSize(u_WaterReflection, 0));
 			const vec2 s5Coord = gl_FragCoord.xy / float(s5Scale) - 0.5;
 			const vec2 s5Base = floor(s5Coord);
@@ -5682,7 +5690,9 @@ void main()
 
 			const ivec2 s5Near = ivec2(clamp(s5Base + round(s5Frac),
 											 vec2(0.0), s5Size - 1.0));
-			const float s5Ref = texelFetch(u_WaterReflection, s5Near, 0).a;
+			const float s5Ref = s5Settled
+							  ? texelFetch(u_WaterReflectionDistance, s5Near, 0).a
+							  : texelFetch(u_WaterReflection, s5Near, 0).a;
 
 			vec3 s5Sum = vec3(0.0);
 			float s5Weight = 0.0;
@@ -5692,13 +5702,20 @@ void main()
 				const ivec2 at = ivec2(clamp(s5Base + vec2(float(sx), float(sy)),
 											 vec2(0.0), s5Size - 1.0));
 				const vec4 tap = texelFetch(u_WaterReflection, at, 0);
-				if (tap.a < 0.0)
+				// The distance, and the "no sea here" mark with it: the trace
+				// writes a negative alpha for a texel the sea did not cover and
+				// the contract writes a negative one on its surface lane for
+				// the same thing, so the sentinel survives the move.
+				const float tapRef = s5Settled
+								   ? texelFetch(u_WaterReflectionDistance, at, 0).a
+								   : tap.a;
+				if (tapRef < 0.0)
 					continue;
 				const float bilinear = (sx == 0 ? 1.0 - s5Frac.x : s5Frac.x)
 									 * (sy == 0 ? 1.0 - s5Frac.y : s5Frac.y);
 				const float tolerance = max(0.25 * s5Ref, 1.0);
 				const float agrees = s5Ref > 0.0
-								   ? exp(-abs(tap.a - s5Ref) / tolerance) : 1.0;
+								   ? exp(-abs(tapRef - s5Ref) / tolerance) : 1.0;
 				s5Sum += tap.rgb * (bilinear * agrees);
 				s5Weight += bilinear * agrees;
 			}

@@ -73,6 +73,8 @@ private:
 	// WR-16 S4b: the sea's four choices a pixel, kept from frame to frame.
 	RageV::TemporalHistory m_WaterChoices;
 	RageV::TemporalHistory m_WaterLampLight;
+	// RT-8 job 2: and the sea's traced reflection, averaged over its frames.
+	RageV::TemporalHistory m_WaterReflectionLight;
 
 	RageV::RHI::Ref<RageV::RHI::RHIRenderTarget> m_Target;
 

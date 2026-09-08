@@ -528,6 +528,8 @@ namespace RageV
 		// RT-8 job 3: the sea's averaging on the contract, or its own.
 		if (key == "water-contract" || key == "watercontract")
 			return ParseBool(value, config.WaterContract);
+		if (key == "water-ray-contract" || key == "waterraycontract")
+			return ParseBool(value, config.WaterRayContract);
 		if (key == "water-lamp-slack" || key == "waterlampslack")
 		{
 			try

@@ -452,6 +452,11 @@ private:
 	RageV::TemporalHistory m_GameWaterChoices;
 	RageV::TemporalHistory m_SceneWaterLampLight;
 	RageV::TemporalHistory m_GameWaterLampLight;
+	// RT-8 job 2: one per chain, like every other history here -- the editor
+	// draws two frames from two cameras and a shared one would drag each
+	// behind the other.
+	RageV::TemporalHistory m_SceneWaterReflectionLight;
+	RageV::TemporalHistory m_GameWaterReflectionLight;
 	// One indirect-diffuse history per chain (7av), for the reason the two
 	// above are two rather than one: the viewport and the game view are
 	// different sizes showing different cameras.

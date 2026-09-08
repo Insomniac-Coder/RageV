@@ -435,6 +435,16 @@ namespace RageV
 		// true of the sea *before* the same session taught it to report its own
 		// motion, and nobody re-took it afterwards.
 		bool  WaterContract = true;
+		// **--water-ray-contract=on|off (RT-8 job 2): whether the sea's traced
+		// reflection is averaged over the frames behind it.**
+		//
+		// WR-16 S5 traces it at a fraction of the resolution and the water draw
+		// reconstructs it with four taps weighted by ray distance -- a spatial
+		// reconstruction of one frame's rays, with no temporal average anywhere
+		// in the chain. On, the traced picture goes through the contract's
+		// accumulate and blur at the trace's own resolution first, and the four
+		// taps become the upsample at the end rather than the whole of it.
+		bool  WaterRayContract = true;
 		// **Four and two, chosen on the picture** (2026-09-04). Sixteen and
 		// four take the flicker furthest -- 2.01% of pixels blinking against
 		// the shipped preset's 3.84 -- but they cost the sea a third of its

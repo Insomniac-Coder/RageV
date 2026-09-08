@@ -320,6 +320,14 @@ namespace RageV
 			// exact rather than reconstructed, and the only shape that works
 			// for a layer the depth buffer does not describe.
 			bool PositionLane = false;
+			// **RT-8: whether this layer has object ids at all.** The contract
+			// weighs a history by whether it came from the same object, which
+			// needs a lane saying which object -- the G-buffer has one and the
+			// sea's layer does not, because the sea is one surface. Without
+			// this the id test falls back to comparing a packed normal against
+			// a packed normal, which on a turning wave differs every frame and
+			// shortens the memory for a reason that is not there.
+			bool NoObjectId = false;
 		};
 		static SignalParams ReflectionSignal();
 		// RT-first T5: the direct light's tuning -- a diffuse-kind signal in
@@ -338,6 +346,12 @@ namespace RageV
 		// what enters the water is broad and slow, what glints off it is
 		// exactly what a turning wave changes.
 		static SignalParams WaterLampSignal();
+		// **RT-8: the sea's mirror ray** -- a specular signal in slot 5, on the
+		// sea's layer at the trace's own resolution. Specular because a
+		// reflection wants the direction test, the hit-distance test and the
+		// mirror rule, and the trace already writes the hit distance where the
+		// contract reads it.
+		static SignalParams WaterReflectionSignal();
 
 		// The accumulated picture blurred by how few frames stand behind each
 		// pixel (reflection_blur.rvshader), for the composite to read.
@@ -393,7 +407,21 @@ namespace RageV
 		// The two pictures the second pass wrote, for the water draw that
 		// reads them instead of walking its lamps. Null puts the walk back.
 		// WR-16 S5: the half-resolution mirror pass's picture, for the draw.
-		static void SetWaterReflection(const RHI::Ref<RHI::RHITexture>& reflection);
+		// **RT-8 job 2: and where its ray distances are.** The contract takes the
+		// picture's alpha for its frame count, so the distance the water draw's
+		// four taps weigh by moves to the accumulate's surface attachment. Null
+		// means the picture still carries it, which is the un-accumulated path.
+		// RT-8 job 2: the block size the sea's mirror pass traced at, so the
+		// water draw knows to read that pass instead of casting its own rays.
+		// Zero or one means no such pass ran.
+		// `settled` says the picture will arrive having been through the
+		// contract, so its alpha is a frame count and the ray distance is in
+		// the texture beside it. A frame-long fact, told here: the scene block
+		// that carries it is filled before the transparent pass hands the
+		// textures over, and cleared again after it.
+		static void SetWaterReflectionScale(int scale, bool settled);
+		static void SetWaterReflection(const RHI::Ref<RHI::RHITexture>& reflection,
+									   const RHI::Ref<RHI::RHITexture>& distance = nullptr);
 
 		static void SetWaterLamps(const RHI::Ref<RHI::RHITexture>& diffuse,
 								  const RHI::Ref<RHI::RHITexture>& specular);

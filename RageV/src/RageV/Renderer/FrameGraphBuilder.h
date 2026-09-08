@@ -66,6 +66,13 @@ namespace RageV
 		// Null leaves the light unaccumulated, as noisy as four lamps allow.
 		TemporalHistory* WaterLampLight = nullptr;
 
+		// **RT-8 job 2: where the sea's traced reflection is kept.** WR-16 S5
+		// traces it in a pass of its own at a fraction of the resolution, and
+		// until now that picture was this frame's rays and nothing else -- no
+		// temporal average anywhere, which is why the sea's mirror is the
+		// noisiest thing on the bridge. Null leaves it that way.
+		TemporalHistory* WaterReflectionLight = nullptr;
+
 		// Composites the two attachments above back over the scene. Given the
 		// accumulation and revealage textures, in that order.
 		std::function<void(RGPassContext&, const RHI::Ref<RHI::RHITexture>&,

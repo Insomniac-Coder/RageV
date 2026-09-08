@@ -610,6 +610,14 @@ namespace RageV
 			Ref<RHITexture>  WaterLampDiffuse;
 			// WR-16 S5: the half-resolution mirror pass's picture.
 			Ref<RHITexture>  WaterReflection;
+			// RT-8 job 2: the ray distances beside it, once the contract has
+			// taken the picture's alpha for its frame count.
+			Ref<RHITexture>  WaterReflectionDistance;
+			// RT-8 job 2: the block size that pass traced at, resolved by the
+			// frame graph. Was read straight off the config override, which is
+			// zero unless a run asks -- so a preset-driven trace was discarded.
+			int              WaterReflectionScale = 0;
+			bool             WaterReflectionSettled = false;
 			Ref<RHITexture>  WaterLampSpecular;
 			// RT-first T5: the direct light the lit draw adds (SetDirectLight).
 			Ref<RHITexture>  DirectDiffuse;
@@ -3983,13 +3991,17 @@ namespace RageV
 							&& EngineConfig::Get().WorldLightGrid;
 			s_Data->Scene.WorldGridOrigin = Vec4(origin.x, origin.y, origin.z,
 												 built ? 1.0f : 0.0f);
-			// w: --water-ablate's bits in 0..7, and above them --water-trace's
-			// block size, so the water draw knows whether its mirror ray was
-			// traced somewhere else and at what size.
+			// w: --water-ablate's bits in 0..7, above them --water-trace's
+			// block size in 8..11, so the water draw knows whether its mirror
+			// ray was traced somewhere else and at what size, and above that
+			// (RT-8 job 2) one bit saying that picture has been through the
+			// contract -- in which case its alpha is a frame count and the ray
+			// distance the four taps weigh by is in the texture beside it.
 			s_Data->Scene.WorldGridScale = Vec4(
 				scale.x, scale.y, scale.z,
 				(float)(EngineConfig::Get().WaterAblate
-						+ 256 * EngineConfig::Get().WaterReflectionScale));
+						+ 256 * s_Data->WaterReflectionScale
+						+ (s_Data->WaterReflectionSettled ? 4096 : 0)));
 		}
 
 		float nearPlane = 0.1f, farPlane = 1000.0f;
@@ -5980,6 +5992,15 @@ namespace RageV
 				waterSet->SetTexture(8, s_Data->WaterReflection ? s_Data->WaterReflection
 															   : black,
 									 s_Data->WaterClampSampler);
+				// **RT-8 job 2: where the ray distance lives now.** The four-tap
+				// reconstruction fades a neighbour whose ray landed at a very
+				// different distance, and that distance was the picture's alpha
+				// until the contract took the alpha for its frame count. Black
+				// stands in on the un-accumulated path, where the picture still
+				// carries it -- the flags lane says which.
+				waterSet->SetTexture(9, s_Data->WaterReflectionDistance
+										  ? s_Data->WaterReflectionDistance : black,
+									 s_Data->WaterClampSampler);
 				waterSet->SetTexture(5, lamps ? s_Data->WaterLampDiffuse : black,
 									 s_Data->WaterClampSampler);
 				waterSet->SetTexture(6, lamps ? s_Data->WaterLampSpecular : black,
@@ -6591,6 +6612,26 @@ namespace RageV
 		return signal;
 	}
 
+	// **RT-8: the sea's mirror ray, on the contract.** The trace is WR-16 S5's,
+	// at a fraction of the resolution; what is new is that its picture is now
+	// averaged over the frames behind it and blurred while young, instead of
+	// being this frame's rays and nothing else.
+	//
+	// Specular, because every one of the specular tests is the right question
+	// for a sea: has the reflected direction swung (the wave turns), has what
+	// the ray hits moved (the bridge above it has), and where does the image
+	// sit now that the surface has risen (RT-15's mirror rule, which is what
+	// a wave does to a reflection every frame).
+	Renderer3D::SignalParams Renderer3D::WaterReflectionSignal()
+	{
+		SignalParams signal = ReflectionSignal();
+		signal.Slot = 5;
+		signal.PositionLane = true;
+		// The sea is one surface, and its layer carries no id lane.
+		signal.NoObjectId = true;
+		return signal;
+	}
+
 	void Renderer3D::AccumulateSignal(const SignalParams& signal,
 									  const RHI::Ref<RHITexture>& fresh,
 									  const RHI::Ref<RHITexture>& depth,
@@ -6669,6 +6710,14 @@ namespace RageV
 		// RT-8: and which signal this is, so the counters can keep the sea's
 		// numbers apart from the reflections'. The blur has no use for z.
 		push.Probe.z = (float)index;
+		// **RT-8: a layer with no object ids says so in the same lane, as a
+		// third value rather than a fourth vector.** PreviousEye.w was a flag
+		// meaning "the eye beside me is real"; it now reads zero for no eye,
+		// one for an eye, and two for an eye on a layer that has no ids. The
+		// direction test asks `> 0.5` and is unaffected, which it must be --
+		// a sea's reflection wants that test more than most surfaces do.
+		if (signal.NoObjectId && push.PreviousEye.w > 0.5f)
+			push.PreviousEye.w = 2.0f;
 		push.Tuning = { signal.SmearTexels, signal.MovingMemory, signal.SilhouetteMemory, signal.PairMemory };
 		push.Blur = { signal.YoungRadius, signal.BlurFrames, signal.YoungOverreach, signal.MaxRadius };
 		motion.ViewProjection = s_Data->Scene.ViewProjection;
@@ -6841,10 +6890,21 @@ namespace RageV
 	// somebody else next frame.
 	// WR-16 S5: handed round the water draw the way the lamp pictures are,
 	// because the renderer must not hold a pooled target between frames.
-	void Renderer3D::SetWaterReflection(const RHI::Ref<RHITexture>& reflection)
+	void Renderer3D::SetWaterReflectionScale(int scale, bool settled)
 	{
-		if (s_Data)
-			s_Data->WaterReflection = reflection;
+		if (!s_Data)
+			return;
+		s_Data->WaterReflectionScale = Math::Clamp(scale, 0, 15);
+		s_Data->WaterReflectionSettled = settled;
+	}
+
+	void Renderer3D::SetWaterReflection(const RHI::Ref<RHITexture>& reflection,
+										const RHI::Ref<RHITexture>& distance)
+	{
+		if (!s_Data)
+			return;
+		s_Data->WaterReflection = reflection;
+		s_Data->WaterReflectionDistance = distance;
 	}
 
 	void Renderer3D::SetWaterLamps(const RHI::Ref<RHITexture>& diffuse,

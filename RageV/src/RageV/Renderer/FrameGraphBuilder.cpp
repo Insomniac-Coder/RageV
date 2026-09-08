@@ -717,6 +717,26 @@ namespace RageV
 			Renderer::SetReflectionGloss(RayDetailGloss(reflectionDetail));
 			Renderer::SetMirrorRays((int)rtPreset.MirrorRays);
 		}
+		// **RT-8 job 2: the block size the sea's mirror was traced at, resolved
+		// once and told to the renderer here.**
+		//
+		// It was a defect: the *pass* ran off the preset's number and the
+		// *shader* was handed the config override, which is zero unless a run
+		// asked. So on a level whose preset traces the sea's reflection in a
+		// pass of its own, the pass ran, its picture was bound, and the water
+		// draw cast its own quad rays anyway and read none of it. The work was
+		// done and thrown away every frame.
+		//
+		// Set during declaration rather than in the pass, because the scene
+		// block that carries it to the shader is filled the first time a pass
+		// executes, and every pass executes after all of them are declared.
+		const int waterTraceScale = config.HasWaterReflectionOverride
+										? config.WaterReflectionScale
+										: (int)rtPreset.ReflectionScale;
+		Renderer3D::SetWaterReflectionScale(
+			waterTraceScale,
+			waterTraceScale > 1 && desc.WaterReflectionLight != nullptr
+				&& config.WaterRayContract && PostProcess::IsReady());
 		const AoDetail rayAo = ResolveRayTracedAmbientOcclusion(desc.Render);
 		const bool rayOcclusion = rayAo != AoDetail::Off;
 		// The third twin (7at). Where it runs, the lit shader casts the bounce
@@ -1945,6 +1965,9 @@ namespace RageV
 			RGResource waterLamps = kRGInvalid;
 			// WR-16 S5's half-resolution mirror picture, when that pass ran.
 			RGResource waterTraced = kRGInvalid;
+			// RT-8 job 2: and where its ray distances are, once the contract
+			// has taken the picture's alpha for its frame count.
+			RGResource waterTracedSurface = kRGInvalid;
 			// Only where lamps are being sampled at all, and only where the
 			// run did not ask for the sampler inside the water shader instead.
 			if (waterSurface != kRGInvalid && desc.WaterReservoirs
@@ -2153,10 +2176,10 @@ namespace RageV
 			// Nothing reads this yet -- the water draw still traces its own,
 			// and pointing it here is the next step -- so it is off unless a
 			// run asks, because an unread pass is only cost.
-			// The level's, unless a run asked for another (--water-reflection).
-			const int traceScale = config.HasWaterReflectionOverride
-									   ? config.WaterReflectionScale
-									   : rtPreset.ReflectionScale;
+			// The level's, unless a run asked for another (--water-reflection);
+			// resolved once at the top of the frame, where the renderer is told
+			// it too -- see the comment there for the defect that split them.
+			const int traceScale = waterTraceScale;
 			if (traceScale > 1 && waterSurface != kRGInvalid)
 			{
 				// Declared outside so the water draw below can sample it.
@@ -2183,6 +2206,103 @@ namespace RageV
 							context.Color(waterSurface, 2),
 							(float)traceScale);
 					});
+
+				// **RT-8 job 2: and then through the contract, like every other
+				// signal.** The trace above is one ray per block and nothing
+				// else -- no average over the frames behind it anywhere in the
+				// chain, which is why the sea's mirror has always been the
+				// noisiest thing on the bridge. The four taps in the water draw
+				// are a spatial reconstruction of one frame, not a
+				// reconstruction.
+				//
+				// The guidance is the sea's own layer, selected down to the
+				// trace's grid: its position where a depth would be (the sea
+				// writes no depth, and the buffer under it is the seabed), its
+				// normal, its motion.
+				if (desc.WaterReflectionLight && EngineConfig::Get().WaterRayContract
+					&& PostProcess::IsReady())
+				{
+					RGTargetDesc seaGuideDesc;
+					seaGuideDesc.Name = "WaterGuidance";
+					// Four floats, and full precision: this lane is a world
+					// point on a bay a kilometre across, not a clip depth.
+					seaGuideDesc.Color = Format::R32G32B32A32_SFLOAT;
+					seaGuideDesc.ExtraColors = { kNormalFormat, Format::R16G16_SFLOAT };
+					seaGuideDesc.Depth = Format::Undefined;
+					seaGuideDesc.Scale = (float)supersample / (float)traceScale;
+					const RGResource seaGuideTarget = graph.CreateTarget(seaGuideDesc);
+					graph.AddPass("WaterGuidance",
+						[&](RGPassBuilder& builder)
+						{
+							builder.Write(seaGuideTarget);
+							builder.Sample(waterSurface);
+							builder.DisableDepth();
+						},
+						[waterSurface, traceScale](RGPassContext& context)
+						{
+							// **By selection, never by averaging**, which is the
+							// whole point of the guide pass: the average of two
+							// positions across a wave crest is a point in
+							// neither, and the average of two normals faces
+							// nowhere. Same shader as the G-buffer's, whose
+							// first lane is a whole texel now.
+							PostProcess::GuideDownsample(context.Cmd,
+														 context.Color(waterSurface, 2),
+														 context.Color(waterSurface, 0),
+														 context.Color(waterSurface, 3),
+														 (uint32_t)traceScale,
+														 Format::R32G32B32A32_SFLOAT,
+														 kNormalFormat, Format::R16G16_SFLOAT);
+						});
+
+					TemporalHistory& mirror = *desc.WaterReflectionLight;
+					// The specular kind's five: the picture, the surface, the
+					// extra, the image motion, the id lane. The sea has no ids,
+					// but the attachment is the pipeline's and must exist.
+					mirror.Prepare(Renderer::GetDevice(),
+								   (uint32_t)Math::Max(1u, (desc.Width * (uint32_t)supersample)
+															   / (uint32_t)traceScale),
+								   (uint32_t)Math::Max(1u, (desc.Height * (uint32_t)supersample)
+															   / (uint32_t)traceScale),
+								   Format::R16G16B16A16_SFLOAT, "WaterReflectionSignal",
+								   Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
+								   Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT);
+					if (mirror.Current() && mirror.Previous())
+					{
+						const RGResource pastMirror =
+							graph.Import(mirror.Previous(), "WaterMirrorPrevious");
+						const RGResource newMirror =
+							graph.Import(mirror.Current(), "WaterMirrorCurrent");
+						SignalGuidance seaRayGuide;
+						seaRayGuide.Depth = seaGuideTarget;
+						seaRayGuide.Surface = seaGuideTarget;
+						seaRayGuide.Velocity = seaGuideTarget;
+						seaRayGuide.Divisor = (uint32_t)traceScale;
+						seaRayGuide.PositionLane = true;
+						RGTargetDesc mirrorBlurDesc = traceDesc;
+						mirrorBlurDesc.Name = "WaterReflectionBlurred";
+						static const SignalPassNames kMirrorPasses =
+							{ "WaterMirrorAccumulate",
+							  { "WaterMirrorBlur", "WaterMirrorBlur2", "WaterMirrorBlur4" } };
+						waterTraced = addSignal(kMirrorPasses,
+												Renderer3D::WaterReflectionSignal(),
+												traced, newMirror, pastMirror,
+												mirror.HasHistory(), &mirror.Motion(),
+												mirrorBlurDesc, false, seaRayGuide);
+						// **The ray distance the water draw's four taps weigh by
+						// lives on the accumulate's surface attachment now**, not
+						// in the picture's alpha -- the contract puts the frame
+						// count there. Handed over beside the picture.
+						waterTracedSurface = newMirror;
+						mirror.Advance();
+					}
+				}
+			}
+			else if (desc.WaterReflectionLight)
+			{
+				// No trace this frame: a history left standing would be resumed
+				// as truth whenever it comes back, describing another camera.
+				desc.WaterReflectionLight->Invalidate();
 			}
 
 			graph.AddPass("Transparent",
@@ -2205,9 +2325,13 @@ namespace RageV
 						builder.Sample(waterLamps);
 					if (waterTraced != kRGInvalid)
 						builder.Sample(waterTraced);
+					// RT-8 job 2: and the ray distances, which the contract keeps
+					// on its surface attachment rather than in the picture's alpha.
+					if (waterTracedSurface != kRGInvalid)
+						builder.Sample(waterTracedSurface);
 				},
 				[draw = desc.DrawTransparent, waterBackdrop, waterLamps,
-				 waterTraced](RGPassContext& context)
+				 waterTraced, waterTracedSurface](RGPassContext& context)
 				{
 					// Handed over around the draw and taken back after it, the
 					// ScreenReflections shape: the renderer must not carry a
@@ -2219,9 +2343,12 @@ namespace RageV
 						Renderer3D::SetWaterLamps(context.Color(waterLamps, 0),
 												  context.Color(waterLamps, 1));
 					if (waterTraced != kRGInvalid)
-						Renderer3D::SetWaterReflection(context.Color(waterTraced));
+						Renderer3D::SetWaterReflection(
+							context.Color(waterTraced),
+							waterTracedSurface != kRGInvalid
+								? context.Color(waterTracedSurface, 1) : nullptr);
 					draw(context);
-					Renderer3D::SetWaterReflection(nullptr);
+					Renderer3D::SetWaterReflection(nullptr, nullptr);
 					Renderer3D::SetWaterLamps(nullptr, nullptr);
 					Renderer3D::SetWaterBackdrop(nullptr, nullptr);
 				});
