@@ -803,6 +803,13 @@ namespace RageV
 				config.DebugView = EngineConfig::DebugViewMode::ReflectionNormal;
 			else if (lowered == "reflection-motion" || lowered == "reflectionmotion")
 				config.DebugView = EngineConfig::DebugViewMode::ReflectionMotion;
+			// RT-8: the water layer. Grey is no motion; black in the mask view
+			// means the layer holds no wave at that pixel, whatever the sea
+			// looks like in the picture.
+			else if (lowered == "water-motion" || lowered == "watermotion")
+				config.DebugView = EngineConfig::DebugViewMode::WaterMotion;
+			else if (lowered == "water-mask" || lowered == "watermask")
+				config.DebugView = EngineConfig::DebugViewMode::WaterMask;
 			// The reflection direction (specification §11), stored
 			// octahedrally in the motion lane's two spare channels, and its
 			// frame-to-frame difference against the previous history. The

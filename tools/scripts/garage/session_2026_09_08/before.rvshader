@@ -161,9 +161,6 @@ float g_ObjectId = 0.0;
 // which is the thing being tested.
 float g_FreshImage = 0.0;
 bool g_HaveMotion = false;
-// RT-19: whether this texel ended up blending a history at all. `have` is
-// scoped to the block that decides it and the count happens at the end.
-bool g_Kept = false;
 
 layout(location = 0) out vec4 o_Accumulated;
 layout(location = 1) out vec4 o_Surface;
@@ -186,9 +183,6 @@ layout(location = 3) out vec4 o_Motion;
 layout(location = 4) out vec4 o_Ident;
 #endif
 
-// **RT-15: the least motion, in texels, that counts as motion.** See
-// ObjectShift for where the number comes from.
-const float kMotionFloor = 0.125;
 // How many frames the moments remember: enough to know the grain's
 // spread, short enough to forget a light that went out.
 const float kMomentFrames = 16.0;
@@ -463,92 +457,8 @@ float PackMaterial(float roughness, float metallic)
 bool  UnpackMetal(float packed)     { return packed >= 1.5; }
 float UnpackRoughness(float packed) { return packed - (packed >= 1.5 ? 2.0 : 0.0); }
 
-// **RT-15: how far this pixel surface moved on its own**, in the same
-// projected coordinate the history is addressed in.
-//
-// PreviousViewProjection asks where a world point would have been last
-// frame *if it had not moved*. For anything that did move that is the wrong
-// place: with the camera standing still it names this very texel, where the
-// wall behind the object was, so every test refuses, frames falls to one
-// and a near-mirror pixel shows a single ray. The scene velocity lane holds
-// the right answer -- the rasteriser writes it through PreviousModel, so
-// object motion is in it -- and this pass has had it bound at binding 6 all
-// along for the silhouette rule, which only ever took its length.
-//
-// **Returned as the difference between the two answers, not as the answer**,
-// so a surface that did not move contributes nothing and the tuning measured
-// on still scenes is untouched. Measured on the parked garage: zero for 95%
-// of the frame and below a sixtieth of a texel elsewhere -- except on the
-// on-screen UI strip, whose shaders write o_Velocity = 0 unconditionally
-// (ui_world.rvshader and its siblings) so that the lane and the matrix
-// disagree by up to 3.9 texels there. Hence the first line: a pixel the
-// renderer reports as not having moved has not moved, and gets no
-// correction. That also covers the sky, the grid and the particles.
-vec2 ObjectShift(ivec2 texel, vec3 P, vec2 nowNdc)
-{
-	const vec2 velocity = texelFetch(u_Velocity, texel, 0).xy;
-	if (dot(velocity, velocity) <= 0.0)
-		return vec2(0.0);
-	const vec4 clipThen = u_Reflection.PreviousViewProjection * vec4(P, 1.0);
-	if (clipThen.w <= 0.0)
-		return vec2(0.0);
-	const vec2 byCamera = clipThen.xy / clipThen.w - u_Scene.Jitter.zw;
-	const vec2 byMotion = (nowNdc - u_Scene.Jitter.xy) - 2.0 * velocity;
-	const vec2 shift = byMotion - byCamera;
-	// **Below the floor there is no motion, only two ways of computing
-	// the same answer.** The lane is an interpolated clip position and
-	// the matrix arm a rebuilt depth, each with its frame jitter taken
-	// out afterwards, so on a surface standing perfectly still they agree
-	// to rounding rather than to the bit. Measured on the parked garage:
-	// zero texels for 95% of the frame and nothing above a sixtieth of a
-	// texel on real geometry, against 2.994 texels on the moving panel.
-	// An eighth of a texel sits between them with three orders of
-	// magnitude to spare, and returning exactly zero below it is what
-	// keeps a scene with nothing moving in it bit-identical -- which is
-	// also the test that says so.
-	const vec2 texelNdc = 2.0 / vec2(textureSize(u_Velocity, 0));
-	if (length(shift / texelNdc) < kMotionFloor)
-		return vec2(0.0);
-	return shift;
-}
-
-// **RT-15: and where the picture behind the surface stood last frame.**
-//
-// The reflection is not painted on the reflector, so it does not travel
-// with it. What is seen stands as far behind the plane as the thing itself
-// stands in front, which gives two cases and no others: a face sliding
-// along its own plane leaves the image exactly where it was, and a face
-// moving along its normal by d moves the image by **2d** -- once because
-// the plane carried it, and once because the gap behind has to match the
-// gap in front, which just grew by d. Shifting the image by the surface
-// own motion, which is what the velocity lane alone would say, is wrong in
-// both: too far in the first, half as far in the second.
-//
-// Both numbers are already written every frame for the history tests -- the
-// reflector normal and its plane, in the second attachment -- so the
-// general case, a reflector that also **turns**, costs two reflections and
-// no memory: mirror the image back through this frame plane to recover the
-// point the ray sees, then mirror that through last frame one.
-//
-// **Only ever called with the texel own history** (see the call site): on a
-// neighbour the search reached, the stored plane belongs to a different
-// point of the surface and the residual is its shape, not its travel.
-vec3 ImageThen(vec3 P, vec3 N, vec3 sight, float image, Candidate atSurface)
-{
-	const vec3 I = P + sight * image;
-	const vec3 wasN = OctDecode(atSurface.reflector.rg);
-	// It did not turn: the shift is along the normal, and is exactly zero
-	// where the plane did not move, so a still reflector returns the image
-	// it had bit for bit.
-	if (dot(wasN, N) > 0.9999)
-		return I - 2.0 * (dot(N, P) - atSurface.reflector.b) * N;
-	const vec3 seen = I - 2.0 * (dot(N, I) - dot(N, P)) * N;
-	return seen - 2.0 * (dot(wasN, seen) - atSurface.reflector.b) * wasN;
-}
-
 bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
-			   float eyeDistance, bool silhouette, vec2 objectShift,
-			   out Candidate c)
+			   float eyeDistance, bool silhouette, out Candidate c)
 {
 	const vec4 clipThen = u_Reflection.PreviousViewProjection * vec4(world, 1.0);
 	if (clipThen.w <= 0.0)
@@ -567,10 +477,7 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 	// and the first version added the jitter again on top of the matrix's
 	// and read every history up to a pixel from itself, parked (13 frames of
 	// memory where 24 stood).
-	// **RT-15: plus what the matrix cannot see.** The projection above is
-	// the camera answer alone; objectShift carries the surface own motion,
-	// and is exactly zero wherever the scene says nothing moved.
-	c.thenNdc = clipThen.xy / clipThen.w - u_Scene.Jitter.zw + objectShift;
+	c.thenNdc = clipThen.xy / clipThen.w - u_Scene.Jitter.zw;
 	const vec2 thenUv = c.thenNdc * 0.5 + 0.5;
 	if (any(lessThan(thenUv, vec2(0.0))) || any(greaterThan(thenUv, vec2(1.0))))
 	{
@@ -620,19 +527,7 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 			}
 			const float planeTolerance = 0.05 + 0.01 * eyeDistance;
 			const float offPlane = abs(dot(wasN, P) - c.reflector.b);
-			// **RT-15: on the same moving object, this residual IS the motion.**
-			// The test asks whether the surface is still in the plane it was in,
-			// which is the right question for a scene that does not move and the
-			// wrong one for a car driving along its own normal. Three conditions,
-			// and all three are needed: the pixel actually moved (objectShift is
-			// zero wherever the renderer says nothing did), the history is the
-			// texel own rather than a neighbour the search reached (a neighbour
-			// plane is a different point of the surface, so its residual is shape
-			// and not travel), and the object id matches exactly.
-			const float wasId = texelFetch(u_HistoryIdent, pastTexel, 0).r;
-			const bool sameMover = dot(objectShift, objectShift) > 0.0 && k == 0
-				  && abs(wasId - g_ObjectId) < 0.5;
-			if (offPlane > planeTolerance && !sameMover)
+			if (offPlane > planeTolerance)
 			{
 				if (k == 0) g_Refusal = 4;
 				continue;
@@ -666,20 +561,15 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 			// reflector tests cannot ask -- a static mirror, a static camera and a
 			// moving object in the reflection pass every one of them.
 			const float hit = HitConfidence(g_FreshImage, c.reflector.a, roughness);
+			const float wasId = texelFetch(u_HistoryIdent, pastTexel, 0).r;
 			const float idPenalty =
 				abs(wasId - g_ObjectId) < 0.5
 					? 1.0
 					: mix(1.0, kIdAgree,
 						  smoothstep(0.2, 1.0, offPlane / max(planeTolerance, 1.0e-5)));
-			// RT-15: and neither does the confidence, on the same three counts --
-			// a moving object scored by the plane residual would keep its history
-			// and then be trusted with none of it, which is the same defect one
-			// step further down.
-			const float planeAgree = sameMover ? 1.0
-							  : (1.0 - smoothstep(0.35 * planeTolerance, planeTolerance,
-												  offPlane));
 			c.matchConfidence = smoothstep(0.8, 0.94, facing)
-							  * planeAgree
+							  * (1.0 - smoothstep(0.35 * planeTolerance, planeTolerance,
+												  offPlane))
 							  * material * idPenalty * hit;
 		}
 		// Bilinear where the texel itself matched; the neighbour's own value
@@ -692,58 +582,6 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 	}
 	return false;
 }
-
-#if defined(RV_RAY_COUNTERS) && !defined(RV_SIGNAL_DIFFUSE)
-// **RT-19: how often this pass keeps a history, and what refuses the rest.**
-//
-// The reason has been written to `o_Extra.a` since RT-12 and read by one
-// debug view; nothing ever counted it. On the specular instance only --
-// this shader also runs for the occlusion, the bounce and the direct
-// light, and one set of lanes summed over four signals would describe
-// none of them. The counter block and the slot function come from
-// pbr_fragment.glsl, which this shader already includes, and the buffer
-// is already bound to this pass at set 0 binding 21 with the lamp set.
-//
-// Pixels that had nothing glossy in them return before this and are not
-// counted, so the denominator is the pixels that had a temporal decision
-// to make.
-const uint RAY_LANE_REFL_PIXELS  = 19u;
-const uint RAY_LANE_REFL_KEPT    = 20u;
-const uint RAY_LANE_REFL_REFUSED = 21u;   // and the four after it
-const uint RAY_LANE_REFL_FRAMES  = 26u;
-
-void CountSignal(bool kept, int refusal, float frames)
-{
-	const bool real = !gl_HelperInvocation;
-	const uvec4 realLanes = subgroupBallot(real);
-	const bool leader = real && gl_SubgroupInvocationID == subgroupBallotFindLSB(realLanes);
-	const uint base = RayCounterSlot() * 32u;
-	const uint pixels = subgroupAdd(real ? 1u : 0u);
-	const uint held = subgroupAdd((real && kept) ? 1u : 0u);
-	const uint frameSum = subgroupAdd((real && kept) ? uint(max(frames, 0.0)) : 0u);
-	if (leader && pixels > 0u)
-	{
-		atomicAdd(u_RayCounters.Counts[base + RAY_LANE_REFL_PIXELS], pixels);
-		if (held > 0u)
-		{
-			atomicAdd(u_RayCounters.Counts[base + RAY_LANE_REFL_KEPT], held);
-			atomicAdd(u_RayCounters.Counts[base + RAY_LANE_REFL_FRAMES], frameSum);
-		}
-	}
-	// One reason per refused pixel, numbered as g_Refusal is: off screen,
-	// none there, normal, plane, roughness. They sum to the refused count
-	// by construction, which is the check if a printed line looks wrong.
-	for (uint r = 1u; r <= 5u; ++r)
-	{
-		const uint n = subgroupAdd((real && !kept && uint(refusal) == r) ? 1u : 0u);
-		if (leader && n > 0u)
-			atomicAdd(u_RayCounters.Counts[base + RAY_LANE_REFL_REFUSED + (r - 1u)], n);
-	}
-}
-
-#else
-void CountSignal(bool kept, int refusal, float frames) {}
-#endif
 
 void main()
 {
@@ -835,44 +673,16 @@ void main()
 		Candidate atSurface;
 		float neighbourMotion = 0.0;
 		const bool silhouette = AtSilhouette(texel, size, P, N, eyeDistance, neighbourMotion);
-		// RT-15: the surface history is looked for where the surface was, not
-		// where the camera alone would put it.
-		const vec2 objectShift = ObjectShift(texel, P, nowNdc);
-		const bool haveSurface = HistoryAt(P, size, P, N, roughness, eyeDistance,
-		                                   silhouette, objectShift, atSurface);
+		const bool haveSurface = HistoryAt(P, size, P, N, roughness, eyeDistance, silhouette, atSurface);
 #ifdef RV_SIGNAL_DIFFUSE
 		Candidate c = atSurface;
 		bool have = haveSurface;
 		choice = have ? 0.5 : 0.0;
 #else
-		// RT-15: and the image is looked for where the *image* was, which is
-		// only the same place when the reflector stood still. No shift is
-		// passed with it: ImageThen has already moved the world point to
-		// where it stood, so the camera matrix alone is the whole of it.
-		//
-		// `bilinear` is the search saying it took the texel own history
-		// rather than a neighbour. Only that one knows where this surface
-		// plane stood last frame; a neighbour plane is a different point of
-		// the same surface, and doubling that difference throws the lookup
-		// off by metres. Without it the camera answer is kept, as before.
-		vec3 imagePoint = P + sight * image;
 		if (haveSurface)
-		{
 			image = mix(atSurface.reflector.a, image, 1.0 / min(atSurface.past.a + 1.0, 8.0));
-			// The plane the shift is measured against is stored at half
-			// precision, so on a still reflector the residual is its rounding
-			// rather than nothing at all -- doubled and applied, that moved the
-			// lookup enough to shorten the memory across a parked frame. No
-			// motion, no move, and the image point stays exactly where the
-			// camera arm puts it.
-			const bool moved = dot(objectShift, objectShift) > 0.0;
-			imagePoint = (moved && atSurface.bilinear)
-			           ? ImageThen(P, N, sight, image, atSurface)
-			           : P + sight * image;
-		}
 		Candidate c;
-		bool have = HistoryAt(imagePoint, size, P, N, roughness, eyeDistance,
-		                      silhouette, vec2(0.0), c);
+		bool have = HistoryAt(P + sight * image, size, P, N, roughness, eyeDistance, silhouette, c);
 		choice = have ? 1.0 : 0.0;
 		if (!have && haveSurface)
 		{
@@ -884,7 +694,6 @@ void main()
 
 		if (have)
 		{
-			g_Kept = true;
 			// **The bound: the fresh neighbourhood's spread, widened on smooth
 			// surfaces and never narrower than the pixel's own fluctuation.**
 			// A tube's line on car paint is a pixel or two wide with dark
@@ -1031,5 +840,4 @@ void main()
 	// next frame can tell a metal from a dielectric at the same roughness.
 	o_Extra = vec4(PackMaterial(roughness, g_Metallic), momMean, momMeanSq,
 				   0.5 * choice + float(g_Refusal));
-	CountSignal(g_Kept, g_Refusal, frames);
 }

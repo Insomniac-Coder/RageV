@@ -34,8 +34,19 @@ namespace RageV
 			Vec4 Color;       // rgb, a = intensity
 			Vec4 Params;      // range, cos(inner), cos(outer), mobility (0 realtime, 1 half, 2 full, 3 + radius hybrid)
 			Vec4 Shadow;      // kind, slot (under rays: a moving object is in range, 7cx), far, texel scale
+			// **RT-7: the source's extent.** x is the length in metres along
+			// Direction (Light::SourceLength); y, z and w are spare and are
+			// where WR-8's area shape goes -- a rectangle needs two axes and a
+			// kind, which is exactly what is left here.
+			//
+			// A lane of its own rather than a free corner of another: the
+			// obvious free corner was Params.z, which holds cos(outer) on a
+			// spot and nothing on anything else -- and the tubes this exists
+			// for are spots, so the one encoding that cost no bytes could not
+			// serve the one case that needed it.
+			Vec4 Extent;
 		};
-		static_assert(sizeof(GpuLight) == 80, "Must match GpuLight in pbr.rvshader");
+		static_assert(sizeof(GpuLight) == 96, "Must match GpuLight in pbr.rvshader");
 
 		// **WR-16 S2: the light's cull record, sixteen bytes** (ENGINE-NOTES
 		// 7cz). What a loop needs to *drop* a light without reading its
@@ -3125,13 +3136,21 @@ namespace RageV
 				GraphicsPipelineDesc surface = blended;
 				surface.Name = "Renderer3D.water.surface";
 				surface.Shader = s_Data->WaterSurfaceShader;
+				// **RT-8: four, not three.** The fourth is the wave's own motion
+				// and its mask. A pipeline carries its attachment count here and
+				// the target carries its own in the frame graph: leave this at
+				// three and the shader's fourth output is written to nothing, in
+				// silence -- which is exactly what happened, and cost an
+				// afternoon until `--debug-view=water-mask` showed the layer
+				// empty where the sea plainly was.
 				surface.ColorFormats = { Format::R32G32B32A32_SFLOAT,
 										 Format::R16G16B16A16_SFLOAT,
-										 Format::R32G32B32A32_SFLOAT };
+										 Format::R32G32B32A32_SFLOAT,
+										 Format::R16G16B16A16_SFLOAT };
 				// Matches the target above, which is single-sampled on purpose.
 				surface.Samples = 1;
 				surface.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque,
-											   BlendPreset::Opaque };
+											   BlendPreset::Opaque, BlendPreset::Opaque };
 				// **Written, on a depth of this pass's own** (2026-09-04). The
 				// sea covers itself where it is seen edge on, and without a
 				// write the fragment that survives is the last rasterised
@@ -3668,6 +3687,10 @@ namespace RageV
 								 ? 3.0f + Math::Max(light.HybridRadius, 0.0f)
 								 : (float)(uint32_t)light.Mobility;
 			entry.Params = { Math::Max(light.Range, 0.0001f), inner, outer, mobility };
+			// RT-7: metres of source length along Direction; zero is the
+			// sphere every light was before it.
+			entry.Extent = { Math::Max(light.SourceLength, 0.0f),
+							 light.Axis.x, light.Axis.y, light.Axis.z };
 			entry.Shadow = Vec4(0.0f);
 
 			s_Data->LightScratch.push_back(entry);
@@ -6654,7 +6677,8 @@ namespace RageV
 										  const RHI::Ref<RHITexture>& position,
 										  const RHI::Ref<RHITexture>& previousDiffuse,
 										  const RHI::Ref<RHITexture>& previousSpecular,
-										  CameraMotion& motion, bool hasHistory)
+										  CameraMotion& motion, bool hasHistory,
+										  const Ref<RHITexture>& waveMotion)
 	{
 		if (!s_Data || !s_Data->WaterAccumulatePipeline || !s_Data->ActiveScene)
 			return;
@@ -6684,6 +6708,12 @@ namespace RageV
 			s_Data->WaterClampSampler ? s_Data->WaterClampSampler : s_Data->PointSampler;
 		slot.LampAccumulateInputs->SetTexture(3, previousDiffuse, historySampler);
 		slot.LampAccumulateInputs->SetTexture(4, previousSpecular, historySampler);
+		// RT-8: the wave's motion, fetched by texel like the rest of the
+		// description. The position attachment stands in on a frame that has
+		// none -- its w is the same mask, so a shader reading zero motion
+		// there behaves exactly as this pass did before.
+		slot.LampAccumulateInputs->SetTexture(5, waveMotion ? waveMotion : position,
+											  s_Data->PointSampler);
 		slot.LampAccumulateInputs->Commit();
 
 		const EngineConfig& lamps = EngineConfig::Get();

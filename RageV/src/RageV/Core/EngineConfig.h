@@ -425,7 +425,18 @@ namespace RageV
 		// only axis; it was the only one that had a number until the blur got
 		// one too.
 		int   WaterLampMemoryScatter = 4;
-		int   WaterLampMemoryGlint = 2;
+		// **RT-8: sixteen, and it was two.** The glint was kept short because a
+		// long memory on a turning wave smears the glitter into a haze -- true
+		// when the sea also had fifty frames of the temporal resolve behind it,
+		// which it received only because it reported no motion at all. Now that
+		// it reports its own, that borrowed average is gone and this one
+		// replaces it. Measured at the pier: speckle 1.432 at two, 1.019 at
+		// eight, 0.912 at sixteen, 0.829 at sixty-four, against 1.160 for the
+		// build that had no water motion -- and the glitter is not flattened,
+		// it gains contrast and brighter peaks all the way up. Sixteen rather
+		// than sixty-four because the curve is nearly flat past it and a
+		// shorter memory follows a light that goes out sooner.
+		int   WaterLampMemoryGlint = 16;
 		// --water-lamp-clamp=N: how many standard deviations of the pixel's
 		// own neighbourhood a history may sit from its mean before it is
 		// pulled back. Their outright range is the obvious bound and is wrong
@@ -542,7 +553,14 @@ namespace RageV
 							   // swung since last frame -- the one quantity that changes
 							   // on a mirror an orbiting camera looks at while every
 							   // surface test says nothing has changed at all.
-							   ReflectionDirection, ReflectionDirectionDelta };
+							   ReflectionDirection, ReflectionDirectionDelta,
+							   // **RT-8: the water's own layer.** Its motion -- the wave
+							   // evaluated at last frame's time as well as this one's -- and
+							   // the mask that says a wave was written at this pixel at all.
+							   // The sea is the one surface with a G-buffer of its own, and
+							   // until these existed the only way to ask what was in it was
+							   // to stage a probe by hand.
+							   WaterMotion, WaterMask };
 		DebugViewMode DebugView = DebugViewMode::None;
 
 		// **--gi-source=baked|realtime.** Which form of indirect light to use,

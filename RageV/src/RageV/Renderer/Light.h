@@ -91,6 +91,19 @@ namespace RageV
 		// shows it.
 		float SourceRadius = 0.0f;
 
+		// **RT-7: and how long it is.** A radius makes a light a sphere; a
+		// strip light, a tube or a lamp row is a *capsule*, and the
+		// difference is the whole shape of its reflection -- a two-metre
+		// tube seen in a polished floor is a two-metre streak, and with a
+		// radius alone it is a dot. Metres, along the light's own forward
+		// axis (`Direction`), centred on its position, so a tube is
+		// authored by rotating the entity and needs no second vector.
+		//
+		// Specular only, as the radius is: at these lengths the diffuse
+		// difference sits under the range window's own cut, and the term
+		// the eye reads is the image. Zero is the light this always was.
+		float SourceLength = 0.0f;
+
 		// Only one directional light's shadows are rendered per frame -- the
 		// first that asks. A second set of cascades is four more scene renders
 		// for a light that, in almost every scene, is a fill.
@@ -205,6 +218,18 @@ namespace RageV
 		float OuterCone = 30.0f;
 		// See Light::SourceRadius. Rides GpuLight.Direction.w to the shader.
 		float SourceRadius = 0.0f;
+		// See Light::SourceLength. Rides GpuLight.Extent.x, a lane of its
+		// own: the free corner it first used (Params.z, a cosine only on a
+		// spot) is taken on exactly the lights this exists for -- the
+		// garage's tubes are spots.
+		float SourceLength = 0.0f;
+		// **Which way the source runs**, world space and unit length, in
+		// GpuLight.Extent.yzw. Not authored and not `Direction`: a ceiling
+		// tube aims down and is long across the bay, so the direction it
+		// throws light says nothing about where the tube lies. Scene fills
+		// it from the fixture's own local X, which is what rotating the
+		// fitting already turns, so a tube stays one number to author.
+		Vec3 Axis{ 1.0f, 0.0f, 0.0f };
 		Light::LightType Type = Light::LightType::Directional;
 		bool CastShadows = false;
 		// See LightMobility: Realtime is skipped by the hash and the solve;

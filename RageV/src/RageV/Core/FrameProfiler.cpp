@@ -889,12 +889,49 @@ namespace RageV
 							 lanes[RayCounters::HitLightsWalked]
 								 / std::max(lanes[RayCounters::Hits], 1.0),
 							 lanes[RayCounters::Hits] / million);
+				// **RT-19: the acceptance rate, the memory depth, and the split by
+				// what refused the rest.** Both temporal passes have written the
+				// reason per pixel since RT-12 and nothing summed it, so the
+				// question "is this artefact a history wrongly kept or a signal too
+				// thin to average" was answered by staging probes. The percentages
+				// are of the pixels each pass actually decided about, and the
+				// refusals sum to the complement of the acceptance rate.
 				if (lanes[RayCounters::TaaPixels] > 0.0)
+				{
+					const double px = lanes[RayCounters::TaaPixels];
 					RV_CORE_INFO("[benchmark]   temporal confidence: {0:.1f}% of pixels reused "
-								 "their history",
-								 100.0 * lanes[RayCounters::TaaReused] / lanes[RayCounters::TaaPixels]);
+								 "their history, {1:.1f} frames deep on average",
+								 100.0 * lanes[RayCounters::TaaReused] / px,
+								 lanes[RayCounters::TaaFrames]
+									 / std::max(lanes[RayCounters::TaaReused], 1.0));
+					RV_CORE_INFO("[benchmark]   temporal refusals: off screen {0:.1f}%, no history "
+								 "{1:.1f}%, sky {2:.1f}%, object id {3:.1f}%, depth {4:.1f}%, "
+								 "normal {5:.1f}%",
+								 100.0 * lanes[RayCounters::TaaOffScreen] / px,
+								 100.0 * lanes[RayCounters::TaaNoHistory] / px,
+								 100.0 * lanes[RayCounters::TaaSkyCrossing] / px,
+								 100.0 * lanes[RayCounters::TaaObjectId] / px,
+								 100.0 * lanes[RayCounters::TaaDepth] / px,
+								 100.0 * lanes[RayCounters::TaaNormal] / px);
+				}
 				else
 					RV_CORE_INFO("[benchmark]   temporal confidence: no temporal resolve ran");
+				if (lanes[RayCounters::ReflPixels] > 0.0)
+				{
+					const double px = lanes[RayCounters::ReflPixels];
+					RV_CORE_INFO("[benchmark]   reflection history: {0:.1f}% of glossy pixels kept "
+								 "one, {1:.1f} frames deep on average",
+								 100.0 * lanes[RayCounters::ReflKept] / px,
+								 lanes[RayCounters::ReflFrames]
+									 / std::max(lanes[RayCounters::ReflKept], 1.0));
+					RV_CORE_INFO("[benchmark]   reflection refusals: off screen {0:.1f}%, none there "
+								 "{1:.1f}%, normal {2:.1f}%, plane {3:.1f}%, roughness {4:.1f}%",
+								 100.0 * lanes[RayCounters::ReflOffScreen] / px,
+								 100.0 * lanes[RayCounters::ReflNoHistory] / px,
+								 100.0 * lanes[RayCounters::ReflNormal] / px,
+								 100.0 * lanes[RayCounters::ReflPlane] / px,
+								 100.0 * lanes[RayCounters::ReflRoughness] / px);
+				}
 			}
 		}
 

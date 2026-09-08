@@ -62,7 +62,7 @@ layout(set = 0, binding = 4) uniform accelerationStructureEXT u_SceneAS;
 // pass with no depth attachment, so there is no test to keep in front.
 layout(std430, set = 0, binding = 5) buffer RayCounterBlock
 {
-	uint Counts[64 * 16];
+	uint Counts[64 * 32];
 } u_RayCounters;
 const uint RAY_LANE_AO = 4u;
 
@@ -379,7 +379,7 @@ void main()
 		const uvec4 realLanes = subgroupBallot(real);
 		const uint sum = subgroupAdd(real ? rayCount : 0u);
 		if (real && sum > 0u && gl_SubgroupInvocationID == subgroupBallotFindLSB(realLanes))
-			atomicAdd(u_RayCounters.Counts[RayCounterSlot() * 16u + RAY_LANE_AO], sum);
+			atomicAdd(u_RayCounters.Counts[RayCounterSlot() * 32u + RAY_LANE_AO], sum);
 	}
 
 	// Occlusion in R, linear depth in G for the blur's edge test -- the same

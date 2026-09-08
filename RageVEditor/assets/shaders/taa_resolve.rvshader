@@ -101,6 +101,14 @@ layout(set = 0, binding = 7) uniform sampler2D u_GuidePrevious;
 // pass. Point sampled: halfway between two materials is a third material
 // that is not there.
 layout(set = 0, binding = 8) uniform sampler2D u_Material;
+// **RT-8: the water layer's motion and mask.** xy the wave's own screen
+// motion, written by the sea's surface pass from the wave evaluated at last
+// frame's time; z one where a wave was drawn. The scene's velocity lane
+// under a wave describes the seabed, not the water, so a sea reprojected by
+// it is reprojected by the ground -- which is why the long still feedback
+// had to be switched off for water. Black where there is no sea, and a mask
+// of zero is what says so.
+layout(set = 0, binding = 9) uniform sampler2D u_WaterMotion;
 
 // **WR-16 S0: the validity lane, and its count.** `o_Moments.w` is now one
 // where this pixel reused its history and zero where it did not -- the one
@@ -119,10 +127,14 @@ layout(set = 0, binding = 8) uniform sampler2D u_Material;
 // no early test here.
 layout(std430, set = 0, binding = 5) buffer RayCounterBlock
 {
-	uint Counts[64 * 16];
+	uint Counts[64 * 32];
 } u_RayCounters;
 const uint RAY_LANE_TAA_PIXELS = 10u;
 const uint RAY_LANE_TAA_REUSED = 11u;
+// RT-19: one lane per refusal reason, in the order the reasons are
+// numbered below, so the reason itself is the index.
+const uint RAY_LANE_TAA_REFUSED = 12u;
+const uint RAY_LANE_TAA_FRAMES  = 18u;
 
 uint RayCounterSlot()
 {
@@ -132,23 +144,47 @@ uint RayCounterSlot()
 
 // Called once per invocation, at whichever exit it takes. Each exit reduces
 // over the lanes that reach it, so a lane is counted exactly once.
-void CountTemporal(bool reused)
+//
+// **RT-19: and with the reason, and the history length.** The refusal
+// reason is the one number that says whether a temporal artefact is a
+// history wrongly kept or one wrongly refused, and it was written per
+// pixel and never counted. One reduction per reason -- six of them, and
+// only where the counters exist at all, which is a debug build of the
+// ray-query path.
+void CountTemporal(bool reused, uint reason, float frames)
 {
 	const bool real = !gl_HelperInvocation;
 	const uvec4 realLanes = subgroupBallot(real);
 	const bool leader = real && gl_SubgroupInvocationID == subgroupBallotFindLSB(realLanes);
 	const uint pixels = subgroupAdd(real ? 1u : 0u);
 	const uint kept = subgroupAdd((real && reused) ? 1u : 0u);
+	// Rounded down, and summed as an integer: the average this feeds is
+	// over hundreds of thousands of pixels, where half a frame of bias
+	// is well under the number it is read to.
+	const uint held = subgroupAdd((real && reused) ? uint(max(frames, 0.0)) : 0u);
 	if (leader && pixels > 0u)
 	{
-		const uint base = RayCounterSlot() * 16u;
+		const uint base = RayCounterSlot() * 32u;
 		atomicAdd(u_RayCounters.Counts[base + RAY_LANE_TAA_PIXELS], pixels);
 		if (kept > 0u)
+		{
 			atomicAdd(u_RayCounters.Counts[base + RAY_LANE_TAA_REUSED], kept);
+			atomicAdd(u_RayCounters.Counts[base + RAY_LANE_TAA_FRAMES], held);
+		}
+	}
+	// The reasons run 1..6 and a refused pixel carries exactly one, so
+	// these sum to the refused count by construction -- which is the
+	// check to make on the printed line if it ever looks wrong.
+	for (uint r = 1u; r <= 6u; ++r)
+	{
+		const uint n = subgroupAdd((real && !reused && reason == r) ? 1u : 0u);
+		if (leader && n > 0u)
+			atomicAdd(u_RayCounters.Counts[RayCounterSlot() * 32u
+				   + RAY_LANE_TAA_REFUSED + (r - 1u)], n);
 	}
 }
 #else
-void CountTemporal(bool reused) {}
+void CountTemporal(bool reused, uint reason, float frames) {}
 #endif
 
 layout(push_constant) uniform Params
@@ -594,7 +630,7 @@ void main()
 		// validity WR-16 S0 put here survives as `w == 0`.
 		o_Moments = vec4(1.0, currentLuma, currentLuma * currentLuma,
 						  float(kNoHistory));
-		CountTemporal(false);
+		CountTemporal(false, kNoHistory, 0.0);
 		return;
 	}
 
@@ -616,7 +652,23 @@ void main()
 	// RMS and the opposite one 29.9, on both backends. A still scene says
 	// nothing about it at all -- velocity is zero everywhere there, and either
 	// sign times zero is zero. ENGINE-NOTES 7r.
-	vec2 velocity = texture(u_Velocity, uv).xy;
+	// **RT-8, and the measurement that stopped it here.** The sea now
+	// records its own motion and this pass could reproject by it -- and
+	// measured on the bridge, both ways of using it make the water worse:
+	// speckle energy 0.653 -> 0.763 at the glitter camera and 1.160 ->
+	// 1.432 at the pier when the wave's motion drives the history fetch,
+	// and 0.787 / 1.503 when it drives only the stillness test.
+	//
+	// The reason is worth keeping: reading the sea as stationary was
+	// **load-bearing**. A wave carries glitter, which is not attached to
+	// the water, and the long still feedback was averaging that sparkle
+	// away precisely because the seabed's velocity under it said nothing
+	// had moved. Give the sea its true motion and it loses an average it
+	// was silently relying on. So the lane stays bound and unread here
+	// until the sea has a reconstruction of its own -- the rest of RT-8 --
+	// rather than being handed a filter that has nothing to hold on to.
+	const vec4 water = texture(u_WaterMotion, uv);
+	vec2 velocity = water.z > 0.5 ? water.xy : texture(u_Velocity, uv).xy;
 	velocity.y = flip ? -velocity.y : velocity.y;
 
 	vec2 historyUV = uv - velocity;
@@ -647,7 +699,10 @@ void main()
 		o_Moments = vec4(1.0, currentLuma, currentLuma * currentLuma,
 						  offScreen ? float(kOffScreen)
 									: float(g_Refusal) + 0.5);
-		CountTemporal(false);
+		// A disocclusion is blamed on whichever clause refused the centre,
+		// which is what the pixel was actually rejected for; off screen is
+		// its own reason and has no clause behind it.
+		CountTemporal(false, offScreen ? kOffScreen : max(g_Refusal, kNoHistory), 0.0);
 		return;
 	}
 
@@ -823,7 +878,7 @@ void main()
 	// is the one the view exists to show: a recovered pixel and a
 	// disoccluded one are a half apart on the ramp, not a whole category.
 	o_Moments = vec4(frames, momMean, momMeanSq, float(g_Refusal));
-	CountTemporal(true);
+	CountTemporal(true, kKept, frames);
 
 	// **Never clamp tighter than this pixel is known to fluctuate.** Widened
 	// as a whole -- the same factor on all three axes -- so the box keeps its

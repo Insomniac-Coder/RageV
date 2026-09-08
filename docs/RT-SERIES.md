@@ -31,7 +31,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 
 ## Status at a glance
 
-**Eighteen of thirty items are closed, three more are part-done, nine are open. Every RT-6.x sub-item is finished.** (2026-09-07, end of day.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
+**Twenty of thirty-three items are closed, three more are part-done, ten are open. Every RT-6.x sub-item is finished.** (2026-09-08.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
 
 | # | status | effort | risk | in a line |
 |---|---|---|---|---|
@@ -56,15 +56,20 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-6.10** | ✅ **done 2026-09-07** | — | — | the accumulator validates what the ray hit |
 | **RT-6.11** | ✅ **done 2026-09-07** — **the biggest sharpness win of the day** | — | — | Catmull-Rom; its negative result had expired |
 | RT-7 | open | 4-5 d | moderate-high | the tubes as LTC line lights |
-| RT-8 | open | 4-6 d | **high** | the water on the G-buffer |
+| RT-8 | 🔨 **part done 2026-09-08** — the layer and its motion; the light and the rays open | 2-4 d left | **high** | the water on the G-buffer |
 | RT-9 | open | 2-3 d | moderate | the budget's shadow lane, and confidence drives allocation |
 | RT-10 | open | 5-7 d | **high** | ReSTIR DI on the G-buffer |
 | RT-11 | open | 1-2 d | low-moderate | next-event estimation at GI and reflection hits |
 | RT-12 | ✅ **done 2026-09-07** | — | — | the signal debug views, complete |
 | RT-13 | **skinned + layered ✅ done inside RT-2**; transparent open | 0.5 d to decide | low | every opaque surface in the G-buffer |
 | **RT-14** | ✅ **done 2026-09-07** — and it says do not pack the G-buffer | — | — | the G-buffer's bandwidth, measured before anything is packed |
-| **RT-15** | open — **new, do early** | 2-3 d | moderate | the reflection accumulator reprojects by object motion |
+| **RT-15** | ✅ **done 2026-09-08** — both halves | — | — | the reflection accumulator reprojects by object motion |
 | **RT-16** | open — **new** | 1-2 d | moderate | a reflection takes seconds to leave the floor when its light goes out |
+| **RT-17** | open — **new** | 2-3 d | moderate | the accumulator tests what the ray *hit*, by identity |
+| **RT-18** | open — **new** | 1-2 d | low | history cannot outlive the silhouette it belongs to |
+| **RT-19** | ✅ **done 2026-09-08** | — | — | the refusal reasons, totalled per frame |
+
+**Three new items on 2026-09-08 (RT-17..RT-19)**, from the owner's *Object-Aware Temporal Rendering* document; the section below the reviews records what that document proposed that this engine already had, what was taken, and what was rejected and why.
 
 **Six new items on 2026-09-07**, all from two outside reviews of the codebase — five verified defects and one expired negative result. The section after the complexity table records what those reviews got right, what they asked for that already exists, and the one place they were argued with.
 
@@ -96,6 +101,9 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-12** | **Signal debug views, complete:** history length, refusal, reach, the K choice, the raw fresh picture, per signal, on one log ramp (the direct-light view saturates at any linear scale). **Plus the confidence set** (owner's spec §11, filed here 2026-09-07): the combined history confidence, the reflection direction as RGB and its frame-to-frame difference, and the rejection reason split by which test refused it -- depth, normal, material, disocclusion -- and the rays actually allocated per pixel. **This session hit plumbing that was declared, bound, read and never connected three separate times**, each caught only by staging an absurd constant and checking the frame moved; a refusal-and-confidence view would have caught all three in one look. **And the rejection reason as an enum, per test** (both reviews, 2026-09-07): the reflection accumulator already writes one (`g_Refusal`, in the integer part of `o_Extra.b`) and TAA writes none, so a TAA ghost cannot be traced to the test that let it through. One small integer lane -- off screen, id, depth, normal, sky transition, material, direction, hit -- coloured by reason. | R6 remainder | Tune with views, not the final image. | small |
 | **RT-13** | **Surfaces outside the G-buffer join it: skinned, layered (terrain), and transparent (the car's glass, OIT).** RT-1 found the first two on the bridge -- the G-buffer pass draws only the plain and masked kinds, so under the direct-light signal the terrain and the characters had no light in the pass and none from the loop; they keep the loop for now (`RV_SKINNED` / `RV_LAYERED` compile without the signal's inputs). The fix is a G-buffer variant per kind and their draw in the G-buffer pass; transparent surfaces decide between a thin layer and the in-shader path. | RT-1's finding, new | Every opaque surface must be in the G-buffer or every signal skips it. | **skinned + layered ✅ done inside RT-2** (see its record); transparent: decide first, small |
 | **RT-16** | **A reflection takes seconds to leave the floor when its light goes out.** Owner-reported 2026-09-07: switch the car's lights off and their reflection lingers on the wet floor for a few seconds. **Two temporal filters now run in series on that pixel** -- the reflection accumulator's own memory (64 frames) and then TAA's (still-feedback 0.98 in the garage, about 50 frames), because RT-6.1 moved the composite *above* the resolve -- and memories in series compound rather than add. **RT-6.10 will not catch it**: a light going out changes the reflected *brightness*, not the hit *distance*. What should catch it is the accumulator's bound (the neighbourhood clamp, which sees a sudden darkening) and the evidence-driven anti-lag that is RT-5's subject -- so this is partly a measurement of whether those two are doing their job, and partly the question of whether one signal should pass through two filters at all. **The arm already exists**: `burst.py`'s `BURST_SWITCH` turns lights off mid-capture (`"Tube ,Bottom light bars|1.328"` switches the tubes at frame 80), so "frames until the reflection is gone" is directly countable. | owner-reported, 2026-09-07 | A light switching off is the plainest possible temporal test, and the engine fails it visibly. | medium |
+| **RT-17** | **The accumulator tests what the ray hit, by identity -- not only how far away it was.** Every test the reflection history has is about the *reflector*: the same object, the same plane, the same facing, the same roughness, the same metallic, and (RT-6.10) how far the reflected thing stood. Nothing tests **what** it was. So a polished wall that never moves, a camera that never moves, and a car driving past in front of it: every test passes at full confidence, the history is kept whole, and the car's reflection smears along the wall. RT-6.10 cannot catch it -- a car crossing at a roughly constant distance does not change the hit *distance*. The trace writes the hit's **instance id and normal** into the payload it already fills, the accumulator keeps them beside the reflector's, and a change **scales the confidence rather than refusing**: a distant environment changes which triangle a ray lands on every frame without changing what it looks like, so an equality test there would refuse a history that was perfectly good (the document's §62, and it is right). The hit normal is nearly free once the lane exists and catches the constant-distance case the distance test misses. **Precondition:** the reflection trace has no payload lane for either today, and RT-14 measured the persistent histories at 128 B/pixel -- so the lane is sized and measured before it is written, on RT-14's own terms. | owner's OATR document §15, §17, §61, §62; the half of RT-6.10 that was filed and not built | The one axis of a reflection's history that has never been validated, and the only one that sees a moving *reflected* object. | medium |
+| **RT-18** | **History cannot outlive the silhouette it belongs to.** A moving object leaves no trail today because the per-pixel tests all fire correctly in the band it has vacated -- the id, the depth and the normal there describe the wall behind, so the object's history is refused. That is a guarantee by argument rather than by construction, and every gap found this week (the missing motion vector of RT-15, the plane residual of a moving reflector) was a case where one of those tests silently agreed with a history it should have refused. A coverage mask for **this frame** multiplied into the history weight makes the vacated band empty by construction. **Take the mask and not the isolated pass**: the document's two-pass form (§4, §26) invents the double-lighting hazard it then warns about in §47, and this engine composites the reflection above the resolve already (RT-6.1). | owner's OATR document §26-27, §46 | The cheap structural guarantee behind the per-pixel tests, on the class of defect this week kept producing. | small |
+| **RT-19** | **The refusal reasons, totalled.** Every temporal pass already writes *why* it refused a history per pixel -- `g_Refusal` in the accumulator, and RT-12's reason enum in the resolve -- and nothing ever adds them up. So the question "is this smear a history wrongly kept, or a signal too thin to average" is answered with an afternoon of staged probes, which is exactly what 2026-09-08 spent before finding that the objects were reporting no motion at all. One line beside the ray counters: acceptance rate, the split by which test refused (id, depth, normal, material, direction, hit, disocclusion, off screen), and the average history length. **Not a fix, an instrument** -- and the cheapest item on this list. | owner's OATR document §56 | The numbers exist per pixel and are thrown away every frame. | small |
 | **RT-15** | **The reflection accumulator reprojects by object motion, not only the camera's.** It finds last frame's texel by pushing this frame's world position through last frame's view-projection -- which asks where the point *would* have been if it had not moved. For anything that moves it was somewhere else, so every history test refuses, `frames` falls to one, and the pixel shows a **single ray**: noise on a mirror, and the ghosting the owner sees while driving the car. `u_Velocity` is already bound to the pass and used only for the silhouette test. The fix is to reproject by that lane where it describes object motion, and to decide what a *rotating* reflector does, which a screen-space velocity cannot express. **Measure on `showroom_moving.rage`**, which is the only scene that shows it. | found 2026-09-07 by the moving-object scene | Every reflection on anything that moves is currently a one-sample estimate. | medium — **do early; it is the largest visible defect found this week** |
 | **RT-14** | **The G-buffer's bandwidth, measured before anything is packed.** Both reviewers raise it and both put it last, which is right: the lanes have grown with every item in this series -- surface, id, velocity, RT-6's TAA guide pair, RT-6.1's fourth reflection attachment -- and nothing has ever measured what they cost. **Profile first:** write and read bandwidth per pass, cache behaviour, where the pass time actually goes. Then A/B any packing against a diff image. Candidates: the id lane's width, the velocity format, the TAA guide's sixteen bytes, and the albedo lane -- which **RT-2.2 wants widened, not narrowed**, so the two are decided together or not at all. **Do not pack on theory:** RT-2.1 measured a "doubled rasterisation" that turned out to be a parallax march, and the same mistake inside a format change is a picture regression bought for nothing. | first review §20-21, second review's ordering | The one item both reviews agree comes after everything else. | small to measure; unknown to act on |
 
@@ -226,7 +234,159 @@ accumulator (64 frames) and then TAA (still-feedback 0.98 in the garage, about
 50 frames) -- and memories in series compound. RT-6.10's hit test will not catch
 it: a light going out changes the reflected *brightness*, not the hit *distance*.
 
+## 2026-09-08: **the OATR document, against what this engine already has**
+
+The owner's *Object-Aware Temporal Rendering* proposal, read against the code. It is a
+general framework for temporal reuse, aimed at smearing caused by movement, and the
+honest summary is that **most of what it specifies is already built here** -- which is
+worth recording so it is not proposed again.
+
+**Already built, point for point:** object identity validation (§8, RT-6.5), depth and
+normal validation (§10, §11, RT-6), motion validation (§12), material validation (§13,
+RT-6.5's metallic), reflection-direction validation (§16, RT-6.3 -- including the
+roughness-scaled cosine it proposes), hit validation by distance (§17, RT-6.10), the
+reflection-cone idea that hit tolerance should widen with roughness (§63, already in the
+lobe-scaled tolerances), continuous confidences multiplied rather than binary rejects
+(§21-22, RT-6.4), the 3x3 neighbourhood search (§42, RT-6), disocclusion rejection (§41),
+history reset on a camera cut (§51, RT-6.9), variance from stored moments (§25),
+per-effect histories (§31), and the debug views (§53-54, RT-12's 27 of them). Its §39
+warning -- that a generic final TAA can undo the work -- is the exact defect this engine
+hit and fixed by moving the composite above the resolve (RT-6.1).
+
+**Taken, as RT-17, RT-18 and RT-19** (rows in the build order above): the hit's identity,
+the current-frame coverage mask, and the totals.
+
+**Rejected, with reasons:**
+
+- **Per-material temporal policies (§32, §33, §67).** A dial per material, against the
+  owner's own standing rule that every quality lever is one render setting. The axes it
+  wants -- roughness, metallic -- are already read per pixel from the G-buffer, which is
+  the same information without the authoring surface.
+- **Primitive id and barycentrics (§36).** The document calls it advanced itself. Nothing
+  measured here needs triangle-level identity.
+- **The isolated render pass (§4, §26).** Its useful half is the mask, which is RT-18. The
+  other half invents the double-lighting problem §47 then warns about.
+- **The framework and architecture chapters (§58, §68).** This is already the engine's
+  shape: one reconstruction contract, four signals, per-effect histories.
+
+**And the limitation worth keeping in mind:** every validation in that document would have
+passed on the defect found the same day. A motion vector of zero is a perfectly valid
+motion vector, and the engine was reporting zero for everything moved by a fixed-step
+script (RT-15's record below). The document validates history *against* motion; it cannot
+tell you the motion itself is a lie. That is what RT-19's totals and a staged constant are
+for.
+
 ## Records
+
+### RT-8 — 🔨 part done 2026-09-08 (uncommitted)
+
+**What the sea now has.** Its surface pass was already a G-buffer of its own in
+all but name -- position in full floats with a mask, the normal with roughness
+and wind, the colour with the specular dial. It now also carries **the wave's own
+screen motion and the object id**, in a fourth attachment. The motion was never
+missing: `water_vertex.glsl` has always evaluated the wave at last frame's time
+and built `v_PrevClipPos` from it, with a comment saying why. There was simply
+nowhere to write the difference.
+
+**The bug that hid it, and the class to check first.** `Renderer3D`'s water
+surface pipeline hard-codes `surface.ColorFormats` and `BlendPerAttachment` with
+**three** entries. The target grew a fourth attachment and the pipeline did not,
+so the shader's write to location 3 went **nowhere, in silence** -- no validation
+message, no warning. `--debug-view=water-mask` (new, below) showed the layer
+empty where the sea plainly was, and that was the whole diagnosis. **A pipeline
+carries its own attachment count; growing a target is never enough.**
+
+**The finding that reordered the item: the sea reading zero velocity was
+load-bearing.** Handing the temporal resolve the wave's true motion made the
+water *specklier* -- 0.653 → 0.763 at the glitter camera, 1.160 → 1.432 at the
+pier, and **0.787 / 1.503** when the motion drove only the stillness test. The
+owner saw it before the metric did. A wave carries glitter, which is not attached
+to the water, and `TemporalStillFeedback = 0.98` was averaging that sparkle over
+about fifty frames **because** the seabed's velocity under the sea said nothing
+had moved.
+
+**Resolved by giving the sea an average of its own instead of a borrowed one.**
+The water accumulate already keeps the lamp light's glint on a separate memory
+and it was **two frames** -- short for a good reason at the time, since the sea
+also had TAA's fifty behind it. At the pier with the motion live: speckle 1.432 at
+two, 1.019 at eight, **0.912 at sixteen**, 0.829 at sixty-four, against **1.160**
+for the shipped build with no water motion at all. **Not haze:** contrast rises
+(sd 17.28 → 18.46) and the peaks brighten (99.9th percentile 151.8 → 155.2) all
+the way up the sweep. Landed at sixteen -- the curve is nearly flat past it and a
+shorter memory follows a light that goes out sooner.
+
+**Measured, final:** pier speckle **1.160 → 0.915**, glitter **0.653 → 0.591**,
+the deck bit-identical, the garage bit-identical. The sea is smoother than it was
+*and* now tells the truth about moving.
+
+**Also landed:** the water accumulate reprojects by the wave rather than through
+the previous camera alone -- the same defect RT-15 fixed for reflections, and the
+sea is the one surface that always moves. Measured **neutral** on both static
+cameras (0.915 → 0.924, 0.591 → 0.594, inside the noise); kept because it is the
+quantity that actually describes what moved, and it costs one fetch. It wants a
+camera dolly on the bridge to be judged properly, which no harness here has.
+
+**New instruments:** `--debug-view=water-motion` and `--debug-view=water-mask`.
+Every question about the sea before these existed cost a hand-staged probe.
+
+**What is left, and it is most of the item:** the water's direct light through
+`DirectTrace`, and its mirror and refraction rays as signals. **And one piece
+this session argues against on evidence:** folding the choose/shade/accumulate
+passes into the shared contract. The water accumulate's own header explains why
+the contract's geometric validation cannot work for a sea -- a wave lifting the
+surface a metre moves the point seen at one pixel by tens of metres at a grazing
+angle -- so it validates by the neighbourhood's spread instead, and measuring it
+off costs 1.160 → 1.609 of speckle. Folding it in would replace a test that works
+with one its own record says fails. **Raise it with the owner before building.**
+
+**Method notes.** `context.Color(...)` and `SetTexture(slot, ...)` were both
+proved good by binding the G-buffer normals to the slot and watching them
+arrive -- do that before suspecting the plumbing. And the runtime **must** be run
+from `build/bin/Release/RageVRuntime`: from the repo root it silently compiles no
+shaders and every frame comes back black, which reads as a broken change.
+
+### RT-19 — ✅ done 2026-09-08 (uncommitted)
+
+**What was built.** The ray-counter block widened from 16 lanes to 32
+(`RayCounters::Count`; the shaders' stride `RayCounterSlot() * 32u` in
+`pbr_fragment.glsl`, `taa_resolve` and `rtao_compute` must agree, and the CPU
+buffer size follows `Count` on its own). Fifteen new lanes: the temporal
+resolve's six refusal reasons and its summed history length, and the reflection
+accumulator's pixels, kept, five refusal reasons and summed history length.
+`CountTemporal` now takes the reason and the frame count; the accumulator gained
+`CountSignal`, counted on the **specular instance only** -- the same shader also
+runs for occlusion, the bounce and the direct light, and one set of lanes summed
+over four signals would describe none of them. **No plumbing was needed:** the
+counter buffer is already declared at set 0 binding 21 under `RV_RAY_SHADOWS`
+(which the accumulate pipelines compile with) and already bound to the pass with
+the lamp set. Four lines print beside the ray counters.
+
+**What it says on the garage with the moving panel** (120 frames, 1600x900):
+
+```
+temporal confidence: 99.7% of pixels reused their history, 55.5 frames deep on average
+temporal refusals: off screen 0.0%, no history 0.0%, sky 0.0%, object id 0.2%, depth 0.0%, normal 0.2%
+reflection history: 99.9% of glossy pixels kept one, 50.4 frames deep on average
+reflection refusals: off screen 0.0%, none there 0.0%, normal 0.0%, plane 0.0%, roughness 0.0%
+```
+
+**And that is the finding.** With a near-mirror crossing the frame, the reflection
+accumulator refuses **essentially nothing** and holds **fifty frames** on average.
+Whatever the smearing on a moving reflector is, it is not a shortage of
+refusals -- the filter is keeping almost every history it is offered. The same
+question cost an afternoon of staged probes earlier the same day.
+
+**Read them as whole-frame averages**, which is what this item builds: static
+pixels dominate the denominator, so a per-region or per-object split is a
+separate piece of work and is not here.
+
+**Verified two ways.** The refusal percentages sum to the complement of the
+acceptance rate by construction (0.4% against 0.3%, rounding), which is the
+self-check to make if a line ever looks wrong; and with `--aa=none` the temporal
+lines report "no temporal resolve ran" while the reflection lines still report
+real numbers -- so the two sets are live and independent rather than stuck
+constants, which is the test this codebase has learned to run before believing a
+counter (RT-3's record).
 
 ### RT-1 — ✅ done 2026-09-06, late evening (uncommitted, both copies staged)
 

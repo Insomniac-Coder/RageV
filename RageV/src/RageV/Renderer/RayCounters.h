@@ -73,9 +73,46 @@ namespace RageV
 			// reused their history -- the validity lane of o_Moments.w.
 			TaaPixels,
 			TaaReused,
-			// Room to grow without a layout change. Sixteen words, one
-			// cache line.
-			Count = 16
+			// **RT-19: and why the rest were refused.** The reason was already
+			// written per pixel by both temporal passes -- RT-12 put it in the
+			// resolve's `o_Moments.w` and the accumulator's `o_Extra.a` -- and
+			// nothing ever summed it, so "is this smear a history wrongly kept
+			// or a signal too thin to average" cost an afternoon of staged
+			// probes to answer (2026-09-08). These are that question as a line
+			// of output.
+			//
+			// **Contiguous and in the shader's own order**, so the shaders can
+			// index them as `first + (reason - 1)`: the resolve's reasons run
+			// off screen, no history, sky crossing, object id, depth, normal
+			// (`kOffScreen`..`kNormal` in taa_resolve.rvshader), and the
+			// accumulator's run off screen, none there, normal, plane,
+			// roughness (`g_Refusal` in reflection_accumulate.rvshader).
+			TaaOffScreen,
+			TaaNoHistory,
+			TaaSkyCrossing,
+			TaaObjectId,
+			TaaDepth,
+			TaaNormal,
+			// Summed over the pixels that reused: how many frames stood behind
+			// each. Divided by TaaReused it is the average history length,
+			// which is the number that says whether a filter is holding on.
+			TaaFrames,
+			// The same for the reflection accumulator, whose refusals are the
+			// ones that matter for smearing on a moving reflector. Counted on
+			// the specular instance only -- the pass also runs for occlusion,
+			// the bounce and the direct light, and one set of lanes summed
+			// over four signals would describe none of them.
+			ReflPixels,
+			ReflKept,
+			ReflOffScreen,
+			ReflNoHistory,
+			ReflNormal,
+			ReflPlane,
+			ReflRoughness,
+			ReflFrames,
+			// Two cache lines now, and still read back once a frame. The
+			// shaders' stride must agree (`RayCounterSlot() * 32u`).
+			Count = 32
 		};
 
 		// Set 0, binding 21: declared by every lit pipeline family under

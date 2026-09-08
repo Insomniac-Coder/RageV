@@ -363,7 +363,11 @@ namespace RageV
 										 const RHI::Ref<RHI::RHITexture>& position,
 										 const RHI::Ref<RHI::RHITexture>& previousDiffuse,
 										 const RHI::Ref<RHI::RHITexture>& previousSpecular,
-										 CameraMotion& motion, bool hasHistory);
+										 CameraMotion& motion, bool hasHistory,
+										 // RT-8: the wave's own motion, so the history is
+										 // looked for where the water went rather than
+										 // where the camera alone would put it.
+										 const RHI::Ref<RHI::RHITexture>& waveMotion = nullptr);
 		// The two pictures the second pass wrote, for the water draw that
 		// reads them instead of walking its lamps. Null puts the walk back.
 		// WR-16 S5: the half-resolution mirror pass's picture, for the draw.

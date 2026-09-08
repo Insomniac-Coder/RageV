@@ -363,6 +363,12 @@ namespace RageV
 		// what makes a motion vector the difference between two frames rather
 		// than between two calls. ENGINE-NOTES 7r.
 		void AdvanceMotionHistory();
+		// **Once a frame, and before anything has moved.** Whichever of the
+		// two updates a frame reaches first takes the snapshot and sets
+		// this; the frame update clears it on its way past. See the
+		// comment on AdvanceMotionHistory for why the order is the whole
+		// point.
+		bool m_MotionHistoryTaken = false;
 
 		void PrepareEnvironment();
 

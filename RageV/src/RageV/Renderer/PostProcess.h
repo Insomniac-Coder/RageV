@@ -143,7 +143,13 @@ namespace RageV
 									 const RHI::Ref<RHI::RHITexture>& material = nullptr,
 									 // RT-6.8: whether the colour box may be built from
 									 // this surface's taps alone. False is the arm.
-									 bool boxGeometry = true);
+									 bool boxGeometry = true,
+									 // **RT-8: the water layer's motion and mask.** xy the wave's
+									 // screen motion in the same units and sign as the scene's own
+									 // lane, z one where a wave was drawn. Null leaves every pixel
+									 // on the geometry's velocity, which is what the sea had -- and
+									 // what made a moving wave look stationary to this pass.
+									 const RHI::Ref<RHI::RHITexture>& waterMotion = nullptr);
 
 		// Depth of field, in the three passes it takes. On the linear HDR
 		// scene, after the anti-aliasing resolve and before bloom -- see
@@ -677,6 +683,9 @@ namespace RageV
 							 // the G-buffer's normal attachment, whose B and A are the
 							 // roughness and the metallic the clamp is shaped by.
 							 const RHI::Ref<RHI::RHITexture>& seventh = nullptr,
-							 Sampling seventhSampling = Sampling::Point);
+							 Sampling seventhSampling = Sampling::Point,
+							 // RT-8: binding 9, past the material lane. The water layer.
+							 const RHI::Ref<RHI::RHITexture>& eighth = nullptr,
+							 Sampling eighthSampling = Sampling::Point);
 	};
 }

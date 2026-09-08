@@ -269,6 +269,13 @@ struct GpuLight
 	vec4 Params;
 	// x kind of shadow map (0 none), y slot, z far distance, w texel scale
 	vec4 Shadow;
+	// **RT-7: the source's extent.** x the length in metres, zero for a
+	// sphere; yzw the unit axis it runs along -- the fixture's own, not the
+	// direction it aims, because a ceiling tube points down and lies across
+	// the bay. A lane of its own because the obvious free corner --
+	// Params.z, a cosine only on a spot -- is taken on exactly the lights
+	// this exists for.
+	vec4 Extent;
 };
 
 layout(std430, set = 0, binding = 8) readonly buffer LightBlock
@@ -523,7 +530,7 @@ bool LightCullRejects(uint index, vec3 position, bool insideField, bool onScreen
 // two must agree.)
 layout(std430, set = 0, binding = 21) buffer RayCounterBlock
 {
-	uint Counts[64 * 16];
+	uint Counts[64 * 32];
 } u_RayCounters;
 const uint RAY_COUNTER_SLOTS = 64u;
 
@@ -624,7 +631,7 @@ void FlushRayCounters(bool shaded)
 	const bool leader = real && gl_SubgroupInvocationID == subgroupBallotFindLSB(realLanes);
 	const uint a = real ? g_CountA : 0u;
 	const uint b = real ? g_CountB : 0u;
-	const uint base = RayCounterSlot() * 16u;
+	const uint base = RayCounterSlot() * 32u;
 
 	CountLane(base, RAY_LANE_SHADOW, a & 0xFFFFu, leader);
 	CountLane(base, RAY_LANE_SURFACE, b & 0xFFu, leader);
@@ -991,6 +998,14 @@ layout(location = 1) out vec4 o_MaterialWater;   // albedo rgb, the specular dia
 // metre. The w lane is the mask -- one where a wave was drawn, zero where
 // the clear left it.
 layout(location = 2) out vec4 o_PositionWater;
+// **RT-8: the wave's motion, which was computed and thrown away.**
+// `v_PrevClipPos` is built in water_vertex.glsl from the wave evaluated at
+// last frame's time -- not from the flat grid, deliberately -- and no
+// attachment existed to receive the difference, so the sea reported no
+// motion to any temporal filter and the still feedback had to be off for
+// it. xy in the scene velocity lane's own units and sign, z the mask, so
+// one fetch answers both "did the sea cover this pixel" and "where was it".
+layout(location = 3) out vec4 o_MotionWater;
 
 #elif defined(RV_TRANSPARENT)
 
@@ -4192,6 +4207,22 @@ void main()
 	o_SurfaceWater = vec4(N.xz, shadingRoughness, v_WaterDeep.w);
 	o_MaterialWater = vec4(albedo, clamp(surface.Specular, 0.0, 1.0));
 	o_PositionWater = vec4(v_WorldPos, 1.0);
+	// RT-8: and where this wave stood last frame, in the scene velocity
+	// lane's own units and sign -- the same expression the opaque variant
+	// writes, against a `thenNDC` that water_vertex.glsl built from the
+	// wave at last frame's time. The jitter comes out of both terms: a
+	// camera dithered half a pixel has not moved the sea.
+	// RT-8: and who this water is, in the lane that was spare. The layer now
+	// answers every question the G-buffer answers for land -- where the
+	// surface is, which way it faces, how rough, which way the wind runs,
+	// where it moved, and whose it is -- which is what "the water on the
+	// G-buffer" means. A reader that validates a history by identity can
+	// use it the way RT-6.5 uses the id lane on land.
+	o_MotionWater = vec4(
+		((v_ClipPos.xy / max(abs(v_ClipPos.w), 1e-6) * sign(v_ClipPos.w)
+		  - u_Scene.Jitter.xy)
+		 - (thenNDC - u_Scene.Jitter.zw)) * 0.5,
+		1.0, v_ObjectId);
 	return;
 #endif
 
@@ -4807,10 +4838,43 @@ void main()
 		// the capsule and LTC forms when they arrive.
 		float specRoughness = shadingRoughness;
 		float specScale = 1.0;
-		if (isPositional != 0.0 && light.Direction.w > 0.0)
+		// **RT-7: and a light with a length is a capsule, not a sphere.**
+		//
+		// The sphere below answers "how wide is the source"; a tube, a
+		// strip or a lamp row also answers "how long", and the length is
+		// what makes its reflection a streak rather than a dot. The
+		// representative point becomes the point of the *segment* nearest
+		// the reflection ray, and the sphere step then widens around it --
+		// so a capsule is the two in sequence, which is Karis' own form.
+		//
+		// The length rides Params.z as 1 plus the metres (Renderer3D packs
+		// it there; a cosine cannot exceed 1, and a spot's real cosine
+		// reads as no length, which is why a spot cannot be a tube). Zero
+		// length reads exactly zero here and every branch below is the one
+		// it always took.
+		const float tubeLength = isPositional != 0.0 ? max(light.Extent.x, 0.0) : 0.0;
+		if (isPositional != 0.0 && (light.Direction.w > 0.0 || tubeLength > 0.0))
 		{
 			const vec3 R = reflect(-V, N);
-			const vec3 toCentre = light.Position.xyz - v_WorldPos;
+			vec3 toCentre = light.Position.xyz - v_WorldPos;
+			if (tubeLength > 0.0)
+			{
+				// The segment, in the shading point's own frame: the light's
+				// forward axis, centred on its position. Closest point on it
+				// to the reflection ray, clamped to the ends -- the standard
+				// segment/ray solve, with R unit so the determinant is
+				// `d.d - (d.R)^2`. Parallel to the ray it degenerates and the
+				// centre is as good an answer as any.
+				const vec3 halfAxis = light.Extent.yzw * (0.5 * tubeLength);
+				const vec3 p0 = toCentre - halfAxis;
+				const vec3 d = halfAxis + halfAxis;
+				const float dR = dot(d, R);
+				const float denom = dot(d, d) - dR * dR;
+				const float t = denom > 1.0e-6
+								  ? clamp((dR * dot(p0, R) - dot(p0, d)) / denom, 0.0, 1.0)
+								  : 0.5;
+				toCentre = p0 + d * t;
+			}
 			const vec3 centreToRay = dot(toCentre, R) * R - toCentre;
 			const vec3 closest = toCentre + centreToRay *
 				clamp(light.Direction.w *

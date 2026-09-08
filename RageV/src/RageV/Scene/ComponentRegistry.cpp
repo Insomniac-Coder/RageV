@@ -789,6 +789,15 @@ namespace
 				// streak, a point's is a blinking speck. See Light::SourceRadius.
 				Field<&LightComponent::Light, &Light::SourceRadius>("SourceRadius",
 					OnlyWhen(IsPositional, Drag(0.05f, 0.0f, 10.0f))),
+				// Metres of emitter length along the light's forward axis; 0 is a
+				// sphere. A tube reflects as a streak of its own length rather
+				// than a dot. See Light::SourceLength.
+				Field<&LightComponent::Light, &Light::SourceLength>("SourceLength",
+					OnlyWhen(IsPositional, Drag(0.05f, 0.0f, 20.0f,
+						"Metres of emitter length, laid along the light's local X. "
+						"Rotate the transform to turn the tube, the way you rotate a "
+						"spot to aim it. A strip light reflects as a streak of this "
+						"length; 0 is a sphere."))),
 				Field<&LightComponent::Light, &Light::InnerCone>("InnerCone",
 					OnlyWhen(IsSpot, Slider(0.0f, 89.0f))),
 				Field<&LightComponent::Light, &Light::OuterCone>("OuterCone",

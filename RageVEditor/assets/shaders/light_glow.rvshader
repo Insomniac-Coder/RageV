@@ -61,6 +61,10 @@ struct GpuLight
 	vec4 Color;       // rgb, a = intensity
 	vec4 Params;      // x range, y cos(inner), z cos(outer), w IsBaked
 	vec4 Shadow;
+	// RT-7: x the source length in metres, the rest spare. Unread here --
+	// declared because this buffer is the same one pbr_fragment reads and
+	// a mirror that disagrees on the stride reads the wrong light.
+	vec4 Extent;
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer LightBlock

@@ -61,6 +61,12 @@ layout(set = 3, binding = 2) uniform sampler2D u_WaterPositionIn;
 // are standing behind it.
 layout(set = 3, binding = 3) uniform sampler2D u_HistoryDiffuse;
 layout(set = 3, binding = 4) uniform sampler2D u_HistorySpecular;
+// **RT-8: the wave's own motion**, xy in this coordinate's units and z the
+// mask, written by the surface pass from the wave evaluated at last frame's
+// time. Before this the reprojection below went through the previous camera
+// alone, which asks where this water would have been if it had not moved --
+// and a sea is the one surface that always has.
+layout(set = 3, binding = 5) uniform sampler2D u_WaveMotion;
 
 layout(push_constant) uniform LampParams
 {
@@ -155,7 +161,17 @@ void main()
 			// of crests it reads as one side of every crest too bright and
 			// the other too dark. Jitter.zw is what the frame being read
 			// was drawn with; the halving is clip space to this coordinate.
-			const vec2 uv = clip.xy / clip.w * 0.5 + 0.5 + u_Scene.Jitter.zw * 0.5;
+			// **RT-8: and the wave's own motion instead of the camera's alone.**
+			// The velocity lane already carries both -- it is the difference of
+			// this frame's projection and last frame's, of the wave as it stood
+			// in each -- so the previous place is this pixel's own position less
+			// that motion, with each frame's jitter taken off its own term. The
+			// clip projection above is kept for the behind-the-camera test.
+			const vec2 wave = texelFetch(u_WaveMotion, texel, 0).xy;
+			const vec2 nowUv = (vec2(texel) + 0.5) / vec2(size);
+			const float nowRow = u_Lamps.History.w > 0.5 ? 1.0 - nowUv.y : nowUv.y;
+			const vec2 uv = vec2(nowUv.x, nowRow) - u_Scene.Jitter.xy * 0.5
+						  - wave + u_Scene.Jitter.zw * 0.5;
 			if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0))))
 			{
 				// By texel, and with the backend's own idea of which way a row

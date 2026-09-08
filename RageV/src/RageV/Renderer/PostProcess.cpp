@@ -329,7 +329,9 @@ namespace RageV
 							   const Ref<RHIBuffer>& counters,
 							   const Ref<RHITexture>& fifth, Sampling fifthSampling,
 							   const Ref<RHITexture>& sixth, Sampling sixthSampling,
-							   const Ref<RHITexture>& seventh, Sampling seventhSampling)
+							   const Ref<RHITexture>& seventh, Sampling seventhSampling,
+							   // RT-8: binding 9, the water layer.
+							   const Ref<RHITexture>& eighth, Sampling eighthSampling)
 	{
 		if (!s_Data || !s_Data->Ready || !first)
 			return;
@@ -448,6 +450,12 @@ namespace RageV
 		// RT-6.2: the material lane, for the resolve alone.
 		if (seventh)
 			set->SetTexture(8, seventh, samplerFor(seventhSampling));
+			// RT-8: the water layer's motion, at 9. The resolve alone again, and
+			// always bound where it is declared -- a mask of zero is what says
+			// "no wave here", so black is a meaningful value rather than the
+			// undefined read an unbound binding would be.
+			if (eighth)
+				set->SetTexture(9, eighth, samplerFor(eighthSampling));
 
 		// The counters, for the passes that count and the one that draws
 		// them (WR-16 S0). Only when the caller passed one, which it does
@@ -1565,7 +1573,11 @@ namespace RageV
 									  Math::Vec2 jitter, float stillFeedback,
 									  const Ref<RHITexture>& guideCurrent,
 									  const Ref<RHITexture>& guidePrevious,
-									  const Ref<RHITexture>& material, bool boxGeometry)
+									  const Ref<RHITexture>& material, bool boxGeometry,
+									  // **RT-8: the water layer's motion and mask.** Null leaves
+									  // every pixel on the geometry's velocity, which is what the
+									  // sea had -- and what made a moving wave look stationary.
+									  const Ref<RHITexture>& waterMotion)
 	{
 		// The base block, then this frame's jitter (clip units, as the scene
 		// block carries it): the resolve filters the current frame around
@@ -1639,7 +1651,11 @@ namespace RageV
 				 // RT-6.2: the roughness and metallic under this pixel. Point, like
 				 // everything else describing a surface: halfway between two
 				 // materials is a third material that is not there.
-				 material, Sampling::Point);
+				 material, Sampling::Point,
+				 // RT-8: the water layer. Point for the same reason the
+				 // scene's velocity is -- and because its z is a mask,
+				 // which averaged across a shoreline would be half a wave.
+				 waterMotion ? waterMotion : s_Data->Black, Sampling::Point);
 	}
 
 	void PostProcess::GiDenoise(RHICommandList& cmd, const Ref<RHITexture>& current,

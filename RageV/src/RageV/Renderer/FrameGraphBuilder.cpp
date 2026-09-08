@@ -610,8 +610,19 @@ namespace RageV
 			// position in full floats, because the sea is a kilometre wide
 			// here and a half's step at that distance is half a metre.
 			surfaceDesc.Color = Format::R32G32B32A32_SFLOAT;
+			// **RT-8: and the wave's own motion.** The vertex stage has always
+			// evaluated the wave at last frame's time as well as this one's and
+			// built a previous clip position from it -- and until now there was
+			// no attachment to write the difference into, so every temporal
+			// filter read the sea as standing still and the long still feedback
+			// had to be turned off for it. xy the screen motion in the same
+			// units the scene's velocity lane uses, z the mask again so a
+			// reader needs one fetch rather than two, w spare. Half floats: a
+			// motion vector is a fraction of the screen and a half resolves a
+			// thousandth of it.
 			surfaceDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT,
-										Format::R32G32B32A32_SFLOAT };
+										Format::R32G32B32A32_SFLOAT,
+										Format::R16G16B16A16_SFLOAT };
 			surfaceDesc.Depth = Format::D32_SFLOAT;
 			surfaceDesc.Scale = sceneDesc.Scale;
 			// **One sample, whatever the scene uses.** This target holds a
@@ -2036,7 +2047,9 @@ namespace RageV
 										context.Color(waterSurface, 2),
 										context.Color(pastLight, 0),
 										context.Color(pastLight, 1),
-										light.Motion(), light.HasHistory());
+										light.Motion(), light.HasHistory(),
+										// RT-8: attachment 3 is the wave's own motion.
+										context.Color(waterSurface, 3));
 								});
 
 							waterLamps = newLight;
@@ -2381,12 +2394,19 @@ namespace RageV
 							builder.Sample(taaGuideCurrent);
 							builder.Sample(taaGuidePrevious);
 						}
+						// RT-8: the sea's own motion, which this pass prefers over the
+						// geometry's wherever a wave covered the pixel. Declared here
+						// as well as passed below: without the declaration the graph
+						// hands the pass nothing and the branch reads black, which is
+						// a mask of zero and so silently no water at all.
+						if (waterSurface != kRGInvalid)
+							builder.Sample(waterSurface);
 						builder.DisableDepth();
 					},
 					[source, sceneHDR, previous, velocityIndex, normalIndex, feedback, stillFeedback,
 					 hasHistory, jitter, taaGuideCurrent, taaGuidePrevious, taaGuideHasHistory,
 					 boxGeometry = config.TaaBoxGeometry,
-					 reflectionMotion](RGPassContext& context)
+					 reflectionMotion, waterSurface](RGPassContext& context)
 					{
 						PostProcess::TemporalResolve(
 							context.Cmd,
@@ -2427,7 +2447,13 @@ namespace RageV
 							context.Color(sceneHDR, normalIndex),
 							// RT-6.8: and whether the box may be built from this
 							// surface's taps alone.
-							boxGeometry);
+							boxGeometry,
+							// **RT-8: the water layer's motion.** Attachment 3 of the sea's
+							// own surface pass: where a wave covers a pixel that is the
+							// motion to reproject by, and the geometry lane under it holds
+							// the seabed instead.
+							waterSurface != kRGInvalid ? context.Color(waterSurface, 3)
+													   : nullptr);
 					});
 
 				shaded = current;
@@ -4015,6 +4041,7 @@ namespace RageV
 			static constexpr const char* kMissingAo = "the occlusion signal is off (--ao-signal)";
 			static constexpr const char* kMissingBudget = "the ray budget's tile allocator is off";
 			static constexpr const char* kMissingTaa = "the temporal resolve runs under TAA only";
+			static constexpr const char* kMissingWater = "this scene has no water";
 
 			ViewSpec spec;
 			switch (view)
@@ -4096,6 +4123,24 @@ namespace RageV
 				spec.Display = 6; spec.Scale = 0.1f;
 				spec.Name = "reflection-direction-delta";
 				spec.Missing = kMissingReflection;
+				break;
+			// **RT-8: the water's own layer**, attachment 3 of the sea's surface
+			// pass: xy the wave's screen motion, z the mask. Drawn about grey
+			// like the reflection's motion, and at the same scale, so the two
+			// read the same way. "No source" where the scene has no water at
+			// all, which is a different statement from a black frame.
+			case EngineConfig::DebugViewMode::WaterMotion:
+				spec.Aux = waterSurface; spec.Attachment = 3; spec.Display = 3;
+				spec.Scale = 0.02f; spec.Name = "water-motion";
+				spec.Missing = kMissingWater;
+				break;
+			// The mask alone, as a number: one where the layer holds a wave.
+			// The first thing to ask when the sea behaves as though its layer
+			// were empty -- as it did on 2026-09-08, when it was.
+			case EngineConfig::DebugViewMode::WaterMask:
+				spec.Aux = waterSurface; spec.Attachment = 3; spec.Channel = 2;
+				spec.Scale = 1.0f; spec.Name = "water-mask";
+				spec.Missing = kMissingWater;
 				break;
 			case EngineConfig::DebugViewMode::ReflectionMotion:
 				spec.Aux = reflectionAux; spec.Attachment = 3; spec.Display = 3;

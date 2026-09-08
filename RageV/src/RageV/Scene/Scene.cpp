@@ -795,6 +795,35 @@ namespace RageV
 		m_Physics.reset();
 	}
 
+	// **Where every transform stood in the frame that was last drawn.**
+	//
+	// The renderer subtracts this from the current world matrix to get
+	// each pixel motion, which is what every temporal filter in the
+	// engine reprojects by -- the frame anti-aliasing, the reflection
+	// accumulator, and the reconstruction contract behind the traced
+	// signals. So the one thing it must be is *stale*: taken before this
+	// frame has moved anything.
+	//
+	// **It was not, and that is RT-15 (2026-09-08).** It ran only at the
+	// top of OnUpdateRuntime, and the loop steps the fixed scripts before
+	// that (Application.cpp) while OnFixedUpdateRuntime ends by deriving
+	// the world transforms -- so by the time this ran, anything an OnTick
+	// had moved was already at its new place and got copied to its own
+	// "previous". Where it was and where it is were the same matrix, and
+	// the object reported a motion of exactly zero while visibly crossing
+	// the screen. Measured on showroom_moving.rage: the panel travelled
+	// x = 389, 615, 839 over frames 20, 80 and 150 with the velocity lane
+	// reading 0.000 on it throughout, while a camera dolly moved the same
+	// pixels to 28.8 -- so the lane was live and the object was not in it.
+	//
+	// Physics and the per-frame scripts were never affected: both run
+	// after this point in OnUpdateRuntime. It was the tick rate, which is
+	// the engine main script rate, that was invisible to every filter.
+	//
+	// **Taken once a frame now, by whichever update reaches the frame
+	// first** -- the first fixed step where there is one, the frame update
+	// where there is not -- so it always holds the state that was drawn,
+	// however many steps a frame runs and whatever does the moving.
 	void Scene::AdvanceMotionHistory()
 	{
 		auto view = m_Registry.GetView<TransformComponent>();
@@ -824,7 +853,12 @@ namespace RageV
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
 		m_FrameDelta = ts.GetSeconds();
-		AdvanceMotionHistory();
+		// The fixed steps of this frame have already run (Application steps
+		// them before the layers update), so one of them has normally taken
+		// the snapshot already. A frame that ran no step takes it here.
+		if (!m_MotionHistoryTaken)
+			AdvanceMotionHistory();
+		m_MotionHistoryTaken = false;
 
 		// A paused frame derives and places, but advances nothing.
 		//
@@ -1077,6 +1111,22 @@ namespace RageV
 		// exactly as much as an unpaused one -- otherwise a press made during
 		// a pause would be waiting for the first step after it.
 		FrameClock::StepScope step;
+
+		// **RT-15: the snapshot belongs here, before an OnTick can move
+		// anything.** This is the first thing a frame does to the scene, so
+		// the transforms still hold what was drawn last frame. Only the
+		// first step of a frame takes it -- a frame that runs three steps
+		// must still report its motion against the frame that was drawn,
+		// not against its own second step.
+		//
+		// Before the pause guard as well, and deliberately: a scene that
+		// unpauses with a stale "previous" would give every object one
+		// frame of invented motion.
+		if (!m_MotionHistoryTaken)
+		{
+			AdvanceMotionHistory();
+			m_MotionHistoryTaken = true;
+		}
 
 		// Guarded here as well as at the callers, so pausing works for anyone
 		// holding a Scene -- a game's own pause menu reaches it through
@@ -2956,6 +3006,12 @@ namespace RageV
 			data.InnerCone = light.Light.InnerCone;
 			data.OuterCone = light.Light.OuterCone;
 			data.SourceRadius = light.Light.SourceRadius;
+			data.SourceLength = light.Light.SourceLength;
+			// RT-7: the fixture's local X in world space -- the way a tube
+			// runs. Derived here for the same reason Direction is: the
+			// renderer never sees a transform.
+			data.Axis = Math::Normalize(
+				Vec3(transform.World * Vec4(1.0f, 0.0f, 0.0f, 0.0f)));
 			data.Type = light.Light.Type;
 			data.CastShadows = light.Light.CastShadows;
 			data.Mobility = light.Light.Mobility;
@@ -4240,6 +4296,10 @@ namespace RageV
 			// files for a value that changes nothing they hold.
 			if (light.SourceRadius > 0.0f)
 				mixFloat(light.SourceRadius);
+			// The same reasoning: a length of zero is the world every stored
+			// bake was solved in.
+			if (light.SourceLength > 0.0f)
+				mixFloat(light.SourceLength);
 			mixUint((uint64_t)light.Type);
 			mixUint(light.CastShadows ? 1u : 0u);
 			// Only when fully baked: a half-baked light is what every stored
