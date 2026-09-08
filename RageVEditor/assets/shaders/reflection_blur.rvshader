@@ -93,10 +93,36 @@ const int kMaxRadius = 3;
 const float kLobeWidth = 2.8;
 const float kPassShare = 0.57735;   // three passes share the variance
 
+// **RT-8: and the same surface from a layer that knows where it is.** The
+// contract rebuilds P from the depth buffer, which assumes the signal it is
+// filtering sits on a surface the depth buffer describes. The sea does not:
+// water writes no depth, and the buffer under it holds the seabed and the
+// pier, so every test here would have been asking about the wrong surface.
+// That, and not the plane test, was what kept the sea out of the contract.
+//
+// The sea does know its own position -- it writes it in full floats, because
+// a bay is a kilometre across -- so the depth binding takes a second meaning
+// rather than a second binding: **Probe.w is one when what is bound at the
+// depth slot is a position-and-mask lane, xyz the world point and w the mask.**
+// That is not a workaround for the sea; it is the more exact of the two, and
+// any future layer with a position of its own can take the same route.
+bool PositionLane() { return u_Reflection.Probe.w > 0.5; }
+
 bool SurfaceAt(ivec2 texel, ivec2 size, out vec3 P, out vec3 N, out float roughness)
 {
 	const vec4 surface = texelFetch(u_Surface, texel, 0);
-	const float depth = texelFetch(u_Depth, texel, 0).r;
+	const vec4 depthLane = texelFetch(u_Depth, texel, 0);
+	if (PositionLane())
+	{
+		// The layer's own point, and its mask where the depth test would be.
+		if (surface.b <= 0.0 || depthLane.w <= 0.5)
+			return false;
+		P = depthLane.xyz;
+		N = OctDecode(surface.rg);
+		roughness = clamp(surface.b, 0.0, 1.0);
+		return true;
+	}
+	const float depth = depthLane.r;
 	if (surface.b <= 0.0 || depth >= 1.0)
 		return false;
 	const vec2 uv = (vec2(texel) + 0.5) / vec2(size);

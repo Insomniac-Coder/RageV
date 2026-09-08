@@ -110,9 +110,60 @@ namespace RageV
 			ReflPlane,
 			ReflRoughness,
 			ReflFrames,
-			// Two cache lines now, and still read back once a frame. The
-			// shaders' stride must agree (`RayCounterSlot() * 32u`).
-			Count = 32
+			// **RT-8 job 3: would the shared history gate accept a water
+			// pixel?** The item's third piece -- folding the sea's averaging
+			// into the signal contract -- was argued against on the claim that
+			// the contract's geometric gate cannot hold a sea, and **nobody
+			// had measured it**: what had been measured was the sea with no
+			// averaging at all, which is a different thing (2026-09-08).
+			//
+			// So the water's own accumulate now runs the contract's geometric
+			// tests against the sea's surface a frame back and **acts on none
+			// of them** -- the sea still keeps its own average, and every
+			// picture is bit-identical. These lanes are the answer.
+			WaterGatePixels,
+			WaterGateKept,
+			WaterGateOffScreen,
+			WaterGateNoHistory,
+			WaterGateNormal,
+			WaterGatePlane,
+			// The same gate with RT-15's exemption taken out -- the plane test
+			// applied to a surface that moved, which is what the argument
+			// assumed and what the gate did before RT-15 landed on the same day.
+			WaterGateKeptStrict,
+			WaterGatePlaneStrict,
+			// And what the gate's own storage would cost: the plane distance
+			// rounded to the half float the contract's surface attachment
+			// actually is. A bay is a kilometre across and a half's step out
+			// there is half a metre, so this is a real question for the item
+			// and not a detail.
+			WaterGatePlaneHalf,
+			// How often the sea's own gate moved a history -- the neighbourhood
+			// bound biting. The thing the shared gate would be replacing, so
+			// the two numbers belong on the same screen.
+			WaterGateClamped,
+			// **RT-8 job 3: and the contract's own numbers on the sea**, once
+			// the sea is a signal. The same five reasons the reflection lanes
+			// carry, counted for slot 4 alone -- because the whole point of
+			// splitting them is that one set of lanes summed over five signals
+			// describes none of them.
+			WaterSignalPixels,
+			WaterSignalKept,
+			WaterSignalOffScreen,
+			WaterSignalNoHistory,
+			WaterSignalNormal,
+			WaterSignalPlane,
+			WaterSignalRoughness,
+			WaterSignalFrames,
+			// **And the twin's own**, which is the number that decides whether
+			// the sea looks right: the glint is the twin, and it was the half
+			// that could not have a memory of its own until RT-8.
+			WaterSignalTwinFrames,
+			// Four cache lines now, and still read back once a frame. The
+			// shaders' stride must agree: `RAY_COUNTER_STRIDE` in
+			// pbr_fragment.glsl, taa_resolve.rvshader and rtao_compute.rvshader,
+			// which is the whole list.
+			Count = 64
 		};
 
 		// Set 0, binding 21: declared by every lit pipeline family under

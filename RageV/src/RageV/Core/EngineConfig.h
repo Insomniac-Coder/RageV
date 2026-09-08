@@ -416,6 +416,25 @@ namespace RageV
 		// what a turning wave changes; one memory long enough for the first
 		// would smear the second into a haze.
 		bool  WaterLampAccumulate = true;
+		// **--water-contract=on|off (RT-8 job 3): whose averaging the sea uses.**
+		//
+		// On, the sea's lamp light goes through the signal contract like every
+		// other signal -- one accumulate, one blur, one set of history tests,
+		// reading the sea's own position lane instead of the depth buffer that
+		// describes the seabed under it. Off, it keeps the private accumulate
+		// it has had since WR-16 S4c.
+		//
+		// **This existed as an argument before it existed as a flag.** The
+		// private pass was defended on the claim that the contract's geometric
+		// gate cannot hold a sea -- a wave slides the point seen at a pixel by
+		// tens of metres, so a test asking whether the surface is still the
+		// distance it was would refuse the water constantly. Measured on the
+		// bridge (2026-09-08) that is **false**: the contract's gate keeps 98.7%
+		// of sea pixels at the pier, 98.6% at the glitter camera and 92.9% from
+		// the deck, and the plane test alone refuses 1.1%. The argument was
+		// true of the sea *before* the same session taught it to report its own
+		// motion, and nobody re-took it afterwards.
+		bool  WaterContract = true;
 		// **Four and two, chosen on the picture** (2026-09-04). Sixteen and
 		// four take the flicker furthest -- 2.01% of pixels blinking against
 		// the shipped preset's 3.84 -- but they cost the sea a third of its
@@ -444,6 +463,22 @@ namespace RageV
 		// brighter than all eight neighbours often enough that the range
 		// clips the average back into the noise every frame.
 		float WaterLampClamp = 4.0f;
+		// **--water-lamp-slack=N (RT-8 job 3): how far the sea's picture may
+		// travel in a frame before the contract halves its memory**, in texels.
+		//
+		// The private pass this replaces had no such rule -- it kept its full
+		// memory however fast the water moved, which is why it was never safe
+		// under a moving camera and why nobody had measured it there. The
+		// contract does have one, and on a sea it costs a little smoothness
+		// standing still: the glint holds 13.3 frames of its sixteen at the
+		// pier rather than the flat sixteen the private pass gave it.
+		//
+		// A separate dial from the reflections' 1.0 because the two measure
+		// different things: a reflection's picture is pinned to the reflector,
+		// so a texel of travel really is a texel of the wrong history, while
+		// the light on a wave is a property of the patch and survives the
+		// patch sliding a little.
+		float WaterLampSlack = 1.0f;
 
 		// --water-ablate=<names>: a measurement. Each name zeroes one piece
 		// of the sea's shading so its cost can be taken by subtraction --

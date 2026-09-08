@@ -1142,6 +1142,19 @@ namespace RageV
 			RGResource Surface = kRGInvalid;
 			RGResource Velocity = kRGInvalid;
 			uint32_t   Divisor = 1;
+			// **RT-8: which lane of each, because a layer that already exists
+			// is cheaper than one laid out to suit.** The downsampled guidance
+			// puts its three in lanes 0, 1 and 2, which is what these default
+			// to; the sea's surface pass already writes its normal at 0, its
+			// position at 2 and its motion at 3, so it needs no pass of its own.
+			uint32_t   DepthLane = 0;
+			uint32_t   NormalLane = 1;
+			uint32_t   VelocityLane = 2;
+			// **And what the depth lane means.** True where it is the layer's
+			// own position and mask rather than clip depth -- see
+			// SignalParams::PositionLane, which this sets so the two cannot
+			// disagree about one binding.
+			bool       PositionLane = false;
 		};
 		auto addSignal = [&](const SignalPassNames& names, Renderer3D::SignalParams params,
 							 RGResource fresh, RGResource current, RGResource previous, bool hasHistory,
@@ -1167,9 +1180,16 @@ namespace RageV
 			const RGResource guideVelocity = guide.Velocity != kRGInvalid ? guide.Velocity : sceneHDR;
 			// The lane index inside whichever target: the G-buffer keeps its
 			// attachments, the guidance target has one lane apiece.
-			const uint32_t guideNormalLane = guide.Surface != kRGInvalid ? 1u : normalIndex;
-			const uint32_t guideVelocityLane = guide.Velocity != kRGInvalid ? 2u : velocityIndex;
+			const uint32_t guideDepthLane = guide.Depth != kRGInvalid ? guide.DepthLane : 0u;
+			const uint32_t guideNormalLane =
+				guide.Surface != kRGInvalid ? guide.NormalLane : normalIndex;
+			const uint32_t guideVelocityLane =
+				guide.Velocity != kRGInvalid ? guide.VelocityLane : velocityIndex;
 			const bool ownGuide = guide.Depth != kRGInvalid;
+			// RT-8: the guidance says what its depth lane is, and the signal
+			// carries it to both shaders. Set here rather than trusted to the
+			// caller, so a signal cannot describe one binding two ways.
+			params.PositionLane = params.PositionLane || guide.PositionLane;
 			graph.AddPass(names.Accumulate,
 				[&](RGPassBuilder& builder)
 				{
@@ -1185,7 +1205,8 @@ namespace RageV
 				[params, fresh, sceneHDR, current, previous, hasHistory, motion, pair,
 				 surfaceIdIndex,
 				 specular = params.Type != Renderer3D::SignalParams::Kind::Diffuse,
-				 guideDepth, guideSurface, guideVelocity, guideNormalLane, guideVelocityLane, ownGuide]
+				 guideDepth, guideSurface, guideVelocity, guideDepthLane, guideNormalLane,
+				 guideVelocityLane, ownGuide]
 				(RGPassContext& context)
 				{
 					Renderer3D::AccumulateSignal(params,
@@ -1193,7 +1214,8 @@ namespace RageV
 						// The guidance target keeps its depth in a colour lane; the
 						// G-buffer's is a depth attachment. Both are a sampler2D whose
 						// red is clip depth as written, which is all the shader reads.
-						ownGuide ? context.Color(guideDepth) : context.Depth(sceneHDR),
+						ownGuide ? context.Color(guideDepth, guideDepthLane)
+								 : context.Depth(sceneHDR),
 						context.Color(guideSurface, guideNormalLane),
 						hasHistory ? context.Color(previous) : nullptr,
 						hasHistory ? context.Color(previous, 1) : nullptr,
@@ -1237,10 +1259,11 @@ namespace RageV
 						builder.DisableDepth();
 					},
 					[params, input, current, sceneHDR, stride, pair,
-					 guideDepth, guideSurface, guideNormalLane, ownGuide](RGPassContext& context)
+					 guideDepth, guideSurface, guideDepthLane, guideNormalLane,
+					 ownGuide](RGPassContext& context)
 					{
 						Renderer3D::BlurSignal(params, context.Color(input),
-											   ownGuide ? context.Color(guideDepth)
+											   ownGuide ? context.Color(guideDepth, guideDepthLane)
 													: context.Depth(sceneHDR),
 											   context.Color(guideSurface, guideNormalLane),
 											   context.Color(current, 1),
@@ -2012,14 +2035,67 @@ namespace RageV
 					//
 					// From here on the water draw reads this pair instead, so
 					// `waterLamps` becomes the accumulated one.
-					if (desc.WaterLampLight && EngineConfig::Get().WaterLampAccumulate)
+					// **RT-8 job 3: the same averaging, on the contract.** The
+					// sea's surface pass already writes the three lanes the
+					// contract validates against -- its normal, its position
+					// and its motion -- so nothing is downsampled or copied to
+					// get here; the guidance points straight at them. The
+					// private pass below is the other arm of --water-contract,
+					// kept so the two can be compared rather than argued over.
+					if (desc.WaterLampLight && EngineConfig::Get().WaterLampAccumulate
+						&& EngineConfig::Get().WaterContract)
 					{
 						TemporalHistory& light = *desc.WaterLampLight;
+						// The pair's four: the scattered half, the surface, the
+						// extra, the glinting twin. The same shape the direct
+						// light's history has, because it is the same signal.
+						light.Prepare(Renderer::GetDevice(),
+									  desc.Width * (uint32_t)supersample,
+									  desc.Height * (uint32_t)supersample,
+									  Format::R16G16B16A16_SFLOAT, "WaterLampSignal",
+									  Format::R16G16B16A16_SFLOAT,
+									  Format::R16G16B16A16_SFLOAT,
+									  Format::R16G16B16A16_SFLOAT);
+						if (light.Current() && light.Previous())
+						{
+							const RGResource pastLight =
+								graph.Import(light.Previous(), "WaterLightPrevious");
+							const RGResource newLight =
+								graph.Import(light.Current(), "WaterLightCurrent");
+							SignalGuidance seaGuide;
+							seaGuide.Depth = waterSurface;
+							seaGuide.Surface = waterSurface;
+							seaGuide.Velocity = waterSurface;
+							seaGuide.DepthLane = 2;      // world position, w the mask
+							seaGuide.NormalLane = 0;     // octahedral normal, roughness
+							seaGuide.VelocityLane = 3;   // the wave's own screen motion
+							seaGuide.PositionLane = true;
+							RGTargetDesc seaBlurDesc = lampDesc;
+							seaBlurDesc.Name = "WaterLampBlurred";
+							static const SignalPassNames kWaterPasses =
+								{ "WaterLampAccumulate",
+								  { "WaterLampBlur", "WaterLampBlur2", "WaterLampBlur4" } };
+							waterLamps = addSignal(kWaterPasses,
+												   Renderer3D::WaterLampSignal(),
+												   waterLamps, newLight, pastLight,
+												   light.HasHistory(), &light.Motion(),
+												   seaBlurDesc, true, seaGuide);
+							light.Advance();
+						}
+					}
+					else if (desc.WaterLampLight && EngineConfig::Get().WaterLampAccumulate)
+					{
+						TemporalHistory& light = *desc.WaterLampLight;
+						// RT-8 job 3: and a third attachment, the sea's surface a
+						// frame back -- octahedral normal, plane distance, mask.
+						// Full float because the plane distance is a world
+						// coordinate and the bay is a kilometre across.
 						light.Prepare(Renderer::GetDevice(),
 									  desc.Width * (uint32_t)supersample,
 									  desc.Height * (uint32_t)supersample,
 									  Format::R16G16B16A16_SFLOAT, "WaterLampAverage",
-									  Format::R16G16B16A16_SFLOAT);
+									  Format::R16G16B16A16_SFLOAT,
+									  Format::R32G32B32A32_SFLOAT);
 
 						if (light.Current() && light.Previous())
 						{
@@ -2049,7 +2125,11 @@ namespace RageV
 										context.Color(pastLight, 1),
 										light.Motion(), light.HasHistory(),
 										// RT-8: attachment 3 is the wave's own motion.
-										context.Color(waterSurface, 3));
+										context.Color(waterSurface, 3),
+										// RT-8 job 3's measurement: the sea's normal
+										// now, and its surface a frame back.
+										context.Color(waterSurface, 0),
+										context.Color(pastLight, 2));
 								});
 
 							waterLamps = newLight;

@@ -530,9 +530,14 @@ bool LightCullRejects(uint index, vec3 position, bool insideField, bool onScreen
 // two must agree.)
 layout(std430, set = 0, binding = 21) buffer RayCounterBlock
 {
-	uint Counts[64 * 32];
+	uint Counts[64 * 64];
 } u_RayCounters;
 const uint RAY_COUNTER_SLOTS = 64u;
+// **How many lanes one slot holds.** Named because it was spelled 32 in
+// four files, and growing the block meant finding all four: this is the
+// one place a slot's width is written now (RayCounters::Count on the CPU
+// side; the two must agree).
+const uint RAY_COUNTER_STRIDE = 64u;
 
 // **The depth test stays in front of the shader.** A fragment shader with a
 // memory side effect -- these atomics -- may no longer be culled by depth
@@ -631,7 +636,7 @@ void FlushRayCounters(bool shaded)
 	const bool leader = real && gl_SubgroupInvocationID == subgroupBallotFindLSB(realLanes);
 	const uint a = real ? g_CountA : 0u;
 	const uint b = real ? g_CountB : 0u;
-	const uint base = RayCounterSlot() * 32u;
+	const uint base = RayCounterSlot() * RAY_COUNTER_STRIDE;
 
 	CountLane(base, RAY_LANE_SHADOW, a & 0xFFFFu, leader);
 	CountLane(base, RAY_LANE_SURFACE, b & 0xFFu, leader);

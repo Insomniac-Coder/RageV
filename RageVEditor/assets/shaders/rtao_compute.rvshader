@@ -62,8 +62,13 @@ layout(set = 0, binding = 4) uniform accelerationStructureEXT u_SceneAS;
 // pass with no depth attachment, so there is no test to keep in front.
 layout(std430, set = 0, binding = 5) buffer RayCounterBlock
 {
-	uint Counts[64 * 32];
+	uint Counts[64 * 64];
 } u_RayCounters;
+// **How many lanes one slot holds.** Named because it was spelled 32 in four
+// files, and growing the block meant finding all four: this and
+// pbr_fragment.glsl's copy are where a slot's width is written now
+// (RayCounters::Count on the CPU side; the three must agree).
+const uint RAY_COUNTER_STRIDE = 64u;
 const uint RAY_LANE_AO = 4u;
 
 uint RayCounterSlot()
@@ -379,7 +384,7 @@ void main()
 		const uvec4 realLanes = subgroupBallot(real);
 		const uint sum = subgroupAdd(real ? rayCount : 0u);
 		if (real && sum > 0u && gl_SubgroupInvocationID == subgroupBallotFindLSB(realLanes))
-			atomicAdd(u_RayCounters.Counts[RayCounterSlot() * 32u + RAY_LANE_AO], sum);
+			atomicAdd(u_RayCounters.Counts[RayCounterSlot() * RAY_COUNTER_STRIDE + RAY_LANE_AO], sum);
 	}
 
 	// Occlusion in R, linear depth in G for the blur's edge test -- the same

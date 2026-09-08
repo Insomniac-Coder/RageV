@@ -127,8 +127,13 @@ layout(set = 0, binding = 9) uniform sampler2D u_WaterMotion;
 // no early test here.
 layout(std430, set = 0, binding = 5) buffer RayCounterBlock
 {
-	uint Counts[64 * 32];
+	uint Counts[64 * 64];
 } u_RayCounters;
+// **How many lanes one slot holds.** Named because it was spelled 32 in four
+// files, and growing the block meant finding all four: this and
+// pbr_fragment.glsl's copy are where a slot's width is written now
+// (RayCounters::Count on the CPU side; the three must agree).
+const uint RAY_COUNTER_STRIDE = 64u;
 const uint RAY_LANE_TAA_PIXELS = 10u;
 const uint RAY_LANE_TAA_REUSED = 11u;
 // RT-19: one lane per refusal reason, in the order the reasons are
@@ -164,7 +169,7 @@ void CountTemporal(bool reused, uint reason, float frames)
 	const uint held = subgroupAdd((real && reused) ? uint(max(frames, 0.0)) : 0u);
 	if (leader && pixels > 0u)
 	{
-		const uint base = RayCounterSlot() * 32u;
+		const uint base = RayCounterSlot() * RAY_COUNTER_STRIDE;
 		atomicAdd(u_RayCounters.Counts[base + RAY_LANE_TAA_PIXELS], pixels);
 		if (kept > 0u)
 		{
@@ -179,7 +184,7 @@ void CountTemporal(bool reused, uint reason, float frames)
 	{
 		const uint n = subgroupAdd((real && !reused && reason == r) ? 1u : 0u);
 		if (leader && n > 0u)
-			atomicAdd(u_RayCounters.Counts[RayCounterSlot() * 32u
+			atomicAdd(u_RayCounters.Counts[RayCounterSlot() * RAY_COUNTER_STRIDE
 				   + RAY_LANE_TAA_REFUSED + (r - 1u)], n);
 	}
 }

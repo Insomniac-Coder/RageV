@@ -300,13 +300,38 @@ void Neighbourhood2(ivec2 texel, ivec2 size, out vec3 mean, out vec3 sd)
 }
 #endif
 
+// **RT-8: and the same surface from a layer that knows where it is.** The
+// contract rebuilds P from the depth buffer, which assumes the signal it is
+// filtering sits on a surface the depth buffer describes. The sea does not:
+// water writes no depth, and the buffer under it holds the seabed and the
+// pier, so every test here would have been asking about the wrong surface.
+// That, and not the plane test, was what kept the sea out of the contract.
+//
+// The sea does know its own position -- it writes it in full floats, because
+// a bay is a kilometre across -- so the depth binding takes a second meaning
+// rather than a second binding: **Probe.w is one when what is bound at the
+// depth slot is a position-and-mask lane, xyz the world point and w the mask.**
+// That is not a workaround for the sea; it is the more exact of the two, and
+// any future layer with a position of its own can take the same route.
+bool PositionLane() { return u_Reflection.Probe.w > 0.5; }
+
 // A texel of the scene back to the world: its point and its normal. False
 // where there is no surface. The row is a projected coordinate the other
 // way up on the backend whose rows run down; clip z is the depth as written.
 bool SurfaceAt(ivec2 texel, ivec2 size, out vec3 P, out vec3 N)
 {
 	const vec4 surface = texelFetch(u_Surface, texel, 0);
-	const float depth = texelFetch(u_Depth, texel, 0).r;
+	const vec4 depthLane = texelFetch(u_Depth, texel, 0);
+	if (PositionLane())
+	{
+		// The layer's own point, and its mask where the depth test would be.
+		if (surface.b <= 0.0 || depthLane.w <= 0.5)
+			return false;
+		P = depthLane.xyz;
+		N = OctDecode(surface.rg);
+		return true;
+	}
+	const float depth = depthLane.r;
 	if (surface.b <= 0.0 || depth >= 1.0)
 		return false;
 	const vec2 uv = (vec2(texel) + 0.5) / vec2(size);
@@ -546,6 +571,26 @@ vec3 ImageThen(vec3 P, vec3 N, vec3 sight, float image, Candidate atSurface)
 	return seen - 2.0 * (dot(wasN, seen) - atSurface.reflector.b) * wasN;
 }
 
+// **RT-8: the memory a pixel is allowed, given a base and how it moved.**
+//
+// Lifted out of main so a pair's two halves can each be put through it with
+// their own base. Every step is a property of the pixel rather than of the
+// payload: how far the picture travelled since last frame, whether the average
+// would span more than the smear cap allows, and whether the texel sits on a
+// silhouette whose other side moves. The floor is the caller's `fewest`.
+//
+// Bit-identical to the chain it replaces when called with History.y, which is
+// what the first half calls it with.
+float ShortenedMemory(float base, float moved, float slack, float fewest,
+					  bool silhouette, float neighbourMotion)
+{
+	float memory = base / (1.0 + moved / slack);
+	memory = min(memory, max(kSmearTexels / max(moved, 1.0e-3), kMovingMemory));
+	if (silhouette)
+		memory = min(memory, max(base / (1.0 + neighbourMotion / slack), kSilhouetteMemory));
+	return max(memory, fewest);
+}
+
 bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 			   float eyeDistance, bool silhouette, vec2 objectShift,
 			   out Candidate c)
@@ -693,7 +738,7 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 	return false;
 }
 
-#if defined(RV_RAY_COUNTERS) && !defined(RV_SIGNAL_DIFFUSE)
+#if defined(RV_RAY_COUNTERS)
 // **RT-19: how often this pass keeps a history, and what refuses the rest.**
 //
 // The reason has been written to `o_Extra.a` since RT-12 and read by one
@@ -712,22 +757,54 @@ const uint RAY_LANE_REFL_KEPT    = 20u;
 const uint RAY_LANE_REFL_REFUSED = 21u;   // and the four after it
 const uint RAY_LANE_REFL_FRAMES  = 26u;
 
-void CountSignal(bool kept, int refusal, float frames)
+// **RT-8: and the sea's own set, for slot 4.** Not because the sea deserves
+// special treatment, but because summing five signals into one set of lanes
+// describes none of them -- which is the same reason the reflections were
+// split off the temporal resolve's in RT-19.
+const uint RAY_LANE_WATER_SIGNAL_PIXELS  = 37u;
+const uint RAY_LANE_WATER_SIGNAL_KEPT    = 38u;
+const uint RAY_LANE_WATER_SIGNAL_REFUSED = 39u;   // and the four after it
+const uint RAY_LANE_WATER_SIGNAL_FRAMES  = 44u;
+const uint RAY_LANE_WATER_SIGNAL_TWIN    = 45u;
+
+// Which signal is running: the slot the engine put in Probe.z. Zero is the
+// reflections, four the sea; everything between counts nothing, because a
+// shared set of lanes is worse than none.
+bool CountsAsReflection() { return u_Reflection.Probe.z < 0.5; }
+bool CountsAsWater()      { return u_Reflection.Probe.z > 3.5; }
+
+void CountSignal(bool kept, int refusal, float frames, float twin)
 {
+#ifdef RV_SIGNAL_DIFFUSE
+	// The diffuse instances are the occlusion, the bounce, the direct light
+	// and the sea. Only the sea has lanes.
+	if (!CountsAsWater())
+		return;
+#else
+	if (!CountsAsReflection())
+		return;
+#endif
+	const uint lanePixels  = CountsAsWater() ? RAY_LANE_WATER_SIGNAL_PIXELS  : RAY_LANE_REFL_PIXELS;
+	const uint laneKept    = CountsAsWater() ? RAY_LANE_WATER_SIGNAL_KEPT    : RAY_LANE_REFL_KEPT;
+	const uint laneRefused = CountsAsWater() ? RAY_LANE_WATER_SIGNAL_REFUSED : RAY_LANE_REFL_REFUSED;
+	const uint laneFrames  = CountsAsWater() ? RAY_LANE_WATER_SIGNAL_FRAMES  : RAY_LANE_REFL_FRAMES;
 	const bool real = !gl_HelperInvocation;
 	const uvec4 realLanes = subgroupBallot(real);
 	const bool leader = real && gl_SubgroupInvocationID == subgroupBallotFindLSB(realLanes);
-	const uint base = RayCounterSlot() * 32u;
+	const uint base = RayCounterSlot() * RAY_COUNTER_STRIDE;
 	const uint pixels = subgroupAdd(real ? 1u : 0u);
 	const uint held = subgroupAdd((real && kept) ? 1u : 0u);
 	const uint frameSum = subgroupAdd((real && kept) ? uint(max(frames, 0.0)) : 0u);
+	const uint twinSum = subgroupAdd((real && kept) ? uint(max(twin, 0.0)) : 0u);
 	if (leader && pixels > 0u)
 	{
-		atomicAdd(u_RayCounters.Counts[base + RAY_LANE_REFL_PIXELS], pixels);
+		atomicAdd(u_RayCounters.Counts[base + lanePixels], pixels);
 		if (held > 0u)
 		{
-			atomicAdd(u_RayCounters.Counts[base + RAY_LANE_REFL_KEPT], held);
-			atomicAdd(u_RayCounters.Counts[base + RAY_LANE_REFL_FRAMES], frameSum);
+			atomicAdd(u_RayCounters.Counts[base + laneKept], held);
+			atomicAdd(u_RayCounters.Counts[base + laneFrames], frameSum);
+			if (CountsAsWater())
+				atomicAdd(u_RayCounters.Counts[base + RAY_LANE_WATER_SIGNAL_TWIN], twinSum);
 		}
 	}
 	// One reason per refused pixel, numbered as g_Refusal is: off screen,
@@ -737,12 +814,12 @@ void CountSignal(bool kept, int refusal, float frames)
 	{
 		const uint n = subgroupAdd((real && !kept && uint(refusal) == r) ? 1u : 0u);
 		if (leader && n > 0u)
-			atomicAdd(u_RayCounters.Counts[base + RAY_LANE_REFL_REFUSED + (r - 1u)], n);
+			atomicAdd(u_RayCounters.Counts[base + laneRefused + (r - 1u)], n);
 	}
 }
 
 #else
-void CountSignal(bool kept, int refusal, float frames) {}
+void CountSignal(bool kept, int refusal, float frames, float twin) {}
 #endif
 
 void main()
@@ -753,6 +830,8 @@ void main()
 #ifdef RV_SIGNAL_PAIR
 	const vec4 fresh2 = texelFetch(u_Fresh2, texel, 0);
 	vec3 kept2 = fresh2.rgb;
+	// RT-8: the twin counts its own frames now; one until a history is kept.
+	float twinFrames = 1.0;
 #endif
 
 	// Nothing glossy here: nothing to average, and a zero share for the hook.
@@ -932,12 +1011,13 @@ void main()
 			// edges flickered again at 2.7 levels a frame against 1.5, and the
 			// "ghost" that cap was meant for was the metric comparing an
 			// averaged edge texel with a single-sided reference.
-			float memory = max(u_Reflection.History.y, 1.0) / (1.0 + moved / slack);
-			memory = min(memory, max(kSmearTexels / max(moved, 1.0e-3), kMovingMemory));
-			if (silhouette)
-				memory = min(memory, max(max(u_Reflection.History.y, 1.0) / (1.0 + neighbourMotion / slack),
-										 kSilhouetteMemory));
-			memory = max(memory, fewest);
+			//
+			// **Written against a base rather than against History.y** (RT-8):
+			// a pair's two halves may want different memories, and every
+			// shortening below applies to both alike. See ShortenedMemory.
+			float memory = ShortenedMemory(max(u_Reflection.History.y, 1.0),
+										   moved, slack, fewest, silhouette,
+										   neighbourMotion);
 
 			// **RT-6.3: and shortened by how much the reflection itself moved.**
 			// The reflector's own normal is in the candidate, so last frame's
@@ -962,6 +1042,17 @@ void main()
 			// rather than taken as a minimum: a candidate that is marginal on two
 			// counts at once is worth less than one marginal on either.
 			memory = max(mix(fewest, memory, c.matchConfidence), fewest);
+			// **RT-8: how much of all that the twin keeps.** Every reduction
+			// above is a property of the pixel, not of the payload -- how far
+			// the picture moved, whether it sits on a silhouette, how well the
+			// surface matched -- so the twin is put through the same ones from
+			// its own base. `confidence` and `matchConfidence` are folded in as
+			// a single ratio for the same reason: they are already multiplied
+			// into `memory`, and re-deriving them would be a second copy to
+			// keep in step.
+			const float reduced = memory / max(ShortenedMemory(max(u_Reflection.History.y, 1.0),
+															   moved, slack, fewest, silhouette,
+															   neighbourMotion), 1.0e-4);
 			frames = min(c.past.a + 1.0, memory);
 			kept = mix(held, fresh.rgb, 1.0 / frames);
 #ifdef RV_SIGNAL_PAIR
@@ -981,8 +1072,29 @@ void main()
 				// Measured: memory 4 halves the still bias and cuts the motion
 				// error on every region; the clamp off doubles the motion error.
 				const vec3 held2 = clamp(past2.rgb, mean2 - halfWidth2, mean2 + halfWidth2);
-				const float frames2 = u_Reflection.Tuning.w > 0.0 ? min(frames, u_Reflection.Tuning.w) : frames;
+				// **RT-8: its own memory, and its own count of the frames
+				// behind it.** This was `min(frames, Tuning.w)`, which could
+				// only ever make the twin shorter than the first half -- right
+				// for the direct light, whose highlight forgets faster than its
+				// diffuse, and impossible for the sea, whose glint wants
+				// sixteen frames where the light entering the water wants four.
+				// The sea was measured holding four (2026-09-08) and reading
+				// noisier than the private pass it replaced; this is why.
+				//
+				// The twin's w now carries the twin's own count. Nothing else
+				// reads it -- the blur copies it through untouched -- so the
+				// change is confined to the two lines that write and read it.
+				float frames2 = frames;
+				if (u_Reflection.Tuning.w > 0.0)
+				{
+					const float memory2 =
+						max(ShortenedMemory(max(u_Reflection.Tuning.w, 1.0),
+											moved, slack, fewest, silhouette,
+											neighbourMotion) * reduced, fewest);
+					frames2 = min(past2.a + 1.0, memory2);
+				}
 				kept2 = mix(held2, fresh2.rgb, 1.0 / frames2);
+				twinFrames = frames2;
 			}
 #endif
 
@@ -1018,7 +1130,9 @@ void main()
 #endif
 	o_Accumulated = vec4(kept, frames);
 #ifdef RV_SIGNAL_PAIR
-	o_Accumulated2 = vec4(kept2, frames);
+	// RT-8: the twin's own frame count, not the first half's -- see the
+	// memory block above for why the two must be able to differ.
+	o_Accumulated2 = vec4(kept2, twinFrames);
 #endif
 	// For the next frame's tests: this reflector's normal as the scene
 	// encodes it, the plane it lies in, how far behind it its image sat;
@@ -1031,5 +1145,9 @@ void main()
 	// next frame can tell a metal from a dielectric at the same roughness.
 	o_Extra = vec4(PackMaterial(roughness, g_Metallic), momMean, momMeanSq,
 				   0.5 * choice + float(g_Refusal));
-	CountSignal(g_Kept, g_Refusal, frames);
+#ifdef RV_SIGNAL_PAIR
+	CountSignal(g_Kept, g_Refusal, frames, twinFrames);
+#else
+	CountSignal(g_Kept, g_Refusal, frames, frames);
+#endif
 }

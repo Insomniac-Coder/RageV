@@ -313,6 +313,13 @@ namespace RageV
 			float YoungOverreach = 1.5f;   // Specular: how far past the lobe while young
 			float MaxRadius = 8.0f;        // Diffuse: the radius bound, texels
 			float PairMemory = 0.0f;       // Pair: the twin's own memory in frames; zero shares the first payload's
+			// **RT-8: what is bound at the depth slot.** False, and it is clip
+			// depth and the contract rebuilds the world point from it -- every
+			// signal before the sea. True, and it is the layer's own position
+			// in xyz with a mask in w, which is what the water surface writes:
+			// exact rather than reconstructed, and the only shape that works
+			// for a layer the depth buffer does not describe.
+			bool PositionLane = false;
 		};
 		static SignalParams ReflectionSignal();
 		// RT-first T5: the direct light's tuning -- a diffuse-kind signal in
@@ -324,6 +331,13 @@ namespace RageV
 		static SignalParams AoSignal();
 		// RT-3: the traced bounce's tuning -- a diffuse-kind RGB signal in slot 3.
 		static SignalParams GiSignal();
+		// **RT-8: the sea's lamp light** -- the same shape as the direct light
+		// (a diffuse-kind pair, the scattered half and the glinting half) on
+		// the sea's own layer, in slot 4. The two memories the water's own
+		// accumulate kept apart are the pair's two, and the reason is the same:
+		// what enters the water is broad and slow, what glints off it is
+		// exactly what a turning wave changes.
+		static SignalParams WaterLampSignal();
 
 		// The accumulated picture blurred by how few frames stand behind each
 		// pixel (reflection_blur.rvshader), for the composite to read.
@@ -367,7 +381,15 @@ namespace RageV
 										 // RT-8: the wave's own motion, so the history is
 										 // looked for where the water went rather than
 										 // where the camera alone would put it.
-										 const RHI::Ref<RHI::RHITexture>& waveMotion = nullptr);
+										 const RHI::Ref<RHI::RHITexture>& waveMotion = nullptr,
+										 // **RT-8 job 3's measurement, and only that.** The
+										 // sea's normal this frame and its surface a frame
+										 // back, so the pass can ask the signal contract's
+										 // geometric gate whether it would have kept each
+										 // water pixel. The answer goes to the ray counters
+										 // and changes no picture.
+										 const RHI::Ref<RHI::RHITexture>& surface = nullptr,
+										 const RHI::Ref<RHI::RHITexture>& previousSignature = nullptr);
 		// The two pictures the second pass wrote, for the water draw that
 		// reads them instead of walking its lamps. Null puts the walk back.
 		// WR-16 S5: the half-resolution mirror pass's picture, for the draw.

@@ -1002,9 +1002,11 @@ namespace RageV
 				Ref<RHIResourceSet> ReflectionTraceInputs;
 				// One per signal slot (SignalParams::Slot): the accumulate and
 				// blur inputs of reflections, shadows, occlusion, irradiance.
-				Ref<RHIResourceSet> SignalAccumulateInputs[4];
+				// RT-8: six, not four -- the sea's lamp light is slot 4 and
+				// slot 5 is free. The clamp in AccumulateSignal must agree.
+				Ref<RHIResourceSet> SignalAccumulateInputs[6];
 				Ref<RHIResourceSet> ReflectionResolveInputs;
-				Ref<RHIResourceSet> SignalBlurInputs[4];
+				Ref<RHIResourceSet> SignalBlurInputs[6];
 				// And the transparent pipeline's *GPU-driven* set: the same
 				// instance table read through the indices the blended cull
 				// wrote instead of the ones the sort produced. One binding
@@ -3351,9 +3353,19 @@ namespace RageV
 			accumulate.Blend = BlendPreset::Opaque;
 			accumulate.DepthStencil.DepthTestEnable = false;
 			accumulate.DepthStencil.DepthWriteEnable = false;
+			// **And a third: what the sea's surface was here.** RT-8 job 3's
+			// measurement needs last frame's normal and plane to ask the
+			// contract's gate its question, and a full float because a bay is
+			// a kilometre across -- a half's step out there is half a metre,
+			// which would be measuring the storage instead of the geometry.
+			// **The count on this list is the pipeline's own**: growing the
+			// target alone leaves the write going nowhere, in silence, which
+			// is exactly what cost this session an afternoon (2026-09-08).
 			accumulate.ColorFormats = { Format::R16G16B16A16_SFLOAT,
-										Format::R16G16B16A16_SFLOAT };
-			accumulate.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque };
+										Format::R16G16B16A16_SFLOAT,
+										Format::R32G32B32A32_SFLOAT };
+			accumulate.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque,
+											  BlendPreset::Opaque };
 			accumulate.DepthFormat = Format::Undefined;
 			s_Data->WaterAccumulatePipeline = s_Data->Device->CreatePipeline(accumulate);
 		}
@@ -6429,7 +6441,7 @@ namespace RageV
 		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
 		if (!cmd || !slot.LampSet || !accumulated || !depth || !surface || !imageDistance)
 			return;
-		const int index = Math::Clamp(signal.Slot, 0, 3);
+		const int index = Math::Clamp(signal.Slot, 0, 5);
 		Ref<RHIResourceSet>& inputs = slot.SignalBlurInputs[index];
 		if (!inputs)
 			inputs = s_Data->Device->CreateResourceSet(pipeline, 3);
@@ -6448,6 +6460,9 @@ namespace RageV
 		push.History.y = signal.BlurFrames;
 		push.History.w = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
 		push.Probe.z = (float)Math::Max(stride, 1);
+		// RT-8: and the same flag the accumulate sets, from the same lane, so a
+		// signal cannot have one pass reading a position and the other a depth.
+		push.Probe.w = signal.PositionLane ? 1.0f : 0.0f;
 		push.Tuning = { signal.SmearTexels, signal.MovingMemory, signal.SilhouetteMemory, signal.PairMemory };
 		push.Blur = { signal.YoungRadius, signal.BlurFrames, signal.YoungOverreach, signal.MaxRadius };
 
@@ -6515,6 +6530,67 @@ namespace RageV
 		return signal;
 	}
 
+	// **RT-8: the sea's lamp light, on the contract instead of its own copy.**
+	//
+	// The same shape as the direct light -- a diffuse-kind pair, the scattered
+	// half and the glinting half -- because it *is* the direct light, of the
+	// lamps the sea's own choose pass drew. What is new is the layer: the
+	// contract reads the sea's position rather than a depth buffer that
+	// describes the seabed under it (PositionLane).
+	//
+	// **The two memories are the pair's two, and both come from EngineConfig**,
+	// where the sea's own accumulate read them: four frames for the scattered
+	// half, sixteen for the glint. The glint being the *longer* of the two is
+	// deliberate and measured (2026-09-08) -- it was two frames, short because
+	// TAA's fifty stood behind it, and once the sea reported its own motion
+	// that fifty went away. The sweep at the pier then read speckle 1.432 at
+	// two frames, 1.019 at eight, 0.912 at sixteen and 0.829 at sixty-four,
+	// with contrast rising the whole way rather than hazing, and sixteen is
+	// where the curve flattens.
+	Renderer3D::SignalParams Renderer3D::WaterLampSignal()
+	{
+		SignalParams signal = DirectSignal();
+		signal.Slot = 4;
+		// The sea knows where it is; the depth buffer under it does not.
+		signal.PositionLane = true;
+		// The glint's memory, in the pair's own slot. EngineConfig keeps the
+		// dial the sweep moved, so a run can still ask for another number.
+		signal.PairMemory = (float)Math::Max(EngineConfig::Get().WaterLampMemoryGlint, 1);
+		signal.Memory = (float)Math::Max(EngineConfig::Get().WaterLampMemoryScatter, 1);
+		// **How far the sea's picture may travel before the contract starts
+		// forgetting, and it moves all three of the travel caps together.**
+		//
+		// The contract shortens a memory three ways as the picture moves: in
+		// proportion to the travel (Slack), by a cap on how much travel one
+		// average may span (SmearTexels), and by a floor under both
+		// (MovingMemory). All three exist because a running average of a
+		// moving *picture* is motion blur. The sea is the case where that
+		// reasoning does not carry: the light on a wave is a property of the
+		// patch and survives the patch sliding, which is exactly why reusing
+		// the sea's lamp *choice* was measured to lose in WR-16 S4b while
+		// reusing its brightness won. So one dial moves all three, and the
+		// floor is simply the memory the signal was given.
+		// **Left at the contract's own numbers, and that is a decision with a
+		// measurement behind it.** Sweeping the dial from 1 to 16 -- which
+		// scales all three caps -- moves the sea's speckle by 0.6% at the pier
+		// and 0.2% at the glitter camera, and every one of those caps exists to
+		// stop an average smearing under a moving camera. There is no bridge
+		// dolly in any harness here, so the gain is measured and the risk is
+		// not. Taking it would be trading a number nobody can see for a defect
+		// nobody can test. The dial stays so the trade can be re-taken the day
+		// a dolly exists.
+		signal.Slack = Math::Max(EngineConfig::Get().WaterLampSlack, 0.25f);
+		// The history bound, in neighbourhood spreads -- the same number the
+		// private pass used, so the two arms differ in their memory and their
+		// validation rather than in how tightly they clamp.
+		signal.BoundWidth = Math::Max(EngineConfig::Get().WaterLampClamp, 0.0f);
+		// **No young-history blur, for the sea's own reason and not the direct
+		// light's.** The glitter track *is* high-frequency detail: a spatial
+		// blur across it is the one thing the anisotropic lobe exists to avoid.
+		signal.YoungRadius = 0.0f;
+		return signal;
+	}
+
 	void Renderer3D::AccumulateSignal(const SignalParams& signal,
 									  const RHI::Ref<RHITexture>& fresh,
 									  const RHI::Ref<RHITexture>& depth,
@@ -6539,7 +6615,7 @@ namespace RageV
 		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
 		if (!cmd || !slot.LampSet || !fresh || !depth || !surface)
 			return;
-		const int index = Math::Clamp(signal.Slot, 0, 3);
+		const int index = Math::Clamp(signal.Slot, 0, 5);
 		Ref<RHIResourceSet>& inputs = slot.SignalAccumulateInputs[index];
 		if (!inputs)
 			inputs = s_Data->Device->CreateResourceSet(pipeline, 3);
@@ -6587,6 +6663,12 @@ namespace RageV
 		push.History.w = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
 		push.Probe.x = signal.BoundWidth;
 		push.Probe.y = signal.Slack;
+		// RT-8: one where the depth slot carries the layer's own position.
+		// The w lane, because the blur's z is its stride.
+		push.Probe.w = signal.PositionLane ? 1.0f : 0.0f;
+		// RT-8: and which signal this is, so the counters can keep the sea's
+		// numbers apart from the reflections'. The blur has no use for z.
+		push.Probe.z = (float)index;
 		push.Tuning = { signal.SmearTexels, signal.MovingMemory, signal.SilhouetteMemory, signal.PairMemory };
 		push.Blur = { signal.YoungRadius, signal.BlurFrames, signal.YoungOverreach, signal.MaxRadius };
 		motion.ViewProjection = s_Data->Scene.ViewProjection;
@@ -6678,7 +6760,9 @@ namespace RageV
 										  const RHI::Ref<RHITexture>& previousDiffuse,
 										  const RHI::Ref<RHITexture>& previousSpecular,
 										  CameraMotion& motion, bool hasHistory,
-										  const Ref<RHITexture>& waveMotion)
+										  const Ref<RHITexture>& waveMotion,
+										  const Ref<RHITexture>& surface,
+										  const Ref<RHITexture>& previousSignature)
 	{
 		if (!s_Data || !s_Data->WaterAccumulatePipeline || !s_Data->ActiveScene)
 			return;
@@ -6713,6 +6797,15 @@ namespace RageV
 		// none -- its w is the same mask, so a shader reading zero motion
 		// there behaves exactly as this pass did before.
 		slot.LampAccumulateInputs->SetTexture(5, waveMotion ? waveMotion : position,
+											  s_Data->PointSampler);
+		// **RT-8 job 3's measurement, and it reads nothing else.** The sea's
+		// normal this frame, and the normal and plane it had last frame, so
+		// the pass can ask the signal contract's geometric gate whether it
+		// would have kept this pixel. The answer goes to the counters and
+		// nowhere else -- the water's own average is untouched.
+		slot.LampAccumulateInputs->SetTexture(6, surface ? surface : position,
+											  s_Data->PointSampler);
+		slot.LampAccumulateInputs->SetTexture(7, previousSignature ? previousSignature : position,
 											  s_Data->PointSampler);
 		slot.LampAccumulateInputs->Commit();
 

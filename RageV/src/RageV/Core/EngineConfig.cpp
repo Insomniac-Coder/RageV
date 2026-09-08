@@ -525,6 +525,22 @@ namespace RageV
 
 		if (key == "water-lamp-accumulate" || key == "waterlampaccumulate")
 			return ParseBool(value, config.WaterLampAccumulate);
+		// RT-8 job 3: the sea's averaging on the contract, or its own.
+		if (key == "water-contract" || key == "watercontract")
+			return ParseBool(value, config.WaterContract);
+		if (key == "water-lamp-slack" || key == "waterlampslack")
+		{
+			try
+			{
+				config.WaterLampSlack = Math::Clamp(std::stof(value), 0.25f, 64.0f);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("water-lamp-slack expects a number from 0.25 to 64; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
 
 		if (key == "water-lamp-memory" || key == "waterlampmemory")
 		{

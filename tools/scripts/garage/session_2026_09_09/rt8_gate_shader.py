@@ -1,92 +1,42 @@
-// WR-16 S4c: the sea's lamp light, averaged over the frames behind it.
-//
-// The two passes before this one give a pixel the light of four lamps chosen
-// at random out of the hundred that reach it. That estimate is right on
-// average and wrong in detail, and the detail is different every frame -- which
-// is the fizz the flicker protocol counts: 8.3% of Pier's pixels blinking
-// against the shipped preset's 3.8%. Averaging a pixel with its own recent
-// frames cancels it, and costs no rays.
-//
-// **Why this can work where reusing the choice could not** (measured
-// 2026-09-04, and the reason that half of S4b is now off by default): a choice
-// is made for a surface with a particular tilt, and a wave turning that tilt
-// makes the choice wrong immediately. A brightness is a property of the patch
-// rather than of the tilt, and survives the turn. The two are different
-// quantities and they go stale at different rates.
-//
-// **And the two halves of the light go stale at different rates too**, which
-// is why they are kept apart rather than in one buffer. What scatters into the
-// water is broad and slow and holds for many frames. What glints off it is the
-// specular, which is exactly what a turning wave changes -- a long memory
-// there would smear the glitter into a haze. So the diffuse half is given a
-// long memory and the glint a short one, both settable, and the matrix decides
-// the numbers.
-//
-// **What decides whether last frame's answer is still good.** Not the distance
-// it stood at: a wave lifting the surface a metre moves the point seen at one
-// pixel by tens of metres at a grazing angle, so distance cannot separate "the
-// same water, moved" from "something else entirely". What it is asked instead
-// is the question that actually matters -- is last frame's brightness in line
-// with what the pixels around this one are reporting right now? An answer
-// outside that range is stale whether a wave turned or the pier moved in
-// front, and either way it is pulled back to the range's edge.
-#type vertex
-#version 460 core
+# -*- coding: utf-8 -*-
+"""RT-8 job 3's measurement, in the sea's own accumulate.
 
-layout(location = 0) out vec2 v_UV;
+Runs the signal contract's geometric history gate against the sea and counts
+what it would do. Changes no picture: the water keeps its own average, and the
+only new writes are a signature attachment nothing but next frame's counter
+reads, plus the counter lanes themselves.
+"""
+import io, sys
 
-void main()
-{
-	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
-}
+P = r'RageVEditor/assets/shaders/water_accumulate.rvshader'
+src = io.open(P, encoding='utf-8', newline='').read()
+crlf = '\r\n' in src
+s = src.replace('\r\n', '\n')
+if 'MeasureContractGate' in s:
+    sys.exit('already patched')
 
-#type fragment
-#version 460 core
 
-// Borrowed the way the other two borrow it: this pass casts no ray and shades
-// no light, but taking the same header keeps its set 0 the shape every lamp
-// pipeline in this frame already has, so it binds the set the others bind.
-#define RV_TRACE_ONLY
-#include "include/pbr_fragment.glsl"
+def once(old, new, what):
+    global s
+    if s.count(old) != 1:
+        sys.exit('%s matched %d' % (what, s.count(old)))
+    s = s.replace(old, new, 1)
 
-layout(location = 0) in vec2 v_UV;
 
-// This frame's estimate, from WaterShadeLamps.
-layout(set = 3, binding = 0) uniform sampler2D u_LampDiffuseIn;
-layout(set = 3, binding = 1) uniform sampler2D u_LampSpecularIn;
-// The sea's world position, whose w says a wave was drawn here.
-layout(set = 3, binding = 2) uniform sampler2D u_WaterPositionIn;
-// What this pass wrote last frame. The w lane of each carries how many frames
-// are standing behind it.
-layout(set = 3, binding = 3) uniform sampler2D u_HistoryDiffuse;
-layout(set = 3, binding = 4) uniform sampler2D u_HistorySpecular;
-// **RT-8: the wave's own motion**, xy in this coordinate's units and z the
-// mask, written by the surface pass from the wave evaluated at last frame's
-// time. Before this the reprojection below went through the previous camera
-// alone, which asks where this water would have been if it had not moved --
-// and a sea is the one surface that always has.
-layout(set = 3, binding = 5) uniform sampler2D u_WaveMotion;
+# ---- the two new inputs -------------------------------------------------
+once('''layout(set = 3, binding = 5) uniform sampler2D u_WaveMotion;''',
+'''layout(set = 3, binding = 5) uniform sampler2D u_WaveMotion;
 // **RT-8 job 3's measurement, and nothing else reads these.** The sea's
 // surface description this frame (octahedral normal in rg), and the
 // signature this pass wrote for it last frame. See MeasureContractGate.
 layout(set = 3, binding = 6) uniform sampler2D u_SurfaceIn;
-layout(set = 3, binding = 7) uniform sampler2D u_HistorySignature;
+layout(set = 3, binding = 7) uniform sampler2D u_HistorySignature;''',
+     'bindings')
 
-layout(push_constant) uniform LampParams
-{
-	// Where a point was on screen last frame. The sea writes no velocity and
-	// its waves are not a rigid body, so the camera's own motion is all there
-	// is to reproject by -- which is what TAA already does for it.
-	mat4 PreviousViewProjection;
-	// x: last frame's light is there to average with. y: the most frames the
-	// scattered half may carry. z: the most the glinting half may. w: one
-	// where a texture row runs the other way up from a normalised coordinate.
-	vec4 History;
-	vec4 Probe;
-} u_Lamps;
-
-layout(location = 0) out vec4 o_Diffuse;
+# ---- the signature attachment ------------------------------------------
+once('''layout(location = 0) out vec4 o_Diffuse;
+layout(location = 1) out vec4 o_Specular;''',
+'''layout(location = 0) out vec4 o_Diffuse;
 layout(location = 1) out vec4 o_Specular;
 // **RT-8 job 3: what the sea's surface was here**, so next frame can ask the
 // contract's gate a question about it -- octahedral normal in rg, the plane
@@ -100,47 +50,14 @@ layout(location = 1) out vec4 o_Specular;
 // coordinate and this bay is a kilometre across, where a half's step is half
 // a metre. What that storage would cost is measured separately -- see the
 // half-precision lane -- rather than baked into every other number here.
-layout(location = 2) out vec4 o_Signature;
+layout(location = 2) out vec4 o_Signature;''',
+     'signature output')
 
-// **How far a history may sit from what this pixel's neighbours say, and why
-// it is not their outright range.** The obvious bound is the smallest and
-// largest of the nine, and it was measured and is wrong here: with four lamps
-// drawn at random out of a hundred, a pixel is often legitimately brighter
-// than all eight of its neighbours -- it drew the bright lamp and they did
-// not. Held to their range, the accumulated value is clipped back toward the
-// noise every single frame, which destroys the thing the averaging is building.
-// The flicker fell (8.3% of pixels to 3.1%) and the error quadrupled with it
-// (1.32% of the frame to 5.71%) and the water went dark.
-//
-// So the bound is the neighbourhood's mean and spread instead, widened by a
-// factor the matrix can move: far looser than the range where the nine
-// disagree, and still tight where they agree, which is where a stale history
-// actually shows.
-void Neighbourhood(ivec2 texel, ivec2 size, float width,
-				   out vec3 lowD, out vec3 highD, out vec3 lowS, out vec3 highS)
+# ---- the gate itself ----------------------------------------------------
+once('''void main()
 {
-	vec3 sumD = vec3(0.0), sumD2 = vec3(0.0);
-	vec3 sumS = vec3(0.0), sumS2 = vec3(0.0);
-	for (int y = -1; y <= 1; ++y)
-	{
-		for (int x = -1; x <= 1; ++x)
-		{
-			const ivec2 at = clamp(texel + ivec2(x, y), ivec2(0), size - 1);
-			const vec3 d = texelFetch(u_LampDiffuseIn, at, 0).rgb;
-			const vec3 s = texelFetch(u_LampSpecularIn, at, 0).rgb;
-			sumD += d; sumD2 += d * d;
-			sumS += s; sumS2 += s * s;
-		}
-	}
-	const vec3 meanD = sumD / 9.0;
-	const vec3 meanS = sumS / 9.0;
-	const vec3 sdD = sqrt(max(sumD2 / 9.0 - meanD * meanD, vec3(0.0)));
-	const vec3 sdS = sqrt(max(sumS2 / 9.0 - meanS * meanS, vec3(0.0)));
-	lowD = meanD - sdD * width; highD = meanD + sdD * width;
-	lowS = meanS - sdS * width; highS = meanS + sdS * width;
-}
-
-// **RT-15's "did this actually move", as the sea meets it.**
+	const ivec2 texel = ivec2(gl_FragCoord.xy);''',
+'''// **RT-15's "did this actually move", as the sea meets it.**
 //
 // The contract exempts the plane test where three things hold at once: the
 // renderer says the surface moved, the history is the texel's own rather than
@@ -304,14 +221,22 @@ void CountWaterGate(bool water, bool decided, bool kept, bool keptStrict,
 
 void main()
 {
-	const ivec2 texel = ivec2(gl_FragCoord.xy);
-	const ivec2 size = textureSize(u_WaterPositionIn, 0);
-	const vec4 position = texelFetch(u_WaterPositionIn, texel, 0);
+	const ivec2 texel = ivec2(gl_FragCoord.xy);''',
+     'gate functions')
 
-	const vec3 nowD = texelFetch(u_LampDiffuseIn, texel, 0).rgb;
-	const vec3 nowS = texelFetch(u_LampSpecularIn, texel, 0).rgb;
+# ---- main, restructured so the count is one uniform call at the end -----
+once('''	// No wave here: nothing to average, and nothing downstream reads it. The
+	// zero matters all the same -- a stale value left in this attachment would
+	// be picked up as a history next frame.
+	if (position.w <= 0.5)
+	{
+		o_Diffuse = vec4(0.0);
+		o_Specular = vec4(0.0);
+		return;
+	}
 
-	// No wave here: nothing to average, and nothing downstream reads it. The
+	vec3 keptD = nowD;''',
+'''	// No wave here: nothing to average, and nothing downstream reads it. The
 	// zero matters all the same -- a stale value left in this attachment would
 	// be picked up as a history next frame.
 	//
@@ -322,88 +247,32 @@ void main()
 	// written are the ones the early return wrote, to the bit.
 	const bool water = position.w > 0.5;
 
-	vec3 keptD = nowD;
-	vec3 keptS = nowS;
-	float framesD = 1.0;
-	float framesS = 1.0;
+	vec3 keptD = nowD;''',
+     'early return')
 
-	// RT-8 job 3: whether the sea's own bound moved this pixel's history, which
+once('''	if (u_Lamps.History.x > 0.5)
+	{
+		const vec4 clip = u_Lamps.PreviousViewProjection * vec4(position.xyz, 1.0);''',
+'''	// RT-8 job 3: whether the sea's own bound moved this pixel's history, which
 	// is the thing the contract's gate would be replacing.
 	bool clamped = false;
 
 	if (water && u_Lamps.History.x > 0.5)
 	{
-		const vec4 clip = u_Lamps.PreviousViewProjection * vec4(position.xyz, 1.0);
-		if (clip.w > 0.0)
-		{
-			// **And last frame's jitter put back.** The projection this
-			// reprojects through carries no jitter -- the engine keeps it
-			// beside the matrix rather than inside it, and the rasteriser
-			// adds it -- so without this the point lands where it would
-			// have been drawn with no jitter at all, up to a pixel from
-			// where it really was. Averaging a pixel against its neighbour
-			// rather than against itself is a sub-pixel smear, and on a sea
-			// of crests it reads as one side of every crest too bright and
-			// the other too dark. Jitter.zw is what the frame being read
-			// was drawn with; the halving is clip space to this coordinate.
-			// **RT-8: and the wave's own motion instead of the camera's alone.**
-			// The velocity lane already carries both -- it is the difference of
-			// this frame's projection and last frame's, of the wave as it stood
-			// in each -- so the previous place is this pixel's own position less
-			// that motion, with each frame's jitter taken off its own term. The
-			// clip projection above is kept for the behind-the-camera test.
-			const vec2 wave = texelFetch(u_WaveMotion, texel, 0).xy;
-			const vec2 nowUv = (vec2(texel) + 0.5) / vec2(size);
-			const float nowRow = u_Lamps.History.w > 0.5 ? 1.0 - nowUv.y : nowUv.y;
-			const vec2 uv = vec2(nowUv.x, nowRow) - u_Scene.Jitter.xy * 0.5
-						  - wave + u_Scene.Jitter.zw * 0.5;
-			if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0))))
-			{
-				// By texel, and with the backend's own idea of which way a row
-				// runs: every producer and consumer of these attachments is
-				// addressed by fragment, and the one place a projected
-				// coordinate has to become a row is here. The pass that
-				// ignored this mirrored the whole glitter band about the
-				// middle of the screen.
-				const float row = u_Lamps.History.w > 0.5 ? 1.0 - uv.y : uv.y;
-				const vec2 pastUv = clamp(vec2(uv.x, row), vec2(0.0), vec2(1.0));
+		const vec4 clip = u_Lamps.PreviousViewProjection * vec4(position.xyz, 1.0);''',
+     'history guard')
 
-				// **Sampled, not fetched, and the difference matters here.** The
-				// place this point sat last frame is a fraction of a pixel, because
-				// the jitter added above is one; rounding it to a whole texel reads
-				// a neighbour instead of the pixel itself and mixes the two every
-				// frame. The choices two passes back must never be interpolated --
-				// an index is not a thing to average, and reading them through a
-				// sampler handed every pixel its neighbour's lamp. Light is the
-				// opposite: averaging it is exactly what this pass is for.
-				const vec4 pastD = texture(u_HistoryDiffuse, pastUv);
-				const vec4 pastS = texture(u_HistorySpecular, pastUv);
-
-				vec3 lowD, highD, lowS, highS;
-				Neighbourhood(texel, size, max(u_Lamps.Probe.x, 0.0),
-							  lowD, highD, lowS, highS);
-
-				// Pulled to the edge of what this pixel's neighbours currently
-				// say rather than thrown away: a history that is merely a
-				// little out of date still carries the average of everything
-				// before it, and discarding it outright restarts the count
-				// and returns the fizz.
-				const vec3 heldD = clamp(pastD.rgb, lowD, highD);
+once('''				const vec3 heldD = clamp(pastD.rgb, lowD, highD);
+				const vec3 heldS = clamp(pastS.rgb, lowS, highS);''',
+'''				const vec3 heldD = clamp(pastD.rgb, lowD, highD);
 				const vec3 heldS = clamp(pastS.rgb, lowS, highS);
-				clamped = any(notEqual(heldD, pastD.rgb)) || any(notEqual(heldS, pastS.rgb));
+				clamped = any(notEqual(heldD, pastD.rgb)) || any(notEqual(heldS, pastS.rgb));''',
+     'clamp count')
 
-				// **The two memories.** Long for the light entering the water,
-				// short for the light glinting off it.
-				framesD = min(pastD.w + 1.0, max(u_Lamps.History.y, 1.0));
-				framesS = min(pastS.w + 1.0, max(u_Lamps.History.z, 1.0));
-
-				keptD = mix(heldD, nowD, 1.0 / framesD);
-				keptS = mix(heldS, nowS, 1.0 / framesS);
-			}
-		}
-	}
-
-	o_Diffuse = water ? vec4(keptD, framesD) : vec4(0.0);
+once('''	o_Diffuse = vec4(keptD, framesD);
+	o_Specular = vec4(keptS, framesS);
+}''',
+'''	o_Diffuse = water ? vec4(keptD, framesD) : vec4(0.0);
 	o_Specular = water ? vec4(keptS, framesS) : vec4(0.0);
 
 	// **RT-8 job 3, and this is the whole of its effect on the frame.** The
@@ -423,4 +292,8 @@ void main()
 	}
 	CountWaterGate(water, decided, gateKept, gateStrict, gateHalf, gatePlane,
 				   gateRefusal, clamped);
-}
+}''',
+     'exit')
+
+io.open(P, 'w', encoding='utf-8', newline='\r\n' if crlf else '\n').write(s)
+print('water_accumulate patched')
