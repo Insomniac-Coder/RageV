@@ -2028,34 +2028,81 @@ namespace RageV
 				lampDesc.Scale = (float)supersample / (float)seaDirectScale;
 				if (seaDirect)
 				{
-					waterLamps = graph.CreateTarget(lampDesc);
 					Renderer3D::GiTraceView seaView;
 					seaView.NearClip = desc.NearClip;
 					seaView.FarClip = desc.FarClip;
 					seaView.InvProjection0 = desc.InvProjection0;
 					seaView.InvProjection1 = desc.InvProjection1;
 					seaView.View = desc.View;
+					// **RT-8 job 1: choose on the block, shade on the pixel.**
+					//
+					// Picking which lamps matter is the expensive half and it does not
+					// need to run at every pixel; working out the brightness is the cheap
+					// half and it does. That is the shape the sea's own two passes have
+					// always had, and measuring the fused pass both ways is what showed
+					// there was no third option: per pixel it cost about a millisecond
+					// too much, and per block it lost 37% of the sea's contrast, because
+					// shading at block rate is exactly what flattens a glitter track.
+					const uint32_t seaPickScale = Math::Max(chooseScale, 1u);
+					RGResource seaChoice = kRGInvalid;
+					if (EngineConfig::Get().WaterDirectSplit)
+					{
+						RGTargetDesc pickDesc;
+						pickDesc.Name = "WaterDirectChoice";
+						// Whole integers in both: an index is not a thing to interpolate,
+						// and neither is the reciprocal probability beside it.
+						pickDesc.Color = Format::R32G32B32A32_UINT;
+						pickDesc.ExtraColors = { Format::R32G32B32A32_UINT };
+						pickDesc.Depth = Format::Undefined;
+						pickDesc.Scale = (float)supersample / (float)seaPickScale;
+						seaChoice = graph.CreateTarget(pickDesc);
+						const RGResource picked = seaChoice;
+						graph.AddPass("DirectWaterChoose",
+							[&](RGPassBuilder& builder)
+							{
+								builder.Write(picked);
+								builder.Sample(waterSurface);
+								builder.DisableDepth();
+							},
+							[waterSurface, seaView, rtLamps, seaPickScale](RGPassContext& context)
+							{
+								Renderer3D::TraceDirectWater(context.Cmd,
+									context.Color(waterSurface, 2),
+									context.Color(waterSurface, 0),
+									context.Color(waterSurface, 1),
+									Format::R32G32B32A32_UINT, seaView, rtLamps,
+									(int)seaPickScale,
+									Renderer3D::DirectWaterMode::Choose);
+							});
+					}
+					waterLamps = graph.CreateTarget(lampDesc);
 					const RGResource seaLight = waterLamps;
-					graph.AddPass("DirectWaterTrace",
+					const RGResource chosen = seaChoice;
+					graph.AddPass(chosen != kRGInvalid ? "DirectWaterShade" : "DirectWaterTrace",
 						[&](RGPassBuilder& builder)
 						{
 							builder.Write(seaLight);
 							builder.Sample(waterSurface);
+							if (chosen != kRGInvalid)
+								builder.Sample(chosen);
 							builder.DisableDepth();
 						},
-						[waterSurface, seaView, rtLamps, seaDirectScale](RGPassContext& context)
+						[waterSurface, seaView, rtLamps, seaDirectScale, chosen,
+						 seaPickScale](RGPassContext& context)
 						{
-							// The sea's layer in the four slots the G-buffer
-							// uses: position where a depth would be, the normal
-							// with the RMS slope and the wind angle, the albedo
-							// with the specular dial.
+							// The sea's layer in the four slots the G-buffer uses: position
+							// where a depth would be, the normal with the RMS slope and the
+							// wind angle, the albedo with the specular dial.
 							Renderer3D::TraceDirectWater(context.Cmd,
-														 context.Color(waterSurface, 2),
-														 context.Color(waterSurface, 0),
-														 context.Color(waterSurface, 1),
-														 Format::R16G16B16A16_SFLOAT,
-														 seaView, rtLamps,
-														 (int)seaDirectScale);
+								context.Color(waterSurface, 2),
+								context.Color(waterSurface, 0),
+								context.Color(waterSurface, 1),
+								Format::R16G16B16A16_SFLOAT, seaView, rtLamps,
+								chosen != kRGInvalid ? (int)seaPickScale : (int)seaDirectScale,
+								chosen != kRGInvalid ? Renderer3D::DirectWaterMode::Shade
+													 : Renderer3D::DirectWaterMode::Fused,
+								chosen != kRGInvalid ? context.Color(chosen, 0) : nullptr,
+								chosen != kRGInvalid ? context.Color(chosen, 1) : nullptr);
 						});
 				}
 				if (!seaDirect && choices.Current() && choices.Previous())

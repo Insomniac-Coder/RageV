@@ -96,8 +96,24 @@ layout(push_constant) uniform DirectParams
 	vec4 CameraPosition;
 } u_Direct;
 
+#if defined(RV_DIRECT_CHOOSE)
+// **RT-8: which lamps, and what each is worth.** Whole integers in both: an
+// index is not a thing to interpolate, and a weight through a half float would
+// quantise the one number the estimate divides by.
+layout(location = 0) out uvec4 o_Choice;
+layout(location = 1) out uvec4 o_Worth;
+#else
 layout(location = 0) out vec4 o_Diffuse;
 layout(location = 1) out vec4 o_Specular;
+#endif
+
+#if defined(RV_DIRECT_SHADE)
+// What the choose pass decided, on its own grid. Fetched by texel, never
+// sampled: a lamp index is not a thing to average, and neither is the
+// reciprocal probability beside it.
+layout(set = 3, binding = 4) uniform usampler2D u_ChoiceIn;
+layout(set = 3, binding = 5) uniform usampler2D u_WorthIn;
+#endif
 
 const uint kMaxRays = 8u;
 
@@ -368,8 +384,13 @@ float ScoreDirect(DirectPoint p, uint index)
 
 void main()
 {
+#if defined(RV_DIRECT_CHOOSE)
+	o_Choice = uvec4(0u);
+	o_Worth = uvec4(0u);
+#else
 	o_Diffuse = vec4(0.0, 0.0, 0.0, -1.0);
 	o_Specular = vec4(0.0, 0.0, 0.0, -1.0);
+#endif
 
 #ifdef RV_DIRECT_WATER
 	// **RT-8 job 1: this pass may be smaller than the layer it reads.** The
@@ -504,6 +525,10 @@ void main()
 	vec3 d, s, L;
 	float toward;
 
+#ifndef RV_DIRECT_CHOOSE
+	// The directional lights are not chosen -- there are one or two of them and
+	// they are the sun -- so they belong to whoever shades, and the choose pass
+	// leaves them alone.
 	for (int i = 0; i < directionalCount; ++i)
 	{
 		const GpuLight light = u_Lights.Lights[i];
@@ -514,9 +539,76 @@ void main()
 		diffuse += d * (liveShare * visible);
 		specular += s * (liveShare * visible);
 	}
+#endif
 
 	const int K = clamp(int(u_Direct.Rays + 0.5), 0, int(kMaxRays));
+#if defined(RV_DIRECT_SHADE)
+	// **The chosen lamps, shaded and traced.** Everything above this is the
+	// same point the choose pass built; this is what the fused path does with
+	// its reservoir, reading it instead of building it.
+	{
+		const ivec2 chooseSize = textureSize(u_ChoiceIn, 0);
+		// **The choice's block, which is not the layer's.** CameraPosition.w
+		// says how many layer texels to one of this pass's; this says how many
+		// of this pass's to one of the choice's. They are different numbers --
+		// the shade pass reads a full-size layer at full rate and a choice made
+		// on the block grid -- and sharing one lane read the layer at block
+		// rate as well, which cost the sea a quarter of its contrast.
+		const ivec2 chosenAt = clamp(ivec2(gl_FragCoord.xy)
+									 / max(int(u_Direct.CameraRow0.w + 0.5), 1),
+									 ivec2(0), chooseSize - 1);
+		const uvec4 chosen = texelFetch(u_ChoiceIn, chosenAt, 0);
+		const uvec4 worthBits = texelFetch(u_WorthIn, chosenAt, 0);
+		float visible[4];
+		uint  chosenIndex[4];
+		float worth[4];
+		for (int r = 0; r < 4; ++r)
+		{
+			chosenIndex[r] = chosen[r];
+			worth[r] = uintBitsToFloat(worthBits[r]);
+			visible[r] = 0.0;
+		}
+		const int chosenCount = min(K, 4);
+		for (int r = 0; r < chosenCount; ++r)
+		{
+			if (worth[r] <= 0.0)
+				continue;
+			const GpuLight light = u_Lights.Lights[chosenIndex[r]];
+			if (!DirectTerm(p, light, d, s, L, toward))
+				continue;
+			// One ray per *distinct* lamp: two reservoirs that kept the same
+			// lamp are two samples of one visibility, not two rays.
+			bool traced = false;
+			for (int q = 0; q < r; ++q)
+			{
+				if (worth[q] > 0.0 && chosenIndex[q] == chosenIndex[r])
+				{
+					visible[r] = visible[q];
+					traced = true;
+					break;
+				}
+			}
+			if (!traced)
+				visible[r] = DirectVisibility(p, light, chosenIndex[r], L, toward,
+											  RV_RAY_MASK_SCENE);
+			// `worth` is already total/weight -- one over the probability this
+			// lamp had of being chosen -- so the estimate is that over K.
+			const float liveShare = 1.0 - FieldShare(p, light);
+			const float scale = visible[r] * liveShare * worth[r] / float(chosenCount);
+			diffuse += d * scale;
+			specular += s * scale;
+		}
+	}
+#else
+#if defined(RV_DIRECT_CHOOSE)
+	// A split pass always samples: the fused path's "few enough, shade them
+	// all" shortcut cannot be written into four slots. Where the cell is small
+	// the reservoir picks those same lamps, with weights that still sum right;
+	// it is a little noisier than shading every one and it is not biased.
+	if (false)
+#else
 	if (K == 0 || int(cellCount) <= K)
+#endif
 	{
 		// Every lamp: the reference arm, and the cheap case where sampling
 		// K of fewer would only add noise.
@@ -579,6 +671,22 @@ void main()
 				}
 			}
 		}
+#if defined(RV_DIRECT_CHOOSE)
+		// Written as total/weight rather than as the two apart, so the shade
+		// pass needs one number per lamp and no attachment for a per-pixel
+		// scalar. Zero where the reservoir never saw a candidate.
+		uvec4 outIndex = uvec4(0u);
+		uvec4 outWorth = uvec4(0u);
+		for (int r = 0; r < min(K, 4); ++r)
+		{
+			outIndex[r] = index[r];
+			outWorth[r] = floatBitsToUint(weight[r] > 0.0 && total > 0.0
+										  ? total / weight[r] : 0.0);
+		}
+		o_Choice = outIndex;
+		o_Worth = outWorth;
+		return;
+#endif
 		if (total > 0.0)
 		{
 			// The survivors, shaded and traced -- one ray per *distinct*
@@ -615,6 +723,8 @@ void main()
 			}
 		}
 	}
+
+#endif   // RV_DIRECT_SHADE: the fused reservoir above is not built here
 
 	// **The field's loss (7cx, RT-1).** A static surface the field answers
 	// for, under a fully baked or hybrid lamp with a moving object inside
@@ -710,8 +820,10 @@ void main()
 		}
 	}
 
+#ifndef RV_DIRECT_CHOOSE
 	o_Diffuse = vec4(diffuse, 1.0);
 	o_Specular = vec4(specular, 1.0);
+#endif
 
 	// The rays above, into the shadow lane: the lit shader's flush is compiled
 	// out under RV_TRACE_ONLY, so every trace-only pass flushes its own.

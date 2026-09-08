@@ -839,6 +839,16 @@ namespace RageV
 		// position where a depth would be -- the sea writes no depth and the
 		// buffer under it holds the seabed -- its normal with the RMS slope
 		// and the wind angle beside it, its albedo with the specular dial.
+		// **RT-8 job 1: which half of the sea's direct light this call is.**
+		//
+		// Fused does both jobs at once, which is what the pass did when it was
+		// one pass and what it still does at full resolution. Choose walks the
+		// cluster list and keeps K lamps by reservoir sampling; Shade reads
+		// that and shades them. The split exists because the picking is the
+		// expensive half and it does not need to run at every pixel, while the
+		// shading does -- which is exactly the shape the sea's own two passes
+		// have always had, and why they are cheap.
+		enum class DirectWaterMode { Fused, Choose, Shade };
 		static void TraceDirectWater(RHI::RHICommandList& cmd,
 									 const RHI::Ref<RHI::RHITexture>& position,
 									 const RHI::Ref<RHI::RHITexture>& surface,
@@ -848,7 +858,14 @@ namespace RageV
 									 // RT-8 job 1: how many of the layer's texels to
 									 // one of this pass's -- the block the sea's lamp
 									 // choice has always been made on.
-									 int block = 1);
+									 int block = 1,
+									 DirectWaterMode mode = DirectWaterMode::Fused,
+									 // Shade only: what Choose decided, and how many of
+									 // this pass's texels sit on one of its. Not the same
+									 // number as `block`, which is the layer's.
+									 const RHI::Ref<RHI::RHITexture>& choice = nullptr,
+									 const RHI::Ref<RHI::RHITexture>& worth = nullptr,
+									 int choiceBlock = 1);
 
 		// Whether the lit pass reads material textures through the bindless
 		// heap this session (ENGINE-NOTES 7al): the device can, and

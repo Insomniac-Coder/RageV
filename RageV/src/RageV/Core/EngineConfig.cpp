@@ -534,6 +534,8 @@ namespace RageV
 			return ParseBool(value, config.WaterDirect);
 		if (key == "water-direct-block" || key == "waterdirectblock")
 			return ParseBool(value, config.WaterDirectBlock);
+		if (key == "water-direct-split" || key == "waterdirectsplit")
+			return ParseBool(value, config.WaterDirectSplit);
 		if (key == "water-lamp-slack" || key == "waterlampslack")
 		{
 			try

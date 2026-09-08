@@ -488,6 +488,17 @@ namespace RageV
 		// pass, which is an architecture change to a pass four signals use --
 		// worth putting to the owner before building, not a day's work.
 		bool  WaterDirectBlock = false;
+		// **--water-direct-split=on|off (RT-8 job 1): the shared direct pass in
+		// two halves rather than one.**
+		//
+		// Picking which lamps matter is the expensive half and does not need to
+		// run at every pixel; working out the brightness is the cheap half and
+		// does. Split, the picking runs once per lamp-choice block and the
+		// shading every pixel -- which is the shape the sea's own two passes
+		// have always had, and the only shape that is both cheap and sharp.
+		// Fused, the pass does both at whatever grid it runs on, and the
+		// measurement of that is what said a third option does not exist.
+		bool  WaterDirectSplit = true;
 		// **Four and two, chosen on the picture** (2026-09-04). Sixteen and
 		// four take the flicker furthest -- 2.01% of pixels blinking against
 		// the shipped preset's 3.84 -- but they cost the sea a third of its

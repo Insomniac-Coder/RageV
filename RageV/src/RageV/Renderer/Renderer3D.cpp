@@ -665,8 +665,9 @@ namespace RageV
 			// RT-8 job 1: the same shader again, over the sea's layer and with
 			// the sea's lobe. A second compile rather than a runtime branch,
 			// because the branch would sit inside the light loop.
-			Ref<RHIShader>   DirectWaterShader;
-			Ref<RHIPipeline> DirectWaterPipeline;
+			// RT-8 job 1: one per mode -- fused, choose, shade.
+			Ref<RHIShader>   DirectWaterShader[3];
+			Ref<RHIPipeline> DirectWaterPipeline[3];
 			bool             DirectSignalRequested = false;
 			bool             AoSignalRequested = false;      // RT-2
 
@@ -895,8 +896,9 @@ namespace RageV
 				// than per scene.
 				Ref<RHIResourceSet> GiInputs;
 				Ref<RHIResourceSet> DirectInputs;        // RT-first T5: the G-buffer, set 3
-				// RT-8 job 1: the same four slots, carrying the sea's layer.
-				Ref<RHIResourceSet> DirectWaterInputs;
+				// RT-8 job 1: the same four slots, carrying the sea's layer --
+				// one set per mode, since the layouts differ by two bindings.
+				Ref<RHIResourceSet> DirectWaterInputs[3];
 				// The prepass's set 0. Its own object because its layout is a
 				// subset of everything else's: the prepass shader has no
 				// fragment stage worth the name, so only the three bindings
@@ -1562,8 +1564,11 @@ namespace RageV
 		s_Data->GiShader = nullptr;
 		s_Data->DirectShader = nullptr;
 		s_Data->DirectPipeline = nullptr;
-		s_Data->DirectWaterShader = nullptr;
-		s_Data->DirectWaterPipeline = nullptr;
+		for (int mode = 0; mode < 3; ++mode)
+		{
+			s_Data->DirectWaterShader[mode] = nullptr;
+			s_Data->DirectWaterPipeline[mode] = nullptr;
+		}
 		if (s_Data->Bindless && s_Data->RayShadowsOn)
 		{
 			std::vector<std::string> traceDefines;
@@ -1662,18 +1667,26 @@ namespace RageV
 				// RT-8 job 1: and once more for the sea. A failure here leaves
 				// the water passes doing their own choosing and shading, which
 				// is what they did before -- so it is a warning, not an error.
+				// One compile per mode, so there is one copy of the score, the
+				// term, the visibility and the field handling rather than three.
+				for (int mode = 0; mode < 3; ++mode)
 				{
 					std::vector<std::string> waterDefines = traceDefines;
 					waterDefines.push_back("RV_DIRECT_WATER");
+					if (mode == 1)
+						waterDefines.push_back("RV_DIRECT_CHOOSE");
+					else if (mode == 2)
+						waterDefines.push_back("RV_DIRECT_SHADE");
 					if (auto sea = ShaderCompiler::CompileFromFile(
 							"assets/shaders/direct_trace.rvshader", waterDefines))
 					{
-						s_Data->DirectWaterShader = s_Data->Device->CreateShader(*sea);
+						s_Data->DirectWaterShader[mode] = s_Data->Device->CreateShader(*sea);
 					}
 					else
 					{
 						RV_CORE_WARN("Renderer3D: direct_trace.rvshader did not compile for the "
-									 "sea; the water keeps its own choose and shade passes");
+									 "sea (mode {0}); the water keeps its own choose and shade "
+									 "passes", mode);
 					}
 				}
 			}
@@ -7034,7 +7047,9 @@ namespace RageV
 
 	bool Renderer3D::CanTraceDirectWater()
 	{
-		return s_Data && s_Data->DirectWaterShader != nullptr;
+		return s_Data && s_Data->DirectWaterShader[0] != nullptr
+			&& s_Data->DirectWaterShader[1] != nullptr
+			&& s_Data->DirectWaterShader[2] != nullptr;
 	}
 
 	// **RT-8 job 1: the sea's direct light, through the pass every other
@@ -7056,47 +7071,72 @@ namespace RageV
 									  const Ref<RHITexture>& surface,
 									  const Ref<RHITexture>& material,
 									  Format targetColor,
-									  const GiTraceView& view, int rays, int block)
+									  const GiTraceView& view, int rays, int block,
+									  DirectWaterMode mode,
+									  const Ref<RHITexture>& choice,
+									  const Ref<RHITexture>& worth,
+									  int choiceBlock)
 	{
-		if (!s_Data || !s_Data->DirectWaterShader || !position || !surface || !material)
+		const int slotIndex = (int)mode;
+		if (!s_Data || !s_Data->DirectWaterShader[slotIndex]
+			|| !position || !surface || !material)
+		{
 			return;
+		}
 		if (!s_Data->ActiveScene)
 			return;
-		if (!s_Data->DirectWaterPipeline)
+		// The shade half cannot invent a choice, and a validation layer would
+		// see the empty binding before the picture did.
+		if (mode == DirectWaterMode::Shade && (!choice || !worth))
+			return;
+		if (!s_Data->DirectWaterPipeline[slotIndex])
 		{
 			GraphicsPipelineDesc direct;
-			direct.Name = "Renderer3D.direct.water";
-			direct.Shader = s_Data->DirectWaterShader;
+			direct.Name = mode == DirectWaterMode::Choose ? "Renderer3D.direct.water.choose"
+						: mode == DirectWaterMode::Shade  ? "Renderer3D.direct.water.shade"
+														  : "Renderer3D.direct.water";
+			direct.Shader = s_Data->DirectWaterShader[slotIndex];
 			direct.Topology = PrimitiveTopology::TriangleList;
 			direct.Rasterizer.Cull = CullMode::None;
 			direct.Blend = BlendPreset::Opaque;
 			direct.DepthStencil.DepthTestEnable = false;
 			direct.DepthStencil.DepthWriteEnable = false;
-			direct.ColorFormats = { targetColor, targetColor };
+			// **The choice is two whole-integer attachments**: a lamp index is
+			// not a thing to interpolate, and the reciprocal probability beside
+			// it is the one number the estimate divides by.
+			const Format written = mode == DirectWaterMode::Choose
+								 ? Format::R32G32B32A32_UINT : targetColor;
+			direct.ColorFormats = { written, written };
 			direct.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque };
 			direct.DepthFormat = Format::Undefined;
-			s_Data->DirectWaterPipeline = s_Data->Device->CreatePipeline(direct);
+			s_Data->DirectWaterPipeline[slotIndex] = s_Data->Device->CreatePipeline(direct);
 			for (auto& frame : s_Data->SceneSlots)
 				for (auto& slot : frame)
-					slot.DirectWaterInputs = nullptr;
+					slot.DirectWaterInputs[slotIndex] = nullptr;
 		}
-		if (!s_Data->DirectWaterPipeline)
+		if (!s_Data->DirectWaterPipeline[slotIndex])
 			return;
 		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
 		if (!slot.LampSet)
 			return;
-		if (!slot.DirectWaterInputs)
-			slot.DirectWaterInputs =
-				s_Data->Device->CreateResourceSet(s_Data->DirectWaterPipeline, 3);
-		if (!slot.DirectWaterInputs)
+		if (!slot.DirectWaterInputs[slotIndex])
+			slot.DirectWaterInputs[slotIndex] = s_Data->Device->CreateResourceSet(
+				s_Data->DirectWaterPipeline[slotIndex], 3);
+		if (!slot.DirectWaterInputs[slotIndex])
 			return;
-		slot.DirectWaterInputs->SetTexture(0, position, s_Data->PointSampler);
-		slot.DirectWaterInputs->SetTexture(1, surface, s_Data->PointSampler);
-		slot.DirectWaterInputs->SetTexture(2, material, s_Data->PointSampler);
+		const Ref<RHIResourceSet>& inputs = slot.DirectWaterInputs[slotIndex];
+		inputs->SetTexture(0, position, s_Data->PointSampler);
+		inputs->SetTexture(1, surface, s_Data->PointSampler);
+		inputs->SetTexture(2, material, s_Data->PointSampler);
 		// Declared and unread: a declared binding left empty is a validation
 		// error, and the sea has no id lane to put here.
-		slot.DirectWaterInputs->SetTexture(3, surface, s_Data->PointSampler);
-		slot.DirectWaterInputs->Commit();
+		inputs->SetTexture(3, surface, s_Data->PointSampler);
+		if (mode == DirectWaterMode::Shade)
+		{
+			inputs->SetTexture(4, choice, s_Data->PointSampler);
+			inputs->SetTexture(5, worth, s_Data->PointSampler);
+		}
+		inputs->Commit();
 
 		struct DirectParams
 		{
@@ -7115,7 +7155,12 @@ namespace RageV
 		params.Animated = (jitter.x != 0.0f || jitter.y != 0.0f || jitter.z != 0.0f || jitter.w != 0.0f)
 						? 1.0f : 0.0f;
 		const Mat4 camera = Math::Inverse(view.View);
-		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0], 0.0f);
+		// RT-8 job 1: the choice's block rides in the row's spare w. The
+		// layer's is in CameraPosition.w and they are different numbers --
+		// sharing one lane read the layer at block rate and cost the sea a
+		// quarter of its contrast.
+		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0],
+								 (float)Math::Max(choiceBlock, 1));
 		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);
 		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], 0.0f);
 		// RT-8 job 1: the block, in the lane the eye's w was not using. The
@@ -7123,11 +7168,11 @@ namespace RageV
 		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2],
 									 (float)Math::Max(block, 1));
 
-		cmd.BindPipeline(s_Data->DirectWaterPipeline);
+		cmd.BindPipeline(s_Data->DirectWaterPipeline[slotIndex]);
 		cmd.BindResourceSet(0, slot.LampSet);
 		if (s_Data->Heap)
 			cmd.BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
-		cmd.BindResourceSet(3, slot.DirectWaterInputs);
+		cmd.BindResourceSet(3, inputs);
 		cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
 		cmd.Draw(3);
 	}
