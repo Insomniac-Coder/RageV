@@ -371,12 +371,29 @@ void main()
 	o_Diffuse = vec4(0.0, 0.0, 0.0, -1.0);
 	o_Specular = vec4(0.0, 0.0, 0.0, -1.0);
 
+#ifdef RV_DIRECT_WATER
+	// **RT-8 job 1: this pass may be smaller than the layer it reads.** The
+	// sea picks its lamps once per block, so the pass runs on the block grid
+	// and the layer under it is still full size -- `gl_FragCoord` is this
+	// pass's texel, not the layer's. The rule is the guidance pass's own
+	// (`src = dst * d + d/2`), and it has to be, or the two would describe
+	// different water: the contract validates this signal against those
+	// lanes. Read as this pass's texel alone it sampled a corner of the frame
+	// and the sea came back empty -- 0.014 ms and no rays at all.
+	const int seaBlock = max(int(u_Direct.CameraPosition.w + 0.5), 1);
+	const ivec2 texel = ivec2(gl_FragCoord.xy);
+	const ivec2 layerSize = textureSize(u_SurfaceIn, 0);
+	const ivec2 layerTexel = clamp(texel * seaBlock + seaBlock / 2,
+								   ivec2(0), layerSize - 1);
+	const vec4 surface = texelFetch(u_SurfaceIn, layerTexel, 0);
+#else
 	const ivec2 texel = ivec2(gl_FragCoord.xy);
 	const vec4 surface = texelFetch(u_SurfaceIn, texel, 0);
+#endif
 #ifdef RV_DIRECT_WATER
 	// **RT-8 job 1: the sea knows where it is**, in full floats, with the mask
 	// in w -- so there is no depth to test and nothing to reconstruct.
-	const vec4 position = texelFetch(u_DepthIn, texel, 0);
+	const vec4 position = texelFetch(u_DepthIn, layerTexel, 0);
 	if (position.w <= 0.5)
 		return;
 #else
@@ -421,7 +438,7 @@ void main()
 	p.Occlusion = 1.0;
 	p.Static = false;
 	p.FieldWeight = 0.0;
-	const vec4 albedo = texelFetch(u_AlbedoIn, texel, 0);
+	const vec4 albedo = texelFetch(u_AlbedoIn, layerTexel, 0);
 	p.Albedo = albedo.rgb;
 	p.F0 = vec3(0.08 * clamp(albedo.a, 0.0, 1.0));
 #else

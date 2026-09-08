@@ -844,7 +844,11 @@ namespace RageV
 									 const RHI::Ref<RHI::RHITexture>& surface,
 									 const RHI::Ref<RHI::RHITexture>& material,
 									 RHI::Format targetColor,
-									 const GiTraceView& view, int rays);
+									 const GiTraceView& view, int rays,
+									 // RT-8 job 1: how many of the layer's texels to
+									 // one of this pass's -- the block the sea's lamp
+									 // choice has always been made on.
+									 int block = 1);
 
 		// Whether the lit pass reads material textures through the bindless
 		// heap this session (ENGINE-NOTES 7al): the device can, and

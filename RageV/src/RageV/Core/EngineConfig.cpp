@@ -532,6 +532,8 @@ namespace RageV
 			return ParseBool(value, config.WaterRayContract);
 		if (key == "water-direct" || key == "waterdirect")
 			return ParseBool(value, config.WaterDirect);
+		if (key == "water-direct-block" || key == "waterdirectblock")
+			return ParseBool(value, config.WaterDirectBlock);
 		if (key == "water-lamp-slack" || key == "waterlampslack")
 		{
 			try

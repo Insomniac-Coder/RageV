@@ -467,6 +467,27 @@ namespace RageV
 		// understood; finding where the extra rays go is what is left of RT-8
 		// job 1, and it is a day's work, not a redesign.
 		bool  WaterDirect = false;
+		// **--water-direct-block=on|off (RT-8 job 1): run the sea's shared
+		// direct pass on the block grid its lamp choice is made on.**
+		//
+		// **Off, and the measurement is the whole finding.** The sea's two
+		// private passes are not a redundant copy of DirectTrace: the split is
+		// *why* they are cheap. `WaterChooseLamps` scores the cluster list once
+		// per 2x2 block -- a quarter of the work -- and `WaterShadeLamps` then
+		// shades every pixel from that one choice. One pass cannot have both.
+		//
+		// On, the whole pass drops to the block grid: 0.86 ms against the two
+		// private passes' 1.29, and the frame from 12.8 to 11.4 -- and the sea
+		// loses **37% of its contrast** (sd 19.50 -> 12.32 at the pier), because
+		// shading at block rate is exactly what destroys a glitter track. Off,
+		// the pass shades every pixel and costs about a millisecond more than
+		// the pair it replaces, for a measurably cleaner sea.
+		//
+		// **Neither is a win, and that is the state of job 1.** Getting both
+		// means splitting the shared DirectTrace into a choose pass and a shade
+		// pass, which is an architecture change to a pass four signals use --
+		// worth putting to the owner before building, not a day's work.
+		bool  WaterDirectBlock = false;
 		// **Four and two, chosen on the picture** (2026-09-04). Sixteen and
 		// four take the flicker furthest -- 2.01% of pixels blinking against
 		// the shipped preset's 3.84 -- but they cost the sea a third of its

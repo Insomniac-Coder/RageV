@@ -2010,12 +2010,22 @@ namespace RageV
 				// into. Everything downstream is untouched.
 				const bool seaDirect = EngineConfig::Get().WaterDirect
 									&& Renderer3D::CanTraceDirectWater();
+				// **On the grid the choice has always been made on.** The sea picks
+				// its lamps once per `chooseScale` block -- half the width and half
+				// the height with the reuse off, which is the measured default --
+				// and shades four pixels from that one choice. The shared pass
+				// scoring every pixel was four times the work for the same picture,
+				// and that, not the rays, was its extra millisecond: at four samples
+				// it casts 1.97 M against the private pair's 2.38 M and still cost
+				// 2.25 ms against their 1.26.
+				const uint32_t seaDirectScale =
+					seaDirect && EngineConfig::Get().WaterDirectBlock ? chooseScale : 1u;
 				RGTargetDesc lampDesc;
 				lampDesc.Name = seaDirect ? "WaterDirectLight" : "WaterLampLight";
 				lampDesc.Color = Format::R16G16B16A16_SFLOAT;
 				lampDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT };
 				lampDesc.Depth = Format::Undefined;
-				lampDesc.Scale = (float)supersample;
+				lampDesc.Scale = (float)supersample / (float)seaDirectScale;
 				if (seaDirect)
 				{
 					waterLamps = graph.CreateTarget(lampDesc);
@@ -2033,7 +2043,7 @@ namespace RageV
 							builder.Sample(waterSurface);
 							builder.DisableDepth();
 						},
-						[waterSurface, seaView, rtLamps](RGPassContext& context)
+						[waterSurface, seaView, rtLamps, seaDirectScale](RGPassContext& context)
 						{
 							// The sea's layer in the four slots the G-buffer
 							// uses: position where a depth would be, the normal
@@ -2044,7 +2054,8 @@ namespace RageV
 														 context.Color(waterSurface, 0),
 														 context.Color(waterSurface, 1),
 														 Format::R16G16B16A16_SFLOAT,
-														 seaView, rtLamps);
+														 seaView, rtLamps,
+														 (int)seaDirectScale);
 						});
 				}
 				if (!seaDirect && choices.Current() && choices.Previous())
@@ -2132,9 +2143,12 @@ namespace RageV
 					// The pair's four: the scattered half, the surface, the
 					// extra, the glinting twin. The same shape the direct
 					// light's history has, because it is the same signal.
+					// The signal's own grid, which is the block grid when the shared
+					// pass made it: a history of another size is not a history of
+					// this picture.
 					light.Prepare(Renderer::GetDevice(),
-								  desc.Width * (uint32_t)supersample,
-								  desc.Height * (uint32_t)supersample,
+								  Math::Max(1u, desc.Width * (uint32_t)supersample / seaDirectScale),
+								  Math::Max(1u, desc.Height * (uint32_t)supersample / seaDirectScale),
 								  Format::R16G16B16A16_SFLOAT, "WaterLampSignal",
 								  Format::R16G16B16A16_SFLOAT,
 								  Format::R16G16B16A16_SFLOAT,
@@ -2145,15 +2159,53 @@ namespace RageV
 							graph.Import(light.Previous(), "WaterLightPrevious");
 						const RGResource newLight =
 							graph.Import(light.Current(), "WaterLightCurrent");
+						// **RT-8 job 1: the guidance follows the grid.** At full resolution
+						// the sea's own surface lanes are the guidance and nothing is
+						// copied. On the block grid they come down to it -- by selection,
+						// never by averaging, because the average of two positions across
+						// a wave crest is a point in neither.
 						SignalGuidance seaGuide;
-						seaGuide.Depth = waterSurface;
-						seaGuide.Surface = waterSurface;
-						seaGuide.Velocity = waterSurface;
 						seaGuide.DepthLane = 2;      // world position, w the mask
-						seaGuide.NormalLane = 0;     // octahedral normal, roughness
+						seaGuide.NormalLane = 0;     // the sea's two-component normal
 						seaGuide.VelocityLane = 3;   // the wave's own screen motion
 						seaGuide.PositionLane = true;
 						seaGuide.UpNormalLane = true;
+						RGResource seaGuideLanes = waterSurface;
+						if (seaDirectScale > 1 && PostProcess::IsReady())
+						{
+							RGTargetDesc seaLightGuide;
+							seaLightGuide.Name = "WaterLightGuidance";
+							seaLightGuide.Color = Format::R32G32B32A32_SFLOAT;
+							seaLightGuide.ExtraColors = { kNormalFormat, Format::R16G16_SFLOAT };
+							seaLightGuide.Depth = Format::Undefined;
+							seaLightGuide.Scale = (float)supersample / (float)seaDirectScale;
+							seaGuideLanes = graph.CreateTarget(seaLightGuide);
+							const RGResource lanes = seaGuideLanes;
+							graph.AddPass("WaterLightGuidance",
+								[&](RGPassBuilder& builder)
+								{
+									builder.Write(lanes);
+									builder.Sample(waterSurface);
+									builder.DisableDepth();
+								},
+								[waterSurface, seaDirectScale](RGPassContext& context)
+								{
+									PostProcess::GuideDownsample(context.Cmd,
+										context.Color(waterSurface, 2),
+										context.Color(waterSurface, 0),
+										context.Color(waterSurface, 3),
+										seaDirectScale, Format::R32G32B32A32_SFLOAT,
+										kNormalFormat, Format::R16G16_SFLOAT);
+								});
+							// The downsample lays the three out in lanes 0, 1 and 2.
+							seaGuide.DepthLane = 0;
+							seaGuide.NormalLane = 1;
+							seaGuide.VelocityLane = 2;
+							seaGuide.Divisor = seaDirectScale;
+						}
+						seaGuide.Depth = seaGuideLanes;
+						seaGuide.Surface = seaGuideLanes;
+						seaGuide.Velocity = seaGuideLanes;
 						RGTargetDesc seaBlurDesc = lampDesc;
 						seaBlurDesc.Name = "WaterLampBlurred";
 						static const SignalPassNames kWaterPasses =

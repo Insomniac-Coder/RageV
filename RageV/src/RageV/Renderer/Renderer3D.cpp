@@ -7056,7 +7056,7 @@ namespace RageV
 									  const Ref<RHITexture>& surface,
 									  const Ref<RHITexture>& material,
 									  Format targetColor,
-									  const GiTraceView& view, int rays)
+									  const GiTraceView& view, int rays, int block)
 	{
 		if (!s_Data || !s_Data->DirectWaterShader || !position || !surface || !material)
 			return;
@@ -7118,7 +7118,10 @@ namespace RageV
 		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0], 0.0f);
 		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);
 		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], 0.0f);
-		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2], 0.0f);
+		// RT-8 job 1: the block, in the lane the eye's w was not using. The
+		// pass runs on the block grid and the layer under it is full size.
+		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2],
+									 (float)Math::Max(block, 1));
 
 		cmd.BindPipeline(s_Data->DirectWaterPipeline);
 		cmd.BindResourceSet(0, slot.LampSet);
