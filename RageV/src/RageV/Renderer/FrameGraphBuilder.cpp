@@ -730,9 +730,21 @@ namespace RageV
 		// Set during declaration rather than in the pass, because the scene
 		// block that carries it to the shader is filled the first time a pass
 		// executes, and every pass executes after all of them are declared.
+		// **Only when a run asks, and that is a correction of a correction.**
+		//
+		// The pass ran off the preset while the shader was told the config
+		// override, so it ran and its picture was discarded -- and "fix the
+		// discard" was the wrong reading of that. What the draw was doing
+		// instead is *better*: it traces the sea's mirror once per 2x2 quad at
+		// full resolution, where this pass traces it at half and reconstructs.
+		// Reading the half-resolution picture smeared the deck's white lights
+		// into the tower's red and the owner saw it immediately (2026-09-09).
+		//
+		// So the waste is removed the other way: the pass is not built unless
+		// a run explicitly asks for it, which is what `--water-reflection`
+		// means. The preset's number no longer starts a pass nobody reads.
 		const int waterTraceScale = config.HasWaterReflectionOverride
-										? config.WaterReflectionScale
-										: (int)rtPreset.ReflectionScale;
+										? config.WaterReflectionScale : 1;
 		Renderer3D::SetWaterReflectionScale(
 			waterTraceScale,
 			waterTraceScale > 1 && desc.WaterReflectionLight != nullptr

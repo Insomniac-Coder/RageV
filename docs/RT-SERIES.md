@@ -56,7 +56,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-6.10** | ✅ **done 2026-09-07** | — | — | the accumulator validates what the ray hit |
 | **RT-6.11** | ✅ **done 2026-09-07** — **the biggest sharpness win of the day** | — | — | Catmull-Rom; its negative result had expired |
 | RT-7 | open | 4-5 d | moderate-high | the tubes as LTC line lights |
-| RT-8 | 🔨 **jobs 2 and 3 done, job 1 built and off 2026-09-09** — the layer, its motion, its averaging and its mirror ray are on the contract; the direct light is split into choose and shade and beats the sea's own pair at a matched choice grid, and the rest of it is RT-10 | blocked on RT-10 | **high** | the water on the G-buffer |
+| RT-8 | 🔨 **all three jobs built, all three OFF 2026-09-09** — job 2 regressed the headland shot and every switch is now off, with the five reference frames bit-identical to the morning; **jobs 2 and 3 need re-judging by diff image before they go back on**| **high** | the water on the G-buffer |
 | RT-9 | open | 2-3 d | moderate | the budget's shadow lane, and confidence drives allocation |
 | RT-10 | open | 5-7 d | **high** | ReSTIR DI on the G-buffer |
 | RT-11 | open | 1-2 d | low-moderate | next-event estimation at GI and reflection hits |
@@ -277,6 +277,46 @@ tell you the motion itself is a lie. That is what RT-19's totals and a staged co
 for.
 
 ## Records
+
+### A regression the metrics missed, and what it cost (2026-09-09)
+
+**The owner looked at the headland shot and saw it immediately: the deck's
+white lights blending into the tower's red, so the whole bridge read as though
+a red light were in the scene.** Bisecting today's commits at that camera:
+
+| commit | what landed | pixels changed vs the morning |
+|---|---|---|
+| `ab3a96a` | job 3, the sea averaged on the contract | 9.3% |
+| **`95dae20`** | **job 2, the sea's mirror ray as a signal** | **46.0%** |
+| `af00f8c`, `331f2f8` | job 1 and the split | no further change |
+
+**Job 2, and two things inside it.** Reading the half-resolution reflection
+pass at all -- which I had "fixed" as a discarded pass -- and then averaging and
+blurring it. Both smear a reflection, and a smeared reflection mixes the white
+deck lights into the red tower.
+
+**The "discarded pass" was the wrong reading of a real finding.** The pass ran
+off the preset while the draw was told the config override, so its picture went
+unread -- and what the draw did instead is *better*: it traces the sea's mirror
+once per 2x2 quad at full resolution, where the pass traces at half and
+reconstructs. The waste is now removed the other way: **the pass is not built
+unless a run explicitly asks**, which is what `--water-reflection` means.
+
+**What this cost, and it is a lesson about the metrics.** The speckle and
+contrast numbers called job 2 "a clear win at glitter, about a wash at the
+pier". They were measuring the sea's *noise*, and the defect was in the
+reflection's *shape* -- a quantity no scalar in the harness looks at. **A
+per-pixel diff against the morning's build, at the camera the scene is composed
+for, would have caught it in one frame.** The project's own rule already says
+render comparisons are judged by diff images; I judged this one by means.
+
+**Every switch is now off by default and the five reference frames -- all four
+bridge cameras and the garage -- are bit-identical to the commit before today.**
+Two fixes that were not behind switches were scoped to where they were needed
+rather than applied to every signal: the twin's own memory now only when it
+wants a *longer* one than the first half (the ceiling is exactly right when it
+wants a shorter one, which is the direct light's case), and the flat history
+bound only on a layer that supplies its own position.
 
 ### RT-8 job 1 — 🔨 built and measured 2026-09-09, **off by default**
 

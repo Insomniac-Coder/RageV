@@ -1011,12 +1011,16 @@ void main()
 			// a small probability and paid an enormous weight went straight
 			// through as a firefly. `gloss` is already forced to one for these
 			// signals two lines down, for the same reason and in the same words.
-#ifdef RV_SIGNAL_DIFFUSE
-			const float width = max(u_Reflection.Probe.x, 0.0);
-#else
-			const float width = mix(12.0, max(u_Reflection.Probe.x, 0.0),
+			// **And only where a layer says its roughness is not a gloss axis.**
+			// The ramp is right for a reflection and wrong for a sea, whose RMS
+			// slope of about 0.05 reads here as a mirror -- but the occlusion,
+			// the bounce and the direct light were working with it, and turning
+			// it off for every diffuse-kind signal changed pictures that had
+			// not asked. PositionLane is what marks a layer of the sea's kind.
+			const float width = PositionLane()
+							  ? max(u_Reflection.Probe.x, 0.0)
+							  : mix(12.0, max(u_Reflection.Probe.x, 0.0),
 									smoothstep(0.08, 0.3, roughness));
-#endif
 			vec3 mean, sd;
 			Neighbourhood(texel, size, mean, sd);
 			const float sigma = sqrt(max(c.extra.b - c.extra.g * c.extra.g, 0.0));
@@ -1125,8 +1129,16 @@ void main()
 				// The twin's w now carries the twin's own count. Nothing else
 				// reads it -- the blur copies it through untouched -- so the
 				// change is confined to the two lines that write and read it.
-				float frames2 = frames;
-				if (u_Reflection.Tuning.w > 0.0)
+				// **Its own memory only when it wants a *longer* one.** The
+				// ceiling below -- min(frames, PairMemory) -- is exactly right
+				// whenever the twin forgets faster than the first half, which
+				// is the direct light's case and was the only case until the
+				// sea arrived. Taking the general path there changed a shipped
+				// picture for no gain, so it is taken only when the ceiling
+				// cannot express what is asked: a twin whose memory is longer.
+				float frames2 = u_Reflection.Tuning.w > 0.0
+							  ? min(frames, u_Reflection.Tuning.w) : frames;
+				if (u_Reflection.Tuning.w > max(u_Reflection.History.y, 1.0))
 				{
 					const float memory2 =
 						max(ShortenedMemory(max(u_Reflection.Tuning.w, 1.0),

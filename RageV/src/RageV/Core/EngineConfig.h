@@ -434,7 +434,7 @@ namespace RageV
 		// the deck, and the plane test alone refuses 1.1%. The argument was
 		// true of the sea *before* the same session taught it to report its own
 		// motion, and nobody re-took it afterwards.
-		bool  WaterContract = true;
+		bool  WaterContract = false;
 		// **--water-ray-contract=on|off (RT-8 job 2): whether the sea's traced
 		// reflection is averaged over the frames behind it.**
 		//
@@ -444,7 +444,7 @@ namespace RageV
 		// in the chain. On, the traced picture goes through the contract's
 		// accumulate and blur at the trace's own resolution first, and the four
 		// taps become the upsample at the end rather than the whole of it.
-		bool  WaterRayContract = true;
+		bool  WaterRayContract = false;
 		// **--water-direct=on|off (RT-8 job 1): who makes the sea's light.**
 		//
 		// On, the shared DirectTrace pass does, over the sea's own layer and
