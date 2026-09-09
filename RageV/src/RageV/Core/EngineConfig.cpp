@@ -536,6 +536,11 @@ namespace RageV
 			return ParseBool(value, config.WaterDirectBlock);
 		if (key == "water-direct-split" || key == "waterdirectsplit")
 			return ParseBool(value, config.WaterDirectSplit);
+		if (key == "water-direct-neighbours" || key == "waterdirectneighbours")
+		{
+			config.WaterDirectNeighbours = Math::Clamp(std::atoi(value.c_str()), 0, 8);
+			return true;
+		}
 		if (key == "water-lamp-slack" || key == "waterlampslack")
 		{
 			try

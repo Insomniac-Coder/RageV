@@ -7075,7 +7075,7 @@ namespace RageV
 									  DirectWaterMode mode,
 									  const Ref<RHITexture>& choice,
 									  const Ref<RHITexture>& worth,
-									  int choiceBlock)
+									  int choiceBlock, int neighbours)
 	{
 		const int slotIndex = (int)mode;
 		if (!s_Data || !s_Data->DirectWaterShader[slotIndex]
@@ -7161,7 +7161,11 @@ namespace RageV
 		// quarter of its contrast.
 		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0],
 								 (float)Math::Max(choiceBlock, 1));
-		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);
+		// RT-8 job 1: how many neighbouring choices the shade half borrows and
+		// re-scores, in the next row's spare w. Zero is the borrowing off, and
+		// off is what a block-rate choice was measured flat with.
+		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1],
+								 (float)Math::Max(neighbours, 0));
 		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], 0.0f);
 		// RT-8 job 1: the block, in the lane the eye's w was not using. The
 		// pass runs on the block grid and the layer under it is full size.

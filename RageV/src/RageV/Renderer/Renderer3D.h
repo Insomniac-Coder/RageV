@@ -865,7 +865,9 @@ namespace RageV
 									 // number as `block`, which is the layer's.
 									 const RHI::Ref<RHI::RHITexture>& choice = nullptr,
 									 const RHI::Ref<RHI::RHITexture>& worth = nullptr,
-									 int choiceBlock = 1);
+									 int choiceBlock = 1,
+									 // Shade only: how many neighbouring choices to borrow.
+									 int neighbours = 0);
 
 		// Whether the lit pass reads material textures through the bindless
 		// heap this session (ENGINE-NOTES 7al): the device can, and

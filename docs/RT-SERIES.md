@@ -278,6 +278,58 @@ for.
 
 ## Records
 
+### RT-8 job 1, done after reading what it replaces (2026-09-09)
+
+**The failure was not the code, it was not reading `water_shade` before
+claiming to replace it.** Three things it does that the shared shade pass did
+not, and every one of them matters when the lamp choice is made once per block:
+
+1. **It re-scores its own picks at the shading pixel.** The choice was made for
+   the block's centre and the weight it carries is only right there.
+2. **It borrows three neighbours' picks** off a ring turned by a per-pixel
+   angle, validated by depth and normal -- never by a distance in metres,
+   because the sea is seen nearly edge on and twelve pixels toward the horizon
+   is hundreds of metres of water.
+3. **It merges them as reservoirs**, re-scoring each candidate here, keeping
+   one in proportion to its share, carrying the sample counts so the
+   denominator matches the numerator. The cap goes on each input, never on the
+   sum.
+
+The choose pass therefore has to write what a merge needs -- the lamp, **its
+sample count**, and its weight, in the sea's own packing. It had been writing
+one number per lamp: enough to shade, not enough to merge.
+
+**Measured, at the settings the project ships** (bridge, 2560x1600, frame 60):
+
+| | pixels differing | brightness | contrast | speckle |
+|---|---|---|---|---|
+| the sea's own two passes | — | 16.22 | 13.93 | 0.834 |
+| shared, borrowing off | 18.8% | 16.18 | 13.83 | — |
+| **shared, borrowing 3** | **9.0%** | **16.23** | **13.95** | **0.836** |
+
+**The same picture, through shared code.** What differs is balanced sampling
+noise -- 2.49% of pixels brighter and 2.41% darker, scattered along the light
+streak, with nothing on the bridge and no shift in the mean. The pier agrees:
+16.99 → 17.01 and 15.04 → 14.86.
+
+**Cost: 1.43 ms against the private pair's 1.21** -- choose 0.630 + shade 0.800
+against 0.595 + 0.614. Eighteen per cent more in those two passes, 0.22 ms on a
+twelve-millisecond frame, and that is what folding the sea's lighting into the
+shared pass costs today.
+
+**Two patches had silently not applied, and both were measured before that was
+noticed.** A patch script exited early on a failed match and the edits after it
+never ran, so the graph was still passing one block where two were needed and
+never passing the neighbour count at all -- which is why borrowing 0, 1 and 3
+gave byte-identical frames. The project's own note already records this class
+(`project_ragev_editing_traps`): **a scripted edit that did not apply produces a
+measurement of an unchanged build.** The check is one grep after the patch, and
+it costs nothing.
+
+**Still off by default.** The picture is a match and the cost is real; whether
+0.22 ms is worth removing the sea's private copy is the owner's call, not a
+number that decides itself.
+
 ### A regression the metrics missed, and what it cost (2026-09-09)
 
 **The owner looked at the headland shot and saw it immediately: the deck's

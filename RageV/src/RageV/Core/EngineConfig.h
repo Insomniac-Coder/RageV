@@ -499,6 +499,15 @@ namespace RageV
 		// Fused, the pass does both at whatever grid it runs on, and the
 		// measurement of that is what said a third option does not exist.
 		bool  WaterDirectSplit = true;
+		// **--water-direct-neighbours=N (RT-8 job 1): how many neighbouring
+		// lamp choices the shared shade pass borrows and re-scores.**
+		//
+		// Three, which is what the sea's own shade pass uses. This is the
+		// piece that was missing when a block-rate choice flattened the water:
+		// four pixels sharing one pick see the same lamps, and a ring of
+		// borrowed picks gives each of them a different set to weigh. Zero is
+		// the borrowing off, which is what the flat result was measured with.
+		int   WaterDirectNeighbours = 3;
 		// **Four and two, chosen on the picture** (2026-09-04). Sixteen and
 		// four take the flicker furthest -- 2.01% of pixels blinking against
 		// the shipped preset's 3.84 -- but they cost the sea a third of its

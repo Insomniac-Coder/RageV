@@ -2110,11 +2110,21 @@ namespace RageV
 								context.Color(waterSurface, 0),
 								context.Color(waterSurface, 1),
 								Format::R16G16B16A16_SFLOAT, seaView, rtLamps,
-								chosen != kRGInvalid ? (int)seaPickScale : (int)seaDirectScale,
+								// **The layer's block, not the choice's.** This pass runs on
+								// the light target's grid and the layer under it is full
+								// size; the choice sits on its own grid and is a different
+								// number. Sharing one lane for both read the layer at block
+								// rate and flattened the sea.
+								(int)seaDirectScale,
 								chosen != kRGInvalid ? Renderer3D::DirectWaterMode::Shade
 													 : Renderer3D::DirectWaterMode::Fused,
 								chosen != kRGInvalid ? context.Color(chosen, 0) : nullptr,
-								chosen != kRGInvalid ? context.Color(chosen, 1) : nullptr);
+								chosen != kRGInvalid ? context.Color(chosen, 1) : nullptr,
+								(int)(seaPickScale / Math::Max(seaDirectScale, 1u)),
+								// RT-8 job 1: and the borrowing, which is what a block-rate
+								// choice needs to keep its detail.
+								chosen != kRGInvalid
+									? EngineConfig::Get().WaterDirectNeighbours : 0);
 						});
 				}
 				if (!seaDirect && choices.Current() && choices.Previous())
