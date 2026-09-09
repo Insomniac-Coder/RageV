@@ -56,7 +56,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-6.10** | ✅ **done 2026-09-07** | — | — | the accumulator validates what the ray hit |
 | **RT-6.11** | ✅ **done 2026-09-07** — **the biggest sharpness win of the day** | — | — | Catmull-Rom; its negative result had expired |
 | RT-7 | open | 4-5 d | moderate-high | the tubes as LTC line lights |
-| RT-8 | 🔨 **all three jobs built, all three OFF 2026-09-09** — job 2 regressed the headland shot and every switch is now off, with the five reference frames bit-identical to the morning; **jobs 2 and 3 need re-judging by diff image before they go back on**| **high** | the water on the G-buffer |
+| RT-8 | 🔨 **job 1 ON, jobs 2 and 3 off 2026-09-09** — the sea's own choose-and-shade is retired: the shared pass reproduces its picture at every camera (brightness and contrast within 0.2%, the differences balanced sampling noise) for 1.43 ms against 1.21. Job 2 regressed the bridge and needs redesigning; job 3 buys nothing measurable| the water on the G-buffer |
 | RT-9 | open | 2-3 d | moderate | the budget's shadow lane, and confidence drives allocation |
 | RT-10 | open | 5-7 d | **high** | ReSTIR DI on the G-buffer |
 | RT-11 | open | 1-2 d | low-moderate | next-event estimation at GI and reflection hits |

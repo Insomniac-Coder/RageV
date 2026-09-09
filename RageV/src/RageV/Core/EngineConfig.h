@@ -457,16 +457,24 @@ namespace RageV
 		// the light and nothing about what happens to it afterwards -- both
 		// arms write the same pair into the same contract.
 		//
-		// **Off by default, and the reason is a measurement, not a doubt about
-		// the code.** The shared pass makes a visibly cleaner sea -- speckle
-		// 1.279 -> 1.174 at the pier with the contrast unchanged, and level at
-		// the glitter camera -- but it costs **2.78 ms against the two private
-		// passes' 1.18**, because it casts about 0.86 M more shadow rays for
-		// the same picture. Fourteen per cent of the frame for eight per cent
-		// of one noise metric is the wrong trade until that ray count is
-		// understood; finding where the extra rays go is what is left of RT-8
-		// job 1, and it is a day's work, not a redesign.
-		bool  WaterDirect = false;
+		// **On, and it is the whole of what RT-8 set out to do.** The sea kept
+		// its own copy of choose-and-shade; this is that copy retired.
+		//
+		// The claim it was off for -- that it costs 0.86 M shadow rays too
+		// many -- was a comparison of eight samples against four, because the
+		// sea's own path is hard-capped at four. At a matched count it casts
+		// *fewer*. What it actually lacked was the one thing `water_shade`
+		// does that the shared pass did not: borrowing three neighbours' lamp
+		// choices and re-scoring them at the shading pixel, which is what
+		// keeps the water detailed when one choice serves four pixels.
+		//
+		// **Measured with that in, at the settings the project ships**: the
+		// same picture as the sea's own -- brightness 16.22 → 16.23, contrast
+		// 13.93 → 13.95, speckle 0.834 → 0.836 at the headland camera, with
+		// the 9% of pixels that differ scattered along the light streak as
+		// balanced sampling noise and nothing on the bridge. The pier agrees.
+		// **Cost: 1.43 ms against the private pair's 1.21.**
+		bool  WaterDirect = true;
 		// **--water-direct-block=on|off (RT-8 job 1): run the sea's shared
 		// direct pass on the block grid its lamp choice is made on.**
 		//
