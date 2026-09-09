@@ -10,6 +10,7 @@
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include <array>
 #include <map>
+#include "RageV/Core/EngineConfig.h"
 
 namespace RageV
 {
@@ -1594,7 +1595,7 @@ namespace RageV
 			float Material = 0.0f;
 			// RT-6.8: whether the box may be built from this surface alone.
 			float BoxGeometry = 0.0f;
-			float Pad3 = 0.0f;
+			float AntiLag = 0.0f;
 		};
 		TemporalParams full;
 		full.Jitter = jitter;
@@ -1605,6 +1606,8 @@ namespace RageV
 		full.Geometry = (guideCurrent && guidePrevious && hasHistory) ? 1.0f : 0.0f;
 		full.Material = material ? 1.0f : 0.0f;
 		full.BoxGeometry = boxGeometry ? 1.0f : 0.0f;
+		// RT-5/RT-16: the anti-lag, from the engine.
+		full.AntiLag = EngineConfig::Get().SignalAntiLag;
 		PostParams& params = full.Base;
 		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
 							 1.0f / (float)Math::Max(height, 1u) };

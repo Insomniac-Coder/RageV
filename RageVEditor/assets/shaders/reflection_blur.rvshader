@@ -62,6 +62,15 @@ layout(push_constant) uniform ReflectionParams
 	// faded to nothing, z how far past the lobe's footprint it may reach
 	// while young (specular), w the radius bound in texels (diffuse).
 	vec4 Blur;
+	// **Declared because the block is pushed whole, not because this pass
+	// reads them.** `BlurSignal` pushes `sizeof(SignalPushConstants)`, and a
+	// layout shorter than what is pushed is a validation error against every
+	// draw that follows -- this pass declared six of the eight vectors and had
+	// been overrun by sixteen bytes since the eye lane was added, silently
+	// unless a run asks for --validation=on. Two dead lanes cost nothing; a
+	// short layout costs the command buffer.
+	vec4 PreviousEye;
+	vec4 AntiLag;
 } u_Reflection;
 
 layout(location = 0) out vec4 o_Blurred;

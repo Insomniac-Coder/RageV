@@ -526,6 +526,32 @@ namespace RageV
 		if (key == "water-lamp-accumulate" || key == "waterlampaccumulate")
 			return ParseBool(value, config.WaterLampAccumulate);
 		// RT-8 job 3: the sea's averaging on the contract, or its own.
+		if (key == "anti-lag" || key == "antilag")
+		{
+			try
+			{
+				config.SignalAntiLag = Math::Clamp(std::stof(value), 0.0f, 64.0f);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("anti-lag expects a number from 0 to 64; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+		if (key == "anti-lag-floor" || key == "antilagfloor")
+		{
+			try
+			{
+				config.SignalAntiLagFloor = Math::Clamp(std::stof(value), 0.0f, 16.0f);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("anti-lag-floor expects a number from 0 to 16; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
 		if (key == "taa-still-feedback" || key == "taastillfeedback")
 		{
 			try

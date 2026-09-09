@@ -138,6 +138,11 @@ layout(push_constant) uniform ReflectionParams
 	vec4 Blur;
 	// RT-6.3: last frame's eye in xyz, w one when it is real.
 	vec4 PreviousEye;
+	// **RT-5: the anti-lag.** x how many of this pixel's own standard
+	// deviations its history may sit from what its neighbours report now
+	// before the memory is cut, zero being off; y the floor under that
+	// noise estimate, so a converged pixel does not trip on rounding.
+	vec4 AntiLag;
 } u_Reflection;
 
 // Why the texel's own history was refused this frame, for the
@@ -1087,6 +1092,33 @@ void main()
 			// rather than taken as a minimum: a candidate that is marginal on two
 			// counts at once is worth less than one marginal on either.
 			memory = max(mix(fewest, memory, c.matchConfidence), fewest);
+			// **RT-5: the evidence-driven anti-lag.**
+			//
+			// Everything above has already agreed that this is the same
+			// surface -- same object, same plane, same facing, same roughness,
+			// same material -- so the question here is not whether the surface
+			// changed. It is whether the **light on it** did, and the pixel's
+			// own moments answer that: sigma is how much this estimate wobbles
+			// when nothing is happening, so a history sitting further than a
+			// few of those from what the neighbours report *now* is not noise,
+			// it is news.
+			//
+			// **Gated on nothing having moved**, because a moving picture
+			// disagrees with its history for a reason that is not news, and
+			// the memory is already shortened for that above.
+			//
+			// This is what R4 tried twice and failed at: it read a change out
+			// of a noisy sample with no idea how noisy the sample was, so it
+			// fired on stills. The floor is the second half of that lesson --
+			// a converged pixel's sigma goes to nothing, and without a floor
+			// any rounding difference reads as news.
+			if (u_Reflection.AntiLag.x > 0.0 && moved < 1.0)
+			{
+				const float lag = abs(Luma(c.past.rgb) - Luma(mean));
+				const float noise = max(sigma, u_Reflection.AntiLag.y);
+				if (lag > u_Reflection.AntiLag.x * noise)
+					memory = fewest;
+			}
 			// **RT-8: how much of all that the twin keeps.** Every reduction
 			// above is a property of the pixel, not of the payload -- how far
 			// the picture moved, whether it sits on a silhouette, how well the

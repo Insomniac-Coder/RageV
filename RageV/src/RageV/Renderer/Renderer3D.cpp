@@ -6157,6 +6157,12 @@ namespace RageV
 			// RT-6.3: last frame's eye in xyz; w is one when it is real, so the
 			// first frame of a chain does not compare against the origin.
 			Vec4 PreviousEye{ 0.0f, 0.0f, 0.0f, 0.0f };
+			// **RT-5: the anti-lag.** x how many of the pixel's own standard
+			// deviations the history may sit from what its neighbours report
+			// now, zero being off; y the floor under that noise estimate.
+			// A lane of its own rather than a bit packed into another: the
+			// packing is where a push constant stops being readable.
+			Vec4 AntiLag{ 0.0f, 0.02f, 0.0f, 0.0f };
 		};
 
 		// Fifty-six floats, the same slots the shader's comment names -- the
@@ -6768,6 +6774,11 @@ namespace RageV
 			push.PreviousEye.w = 2.0f;
 		push.Tuning = { signal.SmearTexels, signal.MovingMemory, signal.SilhouetteMemory, signal.PairMemory };
 		push.Blur = { signal.YoungRadius, signal.BlurFrames, signal.YoungOverreach, signal.MaxRadius };
+		// RT-5: the anti-lag, from the engine rather than the signal -- it is a
+		// property of how noisy a pixel is, which is the same question for all
+		// of them.
+		push.AntiLag = { EngineConfig::Get().SignalAntiLag,
+						 EngineConfig::Get().SignalAntiLagFloor, 0.0f, 0.0f };
 		motion.ViewProjection = s_Data->Scene.ViewProjection;
 		// **RT-6.3: and the eye that went with it.** Each signal keeps its own
 		// motion record -- this is the signal's, not the temporal resolve's -- so

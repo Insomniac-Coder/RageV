@@ -222,7 +222,11 @@ layout(push_constant) uniform Params
 	// taps alone. Zero is the reference arm (--taa-box-geometry=off) and
 	// is exactly the behaviour before RT-6.8.
 	float BoxGeometry;
-	float Pad3;
+	// **RT-5/RT-16: the anti-lag.** How many of this pixel's own standard
+	// deviations its history's mean may sit from what its neighbours report
+	// now before the average is restarted. Zero is off, which is every frame
+	// before RT-5. Took the pad rather than growing the block.
+	float AntiLag;
 } u_Params;
 
 // **How far the box may open on a surface whose shading does not depend on
@@ -510,6 +514,11 @@ const float kStillWithinTexels = 0.003;
 // for most of a second after each flash. Sixteen frames covers two jitter
 // cycles and forgets a flash in a quarter of a second.
 const float kMomentFrames = 16.0;
+
+// **The floor under the anti-lag's noise estimate**, in luma. A converged
+// pixel's sigma goes to nothing, and without a floor any rounding difference
+// reads as news -- which is half of why R4 fired on stills.
+const float kAntiLagFloor = 0.02;
 
 // **RT-6.11: a sharper history fetch than bilinear.** Nine taps arranged as
 // the standard five bilinear fetches would be, written out because this
@@ -865,7 +874,7 @@ void main()
 							  ? texelFetch(u_Moments, historyTexel, 0)
 							  : texture(u_Moments, historyUV))
 						   : vec4(0.0);
-	const float frames = min(prevMoments.x + 1.0, kMaxFrames);
+	float frames = min(prevMoments.x + 1.0, kMaxFrames);
 	const float motionTexels = length(velocity / u_Params.TexelSize);
 	// **Still, and known to be the same surface** (RT-6). The velocity test
 	// alone says a pixel did not move; it cannot say the thing that did not
@@ -874,6 +883,26 @@ void main()
 	// still feedback is safe to stand on -- and where the identity lanes are
 	// not bound this is exactly the old test, unchanged.
 	const float stillness = motionTexels < kStillWithinTexels ? 1.0 : 0.0;
+	// **RT-5/RT-16: the evidence-driven anti-lag, in the filter that holds the
+	// lag.** The accumulator got the same test first and it was worth nothing
+	// here (111 frames to 110, measured), because turning the accumulator's
+	// history off entirely is only worth ten of the hundred and eleven. The
+	// lag is TAA's, and TAA had no such test.
+	//
+	// Reaching this line means the geometric test has already agreed this is
+	// the same surface, and `stillness` says the pixel did not move. So the
+	// question is only whether the **light on it** changed -- and the moments
+	// this pass already keeps say how much this pixel wobbles when nothing is
+	// happening. `centreYCoCg.x` is the *filtered* neighbourhood's luma, not
+	// the raw sample: comparing a history against one noisy sample is what
+	// sank R4 twice.
+	if (u_Params.AntiLag > 0.0 && stillness > 0.5 && u_Params.HasMoments > 0.5)
+	{
+		const float noise = max(sqrt(max(prevMoments.z - prevMoments.y * prevMoments.y, 0.0)),
+								kAntiLagFloor);
+		if (abs(prevMoments.y - centreYCoCg.x) > u_Params.AntiLag * noise)
+			frames = 1.0;
+	}
 	const float feedback = mix(u_Params.Feedback,
 							   max(u_Params.Feedback, u_Params.StillFeedback), stillness);
 	const float alpha = max(1.0 / frames, 1.0 - feedback);

@@ -444,6 +444,21 @@ namespace RageV
 		// water whose sparkle changes every frame -- and smeared it into
 		// bands. RT-8 gave the sea its own motion, so the test can now tell
 		// the two apart. This flag is what settles whether it does.
+		// **--anti-lag=N (RT-5): how many of a pixel's own standard deviations
+		// the history may sit from what its neighbours report now before the
+		// memory is cut.** Zero is off, which is the behaviour before RT-5.
+		//
+		// The test only runs where every surface test has already passed and
+		// the pixel did not move, so it is not asking whether the surface
+		// changed -- it knows it did not. It asks whether the *light* did, and
+		// the moments the accumulator already keeps say how much this pixel
+		// wobbles when nothing is happening. That is what the two earlier
+		// attempts (R4) lacked: they read a change out of a noisy sample with
+		// no idea how noisy it was, and fired on stills.
+		float SignalAntiLag = 0.0f;
+		// The floor under that noise estimate, in levels, so a converged pixel
+		// whose sigma has gone to nothing does not trip on rounding.
+		float SignalAntiLagFloor = 0.02f;
 		float TaaStillFeedbackOverride = -1.0f;
 		bool  WaterContract = false;
 		// **--water-ray-contract=on|off (RT-8 job 2): whether the sea's traced
