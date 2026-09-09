@@ -64,7 +64,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-13 | **skinned + layered ✅ done inside RT-2**; transparent open | 0.5 d to decide | low | every opaque surface in the G-buffer |
 | **RT-14** | ✅ **done 2026-09-07** — and it says do not pack the G-buffer | — | — | the G-buffer's bandwidth, measured before anything is packed |
 | **RT-15** | ✅ **done 2026-09-08** — both halves | — | — | the reflection accumulator reprojects by object motion |
-| **RT-16** | open — **new** | 1-2 d | moderate | a reflection takes seconds to leave the floor when its light goes out |
+| **RT-16** | 🔨 **measured 2026-09-09** — 1.84 s confirmed; no single term owns it, the two filters in series do; the design call is open | 1 d | moderate | a reflection takes seconds to leave the floor when its light goes out |
 | **RT-17** | open — **new** | 2-3 d | moderate | the accumulator tests what the ray *hit*, by identity |
 | **RT-18** | open — **new** | 1-2 d | low | history cannot outlive the silhouette it belongs to |
 | **RT-19** | ✅ **done 2026-09-08** | — | — | the refusal reasons, totalled per frame |
@@ -277,6 +277,47 @@ tell you the motion itself is a lie. That is what RT-19's totals and a staged co
 for.
 
 ## Records
+
+### RT-16 — the measurement half, done 2026-09-09; the lag is the series and no single term owns it
+
+**Confirmed, and it is what the owner reported.** Tubes switched off at frame
+80 of a parked burst, counting frames until the floor is within 5% of where it
+settles: **111 frames, 1.84 seconds.**
+
+**Every single term was ablated on its own and none of them owns it:**
+
+| what was turned off | frames | change |
+|---|---|---|
+| nothing (shipped) | 111 | — |
+| TAA's still feedback | 110 | −1 |
+| the direct-light signal | 111 | 0 |
+| traced reflections | 108 | −3 |
+| the accumulator's history | 101 | −10 |
+| the accumulator's smooth-surface bound ramp | 111 | 0 |
+| its moments floor | 96 | −15 |
+| the light field (baked and realtime) | 111 | 0 |
+| **TAA's still feedback *and* the accumulator's history** | **31** | **−80** |
+
+**That is the compounding the item predicted, measured.** Removing either
+filter leaves the other holding the light; removing both frees it. No term is
+responsible, so no term can be tuned to fix it -- which is exactly the design
+question the item said the measurement would force: *whether one signal should
+pass through two temporal filters at all.* It now has a number behind it.
+
+**Ruled out on the way**, each with a run: auto exposure (the dark regions get
+*darker* through the fade, and an opening exposure would brighten them), and
+the harness (`Switcher.cpp` sets the intensity in one tick and does not ramp).
+
+**No fix landed.** The measurement is half the item by its own definition; the
+other half is the design change, and the honest state is that it needs the
+owner's call on the two-filter question rather than another dial.
+
+**Two traps paid for.** `Sample.dll` crashed at the moment the switch fired --
+the project's script DLL is compiled against the engine's headers and `Light`
+gained members yesterday, which is the second item in the stale-artefacts note;
+`cmake --build SampleProject/bin/module` for both configs fixes it. And a burst
+of 150 frames sorted by filename puts frame 100 before frame 60: the first
+reading of this measurement was of a sequence in the wrong order.
 
 ### RT-6 — ✅ the still-feedback half, closed 2026-09-09
 
