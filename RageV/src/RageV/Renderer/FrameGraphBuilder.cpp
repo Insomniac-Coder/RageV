@@ -2761,7 +2761,11 @@ namespace RageV
 				temporalCurrent = current;
 				const RGResource source = shaded;
 				const float feedback = desc.Render.TemporalFeedback;
-				const float stillFeedback = desc.Render.TemporalStillFeedback;
+				// RT-6: the project's number, unless a run asked for another.
+				const float stillFeedback =
+					config.TaaStillFeedbackOverride >= 0.0f
+						? config.TaaStillFeedbackOverride
+						: desc.Render.TemporalStillFeedback;
 				const bool hasHistory = history.HasHistory();
 
 				graph.AddPass("TAA resolve",

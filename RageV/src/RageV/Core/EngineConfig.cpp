@@ -526,6 +526,19 @@ namespace RageV
 		if (key == "water-lamp-accumulate" || key == "waterlampaccumulate")
 			return ParseBool(value, config.WaterLampAccumulate);
 		// RT-8 job 3: the sea's averaging on the contract, or its own.
+		if (key == "taa-still-feedback" || key == "taastillfeedback")
+		{
+			try
+			{
+				config.TaaStillFeedbackOverride = Math::Clamp(std::stof(value), 0.0f, 0.98f);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("taa-still-feedback expects a number from 0 to 0.98; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
 		if (key == "water-contract" || key == "watercontract")
 			return ParseBool(value, config.WaterContract);
 		if (key == "water-ray-contract" || key == "waterraycontract")

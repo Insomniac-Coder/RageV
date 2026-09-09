@@ -434,6 +434,17 @@ namespace RageV
 		// the deck, and the plane test alone refuses 1.1%. The argument was
 		// true of the sea *before* the same session taught it to report its own
 		// motion, and nobody re-took it afterwards.
+		// **--taa-still-feedback=N (RT-6): the feedback a pixel that did not
+		// move gets**, overriding RenderSettings::TemporalStillFeedback for a
+		// run. Negative, the default, leaves the project's number alone.
+		//
+		// The rule has been per-pixel since RT-6's geometric half; what kept
+		// its *value* a per-project setting was that the sea reported no
+		// motion, so a long feedback meant for parked steel was handed to
+		// water whose sparkle changes every frame -- and smeared it into
+		// bands. RT-8 gave the sea its own motion, so the test can now tell
+		// the two apart. This flag is what settles whether it does.
+		float TaaStillFeedbackOverride = -1.0f;
 		bool  WaterContract = false;
 		// **--water-ray-contract=on|off (RT-8 job 2): whether the sea's traced
 		// reflection is averaged over the frames behind it.**

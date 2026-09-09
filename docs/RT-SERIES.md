@@ -43,7 +43,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-3.1 | ✅ done 2026-09-07 | — | — | the contract at each signal's own resolution |
 | RT-4 | **partial** — the composite measurement answered (it stays after the resolve); the trace's move and R11 open | 2 d | moderate | reflections as an instance of the shared code |
 | RT-5 | open | 3-4 d | **high** | the contract validates by the G-buffer; the blur goes |
-| RT-6 | ✅ geometric half done 2026-09-07; **the still-feedback half waits on RT-8** | — | — | TAA on the G-buffer |
+| RT-6 | ✅ **done 2026-09-09** — both halves; the still rule needs no per-project value now the sea reports its own motion | — | — | TAA on the G-buffer |
 | RT-6.1 | ✅ done 2026-09-07 | — | — | the reflection's virtual-image motion lane |
 | RT-6.2 | ✅ **re-run 2026-09-07: the negative result expired** | — | — | the material-aware clamp, live on RT-6.8's box |
 | RT-6.3 | ✅ done 2026-09-07 | — | — | the reflection-direction test |
@@ -56,7 +56,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-6.10** | ✅ **done 2026-09-07** | — | — | the accumulator validates what the ray hit |
 | **RT-6.11** | ✅ **done 2026-09-07** — **the biggest sharpness win of the day** | — | — | Catmull-Rom; its negative result had expired |
 | RT-7 | open | 4-5 d | moderate-high | the tubes as LTC line lights |
-| RT-8 | ✅ **closed 2026-09-09 by the owner** — job 1 shipped (the sea's own choose-and-shade retired for the shared pass); **jobs 2 and 3 dropped**, not deferred: job 2 regressed the bridge and its approach is wrong, job 3 measured no gain|
+| RT-8 | ✅ **closed 2026-09-09 by the owner** — job 1 shipped (the sea's own choose-and-shade retired for the shared pass); **jobs 2 and 3 dropped**, not deferred: job 2 regressed the bridge and its approach is wrong, job 3 measured no gain | — | — | the water on the G-buffer |
 | RT-9 | open | 2-3 d | moderate | the budget's shadow lane, and confidence drives allocation |
 | RT-10 | open | 5-7 d | **high** | ReSTIR DI on the G-buffer |
 | RT-11 | open | 1-2 d | low-moderate | next-event estimation at GI and reflection hits |
@@ -277,6 +277,56 @@ tell you the motion itself is a lie. That is what RT-19's totals and a staged co
 for.
 
 ## Records
+
+### RT-6 — ✅ the still-feedback half, closed 2026-09-09
+
+**What it was waiting for.** The rule -- a pixel that did not move keeps a much
+longer feedback (0.98 against 0.9), which is what stops a parked edge crawling
+on the jitter's own period -- has been per-pixel and geometrically validated
+since RT-6's first half. What kept its *value* a per-project setting was that
+**the sea reported no motion at all**, so a long feedback meant for parked steel
+was handed to water whose sparkle changes every frame, and smeared it into
+horizontal bands. RT-8's first half gave the sea its own motion, and the resolve
+has read it since (`taa_resolve`, the water lane). So the test can now tell
+still steel from moving water by itself.
+
+**Measured, clean build, frame 200** -- late enough that a band would have
+built, which a frame-60 still cannot show:
+
+| camera | banding, off → on | contrast | speckle |
+|---|---|---|---|
+| headland | 0.0706 → 0.0707 | 13.99 → 13.98 | 0.8513 → 0.8526 |
+| pier | 0.0469 → 0.0468 | 14.67 → 14.67 | 0.6790 → 0.6806 |
+| glitter | 0.1931 → **0.1917** | 11.90 → 11.87 | 0.7715 → **0.7684** |
+| deck | 0.0936 → 0.0938 | 25.37 → 25.37 | 0.5719 → 0.5723 |
+
+**No banding anywhere**, contrast unmoved, and the glitter camera slightly
+better with it on. **One value works on both scenes**, which is what the item
+asked for; the project's 0.98 stands and needs no per-scene exception.
+
+**Switch:** `--taa-still-feedback=N` (negative leaves the project's number),
+because a quality lever without a measurement flag cannot be re-judged.
+
+**A stale comment fixed on the way.** `taa_resolve`'s note above the water lane
+says the lane "stays bound and unread" -- the reasoning that stopped it for an
+afternoon on 2026-09-08. The decision was reversed later the same day (the sea
+got its own average, its glint memory went two frames to sixteen, the pier
+ended at 0.915 against 1.160) and the comment did not follow the code.
+
+### The stale build that moved the garage (2026-09-09)
+
+**The garage's mean went 44.533 to 44.590 across two builds of the same source,
+and a clean rebuild put it back.** Not a code change -- an incremental build
+after a header layout change, which is the third item in this project's
+stale-artefacts note and *is not a compile error*. `EngineConfig` gained fields
+repeatedly through the day; some translation units kept the old layout.
+
+**What that costs: any measurement taken from an incremental build after a
+header change is suspect.** Re-taken from a clean build and confirmed: the
+garage and the deck are bit-identical to the morning, the three water cameras
+show job 1's change at the same percentages as before (9.00%, 70.22%, 21.82%),
+and the still-feedback comparison above. **After adding a member to a widely
+included header, rebuild clean before believing a picture.**
 
 ### RT-8 closed (2026-09-09)
 

@@ -669,9 +669,15 @@ void main()
 	// the water, and the long still feedback was averaging that sparkle
 	// away precisely because the seabed's velocity under it said nothing
 	// had moved. Give the sea its true motion and it loses an average it
-	// was silently relying on. So the lane stays bound and unread here
-	// until the sea has a reconstruction of its own -- the rest of RT-8 --
-	// rather than being handed a filter that has nothing to hold on to.
+	// was silently relying on.
+	//
+	// **And then it was paid for, so the lane IS read below.** The sea got
+	// an average of its own instead of a borrowed one -- its glint memory
+	// went from two frames to sixteen -- and the pier ended at 0.915 against
+	// the 1.160 it had while reporting no motion at all. The paragraph above
+	// is the reasoning that stopped it for an afternoon, kept because the
+	// mechanism is worth knowing; the decision it ends on was reversed in the
+	// same commit and this comment did not follow it until 2026-09-09.
 	const vec4 water = texture(u_WaterMotion, uv);
 	vec2 velocity = water.z > 0.5 ? water.xy : texture(u_Velocity, uv).xy;
 	velocity.y = flip ? -velocity.y : velocity.y;
