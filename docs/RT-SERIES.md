@@ -56,7 +56,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-6.10** | ✅ **done 2026-09-07** | — | — | the accumulator validates what the ray hit |
 | **RT-6.11** | ✅ **done 2026-09-07** — **the biggest sharpness win of the day** | — | — | Catmull-Rom; its negative result had expired |
 | RT-7 | open | 4-5 d | moderate-high | the tubes as LTC line lights |
-| RT-8 | 🔨 **job 1 ON, jobs 2 and 3 off 2026-09-09** — the sea's own choose-and-shade is retired: the shared pass reproduces its picture at every camera (brightness and contrast within 0.2%, the differences balanced sampling noise) for 1.43 ms against 1.21. Job 2 regressed the bridge and needs redesigning; job 3 buys nothing measurable| the water on the G-buffer |
+| RT-8 | ✅ **closed 2026-09-09 by the owner** — job 1 shipped (the sea's own choose-and-shade retired for the shared pass); **jobs 2 and 3 dropped**, not deferred: job 2 regressed the bridge and its approach is wrong, job 3 measured no gain|
 | RT-9 | open | 2-3 d | moderate | the budget's shadow lane, and confidence drives allocation |
 | RT-10 | open | 5-7 d | **high** | ReSTIR DI on the G-buffer |
 | RT-11 | open | 1-2 d | low-moderate | next-event estimation at GI and reflection hits |
@@ -277,6 +277,39 @@ tell you the motion itself is a lie. That is what RT-19's totals and a staged co
 for.
 
 ## Records
+
+### RT-8 closed (2026-09-09)
+
+**Closed by the owner with two of its three jobs dropped.** Recording the state
+plainly, because a closed item is read later as a description of the engine.
+
+* **Job 1 — the sea's direct light — shipped and on.** `WaterChooseLamps` and
+  `WaterShadeLamps` are retired; the shared `DirectTrace` does the work in two
+  halves, choosing on the lamp-choice block and shading per pixel, borrowing and
+  re-scoring three neighbours' choices. Verified at four bridge cameras and the
+  garage. The pier is the one camera where the change is not symmetric: 29% of
+  pixels rise 1.4 levels, 8.6% fall 5.4, net brightness +0.02, and the brightest
+  half-percent drops 129.4 → 126.9. It takes the tops off the sparkle and
+  spreads it. Cost 1.43 ms against the private pair's 1.21.
+* **Job 2 — the sea's rays on the contract — dropped.** The approach is wrong,
+  not merely untuned: it reads the half-resolution reflection where the water
+  draw traces a sharper one per quad, and then blurs it. That is what turned the
+  bridge red. Anything that revisits this must keep the full-resolution trace.
+* **Job 3 — the sea's frame averaging on the contract — dropped.** Built,
+  correct, and measured to buy nothing: 9% of the headland shot changes and the
+  water comes out marginally noisier.
+
+**The code for 2 and 3 is still in the tree behind `--water-ray-contract` and
+`--water-contract`, both off.** It is dead weight; deleting it loses nothing
+this record does not hold.
+
+**What the item taught, which outlasts it:** the sea's private passes were not
+duplication to be removed, they were tuning. Every one of them beat the shared
+version until the shared version learned what it was doing -- its lobe, its
+block-rate choosing with neighbour borrowing, its full-resolution reflection.
+**A fold like this has to buy the tuning back before it is worth doing, and the
+only instrument that shows whether it did is a per-pixel diff at the camera the
+scene is composed for.**
 
 ### RT-8 job 1, done after reading what it replaces (2026-09-09)
 
