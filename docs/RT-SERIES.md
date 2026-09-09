@@ -42,7 +42,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-3 | ✅ done 2026-09-07 | — | — | GI as a signal of this frame |
 | RT-3.1 | ✅ done 2026-09-07 | — | — | the contract at each signal's own resolution |
 | RT-4 | **partial** — the composite measurement answered (it stays after the resolve); the trace's move and R11 open | 2 d | moderate | reflections as an instance of the shared code |
-| RT-5 | open | 3-4 d | **high** | the contract validates by the G-buffer; the blur goes |
+| RT-5 | 🔨 **part done 2026-09-09** — parts 1 and 2 measured already landed (0.0% plane refusals); part 4 built and off; **part 3 is the live one** | 1-2 d | moderate | the contract validates by the G-buffer; the blur goes |
 | RT-6 | ✅ **done 2026-09-09** — both halves; the still rule needs no per-project value now the sea reports its own motion | — | — | TAA on the G-buffer |
 | RT-6.1 | ✅ done 2026-09-07 | — | — | the reflection's virtual-image motion lane |
 | RT-6.2 | ✅ **re-run 2026-09-07: the negative result expired** | — | — | the material-aware clamp, live on RT-6.8's box |
@@ -318,6 +318,46 @@ gained members yesterday, which is the second item in the stale-artefacts note;
 `cmake --build SampleProject/bin/module` for both configs fixes it. And a burst
 of 150 frames sorted by filename puts frame 100 before frame 60: the first
 reading of this measurement was of a sequence in the wrong order.
+
+### RT-5 — 🔨 part done 2026-09-09, and two of its five parts were already finished
+
+**Measured before building, which is what shrank the item.** The garage, 120 frames:
+
+    reflection history:  100.0% of glossy pixels kept one, 51.0 frames deep
+    reflection refusals: off screen 0.0%, none there 0.0%, normal 0.0%, plane 0.0%, roughness 0.0%
+
+**Part 2 is done.** "The ceiling and far pipes are refused every frame today" was written
+from T5's refusal view, before RT-6.3..RT-6.11 landed. The plane test now refuses **0.0%**.
+**Part 1 is done** — rejection by id, depth and normal came with RT-6 and RT-6.5.
+
+**Part 4, the evidence-driven anti-lag, is built and off.** In both the reflection
+accumulator and the temporal resolve: where every surface test has already agreed the
+surface is the same and the pixel did not move, a history whose mean sits more than N of the
+pixel's *own* standard deviations from what its neighbours report now is news, and the
+memory restarts. The noise estimate is the moments both filters already keep — which is
+exactly what R4 lacked when it fired on stills twice. `--anti-lag=N`, zero being off, with
+`--anti-lag-floor` under the noise estimate.
+
+**It is unproven, and that is the honest state**: it was built against RT-16's 1.84-second
+number, and that number turned out to be a half-baked light behaving like one, measured
+through a tone curve. It moved it by 7%.
+
+**Part 3 is the live one.** 100% of pixels keep a history 51 frames deep, and every one of
+those frames the neighbourhood bound drags it back toward a four-sample estimate — the
+-0.16 levels on the floor the item names. A converged history does not need protecting from
+its own noise; a young one does. The counters above are the instrument: relaxing the bound
+should raise the depth and leave the refusals at zero.
+
+**A real defect fixed on the way.** `BlurSignal` pushes the whole constant block and
+`reflection_blur.rvshader` declared six of its eight vectors, so every draw after it was a
+validation error — silently, unless a run asks for `--validation=on`. **Two dead lanes cost
+nothing; a short layout costs the command buffer.**
+
+**Two pre-existing validation defects left standing**, both in the blur path this item
+exists to retire: a pass pushing 24 bytes to a layout with no push-constant range (10 a
+frame), and `Renderer3D.signal.blur.pair`'s descriptor set rewritten while still bound,
+which invalidates the command buffer (180 a frame). The second is undefined behaviour and
+deserves an item of its own.
 
 ### RT-6 — ✅ the still-feedback half, closed 2026-09-09
 

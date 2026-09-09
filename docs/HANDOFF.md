@@ -67,8 +67,30 @@ the memory restarts. The moments both filters already keep supply the noise esti
 is what R4 lacked when it fired on stills twice.
 
 **It is off (`--anti-lag=0`) and unproven**, for the reason in item 7 above: the number it
-was aimed at is not a filter's. Parts 1, 2, 3 and 5 are untouched -- the grazing-angle plane
-test, the relaxed bound for a converged history, and the young blur's retirement.
+was aimed at is not a filter's.
+
+**And the item is smaller than its row said.** Measured on the garage, 120 frames:
+
+    reflection history:  100.0% of glossy pixels kept one, 51.0 frames deep
+    reflection refusals: off screen 0.0%, none there 0.0%, normal 0.0%, plane 0.0%, roughness 0.0%
+
+**The plane test refuses nothing.** Part 2 -- "the ceiling and far pipes are refused every
+frame today" -- was written from T5's refusal view, *before* RT-6.3 through RT-6.11 landed,
+and is no longer true. Part 1 (reject by id, depth and normal) landed in RT-6 and RT-6.5.
+
+| part | state |
+|---|---|
+| 1. reject by id / depth / normal | **already done** (RT-6, RT-6.5) |
+| 2. the grazing-angle plane test | **already done** -- 0.0% plane refusals, measured |
+| 3. relax the bound for a converged history | **open, and the live one** |
+| 4. the anti-lag | built, off, unproven |
+| 5. retire the young blur | open, wants 3 first |
+
+**Part 3 is where to start.** Every one of those 51 frames of history is dragged back toward
+a four-sample estimate by the neighbourhood bound -- the -0.16 levels on the floor the item
+names. A history that has converged over dozens of frames does not need protecting from its
+own noise; a young one does. The counters above are the instrument: relaxing the bound
+should raise the depth and leave the refusals at zero.
 
 **A real defect found and fixed on the way:** `BlurSignal` pushes the whole constant block
 and `reflection_blur.rvshader` declared six of its eight vectors, so every draw after it was
@@ -87,6 +109,16 @@ It does not: the tubes are half-baked, so it measures a bake. **The item needs r
 against the car's lamps and a region the owner actually points at**, and any measurement of
 a temporal filter's time constant needs linear values, which this engine cannot currently
 capture.
+
+**What the car's lamps actually measured** (`BURST_SWITCH="Headlamp,Tail|1.328"`, anti-lag
+off, the build verified bit-identical to the last commit first): **10,700 pixels change and
+settle in 25 frames, 0.41 s.** That is not "a few seconds", so the *region* is wrong rather
+than the build -- the mask was taken by brightness, which finds the lit floor and not the
+car's reflection in it. **Ask the owner to point at the pixels before measuring again.**
+
+**Two pieces of scaffolding this item wants and does not have:** a linear capture, so a
+filter's time constant can be read without the tone curve's shoulder in it; and a switch
+harness aimed at a light the owner names rather than at the tubes.
 
 ## 2026-09-09: an argument I lost to my own measurement, and the sea joins the engine
 
