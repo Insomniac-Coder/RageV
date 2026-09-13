@@ -332,7 +332,9 @@ namespace RageV
 							   const Ref<RHITexture>& sixth, Sampling sixthSampling,
 							   const Ref<RHITexture>& seventh, Sampling seventhSampling,
 							   // RT-8: binding 9, the water layer.
-							   const Ref<RHITexture>& eighth, Sampling eighthSampling)
+							   const Ref<RHITexture>& eighth, Sampling eighthSampling,
+							   // RT-20: binding 10, the resolve's surface motion.
+							   const Ref<RHITexture>& ninth, Sampling ninthSampling)
 	{
 		if (!s_Data || !s_Data->Ready || !first)
 			return;
@@ -457,6 +459,22 @@ namespace RageV
 			// undefined read an unbound binding would be.
 			if (eighth)
 				set->SetTexture(9, eighth, samplerFor(eighthSampling));
+		// **RT-20: binding 10, and only where the layout has one.** Every other
+		// binding here trusts the caller, because each caller dispatches one
+		// shader. This one the resolve passes to a file that is also the
+		// occlusion accumulator's, and that a measurement stages older copies of;
+		// a write to a binding the layout lacks is out of range, which the driver
+		// takes badly (see `second` above). So the shader's reflection decides.
+		if (ninth)
+		{
+			const RHI::ResourceSetLayoutDesc* layout = pipeline->GetReflection().FindSet(0);
+			bool declared = false;
+			if (layout)
+				for (const RHI::ResourceBinding& binding : layout->Bindings)
+					declared = declared || binding.Binding == 10u;
+			if (declared)
+				set->SetTexture(10, ninth, samplerFor(ninthSampling));
+		}
 
 		// The counters, for the passes that count and the one that draws
 		// them (WR-16 S0). Only when the caller passed one, which it does
@@ -1578,7 +1596,10 @@ namespace RageV
 									  // **RT-8: the water layer's motion and mask.** Null leaves
 									  // every pixel on the geometry's velocity, which is what the
 									  // sea had -- and what made a moving wave look stationary.
-									  const Ref<RHITexture>& waterMotion)
+									  const Ref<RHITexture>& waterMotion,
+									  // RT-20: the scene's own velocity lane; null when
+									  // `velocity` already is it.
+									  const Ref<RHITexture>& surfaceVelocity)
 	{
 		// The base block, then this frame's jitter (clip units, as the scene
 		// block carries it): the resolve filters the current frame around
@@ -1662,7 +1683,12 @@ namespace RageV
 				 // RT-8: the water layer. Point for the same reason the
 				 // scene's velocity is -- and because its z is a mask,
 				 // which averaged across a shoreline would be half a wave.
-				 waterMotion ? waterMotion : s_Data->Black, Sampling::Point);
+				 waterMotion ? waterMotion : s_Data->Black, Sampling::Point,
+				 // RT-20: binding 10, the surfaces' own motion. The scene's lane
+				 // when the caller has one apart from `velocity`, and `velocity`
+				 // itself when that already is the scene's -- the occlusion
+				 // accumulator's case.
+				 surfaceVelocity ? surfaceVelocity : velocity, Sampling::Point);
 	}
 
 	void PostProcess::GiDenoise(RHICommandList& cmd, const Ref<RHITexture>& current,

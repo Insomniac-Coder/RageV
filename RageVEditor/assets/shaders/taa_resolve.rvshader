@@ -71,7 +71,9 @@ layout(location = 0) in vec2 v_UV;
 layout(location = 0) out vec4 o_Color;
 // **What this pixel has learned about itself, for the next frame** -- the
 // GI denoiser's second attachment, carried here for the same reason:
-//   .x  frames accumulated here, capped
+//   .x  frames accumulated here, capped -- **and negative where this pixel's
+//       surface moved this frame** (RT-20: JitterCrossing reads the sign a
+//       frame later), so the count itself is only ever read through abs()
 //   .y  running mean of the arriving sample's luminance
 //   .z  running mean of its square
 // Written on every path, including the early outs: an attachment a path
@@ -114,6 +116,15 @@ layout(set = 0, binding = 8) uniform sampler2D u_Material;
 // had to be switched off for water. Black where there is no sea, and a mask
 // of zero is what says so.
 layout(set = 0, binding = 9) uniform sampler2D u_WaterMotion;
+// **RT-20: the surfaces' own motion** -- the scene's velocity lane. Where the
+// reflection composite ran, `u_Velocity` above is *its* lane, in which a pixel
+// made mostly of a reflection moves by its virtual image (RT-6.1): the right
+// motion to fetch a history with, and the wrong one to ask whether a surface
+// moved. A flat mirror sliding along itself has an image that stands still,
+// and a chrome cube crossing the garage read as standing still over most of
+// its face in that lane (2026-09-13). Read only by SurfaceMotionTexels.
+// Point sampled, like the other.
+layout(set = 0, binding = 10) uniform sampler2D u_SurfaceVelocity;
 
 // **WR-16 S0: the validity lane, and its count.** `o_Moments.w` is now one
 // where this pixel reused its history and zero where it did not -- the one
@@ -400,12 +411,17 @@ bool Matches(vec4 now, vec4 was, bool centre)
 // or nothing.** Returns the texel to read the history from and whether one
 // was found; `bilinear` says whether the centre itself matched, because
 // only then are the texels between it and its neighbours this surface too.
+// **RT-20:** and the reprojected texel whatever the test said, where the
+// only thing that changed is which side of an edge the jitter sampled.
 //
 // The search is SVGF's and `reflection_accumulate` already runs it for the
 // same reason: at a silhouette the reprojection is right to within the
 // resampling and it is the *rounding* that lands on the far side of an
 // edge. Refusing there trades a ghost for aliasing; taking the neighbour
 // that kept this surface's history keeps the picture, one texel over.
+// RT-20: defined further down, beside the stillness threshold it needs.
+bool JitterCrossing(vec2 uv, vec2 pastUv, vec4 now);
+
 ivec2 MatchingTexel(vec2 uv, vec2 pastUv, out bool found, out bool bilinear)
 {
 	const ivec2 size = textureSize(u_GuideCurrent, 0);
@@ -423,6 +439,16 @@ ivec2 MatchingTexel(vec2 uv, vec2 pastUv, out bool found, out bool bilinear)
 		{
 			found = true;
 			bilinear = (k == 0);
+			return at;
+		}
+		// **RT-20: unless the refusal is only the jitter's.** Asked before the
+		// search, because the search is what replaced this pixel's blend with a
+		// neighbour's -- see JitterCrossing.
+		if (k == 0 && JitterCrossing(uv, pastUv, now))
+		{
+			g_Refusal = kKept;
+			found = true;
+			bilinear = true;
 			return at;
 		}
 	}
@@ -515,6 +541,88 @@ const float kTemporalSigma = 2.0;
 // RenderSettings::TemporalStillFeedback): the garage has no water and its
 // edges flickered at 0.9; the bridge keeps it off.
 const float kStillWithinTexels = 0.003;
+
+// RT-20: how far the surface `offset` texels from `uv` moved since last frame,
+// in texels of this target -- the sea's own motion where a wave was drawn
+// (RT-8), the scene's otherwise, and never the reflection composite's.
+float SurfaceMotionTexels(vec2 uv, ivec2 offset)
+{
+	const ivec2 waterSize = textureSize(u_WaterMotion, 0);
+	const vec4 water = texelFetch(u_WaterMotion,
+								  clamp(ivec2(uv * vec2(waterSize)) + offset, ivec2(0), waterSize - 1), 0);
+	const ivec2 size = textureSize(u_SurfaceVelocity, 0);
+	const vec2 motion = water.z > 0.5
+					  ? water.xy
+					  : texelFetch(u_SurfaceVelocity,
+								   clamp(ivec2(uv * vec2(size)) + offset, ivec2(0), size - 1), 0).xy;
+	return length(motion / u_Params.TexelSize);
+}
+
+// **RT-20: whether a refused centre is only the jitter crossing an edge.**
+//
+// With the camera parked, a pixel on an edge has its jittered sample on one
+// side of the edge in some frames and on the other side in the rest. The
+// surface test compares this frame's sample with last frame's, so it read
+// every such flip as a different surface -- and the neighbour search then
+// replaced the pixel's own history, which is the coverage blend the jitter
+// exists to build, with a neighbour's, which is pure object or pure
+// background. The blend never formed and every edge flickered with the jitter
+// from RT-6 on: parked, the garage's car edges changed 7.97 levels a frame and
+// the tubes' 11.86, against 1.04 and 0.99 with the test off and 0.97 and 0.82
+// with no jitter at all. RT-6 was judged on a single frame, where an edge that
+// is never blended reads as a sharp one.
+//
+// The centre is kept, whatever the test said, when three things hold:
+//
+//   1. **It is an edge.** A neighbour in this frame's identity lane is another
+//      surface; a flip cannot happen anywhere else.
+//   2. **Nothing in its 3x3 moved**, by the surfaces' own motion, under the
+//      same threshold as the still feedback above.
+//   3. **What this texel showed last frame was not moving either** -- the
+//      sign of the count this pass wrote there. Without it an object that
+//      clears an edge by two pixels in one frame leaves the edge's 3x3 still,
+//      and the history kept there is the object's: behind a chrome cube
+//      crossing at four pixels a frame, 3-4 levels further from the truth than
+//      the resolve without the rule, fading over forty frames.
+//
+// Anything that moved takes RT-6's search exactly as before, which is what
+// stops a moving object trailing. Of two ways measured this is the one that
+// holds everywhere: the other -- keep the centre wherever last frame's surface
+// is still among this frame's eight neighbours -- missed the car's small parts
+// parked and trailed behind moving objects.
+//
+// What it does not cover: an object that starts moving two pixels a frame from
+// a standstill was not moving last frame, so the edges it uncovers on its first
+// frame keep its colour (RT-18's coverage mask is the structural answer); and a
+// history kept here is still held to the box, which is loose on rough surfaces.
+bool JitterCrossing(vec2 uv, vec2 pastUv, vec4 now)
+{
+	if (u_Params.HasMoments < 0.5)
+		return false;
+	const ivec2 momentsSize = textureSize(u_Moments, 0);
+	const float count = texelFetch(u_Moments, clamp(ivec2(pastUv * vec2(momentsSize)),
+													ivec2(0), momentsSize - 1), 0).x;
+	if (!(count > 0.0))
+		return false;
+
+	const ivec2 guideSize = textureSize(u_GuideCurrent, 0);
+	const ivec2 guideTexel = ivec2(uv * vec2(guideSize));
+	bool edge = false;
+	for (int y = -1; y <= 1; ++y)
+	{
+		for (int x = -1; x <= 1; ++x)
+		{
+			const ivec2 offset = ivec2(x, y);
+			if (SurfaceMotionTexels(uv, offset) >= kStillWithinTexels)
+				return false;
+			if (offset != ivec2(0)
+				&& !Matches(now, texelFetch(u_GuideCurrent,
+											clamp(guideTexel + offset, ivec2(0), guideSize - 1), 0), false))
+				edge = true;
+		}
+	}
+	return edge;
+}
 
 // **How many frames the moments remember**, and it is shorter than the
 // colour's memory on purpose. The floor exists for flicker on the jitter's
@@ -642,6 +750,11 @@ void main()
 	// clamp needs answered is how much this pixel's input swings.
 	const float currentLuma = ToYCoCg(current.rgb).x;
 
+	// **RT-20: whether this pixel's surface moved**, carried to the next frame
+	// in the sign of the count on every path below. JitterCrossing asks it of
+	// last frame.
+	const float movedSign = SurfaceMotionTexels(uv, ivec2(0)) >= kStillWithinTexels ? -1.0 : 1.0;
+
 	// Nothing to accumulate into. Not a special case to be tidied away later
 	// -- it is the correct answer on the first frame and after every resize,
 	// and taking it whole is what stops one frame of uninitialised memory
@@ -652,7 +765,7 @@ void main()
 		// One frame seen, and its luminance is the whole of what is known.
 		// RT-12: the reason lane, where zero still means "reused" so the
 		// validity WR-16 S0 put here survives as `w == 0`.
-		o_Moments = vec4(1.0, currentLuma, currentLuma * currentLuma,
+		o_Moments = vec4(movedSign, currentLuma, currentLuma * currentLuma,
 						  float(kNoHistory));
 		CountTemporal(false, kNoHistory, 0.0);
 		return;
@@ -726,7 +839,7 @@ void main()
 		// RT-12: off screen has no clause to blame; a disocclusion carries the
 		// clause that refused the centre, plus the half that says the search
 		// found nothing either.
-		o_Moments = vec4(1.0, currentLuma, currentLuma * currentLuma,
+		o_Moments = vec4(movedSign, currentLuma, currentLuma * currentLuma,
 						  offScreen ? float(kOffScreen)
 									: float(g_Refusal) + 0.5);
 		// A disocclusion is blamed on whichever clause refused the centre,
@@ -884,7 +997,8 @@ void main()
 							  ? texelFetch(u_Moments, historyTexel, 0)
 							  : texture(u_Moments, historyUV))
 						   : vec4(0.0);
-	float frames = min(prevMoments.x + 1.0, kMaxFrames);
+	// RT-20: through abs(), because the sign is the moved flag, not the count.
+	float frames = min(abs(prevMoments.x) + 1.0, kMaxFrames);
 	const float motionTexels = length(velocity / u_Params.TexelSize);
 	// **Still, and known to be the same surface** (RT-6). The velocity test
 	// alone says a pixel did not move; it cannot say the thing that did not
@@ -931,7 +1045,7 @@ void main()
 	// half step a frame to the write.
 	const uvec2 roundingPixel = uvec2(gl_FragCoord.xy);
 	const uint roundingFrame = uint(u_Params.Frame);
-	o_Moments = vec4(frames,
+	o_Moments = vec4(movedSign * frames,
 					 StoreAsHalf(momMean, HalfRoundingDraw(roundingPixel, roundingFrame, 3u)),
 					 StoreAsHalf(momMeanSq, HalfRoundingDraw(roundingPixel, roundingFrame, 4u)),
 					 float(g_Refusal));

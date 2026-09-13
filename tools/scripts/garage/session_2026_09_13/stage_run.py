@@ -160,6 +160,11 @@ def build_variant(name):
         if shader not in texts:
             raw, crlf = _read(shader)
             texts[shader] = [raw.replace(CRLF, LF), crlf]
+        # `old` None: the whole file is `new` -- a committed copy staged as it
+        # was (RT-20 stages HEAD's resolve beside the patched source).
+        if old is None:
+            texts[shader][0] = new.replace(CRLF, LF)
+            continue
         n = texts[shader][0].count(old)
         if n != 1:
             sys.exit('%s: a substitution in %s matched %d times: %r' % (name, shader, n, old[:60]))
@@ -224,6 +229,44 @@ def lamps_off_scene(head, seconds):
     return ''.join(out).encode('utf-8')
 
 
+# **RT-20: one object crossing the parked garage** -- make_moving_scene.py's
+# near-mirror chrome cube, added to HEAD's scene rather than taken from the
+# committed showroom_moving.rage, which was authored from the 09-07 showroom.
+# `start` is where it begins along world X; it drives +X at `speed` m/s for
+# `stop` seconds of scene time, then holds still.
+CUBE_ENTITY = '''  - EntityID: 7311000000000000101
+    TagComponent:
+      Tag: MovingPanel
+    TransformComponent:
+      Position: [%g, 1.6, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1.2, 1.2, 1.2]
+    MeshComponent:
+      Static: false
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.95, 0.95, 1, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 1
+        Roughness: 0.12
+        Occlusion: 1
+    NativeScriptComponent:
+      Script: Slider
+      Fields:
+        Speed: %g
+        StopAfter: %g
+'''
+
+
+def moving_cube_scene(scene, start, speed, stop):
+    text = scene.decode('utf-8').replace(CRLF, LF)
+    if 'MovingPanel' in text:
+        sys.exit('the scene already has a MovingPanel')
+    if not text.endswith(LF):
+        text += LF
+    return (text + CUBE_ENTITY % (start, speed, stop)).encode('utf-8')
+
+
 def run_arms(arms):
     os.makedirs(OUT, exist_ok=True)
     staged = {a[1]: build_variant(a[1]) for a in arms}   # every substitution checked before any run
@@ -234,8 +277,10 @@ def run_arms(arms):
         for tag, variant, flags, opts in arms:
             if not restore():
                 sys.exit('staged copies did not restore before %s' % tag)
-            io.open(os.path.join(SCENES, HEAD_SCENE), 'wb').write(
-                lamps_off_scene(head, opts['lamps_off_at']) if opts.get('lamps_off_at') else head)
+            scene = lamps_off_scene(head, opts['lamps_off_at']) if opts.get('lamps_off_at') else head
+            if opts.get('cube'):
+                scene = moving_cube_scene(scene, *opts['cube'])
+            io.open(os.path.join(SCENES, HEAD_SCENE), 'wb').write(scene)
             for shader, text in staged[variant].items():
                 io.open(os.path.join(STAGED_DIR, shader), 'w', encoding='utf-8', newline='').write(text)
             if opts.get('no_jitter'):

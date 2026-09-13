@@ -149,7 +149,15 @@ namespace RageV
 									 // lane, z one where a wave was drawn. Null leaves every pixel
 									 // on the geometry's velocity, which is what the sea had -- and
 									 // what made a moving wave look stationary to this pass.
-									 const RHI::Ref<RHI::RHITexture>& waterMotion = nullptr);
+									 const RHI::Ref<RHI::RHITexture>& waterMotion = nullptr,
+									 // **RT-20: the surfaces' own motion** -- the scene's velocity
+									 // lane. `velocity` is the reflection composite's lane wherever
+									 // that ran, in which a pixel made mostly of a reflection moves by
+									 // its image: the right motion to fetch a history with, and the
+									 // wrong one to ask whether a surface moved, since a flat mirror
+									 // sliding along itself has an image that stands still. Null means
+									 // `velocity` already is the scene's own.
+									 const RHI::Ref<RHI::RHITexture>& surfaceVelocity = nullptr);
 
 		// Depth of field, in the three passes it takes. On the linear HDR
 		// scene, after the anti-aliasing resolve and before bloom -- see
@@ -686,6 +694,11 @@ namespace RageV
 							 Sampling seventhSampling = Sampling::Point,
 							 // RT-8: binding 9, past the material lane. The water layer.
 							 const RHI::Ref<RHI::RHITexture>& eighth = nullptr,
-							 Sampling eighthSampling = Sampling::Point);
+							 Sampling eighthSampling = Sampling::Point,
+							 // RT-20: binding 10. The temporal resolve's surface motion.
+							 // Written only where the shader's own layout declares it --
+							 // see Dispatch.
+							 const RHI::Ref<RHI::RHITexture>& ninth = nullptr,
+							 Sampling ninthSampling = Sampling::Point);
 	};
 }

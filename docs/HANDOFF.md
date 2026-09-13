@@ -1,6 +1,10 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-13: **the entry below headed "the histories were
+**Read this first.** Updated 2026-09-13 (night): **the entry below headed "the edge flicker was
+RT-6 refusing the jitter" is the current hand-off**, and the one after it ("the histories were
+rounding the light away") still holds the day's earlier state and its open list.
+
+**Superseded header.** Updated 2026-09-13: **the entry below headed "the histories were
 rounding the light away" is the current hand-off.** RT-5 part 3 is closed with a different fix
 from the one its row named, the same fix went into three more histories, RT-16 reproduces on the
 car's Realtime lamps, and the owner filed **RT-20** (edges flicker under the jitter) and asked
@@ -14,6 +18,48 @@ table and is the one list. **Before picking anything up, read the ten-item list 
 -- every one of them cost hours today and eight are repeatable by anyone. Older headers follow.
 
 **Superseded header.** Updated 2026-09-07 night: **the whole RT-first series is committed and merged to `main`** (`d34c905`, merged as `ddc7827` -- the sentence "nothing is committed" below was true when it was written and is not now), and **the thirteenth entry is the current hand-off**: two outside reviews were read against the code and filed, adding **six items -- RT-6.6 through RT-6.11 and RT-14**, of which **RT-6.6 is done and measured** (its record is in RT-SERIES.md; uncommitted). `docs/RT-SERIES.md` now opens with a status table; read that before picking anything up. The twelfth entry is the RT-3 / RT-3.1 hand-off, the tenth (2026-09-06) the complete one for the RT-first state (recipes, flags, traps, what is where). `docs/RT-SERIES.md` is the one list with the records of RT-1, RT-2, RT-2.1, RT-3 and RT-3.1. Nothing is committed. **RT-6's geometric half is done** -- the temporal resolve refuses a history by depth, normal and object id, with a neighbour search before it gives up, and the bridge is visibly sharper for it (`build/rt3/taa_car_sidebyside.png`). Its still-feedback half is deferred by the owner to RT-8, because the sea reads zero velocity and nothing in the G-buffer says "water". **Open from the owner and not yet started: improve the denoiser and accumulation, and make the ground reflection less blurry** -- the reflection signal's young blur is `YoungRadius = 12`, and a validated history (RT-6, RT-5) is the precondition for weakening it. The AO look is accepted; the deferred resolve is **RT-2.2**, owner-filed for the end of the series.
+
+## 2026-09-13 (night): the edge flicker was RT-6 refusing the jitter -- RT-20 fixed, uncommitted
+
+**State.** Uncommitted on top of `0de7d38`: `taa_resolve.rvshader`, `PostProcess.h/.cpp`,
+`FrameGraphBuilder.cpp`, `docs/RT-SERIES.md` (the RT-20 record), this entry, and the session's
+`rt20_*.py` scripts. Release builds clean and every staged copy of the resolve matches the source.
+The owner's editor-resaved `showroom.rage` (+ .meta) is still theirs -- not ours to commit.
+
+**What was found.** RT-6's surface test compares this frame's jittered sample with last frame's.
+At every edge on a parked camera the sample lands on the object some frames and the background
+the rest, so the test refused the history at every flip and the search swapped in a
+neighbour's -- pure object or pure background -- and the anti-aliased edge never formed. Turning
+the test off (jitter on) took parked edges to the no-jitter floor; nothing else did.
+
+**What was kept, after measuring three.** A still edge keeps its own history across a refusal
+when nothing in its 3x3 moved and what it showed last frame was not moving -- a flag carried in
+the sign of the moments' count, read from the scene's own velocity (a new binding: the
+resolve's velocity input is the reflection composite's lane, where a sliding mirror stands
+still). Parked flicker at the floor (car 7.97 -> 1.19, tubes 11.86 -> 1.08), the bridge's
+shimmer gone (14.70 -> 3.12), shipped exactly while anything moves, no trail behind the moving
+cube. The record has the tables; the owner has the sheets.
+
+**Traps.**
+- **The resolve's `u_Velocity` is not the surfaces' motion** wherever reflections ran: RT-6.1
+  gives a pixel made mostly of a reflection its virtual image's motion. Ask "did it move" of
+  binding 10.
+- **`Dispatch` writes descriptor bindings unconditionally** except binding 10, which checks the
+  layout. A write to a binding the layout lacks is a driver-level fault, and a staged copy of an
+  older shader is exactly that.
+- **A staged variant substitutes into the source as it stands.** After patching the source the
+  old arms stop building -- or worse, build against the patch. `rt20_arms.py` stages HEAD's file
+  whole first.
+- **The SSAA truth is no truth for the cube's own face** (its reflection renders differently);
+  use it for what is behind the cube.
+
+**Open, in order.**
+1. The owner's word on RT-20, then commit and push.
+2. The tube rims that report motion while parked (0.08% of pixels) -- the rule skips them.
+3. The chrome cube's vertical stripes after it passes the car, in the shipped resolve too.
+4. RT-18: the coverage mask, which also covers an object's first frame of motion.
+5. The rest of 2026-09-13's list below: RT-5 parts 4 and 5, the highlight bound, RT-16's
+   design call, `water_foam` / `irradiance_fill` rounding, the bridge validation crash.
 
 ## 2026-09-13: the histories were rounding the light away, and the car's lamps do linger
 

@@ -2841,7 +2841,12 @@ namespace RageV
 							// motion to reproject by, and the geometry lane under it holds
 							// the seabed instead.
 							waterSurface != kRGInvalid ? context.Color(waterSurface, 3)
-													   : nullptr);
+													   : nullptr,
+							// **RT-20: and the scene's own velocity, apart from the lane
+							// above.** Where the reflection ran, that lane is the virtual
+							// image's motion on reflective pixels; whether a surface
+							// moved is asked of this one.
+							context.Color(sceneHDR, velocityIndex));
 					});
 
 				shaded = current;
