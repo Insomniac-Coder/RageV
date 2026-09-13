@@ -68,6 +68,9 @@ void main()
 
 #define RV_TRACE_ONLY
 #include "include/pbr_fragment.glsl"
+// RT-5: every running average below is rounded onto the half grid before it
+// is written -- see the include for the 1.7% it was losing.
+#include "include/half_float.glsl"
 // **Reprojection, measured (RT-first T5, 2026-09-06):** the surface rebuilt
 // at the texel centre through the scene's view-projection, and the history
 // looked up at the previous projection *minus* the previous jitter, is right
@@ -1213,22 +1216,36 @@ void main()
 	// RT-6.5: who this texel was, for the next frame's fourth check.
 	o_Ident = vec4(g_ObjectId, 0.0, 0.0, 0.0);
 #endif
-	o_Accumulated = vec4(kept, frames);
+	// **RT-5: the four running averages this pass keeps, rounded onto the half
+	// grid here rather than by the write** -- the picture, its twin, the image
+	// distance and the two moments. Left to the hardware, which rounds toward
+	// zero, each lost half a step a frame, and the picture settled 1.7% dark on
+	// the direct light's diffuse (include/half_float.glsl). The frame count, the
+	// normal, the plane and the packed material are not averages and are not
+	// touched.
+	const uvec2 roundingPixel = uvec2(texel);
+	const uint roundingFrame = uint(u_Scene.GlobalIllumination.y);
+	o_Accumulated = vec4(StoreAsHalf(kept, HalfRoundingDraw(roundingPixel, roundingFrame, 0u)),
+						 frames);
 #ifdef RV_SIGNAL_PAIR
 	// RT-8: the twin's own frame count, not the first half's -- see the
 	// memory block above for why the two must be able to differ.
-	o_Accumulated2 = vec4(kept2, twinFrames);
+	o_Accumulated2 = vec4(StoreAsHalf(kept2, HalfRoundingDraw(roundingPixel, roundingFrame, 1u)),
+						  twinFrames);
 #endif
 	// For the next frame's tests: this reflector's normal as the scene
 	// encodes it, the plane it lies in, how far behind it its image sat;
 	// its roughness, what its estimate has been doing, and which history it
 	// took -- the last for the debug view (--debug-view=reflection-choice).
-	o_Surface = vec4(surface.rg, dot(N, P), image);
+	o_Surface = vec4(surface.rg, dot(N, P),
+					 StoreAsHalf(image, HalfRoundingDraw(roundingPixel, roundingFrame, 2u)));
 	// choice in the fraction (0 none, 0.25 the surface's history, 0.5 the
 	// image's), the refusal reason in the integer part.
 	// RT-6.5: the roughness with the metallic in its integer part, so the
 	// next frame can tell a metal from a dielectric at the same roughness.
-	o_Extra = vec4(PackMaterial(roughness, g_Metallic), momMean, momMeanSq,
+	o_Extra = vec4(PackMaterial(roughness, g_Metallic),
+				   StoreAsHalf(momMean, HalfRoundingDraw(roundingPixel, roundingFrame, 3u)),
+				   StoreAsHalf(momMeanSq, HalfRoundingDraw(roundingPixel, roundingFrame, 4u)),
 				   0.5 * choice + float(g_Refusal));
 #ifdef RV_SIGNAL_PAIR
 	CountSignal(g_Kept, g_Refusal, frames, twinFrames);

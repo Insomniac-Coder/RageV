@@ -1596,6 +1596,9 @@ namespace RageV
 			// RT-6.8: whether the box may be built from this surface alone.
 			float BoxGeometry = 0.0f;
 			float AntiLag = 0.0f;
+			// RT-5: the frame number the resolve draws its half-grid rounding
+			// from -- tonemap's grain takes the same count for the same reason.
+			float Frame = 0.0f;
 		};
 		TemporalParams full;
 		full.Jitter = jitter;
@@ -1608,6 +1611,7 @@ namespace RageV
 		full.BoxGeometry = boxGeometry ? 1.0f : 0.0f;
 		// RT-5/RT-16: the anti-lag, from the engine.
 		full.AntiLag = EngineConfig::Get().SignalAntiLag;
+		full.Frame = (float)(Renderer::GetFrameCount() & 0xFFFFFFu);
 		PostParams& params = full.Base;
 		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
 							 1.0f / (float)Math::Max(height, 1u) };
@@ -1670,7 +1674,16 @@ namespace RageV
 		if (!s_Data || !current)
 			return;
 
-		PostParams params;
+		// The shared block, then RT-5's frame number for the shader's half-grid
+		// rounding of its averages.
+		struct DenoiseParams
+		{
+			PostParams Base;
+			float Frame = 0.0f;
+		};
+		DenoiseParams full;
+		full.Frame = (float)(Renderer::GetFrameCount() & 0xFFFFFFu);
+		PostParams& params = full.Base;
 		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
 							 1.0f / (float)Math::Max(height, 1u) };
 		// Clamped short of 1 for TemporalResolve's reason: a filter that never
@@ -1687,7 +1700,7 @@ namespace RageV
 					&& params.B > 0.5f) ? 1.0f : 0.0f;
 
 		Dispatch(cmd, Shader::GiDenoise, outputFormat, current, history,
-				 &params, sizeof(params), Sampling::Point, Sampling::Linear,
+				 &full, sizeof(full), Sampling::Point, Sampling::Linear,
 				 velocity, Sampling::Point,
 				 // **Binding 3 is filled whether or not there are moments to
 				 // read.** The shader declares it unconditionally, and a

@@ -55,6 +55,10 @@ void main()
 #type fragment
 #version 450 core
 
+// RT-5: the colour and the moments are running averages, rounded onto the
+// half grid before they are written -- see the include for why.
+#include "include/half_float.glsl"
+
 layout(location = 0) in vec2 v_UV;
 layout(location = 0) out vec4 o_Color;
 // **What this pixel has learned about itself, for the next frame.**
@@ -89,6 +93,7 @@ layout(push_constant) uniform Params
 	float HasHistory;
 	float HasMoments;    // whether u_Moments holds a real frame yet
 	float FlipY;
+	float Frame;         // RT-5: the frame number, for the half-grid rounding's draw
 } u_Params;
 
 // How far outside the neighbourhood the history may sit before it is pulled
@@ -307,7 +312,13 @@ void main()
 	const float momMeanSq = mix(prevMoments.z, lum * lum, alpha);
 	const float temporalSigma = sqrt(max(momMeanSq - momMean * momMean, 0.0));
 
-	o_Moments = vec4(frames, momMean, momMeanSq, 0.0);
+	// RT-5: averages, and a half-float target that rounds toward zero on write.
+	const uvec2 roundingPixel = uvec2(gl_FragCoord.xy);
+	const uint roundingFrame = uint(u_Params.Frame);
+	o_Moments = vec4(frames,
+					 StoreAsHalf(momMean, HalfRoundingDraw(roundingPixel, roundingFrame, 3u)),
+					 StoreAsHalf(momMeanSq, HalfRoundingDraw(roundingPixel, roundingFrame, 4u)),
+					 0.0);
 
 	const vec3 centre = mean;
 	// **Never clamp tighter than this pixel is known to fluctuate.** A box
@@ -360,5 +371,10 @@ void main()
 	// metres: measured +6.93 against a correct +1.27, and it looked exactly
 	// like a feedback loop rather than like a unit error.
 	// Back to linear irradiance, which is what the lit shader multiplies in.
-	o_Color = vec4(max(Expand(result), vec3(0.0)), 1.0);
+	// **RT-5: and rounded onto the half grid here, not by the write**, which
+	// rounds toward zero and took half a step a frame from an average whose
+	// feedback keeps most of it (include/half_float.glsl).
+	o_Color = vec4(StoreAsHalf(max(Expand(result), vec3(0.0)),
+							   HalfRoundingDraw(roundingPixel, roundingFrame, 0u)),
+				   1.0);
 }

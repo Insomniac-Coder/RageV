@@ -31,7 +31,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 
 ## Status at a glance
 
-**Twenty of thirty-three items are closed, three more are part-done, ten are open. Every RT-6.x sub-item is finished.** (2026-09-08.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
+**Twenty-two of thirty-four items are closed, four are part-done (RT-4, RT-5, RT-13, RT-16), eight are open. Every RT-6.x sub-item is finished.** (2026-09-13. The 2026-09-09 hand-off said twenty-three, which was a miscount, and this line had said twenty since 2026-09-08.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
 
 | # | status | effort | risk | in a line |
 |---|---|---|---|---|
@@ -42,7 +42,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-3 | ✅ done 2026-09-07 | — | — | GI as a signal of this frame |
 | RT-3.1 | ✅ done 2026-09-07 | — | — | the contract at each signal's own resolution |
 | RT-4 | **partial** — the composite measurement answered (it stays after the resolve); the trace's move and R11 open | 2 d | moderate | reflections as an instance of the shared code |
-| RT-5 | 🔨 **part done 2026-09-09** — parts 1 and 2 measured already landed (0.0% plane refusals); part 4 built and off; **part 3 is the live one** | 1-2 d | moderate | the contract validates by the G-buffer; the blur goes |
+| RT-5 | 🔨 **part done** — parts 1 and 2 measured already landed (2026-09-09); **part 3 closed 2026-09-13: the darkening was the histories' half-float rounding, not the bound — fixed in the accumulator and the temporal resolve, the bound left as it is**; part 4 built and off; part 5 open | 1 d | moderate | the contract validates by the G-buffer; the blur goes |
 | RT-6 | ✅ **done 2026-09-09** — both halves; the still rule needs no per-project value now the sea reports its own motion | — | — | TAA on the G-buffer |
 | RT-6.1 | ✅ done 2026-09-07 | — | — | the reflection's virtual-image motion lane |
 | RT-6.2 | ✅ **re-run 2026-09-07: the negative result expired** | — | — | the material-aware clamp, live on RT-6.8's box |
@@ -64,10 +64,11 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-13 | **skinned + layered ✅ done inside RT-2**; transparent open | 0.5 d to decide | low | every opaque surface in the G-buffer |
 | **RT-14** | ✅ **done 2026-09-07** — and it says do not pack the G-buffer | — | — | the G-buffer's bandwidth, measured before anything is packed |
 | **RT-15** | ✅ **done 2026-09-08** — both halves | — | — | the reflection accumulator reprojects by object motion |
-| **RT-16** | 🔨 **measured 2026-09-09** — 1.84 s confirmed; no single term owns it, the two filters in series do; the design call is open | 1 d | moderate | a reflection takes seconds to leave the floor when its light goes out |
+| **RT-16** | 🔨 **re-measured 2026-09-13** — reproduced on the car's own Realtime lamps: 95% of their light leaves the floor at 189 frames (3.1 s). The 2026-09-09 "a baked light behaving like one" reading and its 0.41 s for the car were wrong (the lamps start off). The design call is open | 1 d | moderate | a reflection takes seconds to leave the floor when its light goes out |
 | **RT-17** | open — **new** | 2-3 d | moderate | the accumulator tests what the ray *hit*, by identity |
 | **RT-18** | open — **new** | 1-2 d | low | history cannot outlive the silhouette it belongs to |
 | **RT-19** | ✅ **done 2026-09-08** | — | — | the refusal reasons, totalled per frame |
+| **RT-20** | open — **new, owner-filed 2026-09-13** | 1-2 d | moderate | edges flicker on a parked camera while the jitter is on |
 
 **Three new items on 2026-09-08 (RT-17..RT-19)**, from the owner's *Object-Aware Temporal Rendering* document; the section below the reviews records what that document proposed that this engine already had, what was taken, and what was rejected and why.
 
@@ -104,6 +105,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-17** | **The accumulator tests what the ray hit, by identity -- not only how far away it was.** Every test the reflection history has is about the *reflector*: the same object, the same plane, the same facing, the same roughness, the same metallic, and (RT-6.10) how far the reflected thing stood. Nothing tests **what** it was. So a polished wall that never moves, a camera that never moves, and a car driving past in front of it: every test passes at full confidence, the history is kept whole, and the car's reflection smears along the wall. RT-6.10 cannot catch it -- a car crossing at a roughly constant distance does not change the hit *distance*. The trace writes the hit's **instance id and normal** into the payload it already fills, the accumulator keeps them beside the reflector's, and a change **scales the confidence rather than refusing**: a distant environment changes which triangle a ray lands on every frame without changing what it looks like, so an equality test there would refuse a history that was perfectly good (the document's §62, and it is right). The hit normal is nearly free once the lane exists and catches the constant-distance case the distance test misses. **Precondition:** the reflection trace has no payload lane for either today, and RT-14 measured the persistent histories at 128 B/pixel -- so the lane is sized and measured before it is written, on RT-14's own terms. | owner's OATR document §15, §17, §61, §62; the half of RT-6.10 that was filed and not built | The one axis of a reflection's history that has never been validated, and the only one that sees a moving *reflected* object. | medium |
 | **RT-18** | **History cannot outlive the silhouette it belongs to.** A moving object leaves no trail today because the per-pixel tests all fire correctly in the band it has vacated -- the id, the depth and the normal there describe the wall behind, so the object's history is refused. That is a guarantee by argument rather than by construction, and every gap found this week (the missing motion vector of RT-15, the plane residual of a moving reflector) was a case where one of those tests silently agreed with a history it should have refused. A coverage mask for **this frame** multiplied into the history weight makes the vacated band empty by construction. **Take the mask and not the isolated pass**: the document's two-pass form (§4, §26) invents the double-lighting hazard it then warns about in §47, and this engine composites the reflection above the resolve already (RT-6.1). | owner's OATR document §26-27, §46 | The cheap structural guarantee behind the per-pixel tests, on the class of defect this week kept producing. | small |
 | **RT-19** | **The refusal reasons, totalled.** Every temporal pass already writes *why* it refused a history per pixel -- `g_Refusal` in the accumulator, and RT-12's reason enum in the resolve -- and nothing ever adds them up. So the question "is this smear a history wrongly kept, or a signal too thin to average" is answered with an afternoon of staged probes, which is exactly what 2026-09-08 spent before finding that the objects were reporting no motion at all. One line beside the ray counters: acceptance rate, the split by which test refused (id, depth, normal, material, direction, hit, disocclusion, off screen), and the average history length. **Not a fix, an instrument** -- and the cheapest item on this list. | owner's OATR document §56 | The numbers exist per pixel and are thrown away every frame. | small |
+| **RT-20** | **Edges flicker on a parked camera while the jitter is on.** Owner-filed 2026-09-13 after watching a test run with `TemporalJitterScale` at 0: "the edge jitteriness is gone, it looks very stable". Measured that day on the garage, parked, per-frame change on edge pixels (frames 150-169, `edge_shake.py`'s regions): **car 7.92 levels (bright edges 11.43), wall 4.54, poles 4.04, tubes 11.71 (bright edges 20.63) with the jitter; about 1 everywhere without it.** The jitter is the anti-aliasing -- eight sub-pixel positions averaged into a coverage-weighted edge -- and a parked camera is exactly where that average should have converged, so a pixel still swinging 8-20 levels a frame is one whose history is being discarded or clipped every cycle and shows the raw sample. **Measure before touching anything**: which resolve step does it -- the geometric test refusing at silhouettes (RT-6, `--taa-geometry=off`), the box built from this surface's taps only (RT-6.8, `--taa-box-geometry=off`, whose one-sided box at an edge excludes exactly the other side the averaged colour is made of), the Catmull-Rom fetch (RT-6.11), or the tubes' HDR contrast through the compressed blend -- with `taa-refusal`, the temporal counters and `--capture-signals=taa` with a crop on an edge, frame by frame. **Not a fix by switching the jitter off**: that trades the flicker for aliasing, and MSAA does not run under TAA unless `--msaa` asks. | owner, 2026-09-13 | The anti-aliasing is the one filter every pixel passes through, and on the owner's scene its edges are the least stable thing in a still frame. | small to measure; the fix depends on what the measurement finds |
 | **RT-15** | **The reflection accumulator reprojects by object motion, not only the camera's.** It finds last frame's texel by pushing this frame's world position through last frame's view-projection -- which asks where the point *would* have been if it had not moved. For anything that moves it was somewhere else, so every history test refuses, `frames` falls to one, and the pixel shows a **single ray**: noise on a mirror, and the ghosting the owner sees while driving the car. `u_Velocity` is already bound to the pass and used only for the silhouette test. The fix is to reproject by that lane where it describes object motion, and to decide what a *rotating* reflector does, which a screen-space velocity cannot express. **Measure on `showroom_moving.rage`**, which is the only scene that shows it. | found 2026-09-07 by the moving-object scene | Every reflection on anything that moves is currently a one-sample estimate. | medium — **do early; it is the largest visible defect found this week** |
 | **RT-14** | **The G-buffer's bandwidth, measured before anything is packed.** Both reviewers raise it and both put it last, which is right: the lanes have grown with every item in this series -- surface, id, velocity, RT-6's TAA guide pair, RT-6.1's fourth reflection attachment -- and nothing has ever measured what they cost. **Profile first:** write and read bandwidth per pass, cache behaviour, where the pass time actually goes. Then A/B any packing against a diff image. Candidates: the id lane's width, the velocity format, the TAA guide's sixteen bytes, and the albedo lane -- which **RT-2.2 wants widened, not narrowed**, so the two are decided together or not at all. **Do not pack on theory:** RT-2.1 measured a "doubled rasterisation" that turned out to be a parallax march, and the same mistake inside a format change is a picture regression bought for nothing. | first review §20-21, second review's ordering | The one item both reviews agree comes after everything else. | small to measure; unknown to act on |
 
@@ -140,6 +142,7 @@ Effort is solo days at this week's pace (build, measure, report, wait); risk is 
 | RT-16 | 1-2 d | moderate | Half of it is a measurement -- count the frames, and find which of the two filters is holding the light -- and half is the design question the measurement will force: whether a signal should pass through its own accumulator *and* TAA, which is a consequence of RT-6.1 that was never priced. Shortening either memory trades against the noise it exists to hide. |
 | RT-15 | 2-3 d | moderate | The velocity lane is per pixel and screen-space, which describes a translating reflector and not a rotating one -- a turning mirror's history moves in a way no screen velocity encodes, and deciding what to do there is most of the design. The accumulator already reprojects by the *virtual image* for the camera's motion, so object motion has to compose with that rather than replace it. `showroom_moving.rage` is the arm. |
 | RT-14 | 1 d to measure | low | The measurement *is* the item; whether anything follows is what it decides. It collides with RT-2.2, which widens the albedo lane rather than narrowing it -- the two are decided together. |
+| RT-20 | 1-2 d | moderate | Every pixel in every scene passes through the resolve, so any change to how it keeps an edge is visible everywhere -- and the trade is the one this resolve was tuned against for weeks: a history kept through an edge is a ghost when the edge moves. The measurement has to separate the four suspects on a still camera *and* hold the dolly and the moving-object arms where they are, and the bridge's sub-pixel cables are the case that punishes a wrong answer. |
 
 **Dependencies:** RT-9 wants RT-1's cheap score; RT-10 builds on RT-9's lane and RT-5's validation; RT-6's velocity rule wants RT-8 or a guard; RT-7 carries WR-9 inside it. **The whole series at this pace: roughly seven to eight weeks of solo days**, front-loaded with the medium items so the high-risk ones (RT-5, RT-8, RT-10) land on a validated contract.
 
@@ -277,6 +280,156 @@ tell you the motion itself is a lie. That is what RT-19's totals and a staged co
 for.
 
 ## Records
+
+### RT-5 part 3 — ✅ closed 2026-09-13: the darkening was the histories' rounding, not the bound
+
+**The row's diagnosis did not survive measurement.** It said the bound clips a skewed
+K-sample estimate and leaves the floor and the car -0.16 levels dark. Re-measured at the
+preset's K = 8 (the -0.16 was taken at K = 4 on 2026-09-06; it came out the same), sampled
+lights against every light, 64-frame parked means of the final picture, and every candidate
+taken out on its own and together:
+
+| arm | floor | car |
+|---|---|---|
+| as shipped | -0.157 | -0.157 |
+| the bound off, both payloads | -0.140 | -0.153 |
+| the bound off, the first payload only | -0.157 | -0.157 |
+| TAA's clip off | -0.158 | -0.159 |
+| TAA's compressed blend made linear | -0.156 | -0.156 |
+| every clamp and the compressed blend off | -0.139 | -0.154 |
+| TAA's still feedback 0 | -0.155 | -0.168 |
+| no anti-aliasing at all | -0.012 | -0.037 |
+| TAA with the jitter off, so the picks stay fixed per pixel | -0.005 | -0.038 |
+| the jitter off and the picks re-drawn every frame | -0.168 | -0.299 |
+| no anti-aliasing and the picks re-drawn every frame | -0.180 | -0.285 |
+
+**What it needs is picks that change from frame to frame, and nothing else in the list.** A
+CPU replica of the reservoir's hash and acceptance loop put the estimator's mean within 0.3%
+for one pixel over its 1024 salts, and on the GPU the raw per-frame estimate (every history
+off, 100 frames) matched every light to 0.01%.
+
+**The instrument that found it: `--capture-signals=direct,taa[,crop=x:y:w:h]`** (runtime
+only). The named histories read back as float arrays at the screenshot frames and written as
+their mean, plus every frame of a small crop -- the signal as the next pass reads it, before
+the tone curve and the eight bits. Linear, sampled against every light:
+
+| direct light | whole | floor |
+|---|---|---|
+| the raw estimate, every history off | 0.000% | +0.002% |
+| after the accumulator, diffuse | -1.692% | -1.807% |
+| the same, the bound off | -1.691% | -1.807% |
+| after the accumulator, specular | -0.748% | -1.502% |
+| the same, the bound off | -0.006% | -0.018% |
+
+Frame by frame on a 64x64 floor patch the accumulator lost the same -0.00052 on every texel
+every frame, uncorrelated (0.006) with whether the new estimate sat above or below the
+history, and **the stored value equalled the exact update rounded down to the half-float grid
+in 99.9% of 1.3 million texel-frames** -- rounded to nearest in 50.2%, which is chance.
+
+**The mechanism.** Every temporal history here is RGBA16F. An average that forgets at 1/n
+moves less than one half-float step a frame, so the stored result is almost never
+representable, and this GPU's float-to-half conversion rounds toward zero: half a step lost a
+frame, settling about n/2 steps low. That is 1.6-3.1% of the value depending on where it sits
+in its power-of-two octave, which is why the loss map follows the brightness of the light
+pools rather than any geometry. A still input is never rounded, because a converged average
+stops changing; so the loss appears only where the input moves -- sampling noise, detail the
+jitter walks across -- which is why fixed picks showed nothing and every clamp ablation said
+nothing.
+
+**The fix, in the engine: `include/half_float.glsl`.** The accumulator and the temporal
+resolve -- and, below, three more histories -- round their running averages onto the half grid themselves, up with the chance of how
+far past the step below the value sits, so the stored value is exactly representable and the
+hardware has nothing left to round on any vendor. The accumulator's picture, twin, image
+distance and moments; the resolve's colour, alpha and moments, with the frame number added to
+its push block for the draw (the jitter repeats every eight frames). Adding half a step would
+have been right only on hardware that truncates; 32-bit histories would double every one of
+them to fix a rounding. **Owner-approved 2026-09-13 after before/after pictures**
+(`build/rt5/rounding_*.png`).
+
+**Measured with it**, the garage parked, 64-frame means, eight-bit levels:
+
+| | whole | floor | car | wall |
+|---|---|---|---|---|
+| sampled - every light, before | -0.123 | -0.157 | -0.157 | +0.005 |
+| sampled - every light, after | -0.023 | -0.019 | -0.004 | +0.011 |
+| after - before, the picture | +0.686 | +1.333 | +0.721 | +0.474 |
+
+Linear: the final colour +3.4% on the floor and +2.8% on the car, the direct light's diffuse
++1.98%. The engine build matches the staged arm the owner looked at to 0.001 levels.
+Validation under the same build is the identical set of messages with the committed shaders
+staged instead, and the resolve's 56-byte push is flagged only against the old 52-byte block.
+
+**What the row's own change would have done, measured and not built.** A 4x wider bound for a
+history settled over 8-32 frames: on a still, 4.8% of pixels change at all and 0.2% by more
+than two levels, the floor 0.01 closer to every light and the poles 0.05 further; with the
+owner's lights button pressed off, the car's light leaves the floor later -- half gone at 44
+frames as shipped against 53, 95% gone at 189 against 205. **Dropped**: nothing gained on a
+still, a real cost on a switch.
+
+**And the same rounding in three more histories, owner-approved the same day:**
+`water_accumulate` (the sea's own lamp average, both halves -- the default arm on the bridge),
+`gi_denoise` (the indirect buffer's temporal stage, colour and moments; it gained a frame number
+in its push block) and `tile_budget` (the ray allocator's averaged demand). The raster SSAO's
+temporal pass needed nothing of its own: it runs through the temporal resolve.
+
+- **The bridge barely moves, in the right direction.** 64-frame means, after against the
+  committed shaders: the pier -0.002 levels overall, 0.09% of pixels brighter by more than a
+  level and none darker; the glitter camera +0.018, 0.11% brighter and 0.01% darker. A night
+  scene is dark, so there was little light for the rounding to take. Diff images
+  `build/rt5/bridge_{pier,glitter}_3_diff.png`: black at x8 but for a faint green on the lamp
+  pools and the tower.
+- **The allocator must not dither, and the still test is what said so.** Stochastic rounding
+  of the averaged demand took the sixty-second still test on the bridge from **0.0082 changes
+  per tile per second (2 tiles) to 0.0203 (7 tiles), over the 0.01 bar**, on both lanes: a
+  thresholded value wobbling at a dead band's edge is a crossing. So it rounds to the nearest
+  step instead (`StoreAsHalfNearest`): **0.0095, the same 2 tiles, PASS** on both lanes -- the
+  committed shader measured 0.0082 twice, to the transition, so the difference is real and is
+  the one already-restless tile toggling 684 times against 539. A picture wants the average
+  exact; a threshold wants nothing that moves.
+- scenetest after all five: Vulkan and OpenGL fail only the checks that fail with the committed
+  shaders (below); `--validation=on` gives the committed shaders' identical set.
+
+**Left standing:**
+- The highlight half's bound has no noise floor and costs 0.75% of the direct specular, 1.5% on
+  the floor -- the one real effect the row named, too small to see, and widening it is the lag
+  trade above.
+- **Two more writes of the same kind, found by the sweep and not touched**: `water_foam` keeps
+  its foam in an `rg16f` image and integrates it a small step a frame, and `irradiance_fill`
+  blends each sweep into the previous one in an `rgba16f` field. Both round toward zero on the
+  same write. Auto exposure does not: its state is a float buffer.
+- **The bridge crashes under `--validation=on`**, committed shaders or these: the transparent
+  draw (`Renderer3D::FlushBlended`) commits binding 7 into a set whose layout has none, and the
+  Khronos layer dereferences null inside `vkUpdateDescriptorSets`. Without validation the frame
+  renders; with it no bridge validation run can finish. Worth an item.
+- **Two identical runs of the garage are bit-identical to frame 167 and no further**: from 168
+  up to 0.035% of pixels differ by up to 17 levels, with no change to the frame's mean (the
+  owner's GPU was also running a model). A bit-identical null test in this scene is good for
+  frames before 168 only.
+
+### RT-16 — corrected 2026-09-13: the car's lamps do linger, and nothing about them is baked
+
+The 2026-09-09 records put the tubes' 1.84 s down to "a baked light behaving like one" and gave
+the car's lamps 0.41 s. **The second number was of nothing**: ShowroomLights starts the car's
+lamps off (`StartOn: false`), so `BURST_SWITCH="Headlamp,Tail|1.328"` switched off lights that
+were already off, and the pixels it "changed" were run noise. Re-measured with the lamps started
+on and the owner's lights button replayed at 8.3 s -- the four Realtime spot lamps to intensity
+0 and the twelve lens parts to emissive 0, exactly what `Toggle()` writes
+(`session_2026_09_13/stage_run.py`, `lamps_off_scene`):
+
+| after the switch | the lamps' light still on screen |
+|---|---|
+| 0.05 s | 83% |
+| 0.5 s | 60% |
+| 1 s | 40% |
+| 2 s | 16% |
+| 3 s | 6% |
+
+**So the owner's report reproduces with no bake anywhere.** The reflections of the headlamps are
+plainly on the wet floor half a second after the switch and faintly at a second and a half
+(`build/rt5/fade_fadeL_ship_vs_fadeL_part3.png`, left column). Through the tone curve, so
+these compare fades rather than measure a filter's constant; `--capture-signals` reads the
+histories linearly and is the instrument for the rest of this item. Taken before the rounding
+fix and not re-measured after it.
 
 ### RT-16 — the measurement half, done 2026-09-09; the lag is the series and no single term owns it
 

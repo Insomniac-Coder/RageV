@@ -1,12 +1,117 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-09 (evening): **the entry below headed "what this day
+**Read this first.** Updated 2026-09-13: **the entry below headed "the histories were
+rounding the light away" is the current hand-off.** RT-5 part 3 is closed with a different fix
+from the one its row named, the same fix went into three more histories, RT-16 reproduces on the
+car's Realtime lamps, and the owner filed **RT-20** (edges flicker under the jitter) and asked
+for its cause next. Committed and pushed. The 2026-09-09 entry after it still holds the ten
+mistakes to read before picking anything up.
+
+**Superseded header.** Updated 2026-09-09 (evening): **the entry below headed "what this day
 got wrong" is the current hand-off.** RT-6 and RT-8 are closed, RT-5 is part done and RT-16's
 instrument was found to be measuring the wrong thing. `docs/RT-SERIES.md` opens with a status
 table and is the one list. **Before picking anything up, read the ten-item list in that entry**
 -- every one of them cost hours today and eight are repeatable by anyone. Older headers follow.
 
 **Superseded header.** Updated 2026-09-07 night: **the whole RT-first series is committed and merged to `main`** (`d34c905`, merged as `ddc7827` -- the sentence "nothing is committed" below was true when it was written and is not now), and **the thirteenth entry is the current hand-off**: two outside reviews were read against the code and filed, adding **six items -- RT-6.6 through RT-6.11 and RT-14**, of which **RT-6.6 is done and measured** (its record is in RT-SERIES.md; uncommitted). `docs/RT-SERIES.md` now opens with a status table; read that before picking anything up. The twelfth entry is the RT-3 / RT-3.1 hand-off, the tenth (2026-09-06) the complete one for the RT-first state (recipes, flags, traps, what is where). `docs/RT-SERIES.md` is the one list with the records of RT-1, RT-2, RT-2.1, RT-3 and RT-3.1. Nothing is committed. **RT-6's geometric half is done** -- the temporal resolve refuses a history by depth, normal and object id, with a neighbour search before it gives up, and the bridge is visibly sharper for it (`build/rt3/taa_car_sidebyside.png`). Its still-feedback half is deferred by the owner to RT-8, because the sea reads zero velocity and nothing in the G-buffer says "water". **Open from the owner and not yet started: improve the denoiser and accumulation, and make the ground reflection less blurry** -- the reflection signal's young blur is `YoungRadius = 12`, and a validated history (RT-6, RT-5) is the precondition for weakening it. The AO look is accepted; the deferred resolve is **RT-2.2**, owner-filed for the end of the series.
+
+## 2026-09-13: the histories were rounding the light away, and the car's lamps do linger
+
+**State.** Committed and pushed on top of `971d51e`: the rounding fix in five histories
+(owner-approved), the `--capture-signals` instrument, the session's scripts in
+`tools/scripts/garage/session_2026_09_13/`, and the records in `docs/RT-SERIES.md` (RT-5
+part 3, RT-16's correction, RT-20 filed). The working copy's `SampleProject/assets/scenes/showroom.rage`
+was re-saved by the editor on 2026-09-11 -- new fields written out at their defaults, and the
+scene's name changed from "The showroom" to "Untitled" -- and its `.meta` hash followed when the
+runtime ran; neither is this session's change, and every measurement here used HEAD's copy of
+the scene instead (`stage_run.py` writes it beside the working copy and deletes it).
+
+### What was found
+
+**RT-5 part 3's darkening was not the bound.** Every temporal history is RGBA16F, each
+running average moves less than a half-float step a frame, and this GPU rounds the write toward
+zero -- so each history settles about memory/2 steps low wherever its input moves. The direct
+light's diffuse sat 1.7% under its own estimate; the final picture 3.4% under on the wet floor
+and 2.8% on the car. Proven with a per-frame crop: the stored value was the exact update rounded
+*down* in 99.9% of 1.3 M texel-frames. The full ablation table and the mechanism are in RT-5
+part 3's record.
+
+**Fixed** in `include/half_float.glsl`, used by `reflection_accumulate.rvshader` (picture,
+twin, image distance, moments), `taa_resolve.rvshader` (colour, alpha, moments; push block
+gained `Frame`), `water_accumulate.rvshader` (both halves), `gi_denoise.rvshader` (colour,
+moments; push block gained `Frame`) and `tile_budget.rvshader` (the averaged demand, **rounded
+to nearest rather than stochastically** -- the dithered version failed the allocator's still test,
+0.0203 against the 0.01 bar; nearest passes at 0.0095 against the committed 0.0082). Sampled
+against every light on the garage floor: -0.157 -> -0.019 levels; the garage brightens +0.7
+levels overall and +1.3 on the floor; the bridge moves by hundredths of a level, brighter.
+`include/dither.glsl` gained an include guard, since the rounding reaches its hash.
+
+**Part 3's own change was built as a staged arm, shown to the owner, and dropped**: no visible
+difference on a still ("honestly I can't tell the difference"), and the car's light leaves the
+floor later with it (95% gone at 205 frames against 189).
+
+**RT-16 reproduces with no bake**: with the car's lamps started on and the owner's lights
+button replayed, 60% of their light is still on the floor half a second later and 6% after
+three. The 2026-09-09 "0.41 s" was of lamps that `ShowroomLights` starts off.
+
+### The instrument: `--capture-signals`
+
+`--capture-signals=direct,taa[,reflections,occlusion,gi][,crop=x:y:w:h]` beside
+`--screenshot`/`--screenshot-count` writes `<shot>_<name><attachment>.npy`, the mean of that
+history over the screenshot frames as float32 (direct 0 is the diffuse before albedo, 3 the
+specular; taa 0 the colour before the tone curve), and with a crop every frame of it as
+`_crop.npy` (frames, h, w, 4). Read back at the start of the frame after each one, so the run
+lasts a frame longer. **This is what RT-16 lacked**: a filter's time constant, linear. Checked
+against itself: with the switch on the picture differs from a run without it exactly as much as
+two identical runs differ from each other.
+
+### Verified
+
+- The engine build against the staged arm the owner looked at: 0.001 levels.
+- `--validation=on`: the identical set of messages with the committed shaders staged under the
+  same build; the resolve's 56-byte push is flagged only against the old 52-byte block.
+- The allocator's sixty-second still test (`tools/scripts/tile_transitions.py`, bridge at
+  Headland, both lanes): 0.0095 changes per tile per second, PASS (committed: 0.0082, twice, to
+  the transition; the dithered rounding: 0.0203, FAIL).
+- The bridge against the committed shaders at the pier and glitter cameras: hundredths of a
+  level, brighter, no structure in the diff (`build/rt5/bridge_*`).
+- scenetest, after all five: Vulkan 2488 pass / 3 fail, OpenGL 2430 pass / 2 fail. **All five fail with the
+  committed shaders too** (Vulkan re-run with them staged): the layered PBR variant declares 33
+  samplers against OpenGL's 32, "with bodies in it" finds no physics bodies in the project's
+  start scene, and switching anti-aliasing modes logs ten warnings that the resolve's guide
+  bindings 6 and 7 were never written. None of them is this change; all three want an item.
+
+### Traps paid for, and one new one
+
+- **Two identical garage runs agree to the bit only until frame 167.** From 168, up to 0.035%
+  of pixels differ by up to 17 levels, the frame mean unmoved. A bit-identical null test in this
+  scene is valid before frame 168 and nowhere after. (The owner's GPU was also running a model;
+  whether that is the cause is not established.)
+- **Every clamp ablation came back empty for a reason**: the loss was in the write, which none
+  of them touched. When removing each suspect changes nothing, read the stored numbers before
+  removing another suspect.
+- **A measurement that edits the owner's project is visible to the owner**: the jitter-off arms
+  set `TemporalJitterScale` in `SampleProject.rvproject` (restored byte for byte after each run)
+  and the owner watched the test windows. No project edits in the harness from here; a staged
+  shader or a flag instead.
+
+### Open, in order
+
+1. **RT-20, owner-asked next: why the edges flicker under the jitter.** Parked garage, per-frame
+   change at edges: car 7.92, tubes 11.71, poles 4.04 levels with the jitter; about 1 without.
+   Measure which resolve step discards the edge's average before changing anything -- the
+   row lists the four suspects and the switches that already exist for two of them.
+2. **RT-5 part 4**, the anti-lag: built and off; prove it on the lights-button arm, or delete it.
+3. **RT-5 part 5**: the three blur passes still run for every signal whose young radius is zero
+   (reflections, direct light, sea) and copy their input -- including the pass behind the
+   `signal.blur.pair` validation defect. Occlusion and GI still blur; measure off against on.
+4. **The highlight half's bound** costs 0.75% of the direct specular -- the one real effect the
+   row named. Small; any widening trades against the lag.
+5. **RT-16**'s design call, now with a linear instrument and a switch that actually switches.
+6. **Two more half-float integrators**, found by the sweep and untouched: `water_foam` (`rg16f`)
+   and `irradiance_fill` (`rgba16f`). Owner's call.
+7. **The bridge cannot run under `--validation=on`**: the transparent draw commits binding 7 into
+   a layout without one and the Khronos layer crashes on it. Pre-existing.
 
 ## 2026-09-09 (evening): what this day got wrong, and where RT-5 and RT-16 stand
 

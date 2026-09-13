@@ -11,6 +11,13 @@
 // lowbias32 (Wellons) -- moved here from tonemap.rvshader (WR-2) so sky and
 // fog can seed dither the same reproducible way rather than each growing
 // their own copy to drift from it.
+//
+// Guarded since RT-5 (2026-09-13): half_float.glsl draws its rounding from
+// the same hash, so a shader can now reach this file twice.
+
+#ifndef RV_DITHER_GLSL
+#define RV_DITHER_GLSL
+
 uint HashU(uint x)
 {
 	x ^= x >> 16;
@@ -49,3 +56,5 @@ float TpdfDither(vec2 fragCoord, uint frame, uint pass)
 	float r2 = Rand01(seed ^ 0x9e3779b9u);
 	return (r1 + r2 - 1.0) * (1.0 / 255.0);
 }
+
+#endif

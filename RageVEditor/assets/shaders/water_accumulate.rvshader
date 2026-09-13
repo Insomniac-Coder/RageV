@@ -49,6 +49,9 @@ void main()
 // pipeline in this frame already has, so it binds the set the others bind.
 #define RV_TRACE_ONLY
 #include "include/pbr_fragment.glsl"
+// RT-5: the two averages below are rounded onto the half grid before they are
+// written, as the signal contract's are -- see the include for why.
+#include "include/half_float.glsl"
 
 layout(location = 0) in vec2 v_UV;
 
@@ -403,8 +406,18 @@ void main()
 		}
 	}
 
-	o_Diffuse = water ? vec4(keptD, framesD) : vec4(0.0);
-	o_Specular = water ? vec4(keptS, framesS) : vec4(0.0);
+	// **RT-5: rounded onto the half grid here rather than by the write.** Both
+	// halves are running averages in half-float targets, and the write rounds
+	// toward zero: the scattered half, with the longer memory, settled the
+	// furthest under its value (include/half_float.glsl).
+	const uvec2 roundingPixel = uvec2(texel);
+	const uint roundingFrame = uint(u_Scene.GlobalIllumination.y);
+	o_Diffuse = water ? vec4(StoreAsHalf(keptD, HalfRoundingDraw(roundingPixel, roundingFrame, 0u)),
+							 framesD)
+					  : vec4(0.0);
+	o_Specular = water ? vec4(StoreAsHalf(keptS, HalfRoundingDraw(roundingPixel, roundingFrame, 1u)),
+							  framesS)
+					   : vec4(0.0);
 
 	// **RT-8 job 3, and this is the whole of its effect on the frame.** The
 	// signature for next frame's question, and the count. Nothing above this

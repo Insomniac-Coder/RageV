@@ -62,6 +62,11 @@ void main()
 #type fragment
 #version 450 core
 
+// RT-5: the colour and the moments are running averages, rounded onto the
+// half grid before they are written -- see the include for what the write's
+// own rounding was costing.
+#include "include/half_float.glsl"
+
 layout(location = 0) in vec2 v_UV;
 layout(location = 0) out vec4 o_Color;
 // **What this pixel has learned about itself, for the next frame** -- the
@@ -227,6 +232,11 @@ layout(push_constant) uniform Params
 	// now before the average is restarted. Zero is off, which is every frame
 	// before RT-5. Took the pad rather than growing the block.
 	float AntiLag;
+	// **RT-5: the frame number**, for the draw that rounds this pass's running
+	// averages onto the half grid (include/half_float.glsl). The jitter above
+	// repeats every eight frames, and a rounding that repeats with it would
+	// leave each pixel a fixed pattern of its own eight draws.
+	float Frame;
 } u_Params;
 
 // **How far the box may open on a surface whose shading does not depend on
@@ -917,7 +927,14 @@ void main()
 	// clause that sent the search to a neighbour otherwise. That difference
 	// is the one the view exists to show: a recovered pixel and a
 	// disoccluded one are a half apart on the ramp, not a whole category.
-	o_Moments = vec4(frames, momMean, momMeanSq, float(g_Refusal));
+	// RT-5: the two moments are averages like the colour, and lost the same
+	// half step a frame to the write.
+	const uvec2 roundingPixel = uvec2(gl_FragCoord.xy);
+	const uint roundingFrame = uint(u_Params.Frame);
+	o_Moments = vec4(frames,
+					 StoreAsHalf(momMean, HalfRoundingDraw(roundingPixel, roundingFrame, 3u)),
+					 StoreAsHalf(momMeanSq, HalfRoundingDraw(roundingPixel, roundingFrame, 4u)),
+					 float(g_Refusal));
 	CountTemporal(true, kKept, frames);
 
 	// **Never clamp tighter than this pixel is known to fluctuate.** Widened
@@ -967,5 +984,11 @@ void main()
 	vec3 blended = Expand(mix(Compress(centreYCoCg), Compress(history),
 							  1.0 - alpha));
 
-	o_Color = vec4(ToRGB(blended), mix(current.a, historyAlpha, 1.0 - alpha));
+	// **RT-5: rounded onto the half grid here, not by the write.** This is the
+	// history the next frame blends a fiftieth of itself into, and the write
+	// rounds toward zero: half a step lost a frame settled the wet floor 3.4%
+	// under its value (include/half_float.glsl). The alpha is averaged too.
+	o_Color = vec4(StoreAsHalf(ToRGB(blended), HalfRoundingDraw(roundingPixel, roundingFrame, 0u)),
+				   StoreAsHalf(mix(current.a, historyAlpha, 1.0 - alpha),
+							   HalfRoundingDraw(roundingPixel, roundingFrame, 1u)));
 }

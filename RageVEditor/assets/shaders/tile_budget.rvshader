@@ -61,6 +61,10 @@ void main()
 #type fragment
 #version 450 core
 
+// RT-5: the averaged demand is a running average in a half-float lane, rounded
+// onto the half grid before it is written -- see the include for why.
+#include "include/half_float.glsl"
+
 layout(location = 0) in vec2 v_UV;
 layout(location = 0) out vec4 o_Budget;
 
@@ -249,6 +253,15 @@ void main()
 	// nothing read, and carries the two dwell counters. Both diagnostics
 	// became state the moment the allocator needed a memory, and neither had
 	// a reader to lose.
-	o_Budget = vec4(ao.x, gi.x, demand,
+	// **RT-5: the demand rounded onto the half grid here, not by the write.** It
+	// is a running average, and the write rounds toward zero -- so it settled
+	// low against the screen's mean, which is not averaged, and every tile's
+	// share with it (include/half_float.glsl). **To the nearest step, not
+	// stochastically**: this value is thresholded, and a draw's wobble at a
+	// dead band's edge is a crossing -- see StoreAsHalfNearest for the still
+	// test that said so. The counts and the dwell pair are whole numbers the
+	// half holds exactly and are not touched.
+	const float storedDemand = StoreAsHalfNearest(demand);
+	o_Budget = vec4(ao.x, gi.x, storedDemand,
 					clamp(ao.y, 0.0, kDwellCap) + kDwellPack * clamp(gi.y, 0.0, kDwellCap));
 }
