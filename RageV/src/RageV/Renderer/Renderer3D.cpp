@@ -1023,7 +1023,12 @@ namespace RageV
 				// slot 5 is free. The clamp in AccumulateSignal must agree.
 				Ref<RHIResourceSet> SignalAccumulateInputs[6];
 				Ref<RHIResourceSet> ReflectionResolveInputs;
-				Ref<RHIResourceSet> SignalBlurInputs[6];
+				// **And one per blur pass within the slot** (strides 1, 2, 4). The three
+				// passes shared one set, so the second pass rewrote a set the first had
+				// bound in the same command buffer -- which invalidates the buffer; the
+				// device's tripwire reported it on every blurred signal, every frame
+				// (RT-5 part 5).
+				Ref<RHIResourceSet> SignalBlurInputs[6][3];
 				// And the transparent pipeline's *GPU-driven* set: the same
 				// instance table read through the indices the blended cull
 				// wrote instead of the ones the sort produced. One binding
@@ -6515,7 +6520,9 @@ namespace RageV
 		if (!cmd || !slot.LampSet || !accumulated || !depth || !surface || !imageDistance)
 			return;
 		const int index = Math::Clamp(signal.Slot, 0, 5);
-		Ref<RHIResourceSet>& inputs = slot.SignalBlurInputs[index];
+		// Its own set per stride, so no pass rewrites one an earlier pass bound.
+		const int pass = stride >= 4 ? 2 : stride >= 2 ? 1 : 0;
+		Ref<RHIResourceSet>& inputs = slot.SignalBlurInputs[index][pass];
 		if (!inputs)
 			inputs = s_Data->Device->CreateResourceSet(pipeline, 3);
 		if (!inputs)

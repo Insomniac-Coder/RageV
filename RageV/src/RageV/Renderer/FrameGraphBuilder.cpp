@@ -1191,10 +1191,18 @@ namespace RageV
 			// rather than octahedral -- see SignalParams::UpNormalLane.
 			bool       UpNormalLane = false;
 		};
+		// **What a signal hands its reader: the settled target, and the lane its
+		// twin is on** -- 1 on a blurred target, which carries the pair alone;
+		// 3 on the accumulate's own, whose 1 and 2 are its surface and extra.
+		struct SignalResult
+		{
+			RGResource Target = kRGInvalid;
+			uint32_t   TwinLane = 1;
+		};
 		auto addSignal = [&](const SignalPassNames& names, Renderer3D::SignalParams params,
 							 RGResource fresh, RGResource current, RGResource previous, bool hasHistory,
 							 CameraMotion* motion, RGTargetDesc blurDesc, bool pair,
-							 SignalGuidance guide = {}) -> RGResource
+							 SignalGuidance guide = {}) -> SignalResult
 		{
 			// **The texel-denominated tuning follows the grid.** Every one of these
 			// four is counted in texels of the signal's own target, and a texel at
@@ -1267,6 +1275,18 @@ namespace RageV
 						specular ? context.Color(sceneHDR, surfaceIdIndex) : nullptr,
 						specular && hasHistory ? context.Color(previous, 4) : nullptr);
 				});
+			// **RT-5 part 5: no blur passes where the signal asks for no blur.**
+			// The blur returns its input untouched wherever the young radius
+			// comes out under half a texel (reflection_blur.rvshader: `radius <
+			// 0.5` before anything is gathered), and the radius is the signal's
+			// young radius times a factor at most one -- so under half a texel
+			// here, all three passes were copies: three full-size targets, three
+			// draws, and on the direct pair the set rewritten while bound that the
+			// validation layer reported every frame. The reader takes the
+			// accumulate's target itself, which is what the copies held texel for
+			// texel.
+			if (params.YoungRadius < 0.5f)
+				return SignalResult{ current, 3u };
 			// Three blur passes at strides 1, 2, 4: each reads the previous
 			// pass's output; the first reads the history itself, which is
 			// never written here.
@@ -1310,7 +1330,7 @@ namespace RageV
 				blurInput = output;
 				blurred = output;
 			}
-			return blurred;
+			return SignalResult{ blurred, 1u };
 		};
 		// **RT-3.1: the guidance lanes at a divisor, built once and shared.** GI
 		// and the occlusion can sit on different rungs of their own dials; two
@@ -1508,6 +1528,7 @@ namespace RageV
 		}
 		RGResource directTraced = kRGInvalid;
 		RGResource directLit = kRGInvalid;      // what the lit pass adds: the blurred pair
+		uint32_t directTwinLane = 1;            // and the lane its specular half is on
 		RGResource currentDirect = kRGInvalid;  // the accumulated pair, for the debug views
 		if (directSignal)
 		{
@@ -1562,9 +1583,11 @@ namespace RageV
 				directBlurDesc.Name = "DirectBlurred";
 				static const SignalPassNames kDirectPasses =
 					{ "DirectAccumulate", { "DirectBlur", "DirectBlur2", "DirectBlur4" } };
-				directLit = addSignal(kDirectPasses, Renderer3D::DirectSignal(),
+				const SignalResult directSettled = addSignal(kDirectPasses, Renderer3D::DirectSignal(),
 									  directTraced, currentDirect, previousDirect, directHistory,
 									  &direct.Motion(), directBlurDesc, true);
+				directLit = directSettled.Target;
+				directTwinLane = directSettled.TwinLane;
 				direct.Advance();
 			}
 		}
@@ -1681,7 +1704,7 @@ namespace RageV
 					{ "OcclusionAccumulate", { "OcclusionBlur", "OcclusionBlur2", "OcclusionBlur4" } };
 				aoSettled = addSignal(kOcclusionPasses, Renderer3D::AoSignal(),
 									  aoFresh, currentOcclusion, previousOcclusion, occlusion.HasHistory(),
-									  &occlusion.Motion(), aoBlurDesc, false, aoGuide);
+									  &occlusion.Motion(), aoBlurDesc, false, aoGuide).Target;
 				occlusion.Advance();
 			}
 
@@ -1792,7 +1815,7 @@ namespace RageV
 				giSettled = addSignal(kGiPasses, Renderer3D::GiSignal(),
 									  giRaw, currentGi, previousGi, gi.HasHistory(),
 									  &gi.Motion(), giBlurDesc, false,
-									  giGuide);
+									  giGuide).Target;
 				gi.Advance();
 			}
 
@@ -1849,7 +1872,7 @@ namespace RageV
 					builder.Sample(giLit);
 			},
 			gbufferPass ? std::function<void(RGPassContext&)>(
-							  [drawLit = desc.DrawSceneLit, jitter, directLit, occlusionLit, giLit,
+							  [drawLit = desc.DrawSceneLit, jitter, directLit, directTwinLane, occlusionLit, giLit,
 							   motion = desc.History ? &desc.History->Motion() : nullptr](RGPassContext& context)
 							  {
 								  // The lit half: the same edges the scene callback
@@ -1861,7 +1884,7 @@ namespace RageV
 								  // RT-first T5: the direct light for the lit draw.
 								  Renderer3D::SetDirectLight(
 									  directLit != kRGInvalid ? context.Color(directLit, 0) : nullptr,
-									  directLit != kRGInvalid ? context.Color(directLit, 1) : nullptr);
+									  directLit != kRGInvalid ? context.Color(directLit, directTwinLane) : nullptr);
 								  Renderer3D::SetScreenOcclusion(
 									  occlusionLit != kRGInvalid ? context.Color(occlusionLit) : nullptr);
 								  // RT-3: this frame's bounce, onto binding 16 in place of
@@ -1979,6 +2002,9 @@ namespace RageV
 			// what its neighbour chose, and a fragment cannot see its
 			// neighbours' work inside its own pass.
 			RGResource waterLamps = kRGInvalid;
+			// The lane the second lamp picture is on: 1 on the sea's own
+			// accumulate and on a blurred signal, 3 where the contract ran unblurred.
+			uint32_t waterLampsTwinLane = 1;
 			// WR-16 S5's half-resolution mirror picture, when that pass ran.
 			RGResource waterTraced = kRGInvalid;
 			// RT-8 job 2: and where its ray distances are, once the contract
@@ -2280,11 +2306,13 @@ namespace RageV
 						static const SignalPassNames kWaterPasses =
 							{ "WaterLampAccumulate",
 							  { "WaterLampBlur", "WaterLampBlur2", "WaterLampBlur4" } };
-						waterLamps = addSignal(kWaterPasses,
+						const SignalResult seaLamps = addSignal(kWaterPasses,
 											   Renderer3D::WaterLampSignal(),
 											   waterLamps, newLight, pastLight,
 											   light.HasHistory(), &light.Motion(),
 											   seaBlurDesc, true, seaGuide);
+						waterLamps = seaLamps.Target;
+						waterLampsTwinLane = seaLamps.TwinLane;
 						light.Advance();
 					}
 				}
@@ -2465,7 +2493,7 @@ namespace RageV
 												Renderer3D::WaterReflectionSignal(),
 												traced, newMirror, pastMirror,
 												mirror.HasHistory(), &mirror.Motion(),
-												mirrorBlurDesc, false, seaRayGuide);
+												mirrorBlurDesc, false, seaRayGuide).Target;
 						// **The ray distance the water draw's four taps weigh by
 						// lives on the accumulate's surface attachment now**, not
 						// in the picture's alpha -- the contract puts the frame
@@ -2507,7 +2535,7 @@ namespace RageV
 					if (waterTracedSurface != kRGInvalid)
 						builder.Sample(waterTracedSurface);
 				},
-				[draw = desc.DrawTransparent, waterBackdrop, waterLamps,
+				[draw = desc.DrawTransparent, waterBackdrop, waterLamps, waterLampsTwinLane,
 				 waterTraced, waterTracedSurface](RGPassContext& context)
 				{
 					// Handed over around the draw and taken back after it, the
@@ -2518,7 +2546,7 @@ namespace RageV
 													 context.Color(waterBackdrop, 1));
 					if (waterLamps != kRGInvalid)
 						Renderer3D::SetWaterLamps(context.Color(waterLamps, 0),
-												  context.Color(waterLamps, 1));
+												  context.Color(waterLamps, waterLampsTwinLane));
 					if (waterTraced != kRGInvalid)
 						Renderer3D::SetWaterReflection(
 							context.Color(waterTraced),
@@ -2688,7 +2716,7 @@ namespace RageV
 			const RGResource blurredReflections = addSignal(kReflectionPasses, Renderer3D::ReflectionSignal(),
 															resolved, currentReflections, previousReflections,
 															reflectionHistory, &desc.Reflections->Motion(),
-															reflectionBlurDesc, false);
+															reflectionBlurDesc, false).Target;
 			{
 				const RGResource blurred = blurredReflections;
 

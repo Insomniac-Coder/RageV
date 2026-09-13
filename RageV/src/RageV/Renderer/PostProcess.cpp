@@ -1248,11 +1248,15 @@ namespace RageV
 		if (!s_Data || !depth || !surface || !surfaceId)
 			return;
 
-		PostParams params;
 		// Every lane point sampled: this is a copy, and an id blended between
 		// two objects names neither of them.
+		// **No parameters, because the shader declares none.** It pushed the
+		// 24-byte PostParams into a layout with no push-constant range, which
+		// the validation layer reported every frame since RT-6 (the RT-5 record
+		// had placed it in the blur path). A copy by texel has nothing to be
+		// told, not even which way up the backend stores an image.
 		Dispatch(cmd, Shader::TaaGuide, outputFormat, depth, surface,
-				 &params, sizeof(params), Sampling::Point, Sampling::Point,
+				 nullptr, 0, Sampling::Point, Sampling::Point,
 				 surfaceId, Sampling::Point);
 	}
 
