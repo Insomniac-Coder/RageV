@@ -1,4 +1,6 @@
 #pragma once
+#include <map>
+#include <vector>
 #include <RageV.h>
 #include "RageV/Renderer/RenderGraph.h"
 #include "RageV/Renderer/FrameGraphBuilder.h"
@@ -40,6 +42,25 @@ public:
 
 private:
 	void ResizeTarget(uint32_t width, uint32_t height);
+
+	// **--capture-signals** (EngineConfig::CaptureSignals): the named histories
+	// as numbers, read back at the start of the frame after each screenshot
+	// frame -- once that frame has been submitted -- and summed, then written
+	// as their mean when the last one is in. A measurement's instrument, off
+	// unless asked for; it changes nothing about the frame it runs in.
+	void CaptureSignals();
+	struct SignalCapture
+	{
+		std::vector<double> Sum;
+		uint32_t Width = 0;
+		uint32_t Height = 0;
+		uint32_t Frames = 0;
+		// crop=x:y:w:h: every frame's values in the rectangle, in order.
+		std::vector<float> Crop;
+		uint32_t CropW = 0;
+		uint32_t CropH = 0;
+	};
+	std::map<std::string, SignalCapture> m_SignalCaptures;
 
 	std::shared_ptr<RageV::Scene> m_Scene;
 

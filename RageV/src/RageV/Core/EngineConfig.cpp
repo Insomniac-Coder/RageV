@@ -1127,6 +1127,14 @@ namespace RageV
 			}
 		}
 
+		if (key == "capture-signals" || key == "capturesignals")
+		{
+			// The names are checked by the runtime, which is the one place that
+			// knows which histories exist; an unknown one is reported there.
+			config.CaptureSignals = ToLower(value);
+			return true;
+		}
+
 		if (key == "benchmark")
 		{
 			try

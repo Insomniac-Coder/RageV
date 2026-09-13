@@ -865,7 +865,12 @@ namespace RageV {
 			}
 
 			// After the capture, not before: the point of the flag is the file.
-			if (!config.ScreenshotPath.empty() && frameNumber >= lastScreenshotFrame)
+			// **One frame more when signals are captured**: a history written in
+			// frame N is read back at the start of N + 1, once N has been
+			// submitted, so the last screenshot frame's values need a frame after
+			// it. That frame writes no screenshot.
+			const uint64_t lastFrame = lastScreenshotFrame + (config.CaptureSignals.empty() ? 0u : 1u);
+			if (!config.ScreenshotPath.empty() && frameNumber >= lastFrame)
 				m_Running = false;
 
 			// **A lost device ends the run.** It cannot be recovered from

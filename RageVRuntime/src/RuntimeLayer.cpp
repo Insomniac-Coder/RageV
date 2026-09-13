@@ -14,7 +14,60 @@
 #include "imgui.h"
 #include "RageV/ImGui/ImGuiBinding.h"
 
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <limits>
+#include <sstream>
+
 using namespace RageV;
+
+namespace
+{
+	// An IEEE half, as a R16G16B16A16_SFLOAT texel stores each channel.
+	float HalfToFloat(uint16_t half)
+	{
+		const uint32_t exponent = (half >> 10) & 0x1Fu;
+		const uint32_t mantissa = half & 0x3FFu;
+		float value;
+		if (exponent == 0)
+			value = std::ldexp((float)mantissa, -24);
+		else if (exponent == 31)
+			value = mantissa != 0 ? std::numeric_limits<float>::quiet_NaN()
+								  : std::numeric_limits<float>::infinity();
+		else
+			value = std::ldexp((float)(mantissa | 0x400u), (int)exponent - 25);
+		return (half & 0x8000u) != 0 ? -value : value;
+	}
+
+	// **A float array as numpy writes one** (.npy, version 1.0): the magic, a
+	// little-endian header length, a Python dict, spaces to a multiple of 64,
+	// then the values. The format a measurement script opens in one call.
+	bool WriteNpy(const std::string& path, const std::vector<float>& values,
+				  const std::vector<uint32_t>& shape)
+	{
+		std::string dims;
+		for (size_t i = 0; i < shape.size(); ++i)
+			dims += (i ? ", " : "") + std::to_string(shape[i]);
+		std::string header = "{'descr': '<f4', 'fortran_order': False, 'shape': (" + dims + "), }";
+		const size_t unpadded = 10 + header.size() + 1;
+		header.append((64 - unpadded % 64) % 64, ' ');
+		header.push_back('\n');
+		std::ofstream out(path, std::ios::binary);
+		if (!out)
+			return false;
+		const char magic[8] = { '\x93', 'N', 'U', 'M', 'P', 'Y', '\x01', '\x00' };
+		out.write(magic, sizeof(magic));
+		const uint16_t length = (uint16_t)header.size();
+		const char lengthBytes[2] = { (char)(length & 0xFF), (char)(length >> 8) };
+		out.write(lengthBytes, 2);
+		out.write(header.data(), (std::streamsize)header.size());
+		out.write((const char*)values.data(), (std::streamsize)(values.size() * sizeof(float)));
+		return (bool)out;
+	}
+}
 
 RuntimeLayer::RuntimeLayer()
 	: Layer("RuntimeLayer")
@@ -176,10 +229,173 @@ void RuntimeLayer::OnFixedUpdate(Timestep dt)
 		m_Scene->OnFixedUpdateRuntime(dt);
 }
 
+void RuntimeLayer::CaptureSignals()
+{
+	const EngineConfig& config = EngineConfig::Get();
+	if (config.CaptureSignals.empty() || config.ScreenshotPath.empty())
+		return;
+
+	// This frame's number is last frame's plus one, and last frame's is the
+	// one whose histories Previous() now holds: Advance swapped the pair when
+	// the graph was described, before the frame ran.
+	const uint64_t frame = Renderer::GetFrameCount();
+	if (frame == 0)
+		return;
+	const uint64_t written = frame - 1;
+	const uint64_t first = config.ScreenshotFrame;
+	const uint64_t last = first + Math::Max(config.ScreenshotCount, 1u) - 1;
+	if (written < first || written > last)
+		return;
+
+	struct Named
+	{
+		const char* Name;
+		TemporalHistory* History;
+		std::vector<uint32_t> Attachments;
+	};
+	// What each attachment is: direct 0 the diffuse before the albedo and 3 the
+	// specular; the others' 0 the signal; taa 0 the resolved colour before the
+	// tone curve.
+	const Named table[] = {
+		{ "direct", &m_DirectLight, { 0u, 3u } },
+		{ "reflections", &m_Reflections, { 0u } },
+		{ "occlusion", &m_Occlusion, { 0u } },
+		{ "gi", &m_GiLight, { 0u } },
+		{ "taa", &m_History, { 0u } },
+	};
+
+	// **crop=x:y:w:h**, beside the names: every frame's values in that
+	// rectangle as well as the mean, so what a filter does to a pixel can be
+	// followed frame by frame instead of inferred from an average. Colons, not
+	// commas, because the commas separate the names.
+	uint32_t cropX = 0, cropY = 0, cropW = 0, cropH = 0;
+	{
+		std::stringstream scan(config.CaptureSignals);
+		std::string token;
+		while (std::getline(scan, token, ','))
+			if (token.rfind("crop=", 0) == 0
+				&& std::sscanf(token.c_str() + 5, "%u:%u:%u:%u", &cropX, &cropY, &cropW, &cropH) != 4)
+				cropW = cropH = 0;
+	}
+
+	auto& device = Renderer::GetDevice();
+	std::stringstream names(config.CaptureSignals);
+	std::string name;
+	while (std::getline(names, name, ','))
+	{
+		if (name.rfind("crop=", 0) == 0)
+			continue;
+		const Named* entry = nullptr;
+		for (const Named& candidate : table)
+			if (name == candidate.Name)
+				entry = &candidate;
+		if (!entry)
+		{
+			if (written == first)
+				RV_WARN("capture-signals: no history named '{0}' (direct, reflections, occlusion, gi, taa)", name);
+			continue;
+		}
+		const RHI::Ref<RHI::RHIRenderTarget>& target = entry->History->Previous();
+		if (!target || !entry->History->HasHistory())
+			continue;
+		for (uint32_t attachment : entry->Attachments)
+		{
+			const RHI::Ref<RHI::RHITexture> texture = target->GetColorTexture(attachment);
+			if (!texture)
+				continue;
+			const RHI::Format format = texture->GetFormat();
+			const bool half = format == RHI::Format::R16G16B16A16_SFLOAT;
+			if (!half && format != RHI::Format::R32G32B32A32_SFLOAT)
+			{
+				if (written == first)
+					RV_WARN("capture-signals: {0}{1} is not a four-channel float target", name, attachment);
+				continue;
+			}
+			std::vector<uint8_t> bytes;
+			if (!device.ReadTexture(texture, bytes))
+				continue;
+			const uint32_t width = texture->GetWidth();
+			const uint32_t height = texture->GetHeight();
+			const size_t values = (size_t)width * height * 4;
+			if (bytes.size() < values * (half ? 2u : 4u))
+				continue;
+
+			SignalCapture& capture = m_SignalCaptures[name + std::to_string(attachment)];
+			if (capture.Width != width || capture.Height != height)
+			{
+				capture = SignalCapture{};
+				capture.Width = width;
+				capture.Height = height;
+				capture.Sum.assign(values, 0.0);
+			}
+			const bool cropped = cropW > 0 && cropH > 0 && cropX + cropW <= width && cropY + cropH <= height;
+			for (size_t i = 0; i < values; ++i)
+			{
+				float v;
+				if (half)
+				{
+					uint16_t raw;
+					std::memcpy(&raw, bytes.data() + i * 2, 2);
+					v = HalfToFloat(raw);
+				}
+				else
+				{
+					std::memcpy(&v, bytes.data() + i * 4, 4);
+				}
+				capture.Sum[i] += (double)v;
+				if (cropped)
+				{
+					const size_t texel = i / 4;
+					const uint32_t x = (uint32_t)(texel % width);
+					const uint32_t y = (uint32_t)(texel / width);
+					if (x >= cropX && x < cropX + cropW && y >= cropY && y < cropY + cropH)
+						capture.Crop.push_back(v);
+				}
+			}
+			capture.Frames++;
+			if (cropped)
+			{
+				capture.CropW = cropW;
+				capture.CropH = cropH;
+			}
+		}
+	}
+
+	if (written != last)
+		return;
+	const std::filesystem::path shot(config.ScreenshotPath);
+	for (const auto& [key, capture] : m_SignalCaptures)
+	{
+		if (capture.Frames == 0)
+			continue;
+		std::vector<float> mean(capture.Sum.size());
+		for (size_t i = 0; i < mean.size(); ++i)
+			mean[i] = (float)(capture.Sum[i] / (double)capture.Frames);
+		const std::string path =
+			(shot.parent_path() / (shot.stem().string() + "_" + key + ".npy")).string();
+		if (WriteNpy(path, mean, { capture.Height, capture.Width, 4u }))
+			RV_INFO("capture-signals: {0}, the mean of {1} frames -> {2}", key, capture.Frames, path);
+		else
+			RV_ERROR("capture-signals: could not write {0}", path);
+		const size_t perFrame = (size_t)capture.CropW * capture.CropH * 4;
+		if (perFrame > 0 && capture.Crop.size() == perFrame * capture.Frames)
+		{
+			const std::string cropPath =
+				(shot.parent_path() / (shot.stem().string() + "_" + key + "_crop.npy")).string();
+			if (!WriteNpy(cropPath, capture.Crop, { capture.Frames, capture.CropH, capture.CropW, 4u }))
+				RV_ERROR("capture-signals: could not write {0}", cropPath);
+		}
+	}
+}
+
 void RuntimeLayer::OnUpdate(Timestep ts)
 {
 	if (!m_Ready)
 		return;
+
+	// Before anything this frame touches a history: what they hold is last
+	// frame's, submitted and finished.
+	CaptureSignals();
 
 	// **A forced bake run ends itself when there is nothing left to store.**
 	//

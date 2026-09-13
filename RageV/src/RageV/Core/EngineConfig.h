@@ -65,6 +65,11 @@
 //   --screenshot-count=N    capture N consecutive frames from that one, as
 //                           <file>_<frame>.png, then exit (default 1: the
 //                           file as named)
+//   --capture-signals=a,b   beside the screenshots, the linear values of these
+//                           histories averaged over the same frames, as
+//                           <file>_<name><attachment>.npy: direct (0 diffuse,
+//                           3 specular), reflections, occlusion, gi, taa
+//                           (runtime only)
 //   --benchmark=N           run N frames, print a frame-time summary, exit
 //   --scene=<path>          open this scene instead of the project's start scene
 //   --ui-scale=N|auto       editor UI scale; auto follows the monitor
@@ -216,6 +221,21 @@ namespace RageV
 		// run, which is the only way to look at a flicker: separate runs are
 		// separate clocks, and consecutive frames of one are not.
 		uint32_t    ScreenshotCount = 1;
+		// **--capture-signals: what a signal holds, in numbers, not in pixels.**
+		//
+		// A screenshot is eight bits after the tone curve, so a filter's effect
+		// on a signal is read through a shoulder that bends it and a rounding
+		// that hides anything under a level. RT-5 chased a half-per-cent
+		// darkening through thirteen staged arms of PNGs and could say where it
+		// was not, never where it was; RT-16 needs a filter's time constant,
+		// which the shoulder distorts outright. This reads the named histories
+		// back at the screenshot frames and writes their mean over those frames
+		// as float arrays -- the signal as the next pass reads it.
+		//
+		// Comma-separated names; empty is off. The runtime reads them back the
+		// frame after they are written, so a run with captures lasts one frame
+		// longer than its screenshots.
+		std::string CaptureSignals;
 
 		// Write a PNG of a frame drawn *during* loading, and keep going.
 		//
