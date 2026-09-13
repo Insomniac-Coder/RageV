@@ -383,9 +383,14 @@ layout(set = 0, binding = 12) uniform sampler2D u_ScreenReflections;
 // The reflector under each texel of that picture, as the accumulator wrote
 // it: normal (rg, octahedral, zero to one), plane (b: n . P), image distance
 // (a, below zero for none). What the hook tests a texel against before
-// taking its picture -- the traced form only; a 1x1 transparent black
-// otherwise, never read.
+// taking its picture -- the traced form only, so **declared only there**: the
+// variants without rays carried it unread, and it put the layered terrain
+// variant at 33 samplers, one over what OpenGL gives a fragment shader
+// (scenetest's sampler budget). The renderer asks each set whether it has
+// the binding before writing it.
+#ifdef RV_RAY_REFLECTIONS
 layout(set = 0, binding = 19) uniform sampler2D u_ScreenReflectionSurface;
+#endif
 
 // Last frame's indirect diffuse, albedo-free, A the confidence (7av). Added
 // to the probe's irradiance *before* the diffuse term multiplies by albedo,

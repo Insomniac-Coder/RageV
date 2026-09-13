@@ -464,17 +464,9 @@ namespace RageV
 		// shader. This one the resolve passes to a file that is also the
 		// occlusion accumulator's, and that a measurement stages older copies of;
 		// a write to a binding the layout lacks is out of range, which the driver
-		// takes badly (see `second` above). So the shader's reflection decides.
-		if (ninth)
-		{
-			const RHI::ResourceSetLayoutDesc* layout = pipeline->GetReflection().FindSet(0);
-			bool declared = false;
-			if (layout)
-				for (const RHI::ResourceBinding& binding : layout->Bindings)
-					declared = declared || binding.Binding == 10u;
-			if (declared)
-				set->SetTexture(10, ninth, samplerFor(ninthSampling));
-		}
+		// takes badly (see `second` above). So the set is asked.
+		if (ninth && set->HasBinding(10))
+			set->SetTexture(10, ninth, samplerFor(ninthSampling));
 
 		// The counters, for the passes that count and the one that draws
 		// them (WR-16 S0). Only when the caller passed one, which it does
@@ -1675,11 +1667,20 @@ namespace RageV
 				 RayCounters::IsAvailable() ? RayCounters::Buffer() : nullptr,
 				 // RT-6: the identity lanes at bindings 6 and 7. Point sampled -- an
 				 // id interpolated between two objects names neither of them.
-				 guideCurrent, Sampling::Point, guidePrevious, Sampling::Point,
+				 // **Black where there are none**, for binding 3's reason: the
+				 // shader declares both whatever `Geometry` says, and a frame
+				 // without them -- the first under TAA, every frame of the
+				 // occlusion accumulator -- left them never written, which the
+				 // validation layer reports on the draw and scenetest's
+				 // anti-aliasing switch counted as its warnings. `Geometry` above
+				 // was taken from the real pointers, so the black is never read.
+				 guideCurrent ? guideCurrent : s_Data->Black, Sampling::Point,
+				 guidePrevious ? guidePrevious : s_Data->Black, Sampling::Point,
 				 // RT-6.2: the roughness and metallic under this pixel. Point, like
 				 // everything else describing a surface: halfway between two
-				 // materials is a third material that is not there.
-				 material, Sampling::Point,
+				 // materials is a third material that is not there. Black where
+				 // absent, for the same reason; `Material` says whether it is real.
+				 material ? material : s_Data->Black, Sampling::Point,
 				 // RT-8: the water layer. Point for the same reason the
 				 // scene's velocity is -- and because its z is a mask,
 				 // which averaged across a shoreline would be half a wave.
@@ -1688,7 +1689,8 @@ namespace RageV
 				 // when the caller has one apart from `velocity`, and `velocity`
 				 // itself when that already is the scene's -- the occlusion
 				 // accumulator's case.
-				 surfaceVelocity ? surfaceVelocity : velocity, Sampling::Point);
+				 surfaceVelocity ? surfaceVelocity : (velocity ? velocity : s_Data->Black),
+				 Sampling::Point);
 	}
 
 	void PostProcess::GiDenoise(RHICommandList& cmd, const Ref<RHITexture>& current,

@@ -172,6 +172,7 @@ namespace RageV::GL
 		void SetAccelerationStructure(uint32_t binding,
 									  const Ref<RHIAccelerationStructure>& structure) override;
 		void Commit() override;
+		bool HasBinding(uint32_t binding) const override;
 
 		// Replays the accumulated bindings against the GL context.
 		void Apply();

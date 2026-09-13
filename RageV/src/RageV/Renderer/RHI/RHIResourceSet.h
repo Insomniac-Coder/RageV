@@ -52,6 +52,15 @@ namespace RageV::RHI
 		// nothing changed.
 		virtual void Commit() = 0;
 
+		// **Whether the layout this set was made from declares `binding`**, of
+		// any type. For the caller that fills one binding on sets of several
+		// shapes: a define that removes a declaration removes it from the
+		// layout, and a write to a binding the layout lacks is out of range on
+		// Vulkan -- rejected by the driver, not a quiet no-op -- and a warning
+		// every frame on OpenGL. Asking is cheaper than keeping a list of which
+		// variants carry which binding in step with the shaders by hand.
+		virtual bool HasBinding(uint32_t binding) const = 0;
+
 	protected:
 		explicit RHIResourceSet(uint32_t set) : m_Set(set) {}
 		uint32_t m_Set = 0;

@@ -896,6 +896,17 @@ namespace RageV::GL
 		m_Buffers.push_back(entry);
 	}
 
+	// Any of the four point spaces the flat map assigns: a binding the shader
+	// declared has an entry in exactly one of them.
+	bool OpenGLResourceSetRHI::HasBinding(uint32_t binding) const
+	{
+		const FlatBindingMap& map = m_Pipeline->GetBindings();
+		return map.LookupTexture(m_Set, binding) != UINT32_MAX
+			|| map.LookupUniformBuffer(m_Set, binding) != UINT32_MAX
+			|| map.LookupStorageBuffer(m_Set, binding) != UINT32_MAX
+			|| map.LookupStorageImage(m_Set, binding) != UINT32_MAX;
+	}
+
 	void OpenGLResourceSetRHI::SetAccelerationStructure(uint32_t binding,
 														 const Ref<RHIAccelerationStructure>&)
 	{

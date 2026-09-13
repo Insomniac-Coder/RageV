@@ -551,6 +551,21 @@ namespace RageV::Vk
 		m_PendingImages.push_back(write);
 	}
 
+	// From the reflection the layout was built from, which is the same list
+	// the layout's bindings were created from -- so the answer cannot drift
+	// from what a write would be checked against.
+	bool VulkanResourceSet::HasBinding(uint32_t binding) const
+	{
+		const RHI::ResourceSetLayoutDesc* layout =
+			m_Pipeline ? m_Pipeline->GetCommonReflection().FindSet(m_Set) : nullptr;
+		if (!layout)
+			return false;
+		for (const RHI::ResourceBinding& declared : layout->Bindings)
+			if (declared.Binding == binding)
+				return true;
+		return false;
+	}
+
 	void VulkanResourceSet::SetAccelerationStructure(uint32_t binding,
 													  const RHI::Ref<RHI::RHIAccelerationStructure>& structure)
 	{

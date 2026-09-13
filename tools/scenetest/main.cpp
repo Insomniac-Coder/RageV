@@ -12736,7 +12736,23 @@ void main()
 			scene->OnFixedUpdateRuntime(dt);
 		scene->OnUpdateRuntime(dt);
 
-		Check(scene->GetPhysics()->GetBodyCount() > 0, "with bodies in it");
+		// **A body for every entity that declares one** -- a rigid body, a
+		// collider and a transform, which is what the world builds from. This
+		// asked for "more than none", which held while the start scene was the
+		// old demo. The showroom has been the start scene since cc5d9b4
+		// (2026-08-22) and has no physics at all, so the check failed on every
+		// run and measured nothing. Counting the scene's own declarations keeps
+		// the claim for any start scene: a runtime that starts the world without
+		// building the scene's bodies is still a red test. Whether bodies are
+		// built and simulated at all is CheckPhysics', on a scene that has them.
+		size_t declared = 0;
+		for (auto handle : scene->GetRegistry().GetView<RigidBodyComponent, ColliderComponent, TransformComponent>())
+		{
+			(void)handle;
+			++declared;
+		}
+		Check(scene->GetPhysics()->GetBodyCount() == declared,
+			  "with a body for every entity that declares one");
 
 		scene->OnRuntimeStop();
 	}

@@ -68,7 +68,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-17** | open — **new** | 2-3 d | moderate | the accumulator tests what the ray *hit*, by identity |
 | **RT-18** | open — **new** | 1-2 d | low | history cannot outlive the silhouette it belongs to |
 | **RT-19** | ✅ **done 2026-09-08** | — | — | the refusal reasons, totalled per frame |
-| **RT-20** | ✅ **done 2026-09-13** (uncommitted) — RT-6's surface test fired on the jitter at every edge; a still edge now keeps its own history unless what it showed was moving | — | — | edges flicker on a parked camera while the jitter is on |
+| **RT-20** | ✅ **done 2026-09-13** — RT-6's surface test fired on the jitter at every edge; a still edge now keeps its own history unless what it showed was moving | — | — | edges flicker on a parked camera while the jitter is on |
 
 **Three new items on 2026-09-08 (RT-17..RT-19)**, from the owner's *Object-Aware Temporal Rendering* document; the section below the reviews records what that document proposed that this engine already had, what was taken, and what was rejected and why.
 
@@ -281,7 +281,7 @@ for.
 
 ## Records
 
-### RT-20 — ✅ done 2026-09-13 (uncommitted): the edge flicker was RT-6's surface test firing on the jitter
+### RT-20 — ✅ done 2026-09-13 (`182f422`): the edge flicker was RT-6's surface test firing on the jitter
 
 **The cause, by taking each suspect out on its own** (`rt20_edges.py`; the garage parked at
 the owner's shot, frames 150-189, per-frame change on edge pixels in levels):

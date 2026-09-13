@@ -1,7 +1,7 @@
 # RageV — handoff
 
 **Read this first.** Updated 2026-09-13 (night): **the entry below headed "the edge flicker was
-RT-6 refusing the jitter" is the current hand-off**, and the one after it ("the histories were
+RT-6 refusing the jitter" is the current hand-off** (RT-20 pushed, scenetest green), and the one after it ("the histories were
 rounding the light away") still holds the day's earlier state and its open list.
 
 **Superseded header.** Updated 2026-09-13: **the entry below headed "the histories were
@@ -19,12 +19,13 @@ table and is the one list. **Before picking anything up, read the ten-item list 
 
 **Superseded header.** Updated 2026-09-07 night: **the whole RT-first series is committed and merged to `main`** (`d34c905`, merged as `ddc7827` -- the sentence "nothing is committed" below was true when it was written and is not now), and **the thirteenth entry is the current hand-off**: two outside reviews were read against the code and filed, adding **six items -- RT-6.6 through RT-6.11 and RT-14**, of which **RT-6.6 is done and measured** (its record is in RT-SERIES.md; uncommitted). `docs/RT-SERIES.md` now opens with a status table; read that before picking anything up. The twelfth entry is the RT-3 / RT-3.1 hand-off, the tenth (2026-09-06) the complete one for the RT-first state (recipes, flags, traps, what is where). `docs/RT-SERIES.md` is the one list with the records of RT-1, RT-2, RT-2.1, RT-3 and RT-3.1. Nothing is committed. **RT-6's geometric half is done** -- the temporal resolve refuses a history by depth, normal and object id, with a neighbour search before it gives up, and the bridge is visibly sharper for it (`build/rt3/taa_car_sidebyside.png`). Its still-feedback half is deferred by the owner to RT-8, because the sea reads zero velocity and nothing in the G-buffer says "water". **Open from the owner and not yet started: improve the denoiser and accumulation, and make the ground reflection less blurry** -- the reflection signal's young blur is `YoungRadius = 12`, and a validated history (RT-6, RT-5) is the precondition for weakening it. The AO look is accepted; the deferred resolve is **RT-2.2**, owner-filed for the end of the series.
 
-## 2026-09-13 (night): the edge flicker was RT-6 refusing the jitter -- RT-20 fixed, uncommitted
+## 2026-09-13 (night): the edge flicker was RT-6 refusing the jitter -- RT-20 fixed, and scenetest green
 
-**State.** Uncommitted on top of `0de7d38`: `taa_resolve.rvshader`, `PostProcess.h/.cpp`,
-`FrameGraphBuilder.cpp`, `docs/RT-SERIES.md` (the RT-20 record), this entry, and the session's
-`rt20_*.py` scripts. Release builds clean and every staged copy of the resolve matches the source.
-The owner's editor-resaved `showroom.rage` (+ .meta) is still theirs -- not ours to commit.
+**State.** RT-20 committed and pushed as `182f422`; the five standing scenetest failures fixed in
+the commit after it (below), **scenetest green on both backends** -- Vulkan 2491 pass, OpenGL 2432,
+none failing. The owner's editor-resaved `showroom.rage` (+ .meta) is still theirs -- not ours
+to commit. **Next, owner-set: finish RT-5** (part 4, the anti-lag: prove or delete; part 5, the
+blur passes).
 
 **What was found.** RT-6's surface test compares this frame's jittered sample with last frame's.
 At every edge on a parked camera the sample lands on the object some frames and the background
@@ -44,22 +45,44 @@ cube. The record has the tables; the owner has the sheets.
 - **The resolve's `u_Velocity` is not the surfaces' motion** wherever reflections ran: RT-6.1
   gives a pixel made mostly of a reflection its virtual image's motion. Ask "did it move" of
   binding 10.
-- **`Dispatch` writes descriptor bindings unconditionally** except binding 10, which checks the
-  layout. A write to a binding the layout lacks is a driver-level fault, and a staged copy of an
-  older shader is exactly that.
+- **A write to a binding the layout lacks is a driver-level fault on Vulkan** and a per-frame
+  warning on OpenGL. `RHIResourceSet::HasBinding` now answers it on both backends; binding 10
+  and binding 19 are written through it. Everything else still trusts the caller.
 - **A staged variant substitutes into the source as it stands.** After patching the source the
   old arms stop building -- or worse, build against the patch. `rt20_arms.py` stages HEAD's file
   whole first.
 - **The SSAA truth is no truth for the cube's own face** (its reflection renders differently);
   use it for what is behind the cube.
 
+### scenetest's five standing failures -- three causes, fixed
+
+- **Switching anti-aliasing modes logged ten warnings**: the resolve's guide lanes (bindings 6
+  and 7) and material lane (8) were written only when they existed, and the shader declares them
+  always -- so the first TAA frame, and every frame of the occlusion accumulator that shares the
+  shader, drew with descriptors never written. `TemporalResolve` binds black where one is
+  missing; `Geometry` and `Material` are still taken from the real pointers, so the black is
+  never read.
+- **The layered PBR variant declared 33 samplers** against OpenGL's 32: RT-first (`d34c905`) added
+  the occlusion signal and `u_ScreenReflectionSurface`, and the second is read only under
+  `RV_RAY_REFLECTIONS` but was declared in every variant. Declared only there now, and the
+  renderer asks `HasBinding(19)` before writing it -- the variants that lose the declaration are
+  whichever compile without rays, a set no hand-kept list would stay in step with. The garage is
+  bit-identical over 18 frames; the bridge moved 3 pixels by 1 level in 2 of 18 frames, and
+  staging the old include with the new engine made it bit-identical again -- the driver compiling
+  a module without the unused declaration, not a behaviour change.
+- **"with bodies in it"** asked the start scene for more than no physics bodies. The showroom has
+  been the start scene since `cc5d9b4` (2026-08-22) and has no physics, so it failed on every run
+  and measured nothing. It now compares the world's body count with the scene's own rigid body +
+  collider + transform entities; `CheckPhysics` still builds a scene that has bodies.
+
 **Open, in order.**
-1. The owner's word on RT-20, then commit and push.
+1. **RT-5, owner-set next**: part 4 (the anti-lag, built and off -- prove or delete) and part 5
+   (the dead blur passes; the occlusion and GI blurs measured off against on).
 2. The tube rims that report motion while parked (0.08% of pixels) -- the rule skips them.
 3. The chrome cube's vertical stripes after it passes the car, in the shipped resolve too.
 4. RT-18: the coverage mask, which also covers an object's first frame of motion.
-5. The rest of 2026-09-13's list below: RT-5 parts 4 and 5, the highlight bound, RT-16's
-   design call, `water_foam` / `irradiance_fill` rounding, the bridge validation crash.
+5. The rest of 2026-09-13's list below: the highlight bound, RT-16's design call,
+   `water_foam` / `irradiance_fill` rounding, the bridge validation crash.
 
 ## 2026-09-13: the histories were rounding the light away, and the car's lamps do linger
 

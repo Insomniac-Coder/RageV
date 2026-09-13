@@ -4225,10 +4225,15 @@ namespace RageV
 		// And the reflector under it, point sampled: a plane is not a thing
 		// to interpolate across a silhouette. Binding 19; 17 and 18 are the
 		// visible-instance buffer and the irradiance field.
-		sceneSet->SetTexture(19, haveReflections && reflections->Surface
-									 ? reflections->Surface
-									 : TextureLoader::TransparentBlack(*s_Data->Device),
-							 s_Data->PointSampler);
+		// **Only where the layout has it:** only the traced reflection reads
+		// the reflector, so only variants compiled with RV_RAY_REFLECTIONS
+		// declare it -- a sampler the rest carried unread put the layered
+		// terrain variant at 33, one over what OpenGL gives a fragment shader.
+		if (sceneSet->HasBinding(19))
+			sceneSet->SetTexture(19, haveReflections && reflections->Surface
+										 ? reflections->Surface
+										 : TextureLoader::TransparentBlack(*s_Data->Device),
+								 s_Data->PointSampler);
 
 		// Last frame's indirect diffuse, or a 1x1 transparent black whose
 		// alpha -- the confidence -- is zero (7av). Binding 16: 7 is the
@@ -4406,10 +4411,12 @@ namespace RageV
 											  ? reflections->Texture
 											  : TextureLoader::TransparentBlack(*s_Data->Device),
 										 s_Data->EnvironmentSampler);
-				slot.LampSet->SetTexture(19, haveReflections && reflections->Surface
-											  ? reflections->Surface
-											  : TextureLoader::TransparentBlack(*s_Data->Device),
-										 s_Data->PointSampler);
+				// Binding 19 only where declared -- see the scene set's.
+				if (slot.LampSet->HasBinding(19))
+					slot.LampSet->SetTexture(19, haveReflections && reflections->Surface
+												  ? reflections->Surface
+												  : TextureLoader::TransparentBlack(*s_Data->Device),
+											 s_Data->PointSampler);
 				slot.LampSet->SetTexture(16, haveIndirect && indirect->Texture
 											  ? indirect->Texture
 											  : TextureLoader::TransparentBlack(*s_Data->Device),

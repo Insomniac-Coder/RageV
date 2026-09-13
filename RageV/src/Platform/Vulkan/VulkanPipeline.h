@@ -133,6 +133,7 @@ namespace RageV::Vk
 		void SetAccelerationStructure(uint32_t binding,
 									  const RHI::Ref<RHI::RHIAccelerationStructure>& structure) override;
 		void Commit() override;
+		bool HasBinding(uint32_t binding) const override;
 
 		VkDescriptorSet GetHandle() const override;
 
@@ -215,6 +216,8 @@ namespace RageV::Vk
 		void SetAccelerationStructure(uint32_t binding,
 									  const RHI::Ref<RHI::RHIAccelerationStructure>& structure) override;
 		void Commit() override;
+		// The heap has one binding, the array itself.
+		bool HasBinding(uint32_t binding) const override { return binding == 0; }
 
 		VkDescriptorSet GetHandle() const override { return m_Set; }
 		uint32_t GetCapacity() const { return m_Capacity; }
