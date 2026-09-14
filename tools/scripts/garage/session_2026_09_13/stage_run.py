@@ -267,6 +267,29 @@ def moving_cube_scene(scene, start, speed, stop):
     return (text + CUBE_ENTITY % (start, speed, stop)).encode('utf-8')
 
 
+# **RT-7: the ceiling tubes as the line lights they are.** HEAD's twenty Tube
+# lights carry no size, so they shade as points; this copy gives each `length`
+# metres along its local X (world X on these fixtures, the way the bars run) and
+# `radius` metres of thickness.
+
+
+def tube_length_scene(scene, length, radius=0.0):
+    text = scene.decode('utf-8').replace(CRLF, LF)
+    out, count = [], 0
+    for part in re.split(r'(?=\n  - EntityID: )', text):
+        tag = re.search(r'\n      Tag: (.*)', part)
+        if tag and tag.group(1).strip().startswith('Tube ') and 'LightComponent' in part:
+            if 'SourceLength' in part:
+                sys.exit('%s already has a size' % tag.group(1))
+            fields = '      SourceLength: %g\n      SourceRadius: %g\n' % (length, radius)
+            part, n = re.subn(r'(\n    LightComponent:\n)', lambda m: m.group(1) + fields, part, count=1)
+            count += n
+        out.append(part)
+    if count != 20:
+        sys.exit('tube size set on %d lights, not 20' % count)
+    return ''.join(out).encode('utf-8')
+
+
 def run_arms(arms):
     os.makedirs(OUT, exist_ok=True)
     staged = {a[1]: build_variant(a[1]) for a in arms}   # every substitution checked before any run
@@ -280,6 +303,8 @@ def run_arms(arms):
             scene = lamps_off_scene(head, opts['lamps_off_at']) if opts.get('lamps_off_at') else head
             if opts.get('cube'):
                 scene = moving_cube_scene(scene, *opts['cube'])
+            if opts.get('tube_length'):
+                scene = tube_length_scene(scene, opts['tube_length'], opts.get('tube_radius', 0.0))
             io.open(os.path.join(SCENES, HEAD_SCENE), 'wb').write(scene)
             for shader, text in staged[variant].items():
                 io.open(os.path.join(STAGED_DIR, shader), 'w', encoding='utf-8', newline='').write(text)

@@ -83,6 +83,46 @@ def sheet():
         M.sheet(rows, os.path.join(M.OUT, 'blur_%s.png' % bname.replace(' ', '_')))
 
 
+def cost():
+    """The two signals' blur passes, parked, as a palindrome (on off off on on off off on,
+    because this laptop's GPU drifts): the frame and the six passes."""
+    import io as _io, re, statistics, subprocess
+    order = ['on', 'off', 'off', 'on', 'on', 'off', 'off', 'on']
+    passes = re.compile(r'scene/((?:Occlusion|Gi)Blur\d?)\s+[\d.]+\s+([\d.]+)')
+    head = subprocess.run(['git', 'show', 'HEAD:SampleProject/assets/scenes/showroom.rage'],
+                          cwd=stage_run.ROOT, capture_output=True, check=True).stdout
+    scene = os.path.join(stage_run.SCENES, stage_run.HEAD_SCENE)
+    frames, found = {'on': [], 'off': []}, {}
+    try:
+        _io.open(scene, 'wb').write(head)
+        for arm in order:
+            cmd = [os.path.join(stage_run.RT, 'RageVRuntime.exe'), '--project=' + os.path.join(stage_run.ROOT, 'SampleProject'),
+                   '--scene=scenes/' + stage_run.HEAD_SCENE, '--rhi=vulkan', '--render-defaults=off', '--vsync=off',
+                   '--width=1600', '--height=900', '--benchmark=240', '--frame-time=0.0166', '--import-cache=off',
+                   '--camera=-2.3,0.72,-2,11,0,4'] + ARMS[arm]
+            p = subprocess.run(cmd, cwd=stage_run.RT, capture_output=True, text=True, timeout=1800, errors='replace')
+            m = re.search(r'frame\s+mean ([\d.]+) ms', p.stdout)
+            if not m:
+                sys.exit('no benchmark lines: ' + p.stdout[-2000:])
+            frames[arm].append(float(m.group(1)))
+            for name, ms in passes.findall(p.stdout):
+                found.setdefault((arm, name), []).append(float(ms))
+    finally:
+        for f in (stage_run.HEAD_SCENE, stage_run.HEAD_SCENE + '.meta'):
+            try:
+                os.remove(os.path.join(stage_run.SCENES, f))
+            except OSError:
+                pass
+    for arm in ('on', 'off'):
+        print('blur %-3s frame %.3f +- %.3f ms' % (arm, statistics.mean(frames[arm]), statistics.stdev(frames[arm])))
+    total = 0.0
+    for (arm, name), rows in sorted(found.items()):
+        if arm == 'on':
+            total += statistics.mean(rows)
+            print('  %-14s %.3f ms' % (name, statistics.mean(rows)))
+    print('  the six blur passes together %.3f ms' % total)
+
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         sys.exit(__doc__)
@@ -90,5 +130,7 @@ if __name__ == '__main__':
         run(sys.argv[2], sys.argv[3:] or list(ARMS))
     elif sys.argv[1] == 'analyse':
         analyse(sys.argv[2])
+    elif sys.argv[1] == 'cost':
+        cost()
     else:
         sheet()

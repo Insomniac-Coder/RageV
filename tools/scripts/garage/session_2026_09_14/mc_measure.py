@@ -34,6 +34,11 @@ CASES = {
     # switch, and parked: black where nothing changed is the whole claim.
     'fadeview': dict(first=492, frames=16, lamps_off_at=8.3),
     'parkview': dict(first=150, frames=8),
+    # RT-7: the garage parked with its ceiling tubes 2.4 m long (the bars' length),
+    # beside `park`, whose tubes have none.
+    'tubes': dict(first=150, frames=40, tube_length=2.4),
+    # The tubes at the bars' measured size: 3.07 m long and 0.07 m thick.
+    'tubesize': dict(first=150, frames=40, tube_length=3.07, tube_radius=0.07),
     # The first frames of a run, parked: what the check measures while the scene
     # is still arriving.
     'startview': dict(first=1, frames=16),
