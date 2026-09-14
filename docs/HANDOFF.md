@@ -32,10 +32,11 @@ table and is the one list. **Before picking anything up, read the ten-item list 
 
 **Read `docs/RT-MEASURED-CHANGE.md` first** -- the design, the owner's decisions, and every
 measurement (sections "Phase 1 measured", "Cost cut", "Phase 2", "Phase 3", "Made the engine's
-anti-lag"). Everything below is **uncommitted, built into the Release binaries, and now on by
-default** (`--measured-change=off` is the reference arm), on top of the 2026-09-13 late-night
-entry's uncommitted state, which still stands (do not revert anything; `e71cf0c` and `8d2a318` still
-unpushed; the owner's editor-resaved `showroom.rage` is still not ours).
+anti-lag"). **Everything below is committed and pushed** (owner's word, 2026-09-14): `4a97fbd`
+the engine, shaders and notes -- with the 2026-09-13 late-night entry's validation fixes -- and
+`a5d36c2` the measurement scripts, on top of `e71cf0c` and `8d2a318`, pushed with them. On by
+default (`--measured-change=off` is the reference arm). The owner's editor-resaved `showroom.rage`
+(+ .meta) is still modified in the tree and still not ours to commit.
 
 ### State (evening): the owner's three tasks -- "Verify the switch-on and the deletion of the old anti-lag / The moving camera, which is postponed but still a must / The water's own filters, for later"
 
@@ -55,14 +56,14 @@ unpushed; the owner's editor-resaved `showroom.rage` is still not ours).
    the direct record 0.28). **Owner's call: the bounce's check casts one ray under Balanced and
    Performance** (`RayOptimisationPreset::ChangeRays`, `--change-rays`): 0.56 ms moving, pictures the
    same parked and moving (doc: "The bounce's check at one ray"). Validation clean, scenetest green.
-   Uncommitted, built.
 3. **The water: tested, nothing to build** (doc: "The water test"). The bridge's 120 sodium lamps
    switched off mid-run: their light is off the water within a few frames with the check off or on
    (10% left at 4-5 frames, 2% at 14-16) -- the sea's own averaging is short. **Found on the way**:
    the light on the bridge structure lingers for over a second (10% left at 79 frames as shipped),
    and it is the bake, not the filters -- the Hybrid lamps leaving the light list change the lighting
    hash, the stored field is discarded (zeroed, a solve asked for) and the traced bounce rebuilds what
-   it held. Reported to the owner; not taken up.
+   it held. Owner: "they are called baked for a reason" -- accepted as a known thing, written into
+   `docs/manual/lighting.md` and `docs/BAKING-ROADMAP.md`; a light that switches is made Realtime.
 
 ### The owner's instructions, in force
 
