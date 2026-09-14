@@ -65,6 +65,26 @@ default (`--measured-change=off` is the reference arm). The owner's editor-resav
    it held. Owner: "they are called baked for a reason" -- accepted as a known thing, written into
    `docs/manual/lighting.md` and `docs/BAKING-ROADMAP.md`; a light that switches is made Realtime.
 
+### State (late): RT-5 and RT-7 closed; RT-4 and RT-13 next (owner)
+
+- **RT-5 closed.** The occlusion and bounce young-history blurs are off by default (`YoungRadius`
+  0): measured off against on (dolly, cube, lights button parked and moving) the pictures matched,
+  0.54 ms a frame saved. `--ao-blur=6` / `--gi-blur=12` bring them back.
+- **RT-7 closed on the owner's word.** `SourceLength` / `SourceRadius` now shade as a tube in the
+  ray-traced lamp pass (`direct_trace.rvshader`: `NearestOnLamp`), with soft shadows along the tube
+  (`TraceShadowTubeFromMasked`); only the raster loop had it since 2026-09-08. **The tubes' mirror
+  reflections stay ray traced** -- rays see the glowing bars.
+- **Tried and removed the same day, on the owner's rejection -- do not retry without measuring
+  first:** linking a light to its glowing mesh so the light, not the rays, drew its reflection, and
+  taking the light's brightness from the mesh. The garage's floor reflections vanished and the car
+  looked wrong. Cause, measured against a brute-force glowing tube: the light's highlight cannot draw
+  a mirror -- `DistributionGGX`'s `max(PI*denom*denom, 1e-4)` (the hand-off's "highlight limit")
+  leaves a sharp highlight at 1-17% of its brightness at roughness 0.1 and below, and the capsule is
+  1.5-3x too bright at 0.2-0.6.
+- **The owner's garage scene** is back byte-for-byte to its state before RT-7 (tubes length 0,
+  radius 0, no links) -- still the editor-resaved copy, still not ours to commit. Parked garage
+  against the build before RT-7: from frame 168, at most 808 pixels by at most 4 levels.
+
 ### The owner's instructions, in force
 
 - **The lighting must not change.** The owner ruled out anything that alters the picture (stable
@@ -73,7 +93,7 @@ default (`--measured-change=off` is the reference arm). The owner's editor-resav
 - **In order:** (1) phase 3, the bounce light (GI); test; if good, this becomes the engine's
   anti-lag method, on by default, old anti-lag deleted -- **done and verified**. (2) **The moving
   camera is non-negotiable** -- **done** (above). (3) The water (the bridge's sea lamps and sea mirror
-  have their own filters) -- **next, not started**. The lamp lenses are fine as they are (owner looked).
+  have their own filters) -- **tested, nothing to build** (above). The lamp lenses are fine as they are (owner looked).
 - Explain in few plain words; report after each task; ask before spawning agents.
 
 ### What was built

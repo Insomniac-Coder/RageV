@@ -31,7 +31,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 
 ## Status at a glance
 
-**Twenty-three of thirty-four items are closed, four are part-done (RT-4, RT-5, RT-13, RT-16), seven are open. Every RT-6.x sub-item is finished.** (2026-09-13. The 2026-09-09 hand-off said twenty-three, which was a miscount, and this line had said twenty since 2026-09-08.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
+**Twenty-six of thirty-four items are closed, two are part-done (RT-4, RT-13), six are open. Every RT-6.x sub-item is finished.** (2026-09-14: RT-5 and RT-16 closed by measured change and the retired young blur; RT-7 closed on the owner's word once tube length reached the ray-traced lamp pass.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
 
 | # | status | effort | risk | in a line |
 |---|---|---|---|---|
@@ -42,7 +42,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-3 | ✅ done 2026-09-07 | — | — | GI as a signal of this frame |
 | RT-3.1 | ✅ done 2026-09-07 | — | — | the contract at each signal's own resolution |
 | RT-4 | **partial** — the composite measurement answered (it stays after the resolve); the trace's move and R11 open | 2 d | moderate | reflections as an instance of the shared code |
-| RT-5 | 🔨 **part done** — parts 1 and 2 measured already landed (2026-09-09); **part 3 closed 2026-09-13: the darkening was the histories' half-float rounding, not the bound — fixed in the accumulator and the temporal resolve, the bound left as it is**; part 4 built and off; part 5 open | 1 d | moderate | the contract validates by the G-buffer; the blur goes |
+| RT-5 | ✅ **done 2026-09-14** — parts 1-3 as recorded; **part 4, the anti-lag, replaced by measured change** (docs/RT-MEASURED-CHANGE.md); **part 5, the young blur, retired everywhere**: the exact copies skipped (8d2a318), the occlusion and bounce blurs measured off against on (dolly, cube, lights button parked and moving: pictures matched) and off by default, 0.54 ms a frame | — | — | the contract validates by the G-buffer; the blur goes |
 | RT-6 | ✅ **done 2026-09-09** — both halves; the still rule needs no per-project value now the sea reports its own motion | — | — | TAA on the G-buffer |
 | RT-6.1 | ✅ done 2026-09-07 | — | — | the reflection's virtual-image motion lane |
 | RT-6.2 | ✅ **re-run 2026-09-07: the negative result expired** | — | — | the material-aware clamp, live on RT-6.8's box |
@@ -55,7 +55,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-6.9** | ✅ **done 2026-09-07** | — | — | a camera cut throws the history away |
 | **RT-6.10** | ✅ **done 2026-09-07** | — | — | the accumulator validates what the ray hit |
 | **RT-6.11** | ✅ **done 2026-09-07** — **the biggest sharpness win of the day** | — | — | Catmull-Rom; its negative result had expired |
-| RT-7 | open | 4-5 d | moderate-high | the tubes as LTC line lights |
+| RT-7 | ✅ **done 2026-09-14 (owner's call)** — tube lights: `SourceLength` and `SourceRadius` shade as a tube in the raster loop (2026-09-08) and now in the ray-traced lamp pass too, with soft shadows along the tube's length. **The tubes' mirror reflections stay ray traced** (rays see the glowing bars). Tried and removed the same day, on the owner's rejection: linking a light to its glowing mesh so the light, not the rays, drew the reflection, and taking the light's brightness from the mesh — the floor reflections vanished, because the light's highlight cannot draw a mirror (DistributionGGX's 1e-4 denominator cap leaves a sharp highlight a few percent of its brightness; measured against a brute-force tube). The 16-byte light record's cost on the bridge was not measured | — | — | the tubes as line lights |
 | RT-8 | ✅ **closed 2026-09-09 by the owner** — job 1 shipped (the sea's own choose-and-shade retired for the shared pass); **jobs 2 and 3 dropped**, not deferred: job 2 regressed the bridge and its approach is wrong, job 3 measured no gain | — | — | the water on the G-buffer |
 | RT-9 | open | 2-3 d | moderate | the budget's shadow lane, and confidence drives allocation |
 | RT-10 | open | 5-7 d | **high** | ReSTIR DI on the G-buffer |
@@ -64,7 +64,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-13 | **skinned + layered ✅ done inside RT-2**; transparent open | 0.5 d to decide | low | every opaque surface in the G-buffer |
 | **RT-14** | ✅ **done 2026-09-07** — and it says do not pack the G-buffer | — | — | the G-buffer's bandwidth, measured before anything is packed |
 | **RT-15** | ✅ **done 2026-09-08** — both halves | — | — | the reflection accumulator reprojects by object motion |
-| **RT-16** | 🔨 **re-measured 2026-09-13** — reproduced on the car's own Realtime lamps: 95% of their light leaves the floor at 189 frames (3.1 s). The 2026-09-09 "a baked light behaving like one" reading and its 0.41 s for the car were wrong (the lamps start off). The design call is open | 1 d | moderate | a reflection takes seconds to leave the floor when its light goes out |
+| **RT-16** | ✅ **done 2026-09-14** — measured change: the lights button's light 90% gone after 10 frames (145 before), 15 with the camera moving. A *baked* light switched off still fades slowly, because its bake is thrown away and rebuilt -- accepted as a known thing (docs/BAKING-ROADMAP.md, docs/manual/lighting.md) | — | — | a reflection takes seconds to leave the floor when its light goes out |
 | **RT-17** | open — **new** | 2-3 d | moderate | the accumulator tests what the ray *hit*, by identity |
 | **RT-18** | open — **new** | 1-2 d | low | history cannot outlive the silhouette it belongs to |
 | **RT-19** | ✅ **done 2026-09-08** | — | — | the refusal reasons, totalled per frame |

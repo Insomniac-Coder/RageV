@@ -389,9 +389,9 @@ namespace RageV
 		// in texels; negative means the tuning's own value.
 		float ReflectionBlurRadius = -1.0f;
 		// **--ao-blur / --gi-blur=<texels> (RT-5 part 5):** the same dial for the
-		// occlusion and indirect signals, the two that still blur a young
-		// history. Negative, the tuning's own (6 and 12); zero skips their three
-		// blur passes entirely, which is the arm the blur is measured against.
+		// occlusion and indirect signals. Negative, the tuning's own -- zero since
+		// 2026-09-14, when the blur was measured to add nothing and retired, so
+		// every signal skips its blur passes; 6 and 12 bring back what they had.
 		float AoBlurRadius = -1.0f;
 		float GiBlurRadius = -1.0f;
 		// --terrain-lod-error=<ratio>: the terrain's ground veto, the LOD

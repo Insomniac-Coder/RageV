@@ -292,6 +292,29 @@ struct DirectPoint
 // closest-point half vector and widened lobe, GGX, Smith, Schlick. Returns
 // false for a light that reaches nothing here. `diffuse` is before the albedo
 // and the 1/pi; `specular` is complete.
+// **RT-7: a light with a length is a capsule, not a sphere** -- the raster
+// loop's representative point (include/pbr_fragment.glsl, the capsule half of
+// 2026-09-08), which this pass never had, so under the ray-traced lamp pass a
+// tube shaded as a point. The point of the lamp's segment nearest the reflection
+// ray, from the shading point: the light's own position less half its length
+// along the fixture's axis (Extent.yzw, the light's local X), clamped to the
+// ends; parallel to the ray the solve degenerates and the centre answers. Zero
+// length returns the centre exactly, so every lamp without one shades to the bit.
+vec3 NearestOnLamp(GpuLight light, vec3 P, vec3 R)
+{
+	const vec3 toCentre = light.Position.xyz - P;
+	const float tubeLength = max(light.Extent.x, 0.0);
+	if (tubeLength <= 0.0)
+		return toCentre;
+	const vec3 halfAxis = light.Extent.yzw * (0.5 * tubeLength);
+	const vec3 p0 = toCentre - halfAxis;
+	const vec3 d = halfAxis + halfAxis;
+	const float dR = dot(d, R);
+	const float denom = dot(d, d) - dR * dR;
+	const float s = denom > 1.0e-6 ? clamp((dR * dot(p0, R) - dot(p0, d)) / denom, 0.0, 1.0) : 0.5;
+	return p0 + d * s;
+}
+
 bool DirectTerm(DirectPoint p, GpuLight light, out vec3 diffuse, out vec3 specular,
 				out vec3 L, out float toward)
 {
@@ -334,10 +357,14 @@ bool DirectTerm(DirectPoint p, GpuLight light, out vec3 diffuse, out vec3 specul
 	const vec3 radiance = lightColor * attenuation;
 	float specRoughness = p.Roughness;
 	float specScale = 1.0;
-	if (positional && light.Direction.w > 0.0)
+	// RT-7: a tube's highlight is built toward the nearest point of its segment,
+	// then widened by its radius, exactly as the raster loop builds it. The
+	// diffuse, the cone, the range and the shadow keep the centre, as they do
+	// there.
+	if (positional && (light.Direction.w > 0.0 || light.Extent.x > 0.0))
 	{
 		const vec3 R = reflect(-V, N);
-		const vec3 toCentre = light.Position.xyz - p.P;
+		const vec3 toCentre = NearestOnLamp(light, p.P, R);
 		const vec3 centreToRay = dot(toCentre, R) * R - toCentre;
 		const vec3 closest = toCentre + centreToRay *
 			clamp(light.Direction.w *
@@ -439,6 +466,10 @@ float DirectVisibility(DirectPoint p, GpuLight light, uint index, vec3 L, float 
 		return 1.0;
 	if (light.Position.w == 0.0)
 		return TraceShadowFromMasked(p.P, p.N, L, 1.0e4, mask);
+	// RT-7: a tube shadows along its length, not from its centre alone.
+	if (light.Extent.x > 0.0)
+		return TraceShadowTubeFromMasked(p.P, p.N, light.Position.xyz - p.P, light.Extent.yzw,
+										 light.Extent.x, light.Direction.w, index, mask);
 	return TraceShadowSoftFromMasked(p.P, p.N, L, toward, light.Direction.w, index, mask);
 }
 
@@ -473,7 +504,11 @@ float ScoreDirect(DirectPoint p, uint index)
 		return 0.0;
 	const vec3 kLum = vec3(0.2126, 0.7152, 0.0722);
 	const float lum = dot(light.Color.rgb, kLum) * light.Color.a * attenuation * liveShare;
-	const vec3 H = normalize(p.V + L);
+	// RT-7: a tube's lobe peaks toward the nearest point of its segment, which
+	// is where DirectTerm puts its highlight; at zero length this is L.
+	const vec3 H = light.Extent.x > 0.0
+				 ? normalize(p.V + normalize(NearestOnLamp(light, p.P, reflect(-p.V, p.N))))
+				 : normalize(p.V + L);
 	const float diffuseLum = max(dot(p.Albedo, kLum), 1.0e-3) * (1.0 - p.Metallic) / PI;
 #ifdef RV_DIRECT_WATER
 	// **The score has to be the term's shape, or the sampler is worse than

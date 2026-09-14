@@ -7159,11 +7159,17 @@ namespace RageV
 		SignalParams signal;
 		signal.Type = SignalParams::Kind::Diffuse;
 		signal.Slot = 2;
-		// Occlusion is low-frequency: the young-history blur stays, bounded at
-		// six texels, and the moving memory floor is the direct light's.
-		signal.YoungRadius = 6.0f;
+		// **No young-history blur since RT-5 part 5 (2026-09-14, owner's call).**
+		// It spread a history under 32 frames old over up to six texels. Measured
+		// off against on -- the camera dolly, the chrome cube crossing, the lights
+		// button parked and moving, the garage parked -- the pictures matched
+		// (difference images black; under 0.1% of pixels over 4 levels, no added
+		// flicker), and its passes cost 0.54 ms a frame with the bounce's. The
+		// moving memory floor is the direct light's; the bound is six texels
+		// should a run bring the blur back.
+		signal.YoungRadius = 0.0f;
 		signal.MaxRadius = 6.0f;
-		// The measurement dial (RT-5 part 5); zero skips the blur passes.
+		// The measurement dial (RT-5 part 5): --ao-blur=6 is the blur as it was.
 		if (EngineConfig::Get().AoBlurRadius >= 0.0f)
 			signal.YoungRadius = EngineConfig::Get().AoBlurRadius;
 		return signal;
@@ -7178,10 +7184,13 @@ namespace RageV
 		// estimate under it.** One to four cosine rays at half resolution is
 		// four samples of a hemisphere: gi_denoise met that with a 0.98
 		// feedback and a 3x3 spatial blend, and the contract meets it with a
-		// long memory and the widest young blur any signal here takes.
-		signal.YoungRadius = 12.0f;
+		// long memory. **The young-history blur it also took -- the widest here,
+		// twelve texels -- is off since RT-5 part 5** (2026-09-14, owner's call):
+		// the measured change and the accumulator carry a young history now, and
+		// off against on the pictures matched (see AoSignal).
+		signal.YoungRadius = 0.0f;
 		signal.MaxRadius = 10.0f;
-		// The measurement dial (RT-5 part 5); zero skips the blur passes.
+		// The measurement dial (RT-5 part 5): --gi-blur=12 is the blur as it was.
 		if (EngineConfig::Get().GiBlurRadius >= 0.0f)
 			signal.YoungRadius = EngineConfig::Get().GiBlurRadius;
 		// **The bound, widened, and the reason is the upsample above it.**

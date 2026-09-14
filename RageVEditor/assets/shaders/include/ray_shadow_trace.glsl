@@ -353,6 +353,26 @@ float TraceShadowSoftFromMasked(vec3 worldPos, vec3 Ng, vec3 L, float tMax,
 								 sqrt(tMax * tMax + radius * radius), mask);
 }
 
+// **RT-7: the same soft shadow from a tube** -- a point drawn along the lamp's
+// segment as well as across its radius, so a pole under one end of a long tube
+// shadows that end. `toCentre` is the lamp's position less the shading point,
+// `axis` the unit direction the tube runs and `tubeLength` its metres. The along-
+// the-tube draw is a third stream of the same noise, walked by a third
+// irrational, so a re-light replaying last frame's draws replays this one too.
+float TraceShadowTubeFromMasked(vec3 worldPos, vec3 Ng, vec3 toCentre, vec3 axis, float tubeLength,
+								float sourceRadius, uint light, uint mask)
+{
+	const vec2 pixel = RV_TRACE_PIXEL;
+	float along = InterleavedGradientNoise(pixel + vec2(11.176476, 3.141593));
+	if (RV_TRACE_ANIMATED)
+		along += RV_TRACE_FRAME * 0.75487766625;
+	along = fract(along + float(light) * 0.41421356237) - 0.5;
+	const vec3 toPoint = toCentre + axis * (along * tubeLength);
+	const float reach = length(toPoint);
+	return TraceShadowSoftFromMasked(worldPos, Ng, toPoint / max(reach, 1.0e-4), reach,
+									 sourceRadius, light, mask);
+}
+
 float TraceShadowSoftFrom(vec3 worldPos, vec3 Ng, vec3 L, float tMax,
 						  float sourceRadius, uint light)
 {
