@@ -922,6 +922,9 @@ namespace RageV
 		Renderer::ScreenReflections reflectionsForScene;
 		RGResource previousReflections = kRGInvalid;
 		RGResource currentReflections = kRGInvalid;
+		// Which of the two the lit shader's hook reads: this frame's under the
+		// traced form (RT-4), last frame's under the screen-space trace.
+		RGResource sceneReflections = kRGInvalid;
 
 		// The pair serves two producers that never run together: the screen-space
 		// trace, or the traced glossy pass and its accumulator (below the
@@ -941,7 +944,19 @@ namespace RageV
 			// RT-6.1: the fourth lane is the virtual image's screen motion, which
 			// the composite hands to the temporal resolve so a reflection can be
 			// reprojected by its own movement rather than by the floor's.
-			reflections.Prepare(Renderer::GetDevice(), desc.Width, desc.Height,
+			// **At the scene's resolution, which under SSAA is the supersampled
+			// one.** The traced form's trace, resolve and accumulate all read the
+			// G-buffer texel for texel (texelFetch at gl_FragCoord), so a history
+			// at the output size read a double-size G-buffer at output-size
+			// coordinates: the accumulate saw the top-left quarter of the frame,
+			// twice as large, and the floor took reflections belonging to the
+			// ceiling (found 2026-09-14; the committed build did the same). The
+			// composite adds the picture before the SSAA resolve for the same
+			// reason. The screen-space trace runs on the resolved image and keeps
+			// the output size.
+			const uint32_t reflectionScale = tracedReflections ? (uint32_t)supersample : 1u;
+			reflections.Prepare(Renderer::GetDevice(), desc.Width * reflectionScale,
+								desc.Height * reflectionScale,
 								Format::R16G16B16A16_SFLOAT, "ScreenReflections",
 								tracedReflections ? Format::R16G16B16A16_SFLOAT
 												  : Format::Undefined,
@@ -967,15 +982,25 @@ namespace RageV
 				// confidence read out of that would mix somebody else's memory
 				// into every metal. The scene draws with the probe alone and
 				// the trace below starts the history.
-				if (reflections.HasHistory())
+				// **RT-4: the traced form's picture is this frame's.** Its chain
+				// runs before the lit pass (above "Scene"), so the hook binds the
+				// target the accumulate writes this frame -- written before any
+				// read, first frame of a chain included, so no history is needed.
+				// The screen-space trace still runs after the lit pass and is
+				// still read a frame late.
+				if (tracedReflections)
+				{
+					reflectionsForScene.Texture = reflections.Current()->GetColorTexture(0);
+					reflectionsForScene.Surface = reflections.Current()->GetColorTexture(1);
+					reflectionsForScene.Intensity = 1.0f / 4.0f;
+					sceneReflections = currentReflections;
+				}
+				else if (reflections.HasHistory())
 				{
 					reflectionsForScene.Texture = reflections.Previous()->GetColorTexture(0);
-					reflectionsForScene.Surface = tracedReflections
-												 ? reflections.Previous()->GetColorTexture(1)
-												 : nullptr;
-					reflectionsForScene.Intensity = tracedReflections
-												   ? 1.0f / 4.0f
-												   : Math::Max(desc.Post.SsrIntensity, 0.0f);
+					reflectionsForScene.Surface = nullptr;
+					reflectionsForScene.Intensity = Math::Max(desc.Post.SsrIntensity, 0.0f);
+					sceneReflections = previousReflections;
 				}
 			}
 		}
@@ -1504,8 +1529,8 @@ namespace RageV
 						  { albedoIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) },
 						  { surfaceIdIndex, Vec4(0.0f, 0.0f, 0.0f, 0.0f) } });
 					builder.SetClearColor(desc.ClearColor);
-					if (previousReflections != kRGInvalid)
-						builder.Sample(previousReflections);
+					if (sceneReflections != kRGInvalid)
+						builder.Sample(sceneReflections);
 					if (previousIndirect != kRGInvalid)
 						builder.Sample(previousIndirect);
 				},
@@ -2108,6 +2133,175 @@ namespace RageV
 			if (desc.GiChange)
 				desc.GiChange->Invalidate();
 		}
+		// --- the opaque glossy reflection, traced and averaged -----------------
+		//
+		// **RT-4: before the lit pass, like every other signal.** The chain reads
+		// only the G-buffer, the scene's structure and last frame's ray-budget
+		// tile map, never the lit colour, so it runs between the G-buffer and the
+		// lit pass the way the direct light, the occlusion and the bounce do --
+		// and the lit shader reads *this* frame's accumulated picture at the
+		// pixel (the share it gives the probe up by, and the reflector test)
+		// instead of last frame's reprojected through the hook, which at every
+		// disocclusion was a frame of probe where the picture belonged. The
+		// composite that adds the picture stays after the lit pass, before the
+		// temporal resolve, for the motion it chooses (RT-6.1).
+		// Gated on the traced form being on; inside, a pixel with no glossy
+		// surface casts nothing, which is the check a scene with none passes.
+		RGResource blurredReflections = kRGInvalid;
+		if (tracedReflections && currentReflections != kRGInvalid)
+		{
+			RGTargetDesc traceDesc;
+			traceDesc.Name = "ReflectionTrace";
+			traceDesc.Color = Format::R16G16B16A16_SFLOAT;
+			// The ray's direction and pdf, for the resolve's ratio estimator.
+			traceDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT };
+			traceDesc.Depth = Format::Undefined;
+			traceDesc.Scale = (float)supersample;
+			const RGResource traced = graph.CreateTarget(traceDesc);
+			const bool budgetBound = budgetPrevious != kRGInvalid && budgetHasHistory;
+
+			graph.AddPass("ReflectionTrace",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(traced);
+					builder.Sample(sceneHDR);
+					if (budgetBound)
+						builder.Sample(budgetPrevious);
+					builder.DisableDepth();
+				},
+				[sceneHDR, normalIndex, albedoIndex, budgetMap = budgetPrevious, budgetBound,
+				 giAverage = rtPreset.GiRays](RGPassContext& context)
+				{
+					Renderer3D::TraceReflections(context.Color(sceneHDR, normalIndex),
+												 context.Depth(sceneHDR),
+												 budgetBound ? context.Color(budgetMap) : nullptr,
+												 context.Color(sceneHDR, albedoIndex),
+												 giAverage);
+				});
+
+			// The rough surfaces' rays, shared across their neighbourhood
+			// before any frame is averaged (reflection_resolve.rvshader).
+			RGTargetDesc resolveDesc = traceDesc;
+			resolveDesc.Name = "ReflectionResolve";
+			resolveDesc.ExtraColors.clear();
+			const RGResource resolved = graph.CreateTarget(resolveDesc);
+			graph.AddPass("ReflectionResolve",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(resolved);
+					builder.Sample(traced);
+					builder.Sample(sceneHDR);
+					builder.DisableDepth();
+				},
+				[traced, sceneHDR, normalIndex](RGPassContext& context)
+				{
+					Renderer3D::ResolveReflections(context.Color(traced),
+												   context.Color(traced, 1),
+												   context.Depth(sceneHDR),
+												   context.Color(sceneHDR, normalIndex));
+				});
+			// The previous frame's picture, surface and moments, when there is one.
+			// **The reconstruction contract (RT-first T4).** The accumulate and
+			// the three young-history blurs are one helper for any signal:
+			// reflections here; shadows, occlusion and irradiance to follow.
+			const bool reflectionHistory = desc.Reflections && desc.Reflections->HasHistory() && previousReflections != kRGInvalid;
+			RGTargetDesc reflectionBlurDesc = traceDesc;
+			reflectionBlurDesc.Name = "ReflectionBlurred";
+			// **Measured change, phase 2 (docs/RT-MEASURED-CHANGE.md).** The direct
+			// light's shape for the traced reflections: the record's rays traced
+			// again into this frame's scene before the accumulate, the difference
+			// filtered into the share of the reflected light that changed, and the
+			// record retaken after the trace -- the re-light drawing only when
+			// something a reflection depends on has changed, the record then or when
+			// the camera moved.
+			if (config.MeasuredChange && desc.ReflectionChange && Renderer3D::CanMeasureReflectionChange()
+				&& PostProcess::IsReady())
+			{
+				MeasuredChangeHistory& change = *desc.ReflectionChange;
+				const uint32_t blockWidth = Math::Max(desc.Width * (uint32_t)supersample / 3u, 1u);
+				const uint32_t blockHeight = Math::Max(desc.Height * (uint32_t)supersample / 3u, 1u);
+				change.Prepare(Renderer::GetDevice(), blockWidth, blockHeight, 4);
+				const bool recordIsLast = RecordIsLastFrame(change, desc.View, desc.InvProjection0,
+															 desc.InvProjection1);
+				if (change.Record)
+				{
+					const RGResource record = graph.Import(change.Record, "ReflectionChangeRecord");
+					MeasuredChangeHistory* history = &change;
+					if (recordIsLast)
+					{
+						RGTargetDesc relightDesc;
+						relightDesc.Name = "ReflectionChangeRelit";
+						relightDesc.Color = Format::R16G16B16A16_SFLOAT;
+						relightDesc.ExtraColors = { Format::R32G32B32A32_SFLOAT };
+						relightDesc.Depth = Format::Undefined;
+						relightDesc.Width = blockWidth;
+						relightDesc.Height = blockHeight;
+						const RGResource relit = graph.CreateTarget(relightDesc);
+						graph.AddPass("ReflectionRelight",
+							[&](RGPassBuilder& builder)
+							{
+								builder.Write(relit);
+								builder.Sample(record);
+								builder.DisableDepth();
+							},
+							[record, history](RGPassContext& context)
+							{
+								Renderer3D::RelightReflectionChange(context.Color(record, 0),
+																	context.Color(record, 1),
+																	context.Color(record, 2),
+																	context.Color(record, 3),
+																	*history);
+							});
+						static const char* const kFilterPasses[] =
+							{ "ReflectionChangeFilter", "ReflectionChangeFilter2", "ReflectionChangeFilter4",
+							  "ReflectionChangeFilter8", "ReflectionChangeFilter16", "ReflectionChangeMap" };
+						reflectionChange = addChangeFilter(relit, relightDesc, history, kFilterPasses);
+						reflectionChangeLive = &change.RelitThisFrame;
+					}
+					{
+						Renderer3D::GiTraceView reflectionView;
+						reflectionView.NearClip = desc.NearClip;
+						reflectionView.FarClip = desc.FarClip;
+						reflectionView.InvProjection0 = desc.InvProjection0;
+						reflectionView.InvProjection1 = desc.InvProjection1;
+						reflectionView.View = desc.View;
+						graph.AddPass("ReflectionRecord",
+							[&](RGPassBuilder& builder)
+							{
+								builder.Write(record, RGLoad::Preserve);
+								builder.Sample(traced);
+								builder.Sample(sceneHDR);
+								builder.DisableDepth();
+							},
+							[sceneHDR, normalIndex, albedoIndex, velocityIndex, traced, reflectionView, history]
+							(RGPassContext& context)
+							{
+								Renderer3D::RecordReflectionChange(context.Color(sceneHDR, normalIndex),
+																   context.Depth(sceneHDR),
+																   context.Color(sceneHDR, albedoIndex),
+																   context.Color(traced),
+																   context.Color(sceneHDR, velocityIndex),
+																   reflectionView, *history);
+							});
+					}
+				}
+			}
+			else if (desc.ReflectionChange)
+			{
+				desc.ReflectionChange->Invalidate();
+			}
+			static const SignalPassNames kReflectionPasses = { "ReflectionAccumulate", { "ReflectionBlur", "ReflectionBlur2", "ReflectionBlur4" } };
+			blurredReflections = addSignal(kReflectionPasses, Renderer3D::ReflectionSignal(),
+															resolved, currentReflections, previousReflections,
+															reflectionHistory, &desc.Reflections->Motion(),
+															reflectionBlurDesc, false, {}, reflectionChange,
+															reflectionChangeLive).Target;
+		}
+		else if (desc.ReflectionChange)
+		{
+			// No trace, so no record that describes this frame.
+			desc.ReflectionChange->Invalidate();
+		}
 		graph.AddPass("Scene",
 			[&](RGPassBuilder& builder)
 			{
@@ -2119,8 +2313,8 @@ namespace RageV
 				builder.SetClearColor(desc.ClearColor);
 				if (gbufferPass)
 					builder.PreserveDepth();
-				if (previousReflections != kRGInvalid)
-					builder.Sample(previousReflections);
+				if (sceneReflections != kRGInvalid)
+					builder.Sample(sceneReflections);
 				if (previousIndirect != kRGInvalid)
 					builder.Sample(previousIndirect);
 				if (directLit != kRGInvalid)
@@ -2853,213 +3047,22 @@ namespace RageV
 				[draw = desc.DrawOverlay](RGPassContext& context) { draw(context); });
 		}
 
-		// --- SSAA resolve --------------------------------------------------------
-		//
-		// Before bloom and before tone mapping, both deliberately. Averaging is
-		// only meaningful where the numbers add up, and after the tone curve
-		// they no longer do; and bloom thresholding the *supersampled* image
-		// would let a single bright subsample light a whole output pixel, which
-		// is the firefly SSAA is supposed to remove.
 		RGResource shaded = sceneHDR;
-		if (supersample > 1)
-		{
-			RGTargetDesc resolvedDesc;
-			resolvedDesc.Name = "SceneResolved";
-			resolvedDesc.Color = Format::R16G16B16A16_SFLOAT;
-			resolvedDesc.Depth = Format::Undefined;
-			shaded = graph.CreateTarget(resolvedDesc);
-
-			graph.AddPass("SSAA resolve",
-				[&](RGPassBuilder& builder)
-				{
-					builder.Write(shaded);
-					builder.Sample(sceneHDR);
-					builder.DisableDepth();
-				},
-				[sceneHDR, supersample](RGPassContext& context)
-				{
-					PostProcess::SsaaResolve(context.Cmd, context.Color(sceneHDR),
-											 context.Width * supersample,
-											 context.Height * supersample,
-											 Format::R16G16B16A16_SFLOAT, supersample);
-				});
-		}
-
-		// --- TAA resolve ---------------------------------------------------------
-		//
-		// The same slot as the SSAA resolve above, and mutually exclusive with
-		// it: both are a mode of anti-aliasing that produces the shaded image
-		// the rest of the chain consumes, and both belong before bloom and
-		// tone mapping because averaging is only meaningful in linear light.
-		//
-		// Bloom reading the *accumulated* image rather than the jittered one
-		// is not incidental. A threshold applied to a frame that is wobbling
-		// by half a pixel flickers along every bright edge, and a glow that
-		// shimmers is more obvious than the aliasing it was hiding.
 		// RT-6.1: the composite's velocity lane, when it ran.
 		RGResource reflectionMotion = kRGInvalid;
-		// --- the opaque glossy reflection, traced and averaged -----------------
+		// --- the opaque glossy reflection, added ---------------------------------
 		//
 		// **RT-6.1: before the temporal resolve, and it hands the resolve the
-		// motion to reproject by.** The chain reads only the G-buffer and the
-		// scene's structure, never the lit colour, so it lifts above the resolve
-		// cleanly; the tile map it reads becomes last frame's, as RT-2's
-		// occlusion and RT-3's bounce already read it. Moving it without the
-		// motion lane was tried on 2026-09-07 and smeared the wet floor into
-		// horizontal bands, because the resolve dragged the reflection along the
-		// floor's velocity; the composite now says which motion each pixel has.
-		// What it writes is still read a frame late through the screen-reflection
-		// hook (reflection_trace.rvshader), which this does not affect.
-		// Gated on the traced form being on; inside, a pixel with no glossy
-		// surface casts nothing, which is the check a scene with none passes.
-		if (tracedReflections && currentReflections != kRGInvalid)
+		// motion to reproject by.** Moving it without the motion lane was tried
+		// on 2026-09-07 and smeared the wet floor into horizontal bands, because
+		// the resolve dragged the reflection along the floor's velocity; the
+		// composite says which motion each pixel has. The picture itself is
+		// traced and averaged before the lit pass (RT-4, above "Scene"). **And
+		// before the SSAA resolve**, at the scene's own resolution, where the
+		// picture and the weight the lit shader wrote describe the same texels;
+		// TAA and SSAA never run together, so under TAA this is where it was.
+		if (blurredReflections != kRGInvalid)
 		{
-			RGTargetDesc traceDesc;
-			traceDesc.Name = "ReflectionTrace";
-			traceDesc.Color = Format::R16G16B16A16_SFLOAT;
-			// The ray's direction and pdf, for the resolve's ratio estimator.
-			traceDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT };
-			traceDesc.Depth = Format::Undefined;
-			traceDesc.Scale = (float)supersample;
-			const RGResource traced = graph.CreateTarget(traceDesc);
-			const bool budgetBound = budgetPrevious != kRGInvalid && budgetHasHistory;
-
-			graph.AddPass("ReflectionTrace",
-				[&](RGPassBuilder& builder)
-				{
-					builder.Write(traced);
-					builder.Sample(sceneHDR);
-					if (budgetBound)
-						builder.Sample(budgetPrevious);
-					builder.DisableDepth();
-				},
-				[sceneHDR, normalIndex, albedoIndex, budgetMap = budgetPrevious, budgetBound,
-				 giAverage = rtPreset.GiRays](RGPassContext& context)
-				{
-					Renderer3D::TraceReflections(context.Color(sceneHDR, normalIndex),
-												 context.Depth(sceneHDR),
-												 budgetBound ? context.Color(budgetMap) : nullptr,
-												 context.Color(sceneHDR, albedoIndex),
-												 giAverage);
-				});
-
-			// The rough surfaces' rays, shared across their neighbourhood
-			// before any frame is averaged (reflection_resolve.rvshader).
-			RGTargetDesc resolveDesc = traceDesc;
-			resolveDesc.Name = "ReflectionResolve";
-			resolveDesc.ExtraColors.clear();
-			const RGResource resolved = graph.CreateTarget(resolveDesc);
-			graph.AddPass("ReflectionResolve",
-				[&](RGPassBuilder& builder)
-				{
-					builder.Write(resolved);
-					builder.Sample(traced);
-					builder.Sample(sceneHDR);
-					builder.DisableDepth();
-				},
-				[traced, sceneHDR, normalIndex](RGPassContext& context)
-				{
-					Renderer3D::ResolveReflections(context.Color(traced),
-												   context.Color(traced, 1),
-												   context.Depth(sceneHDR),
-												   context.Color(sceneHDR, normalIndex));
-				});
-			// The previous frame's picture, surface and moments, when there is one.
-			// **The reconstruction contract (RT-first T4).** The accumulate and
-			// the three young-history blurs are one helper for any signal:
-			// reflections here; shadows, occlusion and irradiance to follow.
-			const bool reflectionHistory = desc.Reflections && desc.Reflections->HasHistory() && previousReflections != kRGInvalid;
-			RGTargetDesc reflectionBlurDesc = traceDesc;
-			reflectionBlurDesc.Name = "ReflectionBlurred";
-			// **Measured change, phase 2 (docs/RT-MEASURED-CHANGE.md).** The direct
-			// light's shape for the traced reflections: the record's rays traced
-			// again into this frame's scene before the accumulate, the difference
-			// filtered into the share of the reflected light that changed, and the
-			// record retaken after the trace -- the re-light drawing only when
-			// something a reflection depends on has changed, the record then or when
-			// the camera moved.
-			if (config.MeasuredChange && desc.ReflectionChange && Renderer3D::CanMeasureReflectionChange()
-				&& PostProcess::IsReady())
-			{
-				MeasuredChangeHistory& change = *desc.ReflectionChange;
-				const uint32_t blockWidth = Math::Max(desc.Width * (uint32_t)supersample / 3u, 1u);
-				const uint32_t blockHeight = Math::Max(desc.Height * (uint32_t)supersample / 3u, 1u);
-				change.Prepare(Renderer::GetDevice(), blockWidth, blockHeight, 4);
-				const bool recordIsLast = RecordIsLastFrame(change, desc.View, desc.InvProjection0,
-															 desc.InvProjection1);
-				if (change.Record)
-				{
-					const RGResource record = graph.Import(change.Record, "ReflectionChangeRecord");
-					MeasuredChangeHistory* history = &change;
-					if (recordIsLast)
-					{
-						RGTargetDesc relightDesc;
-						relightDesc.Name = "ReflectionChangeRelit";
-						relightDesc.Color = Format::R16G16B16A16_SFLOAT;
-						relightDesc.ExtraColors = { Format::R32G32B32A32_SFLOAT };
-						relightDesc.Depth = Format::Undefined;
-						relightDesc.Width = blockWidth;
-						relightDesc.Height = blockHeight;
-						const RGResource relit = graph.CreateTarget(relightDesc);
-						graph.AddPass("ReflectionRelight",
-							[&](RGPassBuilder& builder)
-							{
-								builder.Write(relit);
-								builder.Sample(record);
-								builder.DisableDepth();
-							},
-							[record, history](RGPassContext& context)
-							{
-								Renderer3D::RelightReflectionChange(context.Color(record, 0),
-																	context.Color(record, 1),
-																	context.Color(record, 2),
-																	context.Color(record, 3),
-																	*history);
-							});
-						static const char* const kFilterPasses[] =
-							{ "ReflectionChangeFilter", "ReflectionChangeFilter2", "ReflectionChangeFilter4",
-							  "ReflectionChangeFilter8", "ReflectionChangeFilter16", "ReflectionChangeMap" };
-						reflectionChange = addChangeFilter(relit, relightDesc, history, kFilterPasses);
-						reflectionChangeLive = &change.RelitThisFrame;
-					}
-					{
-						Renderer3D::GiTraceView reflectionView;
-						reflectionView.NearClip = desc.NearClip;
-						reflectionView.FarClip = desc.FarClip;
-						reflectionView.InvProjection0 = desc.InvProjection0;
-						reflectionView.InvProjection1 = desc.InvProjection1;
-						reflectionView.View = desc.View;
-						graph.AddPass("ReflectionRecord",
-							[&](RGPassBuilder& builder)
-							{
-								builder.Write(record, RGLoad::Preserve);
-								builder.Sample(traced);
-								builder.Sample(sceneHDR);
-								builder.DisableDepth();
-							},
-							[sceneHDR, normalIndex, albedoIndex, velocityIndex, traced, reflectionView, history]
-							(RGPassContext& context)
-							{
-								Renderer3D::RecordReflectionChange(context.Color(sceneHDR, normalIndex),
-																   context.Depth(sceneHDR),
-																   context.Color(sceneHDR, albedoIndex),
-																   context.Color(traced),
-																   context.Color(sceneHDR, velocityIndex),
-																   reflectionView, *history);
-							});
-					}
-				}
-			}
-			else if (desc.ReflectionChange)
-			{
-				desc.ReflectionChange->Invalidate();
-			}
-			static const SignalPassNames kReflectionPasses = { "ReflectionAccumulate", { "ReflectionBlur", "ReflectionBlur2", "ReflectionBlur4" } };
-			const RGResource blurredReflections = addSignal(kReflectionPasses, Renderer3D::ReflectionSignal(),
-															resolved, currentReflections, previousReflections,
-															reflectionHistory, &desc.Reflections->Motion(),
-															reflectionBlurDesc, false, {}, reflectionChange,
-															reflectionChangeLive).Target;
 			{
 				const RGResource blurred = blurredReflections;
 
@@ -3069,6 +3072,9 @@ namespace RageV
 				// RT-6.1: and the velocity the resolve reprojects by, per pixel.
 				compositeDesc.ExtraColors = { Format::R16G16_SFLOAT };
 				compositeDesc.Depth = Format::Undefined;
+				// The scene's scale: under SSAA this runs before the resolve, on
+				// the supersampled image, where the picture's texels are.
+				compositeDesc.Scale = (float)supersample;
 				const RGResource composited = graph.CreateTarget(compositeDesc);
 				const RGResource before = shaded;
 				graph.AddPass("ReflectionComposite",
@@ -3102,11 +3108,51 @@ namespace RageV
 			// this frame is what the next frame reads.
 			desc.Reflections->Advance();
 		}
-		else if (desc.ReflectionChange)
+
+		// --- SSAA resolve --------------------------------------------------------
+		//
+		// Before bloom and before tone mapping, both deliberately. Averaging is
+		// only meaningful where the numbers add up, and after the tone curve
+		// they no longer do; and bloom thresholding the *supersampled* image
+		// would let a single bright subsample light a whole output pixel, which
+		// is the firefly SSAA is supposed to remove.
+		if (supersample > 1)
 		{
-			// No trace, so no record that describes this frame.
-			desc.ReflectionChange->Invalidate();
+			RGTargetDesc resolvedDesc;
+			resolvedDesc.Name = "SceneResolved";
+			resolvedDesc.Color = Format::R16G16B16A16_SFLOAT;
+			resolvedDesc.Depth = Format::Undefined;
+			// The scene with its reflection added, when the composite ran.
+			const RGResource supersampled = shaded;
+			shaded = graph.CreateTarget(resolvedDesc);
+
+			graph.AddPass("SSAA resolve",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(shaded);
+					builder.Sample(supersampled);
+					builder.DisableDepth();
+				},
+				[supersampled, supersample](RGPassContext& context)
+				{
+					PostProcess::SsaaResolve(context.Cmd, context.Color(supersampled),
+											 context.Width * supersample,
+											 context.Height * supersample,
+											 Format::R16G16B16A16_SFLOAT, supersample);
+				});
 		}
+
+		// --- TAA resolve ---------------------------------------------------------
+		//
+		// The same slot as the SSAA resolve above, and mutually exclusive with
+		// it: both are a mode of anti-aliasing that produces the shaded image
+		// the rest of the chain consumes, and both belong before bloom and
+		// tone mapping because averaging is only meaningful in linear light.
+		//
+		// Bloom reading the *accumulated* image rather than the jittered one
+		// is not incidental. A threshold applied to a frame that is wobbling
+		// by half a pixel flickers along every bright edge, and a glow that
+		// shimmers is more obvious than the aliasing it was hiding.
 
 		// This frame's temporal history, for the debug view's confidence
 		// map: attachment 1 of it carries the validity lane (WR-16 S0).

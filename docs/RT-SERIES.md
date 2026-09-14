@@ -31,7 +31,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 
 ## Status at a glance
 
-**Twenty-six of thirty-four items are closed, two are part-done (RT-4, RT-13), six are open. Every RT-6.x sub-item is finished.** (2026-09-14: RT-5 and RT-16 closed by measured change and the retired young blur; RT-7 closed on the owner's word once tube length reached the ray-traced lamp pass.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
+**Twenty-seven of thirty-five items are closed, one is part-done (RT-13), seven are open. Every RT-6.x sub-item is finished.** (2026-09-14: RT-5 and RT-16 closed by measured change and the retired young blur; RT-7 closed on the owner's word once tube length reached the ray-traced lamp pass; RT-4 closed on the owner's word with R11 carried into the new RT-21.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
 
 | # | status | effort | risk | in a line |
 |---|---|---|---|---|
@@ -41,7 +41,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-2.2 | open, **at the end of the series** | 1 d | low | the deferred resolve; the albedo lane widens first |
 | RT-3 | ✅ done 2026-09-07 | — | — | GI as a signal of this frame |
 | RT-3.1 | ✅ done 2026-09-07 | — | — | the contract at each signal's own resolution |
-| RT-4 | **partial** — the composite measurement answered (it stays after the resolve); the trace's move and R11 open | 2 d | moderate | reflections as an instance of the shared code |
+| RT-4 | ✅ **done 2026-09-14 (owner's call)** — the trace, resolve and accumulate run before the lit pass and the lit shader reads this frame's picture at the pixel; R5's same-surface rule is RT-6.10's per-texel test; R11 measured (the resolve's weighting, through DistributionGGX's cap, settles the floor 2.5 levels under a per-texel reference; the reference itself is not exact) and carried into RT-21; SSAA's traced reflections fixed on the way. Record below | — | — | reflections as an instance of the shared code |
 | RT-5 | ✅ **done 2026-09-14** — parts 1-3 as recorded; **part 4, the anti-lag, replaced by measured change** (docs/RT-MEASURED-CHANGE.md); **part 5, the young blur, retired everywhere**: the exact copies skipped (8d2a318), the occlusion and bounce blurs measured off against on (dolly, cube, lights button parked and moving: pictures matched) and off by default, 0.54 ms a frame | — | — | the contract validates by the G-buffer; the blur goes |
 | RT-6 | ✅ **done 2026-09-09** — both halves; the still rule needs no per-project value now the sea reports its own motion | — | — | TAA on the G-buffer |
 | RT-6.1 | ✅ done 2026-09-07 | — | — | the reflection's virtual-image motion lane |
@@ -69,6 +69,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-18** | open — **new** | 1-2 d | low | history cannot outlive the silhouette it belongs to |
 | **RT-19** | ✅ **done 2026-09-08** | — | — | the refusal reasons, totalled per frame |
 | **RT-20** | ✅ **done 2026-09-13** — RT-6's surface test fired on the jitter at every edge; a still edge now keeps its own history unless what it showed was moving | — | — | edges flicker on a parked camera while the jitter is on |
+| **RT-21** | open — **new 2026-09-14** (from RT-7 and RT-4). `DistributionGGX`'s `max(PI * denom * denom, 1e-4)` caps a narrow lobe's peak: a sized light's highlight on a smooth surface reaches 1-17% of its brightness (roughness 0.1 and under), point-light highlights under roughness ~0.27 are dimmed, and the reflection resolve's pdf ratio is distorted (the garage floor settles 2.5 levels under a per-texel reference; uncapped, 2.4-3.1 over it). Needs a proper reference first -- many rays a texel, weighted by NoL, no mirror ray standing in for a draw under the horizon -- then the cap and the resolve against it. **Changes every shiny highlight in every scene**: before/after on the garage and the bridge | 1-2 d | moderate | the highlight formula's safety cap |
 
 **Three new items on 2026-09-08 (RT-17..RT-19)**, from the owner's *Object-Aware Temporal Rendering* document; the section below the reviews records what that document proposed that this engine already had, what was taken, and what was rejected and why.
 
@@ -1700,6 +1701,54 @@ judged by eye: 12 is soft, 3 has the gravel crisp, 0 trades texture for grain.
 **Still open for RT-4/RT-5:** giving the resolve the reflection's own motion --
 the virtual image's, which the accumulator already computes -- is the only way
 the composite could move, and it needs a second velocity lane. Not attempted.
+*(Done the same day as RT-6.1.)*
+
+### RT-4 — ✅ done 2026-09-14 (owner's call): the trace before the lit pass; R11 measured and carried into RT-21; SSAA fixed on the way
+
+**The move.** The reflection chain -- trace, resolve, measured change, accumulate
+-- runs between the G-buffer and the lit pass like every other signal
+(`FrameGraphBuilder.cpp`, above "Scene"), and the lit shader's hook reads **this
+frame's** accumulated picture at the pixel (`hookNDC` in `pbr_fragment.glsl`,
+the texel `reflection_composite` adds) instead of last frame's reprojected.
+The composite stays after the lit pass for RT-6.1's motion choice. Measured on
+the garage against the committed build: parked, the changes are one-pixel
+silhouette lines (the share and the added picture now describe the same texel;
+by eye identical at 4x); edge flicker parked unchanged (car 1.19 -> 1.24, poles
+1.15 -> 1.12 levels a frame); the moving chrome cube shows slightly less
+speckle, its stripes unchanged. Validation clean on the garage and in every AA
+mode, the bridge's two known messages only; scenetest Vulkan 2491 / OpenGL
+2432, no failures.
+
+**R5's same-surface rule: nothing to build.** RT-6.10 compares each texel's own
+image distance with a roughness-scaled tolerance, which is the rule without the
+3x3 minimum that fired on parked silhouettes.
+
+**R11, re-measured** (`rt4_r11.py`, `rt4_r11b.py`; the garage parked, mean of
+frames 360-399, 9x9 low-frequency luma against a *truth* of no resolve, the
+accumulator unbounded, memory 400): shipped floor **-2.50** (bright -3.05);
+the accumulator's bound and memory change nothing (-2.46, -2.48); the resolve's
+weighting is the whole of it -- Gaussian-only +3.22, the ratio at cap 16 -4.48,
+uncapped -5.93. With the pdfs computed without DistributionGGX's denominator
+floor: +2.69 (the solid-angle Jacobian adds nothing, +2.70; the neighbour's own
+draw pdf +3.14, uncapped +2.36). **The truth is not exact either**: the trace
+does not weight by NoL and replaces a draw under the horizon with the mirror
+ray, so which brightness is right is open. Carried into **RT-21** with the cap.
+
+**SSAA's traced reflections were broken, and not by this** (the committed build
+rendered the same picture bit for bit). The reflection history was allocated
+at the output size and read the supersampled G-buffer texel for texel, so the
+accumulate saw the top-left quarter of the frame at twice the size and the floor
+took the ceiling's reflections (`build/rt5/ssaa_reflection_picture.png`). The
+history is now at the scene's resolution for the traced form, and the composite
+runs before the SSAA resolve. TAA renders pixel-identical to before the fix,
+parked and dollying (`build/rt5/ssaa_fixed_sheet.png`).
+
+**A harness trap that read as engine nondeterminism.** `stage_run.restore()`
+copied back three named shaders; R11's arms staged `reflection_resolve`, which
+stayed modified for every later run, and two shipped runs a sequence apart
+differed by up to 233 levels. `restore()` now also restores every shader a
+variant names and any staged file that differs from its source; shipped runs
+are identical whatever runs between them (`rt4_nondet.py`).
 
 ### RT-6.1 — ✅ done 2026-09-07 (uncommitted, both copies staged)
 

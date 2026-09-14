@@ -5804,6 +5804,17 @@ void main()
 #ifndef RV_TRANSPARENT
 	if (u_Scene.ScreenReflections.x > 0.0)
 	{
+#ifdef RV_RAY_REFLECTIONS
+		// **RT-4: this frame's picture, at this pixel.** The traced chain runs
+		// before the lit pass, so what the hook holds is the picture the
+		// composite will add here -- read at the texel under the pixel, exactly
+		// where reflection_composite reads it, so the share this gives the probe
+		// up by and the weight the composite adds with describe the same texel.
+		// (Read at last frame's position, a pixel the surface had just uncovered
+		// had no picture there and showed a frame of probe.)
+		const vec2 hookNDC = v_ClipPos.xy / max(abs(v_ClipPos.w), 1e-6) * sign(v_ClipPos.w);
+		vec2 traceUV = vec2(hookNDC.x, hookNDC.y * u_Scene.ScreenReflections.y) * 0.5 + 0.5;
+#else
 		// Less last frame's jitter, as 7af designed it: the accumulated
 		// picture lives on the unjittered grid (reflection_accumulate.rvshader
 		// says why), so the surface's unjittered previous position is its
@@ -5811,6 +5822,7 @@ void main()
 		// read it at the jittered position; that picture wobbled.)
 		vec2 previousNDC = thenNDC - u_Scene.Jitter.zw;
 		vec2 traceUV = vec2(previousNDC.x, previousNDC.y * u_Scene.ScreenReflections.y) * 0.5 + 0.5;
+#endif
 
 		// Off the edge last frame means nothing was traced for this point;
 		// the probe answers, and clamp-to-edge would have answered with a

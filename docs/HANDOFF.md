@@ -85,6 +85,23 @@ default (`--measured-change=off` is the reference arm). The owner's editor-resav
   radius 0, no links) -- still the editor-resaved copy, still not ours to commit. Parked garage
   against the build before RT-7: from frame 168, at most 808 pixels by at most 4 levels.
 
+### State (late night): RT-4 closed, SSAA's reflections fixed, RT-21 filed; RT-13 next (owner)
+
+- **RT-4 closed on the owner's word** (RT-SERIES has the record): the reflection chain runs before
+  the lit pass and the hook reads this frame's picture at the pixel; one-pixel silhouette changes
+  only, edge flicker unchanged, validation clean in every AA mode, scenetest green.
+- **SSAA with traced reflections was broken before this** (history at output size, supersampled
+  G-buffer read texel for texel: the top-left quarter at twice the size) -- fixed; TAA bit-identical.
+- **R11 measured and not fixed**: the resolve's weighting, through `DistributionGGX`'s 1e-4 cap,
+  settles the floor 2.5 levels under a per-texel reference, uncapped 2.4-3.1 over it, and that
+  reference is not exact either. Filed as **RT-21** with the cap's other two effects (tube and
+  sized-light highlights on smooth surfaces, dimmed point highlights) -- it changes every shiny
+  highlight, so before/after on the garage and the bridge, the owner's call when.
+- **Trap:** `stage_run.restore()` restored three named shaders; a staged `reflection_resolve` leaked
+  into every later run and read as engine nondeterminism (233 levels). Fixed: it now restores any
+  staged file that differs from its source. **Anything that stages shaders must check the whole
+  staged directory.**
+
 ### The owner's instructions, in force
 
 - **The lighting must not change.** The owner ruled out anything that alters the picture (stable
