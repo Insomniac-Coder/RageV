@@ -552,6 +552,8 @@ namespace RageV
 					if (desc.Indirect)     desc.Indirect->Invalidate();
 					if (desc.TaaGuide)     desc.TaaGuide->Invalidate();
 					if (desc.DirectLight)  desc.DirectLight->Invalidate();
+					if (desc.GlassDirectLight) desc.GlassDirectLight->Invalidate();
+					if (desc.GlassReflections) desc.GlassReflections->Invalidate();
 					if (desc.GiLight)      desc.GiLight->Invalidate();
 					if (desc.Occlusion)    desc.Occlusion->Invalidate();
 					if (desc.RayBudget)    desc.RayBudget->Invalidate();
@@ -657,6 +659,30 @@ namespace RageV
 			// measured at 7 ms of the Glitter frame, a fifth of it.
 			surfaceDesc.Samples = 1;
 			waterSurface = graph.CreateTarget(surfaceDesc);
+		}
+
+		// **RT-13: the nearest pane of glass, as a G-buffer layer of its own**
+		// (owner's option 2, 2026-09-14). The G-buffer's four lanes in the
+		// G-buffer's order and formats -- velocity, surface, albedo, id -- so a
+		// pass written for the opaque G-buffer can read glass by being handed
+		// these textures instead; a depth of its own, so the nearest pane wins;
+		// one sample, for the water surface's reason. Only where the transparent
+		// pass exists and the glass pipeline was built (--glass-layer=on).
+		RGResource glassLayer = kRGInvalid;
+		if (wantTransparent && Renderer3D::GlassLayerAvailable())
+		{
+			RGTargetDesc glassDesc;
+			glassDesc.Name = "GlassLayer";
+			glassDesc.Color = Format::R16G16_SFLOAT;
+			glassDesc.ExtraColors = { kNormalFormat, kAlbedoFormat, kSurfaceIdFormat };
+			glassDesc.Depth = Format::D32_SFLOAT;
+			// Read back as a texture: the trace, the contract and the transparent
+			// draw's nearest-pane test all take the layer's depth. Without the
+			// flag the attachment is not sampleable and every reader sees none.
+			glassDesc.SampleDepth = true;
+			glassDesc.Scale = sceneDesc.Scale;
+			glassDesc.Samples = 1;
+			glassLayer = graph.CreateTarget(glassDesc);
 		}
 
 		// The sub-pixel offset this frame is drawn with, in the scene target's
@@ -1238,6 +1264,14 @@ namespace RageV
 			// RT-8: and whether the normal lane is the sea's two-component form
 			// rather than octahedral -- see SignalParams::UpNormalLane.
 			bool       UpNormalLane = false;
+			// RT-13 stage 2: and whether the depth is the target's depth
+			// attachment rather than a colour lane -- a layer with a depth of its
+			// own, as the glass layer has. Clip depth as written either way.
+			bool       DepthIsAttachment = false;
+			// RT-13 stage 3: and where the object id is, for the specular kind's
+			// identity test -- the G-buffer's own lane when unset.
+			RGResource Id = kRGInvalid;
+			uint32_t   IdLane = 0;
 		};
 		// **What a signal hands its reader: the settled target, and the lane its
 		// twin is on** -- 1 on a blurred target, which carries the pair alone;
@@ -1280,6 +1314,10 @@ namespace RageV
 			const uint32_t guideVelocityLane =
 				guide.Velocity != kRGInvalid ? guide.VelocityLane : velocityIndex;
 			const bool ownGuide = guide.Depth != kRGInvalid;
+			const bool depthAttachment = guide.DepthIsAttachment;
+			const RGResource guideId = guide.Id != kRGInvalid ? guide.Id : sceneHDR;
+			const uint32_t guideIdLane = guide.Id != kRGInvalid ? guide.IdLane : surfaceIdIndex;
+			const bool sampleId = guide.Id != kRGInvalid && !(ownGuide && guide.Id == guideDepth);
 			// RT-8: the guidance says what its depth lane is, and the signal
 			// carries it to both shaders. Set here rather than trusted to the
 			// caller, so a signal cannot describe one binding two ways.
@@ -1293,6 +1331,8 @@ namespace RageV
 					builder.Sample(sceneHDR);
 					if (ownGuide)
 						builder.Sample(guideDepth);
+					if (sampleId)
+						builder.Sample(guideId);
 					if (hasHistory)
 						builder.Sample(previous);
 					if (change != kRGInvalid)
@@ -1300,10 +1340,10 @@ namespace RageV
 					builder.DisableDepth();
 				},
 				[params, fresh, sceneHDR, current, previous, hasHistory, motion, pair,
-				 surfaceIdIndex, change, changeLive,
+				 guideId, guideIdLane, change, changeLive,
 				 specular = params.Type != Renderer3D::SignalParams::Kind::Diffuse,
 				 guideDepth, guideSurface, guideVelocity, guideDepthLane, guideNormalLane,
-				 guideVelocityLane, ownGuide]
+				 guideVelocityLane, ownGuide, depthAttachment]
 				(RGPassContext& context)
 				{
 					Renderer3D::AccumulateSignal(params,
@@ -1311,7 +1351,8 @@ namespace RageV
 						// The guidance target keeps its depth in a colour lane; the
 						// G-buffer's is a depth attachment. Both are a sampler2D whose
 						// red is clip depth as written, which is all the shader reads.
-						ownGuide ? context.Color(guideDepth, guideDepthLane)
+						ownGuide ? (depthAttachment ? context.Depth(guideDepth)
+													: context.Color(guideDepth, guideDepthLane))
 								 : context.Depth(sceneHDR),
 						context.Color(guideSurface, guideNormalLane),
 						hasHistory ? context.Color(previous) : nullptr,
@@ -1325,7 +1366,7 @@ namespace RageV
 						// it from last frame. Only the specular accumulate keeps a fifth
 						// attachment for it; the diffuse kinds pass null and the binding
 						// falls back to the surface, which is what it did before.
-						specular ? context.Color(sceneHDR, surfaceIdIndex) : nullptr,
+						specular ? context.Color(guideId, guideIdLane) : nullptr,
 						specular && hasHistory ? context.Color(previous, 4) : nullptr,
 						change != kRGInvalid && (!changeLive || *changeLive)
 							? context.Color(change) : nullptr);
@@ -1371,10 +1412,11 @@ namespace RageV
 					},
 					[params, input, current, sceneHDR, stride, pair,
 					 guideDepth, guideSurface, guideDepthLane, guideNormalLane,
-					 ownGuide](RGPassContext& context)
+					 ownGuide, depthAttachment](RGPassContext& context)
 					{
 						Renderer3D::BlurSignal(params, context.Color(input),
-											   ownGuide ? context.Color(guideDepth, guideDepthLane)
+											   ownGuide ? (depthAttachment ? context.Depth(guideDepth)
+																	   : context.Color(guideDepth, guideDepthLane))
 													: context.Depth(sceneHDR),
 											   context.Color(guideSurface, guideNormalLane),
 											   context.Color(current, 1),
@@ -2357,6 +2399,204 @@ namespace RageV
 							  })
 						: std::function<void(RGPassContext&)>(drawScene));
 
+		// --- RT-13: the glass layer ----------------------------------------------
+		//
+		// After the lit pass, which has made the opaque depth final, and before
+		// the transparent pass, which draws the same list and clears it. Cleared
+		// to nothing: a zero surface lane decodes as "no surface", the rule every
+		// reader of the G-buffer's own lane already follows.
+		if (glassLayer != kRGInvalid)
+		{
+			graph.AddPass("GlassLayer",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(glassLayer);
+					builder.SetClearColor(Vec4(0.0f, 0.0f, 0.0f, 0.0f));
+					builder.Sample(sceneHDR);
+				},
+				[sceneHDR](RGPassContext& context)
+				{
+					Renderer3D::FlushGlassLayer(context.Depth(sceneHDR));
+				});
+		}
+
+		// --- RT-13 stage 2: the glass layer's lamp light -------------------------
+		//
+		// The DirectTrace pass again, on the glass layer instead of the G-buffer,
+		// and settled on the same contract -- guided by the layer's own depth,
+		// normal and motion, on a history of its own -- for the transparent draw,
+		// whose nearest pane reads it instead of walking the lights. Only where
+		// the opaque direct light is a signal too: under --direct-signal=off, the
+		// reference arm, glass keeps the loop with everything else.
+		RGResource glassLit = kRGInvalid;
+		uint32_t glassTwinLane = 1;
+		if (glassLayer != kRGInvalid && directSignal && desc.GlassDirectLight != nullptr
+			&& Renderer3D::GlassSignalCompiled())
+		{
+			RGTargetDesc glassTraceDesc;
+			glassTraceDesc.Name = "GlassDirectTrace";
+			glassTraceDesc.Color = Format::R16G16B16A16_SFLOAT;
+			glassTraceDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT };
+			glassTraceDesc.Depth = Format::Undefined;
+			glassTraceDesc.Scale = (float)supersample;
+			const RGResource glassTraced = graph.CreateTarget(glassTraceDesc);
+			Renderer3D::GiTraceView glassView;
+			glassView.NearClip = desc.NearClip;
+			glassView.FarClip = desc.FarClip;
+			glassView.InvProjection0 = desc.InvProjection0;
+			glassView.InvProjection1 = desc.InvProjection1;
+			glassView.View = desc.View;
+			graph.AddPass("GlassDirectTrace",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(glassTraced);
+					builder.Sample(glassLayer);
+					builder.DisableDepth();
+				},
+				[glassLayer, glassView, directRays](RGPassContext& context)
+				{
+					// The layer's lanes in the G-buffer's order: 1 the surface,
+					// 2 the albedo, 3 the id.
+					Renderer3D::TraceDirectLight(context.Cmd,
+												 context.Depth(glassLayer),
+												 context.Color(glassLayer, 1),
+												 context.Color(glassLayer, 2),
+												 context.Color(glassLayer, 3),
+												 Format::R16G16B16A16_SFLOAT,
+												 glassView, directRays, true);
+				});
+			TemporalHistory& glassDirect = *desc.GlassDirectLight;
+			glassDirect.Prepare(Renderer::GetDevice(),
+								desc.Width * (uint32_t)supersample, desc.Height * (uint32_t)supersample,
+								Format::R16G16B16A16_SFLOAT, "GlassDirectLight",
+								Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
+								Format::R16G16B16A16_SFLOAT);
+			if (glassDirect.Current() && glassDirect.Previous())
+			{
+				const RGResource previousGlass = graph.Import(glassDirect.Previous(), "GlassDirectPrevious");
+				const RGResource currentGlass = graph.Import(glassDirect.Current(), "GlassDirectCurrent");
+				SignalGuidance glassGuide;
+				glassGuide.Depth = glassLayer;
+				glassGuide.DepthIsAttachment = true;
+				glassGuide.Surface = glassLayer;
+				glassGuide.NormalLane = 1;
+				glassGuide.Velocity = glassLayer;
+				glassGuide.VelocityLane = 0;
+				RGTargetDesc glassBlurDesc = glassTraceDesc;
+				glassBlurDesc.Name = "GlassDirectBlurred";
+				static const SignalPassNames kGlassPasses =
+					{ "GlassDirectAccumulate", { "GlassDirectBlur", "GlassDirectBlur2", "GlassDirectBlur4" } };
+				const SignalResult glassSettled = addSignal(kGlassPasses, Renderer3D::GlassDirectSignal(),
+										glassTraced, currentGlass, previousGlass, glassDirect.HasHistory(),
+										&glassDirect.Motion(), glassBlurDesc, true, glassGuide);
+				glassLit = glassSettled.Target;
+				glassTwinLane = glassSettled.TwinLane;
+				glassDirect.Advance();
+			}
+		}
+		else if (desc.GlassDirectLight)
+		{
+			// A history left standing would be resumed as truth when the layer
+			// comes back, describing another frame's glass.
+			desc.GlassDirectLight->Invalidate();
+		}
+
+		// --- RT-13 stage 3: the glass layer's reflections ------------------------
+		//
+		// The reflection chain again -- trace, resolve, accumulate -- on the glass
+		// layer, for the pane the lamp light above was settled for: the pane test
+		// the transparent draw makes is that light's, so this runs only where it
+		// does, and only where the opaque surfaces' reflections are traced too. A
+		// pane with no settled reflection keeps casting its own rays. No measured
+		// change: the change map describes the opaque surfaces, as it does for the
+		// lamp light above.
+		RGResource glassReflected = kRGInvalid;
+		if (glassLit != kRGInvalid && tracedReflections && currentReflections != kRGInvalid
+			&& desc.GlassReflections != nullptr)
+		{
+			RGTargetDesc glassRayDesc;
+			glassRayDesc.Name = "GlassReflectionTrace";
+			glassRayDesc.Color = Format::R16G16B16A16_SFLOAT;
+			glassRayDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT };
+			glassRayDesc.Depth = Format::Undefined;
+			glassRayDesc.Scale = (float)supersample;
+			const RGResource glassRays = graph.CreateTarget(glassRayDesc);
+			const bool glassBudgetBound = budgetPrevious != kRGInvalid && budgetHasHistory;
+			graph.AddPass("GlassReflectionTrace",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(glassRays);
+					builder.Sample(glassLayer);
+					if (glassBudgetBound)
+						builder.Sample(budgetPrevious);
+					builder.DisableDepth();
+				},
+				[glassLayer, budgetMap = budgetPrevious, glassBudgetBound,
+				 giAverage = rtPreset.GiRays](RGPassContext& context)
+				{
+					Renderer3D::TraceReflections(context.Color(glassLayer, 1),
+												 context.Depth(glassLayer),
+												 glassBudgetBound ? context.Color(budgetMap) : nullptr,
+												 context.Color(glassLayer, 2),
+												 giAverage, true);
+				});
+			RGTargetDesc glassResolveDesc = glassRayDesc;
+			glassResolveDesc.Name = "GlassReflectionResolve";
+			glassResolveDesc.ExtraColors.clear();
+			const RGResource glassResolved = graph.CreateTarget(glassResolveDesc);
+			graph.AddPass("GlassReflectionResolve",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(glassResolved);
+					builder.Sample(glassRays);
+					builder.Sample(glassLayer);
+					builder.DisableDepth();
+				},
+				[glassRays, glassLayer](RGPassContext& context)
+				{
+					Renderer3D::ResolveReflections(context.Color(glassRays),
+												   context.Color(glassRays, 1),
+												   context.Depth(glassLayer),
+												   context.Color(glassLayer, 1), true);
+				});
+			// The opaque reflections' five lanes: the picture, the reflector, what
+			// was learned of it, the virtual image's motion and the object id.
+			TemporalHistory& glassMirror = *desc.GlassReflections;
+			glassMirror.Prepare(Renderer::GetDevice(),
+								desc.Width * (uint32_t)supersample, desc.Height * (uint32_t)supersample,
+								Format::R16G16B16A16_SFLOAT, "GlassReflections",
+								Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
+								Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT);
+			if (glassMirror.Current() && glassMirror.Previous())
+			{
+				const RGResource previousMirror = graph.Import(glassMirror.Previous(), "GlassReflectionsPrevious");
+				const RGResource currentMirror = graph.Import(glassMirror.Current(), "GlassReflectionsCurrent");
+				SignalGuidance mirrorGuide;
+				mirrorGuide.Depth = glassLayer;
+				mirrorGuide.DepthIsAttachment = true;
+				mirrorGuide.Surface = glassLayer;
+				mirrorGuide.NormalLane = 1;
+				mirrorGuide.Velocity = glassLayer;
+				mirrorGuide.VelocityLane = 0;
+				mirrorGuide.Id = glassLayer;
+				mirrorGuide.IdLane = 3;
+				RGTargetDesc mirrorBlurDesc = glassRayDesc;
+				mirrorBlurDesc.Name = "GlassReflectionBlurred";
+				static const SignalPassNames kGlassMirrorPasses =
+					{ "GlassReflectionAccumulate",
+					  { "GlassReflectionBlur", "GlassReflectionBlur2", "GlassReflectionBlur4" } };
+				glassReflected = addSignal(kGlassMirrorPasses, Renderer3D::GlassReflectionSignal(),
+										   glassResolved, currentMirror, previousMirror,
+										   glassMirror.HasHistory(), &glassMirror.Motion(),
+										   mirrorBlurDesc, false, mirrorGuide).Target;
+				glassMirror.Advance();
+			}
+		}
+		else if (desc.GlassReflections)
+		{
+			desc.GlassReflections->Invalidate();
+		}
+
 		// The overlay goes into the HDR target rather than over the finished
 		// image, because it depth-tests against the scene it annotates. The
 		// cost is that its colours go through the tone curve like everything
@@ -2987,10 +3227,28 @@ namespace RageV
 					// on its surface attachment rather than in the picture's alpha.
 					if (waterTracedSurface != kRGInvalid)
 						builder.Sample(waterTracedSurface);
+					// RT-13 stage 2: the glass layer's settled lamp light, and the
+					// layer itself, which says which fragment is the nearest pane.
+					if (glassLit != kRGInvalid)
+					{
+						builder.Sample(glassLit);
+						builder.Sample(glassLayer);
+					}
+					// Stage 3: and the reflection settled for the pane.
+					if (glassReflected != kRGInvalid)
+						builder.Sample(glassReflected);
 				},
 				[draw = desc.DrawTransparent, waterBackdrop, waterLamps, waterLampsTwinLane,
-				 waterTraced, waterTracedSurface](RGPassContext& context)
+				 waterTraced, waterTracedSurface, glassLit, glassTwinLane, glassLayer,
+				 glassReflected](RGPassContext& context)
 				{
+					if (glassLit != kRGInvalid)
+						Renderer3D::SetGlassSignal(context.Color(glassLit, 0),
+												   context.Color(glassLit, glassTwinLane),
+												   context.Depth(glassLayer),
+												   context.Color(glassLayer, 3));
+					if (glassReflected != kRGInvalid)
+						Renderer3D::SetGlassReflection(context.Color(glassReflected, 0));
 					// Handed over around the draw and taken back after it, the
 					// ScreenReflections shape: the renderer must not carry a
 					// texture the pool may hand to somebody else next frame.
@@ -3006,6 +3264,8 @@ namespace RageV
 							waterTracedSurface != kRGInvalid
 								? context.Color(waterTracedSurface, 1) : nullptr);
 					draw(context);
+					Renderer3D::SetGlassSignal(nullptr, nullptr, nullptr, nullptr);
+					Renderer3D::SetGlassReflection(nullptr);
 					Renderer3D::SetWaterReflection(nullptr, nullptr);
 					Renderer3D::SetWaterLamps(nullptr, nullptr);
 					Renderer3D::SetWaterBackdrop(nullptr, nullptr);
@@ -4863,6 +5123,8 @@ namespace RageV
 			static constexpr const char* kMissingBudget = "the ray budget's tile allocator is off";
 			static constexpr const char* kMissingTaa = "the temporal resolve runs under TAA only";
 			static constexpr const char* kMissingWater = "this scene has no water";
+			static constexpr const char* kMissingGlass =
+				"no glass layer (--glass-layer=on, and blended meshes in the scene)";
 
 			ViewSpec spec;
 			switch (view)
@@ -4962,6 +5224,12 @@ namespace RageV
 				spec.Aux = waterSurface; spec.Attachment = 3; spec.Channel = 2;
 				spec.Scale = 1.0f; spec.Name = "water-mask";
 				spec.Missing = kMissingWater;
+				break;
+			// RT-13: the glass layer's surface lane, the octahedral normal drawn the
+			// way reflection-normal draws its own -- black where no pane is.
+			case EngineConfig::DebugViewMode::GlassLayer:
+				spec.Aux = glassLayer; spec.Attachment = 1; spec.Display = 4;
+				spec.Name = "glass-layer"; spec.Missing = kMissingGlass;
 				break;
 			case EngineConfig::DebugViewMode::ReflectionMotion:
 				spec.Aux = reflectionAux; spec.Attachment = 3; spec.Display = 3;

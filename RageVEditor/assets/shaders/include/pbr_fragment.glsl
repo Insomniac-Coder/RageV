@@ -425,6 +425,30 @@ layout(set = 0, binding = 27) uniform sampler2D u_DirectSpecular;
 #define RV_SCREEN_OCCLUSION_INPUT
 layout(set = 0, binding = 28) uniform sampler2D u_ScreenOcclusion;
 #endif
+// **RT-13: the nearest pane of glass, written as a G-buffer layer of its own.**
+// The G-buffer variant (RV_GBUFFER) drawn for the blended meshes into the frame
+// graph's GlassLayer target, which has a depth of its own -- so the nearest
+// pane wins -- and so cannot depth-test against the opaque scene. It tests
+// here instead: a pane behind the opaque scene is not the layer.
+#ifdef RV_GLASS_LAYER
+layout(set = 0, binding = 29) uniform sampler2D u_OpaqueDepth;
+#endif
+// **RT-13 stage 2: and what the shared passes settled for that pane**, read
+// by the transparent variant. Set 3, which only the water uses on a
+// transparent pipeline -- and water is its own variant, so the transparent
+// set 0 the two share is untouched. The layer's depth and id say which
+// fragment is the nearest pane: it takes the settled lamp light, as an opaque
+// pixel takes the G-buffer's, and every pane behind it keeps the loop.
+#if defined(RV_GLASS_SIGNAL) && defined(RV_RAY_SHADOWS) && defined(RV_TRANSPARENT) && !defined(RV_WATER)
+#define RV_GLASS_SIGNAL_INPUT
+layout(set = 3, binding = 0) uniform sampler2D u_GlassDirectDiffuse;
+layout(set = 3, binding = 1) uniform sampler2D u_GlassDirectSpecular;
+layout(set = 3, binding = 2) uniform sampler2D u_GlassLayerDepth;
+layout(set = 3, binding = 3) uniform sampler2D u_GlassLayerId;
+// Stage 3: the reflection the shared passes settled for the pane, or a stand-in
+// one texel wide where they did not run.
+layout(set = 3, binding = 4) uniform sampler2D u_GlassReflection;
+#endif
 
 // Comparison samplers: the hardware compares against the reference and filters
 // the answers, which is a 2x2 percentage-closer filter for one fetch. Four
@@ -3789,6 +3813,13 @@ vec3 QuadShare(vec3 mine, uint lane)
 
 void main()
 {
+#ifdef RV_GLASS_LAYER
+	// RT-13: behind the opaque scene, not the layer. First, so a hidden pane
+	// pays for nothing else. **Reversed depth** (RHITypes.h kDepthCompare): the
+	// nearer fragment has the larger value, so behind is smaller.
+	if (gl_FragCoord.z < texelFetch(u_OpaqueDepth, ivec2(gl_FragCoord.xy), 0).r)
+		discard;
+#endif
 #ifdef RV_BINDLESS
 	// The material, once, before anything reads it. The index is flat and
 	// per instance; the record buffer is ordinary memory, so this indexing
@@ -4280,6 +4311,17 @@ void main()
 	// preset change needs no recompile.
 #ifdef RV_DIRECT_SIGNAL_INPUT
 	const bool directSignal = (int(u_Scene.RayRates.w + 0.5) & 4194304) != 0;
+#elif defined(RV_GLASS_SIGNAL_INPUT)
+	// RT-13 stage 2: this fragment is the glass layer's pane -- the same depth,
+	// bit for bit, since both passes rasterise the same triangle with the same
+	// transforms, and the same object -- so its lamp light was settled for it.
+	// A cleared layer reads depth zero (reversed depth's far), which no
+	// fragment in front of the far plane matches.
+	const ivec2 glassTexel = ivec2(gl_FragCoord.xy);
+	const float glassDepth = texelFetch(u_GlassLayerDepth, glassTexel, 0).r;
+	const bool directSignal = glassDepth > 0.0
+		&& abs(gl_FragCoord.z - glassDepth) <= 1.0e-5 * glassDepth
+		&& abs(abs(texelFetch(u_GlassLayerId, glassTexel, 0).r) - abs(v_ObjectId)) < 0.5;
 #else
 	const bool directSignal = false;
 #endif
@@ -5258,6 +5300,13 @@ void main()
 		Lo += texelFetch(u_DirectDiffuse, directTexel, 0).rgb * albedo / PI
 			+ texelFetch(u_DirectSpecular, directTexel, 0).rgb;
 	}
+#elif defined(RV_GLASS_SIGNAL_INPUT)
+	// RT-13 stage 2: the glass layer's own pair, the same two terms.
+	if (directSignal)
+	{
+		Lo += texelFetch(u_GlassDirectDiffuse, glassTexel, 0).rgb * albedo / PI
+			+ texelFetch(u_GlassDirectSpecular, glassTexel, 0).rgb;
+	}
 #endif
 	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
 
@@ -5733,6 +5782,23 @@ void main()
 				quadTraced = TraceReflection(v_WorldPos, normalize(v_Normal), reflect(-V, N), v_Instance.x);
 			quadTraced = QuadShare(quadTraced, quadLane);
 		}
+#endif
+#if defined(RV_GLASS_SIGNAL_INPUT)
+		// **RT-13 stage 3: the nearest pane takes the reflection the shared passes
+		// settled for it** -- traced, resolved and accumulated on the glass layer,
+		// read at the pane's own texel and weighed exactly as the opaque hook
+		// weighs the pass's picture: its frames against the lift, inside the
+		// gloss window. A stand-in one texel wide says those passes did not run,
+		// and the pane casts its own rays as it did; every pane behind it does.
+		const bool glassReflected = directSignal && textureSize(u_GlassReflection, 0).x > 1;
+		if (glassReflected)
+		{
+			const vec4 settledReflection = texelFetch(u_GlassReflection, glassTexel, 0);
+			const float settledShare = clamp(settledReflection.a * u_Scene.ScreenReflections.x
+											 * reflectionLift, 0.0, 1.0) * reflectionWindow;
+			prefiltered = mix(prefiltered, settledReflection.rgb, settledShare);
+		}
+		else
 #endif
 #if defined(RV_WATER) || defined(RV_TRANSPARENT)
 		// The sea reads its own pass. Glass is not in the surface buffer the

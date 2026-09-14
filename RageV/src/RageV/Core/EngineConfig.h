@@ -544,6 +544,12 @@ namespace RageV
 		// balanced sampling noise and nothing on the bridge. The pier agrees.
 		// **Cost: 1.43 ms against the private pair's 1.21.**
 		bool  WaterDirect = true;
+		// **--glass-layer=on|off (RT-13, owner's option 2, 2026-09-14): the nearest
+		// pane of glass as a G-buffer layer of its own**, so the shared ray-traced
+		// passes can shade glass as they shade the opaque scene. Stage 1 draws the
+		// layer and nothing reads it yet (`--debug-view=glass-layer` shows it);
+		// off by default until the passes that read it are measured.
+		bool  GlassLayer = false;
 		// **--water-direct-block=on|off (RT-8 job 1): run the sea's shared
 		// direct pass on the block grid its lamp choice is made on.**
 		//
@@ -746,6 +752,8 @@ namespace RageV
 							   // until these existed the only way to ask what was in it was
 							   // to stage a probe by hand.
 							   WaterMotion, WaterMask,
+							   // RT-13: the glass layer's surface normal, where a pane is.
+							   GlassLayer,
 							   // Measured change (phase 1): the filtered change map, red the
 							   // direct diffuse's share that changed, green the highlight's.
 							   // Black on a still scene is what the check is for.

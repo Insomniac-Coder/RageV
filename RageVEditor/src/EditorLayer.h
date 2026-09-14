@@ -447,6 +447,10 @@ private:
 	RageV::TemporalHistory m_GameReflections;
 	RageV::TemporalHistory m_SceneDirectLight;   // RT-first T5
 	RageV::TemporalHistory m_GameDirectLight;
+	RageV::TemporalHistory m_SceneGlassDirectLight;   // RT-13 stage 2
+	RageV::TemporalHistory m_GameGlassDirectLight;
+	RageV::TemporalHistory m_SceneGlassReflections;   // RT-13 stage 3
+	RageV::TemporalHistory m_GameGlassReflections;
 	RageV::MeasuredChangeHistory m_SceneDirectChange;   // measured change, phase 1
 	RageV::MeasuredChangeHistory m_GameDirectChange;
 	RageV::MeasuredChangeHistory m_SceneReflectionChange;   // and phase 2

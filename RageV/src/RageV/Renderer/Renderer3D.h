@@ -253,6 +253,17 @@ namespace RageV
 		// chooses and shades its lamps has something to read. Leaves the list
 		// standing for FlushTransparent.
 		static void FlushWaterSurface();
+		// **RT-13: the nearest pane of glass as a G-buffer layer of its own.**
+		// The blended table and the static blended runs of the same list, drawn
+		// between the lit pass and the transparent one with the G-buffer variant
+		// into the frame graph's GlassLayer target -- velocity, surface, albedo
+		// and id, and a depth of its own so the nearest pane wins -- so the
+		// shared ray-traced passes can read glass the way they read the opaque
+		// scene. `opaqueDepth` is the scene's: a pane behind it is not the layer.
+		// Leaves the list standing for FlushTransparent. Available only under
+		// --glass-layer=on.
+		static void FlushGlassLayer(const RHI::Ref<RHI::RHITexture>& opaqueDepth);
+		static bool GlassLayerAvailable();
 
 		// WR-16 S4b's two lamp passes, drawn between the surface pass and the
 		// transparent one. The first writes four choices a pixel into the pair
@@ -280,13 +291,17 @@ namespace RageV
 									 // The albedo lane: F0's colour, so a metal's
 									 // reflection carries the metal's own tint.
 									 const RHI::Ref<RHI::RHITexture>& albedo,
-									 float giAverage);
+									 float giAverage,
+									 // RT-13 stage 3: tracing the glass layer rather than
+									 // the G-buffer, on an input set of its own.
+									 bool glassLayer = false);
 		// The rough surfaces' rays shared across their neighbourhood before
 		// any frame is averaged (reflection_resolve.rvshader).
 		static void ResolveReflections(const RHI::Ref<RHI::RHITexture>& fresh,
 									   const RHI::Ref<RHI::RHITexture>& hit,
 									   const RHI::Ref<RHI::RHITexture>& depth,
-									   const RHI::Ref<RHI::RHITexture>& surface);
+									   const RHI::Ref<RHI::RHITexture>& surface,
+									   bool glassLayer = false);
 		// **The reconstruction contract (RT-first T4, docs/RT-FIRST.md).** One
 		// temporal accumulator and one young-history blur for every stochastic
 		// signal, in two kinds: Specular reprojects by the surface and by the
@@ -337,10 +352,16 @@ namespace RageV
 			bool NoObjectId = false;
 		};
 		static SignalParams ReflectionSignal();
+		// RT-13 stage 3: the reflections' contract for the glass layer, on its own
+		// slot (7).
+		static SignalParams GlassReflectionSignal();
 		// RT-first T5: the direct light's tuning -- a diffuse-kind signal in
 		// slot 1 whose two payloads (diffuse before the albedo, specular
 		// complete) share one history.
 		static SignalParams DirectSignal();
+		// RT-13 stage 2: the direct light's contract for the glass layer, on a slot
+		// of its own (6).
+		static SignalParams GlassDirectSignal();
 		// RT-2: the occlusion signal's tuning -- a diffuse-kind scalar in slot 2,
 		// low-frequency enough to keep a young blur.
 		static SignalParams AoSignal();
@@ -836,7 +857,21 @@ namespace RageV
 									 const RHI::Ref<RHI::RHITexture>& albedo,
 									 const RHI::Ref<RHI::RHITexture>& surfaceId,
 									 RHI::Format targetColor,
-									 const GiTraceView& view, int rays);
+									 const GiTraceView& view, int rays,
+									 // RT-13 stage 2: tracing the glass layer rather than
+									 // the G-buffer, on an input set of its own.
+									 bool glassLayer = false);
+		// RT-13 stage 2: the glass layer's settled lamp light and the layer's depth
+		// and id, for the transparent draw (set 3), handed over around it and
+		// taken back after, the water lamps' shape. Null clears them.
+		static void SetGlassSignal(const RHI::Ref<RHI::RHITexture>& diffuse,
+								   const RHI::Ref<RHI::RHITexture>& specular,
+								   const RHI::Ref<RHI::RHITexture>& layerDepth,
+								   const RHI::Ref<RHI::RHITexture>& layerId);
+		// RT-13 stage 3: and the reflection the shared passes settled for the pane
+		// (set 3 binding 4). Null clears it, and the pane casts its own rays.
+		static void SetGlassReflection(const RHI::Ref<RHI::RHITexture>& picture);
+		static bool GlassSignalCompiled();
 		static bool CanTraceDirectLight();
 		// **Measured change, phase 1 (docs/RT-MEASURED-CHANGE.md).** After the
 		// trace: one pixel per 3x3 block -- its world position, the G-buffer's

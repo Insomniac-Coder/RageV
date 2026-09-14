@@ -148,6 +148,11 @@ namespace RageV
 		// means the DirectTrace pass cannot run for this caller and the lit
 		// shader traces its own rays, as a probe capture and scenetest want.
 		TemporalHistory* DirectLight = nullptr;
+		// RT-13 stage 2: and the glass layer's pair, the same shape. Null, or
+		// --glass-layer off, and glass walks its lights in the transparent draw.
+		TemporalHistory* GlassDirectLight = nullptr;
+		// RT-13 stage 3: and its reflections, the opaque reflections' shape.
+		TemporalHistory* GlassReflections = nullptr;
 		// Measured change (docs/RT-MEASURED-CHANGE.md): the record the direct
 		// light's check re-lights next frame. Null, or --measured-change off,
 		// and the frame is exactly the one before the check existed.

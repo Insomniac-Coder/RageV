@@ -80,6 +80,8 @@ private:
 	// lighting. ENGINE-NOTES 7af.
 	RageV::TemporalHistory m_Reflections;
 	RageV::TemporalHistory m_DirectLight;   // RT-first T5
+	RageV::TemporalHistory m_GlassDirectLight;   // RT-13 stage 2
+	RageV::TemporalHistory m_GlassReflections;   // RT-13 stage 3
 	RageV::MeasuredChangeHistory m_DirectChange;   // measured change, phase 1
 	RageV::MeasuredChangeHistory m_ReflectionChange;   // and phase 2
 	RageV::MeasuredChangeHistory m_GiChange;   // and phase 3

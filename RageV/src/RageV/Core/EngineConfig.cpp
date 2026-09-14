@@ -602,6 +602,8 @@ namespace RageV
 			return ParseBool(value, config.WaterRayContract);
 		if (key == "water-direct" || key == "waterdirect")
 			return ParseBool(value, config.WaterDirect);
+		if (key == "glass-layer" || key == "glasslayer")
+			return ParseBool(value, config.GlassLayer);
 		if (key == "water-direct-block" || key == "waterdirectblock")
 			return ParseBool(value, config.WaterDirectBlock);
 		if (key == "water-direct-split" || key == "waterdirectsplit")
@@ -909,6 +911,8 @@ namespace RageV
 				config.DebugView = EngineConfig::DebugViewMode::WaterMotion;
 			else if (lowered == "water-mask" || lowered == "watermask")
 				config.DebugView = EngineConfig::DebugViewMode::WaterMask;
+			else if (lowered == "glass-layer" || lowered == "glasslayer")
+				config.DebugView = EngineConfig::DebugViewMode::GlassLayer;
 			// The reflection direction (specification §11), stored
 			// octahedrally in the motion lane's two spare channels, and its
 			// frame-to-frame difference against the previous history. The

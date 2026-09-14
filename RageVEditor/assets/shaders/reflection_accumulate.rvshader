@@ -821,10 +821,11 @@ const uint RAY_LANE_WATER_SIGNAL_FRAMES  = 44u;
 const uint RAY_LANE_WATER_SIGNAL_TWIN    = 45u;
 
 // Which signal is running: the slot the engine put in Probe.z. Zero is the
-// reflections, four the sea; everything between counts nothing, because a
-// shared set of lanes is worse than none.
+// reflections, four and five the sea; everything else counts nothing, because
+// a shared set of lanes is worse than none -- the glass layer's six and seven
+// (RT-13) included.
 bool CountsAsReflection() { return u_Reflection.Probe.z < 0.5; }
-bool CountsAsWater()      { return u_Reflection.Probe.z > 3.5; }
+bool CountsAsWater()      { return u_Reflection.Probe.z > 3.5 && u_Reflection.Probe.z < 5.5; }
 
 void CountSignal(bool kept, int refusal, float frames, float twin)
 {

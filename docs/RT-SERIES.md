@@ -31,7 +31,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 
 ## Status at a glance
 
-**Twenty-seven of thirty-five items are closed, one is part-done (RT-13), seven are open. Every RT-6.x sub-item is finished.** (2026-09-14: RT-5 and RT-16 closed by measured change and the retired young blur; RT-7 closed on the owner's word once tube length reached the ray-traced lamp pass; RT-4 closed on the owner's word with R11 carried into the new RT-21.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
+**Twenty-six of thirty-five items are closed, one is part-done (RT-13), eight are open -- RT-15 reopened 2026-09-14 by the owner. Every RT-6.x sub-item is finished.** (2026-09-14: RT-5 and RT-16 closed by measured change and the retired young blur; RT-7 closed on the owner's word once tube length reached the ray-traced lamp pass; RT-4 closed on the owner's word with R11 carried into the new RT-21.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
 
 | # | status | effort | risk | in a line |
 |---|---|---|---|---|
@@ -61,9 +61,9 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-10 | open | 5-7 d | **high** | ReSTIR DI on the G-buffer |
 | RT-11 | open | 1-2 d | low-moderate | next-event estimation at GI and reflection hits |
 | RT-12 | ✅ **done 2026-09-07** | — | — | the signal debug views, complete |
-| RT-13 | **skinned + layered ✅ done inside RT-2**; transparent open | 0.5 d to decide | low | every opaque surface in the G-buffer |
+| RT-13 | **skinned + layered ✅ done inside RT-2**; transparent 🔨 **option 2 (owner): all three stages built 2026-09-14** -- the glass layer, its lamp light and its reflections -- behind `--glass-layer=on` (default off), uncommitted; the owner approved the look; cost and the panes behind for the optimisation pass | — | — | every opaque surface in the G-buffer; glass through the shared passes |
 | **RT-14** | ✅ **done 2026-09-07** — and it says do not pack the G-buffer | — | — | the G-buffer's bandwidth, measured before anything is packed |
-| **RT-15** | ✅ **done 2026-09-08** — both halves | — | — | the reflection accumulator reprojects by object motion |
+| **RT-15** | **reopened 2026-09-14 (owner)** — closed 2026-09-08 on a flicker number (the cube's panel 15.20 -> 4.39) that did not describe the picture: **"the moment the cube moves the entire reflection on it falls apart"** (owner), and the driving car's body sparkles and trails in its traced reflections (RT-13's record isolates it to the reflections). The owner put it after RT-13 stage 3 and asked to be reminded | not priced | moderate | the reflection accumulator reprojects by object motion |
 | **RT-16** | ✅ **done 2026-09-14** — measured change: the lights button's light 90% gone after 10 frames (145 before), 15 with the camera moving. A *baked* light switched off still fades slowly, because its bake is thrown away and rebuilt -- accepted as a known thing (docs/BAKING-ROADMAP.md, docs/manual/lighting.md) | — | — | a reflection takes seconds to leave the floor when its light goes out |
 | **RT-17** | open — **new** | 2-3 d | moderate | the accumulator tests what the ray *hit*, by identity |
 | **RT-18** | open — **new** | 1-2 d | low | history cannot outlive the silhouette it belongs to |
@@ -1702,6 +1702,103 @@ judged by eye: 12 is soft, 3 has the gravel crisp, 0 trades texture for grain.
 the virtual image's, which the accumulator already computes -- is the only way
 the composite could move, and it needs a second velocity lane. Not attempted.
 *(Done the same day as RT-6.1.)*
+
+### RT-13 — 🔨 the glass joins the shared passes: stages 1, 2 and 3 built 2026-09-14 (uncommitted; `--glass-layer=on`, default off)
+
+**The owner's choice (option 2).** Glass is lit and reflected by the same ray-traced
+passes as every opaque surface, through a G-buffer layer of its own, in three stages:
+1 the layer, 2 the lamp light, 3 the reflections. Stages 1 and 2 are built; stage 3
+waits for the owner's word.
+
+**Stage 1, the layer.** `--glass-layer=on` (`EngineConfig::GlassLayer`) draws the
+blended static meshes with the G-buffer variant (`RV_GBUFFER` + `RV_GLASS_LAYER`) into a
+"GlassLayer" target after "Scene": the G-buffer's four lanes in its order (velocity,
+surface, albedo, id), a D32 depth of its own so the nearest pane wins, one sample. Each
+fragment discards itself behind the opaque depth (set 0 binding 29). **Depth is reversed
+-- nearer is larger** -- and the first version's test was the wrong way round.
+`Renderer3D::FlushGlassLayer`, `--debug-view=glass-layer`. Picture pixel-identical to
+off; 0.015-0.02 ms.
+
+**Stage 2, the lamp light.** The DirectTrace pass runs again on the layer
+("GlassDirectTrace", on an input set of its own so the opaque trace's recorded bind is
+never rewritten), settles on the direct light's contract ("GlassDirectAccumulate",
+`GlassDirectSignal()` on slot 6, guided by the layer's own depth attachment --
+`SignalGuidance::DepthIsAttachment` -- normal and motion; history `GlassDirectLight`),
+and the transparent variant (`RV_GLASS_SIGNAL`, set 3) takes it on the nearest pane: a
+fragment whose depth matches the layer's to 1e-5 relative and whose object id matches
+reads the settled pair instead of walking the lamps, and every pane behind it keeps the
+loop. Only where the opaque direct light is a signal: `--direct-signal=off` puts glass
+back on the loop with everything else. The glass history has no measured change (the
+change map describes the opaque surfaces).
+
+**Trap paid: a render-graph target's depth is not sampleable unless `SampleDepth` is
+set.** Without it every reader got no depth -- the trace returned early, the pane test
+read zero -- and the first measurement came back pixel-identical because nothing ran.
+Found by staging a shader that painted each test's result on the glass.
+
+**Measured** (`tools/scripts/garage/session_2026_09_14/rt13_stage2.py`; HEAD's garage,
+the close-up `-4.3,1.0,-2,3.2,25,8` and the owner's shot; sheets in `build/rt13/s2/`):
+
+| | shared lamp light vs today | lamp light removed vs today (the term's size) |
+|---|---|---|
+| close-up, parked, mean of 186-249 | 0.1% of glass pixels over 1 level, max 18 | 6.5%, max 53 |
+| owner's shot, parked | 1.2%, max 13 (faint, on the headlamp lenses) | 19.1%, max 41 |
+| the car driving (root only, 1 m/s for 2 s) | over 4 levels on 0.06% of glass pixels | 24% |
+| MSAA 4x / SSAA 2x, parked | 0.2% / 0.0% | 6.2% / 6.4% |
+
+Glass flicker parked 0.789 -> 0.789 and 0.724 -> 0.725 levels a frame; everything that is
+not glass unchanged. Validation clean under TAA, MSAA and SSAA; scenetest Vulkan 2494
+passes, no failures.
+
+**Cost: more, not less.** Close-up: the transparent pass 1.88 -> 1.82 ms, the new passes
++0.64 (trace 0.49, accumulate 0.13, layer 0.02), frame 17.9 -> 18.4. Owner's shot: 0.64 ->
+0.62, +0.25, frame 13.9 -> 14.5. Walking the lamps was never what glass cost: **its own
+reflection rays are 1.3 ms of the close-up's 2.0 ms transparent pass** (with them removed,
+2.00 -> 0.70). The owner: optimisation later.
+
+**Stage 3, the reflections -- built 2026-09-14, the owner's look.** The reflection chain
+runs again on the layer after the lamp light's passes: "GlassReflectionTrace" and
+"GlassReflectionResolve" (`TraceReflections` / `ResolveReflections` with `glassLayer`, on
+input sets of their own), "GlassReflectionAccumulate" (`GlassReflectionSignal()` on slot 7,
+guided by the layer's depth, normal, motion and -- `SignalGuidance::Id` -- its object id;
+history `GlassReflections`). The nearest pane reads the settled picture (set 3 binding 4)
+and weighs it as the opaque hook does -- its frames against the lift, inside the gloss
+window -- instead of casting its own rays; a one-texel stand-in means the passes did not
+run and the pane traces as before, as every pane behind it does. Only where the lamp light
+signal and the opaque traced reflections both run. No measured change.
+
+- **Look:** the windscreen's tube reflections come out brighter and wider, with more of the
+  ceiling in them (close-up: 21% of glass pixels over 1 level, glass mean 36.4 -> 39.4).
+  **The owner: "the brightness and bleed look more close to a real glass reflection."** Two
+  guesses at why were tested and were wrong (today's 8x cap on a ray; the ray offset's
+  normal) and the question was dropped on the owner's word.
+- **Driving:** grain on the glass 1.71% of pixels against today's 1.84%.
+- **Cost:** owner's shot frame 14.36 -> 14.71 ms (glass passes 0.60 -> 1.14); close-up
+  17.90 -> 18.81 (1.93 -> 2.87: the transparent pass 1.65, trace 0.30, resolve 0.16,
+  accumulate 0.13, plus stage 2's). The transparent pass keeps most of its cost because the
+  panes behind the nearest still cast their own rays. Optimisation later (owner).
+- **Validation** clean under TAA, MSAA and SSAA; scenetest Vulkan exit 0, no failures.
+- **Lights switched off: not a test in this scene** -- the garage's tubes are baked, so their
+  fade is the bake's rebuild and says nothing about the glass (owner).
+- The counters' `CountsAsWater` now takes slots 4-5 only, so the glass layer's 6 and 7 are
+  not counted as the sea.
+
+**Found on the way -- not stage 2's, the same with the glass layer off:**
+
+- **The driving car's body sparkles and trails.** Isolated one signal at a time, each set
+  to its reference form: only the traced reflections off removes it (body pixels over 16
+  levels from their neighbourhood 2.71% -> 1.02%, the rest decal detail); the lamp light,
+  the bounce and the occlusion change nothing. The windscreen, which casts its own rays
+  with no memory, stays clean. **This is the defect RT-15 names** ("noise on a mirror, and
+  the ghosting the owner sees while driving the car"), closed 2026-09-08 on the moving
+  cube; on the car it does not hold. Open, and stage 3 would move glass onto this path.
+- **MSAA and SSAA speckle where TAA does not.** MSAA 1.96% of glass pixels and 1.23%
+  elsewhere against TAA's 0.63 / 0.61; the glass's reflection rays removed, glass 0.85%;
+  the traced reflections off, 0.50 / 0.59. It is the reflections' noise, which only TAA's
+  frame average takes away.
+- **`BURST_SLIDE` with the car's bare tag prefix moves 49 entities**, 25 of them children
+  of others, so parts move twice and the car comes apart -- HANDOFF's item 6, repeated
+  here. `=porsche_992_gt3_r` moves the root alone.
 
 ### RT-4 — ✅ done 2026-09-14 (owner's call): the trace before the lit pass; R11 measured and carried into RT-21; SSAA fixed on the way
 

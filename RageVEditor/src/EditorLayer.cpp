@@ -673,6 +673,8 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.Exposure = &m_SceneExposure;
 	scene.Reflections = &m_SceneReflections;
 	scene.DirectLight = &m_SceneDirectLight;
+	scene.GlassDirectLight = &m_SceneGlassDirectLight;
+	scene.GlassReflections = &m_SceneGlassReflections;
 	scene.DirectChange = &m_SceneDirectChange;
 	scene.ReflectionChange = &m_SceneReflectionChange;
 	scene.GiChange = &m_SceneGiChange;
@@ -825,6 +827,8 @@ void EditorLayer::OnUpdate(Timestep ts)
 		game.Exposure = &m_GameExposure;
 		game.Reflections = &m_GameReflections;
 		game.DirectLight = &m_GameDirectLight;
+		game.GlassDirectLight = &m_GameGlassDirectLight;
+		game.GlassReflections = &m_GameGlassReflections;
 		game.DirectChange = &m_GameDirectChange;
 		game.ReflectionChange = &m_GameReflectionChange;
 		game.GiChange = &m_GameGiChange;

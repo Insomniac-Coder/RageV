@@ -258,6 +258,8 @@ void RuntimeLayer::CaptureSignals()
 	// tone curve.
 	const Named table[] = {
 		{ "direct", &m_DirectLight, { 0u, 3u } },
+		{ "glassdirect", &m_GlassDirectLight, { 0u, 3u } },
+		{ "glassreflections", &m_GlassReflections, { 0u } },
 		{ "reflections", &m_Reflections, { 0u } },
 		{ "occlusion", &m_Occlusion, { 0u } },
 		{ "gi", &m_GiLight, { 0u } },
@@ -292,7 +294,7 @@ void RuntimeLayer::CaptureSignals()
 		if (!entry)
 		{
 			if (written == first)
-				RV_WARN("capture-signals: no history named '{0}' (direct, reflections, occlusion, gi, taa)", name);
+				RV_WARN("capture-signals: no history named '{0}' (direct, glassdirect, glassreflections, reflections, occlusion, gi, taa)", name);
 			continue;
 		}
 		const RHI::Ref<RHI::RHIRenderTarget>& target = entry->History->Previous();
@@ -528,6 +530,8 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.Exposure = &m_Exposure;
 	frame.Reflections = &m_Reflections;
 	frame.DirectLight = &m_DirectLight;
+	frame.GlassDirectLight = &m_GlassDirectLight;
+	frame.GlassReflections = &m_GlassReflections;
 	frame.DirectChange = &m_DirectChange;
 	frame.ReflectionChange = &m_ReflectionChange;
 	frame.GiChange = &m_GiChange;

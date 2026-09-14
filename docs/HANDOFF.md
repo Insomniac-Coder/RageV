@@ -102,6 +102,33 @@ default (`--measured-change=off` is the reference arm). The owner's editor-resav
   staged file that differs from its source. **Anything that stages shaders must check the whole
   staged directory.**
 
+### State (night): RT-13 stages 1, 2 and 3 built, uncommitted; RT-15 reopened (owner)
+
+- **Stage 3 built**: the glass layer's reflections through the shared chain; the owner approved the
+  look ("closer to a real glass reflection"). +0.36 / +0.91 ms frame (owner's shot / close-up);
+  validation clean in every AA mode; scenetest green. RT-SERIES has the record.
+- **RT-15 reopened by the owner**: the moving cube's reflection falls apart and the driving car's
+  body sparkles and trails. The owner put it after stage 3 and asked to be reminded.
+- **Do not light-switch-test with the garage's tubes** -- they are baked, and their fade is the
+  bake's rebuild (owner). Use a Realtime light.
+
+
+- **Glass has its own G-buffer layer and takes the shared lamp light** behind `--glass-layer=on`
+  (default off; RT-SERIES has the record). Looks the same as today's glass parked, driving and
+  under every AA mode; validation clean; scenetest green. **Costs 0.25-0.64 ms more** -- glass's
+  cost is its own reflection rays (1.3 of 2.0 ms at the close-up), which is stage 3's ground.
+- **Open, found while measuring (not stage 2's):** the driving car's body reflections sparkle and
+  trail -- the traced reflections alone, isolated by switching each signal off -- which is what
+  RT-15 was closed for on 2026-09-08; it does not hold on the car. And MSAA/SSAA show the
+  reflections' noise that TAA averages away.
+- **Uncommitted:** `EngineConfig` (h/cpp), `Renderer3D` (h/cpp), `FrameGraphBuilder` (h/cpp),
+  `pbr_fragment.glsl`, `RuntimeLayer` and `EditorLayer` (h/cpp), `rt13_stage2.py`, this entry and
+  RT-SERIES. 923fed7 and 3c76948 are committed and not pushed. The owner's `showroom.rage` (+ .meta)
+  is still theirs.
+- **Traps:** a render-graph depth must set `SampleDepth` to be read; `BURST_SLIDE` needs
+  `=porsche_992_gt3_r` (the bare prefix moves every part as well as the root); backslash escapes in
+  Python passed through a Bash heredoc came out as real tabs and newlines twice -- write scripts to a file.
+
 ### The owner's instructions, in force
 
 - **The lighting must not change.** The owner ruled out anything that alters the picture (stable

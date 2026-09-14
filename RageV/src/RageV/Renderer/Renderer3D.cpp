@@ -708,6 +708,21 @@ namespace RageV
 			Ref<RHIPipeline> MaskedGBufferPipeline;
 			Ref<RHIPipeline> SkinnedGBufferPipeline;
 			Ref<RHIPipeline> LayeredGBufferPipeline;
+			// RT-13: the glass layer -- the G-buffer variant with RV_GLASS_LAYER,
+			// two-sided, single-sampled, on a depth of its own. Built only under
+			// --glass-layer=on.
+			Ref<RHIShader>   GlassLayerShader;
+			Ref<RHIPipeline> GlassLayerPipeline;
+			// RT-13 stage 2: whether the transparent variant was compiled to read
+			// the glass layer's signals (set 3), and this frame's four, handed over
+			// around the transparent draw the way the water's lamps are.
+			bool GlassSignalCompiled = false;
+			Ref<RHITexture> GlassDirectDiffuse;
+			Ref<RHITexture> GlassDirectSpecular;
+			Ref<RHITexture> GlassLayerDepth;
+			Ref<RHITexture> GlassLayerId;
+			// Stage 3: the reflection settled for the pane.
+			Ref<RHITexture> GlassReflection;
 			// Set by the frame graph when the G-buffer has a pass of its own;
 			// LitPending while EndScene has drawn the G-buffer and DrawLit
 			// has not yet drawn the lighting.
@@ -1051,20 +1066,36 @@ namespace RageV
 				// blur inputs of reflections, shadows, occlusion, irradiance.
 				// RT-8: six, not four -- the sea's lamp light is slot 4 and
 				// slot 5 is free. The clamp in AccumulateSignal must agree.
-				Ref<RHIResourceSet> SignalAccumulateInputs[6];
+				// RT-13 stage 2: eight -- slot 6 is the glass layer's lamp light,
+				// 7 its reflection's to come.
+				Ref<RHIResourceSet> SignalAccumulateInputs[8];
 				Ref<RHIResourceSet> ReflectionResolveInputs;
 				// **And one per blur pass within the slot** (strides 1, 2, 4). The three
 				// passes shared one set, so the second pass rewrote a set the first had
 				// bound in the same command buffer -- which invalidates the buffer; the
 				// device's tripwire reported it on every blurred signal, every frame
 				// (RT-5 part 5).
-				Ref<RHIResourceSet> SignalBlurInputs[6][3];
+				Ref<RHIResourceSet> SignalBlurInputs[8][3];
 				// And the transparent pipeline's *GPU-driven* set: the same
 				// instance table read through the indices the blended cull
 				// wrote instead of the ones the sort produced. One binding
 				// apart from TransparentSet, which is the whole difference
 				// between the two paths at draw time.
 				Ref<RHIResourceSet> TransparentGpuSet;
+				// RT-13: the glass layer's two, the same pair of paths on its
+				// own pipeline's layout (which adds the opaque depth at 29).
+				Ref<RHIResourceSet> GlassLayerSet;
+				Ref<RHIResourceSet> GlassLayerGpuSet;
+				// Stage 2: the transparent pipeline's set 3 (the glass layer's
+				// settled lamp light, its depth and id), written once a frame before
+				// the first bind; and the direct trace's own inputs for the layer,
+				// apart from DirectInputs so the opaque trace's set is never
+				// rewritten under its recorded bind.
+				Ref<RHIResourceSet> GlassSignalSet;
+				Ref<RHIResourceSet> GlassDirectInputs;
+				// Stage 3: the reflection trace's and resolve's, for the same reason.
+				Ref<RHIResourceSet> GlassReflectionTraceInputs;
+				Ref<RHIResourceSet> GlassReflectionResolveInputs;
 				// One GpuMaterial per distinct material this scene drew, on the
 				// bindless path only (ENGINE-NOTES 7al). Rebuilt every frame;
 				// materials x 64 bytes, and it means no second free list.
@@ -2016,6 +2047,21 @@ namespace RageV
 				RV_CORE_WARN("Renderer3D: the cutout G-buffer variant did not compile; "
 							 "masked materials will not write the G-buffer");
 		}
+		// **RT-13: the glass layer** -- the G-buffer variant again, for the
+		// blended meshes, testing itself against the opaque depth. Only under
+		// --glass-layer=on: a variant nothing draws is startup time for nothing.
+		s_Data->GlassLayerShader = nullptr;
+		if (EngineConfig::Get().GlassLayer)
+		{
+			std::vector<std::string> glass = defines;
+			glass.push_back("RV_GBUFFER");
+			glass.push_back("RV_GLASS_LAYER");
+			if (auto compiledGlass = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader", glass))
+				s_Data->GlassLayerShader = s_Data->Device->CreateShader(*compiledGlass);
+			else
+				RV_CORE_WARN("Renderer3D: the glass layer variant did not compile; glass stays "
+							 "outside the shared ray-traced passes");
+		}
 
 		// **The same shader, compiled to write two attachments instead of
 		// four.** Not a second material model and not a second lighting path:
@@ -2032,8 +2078,17 @@ namespace RageV
 			if (s_Data->RayWaterRefractionOn)
 				blended.push_back("RV_RAY_REFRACTION");
 
+			// RT-13 stage 2: the transparent variant reads the glass layer's
+			// settled signals (set 3). The pbr source only -- the water compiles
+			// from `blended` below without it, since its set 3 is its own.
+			// Only with ray shadows compiled in, which is when the direct light
+			// can be traced at all.
+			std::vector<std::string> glassBlended = blended;
+			s_Data->GlassSignalCompiled = EngineConfig::Get().GlassLayer && s_Data->RayShadowsOn;
+			if (s_Data->GlassSignalCompiled)
+				glassBlended.push_back("RV_GLASS_SIGNAL");
 			if (auto transparent = ShaderCompiler::CompileFromFile("assets/shaders/pbr.rvshader",
-																   blended))
+																   glassBlended))
 			{
 				s_Data->TransparentShader = s_Data->Device->CreateShader(*transparent);
 			}
@@ -3185,6 +3240,39 @@ namespace RageV
 				}
 		}
 
+		// **RT-13: the glass layer's pipeline.** The G-buffer's four lanes in the
+		// G-buffer's order, and everything else the transparent pipeline's reasons
+		// or the water surface's: two-sided, because the far side of a windscreen is
+		// as real as the near one; single-sampled, because the target holds a
+		// description of the glass rather than a picture of it; depth written on a
+		// depth of the target's own, so the nearest pane survives rather than the
+		// last rasterised.
+		s_Data->GlassLayerPipeline = nullptr;
+		for (auto& frame : s_Data->SceneSlots)
+			for (auto& slot : frame)
+			{
+				slot.GlassLayerSet = nullptr;
+				slot.GlassLayerGpuSet = nullptr;
+			}
+		if (s_Data->GlassLayerShader && s_Data->TargetVelocity != Format::Undefined
+			&& s_Data->TargetNormal != Format::Undefined && s_Data->TargetAlbedo != Format::Undefined
+			&& s_Data->TargetSurfaceId != Format::Undefined)
+		{
+			GraphicsPipelineDesc glass = desc;
+			glass.Name = "Renderer3D.glass.layer";
+			glass.Shader = s_Data->GlassLayerShader;
+			glass.Rasterizer.Cull = CullMode::None;
+			glass.ColorFormats = { s_Data->TargetVelocity, s_Data->TargetNormal,
+								   s_Data->TargetAlbedo, s_Data->TargetSurfaceId };
+			glass.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque,
+										 BlendPreset::Opaque, BlendPreset::Opaque };
+			glass.Samples = 1;
+			glass.DepthStencil.DepthTestEnable = true;
+			glass.DepthStencil.DepthWriteEnable = true;
+			glass.DepthFormat = Format::D32_SFLOAT;
+			s_Data->GlassLayerPipeline = s_Data->Device->CreatePipeline(glass);
+		}
+
 		// **The prepass twin: same everything, minus the colour.**
 		//
 		// Same target formats and sample count, because it draws *into the
@@ -3569,6 +3657,10 @@ namespace RageV
 				// is exactly how GpuSet was found.
 				slot.TransparentSet.reset();
 				slot.TransparentGpuSet.reset();
+				slot.GlassLayerSet.reset();
+				slot.GlassLayerGpuSet.reset();
+				slot.GlassSignalSet.reset();
+				slot.GlassDirectInputs.reset();
 				slot.WaterSets.clear();
 				slot.WaterSetCursor = 0;
 				slot.WaterSurfaceSets.clear();
@@ -4253,6 +4345,11 @@ namespace RageV
 			slot.TransparentSet = s_Data->Device->CreateResourceSet(s_Data->TransparentPipeline, 0);
 		if (s_Data->TransparentPipeline && !slot.TransparentGpuSet)
 			slot.TransparentGpuSet = s_Data->Device->CreateResourceSet(s_Data->TransparentPipeline, 0);
+		// RT-13: the glass layer's pair, on the same terms as the transparent pair.
+		if (s_Data->GlassLayerPipeline && !slot.GlassLayerSet)
+			slot.GlassLayerSet = s_Data->Device->CreateResourceSet(s_Data->GlassLayerPipeline, 0);
+		if (s_Data->GlassLayerPipeline && !slot.GlassLayerGpuSet)
+			slot.GlassLayerGpuSet = s_Data->Device->CreateResourceSet(s_Data->GlassLayerPipeline, 0);
 
 		// The GPU-driven path's set: the same set 0 in every binding but the
 		// visible indices, so it is populated alongside the others here and
@@ -4287,7 +4384,8 @@ namespace RageV
 										  slot.TransparentSet, slot.TransparentGpuSet,
 										  slot.GBufferSet, slot.MaskedGBufferSet,
 										  slot.SkinnedGBufferSet, slot.LayeredGBufferSet,
-										  slot.PendingGBufferSet, slot.PendingMaskedGBufferSet };
+										  slot.PendingGBufferSet, slot.PendingMaskedGBufferSet,
+										  slot.GlassLayerSet, slot.GlassLayerGpuSet };
 
 		for (const Ref<RHIResourceSet>& sceneSet : targets)
 		{
@@ -5720,6 +5818,21 @@ namespace RageV
 			}
 			slot.TransparentSet->Commit();
 		}
+		// RT-13: the glass layer's CPU-path set, the transparent set's buffers.
+		if (slot.GlassLayerSet)
+		{
+			slot.GlassLayerSet->SetStorageBuffer(kVisibleBinding, slot.Visible, 0,
+												 (uint64_t)Math::Max(count, 1u) * sizeof(uint32_t));
+			slot.GlassLayerSet->SetStorageBuffer(7, slot.Instances, 0,
+												 (uint64_t)instanceRows * sizeof(InstanceData));
+			if (s_Data->Bindless)
+			{
+				slot.GlassLayerSet->SetStorageBuffer(13, slot.Materials, 0,
+													 (uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
+					slot.GlassLayerSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+			}
+		}
 
 		// The same table, through the blended cull's indices.
 		if (slot.TransparentGpuSet && s_Data->TransparentView.IsValid())
@@ -5737,6 +5850,20 @@ namespace RageV
 					slot.TransparentGpuSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
 			}
 			slot.TransparentGpuSet->Commit();
+		}
+		// RT-13: and the glass layer's GPU-path set, through the same indices.
+		if (slot.GlassLayerGpuSet && s_Data->TransparentView.IsValid())
+		{
+			slot.GlassLayerGpuSet->SetStorageBuffer(7, slot.Instances, 0,
+													(uint64_t)instanceRows * sizeof(InstanceData));
+			slot.GlassLayerGpuSet->SetStorageBuffer(kVisibleBinding, s_Data->TransparentView.Instances);
+			if (s_Data->Bindless)
+			{
+				slot.GlassLayerGpuSet->SetStorageBuffer(13, slot.Materials, 0,
+														(uint64_t)s_Data->MaterialScratch.size() * sizeof(GpuMaterial));
+				if (s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn)
+					slot.GlassLayerGpuSet->SetStorageBuffer(kRayInstanceBinding, slot.RayInstances);
+			}
 		}
 
 		if (slot.LayeredGBufferSet)
@@ -5954,6 +6081,126 @@ namespace RageV
 		FlushBlended(true);
 	}
 
+	bool Renderer3D::GlassLayerAvailable()
+	{
+		return s_Data && s_Data->GlassLayerPipeline;
+	}
+
+	bool Renderer3D::GlassSignalCompiled()
+	{
+		return s_Data && s_Data->GlassSignalCompiled && s_Data->TransparentPipeline;
+	}
+
+	void Renderer3D::SetGlassSignal(const Ref<RHITexture>& diffuse, const Ref<RHITexture>& specular,
+									const Ref<RHITexture>& layerDepth, const Ref<RHITexture>& layerId)
+	{
+		if (!s_Data)
+			return;
+		s_Data->GlassDirectDiffuse = diffuse;
+		s_Data->GlassDirectSpecular = specular;
+		s_Data->GlassLayerDepth = layerDepth;
+		s_Data->GlassLayerId = layerId;
+	}
+
+	void Renderer3D::SetGlassReflection(const Ref<RHITexture>& picture)
+	{
+		if (!s_Data)
+			return;
+		s_Data->GlassReflection = picture;
+	}
+
+	// **RT-13: the glass layer** (the header says what it is for). The blended
+	// table's indirect draws and the pending list's static blended runs -- the
+	// only kind the transparent pass has a variant for -- with the G-buffer
+	// variant, into the frame graph's GlassLayer target. Water is not glass: it
+	// has its own layer (FlushWaterSurface). The list stands, because the
+	// transparent pass still draws the very same runs.
+	void Renderer3D::FlushGlassLayer(const Ref<RHITexture>& opaqueDepth)
+	{
+		if (!s_Data || !HasTransparent() || !s_Data->GlassLayerPipeline || !opaqueDepth)
+			return;
+		RHICommandList* cmd = Renderer::GetCommandList();
+		Renderer3DData::SceneSlot* active = s_Data->ActiveScene;
+		if (!cmd || !active || !active->GlassLayerSet)
+			return;
+		Renderer3DData::SceneSlot& slot = *active;
+
+		// The opaque scene's depth, point sampled: a depth is a number to compare
+		// against, not a thing to filter.
+		slot.GlassLayerSet->SetTexture(29, opaqueDepth, s_Data->PointSampler);
+		slot.GlassLayerSet->Commit();
+
+		if (s_Data->TransparentView.IsValid() && !s_Data->TransparentSlots.empty()
+			&& slot.GlassLayerGpuSet)
+		{
+			slot.GlassLayerGpuSet->SetTexture(29, opaqueDepth, s_Data->PointSampler);
+			slot.GlassLayerGpuSet->Commit();
+			cmd->BindPipeline(s_Data->GlassLayerPipeline);
+			cmd->BindResourceSet(0, slot.GlassLayerGpuSet);
+			if (s_Data->Bindless)
+				cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+			for (uint32_t i = 0; i < (uint32_t)s_Data->TransparentSlots.size(); i++)
+			{
+				const GpuCull::Slot& entry = s_Data->TransparentSlots[i];
+				if (!entry.MeshRef)
+					continue;
+				ObjectPushConstants object;
+				object.BaseInstance = (int32_t)entry.InstanceBase;
+				cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+				cmd->BindVertexBuffer(0, entry.MeshRef->GetVertexBuffer());
+				cmd->BindIndexBuffer(entry.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+				// The SlotCommand stride, as FlushBlended's note on it says.
+				cmd->DrawIndexedIndirect(s_Data->TransparentView.Commands,
+										 (uint64_t)i * sizeof(GpuCull::SlotCommand),
+										 1, sizeof(GpuCull::SlotCommand));
+				s_Data->DrawCalls++;
+				s_Data->IndirectDraws++;
+				s_Data->Triangles += (entry.MeshRef->GetIndexCount() / 3) * entry.InstanceCount;
+			}
+		}
+
+		const uint32_t count = (uint32_t)s_Data->Pending.size();
+		bool bound = false;
+		uint32_t start = s_Data->TransparentBegin;
+		while (start < count)
+		{
+			uint32_t end = start + 1;
+			while (end < count &&
+				   s_Data->Pending[end].Kind == s_Data->Pending[start].Kind &&
+				   s_Data->Pending[end].MeshKey == s_Data->Pending[start].MeshKey &&
+				   s_Data->Pending[end].MaterialKey == s_Data->Pending[start].MaterialKey &&
+				   s_Data->Pending[end].IndexCount == s_Data->Pending[start].IndexCount)
+			{
+				end++;
+			}
+			const PendingDraw& first = s_Data->Pending[start];
+			if (first.Kind != DrawKind::Static)
+			{
+				start = end;
+				continue;
+			}
+			if (!bound)
+			{
+				cmd->BindPipeline(s_Data->GlassLayerPipeline);
+				cmd->BindResourceSet(0, slot.GlassLayerSet);
+				if (s_Data->Bindless)
+					cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+				bound = true;
+			}
+			if (first.MaterialRef && !s_Data->Bindless)
+				first.MaterialRef->Bind(*cmd, s_Data->GlassLayerPipeline, 1);
+			ObjectPushConstants object;
+			object.BaseInstance = (int32_t)start;
+			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+			cmd->BindVertexBuffer(0, first.MeshRef->GetVertexBuffer());
+			cmd->BindIndexBuffer(first.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+			cmd->DrawIndexed(first.IndexCount, end - start);
+			s_Data->DrawCalls++;
+			s_Data->Triangles += (first.IndexCount / 3) * (end - start);
+			start = end;
+		}
+	}
+
 	void Renderer3D::FlushBlended(bool surfaceOnly)
 	{
 		if (!s_Data || !HasTransparent())
@@ -5978,6 +6225,40 @@ namespace RageV
 
 		Renderer3DData::SceneSlot& slot = *active;
 
+		// **RT-13 stage 2: the glass layer's settled lamp light**, the transparent
+		// variant's set 3 -- filled once here and bound wherever that pipeline is.
+		// Every binding filled every time: black stands in where the passes did
+		// not run, and a layer depth of zero is no pane, so every fragment then
+		// keeps the loop. Not in the surface pass, which never binds this pipeline.
+		Ref<RHIResourceSet> glassSignal;
+		if (!surfaceOnly && s_Data->GlassSignalCompiled && s_Data->TransparentPipeline)
+		{
+			if (!slot.GlassSignalSet)
+				slot.GlassSignalSet = s_Data->Device->CreateResourceSet(s_Data->TransparentPipeline, 3);
+			if (slot.GlassSignalSet)
+			{
+				const bool settled = s_Data->GlassDirectDiffuse && s_Data->GlassDirectSpecular
+								  && s_Data->GlassLayerDepth && s_Data->GlassLayerId;
+				const Ref<RHITexture> black = TextureLoader::TransparentBlack(*s_Data->Device);
+				slot.GlassSignalSet->SetTexture(0, settled ? s_Data->GlassDirectDiffuse : black,
+												s_Data->PointSampler);
+				slot.GlassSignalSet->SetTexture(1, settled ? s_Data->GlassDirectSpecular : black,
+												s_Data->PointSampler);
+				slot.GlassSignalSet->SetTexture(2, settled ? s_Data->GlassLayerDepth : black,
+												s_Data->PointSampler);
+				slot.GlassSignalSet->SetTexture(3, settled ? s_Data->GlassLayerId : black,
+												s_Data->PointSampler);
+				// Stage 3: the settled reflection, or the one-texel stand-in the
+				// shader reads as "the passes did not run -- cast your own rays".
+				if (slot.GlassSignalSet->HasBinding(4))
+					slot.GlassSignalSet->SetTexture(4, settled && s_Data->GlassReflection
+														 ? s_Data->GlassReflection : black,
+													s_Data->PointSampler);
+				slot.GlassSignalSet->Commit();
+				glassSignal = slot.GlassSignalSet;
+			}
+		}
+
 		// **The GPU-driven half first**, so the CPU list's draws are laid over
 		// it rather than under. Both write the same two attachments and the
 		// resolve is order-independent, so this is a preference rather than a
@@ -5994,6 +6275,8 @@ namespace RageV
 			cmd->BindResourceSet(0, slot.TransparentGpuSet);
 			if (s_Data->Bindless)
 				cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+			if (glassSignal)
+				cmd->BindResourceSet(3, glassSignal);
 
 			for (uint32_t i = 0; i < (uint32_t)s_Data->TransparentSlots.size(); i++)
 			{
@@ -6094,6 +6377,8 @@ namespace RageV
 				cmd->BindResourceSet(0, slot.TransparentSet);
 				if (s_Data->Bindless)
 					cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+				if (glassSignal && pipeline == s_Data->TransparentPipeline)
+					cmd->BindResourceSet(3, glassSignal);
 				boundPipeline = pipeline;
 			}
 
@@ -6535,7 +6820,7 @@ namespace RageV
 									  const RHI::Ref<RHITexture>& depth,
 									  const RHI::Ref<RHITexture>& budget,
 									  const RHI::Ref<RHITexture>& albedo,
-									  float giAverage)
+									  float giAverage, bool glassLayer)
 	{
 		if (!s_Data || !s_Data->ReflectionTracePipeline || !s_Data->ActiveScene)
 			return;
@@ -6544,23 +6829,26 @@ namespace RageV
 		if (!cmd || !slot.LampSet || !surface || !depth)
 			return;
 
-		if (!slot.ReflectionTraceInputs)
-			slot.ReflectionTraceInputs =
-				s_Data->Device->CreateResourceSet(s_Data->ReflectionTracePipeline, 3);
-		if (!slot.ReflectionTraceInputs)
+		// RT-13 stage 3: the glass layer's trace on a set of its own, for the
+		// direct trace's reason -- both are recorded into one command buffer.
+		Ref<RHIResourceSet>& inputs = glassLayer ? slot.GlassReflectionTraceInputs
+												 : slot.ReflectionTraceInputs;
+		if (!inputs)
+			inputs = s_Data->Device->CreateResourceSet(s_Data->ReflectionTracePipeline, 3);
+		if (!inputs)
 			return;
 
-		slot.ReflectionTraceInputs->SetTexture(0, surface, s_Data->PointSampler);
-		slot.ReflectionTraceInputs->SetTexture(1, depth, s_Data->PointSampler);
+		inputs->SetTexture(0, surface, s_Data->PointSampler);
+		inputs->SetTexture(1, depth, s_Data->PointSampler);
 		// A declared binding must be filled: the surface stands in for the map
 		// when the allocator did not run, and Trace.w says so.
-		slot.ReflectionTraceInputs->SetTexture(2, budget ? budget : surface, s_Data->PointSampler);
+		inputs->SetTexture(2, budget ? budget : surface, s_Data->PointSampler);
 		// The albedo lane, for the metal's own colour. A declared binding must
 		// be filled, and the surface stands in where the G-buffer did not run --
 		// its rgb is then a normal, which makes a nonsense tint rather than a
 		// crash, and that path does not trace.
-		slot.ReflectionTraceInputs->SetTexture(3, albedo ? albedo : surface, s_Data->PointSampler);
-		slot.ReflectionTraceInputs->Commit();
+		inputs->SetTexture(3, albedo ? albedo : surface, s_Data->PointSampler);
+		inputs->Commit();
 
 		LampPushConstants push;
 		push.PreviousViewProjection = Math::Inverse(s_Data->Scene.ViewProjection);
@@ -6573,7 +6861,7 @@ namespace RageV
 		cmd->BindResourceSet(0, slot.LampSet);
 		if (s_Data->Heap)
 			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
-		cmd->BindResourceSet(3, slot.ReflectionTraceInputs);
+		cmd->BindResourceSet(3, inputs);
 		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
 		cmd->Draw(3);
 	}
@@ -6585,7 +6873,8 @@ namespace RageV
 	void Renderer3D::ResolveReflections(const RHI::Ref<RHITexture>& fresh,
 										const RHI::Ref<RHITexture>& hit,
 										const RHI::Ref<RHITexture>& depth,
-										const RHI::Ref<RHITexture>& surface)
+										const RHI::Ref<RHITexture>& surface,
+										bool glassLayer)
 	{
 		if (!s_Data || !s_Data->ReflectionResolvePipeline || !s_Data->ActiveScene)
 			return;
@@ -6594,17 +6883,18 @@ namespace RageV
 		if (!cmd || !slot.LampSet || !fresh || !hit || !depth || !surface)
 			return;
 
-		if (!slot.ReflectionResolveInputs)
-			slot.ReflectionResolveInputs =
-				s_Data->Device->CreateResourceSet(s_Data->ReflectionResolvePipeline, 3);
-		if (!slot.ReflectionResolveInputs)
+		Ref<RHIResourceSet>& inputs = glassLayer ? slot.GlassReflectionResolveInputs
+												 : slot.ReflectionResolveInputs;
+		if (!inputs)
+			inputs = s_Data->Device->CreateResourceSet(s_Data->ReflectionResolvePipeline, 3);
+		if (!inputs)
 			return;
 
-		slot.ReflectionResolveInputs->SetTexture(0, fresh, s_Data->PointSampler);
-		slot.ReflectionResolveInputs->SetTexture(1, depth, s_Data->PointSampler);
-		slot.ReflectionResolveInputs->SetTexture(2, surface, s_Data->PointSampler);
-		slot.ReflectionResolveInputs->SetTexture(3, hit, s_Data->PointSampler);
-		slot.ReflectionResolveInputs->Commit();
+		inputs->SetTexture(0, fresh, s_Data->PointSampler);
+		inputs->SetTexture(1, depth, s_Data->PointSampler);
+		inputs->SetTexture(2, surface, s_Data->PointSampler);
+		inputs->SetTexture(3, hit, s_Data->PointSampler);
+		inputs->Commit();
 
 		ReflectionPushConstants push;
 		push.InverseViewProjection = Math::Inverse(s_Data->Scene.ViewProjection);
@@ -6614,7 +6904,7 @@ namespace RageV
 		cmd->BindResourceSet(0, slot.LampSet);
 		if (s_Data->Heap)
 			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
-		cmd->BindResourceSet(3, slot.ReflectionResolveInputs);
+		cmd->BindResourceSet(3, inputs);
 		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
 		cmd->Draw(3);
 	}
@@ -6639,7 +6929,7 @@ namespace RageV
 		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
 		if (!cmd || !slot.LampSet || !accumulated || !depth || !surface || !imageDistance)
 			return;
-		const int index = Math::Clamp(signal.Slot, 0, 5);
+		const int index = Math::Clamp(signal.Slot, 0, 7);
 		// Its own set per stride, so no pass rewrites one an earlier pass bound.
 		const int pass = stride >= 4 ? 2 : stride >= 2 ? 1 : 0;
 		Ref<RHIResourceSet>& inputs = slot.SignalBlurInputs[index][pass];
@@ -6683,6 +6973,15 @@ namespace RageV
 	// are the pair's second and third attachments from last frame -- the
 	// reflector under each texel and what was learned of it -- which the pass
 	// tests a history against before trusting it.
+	// RT-13 stage 3: the reflections' contract, for the glass layer's pane -- the
+	// same tuning, on its own slot so its sets are its own.
+	Renderer3D::SignalParams Renderer3D::GlassReflectionSignal()
+	{
+		SignalParams signal = ReflectionSignal();
+		signal.Slot = 7;
+		return signal;
+	}
+
 	Renderer3D::SignalParams Renderer3D::ReflectionSignal()
 	{
 		SignalParams signal;
@@ -6711,6 +7010,15 @@ namespace RageV
 		const float radius = EngineConfig::Get().ReflectionBlurRadius;
 		if (radius >= 0.0f)
 			signal.YoungRadius = radius;
+		return signal;
+	}
+
+	// RT-13 stage 2: the direct light's contract, for the glass layer's pane --
+	// the same memory and pair, on its own slot so its sets are its own.
+	Renderer3D::SignalParams Renderer3D::GlassDirectSignal()
+	{
+		SignalParams signal = DirectSignal();
+		signal.Slot = 6;
 		return signal;
 	}
 
@@ -6841,7 +7149,7 @@ namespace RageV
 		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
 		if (!cmd || !slot.LampSet || !fresh || !depth || !surface)
 			return;
-		const int index = Math::Clamp(signal.Slot, 0, 5);
+		const int index = Math::Clamp(signal.Slot, 0, 7);
 		Ref<RHIResourceSet>& inputs = slot.SignalAccumulateInputs[index];
 		if (!inputs)
 			inputs = s_Data->Device->CreateResourceSet(pipeline, 3);
@@ -7356,7 +7664,7 @@ namespace RageV
 									  const Ref<RHITexture>& albedo,
 									  const Ref<RHITexture>& surfaceId,
 									  Format targetColor,
-									  const GiTraceView& view, int rays)
+									  const GiTraceView& view, int rays, bool glassLayer)
 	{
 		if (!s_Data || !s_Data->DirectShader || !depth || !surface || !albedo || !surfaceId)
 			return;
@@ -7378,22 +7686,29 @@ namespace RageV
 			s_Data->DirectPipeline = s_Data->Device->CreatePipeline(direct);
 			for (auto& frame : s_Data->SceneSlots)
 				for (auto& slot : frame)
+				{
 					slot.DirectInputs = nullptr;
+					slot.GlassDirectInputs = nullptr;
+				}
 		}
 		if (!s_Data->DirectPipeline)
 			return;
 		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
 		if (!slot.LampSet)
 			return;
-		if (!slot.DirectInputs)
-			slot.DirectInputs = s_Data->Device->CreateResourceSet(s_Data->DirectPipeline, 3);
-		if (!slot.DirectInputs)
+		// RT-13 stage 2: the glass layer's trace on a set of its own -- both
+		// traces are recorded into one command buffer, and a set rewritten
+		// under a recorded bind invalidates it.
+		Ref<RHIResourceSet>& inputs = glassLayer ? slot.GlassDirectInputs : slot.DirectInputs;
+		if (!inputs)
+			inputs = s_Data->Device->CreateResourceSet(s_Data->DirectPipeline, 3);
+		if (!inputs)
 			return;
-		slot.DirectInputs->SetTexture(0, depth, s_Data->PointSampler);
-		slot.DirectInputs->SetTexture(1, surface, s_Data->PointSampler);
-		slot.DirectInputs->SetTexture(2, albedo, s_Data->PointSampler);
-		slot.DirectInputs->SetTexture(3, surfaceId, s_Data->PointSampler);
-		slot.DirectInputs->Commit();
+		inputs->SetTexture(0, depth, s_Data->PointSampler);
+		inputs->SetTexture(1, surface, s_Data->PointSampler);
+		inputs->SetTexture(2, albedo, s_Data->PointSampler);
+		inputs->SetTexture(3, surfaceId, s_Data->PointSampler);
+		inputs->Commit();
 
 		struct DirectParams
 		{
@@ -7423,7 +7738,7 @@ namespace RageV
 		cmd.BindResourceSet(0, slot.LampSet);
 		if (s_Data->Heap)
 			cmd.BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
-		cmd.BindResourceSet(3, slot.DirectInputs);
+		cmd.BindResourceSet(3, inputs);
 		cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
 		cmd.Draw(3);
 	}
