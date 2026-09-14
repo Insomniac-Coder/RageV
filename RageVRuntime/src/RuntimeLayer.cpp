@@ -528,6 +528,9 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.Exposure = &m_Exposure;
 	frame.Reflections = &m_Reflections;
 	frame.DirectLight = &m_DirectLight;
+	frame.DirectChange = &m_DirectChange;
+	frame.ReflectionChange = &m_ReflectionChange;
+	frame.GiChange = &m_GiChange;
 	frame.Indirect = &m_Indirect;
 	frame.RayBudget = &m_RayBudget;
 	frame.Occlusion = &m_Occlusion;

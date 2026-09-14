@@ -304,11 +304,17 @@ namespace RageV
 	namespace
 	{
 		uint32_t s_TargetSamples = 1;
+		Renderer::SceneAttachmentFormats s_TargetAttachments;
 	}
 
 	uint32_t Renderer::GetTargetSamples()
 	{
 		return s_TargetSamples;
+	}
+
+	Renderer::SceneAttachmentFormats Renderer::GetTargetAttachmentFormats()
+	{
+		return s_TargetAttachments;
 	}
 
 	void Renderer::SetTargetFormats(RHI::Format color, RHI::Format depth, uint32_t samples,
@@ -317,6 +323,9 @@ namespace RageV
 									RHI::Format surfaceId)
 	{
 		s_TargetSamples = samples;
+		s_TargetAttachments.Velocity = velocity;
+		s_TargetAttachments.Normal = normal;
+		s_TargetAttachments.Indirect = indirect;
 
 		Renderer2D::SetTargetFormats(color, depth, samples, velocity, normal, indirect);
 		Renderer3D::SetTargetFormats(color, depth, samples, velocity, normal, indirect,

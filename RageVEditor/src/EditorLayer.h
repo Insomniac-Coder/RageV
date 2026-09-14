@@ -447,6 +447,12 @@ private:
 	RageV::TemporalHistory m_GameReflections;
 	RageV::TemporalHistory m_SceneDirectLight;   // RT-first T5
 	RageV::TemporalHistory m_GameDirectLight;
+	RageV::MeasuredChangeHistory m_SceneDirectChange;   // measured change, phase 1
+	RageV::MeasuredChangeHistory m_GameDirectChange;
+	RageV::MeasuredChangeHistory m_SceneReflectionChange;   // and phase 2
+	RageV::MeasuredChangeHistory m_GameReflectionChange;
+	RageV::MeasuredChangeHistory m_SceneGiChange;   // and phase 3
+	RageV::MeasuredChangeHistory m_GameGiChange;
 	// WR-16 S4b: the sea's choices, one per chain like every history here.
 	RageV::TemporalHistory m_SceneWaterChoices;
 	RageV::TemporalHistory m_GameWaterChoices;

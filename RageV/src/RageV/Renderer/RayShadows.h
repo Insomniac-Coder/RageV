@@ -119,5 +119,10 @@ namespace RageV
 		static uint32_t GetInstanceCount();
 		// How many of this frame's instances were posed and refit.
 		static uint32_t GetSkinnedCount();
+		// **What this frame's structure holds, as one number** (measured change):
+		// every instance's transform, structure, index, mask and cutout flag, and
+		// a fresh value on any frame a skinned caster was posed. Equal from one
+		// frame to the next means no ray can answer differently.
+		static uint64_t GetGeometryKey();
 	};
 }

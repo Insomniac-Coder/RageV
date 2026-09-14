@@ -388,6 +388,12 @@ namespace RageV
 		// A measurement dial for the reflection signal's young-history blur,
 		// in texels; negative means the tuning's own value.
 		float ReflectionBlurRadius = -1.0f;
+		// **--ao-blur / --gi-blur=<texels> (RT-5 part 5):** the same dial for the
+		// occlusion and indirect signals, the two that still blur a young
+		// history. Negative, the tuning's own (6 and 12); zero skips their three
+		// blur passes entirely, which is the arm the blur is measured against.
+		float AoBlurRadius = -1.0f;
+		float GiBlurRadius = -1.0f;
 		// --terrain-lod-error=<ratio>: the terrain's ground veto, the LOD
 		// error a chunk may carry as a fraction of its distance
 		// (Terrain::kLevelErrorRatio when 0, the default). A measurement
@@ -436,6 +442,49 @@ namespace RageV
 		// what a turning wave changes; one memory long enough for the first
 		// would smear the second into a haze.
 		bool  WaterLampAccumulate = true;
+		// **--measured-change=on|off (docs/RT-MEASURED-CHANGE.md): the engine's
+		// anti-lag.** Each frame a ninth of the pixels -- one per 3x3 block of each
+		// signal's own grid -- are lit again with last frame's surface point,
+		// random numbers, eye and lamp numbering against this frame's scene: the
+		// lamp light on surfaces, the traced reflections and the traced bounce.
+		// With nothing changed the answer is last frame's, so grain cannot trip
+		// it; the differences, filtered over the block grid, say how much of the
+		// light changed and shorten each signal's accumulator and the temporal
+		// resolve by that much -- read where each pixel's history came from, so it
+		// holds with the camera moving. Nothing is re-lit while nothing any of it
+		// reads has changed, and the record is retaken only then or when the
+		// camera moved.
+		//
+		// **On by default since 2026-09-14**, when it replaced RT-5's evidence
+		// test (`--anti-lag`, deleted): that test guessed from a pixel's own
+		// noise, this one measures. Off is exactly the frame before it existed,
+		// and is the reference arm.
+		bool  MeasuredChange = true;
+		// --change-iterations=N: the a-trous passes over the block grid (0..5).
+		int   ChangeIterations = 4;
+		// --change-force=on: measurement only -- re-light even when nothing the
+		// check depends on changed. A still scene must then still map to black;
+		// that is the proof the replay is exact.
+		bool  ChangeForce = false;
+		// --change-floor=x: a filtered change below this fraction of the light is
+		// read as none.
+		float ChangeFloor = 0.02f;
+		// --change-rays=N: the rays a point of the bounce's check casts, over the
+		// RT optimisation level's own (RayOptimisationPreset::ChangeRays) -- 0 as
+		// many as the trace cast there, 1 one. Negative, the default, keeps the
+		// level's.
+		int   ChangeRaysOverride = -1;
+		// **--taa-still-feedback=N (RT-6): the feedback a pixel that did not
+		// move gets**, overriding RenderSettings::TemporalStillFeedback for a
+		// run. Negative, the default, leaves the project's number alone.
+		//
+		// The rule has been per-pixel since RT-6's geometric half; what kept
+		// its *value* a per-project setting was that the sea reported no
+		// motion, so a long feedback meant for parked steel was handed to
+		// water whose sparkle changes every frame -- and smeared it into
+		// bands. RT-8 gave the sea its own motion, so the test can now tell
+		// the two apart. This flag is what settles whether it does.
+		float TaaStillFeedbackOverride = -1.0f;
 		// **--water-contract=on|off (RT-8 job 3): whose averaging the sea uses.**
 		//
 		// On, the sea's lamp light goes through the signal contract like every
@@ -454,32 +503,6 @@ namespace RageV
 		// the deck, and the plane test alone refuses 1.1%. The argument was
 		// true of the sea *before* the same session taught it to report its own
 		// motion, and nobody re-took it afterwards.
-		// **--taa-still-feedback=N (RT-6): the feedback a pixel that did not
-		// move gets**, overriding RenderSettings::TemporalStillFeedback for a
-		// run. Negative, the default, leaves the project's number alone.
-		//
-		// The rule has been per-pixel since RT-6's geometric half; what kept
-		// its *value* a per-project setting was that the sea reported no
-		// motion, so a long feedback meant for parked steel was handed to
-		// water whose sparkle changes every frame -- and smeared it into
-		// bands. RT-8 gave the sea its own motion, so the test can now tell
-		// the two apart. This flag is what settles whether it does.
-		// **--anti-lag=N (RT-5): how many of a pixel's own standard deviations
-		// the history may sit from what its neighbours report now before the
-		// memory is cut.** Zero is off, which is the behaviour before RT-5.
-		//
-		// The test only runs where every surface test has already passed and
-		// the pixel did not move, so it is not asking whether the surface
-		// changed -- it knows it did not. It asks whether the *light* did, and
-		// the moments the accumulator already keeps say how much this pixel
-		// wobbles when nothing is happening. That is what the two earlier
-		// attempts (R4) lacked: they read a change out of a noisy sample with
-		// no idea how noisy it was, and fired on stills.
-		float SignalAntiLag = 0.0f;
-		// The floor under that noise estimate, in levels, so a converged pixel
-		// whose sigma has gone to nothing does not trip on rounding.
-		float SignalAntiLagFloor = 0.02f;
-		float TaaStillFeedbackOverride = -1.0f;
 		bool  WaterContract = false;
 		// **--water-ray-contract=on|off (RT-8 job 2): whether the sea's traced
 		// reflection is averaged over the frames behind it.**
@@ -722,7 +745,15 @@ namespace RageV
 							   // The sea is the one surface with a G-buffer of its own, and
 							   // until these existed the only way to ask what was in it was
 							   // to stage a probe by hand.
-							   WaterMotion, WaterMask };
+							   WaterMotion, WaterMask,
+							   // Measured change (phase 1): the filtered change map, red the
+							   // direct diffuse's share that changed, green the highlight's.
+							   // Black on a still scene is what the check is for.
+							   Change,
+							   // Phase 2: the traced reflections' map, in red.
+							   ReflectionChange,
+							   // Phase 3: the traced bounce's map, in red.
+							   GiChange };
 		DebugViewMode DebugView = DebugViewMode::None;
 
 		// **--gi-source=baked|realtime.** Which form of indirect light to use,

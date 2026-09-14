@@ -262,5 +262,17 @@ namespace RageV
 		// into a target of its own -- a reflection probe face -- has to match
 		// it, because the pipelines are built once for one count.
 		static uint32_t GetTargetSamples();
+		// **And the formats of the three attachments after the colour**, in the
+		// order every scene pipeline declares them. The probe face held its own
+		// copy of that list and it went stale: the surface lane became half
+		// float and the face stayed eight-bit, which the validation layer
+		// reported on every probe draw. Undefined before the first frame.
+		struct SceneAttachmentFormats
+		{
+			RHI::Format Velocity = RHI::Format::Undefined;
+			RHI::Format Normal = RHI::Format::Undefined;
+			RHI::Format Indirect = RHI::Format::Undefined;
+		};
+		static SceneAttachmentFormats GetTargetAttachmentFormats();
 	};
 }

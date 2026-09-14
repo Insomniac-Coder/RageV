@@ -30,7 +30,12 @@ namespace RageV
 		// change of anti-aliasing mode, and the renderers' pipelines do not --
 		// so the capture compares this and rebuilds, exactly as it does for a
 		// change of resolution.
-		uint32_t GetSamples() const { return m_Samples; }		const RHI::Ref<RHI::RHITexture>& GetCube() const { return m_Cube; }
+		uint32_t GetSamples() const { return m_Samples; }
+		// **Whether its scratch face still has the shape the renderers draw
+		// into** -- the sample count and the three attachments after the
+		// colour, as Renderer last set them. The capture rebuilds when not.
+		bool MatchesTarget() const;
+		const RHI::Ref<RHI::RHITexture>& GetCube() const { return m_Cube; }
 
 		// False until all six faces have been rendered at least once. Binding a
 		// half-captured probe would show black where the scene has not been
@@ -93,6 +98,11 @@ namespace RageV
 	private:
 		RHI::RHIDevice& m_Device;
 		uint32_t m_Samples = 1;
+		// The three attachments after the colour the scratch face was built with
+		// (velocity, surface, indirect), as Renderer reported them then.
+		RHI::Format m_Velocity = RHI::Format::Undefined;
+		RHI::Format m_Normal = RHI::Format::Undefined;
+		RHI::Format m_Indirect = RHI::Format::Undefined;
 		uint32_t m_FaceSize = 0;
 
 		RHI::Ref<RHI::RHITexture> m_Cube;

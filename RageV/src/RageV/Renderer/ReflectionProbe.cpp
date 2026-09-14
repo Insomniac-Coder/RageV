@@ -60,6 +60,19 @@ namespace RageV
 		RenderTargetDesc scratch;
 		scratch.Width = m_FaceSize;
 		scratch.Height = m_FaceSize;
+		// **From what the renderers were last told, not from a copy.** This
+		// list said the surface lane was eight-bit after it became half float,
+		// and every probe draw was a pipeline bound into a pass whose attachment
+		// disagreed (VUID 08910, 2026-09-13). Before any frame has set them the
+		// renderers' own defaults stand in.
+		const Renderer::SceneAttachmentFormats attachments = Renderer::GetTargetAttachmentFormats();
+		m_Velocity = attachments.Velocity;
+		m_Normal = attachments.Normal;
+		m_Indirect = attachments.Indirect;
+		const auto orDefault = [](Format format, Format fallback)
+		{
+			return format != Format::Undefined ? format : fallback;
+		};
 		// Colour, velocity, the surface description *and* the indirect
 		// diffuse, because the pipelines that draw the scene declare all
 		// four, and a pipeline bound into a pass with fewer attachments is
@@ -67,9 +80,9 @@ namespace RageV
 		// normals or bounce; the attachments exist so the shapes agree. Same lesson as the sample count one item
 		// earlier -- ENGINE-NOTES 7q, 7r and 7ad.
 		scratch.ColorAttachments = { { Format::R16G16B16A16_SFLOAT },
-									 { Format::R16G16_SFLOAT },
-									 { Format::R8G8B8A8_UNORM },
-									 { Format::R16G16B16A16_SFLOAT } };
+									 { orDefault(m_Velocity, Format::R16G16_SFLOAT) },
+									 { orDefault(m_Normal, Format::R16G16B16A16_SFLOAT) },
+									 { orDefault(m_Indirect, Format::R16G16B16A16_SFLOAT) } };
 		scratch.HasDepth = true;
 		scratch.DepthAttachment.Format = Format::D32_SFLOAT;
 		// The same sample count the scene is being drawn at.
@@ -87,6 +100,15 @@ namespace RageV
 		scratch.DebugName = "probe.face";
 
 		m_Scratch = device.CreateRenderTarget(scratch);
+	}
+
+	bool ReflectionProbe::MatchesTarget() const
+	{
+		const Renderer::SceneAttachmentFormats now = Renderer::GetTargetAttachmentFormats();
+		return m_Samples == Renderer::GetTargetSamples()
+			&& m_Velocity == now.Velocity
+			&& m_Normal == now.Normal
+			&& m_Indirect == now.Indirect;
 	}
 
 	Mat4 ReflectionProbe::FaceProjection(float nearClip, float farClip)

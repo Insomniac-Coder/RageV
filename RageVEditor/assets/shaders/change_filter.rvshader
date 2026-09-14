@@ -1,0 +1,111 @@
+// Measured change (docs/RT-MEASURED-CHANGE.md, phase 1): the change map's filter.
+//
+// The re-light leaves one difference per 3x3 block -- this frame's light at
+// last frame's sampled point, against what the trace wrote there -- and one on
+// its own can be a little off: a lamp removed from a cluster cell changes the
+// draws of the lamps beside it, so a block can read a change that is its
+// neighbours' resampling rather than its own light. So the differences are
+// averaged over the block grid before anything reads them, the way A-SVGF does
+// (Schied, Peters, Dachsbacher 2018): an a-trous pass per stride, stopping at
+// edges, the difference and the light it is a share of carried apart and
+// divided only at the end. A lone odd block is outvoted by the blocks around
+// it; a lamp going out moves every block it lit, and is not.
+//
+// **Signed, then divided.** Resampling noise goes both ways and averages out;
+// a real change goes one way and survives. Dark neighbours add nothing to the
+// reference, so a lamp's pool is not diluted by the unlit floor around it --
+// only by the light of lamps that did not change, which is the share it is.
+//
+// Point sampled throughout: every tap is a whole block, and a normal or a
+// plane halfway between two blocks describes neither.
+
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Change;
+
+// The differences and their references, diffuse then highlight: the re-light's,
+// or the previous pass's. A reference below zero is a block with no information.
+layout(set = 0, binding = 0) uniform sampler2D u_Change;
+// The recorded normal in xyz and its plane (n . P) in w; all zero for none.
+layout(set = 0, binding = 1) uniform sampler2D u_Guide;
+
+layout(push_constant) uniform Params
+{
+	vec2  TexelSize;
+	// The stride in blocks; zero is the block alone.
+	float Step;
+	// One on the last pass, which writes the shares rather than the sums.
+	float Last;
+	// A share under this is read as none.
+	float Floor;
+	float FlipY;
+} u_Params;
+
+const float kKernel[3] = float[3](0.25, 0.5, 0.25);
+
+void main()
+{
+	const ivec2 texel = ivec2(gl_FragCoord.xy);
+	const ivec2 size = textureSize(u_Change, 0);
+	const vec4 guide = texelFetch(u_Guide, texel, 0);
+	if (dot(guide.xyz, guide.xyz) < 0.25)
+	{
+		// No information here: out of every neighbour's sum, and no change in
+		// the map. An unmeasured block is the frame as it was.
+		o_Change = u_Params.Last > 0.5 ? vec4(0.0) : vec4(0.0, -1.0, 0.0, -1.0);
+		return;
+	}
+
+	const int step = int(u_Params.Step + 0.5);
+	const int reach = step > 0 ? 1 : 0;
+	vec4 sum = vec4(0.0);
+	float weight = 0.0;
+	for (int y = -reach; y <= reach; ++y)
+	{
+		for (int x = -reach; x <= reach; ++x)
+		{
+			const ivec2 at = texel + ivec2(x, y) * step;
+			if (any(lessThan(at, ivec2(0))) || any(greaterThanEqual(at, size)))
+				continue;
+			const vec4 theirGuide = texelFetch(u_Guide, at, 0);
+			if (dot(theirGuide.xyz, theirGuide.xyz) < 0.25)
+				continue;
+			const vec4 theirs = texelFetch(u_Change, at, 0);
+			if (theirs.g < 0.0 || theirs.a < 0.0)
+				continue;
+			// The same surface: facing the same way, and in the same plane to
+			// within a tenth of a metre a block of stride.
+			const float facing = pow(max(dot(guide.xyz, theirGuide.xyz), 0.0), 16.0);
+			const float plane = exp(-abs(guide.w - theirGuide.w) / (0.1 * float(max(step, 1))));
+			const float w = kKernel[x + 1] * kKernel[y + 1] * facing * plane;
+			sum += theirs * w;
+			weight += w;
+		}
+	}
+	const vec4 filtered = weight > 0.0 ? sum / weight : vec4(0.0);
+
+	if (u_Params.Last > 0.5)
+	{
+		// **The shares**: how much of the light at this block changed, diffuse
+		// and highlight apart, from the sums rather than a mean of ratios.
+		const float shareD = filtered.g > 1.0e-6 ? clamp(abs(filtered.r) / filtered.g, 0.0, 1.0) : 0.0;
+		const float shareS = filtered.a > 1.0e-6 ? clamp(abs(filtered.b) / filtered.a, 0.0, 1.0) : 0.0;
+		o_Change = vec4(shareD >= u_Params.Floor ? shareD : 0.0,
+						shareS >= u_Params.Floor ? shareS : 0.0, 0.0, 1.0);
+		return;
+	}
+	o_Change = filtered;
+}

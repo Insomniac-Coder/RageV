@@ -12,6 +12,7 @@
 #include "ShadowMap.h"
 #include "EnvironmentIBL.h"
 #include "LightGrid.h"
+#include "TemporalHistory.h"
 #include "RageV/Core/EngineConfig.h"
 #include "Meshlet.h"
 #include "RageV/Math/Math.h"
@@ -587,6 +588,12 @@ namespace RageV
 			// reflection_trace.rvshader says why).
 			Ref<RHIShader>   ReflectionTraceShader;
 			Ref<RHIPipeline> ReflectionTracePipeline;
+			// Measured change, phase 2: the trace's file as the record and as the
+			// re-light, compiled only when --measured-change asks for them.
+			Ref<RHIShader>   ReflectionRecordShader;
+			Ref<RHIPipeline> ReflectionRecordPipeline;
+			Ref<RHIShader>   ReflectionRelightShader;
+			Ref<RHIPipeline> ReflectionRelightPipeline;
 			Ref<RHIShader>   ReflectionAccumulateShader;
 			Ref<RHIPipeline> ReflectionAccumulatePipeline;
 			Ref<RHIShader>   ReflectionResolveShader;
@@ -658,10 +665,21 @@ namespace RageV
 			// its own holding the depth and surface it reconstructs from.
 			Ref<RHIShader>   GiShader;
 			Ref<RHIPipeline> GiPipeline;
+			// Measured change, phase 3: the bounce's record and re-light.
+			Ref<RHIShader>   GiRecordShader;
+			Ref<RHIPipeline> GiRecordPipeline;
+			Ref<RHIShader>   GiRelightShader;
+			Ref<RHIPipeline> GiRelightPipeline;
 			// RT-first T5: the direct-light trace pass, and whether the frame
 			// graph runs it this frame (the lit shader's switch).
 			Ref<RHIShader>   DirectShader;
 			Ref<RHIPipeline> DirectPipeline;
+			// Measured change, phase 1: the same file as the record and as the
+			// re-light, compiled only when --measured-change asks for them.
+			Ref<RHIShader>   DirectRecordShader;
+			Ref<RHIPipeline> DirectRecordPipeline;
+			Ref<RHIShader>   DirectRelightShader;
+			Ref<RHIPipeline> DirectRelightPipeline;
 			// RT-8 job 1: the same shader again, over the sea's layer and with
 			// the sea's lobe. A second compile rather than a runtime branch,
 			// because the branch would sit inside the light loop.
@@ -895,7 +913,17 @@ namespace RageV
 				// Its depth and surface inputs, which change per view rather
 				// than per scene.
 				Ref<RHIResourceSet> GiInputs;
+				Ref<RHIResourceSet> GiRecordInputs;     // measured change, phase 3
+				Ref<RHIResourceSet> GiRelightInputs;
 				Ref<RHIResourceSet> DirectInputs;        // RT-first T5: the G-buffer, set 3
+			// Measured change: the record's inputs, the re-light's, and the
+			// lamp-numbering map the re-light reads -- per slot, because a
+			// host-visible buffer rewritten while a frame in flight still reads
+			// it is the race the instance stream already avoids this way.
+			Ref<RHIResourceSet> DirectRecordInputs;
+			Ref<RHIResourceSet> DirectRelightInputs;
+			Ref<RHIBuffer>      ChangeRolls;
+			uint32_t            ChangeRollsCapacity = 0;
 				// RT-8 job 1: the same four slots, carrying the sea's layer --
 				// one set per mode, since the layouts differ by two bindings.
 				Ref<RHIResourceSet> DirectWaterInputs[3];
@@ -1017,11 +1045,13 @@ namespace RageV
 				Ref<RHIResourceSet> WaterTraceInputs;
 				// The opaque reflection pass and its accumulator, one input set each.
 				Ref<RHIResourceSet> ReflectionTraceInputs;
+				Ref<RHIResourceSet> ReflectionRecordInputs;    // measured change, phase 2
+				Ref<RHIResourceSet> ReflectionRelightInputs;
 				// One per signal slot (SignalParams::Slot): the accumulate and
 				// blur inputs of reflections, shadows, occlusion, irradiance.
 				// RT-8: six, not four -- the sea's lamp light is slot 4 and
 				// slot 5 is free. The clamp in AccumulateSignal must agree.
-				Ref<RHIResourceSet> SignalAccumulateInputs[6];
+				Ref<RHIResourceSet> SignalAccumulateInputs[6];
 				Ref<RHIResourceSet> ReflectionResolveInputs;
 				// **And one per blur pass within the slot** (strides 1, 2, 4). The three
 				// passes shared one set, so the second pass rewrote a set the first had
@@ -1567,8 +1597,16 @@ namespace RageV
 		// The pipeline costs one compile at startup and nothing per frame when
 		// no pass draws with it.
 		s_Data->GiShader = nullptr;
+		s_Data->GiRecordShader = nullptr;
+		s_Data->GiRecordPipeline = nullptr;
+		s_Data->GiRelightShader = nullptr;
+		s_Data->GiRelightPipeline = nullptr;
 		s_Data->DirectShader = nullptr;
 		s_Data->DirectPipeline = nullptr;
+		s_Data->DirectRecordShader = nullptr;
+		s_Data->DirectRecordPipeline = nullptr;
+		s_Data->DirectRelightShader = nullptr;
+		s_Data->DirectRelightPipeline = nullptr;
 		for (int mode = 0; mode < 3; ++mode)
 		{
 			s_Data->DirectWaterShader[mode] = nullptr;
@@ -1614,6 +1652,10 @@ namespace RageV
 			// defines for the same reason, and only when the traced form is on:
 			// GlossyReflection and TraceReflection live under RV_RAY_REFLECTIONS.
 			s_Data->ReflectionTraceShader = nullptr;
+			s_Data->ReflectionRecordShader = nullptr;
+			s_Data->ReflectionRecordPipeline = nullptr;
+			s_Data->ReflectionRelightShader = nullptr;
+			s_Data->ReflectionRelightPipeline = nullptr;
 			s_Data->ReflectionResolveShader = nullptr;
 			s_Data->ReflectionAccumulateShader = nullptr;
 			s_Data->ReflectionBlurShader = nullptr;
@@ -1654,6 +1696,31 @@ namespace RageV
 									  "casting its mirror rays in-line", file);
 					}
 				}
+				// **Measured change, phase 2: the trace's file twice more** -- the
+				// record, and the re-light that traces the record's rays again --
+				// compiled only when asked for.
+				if (EngineConfig::Get().MeasuredChange && s_Data->RayReflectionsOn
+					&& s_Data->ReflectionTraceShader)
+				{
+					for (int kind = 0; kind < 2; ++kind)
+					{
+						std::vector<std::string> changeDefines = traceDefines;
+						changeDefines.push_back(kind == 0 ? "RV_REFLECTION_RECORD" : "RV_REFLECTION_RELIGHT");
+						Ref<RHIShader>& target = kind == 0 ? s_Data->ReflectionRecordShader
+														   : s_Data->ReflectionRelightShader;
+						if (auto change = ShaderCompiler::CompileFromFile(
+								"assets/shaders/reflection_trace.rvshader", changeDefines))
+						{
+							target = s_Data->Device->CreateShader(*change);
+						}
+						else
+						{
+							RV_CORE_WARN("Renderer3D: reflection_trace.rvshader did not compile as the "
+										 "measured change's {0}; the reflections' check stays off",
+										 kind == 0 ? "record" : "re-light");
+						}
+					}
+				}
 			}
 
 			// RT-first T5: the direct light from the G-buffer, under rays only.
@@ -1668,6 +1735,34 @@ namespace RageV
 				{
 					RV_CORE_ERROR("Renderer3D: assets/shaders/direct_trace.rvshader did not compile; "
 								  "the lit shader keeps tracing a shadow ray to every light");
+				}
+				// **Measured change, phase 1: the same file twice more** -- the record
+				// that keeps one sampled point per block and the lamps the trace chose
+				// there, and the re-light that shades those choices again -- so the
+				// lighting the check measures is the trace's own, not a copy that could
+				// drift from it. Compiled only when asked for: a run without the check
+				// pays nothing at startup either.
+				if (EngineConfig::Get().MeasuredChange && s_Data->DirectShader)
+				{
+					static const char* const kChangeDefines[] = { "RV_DIRECT_RECORD", "RV_DIRECT_RELIGHT" };
+					for (int kind = 0; kind < 2; ++kind)
+					{
+						std::vector<std::string> changeDefines = traceDefines;
+						changeDefines.push_back(kChangeDefines[kind]);
+						Ref<RHIShader>& target = kind == 0 ? s_Data->DirectRecordShader
+														   : s_Data->DirectRelightShader;
+						if (auto change = ShaderCompiler::CompileFromFile(
+								"assets/shaders/direct_trace.rvshader", changeDefines))
+						{
+							target = s_Data->Device->CreateShader(*change);
+						}
+						else
+						{
+							RV_CORE_WARN("Renderer3D: direct_trace.rvshader did not compile as the "
+										 "measured change's {0}; the check stays off",
+										 kChangeDefines[kind]);
+						}
+					}
 				}
 				// RT-8 job 1: and once more for the sea. A failure here leaves
 				// the water passes doing their own choosing and shading, which
@@ -1699,6 +1794,28 @@ namespace RageV
 														 traceDefines))
 			{
 				s_Data->GiShader = s_Data->Device->CreateShader(*gi);
+				// **Measured change, phase 3: the same file twice more**, only
+				// when asked for.
+				if (EngineConfig::Get().MeasuredChange)
+				{
+					for (int kind = 0; kind < 2; ++kind)
+					{
+						std::vector<std::string> changeDefines = traceDefines;
+						changeDefines.push_back(kind == 0 ? "RV_GI_RECORD" : "RV_GI_RELIGHT");
+						Ref<RHIShader>& target = kind == 0 ? s_Data->GiRecordShader : s_Data->GiRelightShader;
+						if (auto change = ShaderCompiler::CompileFromFile(
+								"assets/shaders/rtgi_trace.rvshader", changeDefines))
+						{
+							target = s_Data->Device->CreateShader(*change);
+						}
+						else
+						{
+							RV_CORE_WARN("Renderer3D: rtgi_trace.rvshader did not compile as the "
+										 "measured change's {0}; the bounce's check stays off",
+										 kind == 0 ? "record" : "re-light");
+						}
+					}
+				}
 			}
 			else
 			{
@@ -4492,286 +4609,286 @@ namespace RageV
 		s_Data->SceneActive = true;
 	}
 
-	// The lit half of EndScene (RT-first step 1a): the indirect sweeps,
-	// the pending draws by kind and bucket, the light glow, and the hand-over
-	// to the transparent pass. Called by EndScene when the G-buffer has no
-	// pass of its own, by DrawLit from the "Scene" pass when it has.
-	static void DrawLitBody(RHICommandList* cmd, Renderer3DData::SceneSlot& slot,
-							uint32_t count, bool haveIndirect)
-	{
-		DrawKind boundKind = DrawKind::Static;
-		DrawBucket boundBucket = DrawBucket::Opaque;
-		bool anyPipelineBound = false;
-		if (haveIndirect && slot.GpuSet)
-		{
-			const std::vector<GpuCull::Slot>& indirect = s_Data->IndirectSlots;
-			const uint32_t slotCount =
-				Math::Min((uint32_t)indirect.size(), s_Data->IndirectView.SlotCount);
-
-			// **Two sweeps, opaque then masked**, rather than one that rebinds
-			// whenever the kind changes. The table is in creation order, so
-			// cutouts are scattered through it; sweeping twice costs one extra
-			// pipeline bind and sorting the table would cost a sort.
-			//
-			// Opaque first, so every cutout is tested against a depth buffer
-			// the solid geometry has already filled -- the same order the CPU
-			// path's buckets produce, and for the same reason.
-			for (int sweep = 0; sweep < 2; sweep++)
-			{
-			const bool maskedSweep = sweep == 1;
-			if (maskedSweep && (!s_Data->MaskedPipeline || !slot.MaskedGpuSet))
-				continue;
-
-			bool sweepBound = false;
-
-			for (uint32_t i = 0; i < slotCount; i++)
-			{
-				const GpuCull::Slot& entry = indirect[i];
-				if (!entry.MeshRef)
-					continue;
-				if ((entry.MaskedMaterial != nullptr) != maskedSweep)
-					continue;
-
-				if (!sweepBound)
-				{
-					cmd->BindPipeline(maskedSweep ? s_Data->MaskedPipeline : s_Data->Pipeline);
-					cmd->BindResourceSet(0, maskedSweep ? slot.MaskedGpuSet : slot.GpuSet);
-					if (s_Data->Bindless)
-						cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
-					sweepBound = true;
-				}
-
-				// Where this slot's survivors begin in the index buffer. Not
-				// the draw's firstInstance, for the reason scene_vertex.glsl
-				// gives.
-				ObjectPushConstants object;
-				object.BaseInstance = (int32_t)entry.InstanceBase;
-				cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
-
-				cmd->BindVertexBuffer(0, entry.MeshRef->GetVertexBuffer());
-				cmd->BindIndexBuffer(entry.MeshRef->GetIndexBuffer(), IndexType::UInt32);
-				cmd->DrawIndexedIndirect(s_Data->IndirectView.Commands,
-										 (uint64_t)i * sizeof(GpuCull::SlotCommand),
-										 1, sizeof(GpuCull::SlotCommand));
-
-				// The draw is counted, and its triangles at the count that was
-				// *submitted* -- the slot's reserved length. How many of them
-				// survive is in device memory the CPU never reads back, which
-				// is the point; reporting nothing at all instead made the
-				// panel read as broken on every frame this path drew.
-				s_Data->DrawCalls++;
-				s_Data->IndirectDraws++;
-				s_Data->Triangles +=
-					(entry.MeshRef->GetIndexCount() / 3) * entry.InstanceCount;
-			}
-			}
-
-			// The loop below has to bind its own pipeline and set again.
-			anyPipelineBound = false;
-		}
-
-		// **Where the opaque list ends.** The sort put every blended draw in one
-		// block at the end, so this is a scan for the first of them rather than
-		// a partition -- and when there are none it is `count`, which is the
-		// loop the renderer has always run.
-		//
-		// Masked draws are *before* this point, not after: they write depth and
-		// belong to the opaque pass. They form their own runs within it,
-		// because the merge below compares the whole bucket.
-		s_Data->TransparentBegin = count;
-		for (uint32_t i = 0; i < count; i++)
-		{
-			if (s_Data->Pending[i].Bucket == DrawBucket::Blended)
-			{
-				s_Data->TransparentBegin = i;
-				break;
-			}
-		}
-
-		const uint32_t opaqueCount = s_Data->TransparentBegin;
-
-
-		// One draw per run of identical mesh and bound material state.
-		uint32_t start = 0;
-		while (start < opaqueCount)
-		{
-			uint32_t end = start + 1;
-			// Kind as well: a run is one pipeline, and under bindless the
-			// material key is zero for every material, so without it only
-			// the mesh pointer separates a static run from a skinned one at
-			// a kind boundary -- the same shape as the transparent bit
-			// above: a field the sort separates and the merge forgot.
-			while (end < opaqueCount &&
-				   s_Data->Pending[end].Bucket == s_Data->Pending[start].Bucket &&
-				   s_Data->Pending[end].Kind == s_Data->Pending[start].Kind &&
-				   s_Data->Pending[end].MeshKey == s_Data->Pending[start].MeshKey &&
-				   s_Data->Pending[end].MaterialKey == s_Data->Pending[start].MaterialKey &&
-				   s_Data->Pending[end].IndexCount == s_Data->Pending[start].IndexCount)
-			{
-				end++;
-			}
-
-			const PendingDraw& first = s_Data->Pending[start];
-
-			// Static opaque runs go as meshlets when the pipeline exists and
-			// the mesh cut cleanly; every other kind -- skinned, layered,
-			// blended, a mesh the cut refused -- takes its classic pipeline
-			// in the same pass. The scene set is the same object on both
-			// paths: the descriptor layouts are identically defined (the
-			// coarse stage flags in VulkanPipeline are what make that true),
-			// so one fill serves both front ends.
-			if (first.Kind == DrawKind::Static && s_Data->MeshletLitPipeline &&
-				first.MeshRef && slot.Set)
-			{
-				const Mesh::MeshletBuffers& meshlets =
-					first.MeshRef->GetMeshletBuffers(*s_Data->Device);
-				if (meshlets.Count > 0)
-				{
-					while (slot.MeshletCursor >= slot.MeshletSets.size())
-						slot.MeshletSets.push_back(nullptr);
-					Ref<RHIResourceSet>& meshletSet =
-						slot.MeshletSets[slot.MeshletCursor];
-					if (!meshletSet)
-					{
-						meshletSet = s_Data->Device->CreateResourceSet(
-							s_Data->MeshletLitPipeline, 3);
-					}
-
-					if (meshletSet)
-					{
-						slot.MeshletCursor++;
-
-						meshletSet->SetStorageBuffer(0, meshlets.Meshlets);
-						meshletSet->SetStorageBuffer(1, meshlets.Vertices);
-						meshletSet->SetStorageBuffer(2, meshlets.Triangles);
-						meshletSet->SetStorageBuffer(3, first.MeshRef->GetVertexBuffer());
-						meshletSet->Commit();
-
-						// A different push-constant interface disturbs every
-						// bound set on the switch, so everything is rebound
-						// here and the classic loop rebinds its own after.
-						cmd->BindPipeline(s_Data->MeshletLitPipeline);
-						cmd->BindResourceSet(0, slot.Set);
-						if (s_Data->Bindless)
-							cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
-						else if (first.MaterialRef)
-							first.MaterialRef->Bind(*cmd, s_Data->MeshletLitPipeline, 1);
-						cmd->BindResourceSet(3, meshletSet);
-						anyPipelineBound = false;
-
-						ObjectPushConstants object;
-						object.BaseInstance = (int32_t)start;
-						cmd->PushConstants(ShaderStage::Mesh, 0, sizeof(object), &object);
-
-						cmd->DrawMeshTasks(meshlets.Count, end - start, 1);
-						s_Data->DrawCalls++;
-						s_Data->Triangles += (first.IndexCount / 3) * (end - start);
-
-						start = end;
-						continue;
-					}
-				}
-			}
-
-			// Each kind needs its own pipeline. Without one the run is skipped
-			// rather than drawn by another: a skinned mesh through the static
-			// pipeline reads joint indices as texture coordinates and scatters
-			// across the world, and a layered chunk through it binds a set the
-			// layout does not describe.
-			// **Masked replaces the static pipeline only.** A skinned or a
-			// layered cutout would each need their own variant and neither
-			// exists yet, so one of those falls back to drawing solid -- the
-			// same choice the skinned transparent path documents, and for the
-			// same reason: a visible material with a hard edge missing beats
-			// a material that does not draw.
-			const bool masked = first.Bucket == DrawBucket::Masked;
-			const Ref<RHIPipeline>& pipeline =
-				first.Kind == DrawKind::Skinned ? s_Data->SkinnedPipeline
-				: first.Kind == DrawKind::Layered ? s_Data->LayeredPipeline
-				: (masked && s_Data->MaskedPipeline) ? s_Data->MaskedPipeline
-				: s_Data->Pipeline;
-			if (!pipeline)
-			{
-				start = end;
-				continue;
-			}
-
-			const Ref<RHIResourceSet>& sceneSet =
-				first.Kind == DrawKind::Skinned ? slot.SkinnedSet
-				: first.Kind == DrawKind::Layered ? slot.LayeredSet
-				: (masked && s_Data->MaskedPipeline && slot.MaskedSet) ? slot.MaskedSet
-				: slot.Set;
-			if (!sceneSet)
-			{
-				start = end;
-				continue;
-			}
-
-			if (!anyPipelineBound || boundKind != first.Kind || boundBucket != first.Bucket)
-			{
-				cmd->BindPipeline(pipeline);
-				cmd->BindResourceSet(0, sceneSet);
-				// The heap, at the set every bindless shader declares it at.
-				// Once per pipeline, not per run: nothing about it changes
-				// between draws, which is the point of it.
-				if (s_Data->Bindless)
-					cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
-				boundKind = first.Kind;
-				boundBucket = first.Bucket;
-				anyPipelineBound = true;
-			}
-
-			// Any material in the run would do: the key is exactly the state
-			// this binds, so they are interchangeable by construction. On the
-			// bindless path there is nothing to bind -- the maps are heap
-			// slots in the record the instance names -- and set 1 is empty.
-			// A layered run binds its own set 1 on *both* paths: the block is
-			// the layers' scalars and, bindless, their heap slots (7aq).
-			if (first.Kind == DrawKind::Layered)
-			{
-				if (first.LayeredRef)
-					first.LayeredRef->Bind(*cmd, pipeline, 1);
-			}
-			else if (first.MaterialRef && !s_Data->Bindless)
-			{
-				first.MaterialRef->Bind(*cmd, pipeline, 1);
-			}
-
-			ObjectPushConstants object;
-			object.BaseInstance = (int32_t)start;
-			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
-
-			cmd->BindVertexBuffer(0, first.MeshRef->GetVertexBuffer());
-			cmd->BindIndexBuffer(first.MeshRef->GetIndexBuffer(), IndexType::UInt32);
-			cmd->DrawIndexed(first.IndexCount, end - start);
-
-			s_Data->DrawCalls++;
-			s_Data->Triangles += (first.IndexCount / 3) * (end - start);
-
-			start = end;
-		}
-
-		// **The lights' glow, last of the opaque pass** (WR-5, first half).
-		// After every opaque draw so the depth it tests against is complete,
-		// and before the transparent pass so the water composites over it
-		// where it should. The buffer is the one the lit draws just read.
-		// Draws nothing outside the scene pass proper -- a probe face or a
-		// cascade never receives a viewport -- and nothing in a scene whose
-		// lights have no size.
-		LightGlow::Draw(*cmd, slot.Lights, (uint32_t)Math::Max(s_Data->Scene.LightCount, 0));
-
-		// **Kept, not cleared, when something blended is still waiting.** The
-		// transparent pass runs later in the same frame and reads the same
-		// records, the same instance table and the same bound sets -- all of
-		// which are alive until the next BeginScene, which clears them.
-		if (s_Data->TransparentBegin >= count)
-		{
-			s_Data->Pending.clear();
-			s_Data->Instances.clear();
-			s_Data->TransparentBegin = 0;
-		}
-	}
-
+	// The lit half of EndScene (RT-first step 1a): the indirect sweeps,
+	// the pending draws by kind and bucket, the light glow, and the hand-over
+	// to the transparent pass. Called by EndScene when the G-buffer has no
+	// pass of its own, by DrawLit from the "Scene" pass when it has.
+	static void DrawLitBody(RHICommandList* cmd, Renderer3DData::SceneSlot& slot,
+							uint32_t count, bool haveIndirect)
+	{
+		DrawKind boundKind = DrawKind::Static;
+		DrawBucket boundBucket = DrawBucket::Opaque;
+		bool anyPipelineBound = false;
+		if (haveIndirect && slot.GpuSet)
+		{
+			const std::vector<GpuCull::Slot>& indirect = s_Data->IndirectSlots;
+			const uint32_t slotCount =
+				Math::Min((uint32_t)indirect.size(), s_Data->IndirectView.SlotCount);
+
+			// **Two sweeps, opaque then masked**, rather than one that rebinds
+			// whenever the kind changes. The table is in creation order, so
+			// cutouts are scattered through it; sweeping twice costs one extra
+			// pipeline bind and sorting the table would cost a sort.
+			//
+			// Opaque first, so every cutout is tested against a depth buffer
+			// the solid geometry has already filled -- the same order the CPU
+			// path's buckets produce, and for the same reason.
+			for (int sweep = 0; sweep < 2; sweep++)
+			{
+			const bool maskedSweep = sweep == 1;
+			if (maskedSweep && (!s_Data->MaskedPipeline || !slot.MaskedGpuSet))
+				continue;
+
+			bool sweepBound = false;
+
+			for (uint32_t i = 0; i < slotCount; i++)
+			{
+				const GpuCull::Slot& entry = indirect[i];
+				if (!entry.MeshRef)
+					continue;
+				if ((entry.MaskedMaterial != nullptr) != maskedSweep)
+					continue;
+
+				if (!sweepBound)
+				{
+					cmd->BindPipeline(maskedSweep ? s_Data->MaskedPipeline : s_Data->Pipeline);
+					cmd->BindResourceSet(0, maskedSweep ? slot.MaskedGpuSet : slot.GpuSet);
+					if (s_Data->Bindless)
+						cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+					sweepBound = true;
+				}
+
+				// Where this slot's survivors begin in the index buffer. Not
+				// the draw's firstInstance, for the reason scene_vertex.glsl
+				// gives.
+				ObjectPushConstants object;
+				object.BaseInstance = (int32_t)entry.InstanceBase;
+				cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+
+				cmd->BindVertexBuffer(0, entry.MeshRef->GetVertexBuffer());
+				cmd->BindIndexBuffer(entry.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+				cmd->DrawIndexedIndirect(s_Data->IndirectView.Commands,
+										 (uint64_t)i * sizeof(GpuCull::SlotCommand),
+										 1, sizeof(GpuCull::SlotCommand));
+
+				// The draw is counted, and its triangles at the count that was
+				// *submitted* -- the slot's reserved length. How many of them
+				// survive is in device memory the CPU never reads back, which
+				// is the point; reporting nothing at all instead made the
+				// panel read as broken on every frame this path drew.
+				s_Data->DrawCalls++;
+				s_Data->IndirectDraws++;
+				s_Data->Triangles +=
+					(entry.MeshRef->GetIndexCount() / 3) * entry.InstanceCount;
+			}
+			}
+
+			// The loop below has to bind its own pipeline and set again.
+			anyPipelineBound = false;
+		}
+
+		// **Where the opaque list ends.** The sort put every blended draw in one
+		// block at the end, so this is a scan for the first of them rather than
+		// a partition -- and when there are none it is `count`, which is the
+		// loop the renderer has always run.
+		//
+		// Masked draws are *before* this point, not after: they write depth and
+		// belong to the opaque pass. They form their own runs within it,
+		// because the merge below compares the whole bucket.
+		s_Data->TransparentBegin = count;
+		for (uint32_t i = 0; i < count; i++)
+		{
+			if (s_Data->Pending[i].Bucket == DrawBucket::Blended)
+			{
+				s_Data->TransparentBegin = i;
+				break;
+			}
+		}
+
+		const uint32_t opaqueCount = s_Data->TransparentBegin;
+
+
+		// One draw per run of identical mesh and bound material state.
+		uint32_t start = 0;
+		while (start < opaqueCount)
+		{
+			uint32_t end = start + 1;
+			// Kind as well: a run is one pipeline, and under bindless the
+			// material key is zero for every material, so without it only
+			// the mesh pointer separates a static run from a skinned one at
+			// a kind boundary -- the same shape as the transparent bit
+			// above: a field the sort separates and the merge forgot.
+			while (end < opaqueCount &&
+				   s_Data->Pending[end].Bucket == s_Data->Pending[start].Bucket &&
+				   s_Data->Pending[end].Kind == s_Data->Pending[start].Kind &&
+				   s_Data->Pending[end].MeshKey == s_Data->Pending[start].MeshKey &&
+				   s_Data->Pending[end].MaterialKey == s_Data->Pending[start].MaterialKey &&
+				   s_Data->Pending[end].IndexCount == s_Data->Pending[start].IndexCount)
+			{
+				end++;
+			}
+
+			const PendingDraw& first = s_Data->Pending[start];
+
+			// Static opaque runs go as meshlets when the pipeline exists and
+			// the mesh cut cleanly; every other kind -- skinned, layered,
+			// blended, a mesh the cut refused -- takes its classic pipeline
+			// in the same pass. The scene set is the same object on both
+			// paths: the descriptor layouts are identically defined (the
+			// coarse stage flags in VulkanPipeline are what make that true),
+			// so one fill serves both front ends.
+			if (first.Kind == DrawKind::Static && s_Data->MeshletLitPipeline &&
+				first.MeshRef && slot.Set)
+			{
+				const Mesh::MeshletBuffers& meshlets =
+					first.MeshRef->GetMeshletBuffers(*s_Data->Device);
+				if (meshlets.Count > 0)
+				{
+					while (slot.MeshletCursor >= slot.MeshletSets.size())
+						slot.MeshletSets.push_back(nullptr);
+					Ref<RHIResourceSet>& meshletSet =
+						slot.MeshletSets[slot.MeshletCursor];
+					if (!meshletSet)
+					{
+						meshletSet = s_Data->Device->CreateResourceSet(
+							s_Data->MeshletLitPipeline, 3);
+					}
+
+					if (meshletSet)
+					{
+						slot.MeshletCursor++;
+
+						meshletSet->SetStorageBuffer(0, meshlets.Meshlets);
+						meshletSet->SetStorageBuffer(1, meshlets.Vertices);
+						meshletSet->SetStorageBuffer(2, meshlets.Triangles);
+						meshletSet->SetStorageBuffer(3, first.MeshRef->GetVertexBuffer());
+						meshletSet->Commit();
+
+						// A different push-constant interface disturbs every
+						// bound set on the switch, so everything is rebound
+						// here and the classic loop rebinds its own after.
+						cmd->BindPipeline(s_Data->MeshletLitPipeline);
+						cmd->BindResourceSet(0, slot.Set);
+						if (s_Data->Bindless)
+							cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+						else if (first.MaterialRef)
+							first.MaterialRef->Bind(*cmd, s_Data->MeshletLitPipeline, 1);
+						cmd->BindResourceSet(3, meshletSet);
+						anyPipelineBound = false;
+
+						ObjectPushConstants object;
+						object.BaseInstance = (int32_t)start;
+						cmd->PushConstants(ShaderStage::Mesh, 0, sizeof(object), &object);
+
+						cmd->DrawMeshTasks(meshlets.Count, end - start, 1);
+						s_Data->DrawCalls++;
+						s_Data->Triangles += (first.IndexCount / 3) * (end - start);
+
+						start = end;
+						continue;
+					}
+				}
+			}
+
+			// Each kind needs its own pipeline. Without one the run is skipped
+			// rather than drawn by another: a skinned mesh through the static
+			// pipeline reads joint indices as texture coordinates and scatters
+			// across the world, and a layered chunk through it binds a set the
+			// layout does not describe.
+			// **Masked replaces the static pipeline only.** A skinned or a
+			// layered cutout would each need their own variant and neither
+			// exists yet, so one of those falls back to drawing solid -- the
+			// same choice the skinned transparent path documents, and for the
+			// same reason: a visible material with a hard edge missing beats
+			// a material that does not draw.
+			const bool masked = first.Bucket == DrawBucket::Masked;
+			const Ref<RHIPipeline>& pipeline =
+				first.Kind == DrawKind::Skinned ? s_Data->SkinnedPipeline
+				: first.Kind == DrawKind::Layered ? s_Data->LayeredPipeline
+				: (masked && s_Data->MaskedPipeline) ? s_Data->MaskedPipeline
+				: s_Data->Pipeline;
+			if (!pipeline)
+			{
+				start = end;
+				continue;
+			}
+
+			const Ref<RHIResourceSet>& sceneSet =
+				first.Kind == DrawKind::Skinned ? slot.SkinnedSet
+				: first.Kind == DrawKind::Layered ? slot.LayeredSet
+				: (masked && s_Data->MaskedPipeline && slot.MaskedSet) ? slot.MaskedSet
+				: slot.Set;
+			if (!sceneSet)
+			{
+				start = end;
+				continue;
+			}
+
+			if (!anyPipelineBound || boundKind != first.Kind || boundBucket != first.Bucket)
+			{
+				cmd->BindPipeline(pipeline);
+				cmd->BindResourceSet(0, sceneSet);
+				// The heap, at the set every bindless shader declares it at.
+				// Once per pipeline, not per run: nothing about it changes
+				// between draws, which is the point of it.
+				if (s_Data->Bindless)
+					cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+				boundKind = first.Kind;
+				boundBucket = first.Bucket;
+				anyPipelineBound = true;
+			}
+
+			// Any material in the run would do: the key is exactly the state
+			// this binds, so they are interchangeable by construction. On the
+			// bindless path there is nothing to bind -- the maps are heap
+			// slots in the record the instance names -- and set 1 is empty.
+			// A layered run binds its own set 1 on *both* paths: the block is
+			// the layers' scalars and, bindless, their heap slots (7aq).
+			if (first.Kind == DrawKind::Layered)
+			{
+				if (first.LayeredRef)
+					first.LayeredRef->Bind(*cmd, pipeline, 1);
+			}
+			else if (first.MaterialRef && !s_Data->Bindless)
+			{
+				first.MaterialRef->Bind(*cmd, pipeline, 1);
+			}
+
+			ObjectPushConstants object;
+			object.BaseInstance = (int32_t)start;
+			cmd->PushConstants(ShaderStage::Vertex, 0, sizeof(object), &object);
+
+			cmd->BindVertexBuffer(0, first.MeshRef->GetVertexBuffer());
+			cmd->BindIndexBuffer(first.MeshRef->GetIndexBuffer(), IndexType::UInt32);
+			cmd->DrawIndexed(first.IndexCount, end - start);
+
+			s_Data->DrawCalls++;
+			s_Data->Triangles += (first.IndexCount / 3) * (end - start);
+
+			start = end;
+		}
+
+		// **The lights' glow, last of the opaque pass** (WR-5, first half).
+		// After every opaque draw so the depth it tests against is complete,
+		// and before the transparent pass so the water composites over it
+		// where it should. The buffer is the one the lit draws just read.
+		// Draws nothing outside the scene pass proper -- a probe face or a
+		// cascade never receives a viewport -- and nothing in a scene whose
+		// lights have no size.
+		LightGlow::Draw(*cmd, slot.Lights, (uint32_t)Math::Max(s_Data->Scene.LightCount, 0));
+
+		// **Kept, not cleared, when something blended is still waiting.** The
+		// transparent pass runs later in the same frame and reads the same
+		// records, the same instance table and the same bound sets -- all of
+		// which are alive until the next BeginScene, which clears them.
+		if (s_Data->TransparentBegin >= count)
+		{
+			s_Data->Pending.clear();
+			s_Data->Instances.clear();
+			s_Data->TransparentBegin = 0;
+		}
+	}
+
 	// RT-2: the pending draws' G-buffer half -- DrawLitBody's vertex path with
 	// each kind's G-buffer pipeline and set, no meshlets, no glow. What is not
 	// here is not in the G-buffer, and no pre-lit signal sees it.
@@ -6013,7 +6130,8 @@ namespace RageV
 				}
 
 				// A set belongs to the pipeline it was made from, so the two
-				// passes keep their own pools even though the layouts agree.
+				// passes keep their own pools. **The layouts do not quite agree**:
+				// the surface pass has no lamp probe (binding 7) -- see its write.
 				std::vector<Ref<RHIResourceSet>>& pool =
 					surfaceOnly ? slot.WaterSurfaceSets : slot.WaterSets;
 				uint32_t& cursor =
@@ -6066,7 +6184,12 @@ namespace RageV
 					probeDesc.DebugName = "Renderer3D.lampProbe";
 					s_Data->LampProbe = s_Data->Device->CreateBuffer(probeDesc);
 				}
-				waterSet->SetStorageBuffer(7, s_Data->LampProbe);
+				// **Only where the layout has it.** The surface pass compiles
+				// without the probe block, and writing binding 7 into its set was
+				// out of range: the Khronos layer crashed on it, which is why the
+				// bridge could not run under --validation=on (RT-5 part 5).
+				if (waterSet->HasBinding(7))
+					waterSet->SetStorageBuffer(7, s_Data->LampProbe);
 				waterSet->Commit();
 				cmd->BindResourceSet(3, waterSet);
 
@@ -6169,12 +6292,9 @@ namespace RageV
 			// RT-6.3: last frame's eye in xyz; w is one when it is real, so the
 			// first frame of a chain does not compare against the origin.
 			Vec4 PreviousEye{ 0.0f, 0.0f, 0.0f, 0.0f };
-			// **RT-5: the anti-lag.** x how many of the pixel's own standard
-			// deviations the history may sit from what its neighbours report
-			// now, zero being off; y the floor under that noise estimate.
-			// A lane of its own rather than a bit packed into another: the
-			// packing is where a push constant stops being readable.
-			Vec4 AntiLag{ 0.0f, 0.02f, 0.0f, 0.0f };
+			// Measured change (the anti-lag): x one when binding 11 holds this
+			// signal's change map. The blur reads the same block and ignores it.
+			Vec4 Change{ 0.0f, 0.0f, 0.0f, 0.0f };
 		};
 
 		// Fifty-six floats, the same slots the shader's comment names -- the
@@ -6708,7 +6828,8 @@ namespace RageV
 									  const RHI::Ref<RHITexture>& fresh2,
 									  const RHI::Ref<RHITexture>& previous2,
 									  const RHI::Ref<RHITexture>& surfaceId,
-									  const RHI::Ref<RHITexture>& previousIdent)
+									  const RHI::Ref<RHITexture>& previousIdent,
+									  const RHI::Ref<RHITexture>& change)
 	{
 		const bool diffuse = signal.Type == SignalParams::Kind::Diffuse;
 		const Ref<RHIPipeline>& pipeline = fresh2 ? s_Data->SignalAccumulateDiffusePairPipeline
@@ -6752,6 +6873,14 @@ namespace RageV
 		inputs->SetTexture(9, surfaceId ? surfaceId : surface, s_Data->PointSampler);
 		inputs->SetTexture(10, previousIdent && hasHistory ? previousIdent
 							   : (surfaceId ? surfaceId : surface), s_Data->PointSampler);
+		// **Measured change: binding 11, the filtered map on the block grid.**
+		// Read filtered -- it is a smooth field of fractions, a third of the
+		// resolution each way -- and black wherever this signal has no check,
+		// which `Change.x` says is not data. Asked of the set, for RT-20's
+		// reason: a staged older copy of this file has no binding 11.
+		if (inputs->HasBinding(11))
+			inputs->SetTexture(11, change ? change : TextureLoader::TransparentBlack(*s_Data->Device),
+							   s_Data->WaterClampSampler ? s_Data->WaterClampSampler : s_Data->PointSampler);
 		inputs->Commit();
 
 		SignalPushConstants push;
@@ -6788,11 +6917,8 @@ namespace RageV
 			push.PreviousEye.w = 2.0f;
 		push.Tuning = { signal.SmearTexels, signal.MovingMemory, signal.SilhouetteMemory, signal.PairMemory };
 		push.Blur = { signal.YoungRadius, signal.BlurFrames, signal.YoungOverreach, signal.MaxRadius };
-		// RT-5: the anti-lag, from the engine rather than the signal -- it is a
-		// property of how noisy a pixel is, which is the same question for all
-		// of them.
-		push.AntiLag = { EngineConfig::Get().SignalAntiLag,
-						 EngineConfig::Get().SignalAntiLagFloor, 0.0f, 0.0f };
+		// Measured change: x one where the map at binding 11 is this signal's.
+		push.Change = { change ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f };
 		motion.ViewProjection = s_Data->Scene.ViewProjection;
 		// **RT-6.3: and the eye that went with it.** Each signal keeps its own
 		// motion record -- this is the signal's, not the temporal resolve's -- so
@@ -7037,6 +7163,9 @@ namespace RageV
 		// six texels, and the moving memory floor is the direct light's.
 		signal.YoungRadius = 6.0f;
 		signal.MaxRadius = 6.0f;
+		// The measurement dial (RT-5 part 5); zero skips the blur passes.
+		if (EngineConfig::Get().AoBlurRadius >= 0.0f)
+			signal.YoungRadius = EngineConfig::Get().AoBlurRadius;
 		return signal;
 	}
 
@@ -7052,6 +7181,9 @@ namespace RageV
 		// long memory and the widest young blur any signal here takes.
 		signal.YoungRadius = 12.0f;
 		signal.MaxRadius = 10.0f;
+		// The measurement dial (RT-5 part 5); zero skips the blur passes.
+		if (EngineConfig::Get().GiBlurRadius >= 0.0f)
+			signal.YoungRadius = EngineConfig::Get().GiBlurRadius;
 		// **The bound, widened, and the reason is the upsample above it.**
 		// The contract builds its bound from the fresh 3x3's spread, which
 		// assumes the neighbours are independent estimates. After a joint
@@ -7283,6 +7415,757 @@ namespace RageV
 		if (s_Data->Heap)
 			cmd.BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
 		cmd.BindResourceSet(3, slot.DirectInputs);
+		cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
+		cmd.Draw(3);
+	}
+
+	bool Renderer3D::CanMeasureDirectChange()
+	{
+		return s_Data && s_Data->DirectShader && s_Data->DirectRecordShader
+			&& s_Data->DirectRelightShader;
+	}
+
+	namespace
+	{
+		// **Everything the direct light depends on besides the random draws, as
+		// one number** (measured change): the ray structure's contents, the lamps
+		// and their cull records in upload order, and the cluster, grid and field
+		// blocks. Equal numbers mean a re-light against the record could only
+		// answer "no change" -- so it is not run. A word at a time: everything
+		// hashed here is floats and whole numbers with no padding.
+		//
+		// **Not the camera.** A re-light lights the record's own point from the
+		// record's own eye, and walks the world grid rather than the view's
+		// clusters (direct_trace's RelightCellIndex), so nothing it reads moves
+		// with the camera -- a camera moving through a scene where nothing else
+		// changes costs no re-light. It is the record that follows the camera
+		// (SameCamera, below).
+		uint64_t DirectChangeKey()
+		{
+			uint64_t key = RayShadows::GetGeometryKey();
+			const auto mix = [&key](uint32_t word)
+			{
+				key ^= (uint64_t)word + 0x9E3779B97F4A7C15ull + (key << 6) + (key >> 2);
+			};
+			const auto words = [&mix](const void* data, size_t size)
+			{
+				for (size_t i = 0; i + sizeof(uint32_t) <= size; i += sizeof(uint32_t))
+				{
+					uint32_t word = 0;
+					std::memcpy(&word, (const uint8_t*)data + i, sizeof(uint32_t));
+					mix(word);
+				}
+			};
+			mix((uint32_t)s_Data->LightScratch.size());
+			words(s_Data->LightScratch.data(), s_Data->LightScratch.size() * sizeof(GpuLight));
+			words(s_Data->LightCullScratch.data(), s_Data->LightCullScratch.size() * sizeof(GpuLightCull));
+			const auto& scene = s_Data->Scene;
+			words(&scene.ClusterGrid, sizeof(Vec4));
+			words(&scene.ClusterDepth, sizeof(Vec4));
+			words(&scene.ShadowParams, sizeof(Vec4));
+			words(&scene.WorldGridOrigin, sizeof(Vec4));
+			words(&scene.WorldGridScale, sizeof(Vec4));
+			words(&scene.IrradianceCentre, sizeof(Vec4));
+			words(&scene.IrradianceExtents, sizeof(Vec4));
+			words(&scene.IrradianceBox, sizeof(scene.IrradianceBox));
+			return key;
+		}
+
+		// **Whether the record was taken from this camera.** The map a re-light
+		// makes is read where each pixel's history came from, which is last
+		// frame's grid, so the record has to be last frame's picture: kept while
+		// nothing it depends on changed and the camera stood still, retaken every
+		// frame the camera moves.
+		bool SameCamera(const Renderer3D::GiTraceView& view, const MeasuredChangeHistory& history)
+		{
+			return std::memcmp(&view.View, &history.View, sizeof(Mat4)) == 0
+				&& view.InvProjection0 == history.InvProjection0
+				&& view.InvProjection1 == history.InvProjection1;
+		}
+	}
+
+	// **Measured change, phase 1: the record.** The trace's own file under
+	// RV_DIRECT_RECORD, on the block grid: each texel picks one pixel of its
+	// 3x3 block by a hash of the block and the frame, rebuilds that pixel's
+	// world position exactly as the trace did -- the same push block, the same
+	// reconstruction -- and keeps it beside the G-buffer's texels and the
+	// luminance the trace wrote there. Everything else a re-light needs is
+	// per frame, not per pixel, and is kept on the history here.
+	void Renderer3D::RecordDirectChange(RHICommandList& cmd,
+										const Ref<RHITexture>& depth,
+										const Ref<RHITexture>& surface,
+										const Ref<RHITexture>& albedo,
+										const Ref<RHITexture>& surfaceId,
+										const Ref<RHITexture>& velocity,
+										const Ref<RHITexture>& traced,
+										const Ref<RHITexture>& tracedSpecular,
+										const GiTraceView& view, int rays,
+										MeasuredChangeHistory& history)
+	{
+		if (!s_Data || !s_Data->DirectRecordShader || !depth || !surface || !albedo || !surfaceId
+			|| !velocity || !traced || !tracedSpecular || !s_Data->ActiveScene)
+		{
+			return;
+		}
+		// **Kept, not retaken, while nothing it depends on has changed and the
+		// camera stands still.** The record already describes this light from
+		// this camera; retaking it would describe the same light from a different
+		// sampled pixel, for the cost of the pass. A moved camera needs a record
+		// on the grid it now sees.
+		const uint64_t key = DirectChangeKey();
+		if (history.Written && key == history.RecordKey && SameCamera(view, history))
+			return;
+		if (!s_Data->DirectRecordPipeline)
+		{
+			GraphicsPipelineDesc record;
+			record.Name = "Renderer3D.direct.change.record";
+			record.Shader = s_Data->DirectRecordShader;
+			record.Topology = PrimitiveTopology::TriangleList;
+			record.Rasterizer.Cull = CullMode::None;
+			record.Blend = BlendPreset::Opaque;
+			record.DepthStencil.DepthTestEnable = false;
+			record.DepthStencil.DepthWriteEnable = false;
+			// Whole floats: a position through a half is half a metre off at a
+			// kilometre (RT-5 part 3), and the texels beside it are kept exactly
+			// so the re-light decodes the numbers the trace decoded.
+			// Eight: the point and the G-buffer's texels, then the choices.
+			record.ColorFormats.assign(8, Format::R32G32B32A32_SFLOAT);
+			record.BlendPerAttachment.assign(8, BlendPreset::Opaque);
+			record.DepthFormat = Format::Undefined;
+			s_Data->DirectRecordPipeline = s_Data->Device->CreatePipeline(record);
+			for (auto& frame : s_Data->SceneSlots)
+				for (auto& slot : frame)
+					slot.DirectRecordInputs = nullptr;
+		}
+		if (!s_Data->DirectRecordPipeline)
+			return;
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!slot.LampSet)
+			return;
+		if (!slot.DirectRecordInputs)
+			slot.DirectRecordInputs = s_Data->Device->CreateResourceSet(s_Data->DirectRecordPipeline, 3);
+		if (!slot.DirectRecordInputs)
+			return;
+		const Ref<RHIResourceSet>& inputs = slot.DirectRecordInputs;
+		inputs->SetTexture(0, depth, s_Data->PointSampler);
+		inputs->SetTexture(1, surface, s_Data->PointSampler);
+		inputs->SetTexture(2, albedo, s_Data->PointSampler);
+		inputs->SetTexture(3, surfaceId, s_Data->PointSampler);
+		inputs->SetTexture(4, traced, s_Data->PointSampler);
+		inputs->SetTexture(5, tracedSpecular, s_Data->PointSampler);
+		inputs->SetTexture(6, velocity, s_Data->PointSampler);
+		inputs->Commit();
+
+		// The trace's block, value for value: the record rebuilds the position
+		// the trace rebuilt, and any difference here would be a difference there.
+		struct DirectParams
+		{
+			float NearClip, FarClip, InvP0, InvP1;
+			float FlipY, Rays, Frame, Animated;
+			Vec4  CameraRow0, CameraRow1, CameraRow2, CameraPosition;
+		} params{};
+		params.NearClip = view.NearClip;
+		params.FarClip = view.FarClip;
+		params.InvP0 = view.InvProjection0;
+		params.InvP1 = view.InvProjection1;
+		params.FlipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+		params.Rays = (float)Math::Clamp(rays, 0, 8);
+		params.Frame = s_Data->Scene.GlobalIllumination.y;
+		const Vec4& jitter = s_Data->Scene.Jitter;
+		params.Animated = (jitter.x != 0.0f || jitter.y != 0.0f || jitter.z != 0.0f || jitter.w != 0.0f)
+						? 1.0f : 0.0f;
+		const Mat4 camera = Math::Inverse(view.View);
+		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0], 0.0f);
+		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);
+		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], 0.0f);
+		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2], 0.0f);
+
+		cmd.BindPipeline(s_Data->DirectRecordPipeline);
+		cmd.BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd.BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd.BindResourceSet(3, inputs);
+		cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
+		cmd.Draw(3);
+
+		// **What the trace walked its draws under**, taken from the same values
+		// it read: the frame counter, whether the draws were animated, the lamps
+		// per pixel, the scene block's eye, and the upload's lamp order.
+		history.LightIds.resize(s_Data->Ordered.size());
+		for (size_t i = 0; i < s_Data->Ordered.size(); ++i)
+			history.LightIds[i] = s_Data->Ordered[i].Id;
+		history.Frame = params.Frame;
+		history.Animated = params.Animated;
+		history.Rays = params.Rays;
+		history.Eye = s_Data->Scene.CameraPosition;
+		history.View = view.View;
+		history.InvProjection0 = view.InvProjection0;
+		history.InvProjection1 = view.InvProjection1;
+		history.RecordKey = key;
+		history.Written = true;
+	}
+
+	// **Measured change, phase 1: the re-light.** Last frame's record through
+	// the trace's own lighting under RV_DIRECT_RELIGHT, against this frame's
+	// lamps and acceleration structure, with every draw walked as it was walked
+	// last frame: the record's pixel, last frame's counter, eye and lamps per
+	// pixel -- and last frame's *numbering* of each lamp, which the upload does
+	// not keep: a lamp switched off leaves the list and every lamp after it
+	// moves up a place, and the draws are keyed on the place.
+	void Renderer3D::RelightDirectChange(RHICommandList& cmd,
+										 const Ref<RHITexture>& record0,
+										 const Ref<RHITexture>& record1,
+										 const Ref<RHITexture>& record2,
+										 const Ref<RHITexture>& record3,
+										 const Ref<RHITexture>& record4,
+										 const Ref<RHITexture>& record5,
+										 const Ref<RHITexture>& record6,
+										 const Ref<RHITexture>& record7,
+										 MeasuredChangeHistory& history)
+	{
+		history.RelitThisFrame = false;
+		if (!s_Data || !s_Data->DirectRelightShader || !record0 || !record1 || !record2 || !record3
+			|| !record4 || !record5 || !record6 || !record7 || !s_Data->ActiveScene || !history.Written)
+		{
+			return;
+		}
+		// **Nothing to measure when nothing it depends on has changed.** Every
+		// input a re-light reads is in the key, so the same key could only come
+		// back as no change at every block -- the pass draws nothing, the filter
+		// after it does the same, and the accumulate and the resolve read no map.
+		// This is why a still scene costs the check nothing.
+		if (!EngineConfig::Get().ChangeForce && DirectChangeKey() == history.RecordKey)
+		{
+			return;
+		}
+		history.RelitThisFrame = true;
+		if (!s_Data->DirectRelightPipeline)
+		{
+			GraphicsPipelineDesc relight;
+			relight.Name = "Renderer3D.direct.change.relight";
+			relight.Shader = s_Data->DirectRelightShader;
+			relight.Topology = PrimitiveTopology::TriangleList;
+			relight.Rasterizer.Cull = CullMode::None;
+			relight.Blend = BlendPreset::Opaque;
+			relight.DepthStencil.DepthTestEnable = false;
+			relight.DepthStencil.DepthWriteEnable = false;
+			// The change through a half, the guide in whole floats (its plane
+			// offset is metres from the origin) -- FrameGraphBuilder's target.
+			relight.ColorFormats = { Format::R16G16B16A16_SFLOAT, Format::R32G32B32A32_SFLOAT };
+			relight.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque };
+			relight.DepthFormat = Format::Undefined;
+			s_Data->DirectRelightPipeline = s_Data->Device->CreatePipeline(relight);
+			for (auto& frame : s_Data->SceneSlots)
+				for (auto& slot : frame)
+					slot.DirectRelightInputs = nullptr;
+		}
+		if (!s_Data->DirectRelightPipeline)
+			return;
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!slot.LampSet)
+			return;
+
+		// **Each lamp's place in last frame's upload.** Found by the scene's
+		// entity; a lamp that was not there last frame is given a place no lamp
+		// had, so its draws are fresh ones -- it is new light, and the check
+		// should see it. A lamp with no entity keeps its own index, which is
+		// all a caller without a scene can say about it.
+		// **And the other way: where each of last frame's lamps is now**, after
+		// this frame's, so the choices the trace kept -- last frame's places --
+		// find the lamp to shade. All ones for a lamp that is gone.
+		std::unordered_map<uint32_t, uint32_t> before;
+		before.reserve(history.LightIds.size());
+		for (uint32_t i = 0; i < (uint32_t)history.LightIds.size(); ++i)
+			if (history.LightIds[i] != 0u)
+				before.emplace(history.LightIds[i], i);
+		const uint32_t lightCount = (uint32_t)s_Data->Ordered.size();
+		const uint32_t beforeCount = (uint32_t)history.LightIds.size();
+		std::unordered_map<uint32_t, uint32_t> after;
+		after.reserve(lightCount);
+		std::vector<uint32_t> rolls(Math::Max(lightCount + beforeCount, 1u), 0u);
+		for (uint32_t i = 0; i < lightCount; ++i)
+		{
+			const uint32_t id = s_Data->Ordered[i].Id;
+			if (id == 0u)
+			{
+				rolls[i] = i;
+				continue;
+			}
+			after.emplace(id, i);
+			const auto found = before.find(id);
+			rolls[i] = found != before.end() ? found->second : (0x40000000u | i);
+		}
+		for (uint32_t j = 0; j < beforeCount; ++j)
+		{
+			const uint32_t id = history.LightIds[j];
+			if (id == 0u)
+			{
+				rolls[lightCount + j] = j < lightCount ? j : 0xFFFFFFFFu;
+				continue;
+			}
+			const auto found = after.find(id);
+			rolls[lightCount + j] = found != after.end() ? found->second : 0xFFFFFFFFu;
+		}
+		if (!EnsureInstanceBuffer(slot.ChangeRolls, slot.ChangeRollsCapacity,
+								  (uint32_t)rolls.size(), sizeof(uint32_t),
+								  "Renderer3D.changeRolls"))
+		{
+			return;
+		}
+		slot.ChangeRolls->Upload(rolls.data(), rolls.size() * sizeof(uint32_t));
+
+		if (!slot.DirectRelightInputs)
+			slot.DirectRelightInputs = s_Data->Device->CreateResourceSet(s_Data->DirectRelightPipeline, 3);
+		if (!slot.DirectRelightInputs)
+			return;
+		const Ref<RHIResourceSet>& inputs = slot.DirectRelightInputs;
+		inputs->SetTexture(0, record0, s_Data->PointSampler);
+		inputs->SetTexture(1, record1, s_Data->PointSampler);
+		inputs->SetTexture(2, record2, s_Data->PointSampler);
+		inputs->SetTexture(3, record3, s_Data->PointSampler);
+		inputs->SetStorageBuffer(4, slot.ChangeRolls);
+		inputs->SetTexture(5, record4, s_Data->PointSampler);
+		inputs->SetTexture(6, record5, s_Data->PointSampler);
+		inputs->SetTexture(7, record6, s_Data->PointSampler);
+		inputs->SetTexture(8, record7, s_Data->PointSampler);
+		inputs->Commit();
+
+		// Last frame's walk. The clip planes, the inverse projection and the
+		// camera rows are not read -- the point is the record's, not rebuilt --
+		// so only what the draws and the view vector take is filled, and the
+		// near plane's lane carries where the map's second half starts.
+		struct DirectParams
+		{
+			float NearClip, FarClip, InvP0, InvP1;
+			float FlipY, Rays, Frame, Animated;
+			Vec4  CameraRow0, CameraRow1, CameraRow2, CameraPosition;
+		} params{};
+		params.NearClip = (float)lightCount;
+		params.FlipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+		params.Rays = history.Rays;
+		params.Frame = history.Frame;
+		params.Animated = history.Animated;
+		params.CameraPosition = Vec4(history.Eye.x, history.Eye.y, history.Eye.z, 0.0f);
+
+		cmd.BindPipeline(s_Data->DirectRelightPipeline);
+		cmd.BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd.BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd.BindResourceSet(3, inputs);
+		cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
+		cmd.Draw(3);
+	}
+
+	bool Renderer3D::CanMeasureReflectionChange()
+	{
+		return s_Data && s_Data->ReflectionTraceShader && s_Data->ReflectionRecordShader
+			&& s_Data->ReflectionRelightShader;
+	}
+
+	namespace
+	{
+		// **The direct light's key, and what a reflection's hit adds to it**:
+		// every ray instance's material -- its colour, its glow, its surface and
+		// cutout -- because a hit is shaded from the instance it lands on, and a
+		// lens that stops glowing changes a reflection without any lamp moving.
+		uint64_t ReflectionChangeKey()
+		{
+			uint64_t key = DirectChangeKey();
+			const auto mix = [&key](uint32_t word)
+			{
+				key ^= (uint64_t)word + 0x9E3779B97F4A7C15ull + (key << 6) + (key >> 2);
+			};
+			mix((uint32_t)s_Data->RayInstanceScratch.size());
+			for (const GpuRayInstance& row : s_Data->RayInstanceScratch)
+			{
+				mix(row.MaterialIndex);
+				mix(row.Flags);
+				uint32_t word = 0;
+				std::memcpy(&word, &row.AlphaCutoff, sizeof(float));
+				mix(word);
+				const Vec4* lanes[3] = { &row.BaseColor, &row.EmissiveColor, &row.Surface };
+				for (const Vec4* lane : lanes)
+				{
+					for (int i = 0; i < 4; ++i)
+					{
+						std::memcpy(&word, (const uint8_t*)lane + i * sizeof(float), sizeof(float));
+						mix(word);
+					}
+				}
+			}
+			return key;
+		}
+	}
+
+	// **Measured change, phase 2: the reflections' record.** reflection_trace
+	// under RV_REFLECTION_RECORD on the block grid, with the trace's own push
+	// block, so the point it keeps is the point the trace rebuilt.
+	void Renderer3D::RecordReflectionChange(const RHI::Ref<RHITexture>& surface,
+											const RHI::Ref<RHITexture>& depth,
+											const RHI::Ref<RHITexture>& albedo,
+											const RHI::Ref<RHITexture>& traced,
+											const RHI::Ref<RHITexture>& velocity,
+											const GiTraceView& view,
+											MeasuredChangeHistory& history)
+	{
+		if (!s_Data || !s_Data->ReflectionRecordShader || !s_Data->ActiveScene)
+			return;
+		RHICommandList* cmd = Renderer::GetCommandList();
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!cmd || !slot.LampSet || !surface || !depth || !albedo || !traced || !velocity)
+			return;
+		const uint64_t key = ReflectionChangeKey();
+		if (history.Written && key == history.RecordKey && SameCamera(view, history))
+			return;
+		if (!s_Data->ReflectionRecordPipeline)
+		{
+			GraphicsPipelineDesc record;
+			record.Name = "Renderer3D.reflection.change.record";
+			record.Shader = s_Data->ReflectionRecordShader;
+			record.Topology = PrimitiveTopology::TriangleList;
+			record.Rasterizer.Cull = CullMode::None;
+			record.Blend = BlendPreset::Opaque;
+			record.DepthStencil.DepthTestEnable = false;
+			record.DepthStencil.DepthWriteEnable = false;
+			record.ColorFormats.assign(4, Format::R32G32B32A32_SFLOAT);
+			record.BlendPerAttachment.assign(4, BlendPreset::Opaque);
+			record.DepthFormat = Format::Undefined;
+			s_Data->ReflectionRecordPipeline = s_Data->Device->CreatePipeline(record);
+			for (auto& frame : s_Data->SceneSlots)
+				for (auto& each : frame)
+					each.ReflectionRecordInputs = nullptr;
+		}
+		if (!s_Data->ReflectionRecordPipeline)
+			return;
+		if (!slot.ReflectionRecordInputs)
+			slot.ReflectionRecordInputs = s_Data->Device->CreateResourceSet(s_Data->ReflectionRecordPipeline, 3);
+		if (!slot.ReflectionRecordInputs)
+			return;
+		const Ref<RHIResourceSet>& inputs = slot.ReflectionRecordInputs;
+		inputs->SetTexture(0, surface, s_Data->PointSampler);
+		inputs->SetTexture(1, depth, s_Data->PointSampler);
+		inputs->SetTexture(2, surface, s_Data->PointSampler);
+		inputs->SetTexture(3, albedo, s_Data->PointSampler);
+		inputs->SetTexture(4, traced, s_Data->PointSampler);
+		inputs->SetTexture(5, velocity, s_Data->PointSampler);
+		inputs->Commit();
+
+		// The trace's block, value for value.
+		LampPushConstants push;
+		push.PreviousViewProjection = Math::Inverse(s_Data->Scene.ViewProjection);
+		FillLampFlip(push, *s_Data);
+		const Vec2 gloss = Renderer::GetReflectionGloss();
+		push.Trace = Vec4(0.0f, gloss.x, gloss.y, 0.0f);
+
+		cmd->BindPipeline(s_Data->ReflectionRecordPipeline);
+		cmd->BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd->BindResourceSet(3, inputs);
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
+		cmd->Draw(3);
+
+		history.Frame = s_Data->Scene.GlobalIllumination.y;
+		history.Eye = s_Data->Scene.CameraPosition;
+		history.View = view.View;
+		history.InvProjection0 = view.InvProjection0;
+		history.InvProjection1 = view.InvProjection1;
+		history.RecordKey = key;
+		history.Written = true;
+	}
+
+	// **Measured change, phase 2: the reflections' re-light.** The record's rays,
+	// drawn again from the recorded pixel, frame and eye, traced into this
+	// frame's scene and shaded by its lamps and materials -- nothing, and no map,
+	// while nothing a reflection depends on has changed.
+	void Renderer3D::RelightReflectionChange(const RHI::Ref<RHITexture>& record0,
+											 const RHI::Ref<RHITexture>& record1,
+											 const RHI::Ref<RHITexture>& record2,
+											 const RHI::Ref<RHITexture>& record3,
+											 MeasuredChangeHistory& history)
+	{
+		history.RelitThisFrame = false;
+		if (!s_Data || !s_Data->ReflectionRelightShader || !s_Data->ActiveScene || !history.Written)
+			return;
+		RHICommandList* cmd = Renderer::GetCommandList();
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!cmd || !slot.LampSet || !record0 || !record1 || !record2 || !record3)
+			return;
+		if (!EngineConfig::Get().ChangeForce && ReflectionChangeKey() == history.RecordKey)
+		{
+			return;
+		}
+		if (!s_Data->ReflectionRelightPipeline)
+		{
+			GraphicsPipelineDesc relight;
+			relight.Name = "Renderer3D.reflection.change.relight";
+			relight.Shader = s_Data->ReflectionRelightShader;
+			relight.Topology = PrimitiveTopology::TriangleList;
+			relight.Rasterizer.Cull = CullMode::None;
+			relight.Blend = BlendPreset::Opaque;
+			relight.DepthStencil.DepthTestEnable = false;
+			relight.DepthStencil.DepthWriteEnable = false;
+			relight.ColorFormats = { Format::R16G16B16A16_SFLOAT, Format::R32G32B32A32_SFLOAT };
+			relight.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque };
+			relight.DepthFormat = Format::Undefined;
+			s_Data->ReflectionRelightPipeline = s_Data->Device->CreatePipeline(relight);
+			for (auto& frame : s_Data->SceneSlots)
+				for (auto& each : frame)
+					each.ReflectionRelightInputs = nullptr;
+		}
+		if (!s_Data->ReflectionRelightPipeline)
+			return;
+		if (!slot.ReflectionRelightInputs)
+			slot.ReflectionRelightInputs = s_Data->Device->CreateResourceSet(s_Data->ReflectionRelightPipeline, 3);
+		if (!slot.ReflectionRelightInputs)
+			return;
+		history.RelitThisFrame = true;
+		const Ref<RHIResourceSet>& inputs = slot.ReflectionRelightInputs;
+		inputs->SetTexture(0, record0, s_Data->PointSampler);
+		inputs->SetTexture(1, record1, s_Data->PointSampler);
+		inputs->SetTexture(2, record2, s_Data->PointSampler);
+		inputs->SetTexture(3, record3, s_Data->PointSampler);
+		inputs->Commit();
+
+		// The recorded eye in Probe's xyz and frame in its w; the gloss window and
+		// the probe as the trace had them.
+		LampPushConstants push;
+		FillLampFlip(push, *s_Data);
+		push.Probe = Vec4(history.Eye.x, history.Eye.y, history.Eye.z, history.Frame);
+		const Vec2 gloss = Renderer::GetReflectionGloss();
+		push.Trace = Vec4(0.0f, gloss.x, gloss.y, 0.0f);
+
+		cmd->BindPipeline(s_Data->ReflectionRelightPipeline);
+		cmd->BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd->BindResourceSet(3, inputs);
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
+		cmd->Draw(3);
+	}
+
+	bool Renderer3D::CanMeasureGiChange()
+	{
+		return s_Data && s_Data->GiShader && s_Data->GiRecordShader && s_Data->GiRelightShader;
+	}
+
+	namespace
+	{
+		// **The reflections' key, and what a bounce adds to it**: the emissive
+		// rectangles it aims at (and their aiming tables), the probes that light a
+		// hit, and the bounce count and reach from the scene block.
+		uint64_t GiChangeKey()
+		{
+			uint64_t key = ReflectionChangeKey();
+			const auto mix = [&key](uint32_t word)
+			{
+				key ^= (uint64_t)word + 0x9E3779B97F4A7C15ull + (key << 6) + (key >> 2);
+			};
+			const auto words = [&mix](const void* data, size_t size)
+			{
+				for (size_t i = 0; i + sizeof(uint32_t) <= size; i += sizeof(uint32_t))
+				{
+					uint32_t word = 0;
+					std::memcpy(&word, (const uint8_t*)data + i, sizeof(uint32_t));
+					mix(word);
+				}
+			};
+			mix((uint32_t)s_Data->Emitters.size());
+			words(s_Data->Emitters.data(), s_Data->Emitters.size() * sizeof(Renderer3DData::GpuEmitter));
+			words(s_Data->EmitterCdf.data(), s_Data->EmitterCdf.size() * sizeof(float));
+			mix((uint32_t)s_Data->Probes.size());
+			words(s_Data->Probes.data(), s_Data->Probes.size() * sizeof(Renderer3DData::GpuProbe));
+			words(&s_Data->Scene.GlobalIllumination.z, sizeof(float));
+			words(&s_Data->Scene.GlobalIllumination.w, sizeof(float));
+			return key;
+		}
+	}
+
+	// **Measured change, phase 3: the bounce's record.** rtgi_trace under
+	// RV_GI_RECORD on the block grid of the trace's own grid, with the trace's
+	// push block, so the point it keeps is the point the trace rebuilt. Binds
+	// the emitter, table and probe buffers the trace uploaded this frame.
+	void Renderer3D::RecordGiChange(RHICommandList& cmd,
+									const Ref<RHITexture>& depth,
+									const Ref<RHITexture>& surface,
+									const Ref<RHITexture>& budget,
+									const Ref<RHITexture>& traced,
+									const Ref<RHITexture>& velocity,
+									const GiTraceView& view, int rays, int checkRays,
+									MeasuredChangeHistory& history)
+	{
+		if (!s_Data || !s_Data->GiRecordShader || !s_Data->ActiveScene || !depth || !surface
+			|| !traced || !velocity)
+		{
+			return;
+		}
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!slot.GiSet || !slot.GiEmitters || !slot.GiEmitterCdf || !slot.GiProbes)
+			return;
+		const uint64_t key = GiChangeKey();
+		if (history.Written && key == history.RecordKey && SameCamera(view, history))
+			return;
+		if (!s_Data->GiRecordPipeline)
+		{
+			GraphicsPipelineDesc record;
+			record.Name = "Renderer3D.gi.change.record";
+			record.Shader = s_Data->GiRecordShader;
+			record.Topology = PrimitiveTopology::TriangleList;
+			record.Rasterizer.Cull = CullMode::None;
+			record.Blend = BlendPreset::Opaque;
+			record.DepthStencil.DepthTestEnable = false;
+			record.DepthStencil.DepthWriteEnable = false;
+			record.ColorFormats.assign(3, Format::R32G32B32A32_SFLOAT);
+			record.BlendPerAttachment.assign(3, BlendPreset::Opaque);
+			record.DepthFormat = Format::Undefined;
+			s_Data->GiRecordPipeline = s_Data->Device->CreatePipeline(record);
+			for (auto& frame : s_Data->SceneSlots)
+				for (auto& each : frame)
+					each.GiRecordInputs = nullptr;
+		}
+		if (!s_Data->GiRecordPipeline)
+			return;
+		if (!slot.GiRecordInputs)
+			slot.GiRecordInputs = s_Data->Device->CreateResourceSet(s_Data->GiRecordPipeline, 3);
+		if (!slot.GiRecordInputs)
+			return;
+		const Ref<RHIResourceSet>& inputs = slot.GiRecordInputs;
+		inputs->SetTexture(0, depth, s_Data->PointSampler);
+		inputs->SetTexture(1, surface, s_Data->PointSampler);
+		inputs->SetTexture(5, budget ? budget : depth, s_Data->PointSampler);
+		inputs->SetTexture(6, traced, s_Data->PointSampler);
+		inputs->SetTexture(7, velocity, s_Data->PointSampler);
+		const uint32_t emitterRows = Math::Max((uint32_t)s_Data->Emitters.size(), 1u);
+		const uint32_t cdfCount = Math::Max((uint32_t)s_Data->EmitterCdf.size(), 1u);
+		const uint32_t probeRows = Math::Max((uint32_t)s_Data->Probes.size(), 1u);
+		inputs->SetStorageBuffer(2, slot.GiEmitters, 0, (uint64_t)emitterRows * sizeof(Renderer3DData::GpuEmitter));
+		inputs->SetStorageBuffer(3, slot.GiEmitterCdf, 0, (uint64_t)cdfCount * sizeof(float));
+		inputs->SetStorageBuffer(4, slot.GiProbes, 0, (uint64_t)probeRows * sizeof(Renderer3DData::GpuProbe));
+		inputs->Commit();
+
+		// The trace's block, value for value.
+		struct GiParams
+		{
+			float NearClip, FarClip, InvP0, InvP1;
+			float FlipY, Rays, Emitters, Probes;
+			Vec4  CameraRow0, CameraRow1, CameraRow2, CameraPosition;
+		} params{};
+		params.NearClip = view.NearClip;
+		params.FarClip = view.FarClip;
+		params.InvP0 = view.InvProjection0;
+		params.InvP1 = view.InvProjection1;
+		params.FlipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+		// **The rays each point casts**: the trace's count -- and the tile
+		// allocator's share of it where a budget is bound -- or one, where the RT
+		// optimisation level asks for the cheaper check. Kept in the record either
+		// way, so the re-light casts what the record cast and the replay is exact.
+		params.Rays = checkRays > 0
+					? (float)Math::Clamp(checkRays, 1, 32)
+					: (float)Math::Clamp(rays, 1, 32) * (budget ? -1.0f : 1.0f);
+		params.Emitters = (float)s_Data->Emitters.size();
+		params.Probes = (float)s_Data->Probes.size();
+		const Mat4 camera = Math::Inverse(view.View);
+		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0], 0.0f);
+		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);
+		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], 0.0f);
+		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2], 0.0f);
+
+		cmd.BindPipeline(s_Data->GiRecordPipeline);
+		cmd.BindResourceSet(0, slot.GiSet);
+		if (s_Data->Heap)
+			cmd.BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd.BindResourceSet(3, inputs);
+		cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
+		cmd.Draw(3);
+
+		history.Frame = s_Data->Scene.GlobalIllumination.y;
+		history.Eye = s_Data->Scene.CameraPosition;
+		history.View = view.View;
+		history.InvProjection0 = view.InvProjection0;
+		history.InvProjection1 = view.InvProjection1;
+		history.RecordKey = key;
+		history.Written = true;
+	}
+
+	// **Measured change, phase 3: the bounce's re-light.** The record's rays cast
+	// again from the recorded texel and frame into this frame's scene -- nothing,
+	// and no map, while nothing a bounce depends on has changed.
+	void Renderer3D::RelightGiChange(RHICommandList& cmd,
+									 const Ref<RHITexture>& record0,
+									 const Ref<RHITexture>& record1,
+									 const Ref<RHITexture>& record2,
+									 MeasuredChangeHistory& history)
+	{
+		history.RelitThisFrame = false;
+		if (!s_Data || !s_Data->GiRelightShader || !s_Data->ActiveScene || !history.Written
+			|| !record0 || !record1 || !record2)
+		{
+			return;
+		}
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!slot.GiSet || !slot.GiEmitters || !slot.GiEmitterCdf || !slot.GiProbes)
+			return;
+		if (!EngineConfig::Get().ChangeForce && GiChangeKey() == history.RecordKey)
+		{
+			return;
+		}
+		if (!s_Data->GiRelightPipeline)
+		{
+			GraphicsPipelineDesc relight;
+			relight.Name = "Renderer3D.gi.change.relight";
+			relight.Shader = s_Data->GiRelightShader;
+			relight.Topology = PrimitiveTopology::TriangleList;
+			relight.Rasterizer.Cull = CullMode::None;
+			relight.Blend = BlendPreset::Opaque;
+			relight.DepthStencil.DepthTestEnable = false;
+			relight.DepthStencil.DepthWriteEnable = false;
+			relight.ColorFormats = { Format::R16G16B16A16_SFLOAT, Format::R32G32B32A32_SFLOAT };
+			relight.BlendPerAttachment = { BlendPreset::Opaque, BlendPreset::Opaque };
+			relight.DepthFormat = Format::Undefined;
+			s_Data->GiRelightPipeline = s_Data->Device->CreatePipeline(relight);
+			for (auto& frame : s_Data->SceneSlots)
+				for (auto& each : frame)
+					each.GiRelightInputs = nullptr;
+		}
+		if (!s_Data->GiRelightPipeline)
+			return;
+		if (!slot.GiRelightInputs)
+			slot.GiRelightInputs = s_Data->Device->CreateResourceSet(s_Data->GiRelightPipeline, 3);
+		if (!slot.GiRelightInputs)
+			return;
+		history.RelitThisFrame = true;
+		const Ref<RHIResourceSet>& inputs = slot.GiRelightInputs;
+		inputs->SetTexture(0, record0, s_Data->PointSampler);
+		inputs->SetTexture(1, record1, s_Data->PointSampler);
+		inputs->SetTexture(5, record2, s_Data->PointSampler);
+		const uint32_t emitterRows = Math::Max((uint32_t)s_Data->Emitters.size(), 1u);
+		const uint32_t cdfCount = Math::Max((uint32_t)s_Data->EmitterCdf.size(), 1u);
+		const uint32_t probeRows = Math::Max((uint32_t)s_Data->Probes.size(), 1u);
+		inputs->SetStorageBuffer(2, slot.GiEmitters, 0, (uint64_t)emitterRows * sizeof(Renderer3DData::GpuEmitter));
+		inputs->SetStorageBuffer(3, slot.GiEmitterCdf, 0, (uint64_t)cdfCount * sizeof(float));
+		inputs->SetStorageBuffer(4, slot.GiProbes, 0, (uint64_t)probeRows * sizeof(Renderer3DData::GpuProbe));
+		inputs->Commit();
+
+		// The recorded frame in CameraRow0.w and eye in CameraPosition; the
+		// emitters and probes as they are now.
+		struct GiParams
+		{
+			float NearClip, FarClip, InvP0, InvP1;
+			float FlipY, Rays, Emitters, Probes;
+			Vec4  CameraRow0, CameraRow1, CameraRow2, CameraPosition;
+		} params{};
+		params.FlipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+		params.Rays = 1.0f;
+		params.Emitters = (float)s_Data->Emitters.size();
+		params.Probes = (float)s_Data->Probes.size();
+		params.CameraRow0 = Vec4(0.0f, 0.0f, 0.0f, history.Frame);
+		params.CameraPosition = Vec4(history.Eye.x, history.Eye.y, history.Eye.z, 0.0f);
+
+		cmd.BindPipeline(s_Data->GiRelightPipeline);
+		cmd.BindResourceSet(0, slot.GiSet);
+		if (s_Data->Heap)
+			cmd.BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd.BindResourceSet(3, inputs);
 		cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
 		cmd.Draw(3);
 	}

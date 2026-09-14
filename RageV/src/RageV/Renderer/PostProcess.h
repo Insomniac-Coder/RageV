@@ -157,7 +157,25 @@ namespace RageV
 									 // wrong one to ask whether a surface moved, since a flat mirror
 									 // sliding along itself has an image that stands still. Null means
 									 // `velocity` already is the scene's own.
-									 const RHI::Ref<RHI::RHITexture>& surfaceVelocity = nullptr);
+									 const RHI::Ref<RHI::RHITexture>& surfaceVelocity = nullptr,
+									 // **Measured change (phase 1): the direct light's filtered
+									 // change map**, on the 3x3 block grid of this pass's own
+									 // size. Where it reads a share of the light changed, the
+									 // history's weight and moments give way by that share. Null
+									 // is the resolve exactly as it was.
+									 const RHI::Ref<RHI::RHITexture>& change = nullptr);
+
+		// **Measured change (docs/RT-MEASURED-CHANGE.md, phase 1): one a-trous
+		// pass over the block grid.** `change` holds the re-light's differences
+		// and their references (or the previous pass's), `guide` the record's
+		// normal and distance to stop at edges with; `step` is the stride in
+		// blocks. The `last` pass also turns the two into the fractions the
+		// accumulate and the resolve read, zero under `floor`.
+		static void FilterChange(RHI::RHICommandList& cmd,
+								 const RHI::Ref<RHI::RHITexture>& change,
+								 const RHI::Ref<RHI::RHITexture>& guide,
+								 int step, bool last, float floor,
+								 RHI::Format outputFormat);
 
 		// Depth of field, in the three passes it takes. On the linear HDR
 		// scene, after the anti-aliasing resolve and before bloom -- see
@@ -626,6 +644,8 @@ namespace RageV
 			// kept, so next frame's temporal resolve can ask whether the history
 			// it reprojected to is the same surface.
 			TaaGuide,
+			// Measured change (phase 1): the change map's a-trous filter.
+			ChangeFilter,
 			Count
 		};
 
@@ -699,6 +719,10 @@ namespace RageV
 							 // Written only where the shader's own layout declares it --
 							 // see Dispatch.
 							 const RHI::Ref<RHI::RHITexture>& ninth = nullptr,
-							 Sampling ninthSampling = Sampling::Point);
+							 Sampling ninthSampling = Sampling::Point,
+							 // Measured change: binding 11, the resolve's change map.
+							 // Asked of the layout like binding 10.
+							 const RHI::Ref<RHI::RHITexture>& tenth = nullptr,
+							 Sampling tenthSampling = Sampling::Linear);
 	};
 }

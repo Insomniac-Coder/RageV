@@ -19,6 +19,29 @@ namespace RageV
 
 	namespace
 	{
+		// **Measured change: whether the record holds last frame's picture**, with
+		// this frame's camera kept for the next. The re-light compares the
+		// record's points with this frame's scene and the accumulate and the
+		// resolve read the answer where each pixel's history came from -- last
+		// frame's grid -- so a re-light is only run on a record taken under last
+		// frame's camera. The record is retaken every frame the camera moves
+		// (Renderer3D's Record*Change), so that is every frame the passes ran the
+		// frame before, moving or not.
+		bool RecordIsLastFrame(MeasuredChangeHistory& change, const Mat4& view,
+							   float invProjection0, float invProjection1)
+		{
+			const bool last = change.Written && change.HaveLast
+						   && std::memcmp(&change.View, &change.LastView, sizeof(Mat4)) == 0
+						   && change.InvProjection0 == change.LastInvProjection0
+						   && change.InvProjection1 == change.LastInvProjection1;
+			change.LastView = view;
+			change.LastInvProjection0 = invProjection0;
+			change.LastInvProjection1 = invProjection1;
+			change.HaveLast = true;
+			change.RelitThisFrame = false;
+			return last;
+		}
+
 		// How far down the bloom chain goes. Five levels at half-resolution
 		// steps reaches 1/32 of the frame, which is a wide enough blur to read
 		// as a glow rather than a halo, and stops well before the levels get
@@ -1202,7 +1225,10 @@ namespace RageV
 		auto addSignal = [&](const SignalPassNames& names, Renderer3D::SignalParams params,
 							 RGResource fresh, RGResource current, RGResource previous, bool hasHistory,
 							 CameraMotion* motion, RGTargetDesc blurDesc, bool pair,
-							 SignalGuidance guide = {}) -> SignalResult
+							 SignalGuidance guide = {},
+							 // Measured change: this signal's change map, or none, and
+							 // whether it was drawn this frame.
+							 RGResource change = kRGInvalid, const bool* changeLive = nullptr) -> SignalResult
 		{
 			// **The texel-denominated tuning follows the grid.** Every one of these
 			// four is counted in texels of the signal's own target, and a texel at
@@ -1244,10 +1270,12 @@ namespace RageV
 						builder.Sample(guideDepth);
 					if (hasHistory)
 						builder.Sample(previous);
+					if (change != kRGInvalid)
+						builder.Sample(change);
 					builder.DisableDepth();
 				},
 				[params, fresh, sceneHDR, current, previous, hasHistory, motion, pair,
-				 surfaceIdIndex,
+				 surfaceIdIndex, change, changeLive,
 				 specular = params.Type != Renderer3D::SignalParams::Kind::Diffuse,
 				 guideDepth, guideSurface, guideVelocity, guideDepthLane, guideNormalLane,
 				 guideVelocityLane, ownGuide]
@@ -1273,7 +1301,9 @@ namespace RageV
 						// attachment for it; the diffuse kinds pass null and the binding
 						// falls back to the surface, which is what it did before.
 						specular ? context.Color(sceneHDR, surfaceIdIndex) : nullptr,
-						specular && hasHistory ? context.Color(previous, 4) : nullptr);
+						specular && hasHistory ? context.Color(previous, 4) : nullptr,
+						change != kRGInvalid && (!changeLive || *changeLive)
+							? context.Color(change) : nullptr);
 				});
 			// **RT-5 part 5: no blur passes where the signal asks for no blur.**
 			// The blur returns its input untouched wherever the young radius
@@ -1530,6 +1560,63 @@ namespace RageV
 		RGResource directLit = kRGInvalid;      // what the lit pass adds: the blurred pair
 		uint32_t directTwinLane = 1;            // and the lane its specular half is on
 		RGResource currentDirect = kRGInvalid;  // the accumulated pair, for the debug views
+		// Measured change: the filtered map the accumulate and the resolve read,
+		// or none -- the check off, the camera moving, no record yet.
+		RGResource directChange = kRGInvalid;
+		// And whether it was drawn this frame, which only the re-light knows as it
+		// runs: read by the passes after it, which are recorded later.
+		const bool* directChangeLive = nullptr;
+		// The traced reflections' (phase 2), the same way.
+		RGResource reflectionChange = kRGInvalid;
+		const bool* reflectionChangeLive = nullptr;
+		// And the traced bounce's (phase 3).
+		RGResource giChange = kRGInvalid;
+		const bool* giChangeLive = nullptr;
+		// **The change map's filter, for either signal**: the a-trous passes at
+		// strides 1, 2, 4..., the last writing the shares; with none asked for,
+		// one pass over each block alone does that. Each draws nothing on a frame
+		// its re-light did not run. `names` holds the five passes' names, the last
+		// being the map's.
+		auto addChangeFilter = [&](RGResource relit, const RGTargetDesc& relitDesc,
+								   MeasuredChangeHistory* history,
+								   const char* const* names) -> RGResource
+		{
+			const int iterations = Math::Clamp(config.ChangeIterations, 0, 5);
+			const int passes = Math::Max(iterations, 1);
+			RGResource input = relit;
+			for (int pass = 0; pass < passes; ++pass)
+			{
+				const bool last = pass == passes - 1;
+				const int step = iterations > 0 ? (1 << pass) : 0;
+				RGTargetDesc filterDesc = relitDesc;
+				filterDesc.ExtraColors.clear();
+				filterDesc.Color = Format::R16G16B16A16_SFLOAT;
+				filterDesc.Name = last ? "ChangeMap" : "ChangeFiltered";
+				const RGResource output = graph.CreateTarget(filterDesc);
+				const RGResource from = input;
+				graph.AddPass(last ? names[5] : names[pass],
+					[&](RGPassBuilder& builder)
+					{
+						builder.Write(output);
+						builder.Sample(from);
+						if (from != relit)
+							builder.Sample(relit);
+						builder.DisableDepth();
+					},
+					[from, relit, step, last, history, floor = config.ChangeFloor](RGPassContext& context)
+					{
+						// Nothing re-lit, nothing to filter: the cleared target is a
+						// map of no change, and nothing reads it anyway.
+						if (!history->RelitThisFrame)
+							return;
+						PostProcess::FilterChange(context.Cmd, context.Color(from),
+												  context.Color(relit, 1), step, last,
+												  floor, Format::R16G16B16A16_SFLOAT);
+					});
+				input = output;
+			}
+			return input;
+		};
 		if (directSignal)
 		{
 			RGTargetDesc directDesc;
@@ -1563,6 +1650,94 @@ namespace RageV
 												 Format::R16G16B16A16_SFLOAT,
 												 directView, directRays);
 				});
+			// **Measured change, phase 1 (docs/RT-MEASURED-CHANGE.md).** The record's
+			// choices shaded again against this frame's lamps, the differences
+			// filtered over the block grid into the share of the light that changed,
+			// and the record retaken for what comes next. The re-light runs before the
+			// record pass, which overwrites what the re-light reads. The re-light
+			// draws only when something the direct light depends on has changed
+			// (Renderer3D's DirectChangeKey), and the record only then or when the
+			// camera moved -- a still scene pays for passes that draw nothing, and a
+			// moving camera for the record alone.
+			if (config.MeasuredChange && desc.DirectChange && Renderer3D::CanMeasureDirectChange()
+				&& PostProcess::IsReady())
+			{
+				MeasuredChangeHistory& change = *desc.DirectChange;
+				const uint32_t blockWidth = Math::Max(desc.Width * (uint32_t)supersample / 3u, 1u);
+				const uint32_t blockHeight = Math::Max(desc.Height * (uint32_t)supersample / 3u, 1u);
+				change.Prepare(Renderer::GetDevice(), blockWidth, blockHeight);
+				const bool recordIsLast = RecordIsLastFrame(change, desc.View, desc.InvProjection0,
+															 desc.InvProjection1);
+				if (change.Record)
+				{
+					const RGResource record = graph.Import(change.Record, "DirectChangeRecord");
+					MeasuredChangeHistory* history = &change;
+					if (recordIsLast)
+					{
+						RGTargetDesc relightDesc;
+						relightDesc.Name = "DirectChangeRelit";
+						// The change and its references through a half: they are read
+						// as shares a few percent wide. The guide keeps whole floats --
+						// its plane offset is metres from the origin.
+						relightDesc.Color = Format::R16G16B16A16_SFLOAT;
+						relightDesc.ExtraColors = { Format::R32G32B32A32_SFLOAT };
+						relightDesc.Depth = Format::Undefined;
+						relightDesc.Width = blockWidth;
+						relightDesc.Height = blockHeight;
+						const RGResource relit = graph.CreateTarget(relightDesc);
+						graph.AddPass("DirectRelight",
+							[&](RGPassBuilder& builder)
+							{
+								builder.Write(relit);
+								builder.Sample(record);
+								builder.DisableDepth();
+							},
+							[record, history](RGPassContext& context)
+							{
+								Renderer3D::RelightDirectChange(context.Cmd,
+																context.Color(record, 0), context.Color(record, 1),
+																context.Color(record, 2), context.Color(record, 3),
+																context.Color(record, 4), context.Color(record, 5),
+																context.Color(record, 6), context.Color(record, 7),
+																*history);
+							});
+						static const char* const kFilterPasses[] =
+							{ "DirectChangeFilter", "DirectChangeFilter2", "DirectChangeFilter4",
+							  "DirectChangeFilter8", "DirectChangeFilter16", "DirectChangeMap" };
+						directChange = addChangeFilter(relit, relightDesc, history, kFilterPasses);
+						directChangeLive = &change.RelitThisFrame;
+					}
+					{
+						graph.AddPass("DirectRecord",
+							[&](RGPassBuilder& builder)
+							{
+								// Preserved: a record the pass decides to keep must survive
+								// the pass that did not draw.
+								builder.Write(record, RGLoad::Preserve);
+								builder.Sample(directTraced);
+								builder.Sample(sceneHDR);
+								builder.DisableDepth();
+							},
+							[sceneHDR, normalIndex, albedoIndex, surfaceIdIndex, velocityIndex, directTraced,
+							 directView, directRays, history](RGPassContext& context)
+							{
+								Renderer3D::RecordDirectChange(context.Cmd,
+															   context.Depth(sceneHDR),
+															   context.Color(sceneHDR, normalIndex),
+															   context.Color(sceneHDR, albedoIndex),
+															   context.Color(sceneHDR, surfaceIdIndex),
+															   context.Color(sceneHDR, velocityIndex),
+															   context.Color(directTraced),
+															   context.Color(directTraced, 1),
+															   directView, directRays, *history);
+							});
+					}
+				}
+			}
+			else if (desc.DirectChange)
+			{
+				desc.DirectChange->Invalidate();
+			}
 			// The contract: the pair accumulated over the frames behind it
 			// (surface reprojection, the tests, the bound, the motion-capped
 			// memory) and blurred while young. Four attachments: the diffuse,
@@ -1585,7 +1760,8 @@ namespace RageV
 					{ "DirectAccumulate", { "DirectBlur", "DirectBlur2", "DirectBlur4" } };
 				const SignalResult directSettled = addSignal(kDirectPasses, Renderer3D::DirectSignal(),
 									  directTraced, currentDirect, previousDirect, directHistory,
-									  &direct.Motion(), directBlurDesc, true);
+									  &direct.Motion(), directBlurDesc, true, {}, directChange,
+									  directChangeLive);
 				directLit = directSettled.Target;
 				directTwinLane = directSettled.TwinLane;
 				direct.Advance();
@@ -1594,6 +1770,9 @@ namespace RageV
 		else if (desc.DirectLight)
 		{
 			desc.DirectLight->Invalidate();
+			// And the change's record, which describes a trace that did not run.
+			if (desc.DirectChange)
+				desc.DirectChange->Invalidate();
 		}
 		RGResource occlusionLit = kRGInvalid;       // what the lit pass reads
 		RGResource currentOcclusion = kRGInvalid;   // the accumulated signal, for the debug view
@@ -1796,6 +1975,83 @@ namespace RageV
 			// was traced and upsampling once at the end is the arrangement every
 			// real-time denoiser uses, and the guidance downsample above is what
 			// keeps the contract's surface tests honest on the coarser grid.
+			// **Measured change, phase 3 (docs/RT-MEASURED-CHANGE.md).** The shape
+			// the reflections have, on the trace's own grid: the record's rays
+			// cast again before the accumulate, and the record retaken after the
+			// trace -- the re-light drawing only when something a bounce depends on
+			// changed, the record then or when the camera moved.
+			if (config.MeasuredChange && desc.GiChange && Renderer3D::CanMeasureGiChange()
+				&& PostProcess::IsReady())
+			{
+				MeasuredChangeHistory& change = *desc.GiChange;
+				const uint32_t blockWidth = Math::Max(giTraceWidth / 3u, 1u);
+				const uint32_t blockHeight = Math::Max(giTraceHeight / 3u, 1u);
+				change.Prepare(Renderer::GetDevice(), blockWidth, blockHeight, 3);
+				const bool recordIsLast = RecordIsLastFrame(change, desc.View, desc.InvProjection0,
+															 desc.InvProjection1);
+				if (change.Record)
+				{
+					const RGResource record = graph.Import(change.Record, "GiChangeRecord");
+					MeasuredChangeHistory* history = &change;
+					if (recordIsLast)
+					{
+						RGTargetDesc relightDesc;
+						relightDesc.Name = "GiChangeRelit";
+						relightDesc.Color = Format::R16G16B16A16_SFLOAT;
+						relightDesc.ExtraColors = { Format::R32G32B32A32_SFLOAT };
+						relightDesc.Depth = Format::Undefined;
+						relightDesc.Width = blockWidth;
+						relightDesc.Height = blockHeight;
+						const RGResource relit = graph.CreateTarget(relightDesc);
+						graph.AddPass("GiRelight",
+							[&](RGPassBuilder& builder)
+							{
+								builder.Write(relit);
+								builder.Sample(record);
+								builder.DisableDepth();
+							},
+							[record, history](RGPassContext& context)
+							{
+								Renderer3D::RelightGiChange(context.Cmd, context.Color(record, 0),
+															context.Color(record, 1), context.Color(record, 2),
+															*history);
+							});
+						static const char* const kFilterPasses[] =
+							{ "GiChangeFilter", "GiChangeFilter2", "GiChangeFilter4",
+							  "GiChangeFilter8", "GiChangeFilter16", "GiChangeMap" };
+						giChange = addChangeFilter(relit, relightDesc, history, kFilterPasses);
+						giChangeLive = &change.RelitThisFrame;
+					}
+					{
+						graph.AddPass("GiRecord",
+							[&](RGPassBuilder& builder)
+							{
+								builder.Write(record, RGLoad::Preserve);
+								builder.Sample(giRaw);
+								builder.Sample(sceneHDR);
+								if (giBudget)
+									builder.Sample(budgetPrevious);
+								builder.DisableDepth();
+							},
+							[sceneHDR, normalIndex, velocityIndex, giRaw, giView, giBudget, budgetPrevious,
+							 history, rays = RayDetailRays(giDetail),
+							 checkRays = config.ChangeRaysOverride >= 0 ? config.ChangeRaysOverride
+																		: rtPreset.ChangeRays](RGPassContext& context)
+							{
+								Renderer3D::RecordGiChange(context.Cmd, context.Depth(sceneHDR),
+														   context.Color(sceneHDR, normalIndex),
+														   giBudget ? context.Color(budgetPrevious) : nullptr,
+														   context.Color(giRaw),
+														   context.Color(sceneHDR, velocityIndex),
+														   giView, rays, checkRays, *history);
+							});
+					}
+				}
+			}
+			else if (desc.GiChange)
+			{
+				desc.GiChange->Invalidate();
+			}
 			const SignalGuidance giGuide = guidanceFor(giDivisor);
 			RGTargetDesc giDesc = giRawDesc;
 			giDesc.Name = "GiSettled";
@@ -1815,7 +2071,7 @@ namespace RageV
 				giSettled = addSignal(kGiPasses, Renderer3D::GiSignal(),
 									  giRaw, currentGi, previousGi, gi.HasHistory(),
 									  &gi.Motion(), giBlurDesc, false,
-									  giGuide).Target;
+									  giGuide, giChange, giChangeLive).Target;
 				gi.Advance();
 			}
 
@@ -1848,6 +2104,9 @@ namespace RageV
 		else if (desc.GiLight)
 		{
 			desc.GiLight->Invalidate();
+			// And the bounce's record, which describes a trace that did not run.
+			if (desc.GiChange)
+				desc.GiChange->Invalidate();
 		}
 		graph.AddPass("Scene",
 			[&](RGPassBuilder& builder)
@@ -2712,11 +2971,95 @@ namespace RageV
 			const bool reflectionHistory = desc.Reflections && desc.Reflections->HasHistory() && previousReflections != kRGInvalid;
 			RGTargetDesc reflectionBlurDesc = traceDesc;
 			reflectionBlurDesc.Name = "ReflectionBlurred";
+			// **Measured change, phase 2 (docs/RT-MEASURED-CHANGE.md).** The direct
+			// light's shape for the traced reflections: the record's rays traced
+			// again into this frame's scene before the accumulate, the difference
+			// filtered into the share of the reflected light that changed, and the
+			// record retaken after the trace -- the re-light drawing only when
+			// something a reflection depends on has changed, the record then or when
+			// the camera moved.
+			if (config.MeasuredChange && desc.ReflectionChange && Renderer3D::CanMeasureReflectionChange()
+				&& PostProcess::IsReady())
+			{
+				MeasuredChangeHistory& change = *desc.ReflectionChange;
+				const uint32_t blockWidth = Math::Max(desc.Width * (uint32_t)supersample / 3u, 1u);
+				const uint32_t blockHeight = Math::Max(desc.Height * (uint32_t)supersample / 3u, 1u);
+				change.Prepare(Renderer::GetDevice(), blockWidth, blockHeight, 4);
+				const bool recordIsLast = RecordIsLastFrame(change, desc.View, desc.InvProjection0,
+															 desc.InvProjection1);
+				if (change.Record)
+				{
+					const RGResource record = graph.Import(change.Record, "ReflectionChangeRecord");
+					MeasuredChangeHistory* history = &change;
+					if (recordIsLast)
+					{
+						RGTargetDesc relightDesc;
+						relightDesc.Name = "ReflectionChangeRelit";
+						relightDesc.Color = Format::R16G16B16A16_SFLOAT;
+						relightDesc.ExtraColors = { Format::R32G32B32A32_SFLOAT };
+						relightDesc.Depth = Format::Undefined;
+						relightDesc.Width = blockWidth;
+						relightDesc.Height = blockHeight;
+						const RGResource relit = graph.CreateTarget(relightDesc);
+						graph.AddPass("ReflectionRelight",
+							[&](RGPassBuilder& builder)
+							{
+								builder.Write(relit);
+								builder.Sample(record);
+								builder.DisableDepth();
+							},
+							[record, history](RGPassContext& context)
+							{
+								Renderer3D::RelightReflectionChange(context.Color(record, 0),
+																	context.Color(record, 1),
+																	context.Color(record, 2),
+																	context.Color(record, 3),
+																	*history);
+							});
+						static const char* const kFilterPasses[] =
+							{ "ReflectionChangeFilter", "ReflectionChangeFilter2", "ReflectionChangeFilter4",
+							  "ReflectionChangeFilter8", "ReflectionChangeFilter16", "ReflectionChangeMap" };
+						reflectionChange = addChangeFilter(relit, relightDesc, history, kFilterPasses);
+						reflectionChangeLive = &change.RelitThisFrame;
+					}
+					{
+						Renderer3D::GiTraceView reflectionView;
+						reflectionView.NearClip = desc.NearClip;
+						reflectionView.FarClip = desc.FarClip;
+						reflectionView.InvProjection0 = desc.InvProjection0;
+						reflectionView.InvProjection1 = desc.InvProjection1;
+						reflectionView.View = desc.View;
+						graph.AddPass("ReflectionRecord",
+							[&](RGPassBuilder& builder)
+							{
+								builder.Write(record, RGLoad::Preserve);
+								builder.Sample(traced);
+								builder.Sample(sceneHDR);
+								builder.DisableDepth();
+							},
+							[sceneHDR, normalIndex, albedoIndex, velocityIndex, traced, reflectionView, history]
+							(RGPassContext& context)
+							{
+								Renderer3D::RecordReflectionChange(context.Color(sceneHDR, normalIndex),
+																   context.Depth(sceneHDR),
+																   context.Color(sceneHDR, albedoIndex),
+																   context.Color(traced),
+																   context.Color(sceneHDR, velocityIndex),
+																   reflectionView, *history);
+							});
+					}
+				}
+			}
+			else if (desc.ReflectionChange)
+			{
+				desc.ReflectionChange->Invalidate();
+			}
 			static const SignalPassNames kReflectionPasses = { "ReflectionAccumulate", { "ReflectionBlur", "ReflectionBlur2", "ReflectionBlur4" } };
 			const RGResource blurredReflections = addSignal(kReflectionPasses, Renderer3D::ReflectionSignal(),
 															resolved, currentReflections, previousReflections,
 															reflectionHistory, &desc.Reflections->Motion(),
-															reflectionBlurDesc, false).Target;
+															reflectionBlurDesc, false, {}, reflectionChange,
+															reflectionChangeLive).Target;
 			{
 				const RGResource blurred = blurredReflections;
 
@@ -2758,6 +3101,11 @@ namespace RageV
 			// Swapped here for the reason the SSR chain swaps: what was written
 			// this frame is what the next frame reads.
 			desc.Reflections->Advance();
+		}
+		else if (desc.ReflectionChange)
+		{
+			// No trace, so no record that describes this frame.
+			desc.ReflectionChange->Invalidate();
 		}
 
 		// This frame's temporal history, for the debug view's confidence
@@ -2817,12 +3165,14 @@ namespace RageV
 						// a mask of zero and so silently no water at all.
 						if (waterSurface != kRGInvalid)
 							builder.Sample(waterSurface);
+						if (directChange != kRGInvalid)
+							builder.Sample(directChange);
 						builder.DisableDepth();
 					},
 					[source, sceneHDR, previous, velocityIndex, normalIndex, feedback, stillFeedback,
 					 hasHistory, jitter, taaGuideCurrent, taaGuidePrevious, taaGuideHasHistory,
 					 boxGeometry = config.TaaBoxGeometry,
-					 reflectionMotion, waterSurface](RGPassContext& context)
+					 reflectionMotion, waterSurface, directChange, directChangeLive](RGPassContext& context)
 					{
 						PostProcess::TemporalResolve(
 							context.Cmd,
@@ -2874,7 +3224,11 @@ namespace RageV
 							// above.** Where the reflection ran, that lane is the virtual
 							// image's motion on reflective pixels; whether a surface
 							// moved is asked of this one.
-							context.Color(sceneHDR, velocityIndex));
+							context.Color(sceneHDR, velocityIndex),
+							// Measured change: the direct light's change map, which
+							// RT-16 says this filter has to give way to as well.
+							directChange != kRGInvalid && directChangeLive && *directChangeLive
+								? context.Color(directChange) : nullptr);
 					});
 
 				shaded = current;
@@ -4592,6 +4946,27 @@ namespace RageV
 			case EngineConfig::DebugViewMode::GiLight:
 				spec.Aux = currentGi; spec.Attachment = 0; spec.Display = 1;
 				spec.Scale = 1.0f; spec.Name = "gi-light"; spec.Missing = kMissingGi;
+				break;
+			// Measured change: the filtered map, red the diffuse's changed share,
+			// green the highlight's. Missing as well while the camera moves, which
+			// is when the check does not run.
+			case EngineConfig::DebugViewMode::GiChange:
+				spec.Aux = giChange; spec.Attachment = 0; spec.Display = 1;
+				spec.Scale = 1.0f; spec.Name = "gi-change";
+				spec.Missing = "the bounce's measured change is not running (--measured-change=on, "
+							   "the GI signal, and a camera standing still)";
+				break;
+			case EngineConfig::DebugViewMode::ReflectionChange:
+				spec.Aux = reflectionChange; spec.Attachment = 0; spec.Display = 1;
+				spec.Scale = 1.0f; spec.Name = "reflection-change";
+				spec.Missing = "the reflections' measured change is not running (--measured-change=on, "
+							   "the traced reflection pass, and a camera standing still)";
+				break;
+			case EngineConfig::DebugViewMode::Change:
+				spec.Aux = directChange; spec.Attachment = 0; spec.Display = 1;
+				spec.Scale = 1.0f; spec.Name = "change";
+				spec.Missing = "the measured change is not running (--measured-change=on, "
+							   "the direct-light signal, and a camera standing still)";
 				break;
 			case EngineConfig::DebugViewMode::GiRefusal:
 				spec.Aux = currentGi; spec.Attachment = 2; spec.Channel = 3;

@@ -673,6 +673,9 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.Exposure = &m_SceneExposure;
 	scene.Reflections = &m_SceneReflections;
 	scene.DirectLight = &m_SceneDirectLight;
+	scene.DirectChange = &m_SceneDirectChange;
+	scene.ReflectionChange = &m_SceneReflectionChange;
+	scene.GiChange = &m_SceneGiChange;
 	scene.Indirect = &m_SceneIndirect;
 	scene.RayBudget = &m_SceneRayBudget;
 	scene.Occlusion = &m_SceneOcclusion;
@@ -822,6 +825,9 @@ void EditorLayer::OnUpdate(Timestep ts)
 		game.Exposure = &m_GameExposure;
 		game.Reflections = &m_GameReflections;
 		game.DirectLight = &m_GameDirectLight;
+		game.DirectChange = &m_GameDirectChange;
+		game.ReflectionChange = &m_GameReflectionChange;
+		game.GiChange = &m_GameGiChange;
 		game.Indirect = &m_GameIndirect;
 		game.RayBudget = &m_GameRayBudget;
 		game.Occlusion = &m_GameOcclusion;

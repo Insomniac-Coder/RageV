@@ -141,12 +141,23 @@ layout(push_constant) uniform ReflectionParams
 	vec4 Blur;
 	// RT-6.3: last frame's eye in xyz, w one when it is real.
 	vec4 PreviousEye;
-	// **RT-5: the anti-lag.** x how many of this pixel's own standard
-	// deviations its history may sit from what its neighbours report now
-	// before the memory is cut, zero being off; y the floor under that
-	// noise estimate, so a converged pixel does not trip on rounding.
-	vec4 AntiLag;
+	// **Measured change (docs/RT-MEASURED-CHANGE.md): x one when binding 11
+	// holds this signal's change map.** Zero is every frame before it existed.
+	vec4 Change;
 } u_Reflection;
+
+// The change map, on the 3x3 block grid of this signal's own target: r the
+// share of the diffuse light measured to have changed since last frame, g the
+// highlight's. Black and unread where `Change.x` is zero.
+layout(set = 3, binding = 11) uniform sampler2D u_Change;
+
+// The map at a position in this target's texels, read filtered between the
+// block centres -- a block's texel sits at the middle of its three.
+vec2 MeasuredChangeAt(vec2 at)
+{
+	const vec2 blocks = vec2(textureSize(u_Change, 0));
+	return texture(u_Change, (at / 3.0) / blocks).rg;
+}
 
 // Why the texel's own history was refused this frame, for the
 // `reflection-refusal` debug view: 0 kept, 1 off screen, 2 none there,
@@ -172,13 +183,20 @@ bool g_HaveMotion = false;
 // RT-19: whether this texel ended up blending a history at all. `have` is
 // scoped to the block that decides it and the count happens at the end.
 bool g_Kept = false;
+// Measured change: the frames the blend itself carries, kept apart from the
+// trust in the alpha (see the memory block). One with no history.
+float g_BlendFrames = 1.0;
 
 layout(location = 0) out vec4 o_Accumulated;
 layout(location = 1) out vec4 o_Surface;
 layout(location = 2) out vec4 o_Extra;
 #ifdef RV_SIGNAL_PAIR
 layout(location = 3) out vec4 o_Accumulated2;
-#else
+#elif !defined(RV_SIGNAL_DIFFUSE)
+// **RT-5 part 5: the specular variant alone, as the paragraph below always
+// said.** The guard was `#else`, so the occlusion and indirect accumulates
+// wrote both lanes into targets that have neither, and the validation layer
+// reported the unused writes on every draw once it could name the pass.
 // **RT-6.1: where the picture at this texel moved, in the scene velocity
 // lane's own units.** Not the surface's motion -- the virtual image's, which
 // is the whole reason this accumulator reprojects the way it does. The
@@ -879,7 +897,7 @@ void main()
 		o_Accumulated = vec4(0.0);
 		o_Surface = vec4(0.0, 0.0, 0.0, -1.0);
 		o_Extra = vec4(0.0);
-#ifndef RV_SIGNAL_PAIR
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
 		// Nothing here reflects, so there is no image to have moved. Zero is
 		// read by the resolve as "use the surface's", which is right.
 		o_Motion = vec4(0.0);
@@ -1095,33 +1113,6 @@ void main()
 			// rather than taken as a minimum: a candidate that is marginal on two
 			// counts at once is worth less than one marginal on either.
 			memory = max(mix(fewest, memory, c.matchConfidence), fewest);
-			// **RT-5: the evidence-driven anti-lag.**
-			//
-			// Everything above has already agreed that this is the same
-			// surface -- same object, same plane, same facing, same roughness,
-			// same material -- so the question here is not whether the surface
-			// changed. It is whether the **light on it** did, and the pixel's
-			// own moments answer that: sigma is how much this estimate wobbles
-			// when nothing is happening, so a history sitting further than a
-			// few of those from what the neighbours report *now* is not noise,
-			// it is news.
-			//
-			// **Gated on nothing having moved**, because a moving picture
-			// disagrees with its history for a reason that is not news, and
-			// the memory is already shortened for that above.
-			//
-			// This is what R4 tried twice and failed at: it read a change out
-			// of a noisy sample with no idea how noisy the sample was, so it
-			// fired on stills. The floor is the second half of that lesson --
-			// a converged pixel's sigma goes to nothing, and without a floor
-			// any rounding difference reads as news.
-			if (u_Reflection.AntiLag.x > 0.0 && moved < 1.0)
-			{
-				const float lag = abs(Luma(c.past.rgb) - Luma(mean));
-				const float noise = max(sigma, u_Reflection.AntiLag.y);
-				if (lag > u_Reflection.AntiLag.x * noise)
-					memory = fewest;
-			}
 			// **RT-8: how much of all that the twin keeps.** Every reduction
 			// above is a property of the pixel, not of the payload -- how far
 			// the picture moved, whether it sits on a silhouette, how well the
@@ -1134,7 +1125,55 @@ void main()
 															   moved, slack, fewest, silhouette,
 															   neighbourMotion), 1.0e-4);
 			frames = min(c.past.a + 1.0, memory);
-			kept = mix(held, fresh.rgb, 1.0 / frames);
+			// **Measured change: where a share of the light is known to have
+			// changed, the new frame counts for at least that share** -- and the
+			// count restarts from there, so the frames after it rebuild the
+			// average as a fresh one would rather than dragging the stale part
+			// out at the full memory's rate. A still scene measures nothing,
+			// and nothing here runs.
+			vec2 measured = vec2(0.0);
+			float blendFrames = frames;
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+			// **And, on the reflections, the restart is the blend's alone.** The
+			// alpha is also the lit shader's trust in this picture against its
+			// probe, faded in over four frames for a history just begun -- right
+			// after a disocclusion, where the probe is a smooth stand-in for grain,
+			// and wrong after a light changed, where the probe is a capture of the
+			// old light. Restarting the alpha brought that old light back for a
+			// frame and the temporal resolve held it for a second. So the count
+			// the blend runs on is carried in the id lane's green, and the alpha
+			// keeps the trust it had.
+			if (u_Reflection.Change.x > 0.5)
+			{
+				const float carried = texelFetch(u_HistoryIdent, c.pastTexel, 0).g;
+				if (carried > 0.0)
+					blendFrames = min(carried + 1.0, memory);
+			}
+#endif
+			if (u_Reflection.Change.x > 0.5)
+			{
+				// **Read where the history came from.** The map belongs to last
+				// frame's picture -- the record's blocks sit on last frame's grid,
+				// each saying how much of what was shown there has changed -- so it
+				// is read through the reprojection the history was: this texel,
+				// moved by how far the picture moved. Under an eighth of a texel
+				// that is the two ways of computing one point disagreeing, not
+				// motion (kMotionFloor), and the texel is read where it stands --
+				// which on a still camera is every texel.
+				const vec2 travelled = moved < kMotionFloor
+									 ? vec2(0.0)
+									 : vec2(shift.x, u_Reflection.History.w > 0.5 ? -shift.y : shift.y)
+									   * 0.5 * vec2(size);
+				measured = MeasuredChangeAt(vec2(texel) + 0.5 + travelled);
+				if (measured.x > 0.0)
+					blendFrames = max(min(blendFrames, 1.0 / measured.x), 1.0);
+			}
+#if defined(RV_SIGNAL_PAIR) || defined(RV_SIGNAL_DIFFUSE)
+			// Nothing reads these signals' alpha as trust: the count is the count.
+			frames = blendFrames;
+#endif
+			g_BlendFrames = blendFrames;
+			kept = mix(held, fresh.rgb, 1.0 / blendFrames);
 #ifdef RV_SIGNAL_PAIR
 			// The twin: read where the candidate was read, bounded by its
 			// own neighbourhood at the same width, blended by the same
@@ -1181,6 +1220,9 @@ void main()
 											neighbourMotion) * reduced, fewest);
 					frames2 = min(past2.a + 1.0, memory2);
 				}
+				// Measured change: the highlight by its own share.
+				if (measured.y > 0.0)
+					frames2 = max(min(frames2, 1.0 / measured.y), 1.0);
 				kept2 = mix(held2, fresh2.rgb, 1.0 / frames2);
 				twinFrames = frames2;
 			}
@@ -1189,13 +1231,13 @@ void main()
 			// The moments track what *arrives*, at the rate the colour
 			// forgets or faster: a light that went out must not hold the
 			// bound open for long.
-			const float momentAlpha = max(1.0 / frames, 1.0 / kMomentFrames);
+			const float momentAlpha = max(1.0 / g_BlendFrames, 1.0 / kMomentFrames);
 			momMean = mix(c.extra.g, luma, momentAlpha);
 			momMeanSq = mix(c.extra.b, luma * luma, momentAlpha);
 		}
 	}
 
-#ifndef RV_SIGNAL_PAIR
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
 	// **The image's motion, in the velocity lane's units.** The accumulator
 	// already measures it: `shift` below is how far the picture moved since
 	// last frame, both sides on the unjittered grid, which is the scene
@@ -1214,7 +1256,7 @@ void main()
 	o_Motion = vec4(g_HaveMotion ? g_ImageMotion : vec2(0.0),
 					OctEncode(reflect(sight, N)));
 	// RT-6.5: who this texel was, for the next frame's fourth check.
-	o_Ident = vec4(g_ObjectId, 0.0, 0.0, 0.0);
+	o_Ident = vec4(g_ObjectId, u_Reflection.Change.x > 0.5 ? g_BlendFrames : 0.0, 0.0, 0.0);
 #endif
 	// **RT-5: the four running averages this pass keeps, rounded onto the half
 	// grid here rather than by the write** -- the picture, its twin, the image

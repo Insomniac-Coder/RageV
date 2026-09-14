@@ -38,18 +38,54 @@ void main()
 #version 460 core
 
 #define RV_TRACE_ONLY
+#ifdef RV_GI_RELIGHT
+// **Measured change (docs/RT-MEASURED-CHANGE.md, phase 3): the eye the record was
+// taken from**, for the thin-member fade inside traversal; main sets it first.
+vec3 g_TraceCamera = vec3(0.0);
+#define RV_TRACE_CAMERA g_TraceCamera
+#endif
 #include "include/pbr_fragment.glsl"
 #include "include/view_reconstruction.glsl"
+#ifdef RV_GI_RECORD
+#include "include/change_record.glsl"
+#endif
 
 layout(location = 0) in vec2 v_UV;
+#if defined(RV_GI_RECORD)
+layout(location = 0) out vec4 o_Record0;
+layout(location = 1) out vec4 o_Record1;
+layout(location = 2) out vec4 o_Record2;
+#elif defined(RV_GI_RELIGHT)
+// The change at the block and its reference, and the filter's guide -- the
+// direct light's layout, the highlight lane left empty.
+layout(location = 0) out vec4 o_Change;
+layout(location = 1) out vec4 o_ChangeGuide;
+#else
 layout(location = 0) out vec4 o_Indirect;
+#endif
 
 // The scene pass's depth and its surface description, in a set of their own.
 // Set 3 rather than a spare binding in set 0: set 0 is the scene's, shared
 // with every lit pipeline, and adding to it would change a layout that four
 // other shaders reflect.
+#ifdef RV_GI_RELIGHT
+// **Measured change, phase 3: last frame's record.** One texel per 3x3 block of
+// this pass's grid: 0 the world point and, in w, the sampled texel's column
+// shifted past three flag bits (1 a surface, 4 moving); 1 the G-buffer's surface
+// texel as the trace read it; 2 (at binding 5, the budget's slot) the luminance
+// the trace wrote, the rays it cast, and the texel's row.
+layout(set = 3, binding = 0) uniform sampler2D u_Record0;
+layout(set = 3, binding = 1) uniform sampler2D u_Record1;
+#else
 layout(set = 3, binding = 0) uniform sampler2D u_GiDepth;
 layout(set = 3, binding = 1) uniform sampler2D u_GiSurface;
+#endif
+#ifdef RV_GI_RECORD
+// What the record keeps beside the G-buffer: the picture the trace just wrote,
+// and the scene's velocity, which says whether the sampled surface moved.
+layout(set = 3, binding = 6) uniform sampler2D u_GiTraced;
+layout(set = 3, binding = 7) uniform sampler2D u_GiVelocity;
+#endif
 
 // **The emissive rectangles, so the bounce can aim at them instead of hoping.**
 //
@@ -98,7 +134,11 @@ struct GiEmitter
 
 // The ray budget's allocation: `.g` is this tile's bounce-ray count.
 // Point-sampled -- a count between two counts is not a count.
+#ifdef RV_GI_RELIGHT
+layout(set = 3, binding = 5) uniform sampler2D u_Record2;
+#else
 layout(set = 3, binding = 5) uniform sampler2D u_GiBudget;
+#endif
 
 layout(std430, set = 3, binding = 2) readonly buffer GiEmitterBlock
 {
@@ -191,8 +231,37 @@ float GiProbeSlotAt(vec3 position)
 
 void main()
 {
+#if defined(RV_GI_RECORD)
+	o_Record0 = vec4(0.0);
+	o_Record1 = vec4(0.0);
+	o_Record2 = vec4(0.0);
+	// **One texel of this block of the trace's grid, a different one each frame.**
+	const ivec2 block = ivec2(gl_FragCoord.xy);
+	const ivec2 giSize = textureSize(u_GiTraced, 0);
+	const uint pick = BudgetHash(uint(block.x) ^ (uint(block.y) << 16u)
+								 ^ (uint(u_Scene.GlobalIllumination.y) * 0x27D4EB2Du) ^ 0x1B873593u) % 9u;
+	const ivec2 giTexel = min(block * 3 + ivec2(int(pick % 3u), int(pick / 3u)), giSize - 1);
+	const bool flip = u_Gi.FlipY > 0.5;
+	// The texel's centre in the texel space the trace's `uv` is in.
+	const vec2 uv = (vec2(giTexel) + 0.5) / vec2(giSize);
+#elif defined(RV_GI_RELIGHT)
+	o_Change = vec4(0.0, -1.0, 0.0, -1.0);
+	o_ChangeGuide = vec4(0.0);
+	const ivec2 block = ivec2(gl_FragCoord.xy);
+	const vec4 record0 = texelFetch(u_Record0, block, 0);
+	const vec4 record2 = texelFetch(u_Record2, block, 0);
+	const uint recordFlags = uint(record0.w);
+	if ((recordFlags & 1u) == 0u || (recordFlags & 4u) != 0u)
+		return;
+	const ivec2 giTexel = ivec2(int(recordFlags >> 3u), int(record2.b));
+	const vec4 surface = texelFetch(u_Record1, block, 0);
+	const vec3 world = record0.xyz;
+	g_TraceCamera = u_Gi.CameraPosition.xyz;
+#else
 	const bool flip = u_Gi.FlipY > 0.5;
 	const vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+#endif
+#ifndef RV_GI_RELIGHT
 
 	// **Snapped to the depth texel's centre**, as SSAO's reconstruction is
 	// (7an) and as RTAO's ViewPositionAt is -- and this pass needs it more
@@ -217,7 +286,9 @@ void main()
 	const vec4 surface = texture(u_GiSurface, snapped);
 	if (SurfaceIsEmpty(surface))
 	{
+#ifndef RV_GI_RECORD
 		o_Indirect = vec4(0.0, 0.0, 0.0, 1.0);
+#endif
 		return;
 	}
 
@@ -236,27 +307,57 @@ void main()
 	const vec3 world = u_Gi.CameraPosition.xyz + vec3(dot(u_Gi.CameraRow0.xyz, view),
 													  dot(u_Gi.CameraRow1.xyz, view),
 													  dot(u_Gi.CameraRow2.xyz, view));
+#endif
 
 	const vec3 N = OctDecode(surface.rg);
 
 	// The same hash the lit shader used, off the pixel *and* the frame: four
 	// rays cannot integrate a hemisphere, and what makes them converge is
 	// casting a different four every frame for the denoise to average.
+#if defined(RV_GI_RECORD) || defined(RV_GI_RELIGHT)
+	// The sampled texel and, for the re-light, the frame the record was taken
+	// in (CameraRow0.w), so the seed is the trace's.
+	const uvec2 pixel = uvec2(giTexel);
+#else
 	const uvec2 pixel = uvec2(gl_FragCoord.xy);
+#endif
+#ifdef RV_GI_RELIGHT
+	uint seed = GiHash(pixel.x * 0x9E3779B9u ^ pixel.y
+					   ^ (uint(u_Gi.CameraRow0.w) * 0x85EBCA6Bu));
+#else
 	uint seed = GiHash(pixel.x * 0x9E3779B9u ^ pixel.y
 					   ^ (uint(u_Scene.GlobalIllumination.y) * 0x85EBCA6Bu));
+#endif
 
 	// **Per tile, not per frame.** `Rays` is the ceiling and the fallback:
 	// with no budget bound every pixel takes it, which is the fixed count
 	// this replaces. Its sign carries whether a budget is bound, so the
 	// push-constant block -- already at its guaranteed size -- needs no new
 	// field, and a ray count is never legitimately negative.
+#ifdef RV_GI_RELIGHT
+	// As many as the trace cast there.
+	const int rays = clamp(int(record2.g + 0.5), 1, 32);
+#else
 	int rays = clamp(int(abs(u_Gi.Rays) + 0.5), 1, 32);
 	if (u_Gi.Rays < 0.0)
 	{
 		const float allocated = texture(u_GiBudget, uv).g;
 		rays = clamp(int(allocated + 0.5), 1, rays);
 	}
+#endif
+#if defined(RV_GI_RECORD)
+	// **The record's point and surface, and -- after the rays below -- its own
+	// estimate.** Not the trace's picture at this texel: on a half-size grid the
+	// texel's centre lands on the corner of four depth texels, and which one the
+	// trace snapped to is decided by its interpolation's rounding, so the point
+	// kept here need not be the trace's. The re-light compares its rays with these
+	// rays at this point, which is the comparison that means "the light changed".
+	// Moved on its own, the camera's motion taken out (include/change_record.glsl).
+	const bool recordMoving = RecordMovedOnItsOwn(texture(u_GiVelocity, snapped).xy, world,
+												  vec2(textureSize(u_GiVelocity, 0)));
+	o_Record0 = vec4(world, float((uint(giTexel.x) << 3u) | 1u | (recordMoving ? 4u : 0u)));
+	o_Record1 = surface;
+#endif
 	const int bounces = int(u_Scene.GlobalIllumination.z + 0.5);
 	const float reach = u_Scene.GlobalIllumination.w > 0.0
 					  ? u_Scene.GlobalIllumination.w : 1.0e4;
@@ -549,7 +650,25 @@ void main()
 		bounced += shaded;
 	}
 
+#if defined(RV_GI_RELIGHT)
+	// **The change at this block: the same rays into this frame's scene, against
+	// what they found last frame.** A difference inside a half-float step and a
+	// hair is the write, not the light.
+	{
+		const float now = dot(bounced / float(rays), vec3(0.2126, 0.7152, 0.0722));
+		float delta = now - record2.r;
+		const float reference = max(max(now, record2.r), 0.0);
+		if (abs(delta) <= 0.004 * reference + 1.0e-4)
+			delta = 0.0;
+		o_Change = vec4(delta, reference, 0.0, 0.0);
+		o_ChangeGuide = vec4(N, dot(N, world));
+	}
+#elif defined(RV_GI_RECORD)
+	o_Record2 = vec4(dot(bounced / float(rays), vec3(0.2126, 0.7152, 0.0722)),
+					 float(rays), float(giTexel.y), 0.0);
+#else
 	o_Indirect = vec4(bounced / float(rays), 1.0);
+#endif
 
 	// WR-16 S0: the bounce's rays and hits into the frame's counters. Not a
 	// lit fragment -- a pixel of this pass is a probe, not a surface.

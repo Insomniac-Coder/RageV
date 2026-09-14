@@ -220,6 +220,15 @@ namespace RageV
 		// quad share has one working lane and three idle, so the same ray
 		// density costs what it should.
 		int   ReflectionScale;
+		// **The rays a point of the bounce's measured change casts** (owner,
+		// 2026-09-14): 0 as many as the trace cast there, 1 one. The check replays
+		// its own rays exactly at any count, so a scene where nothing changed reads
+		// as no change either way; fewer rays only know the size of a real change
+		// more coarsely, and they buy most of the bounce's check -- 0.55 ms a frame
+		// at the trace's count while the camera moves, the record retaken every
+		// frame. The owner's split: one ray under Balanced and Performance, the
+		// trace's count under Quality and the reference.
+		int   ChangeRays;
 	};
 
 	constexpr RayOptimisationPreset RayOptimisationPresetFor(RayOptimisation level)
@@ -227,12 +236,12 @@ namespace RageV
 		switch (level)
 		{
 			//                                          shadow thinning                          cutoff  water   refraction    AO    GI  spread  lamps
-			case RayOptimisation::Quality:     return { ShadowRayFalloff::Linear, 300.0f, 600.0f, 0.0f,   0.0f,   2.0f, 1.0f / 256.0f, 8.0f, 4.0f, 3.0f, 4.0f, 8, 2 };
-			case RayOptimisation::Balanced:    return { ShadowRayFalloff::Linear, 150.0f, 300.0f, 0.125f, 0.0f,   2.0f, 1.0f / 256.0f, 6.0f, 3.0f, 3.0f, 2.0f, 4, 2 };
-			case RayOptimisation::Performance: return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   300.0f, 2.0f, 1.0f / 256.0f, 4.0f, 2.0f, 2.0f, 1.0f, 2, 4 };
+			case RayOptimisation::Quality:     return { ShadowRayFalloff::Linear, 300.0f, 600.0f, 0.0f,   0.0f,   2.0f, 1.0f / 256.0f, 8.0f, 4.0f, 3.0f, 4.0f, 8, 2, 0 };
+			case RayOptimisation::Balanced:    return { ShadowRayFalloff::Linear, 150.0f, 300.0f, 0.125f, 0.0f,   2.0f, 1.0f / 256.0f, 6.0f, 3.0f, 3.0f, 2.0f, 4, 2, 1 };
+			case RayOptimisation::Performance: return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   300.0f, 2.0f, 1.0f / 256.0f, 4.0f, 2.0f, 2.0f, 1.0f, 2, 4, 1 };
 			// Off: the reference. Every shadow ray traced, every light its
 			// full range, a ray per pixel on the water and every lamp shaded.
-			default:                           return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   0.0f,   1.0f, 0.0f,          8.0f, 4.0f, 3.0f, 3.0f, 0, 1 };
+			default:                           return { ShadowRayFalloff::Off,    0.0f,   0.0f,   0.0f,   0.0f,   1.0f, 0.0f,          8.0f, 4.0f, 3.0f, 3.0f, 0, 1, 0 };
 		}
 	}
 

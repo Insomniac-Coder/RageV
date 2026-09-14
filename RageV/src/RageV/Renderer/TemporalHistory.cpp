@@ -85,4 +85,27 @@ namespace RageV
 		m_SecondFormat = Format::Undefined;
 		m_Valid = false;
 	}
+
+	void MeasuredChangeHistory::Prepare(RHIDevice& device, uint32_t width, uint32_t height, uint32_t lanes)
+	{
+		if (width == 0 || height == 0)
+		{
+			Invalidate();
+			return;
+		}
+		if (Record && Width == width && Height == height && Lanes == lanes)
+			return;
+		RenderTargetDesc desc;
+		desc.Width = width;
+		desc.Height = height;
+		desc.ColorAttachments.assign(lanes, { Format::R32G32B32A32_SFLOAT });
+		desc.HasDepth = false;
+		desc.DebugName = "DirectChangeRecord";
+		Record = device.CreateRenderTarget(desc);
+		Width = width;
+		Height = height;
+		Lanes = lanes;
+		// Nothing is in it yet, whatever the driver left there.
+		Invalidate();
+	}
 }

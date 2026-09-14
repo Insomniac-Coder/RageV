@@ -249,6 +249,14 @@ namespace RageV
 		// under a lamp. Scene::MarkMovingLights sets it; Renderer3D carries it
 		// to the shader in GpuLight.Shadow.y under traced shadows.
 		bool MovingInRange = false;
+
+		// **Which light this is, from one frame to the next** -- the scene's
+		// entity plus one, zero where the caller has no entity. The upload's
+		// order drops a switched-off lamp, so every later lamp's index moves;
+		// the measured-change check reproduces last frame's random draws, which
+		// are keyed on that index, by finding each lamp's old place through
+		// this. Never hashed, never shaded.
+		uint32_t Id = 0;
 	};
 
 	using LightList = std::vector<LightRenderData>;

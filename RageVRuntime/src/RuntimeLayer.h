@@ -80,6 +80,9 @@ private:
 	// lighting. ENGINE-NOTES 7af.
 	RageV::TemporalHistory m_Reflections;
 	RageV::TemporalHistory m_DirectLight;   // RT-first T5
+	RageV::MeasuredChangeHistory m_DirectChange;   // measured change, phase 1
+	RageV::MeasuredChangeHistory m_ReflectionChange;   // and phase 2
+	RageV::MeasuredChangeHistory m_GiChange;   // and phase 3
 	// Indirect diffuse, one frame late (ENGINE-NOTES 7av).
 	RageV::TemporalHistory m_Indirect;
 	// One texel per 16x16 tile: what the ray budget gave each tile last

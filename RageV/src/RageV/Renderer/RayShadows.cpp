@@ -1,6 +1,7 @@
 #include <rvpch.h>
 #include "RayShadows.h"
 #include "Mesh.h"
+#include "RageV/Core/EngineConfig.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 
 namespace RageV
@@ -70,6 +71,10 @@ namespace RageV
 			std::vector<Ref<RHIBuffer>> Bones;
 			std::vector<uint32_t> BoneCapacity;
 			uint32_t SkinnedThisFrame = 0;
+			// Measured change: the structure's contents as one number, and a
+			// count that makes a frame with posed skins never match another.
+			uint64_t GeometryKey = 0;
+			uint64_t Builds = 0;
 		};
 
 		std::unique_ptr<RayShadowsData> s_Data;
@@ -413,6 +418,41 @@ namespace RageV
 		s_Data->Active = true;
 		s_Data->BuiltThisFrame = true;
 		s_Data->BuiltCount = count;
+
+		// **Only for the measured change**, which is the one reader: a word at a
+		// time over named fields -- never the struct's bytes, which hold a
+		// shared_ptr and padding -- so thousands of instances cost microseconds.
+		++s_Data->Builds;
+		if (EngineConfig::Get().MeasuredChange)
+		{
+			uint64_t key = 0x9E3779B97F4A7C15ull;
+			const auto mix = [&key](uint64_t word)
+			{
+				key ^= word + 0x9E3779B97F4A7C15ull + (key << 6) + (key >> 2);
+			};
+			for (const AccelerationInstance& instance : s_Data->Instances)
+			{
+				for (int i = 0; i < 16; i += 2)
+				{
+					uint32_t low = 0, high = 0;
+					std::memcpy(&low, &instance.Transform[i], sizeof(float));
+					std::memcpy(&high, &instance.Transform[i + 1], sizeof(float));
+					mix(((uint64_t)high << 32) | low);
+				}
+				mix((uint64_t)(uintptr_t)instance.Blas.get());
+				mix(((uint64_t)instance.CustomIndex << 16) | ((uint64_t)instance.Mask << 8)
+					| (instance.ForceNoOpaque ? 1u : 0u));
+			}
+			mix(count);
+			if (s_Data->SkinnedThisFrame > 0)
+				mix(s_Data->Builds);
+			s_Data->GeometryKey = key;
+		}
+	}
+
+	uint64_t RayShadows::GetGeometryKey()
+	{
+		return s_Data ? s_Data->GeometryKey : 0u;
 	}
 
 	bool RayShadows::IsActive()

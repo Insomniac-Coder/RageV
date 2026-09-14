@@ -1,4 +1,5 @@
 #pragma once
+#include <vector>
 #include "RageV/Renderer/RHI/RHIDevice.h"
 #include "RageV/Math/Math.h"
 
@@ -139,5 +140,74 @@ namespace RageV
 		RHI::Format m_FourthFormat = RHI::Format::Undefined;   // the pair kind's twin (RT-first T5)
 		RHI::Format m_FifthFormat = RHI::Format::Undefined;    // the reflector's object id (RT-6.5)
 		bool m_Valid = false;
+	};
+
+	// **Measured change (docs/RT-MEASURED-CHANGE.md, phase 1): what the next
+	// frame needs to light last frame's sampled points again.**
+	//
+	// One per frame chain, for TemporalHistory's reason. The record is one
+	// target of eight RGBA32F lanes on the 3x3 block grid -- one sampled pixel
+	// per block: its world position and packed pixel, the G-buffer's surface,
+	// albedo and id texels exactly as the trace read them, the luminance the
+	// trace wrote there, and the lamps the trace chose and their weights.
+	// Beside it, the numbers the trace walked its random draws under, which a
+	// re-light has to walk again: the frame, whether the draws were animated,
+	// the lamps per pixel, the eye, and the upload's lamp order.
+	//
+	// **One target, not a pair.** The re-light reads it before the record pass
+	// writes it, in the same frame, so nothing samples what it draws into; and a
+	// record is only rewritten when something the direct light depends on has
+	// changed since it was taken -- a still scene keeps the one it has.
+	struct MeasuredChangeHistory
+	{
+		RHI::Ref<RHI::RHIRenderTarget> Record;
+		uint32_t Width = 0;
+		uint32_t Height = 0;
+		uint32_t Lanes = 0;
+		std::vector<uint32_t> LightIds;
+		float Frame = 0.0f;
+		float Animated = 0.0f;
+		float Rays = 0.0f;
+		Vec4 Eye{ 0.0f, 0.0f, 0.0f, 0.0f };
+		// The camera the record was taken from. The map a re-light makes is read
+		// where each pixel's history came from -- last frame's grid -- so a
+		// re-light runs only on a record taken under last frame's camera, and the
+		// record is retaken every frame the camera moves.
+		Mat4 View{ 1.0f };
+		float InvProjection0 = 0.0f;
+		float InvProjection1 = 0.0f;
+		// And last frame's camera, whatever was recorded.
+		Mat4 LastView{ 1.0f };
+		float LastInvProjection0 = 0.0f;
+		float LastInvProjection1 = 0.0f;
+		bool HaveLast = false;
+		// Everything the direct light depended on when the record was taken --
+		// the lamps and their cull records, the cluster and field blocks, the
+		// ray structure's contents -- as one number (not the camera: nothing a
+		// re-light reads moves with it). The same number now means a re-light
+		// could only answer "no change", so it is not run.
+		uint64_t RecordKey = 0;
+		bool Written = false;
+		// Set by the re-light as it runs: whether this frame has a change map the
+		// accumulate and the resolve should read.
+		bool RelitThisFrame = false;
+
+		// Makes sure the record exists at this size and lane count (eight for the
+		// direct light, whose choices are part of it; four for the reflections);
+		// a new one holds nothing.
+		void Prepare(RHI::RHIDevice& device, uint32_t width, uint32_t height, uint32_t lanes = 8);
+		void Invalidate()
+		{
+			Written = false;
+			RelitThisFrame = false;
+			HaveLast = false;
+		}
+		void Release()
+		{
+			Record = nullptr;
+			Width = Height = 0;
+			LightIds.clear();
+			Invalidate();
+		}
 	};
 }

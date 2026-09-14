@@ -44,6 +44,23 @@ void main()
 #version 460 core
 
 #define RV_TRACE_ONLY
+#ifdef RV_DIRECT_RELIGHT
+// **Measured change (docs/RT-MEASURED-CHANGE.md): last frame's walk, not this
+// frame's.** The re-light lights a point the trace lit last frame, and every
+// stochastic choice the shadow rays make has to be the one they made then:
+// the soft-shadow point's pixel, its frame, whether it walked, and the eye the
+// thin-member fade measured from. Globals rather than the push block, because
+// the functions that read them are in the header below and the block is
+// declared after it; main sets them first.
+vec2  g_TracePixel = vec2(0.5);
+float g_TraceFrame = 0.0;
+bool  g_TraceAnimated = false;
+vec3  g_TraceCamera = vec3(0.0);
+#define RV_TRACE_PIXEL g_TracePixel
+#define RV_TRACE_FRAME g_TraceFrame
+#define RV_TRACE_ANIMATED g_TraceAnimated
+#define RV_TRACE_CAMERA g_TraceCamera
+#endif
 #ifdef RV_DIRECT_WATER
 // **RT-8 job 1: the sea's lobe.** The header guards it behind RV_WATER, which
 // is the water *draw*'s define; this pass is not the water draw and must not
@@ -57,6 +74,9 @@ void main()
 #include "include/water_lobe.glsl"
 #endif
 #include "include/view_reconstruction.glsl"
+#ifdef RV_DIRECT_RECORD
+#include "include/change_record.glsl"
+#endif
 
 layout(location = 0) in vec2 v_UV;
 
@@ -73,10 +93,49 @@ layout(location = 0) in vec2 v_UV;
 // wind angle where the metallic is, and the albedo with the specular dial.
 // The id slot is unused -- the sea is one surface, never static, and its
 // roughness needs no specular-antialiased second copy.
+#ifdef RV_DIRECT_RELIGHT
+// **Measured change: last frame's record, in the four slots.** One texel per
+// 3x3 block: 0 the world position and, in w, the pixel's column shifted past
+// three flag bits (1 a surface, 2 static, 4 moving); 1 and 2 the G-buffer's
+// surface and albedo texels exactly as the trace read them; 3 the id lane's
+// packed roughness and occlusion, the diffuse and highlight luminance the
+// trace wrote, and the pixel's row.
+layout(set = 3, binding = 0) uniform sampler2D u_Record0;
+layout(set = 3, binding = 1) uniform sampler2D u_Record1;
+layout(set = 3, binding = 2) uniform sampler2D u_Record2;
+layout(set = 3, binding = 3) uniform sampler2D u_Record3;
+// Each lamp's place in last frame's upload, by this frame's index -- the
+// place its draws were keyed on. See Renderer3D::RelightDirectChange.
+// Two halves: by this frame's index, the place the lamp had last frame (with
+// 0x40000000 set on a lamp that was not there); then, by last frame's index
+// from `NearClip` on, where that lamp is now (all ones for a lamp gone).
+layout(std430, set = 3, binding = 4) readonly buffer DirectChangeRolls
+{
+	uint Rolls[];
+} u_ChangeRolls;
+// **Last frame's choices at the sampled pixel**, which the re-light shades
+// again as they were: the lamps' places plus one (zero for none), four and
+// four, and what each was worth -- the cell's total over K times its score.
+// A worth below zero in the first slot means the trace shaded every lamp.
+layout(set = 3, binding = 5) uniform sampler2D u_Picks0;
+layout(set = 3, binding = 6) uniform sampler2D u_Picks1;
+layout(set = 3, binding = 7) uniform sampler2D u_PickWorth0;
+layout(set = 3, binding = 8) uniform sampler2D u_PickWorth1;
+#else
 layout(set = 3, binding = 0) uniform sampler2D u_DepthIn;
 layout(set = 3, binding = 1) uniform sampler2D u_SurfaceIn;
 layout(set = 3, binding = 2) uniform sampler2D u_AlbedoIn;
 layout(set = 3, binding = 3) uniform sampler2D u_SurfaceIdIn;
+#endif
+#if defined(RV_DIRECT_RECORD)
+// **Measured change: what the record keeps beside the G-buffer** -- the pair
+// the trace just wrote, and the scene's velocity, which says whether the
+// surface under the sampled pixel moved (a moved point is no longer where the
+// record says it is, so it carries no information about the light).
+layout(set = 3, binding = 4) uniform sampler2D u_TracedIn;
+layout(set = 3, binding = 5) uniform sampler2D u_TracedSpecularIn;
+layout(set = 3, binding = 6) uniform sampler2D u_VelocityIn;
+#endif
 
 layout(push_constant) uniform DirectParams
 {
@@ -102,9 +161,69 @@ layout(push_constant) uniform DirectParams
 // quantise the one number the estimate divides by.
 layout(location = 0) out uvec4 o_Choice;
 layout(location = 1) out uvec4 o_Worth;
+#elif defined(RV_DIRECT_RECORD)
+layout(location = 0) out vec4 o_Record0;
+layout(location = 1) out vec4 o_Record1;
+layout(location = 2) out vec4 o_Record2;
+layout(location = 3) out vec4 o_Record3;
+// **Measured change: and what the trace chose at the sampled pixel.** The same
+// reservoirs over the same cell with the same draws, written instead of shaded:
+// places plus one and what each was worth, four and four.
+layout(location = 4) out vec4 o_Picks0;
+layout(location = 5) out vec4 o_Picks1;
+layout(location = 6) out vec4 o_PickWorth0;
+layout(location = 7) out vec4 o_PickWorth1;
+#elif defined(RV_DIRECT_RELIGHT)
+// The change per block: the diffuse's difference and the larger of the two
+// luminances it is a share of, then the highlight's -- the reference below
+// zero where the block carries no information. And the guide the filter stops
+// at edges with: the recorded normal, and the plane it lies in (n . P) in w;
+// all zero where there is no information.
+layout(location = 0) out vec4 o_Change;
+layout(location = 1) out vec4 o_ChangeGuide;
 #else
 layout(location = 0) out vec4 o_Diffuse;
 layout(location = 1) out vec4 o_Specular;
+#endif
+
+// **Measured change: the draws' keys.** The trace keys a lamp's draws on its
+// place in this frame's upload and its pixel; the re-light keys them on last
+// frame's place and the recorded pixel, so the same draws come out. Spelled
+// the trace's way when there is no re-light, so its text is what it was.
+#if defined(RV_DIRECT_RELIGHT) || defined(RV_DIRECT_RECORD)
+uvec2 g_DirectPixel = uvec2(0u);
+#define RV_DIRECT_PIXEL g_DirectPixel
+#else
+#define RV_DIRECT_PIXEL uvec2(gl_FragCoord.xy)
+#endif
+#ifdef RV_DIRECT_RELIGHT
+#define RV_DIRECT_ROLL(index) u_ChangeRolls.Rolls[index]
+#define RV_DIRECT_EYE u_Direct.CameraPosition.xyz
+#else
+#define RV_DIRECT_ROLL(index) (index)
+#define RV_DIRECT_EYE u_Scene.CameraPosition.xyz
+#endif
+
+// **Measured change: the list a re-light walks its lamps from.** The trace
+// walks the cluster cell its pixel falls in, and a cluster cell is cut through
+// this frame's view: once the camera has moved, a point recorded last frame
+// falls in another cell, and a point that has left the frame falls in none --
+// the clamp hands it an edge cell whose list need not hold its lamps. So the
+// re-light walks the world grid's cell, with no camera in the arithmetic, or
+// every positional lamp where the point is outside the grid (which is outside
+// every lamp's reach, so that walk finds nothing). A world cell holds every lamp
+// that reaches the point, in the brightness order the cluster cells keep
+// (LightGrid.cpp) -- the lamps that add anything are the same lamps, added in
+// the same order. Spelled the trace's way where there is no re-light.
+#ifdef RV_DIRECT_RELIGHT
+bool g_CellsFromWorld = false;
+uint RelightCellIndex(uint at)
+{
+	return g_CellsFromWorld ? u_WorldCellIndices.Indices[at] : at;
+}
+#define RV_CELL_INDEX(at) RelightCellIndex(at)
+#else
+#define RV_CELL_INDEX(at) u_CellIndices.Indices[at]
 #endif
 
 #if defined(RV_DIRECT_SHADE)
@@ -417,12 +536,56 @@ void main()
 #if defined(RV_DIRECT_CHOOSE)
 	o_Choice = uvec4(0u);
 	o_Worth = uvec4(0u);
+#elif defined(RV_DIRECT_RECORD)
+	// No surface, until one is found: flags zero.
+	o_Record0 = vec4(0.0);
+	o_Record1 = vec4(0.0);
+	o_Record2 = vec4(0.0);
+	o_Record3 = vec4(0.0);
+	o_Picks0 = vec4(0.0);
+	o_Picks1 = vec4(0.0);
+	o_PickWorth0 = vec4(0.0);
+	o_PickWorth1 = vec4(0.0);
+#elif defined(RV_DIRECT_RELIGHT)
+	// No information, which is not the same as no change: the references
+	// below zero keep the block out of the filter altogether.
+	o_Change = vec4(0.0, -1.0, 0.0, -1.0);
+	o_ChangeGuide = vec4(0.0);
 #else
 	o_Diffuse = vec4(0.0, 0.0, 0.0, -1.0);
 	o_Specular = vec4(0.0, 0.0, 0.0, -1.0);
 #endif
 
-#ifdef RV_DIRECT_WATER
+#ifdef RV_DIRECT_RELIGHT
+	// **Last frame's sampled pixel, and what the G-buffer held under it.** A
+	// block whose record found no surface, or found one that was moving, says
+	// nothing about the light: a moved point is not where the record put it.
+	const ivec2 block = ivec2(gl_FragCoord.xy);
+	const vec4 record0 = texelFetch(u_Record0, block, 0);
+	const vec4 record3 = texelFetch(u_Record3, block, 0);
+	const uint recordFlags = uint(record0.w);
+	if ((recordFlags & 1u) == 0u || (recordFlags & 4u) != 0u)
+		return;
+	const ivec2 texel = ivec2(int(recordFlags >> 3u), int(record3.w));
+	const vec4 surface = texelFetch(u_Record1, block, 0);
+	// Every draw walked as the trace walked it at that pixel last frame.
+	g_DirectPixel = uvec2(texel);
+	g_TracePixel = vec2(texel) + 0.5;
+	g_TraceFrame = mod(u_Direct.Frame, 1024.0);
+	g_TraceAnimated = u_Direct.Animated > 0.5;
+	g_TraceCamera = u_Direct.CameraPosition.xyz;
+#elif defined(RV_DIRECT_RECORD)
+	// **One pixel of this block, a different one each frame**, so over nine
+	// frames every pixel has been asked -- a change narrower than a block is
+	// still found, a frame or a few late rather than never.
+	const ivec2 block = ivec2(gl_FragCoord.xy);
+	const ivec2 recordSize = textureSize(u_SurfaceIn, 0);
+	const uint pick = BudgetHash(uint(block.x) ^ (uint(block.y) << 16u)
+								 ^ (uint(mod(u_Direct.Frame, 1024.0)) * 0x27D4EB2Du)) % 9u;
+	const ivec2 texel = min(block * 3 + ivec2(int(pick % 3u), int(pick / 3u)), recordSize - 1);
+	const vec4 surface = texelFetch(u_SurfaceIn, texel, 0);
+	g_DirectPixel = uvec2(texel);
+#elif defined(RV_DIRECT_WATER)
 	// **RT-8 job 1: this pass may be smaller than the layer it reads.** The
 	// sea picks its lamps once per block, so the pass runs on the block grid
 	// and the layer under it is still full size -- `gl_FragCoord` is this
@@ -447,6 +610,8 @@ void main()
 	const vec4 position = texelFetch(u_DepthIn, layerTexel, 0);
 	if (position.w <= 0.5)
 		return;
+#elif defined(RV_DIRECT_RELIGHT)
+	// The record found the surface; its position is kept, not rebuilt.
 #else
 	const float depth = texelFetch(u_DepthIn, texel, 0).r;
 	if (SurfaceIsEmpty(surface) || depth >= 1.0)
@@ -456,9 +621,16 @@ void main()
 	// The surface, as rtgi_trace reconstructs it: linear depth through the
 	// inverse projection at the pixel centre, less the jitter it was drawn
 	// with, into the camera's frame.
-#ifndef RV_DIRECT_WATER
+#if !defined(RV_DIRECT_WATER) && !defined(RV_DIRECT_RELIGHT)
 	const bool flip = u_Direct.FlipY > 0.5;
+#if defined(RV_DIRECT_RECORD)
+	// The sampled pixel's centre in the texel space the trace's `uv` is in, so
+	// the snap below lands on the texel the trace snapped to and the position
+	// is the trace's to the bit.
+	const vec2 uv = (vec2(texel) + 0.5) / vec2(textureSize(u_DepthIn, 0));
+#else
 	const vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+#endif
 	const vec2 depthSize = vec2(textureSize(u_DepthIn, 0));
 	const vec2 snapped = (floor(uv * depthSize) + 0.5) / depthSize;
 	const float z = LinearDepth(depth, u_Direct.NearClip, u_Direct.FarClip);
@@ -493,24 +665,57 @@ void main()
 	p.Albedo = albedo.rgb;
 	p.F0 = vec3(0.08 * clamp(albedo.a, 0.0, 1.0));
 #else
+#ifdef RV_DIRECT_RELIGHT
+	p.P = record0.xyz;
+#else
 	p.P = u_Direct.CameraPosition.xyz + vec3(dot(u_Direct.CameraRow0.xyz, view),
 											  dot(u_Direct.CameraRow1.xyz, view),
 											  dot(u_Direct.CameraRow2.xyz, view));
+#endif
 	p.N = OctDecode(surface.rg);
 	p.RawRoughness = clamp(surface.b, 0.0, 1.0);
 	p.Metallic = clamp(surface.a, 0.0, 1.0);
 	// The id lane: the roughness the lit shader shades analytic lights with
 	// (specular-antialiased -- without it the chrome poles came out three
 	// levels dark), the material's occlusion, and Static in the sign.
+#ifdef RV_DIRECT_RELIGHT
+	// The record keeps the sign as a flag and the packed lane itself.
+	const vec2 surfaceId = vec2((recordFlags & 2u) != 0u ? -1.0 : 1.0, record3.x);
+#else
 	const vec2 surfaceId = texelFetch(u_SurfaceIdIn, texel, 0).rg;
+#endif
 	p.Roughness = clamp(floor(surfaceId.g) / 65535.0, 0.0, 1.0);
 	p.Occlusion = clamp(fract(surfaceId.g), 0.0, 1.0);
 	p.Static = surfaceId.r < 0.0;
+#ifdef RV_DIRECT_RELIGHT
+	const vec4 albedo = texelFetch(u_Record2, block, 0);
+#else
 	const vec4 albedo = texelFetch(u_AlbedoIn, texel, 0);
+#endif
 	p.Albedo = albedo.rgb;
 	p.F0 = mix(vec3(0.08 * clamp(albedo.a, 0.0, 1.0)), albedo.rgb, p.Metallic);
 #endif
-	p.V = normalize(u_Scene.CameraPosition.xyz - p.P);
+#if defined(RV_DIRECT_RECORD)
+	// **The record: nothing lit, and nothing traced.** Moving means the surface
+	// moved on its own, with the camera's motion taken out of the velocity
+	// (include/change_record.glsl) -- so a record taken while the camera moves
+	// still says something.
+	{
+		const bool moving = RecordMovedOnItsOwn(texelFetch(u_VelocityIn, texel, 0).xy, p.P,
+												vec2(textureSize(u_VelocityIn, 0)));
+		const uint flags = 1u | (surfaceId.r < 0.0 ? 2u : 0u) | (moving ? 4u : 0u);
+		const vec3 kLum = vec3(0.2126, 0.7152, 0.0722);
+		o_Record0 = vec4(p.P, float((uint(texel.x) << 3u) | flags));
+		o_Record1 = surface;
+		o_Record2 = albedo;
+		o_Record3 = vec4(surfaceId.g,
+						 dot(texelFetch(u_TracedIn, texel, 0).rgb, kLum),
+						 dot(texelFetch(u_TracedSpecularIn, texel, 0).rgb, kLum),
+						 float(texel.y));
+		// Not returned: the choices below are the rest of the record.
+	}
+#endif
+	p.V = normalize(RV_DIRECT_EYE - p.P);
 	p.NdotV = max(dot(p.N, p.V), 0.0);
 #ifndef RV_DIRECT_WATER
 	p.FieldWeight = p.Static && u_Scene.IrradianceExtents.w > 0.0
@@ -532,9 +737,39 @@ void main()
 	// and 2.4 ms against the two private passes' 1.27, for a sun shaded twice.
 	directionalCount = 0;
 #endif
+#ifdef RV_DIRECT_RELIGHT
+	// The world grid's cell, or every positional lamp (see RelightCellIndex).
+	uint fullOffset = uint(u_Scene.ClusterGrid.w);
+	uint fullCount = uint(max(u_Scene.LightCount - int(u_Scene.ClusterGrid.w), 0));
+	uint liveOffset = fullOffset;
+	uint liveCount = fullCount;
+	// Whether the list holds a lamp the field owns, which is all the loss below
+	// could walk for; not known of the whole list, so walked.
+	bool holdsOwned = true;
+	{
+		const vec3 at = (p.P - u_Scene.WorldGridOrigin.xyz) * u_Scene.WorldGridScale.xyz;
+		const vec3 dims = vec3(RV_WORLD_GRID_X, RV_WORLD_GRID_Y, RV_WORLD_GRID_Z);
+		if (u_Scene.WorldGridOrigin.w > 0.5 && all(greaterThanEqual(at, vec3(0.0)))
+			&& all(lessThan(at, dims)))
+		{
+			const uvec3 c = uvec3(at);
+			const uint worldCell = (c.z * RV_WORLD_GRID_Y + c.y) * RV_WORLD_GRID_X + c.x;
+			g_CellsFromWorld = true;
+			fullOffset = u_WorldCells.Cells[worldCell].Offset;
+			fullCount = u_WorldCells.Cells[worldCell].Count;
+			liveOffset = u_WorldCells.Cells[worldCell].LiveOffset;
+			liveCount = u_WorldCells.Cells[worldCell].LiveCount;
+			holdsOwned = liveCount != fullCount;
+		}
+	}
+#else
 	const uint cell = ClusterCellFor(p.P);
 	const uint fullOffset = u_Cells.Cells[cell].Offset;
 	const uint fullCount = u_Cells.Cells[cell].Count;
+	const uint liveOffset = u_Cells.Cells[cell].LiveOffset;
+	const uint liveCount = u_Cells.Cells[cell].LiveCount;
+	const bool holdsOwned = liveCount != fullCount;
+#endif
 	uint cellOffset = fullOffset;
 	uint cellCount = fullCount;
 	if ((int(u_Scene.WorldGridScale.w + 0.5) & 16) != 0)
@@ -543,8 +778,8 @@ void main()
 	const bool cullInsideField = p.Static && p.FieldWeight >= 1.0;
 	if (cullInsideField)
 	{
-		cellOffset = u_Cells.Cells[cell].LiveOffset;
-		cellCount = u_Cells.Cells[cell].LiveCount;
+		cellOffset = liveOffset;
+		cellCount = liveCount;
 	}
 #endif
 	// The budget's "lights per pixel", counted here as the loop counted it.
@@ -555,7 +790,7 @@ void main()
 	vec3 d, s, L;
 	float toward;
 
-#ifndef RV_DIRECT_CHOOSE
+#if !defined(RV_DIRECT_CHOOSE) && !defined(RV_DIRECT_RECORD)
 	// The directional lights are not chosen -- there are one or two of them and
 	// they are the sun -- so they belong to whoever shades, and the choose pass
 	// leaves them alone.
@@ -565,7 +800,7 @@ void main()
 		const float liveShare = 1.0 - FieldShare(p, light);
 		if (liveShare <= 0.0 || !DirectTerm(p, light, d, s, L, toward))
 			continue;
-		const float visible = DirectVisibility(p, light, uint(i), L, toward, RV_RAY_MASK_SCENE);
+		const float visible = DirectVisibility(p, light, RV_DIRECT_ROLL(uint(i)), L, toward, RV_RAY_MASK_SCENE);
 		diffuse += d * (liveShare * visible);
 		specular += s * (liveShare * visible);
 	}
@@ -741,6 +976,82 @@ void main()
 			specular += s * scale;
 		}
 	}
+#elif defined(RV_DIRECT_RELIGHT)
+	// **Last frame's estimate, shaded again with this frame's lamps.** Not a
+	// fresh draw: the reservoirs' picks depend on every other lamp in the cell,
+	// so a lamp that changed would move the picks of lamps that did not, and
+	// the difference would be that resampling rather than light. The trace's
+	// own choices are replayed instead -- each lamp it kept, at the weight it
+	// kept it at, with the ray it traced -- so an unchanged lamp gives back its
+	// share to the bit, a lamp gone gives nothing, a dimmed one its new share.
+	// A lamp that was not there last frame could not have been chosen, so it is
+	// added in full. Where the trace shaded every lamp, this does the same over
+	// this frame's list, which already says which lamps are gone and new.
+	{
+		const vec4 picks0 = texelFetch(u_Picks0, block, 0);
+		const vec4 picks1 = texelFetch(u_Picks1, block, 0);
+		const vec4 pickWorth0 = texelFetch(u_PickWorth0, block, 0);
+		const vec4 pickWorth1 = texelFetch(u_PickWorth1, block, 0);
+		const uint nowCount = uint(u_Direct.NearClip + 0.5);
+		const bool everyLamp = pickWorth0.x < 0.0;
+		if (!everyLamp)
+		{
+			uint  tracedAt[kMaxRays];
+			float tracedVisible[kMaxRays];
+			int   traced = 0;
+			for (int r = 0; r < int(kMaxRays); ++r)
+			{
+				const float at = r < 4 ? picks0[r] : picks1[r - 4];
+				const float worth = r < 4 ? pickWorth0[r] : pickWorth1[r - 4];
+				if (at < 0.5 || worth <= 0.0)
+					continue;
+				const uint now = u_ChangeRolls.Rolls[nowCount + uint(at + 0.5) - 1u];
+				if (now == 0xFFFFFFFFu)
+					continue;
+				const GpuLight light = u_Lights.Lights[now];
+				if (!DirectTerm(p, light, d, s, L, toward))
+					continue;
+				// One ray per distinct lamp, as the trace traced them.
+				float visible = -1.0;
+				for (int q = 0; q < traced; ++q)
+				{
+					if (tracedAt[q] == now)
+					{
+						visible = tracedVisible[q];
+						break;
+					}
+				}
+				if (visible < 0.0)
+				{
+					visible = DirectVisibility(p, light, RV_DIRECT_ROLL(now), L, toward, RV_RAY_MASK_SCENE);
+					tracedAt[traced] = now;
+					tracedVisible[traced] = visible;
+					++traced;
+				}
+				const float liveShare = 1.0 - FieldShare(p, light);
+				const float scale = visible * liveShare * worth;
+				diffuse += d * scale;
+				specular += s * scale;
+			}
+		}
+		for (uint e = 0u; e < cellCount; ++e)
+		{
+			const uint i = RV_CELL_INDEX(cellOffset + e);
+			if (!everyLamp && (u_ChangeRolls.Rolls[i] & 0x40000000u) == 0u)
+				continue;
+#ifdef RV_LIGHT_CULL
+			if (LightCullRejects(i, p.P, cullInsideField, true))
+				continue;
+#endif
+			const GpuLight light = u_Lights.Lights[i];
+			const float liveShare = 1.0 - FieldShare(p, light);
+			if (liveShare <= 0.0 || !DirectTerm(p, light, d, s, L, toward))
+				continue;
+			const float visible = DirectVisibility(p, light, RV_DIRECT_ROLL(i), L, toward, RV_RAY_MASK_SCENE);
+			diffuse += d * (liveShare * visible);
+			specular += s * (liveShare * visible);
+		}
+	}
 #else
 #if defined(RV_DIRECT_CHOOSE)
 	// A split pass always samples: the fused path's "few enough, shade them
@@ -752,6 +1063,12 @@ void main()
 	if (K == 0 || int(cellCount) <= K)
 #endif
 	{
+#if defined(RV_DIRECT_RECORD)
+		// Nothing chosen: the trace shades every lamp here, and so will the
+		// re-light.
+		o_PickWorth0 = vec4(-1.0);
+		return;
+#endif
 		// Every lamp: the reference arm, and the cheap case where sampling
 		// K of fewer would only add noise.
 		for (uint e = 0u; e < cellCount; ++e)
@@ -765,7 +1082,7 @@ void main()
 			const float liveShare = 1.0 - FieldShare(p, light);
 			if (liveShare <= 0.0 || !DirectTerm(p, light, d, s, L, toward))
 				continue;
-			const float visible = DirectVisibility(p, light, i, L, toward, RV_RAY_MASK_SCENE);
+			const float visible = DirectVisibility(p, light, RV_DIRECT_ROLL(i), L, toward, RV_RAY_MASK_SCENE);
 			diffuse += d * (liveShare * visible);
 			specular += s * (liveShare * visible);
 		}
@@ -781,7 +1098,7 @@ void main()
 		float weight[kMaxRays];
 		uint  seed[kMaxRays];
 		float total = 0.0;
-		const uvec2 px = uvec2(gl_FragCoord.xy);
+		const uvec2 px = RV_DIRECT_PIXEL;
 		const uint salt = u_Direct.Animated > 0.5
 						? uint(mod(u_Direct.Frame, 1024.0)) * 0xC2B2AE35u : 0u;
 		for (uint r = 0u; r < kMaxRays; ++r)
@@ -804,7 +1121,7 @@ void main()
 			const float accept = score / total;
 			for (int r = 0; r < K; ++r)
 			{
-				const float draw = float(BudgetHash(seed[r] ^ (i * 0x9E3779B9u)) >> 8u)
+				const float draw = float(BudgetHash(seed[r] ^ (RV_DIRECT_ROLL(i) * 0x9E3779B9u)) >> 8u)
 								 * (1.0 / 16777216.0);
 				if (draw < accept)
 				{
@@ -833,6 +1150,41 @@ void main()
 		o_Choice = outIndex;
 		o_Worth = outWorth;
 		return;
+#elif defined(RV_DIRECT_RECORD)
+		// **The choices, written.** What the shading below would multiply each
+		// kept lamp by, before its visibility and live share: the cell's total
+		// over K times the lamp's score.
+		{
+			vec4 picks0 = vec4(0.0);
+			vec4 picks1 = vec4(0.0);
+			vec4 pickWorth0 = vec4(0.0);
+			vec4 pickWorth1 = vec4(0.0);
+			if (total > 0.0)
+			{
+				for (int r = 0; r < K; ++r)
+				{
+					if (weight[r] <= 0.0)
+						continue;
+					const float at = float(index[r] + 1u);
+					const float worth = total / (float(K) * weight[r]);
+					if (r < 4)
+					{
+						picks0[r] = at;
+						pickWorth0[r] = worth;
+					}
+					else
+					{
+						picks1[r - 4] = at;
+						pickWorth1[r - 4] = worth;
+					}
+				}
+			}
+			o_Picks0 = picks0;
+			o_Picks1 = picks1;
+			o_PickWorth0 = pickWorth0;
+			o_PickWorth1 = pickWorth1;
+			return;
+		}
 #endif
 		if (total > 0.0)
 		{
@@ -859,7 +1211,7 @@ void main()
 					}
 				}
 				if (!traced)
-					visible[r] = DirectVisibility(p, light, index[r], L, toward, RV_RAY_MASK_SCENE);
+					visible[r] = DirectVisibility(p, light, RV_DIRECT_ROLL(index[r]), L, toward, RV_RAY_MASK_SCENE);
 				// One over the probability this lamp had of being chosen,
 				// over K: the whole weight of the cell divided among the
 				// survivors; the live share is inside the score.
@@ -885,7 +1237,7 @@ void main()
 	// owns, so there is nothing to lose: the walk is skipped, not paid.
 	if (p.Static && p.FieldWeight > 0.0 && u_Scene.IrradianceExtents.w > 0.0
 #ifdef RV_LIGHT_CULL
-		&& u_Cells.Cells[cell].LiveCount != fullCount
+		&& holdsOwned
 #endif
 		)
 	{
@@ -900,7 +1252,7 @@ void main()
 				continue;
 			if (!DirectTerm(p, light, d, s, L, toward))
 				continue;
-			const float blocked = 1.0 - DirectVisibility(p, light, uint(i), L, toward, RV_RAY_MASK_MOVING);
+			const float blocked = 1.0 - DirectVisibility(p, light, RV_DIRECT_ROLL(uint(i)), L, toward, RV_RAY_MASK_MOVING);
 			lossDiffuse += d * (blocked * fieldShare);
 			lossSpecular += s * (blocked * fieldShare);
 			anyLoss = true;
@@ -908,7 +1260,7 @@ void main()
 #ifdef RV_LIGHT_CULL
 		for (uint e = 0u; e < fullCount; ++e)
 		{
-			const uint i = u_CellIndices.Indices[fullOffset + e];
+			const uint i = RV_CELL_INDEX(fullOffset + e);
 			const uint packed = floatBitsToUint(u_LightCull.Cull[i].w);
 			if (((packed >> 14u) & 3u) == LIGHT_CULL_LIVE || (packed & (1u << 13u)) == 0u)
 				continue;
@@ -920,7 +1272,7 @@ void main()
 				continue;
 			if (!DirectTerm(p, light, d, s, L, toward))
 				continue;
-			const float blocked = 1.0 - DirectVisibility(p, light, i, L, toward, RV_RAY_MASK_MOVING);
+			const float blocked = 1.0 - DirectVisibility(p, light, RV_DIRECT_ROLL(i), L, toward, RV_RAY_MASK_MOVING);
 			lossDiffuse += d * (blocked * fieldShare);
 			lossSpecular += s * (blocked * fieldShare);
 			anyLoss = true;
@@ -967,7 +1319,29 @@ void main()
 		}
 	}
 
-#ifndef RV_DIRECT_CHOOSE
+#if defined(RV_DIRECT_RELIGHT)
+	// **The change at this block: now against then, diffuse and highlight.**
+	// "Then" is the luminance the trace wrote here last frame, which went
+	// through a half-float target and lost up to a step to the write; "now" has
+	// not. A difference inside that step and a hair more is the write, not the
+	// light, so it reads as none. The reference is the larger of the two, so a
+	// light that went out entirely reads as all of it having changed.
+	{
+		const vec3 kLum = vec3(0.2126, 0.7152, 0.0722);
+		const float nowD = dot(diffuse, kLum);
+		const float nowS = dot(specular, kLum);
+		float deltaD = nowD - record3.y;
+		float deltaS = nowS - record3.z;
+		const float referenceD = max(max(nowD, record3.y), 0.0);
+		const float referenceS = max(max(nowS, record3.z), 0.0);
+		if (abs(deltaD) <= 0.004 * referenceD + 1.0e-4)
+			deltaD = 0.0;
+		if (abs(deltaS) <= 0.004 * referenceS + 1.0e-4)
+			deltaS = 0.0;
+		o_Change = vec4(deltaD, referenceD, deltaS, referenceS);
+		o_ChangeGuide = vec4(p.N, dot(p.N, p.P));
+	}
+#elif !defined(RV_DIRECT_CHOOSE) && !defined(RV_DIRECT_RECORD)
 	o_Diffuse = vec4(diffuse, 1.0);
 	o_Specular = vec4(specular, 1.0);
 #endif

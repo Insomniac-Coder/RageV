@@ -13,6 +13,7 @@
 namespace RageV
 {
 	struct CameraMotion;
+	struct MeasuredChangeHistory;
 
 
 	// Lit mesh rendering. Unlike Renderer2D, geometry is not merged: each mesh
@@ -383,7 +384,11 @@ namespace RageV
 									 // RT-6.5: the G-buffer's object id, and this pass's own
 									 // copy of it from last frame -- the fourth history test.
 									 const RHI::Ref<RHI::RHITexture>& surfaceId = nullptr,
-									 const RHI::Ref<RHI::RHITexture>& previousIdent = nullptr);
+									 const RHI::Ref<RHI::RHITexture>& previousIdent = nullptr,
+									 // Measured change: the filtered map on the 3x3 block
+									 // grid, red the diffuse's changed share, green the
+									 // twin's. Null is every frame before the check.
+									 const RHI::Ref<RHI::RHITexture>& change = nullptr);
 
 		static void ShadeWaterLamps(const RHI::Ref<RHI::RHITexture>& surface,
 									const RHI::Ref<RHI::RHITexture>& material,
@@ -833,6 +838,87 @@ namespace RageV
 									 RHI::Format targetColor,
 									 const GiTraceView& view, int rays);
 		static bool CanTraceDirectLight();
+		// **Measured change, phase 1 (docs/RT-MEASURED-CHANGE.md).** After the
+		// trace: one pixel per 3x3 block -- its world position, the G-buffer's
+		// texels there as the trace read them, the luminance the trace wrote, and
+		// the lamps the trace chose there with their weights -- into the record's
+		// eight lanes, and the draws the trace walked under beside them. On the
+		// block grid, so the target is a third of the trace's size each way.
+		// Draws nothing, and keeps the record it has, when nothing the direct
+		// light depends on has changed since that record was taken.
+		static void RecordDirectChange(RHI::RHICommandList& cmd,
+									   const RHI::Ref<RHI::RHITexture>& depth,
+									   const RHI::Ref<RHI::RHITexture>& surface,
+									   const RHI::Ref<RHI::RHITexture>& albedo,
+									   const RHI::Ref<RHI::RHITexture>& surfaceId,
+									   const RHI::Ref<RHI::RHITexture>& velocity,
+									   const RHI::Ref<RHI::RHITexture>& traced,
+									   const RHI::Ref<RHI::RHITexture>& tracedSpecular,
+									   const GiTraceView& view, int rays,
+									   MeasuredChangeHistory& history);
+		// And later, before the accumulate: the record's choices shaded again with
+		// its draws and lamp numbering against this frame's lamps. Two lanes on the
+		// block grid: the change and its reference (diffuse, then the highlight),
+		// and the guide the filter stops at edges with. Draws nothing -- and says
+		// so in `history.RelitThisFrame` -- when nothing the direct light depends
+		// on has changed since the record, because the answer could only be "no
+		// change".
+		static void RelightDirectChange(RHI::RHICommandList& cmd,
+										const RHI::Ref<RHI::RHITexture>& record0,
+										const RHI::Ref<RHI::RHITexture>& record1,
+										const RHI::Ref<RHI::RHITexture>& record2,
+										const RHI::Ref<RHI::RHITexture>& record3,
+										const RHI::Ref<RHI::RHITexture>& record4,
+										const RHI::Ref<RHI::RHITexture>& record5,
+										const RHI::Ref<RHI::RHITexture>& record6,
+										const RHI::Ref<RHI::RHITexture>& record7,
+										MeasuredChangeHistory& history);
+		static bool CanMeasureDirectChange();
+		// **Measured change, phase 2 (docs/RT-MEASURED-CHANGE.md): the traced
+		// reflections.** After the trace: one pixel per 3x3 block -- its world
+		// position, the G-buffer's surface and albedo texels, and the luminance
+		// the trace wrote -- into the record's four lanes, with the frame and the
+		// eye the ray was drawn under. A reflection ray's direction comes from a
+		// sequence, not a hash, and its hit is lit without choosing lamps, so the
+		// same ray can be traced again with nothing else kept. Draws nothing, and
+		// keeps the record, while nothing a reflection depends on has changed.
+		static void RecordReflectionChange(const RHI::Ref<RHI::RHITexture>& surface,
+										   const RHI::Ref<RHI::RHITexture>& depth,
+										   const RHI::Ref<RHI::RHITexture>& albedo,
+										   const RHI::Ref<RHI::RHITexture>& traced,
+										   const RHI::Ref<RHI::RHITexture>& velocity,
+										   const GiTraceView& view,
+										   MeasuredChangeHistory& history);
+		// And later, before the accumulate: the record's rays traced into this
+		// frame's scene and compared -- the change and its reference, and the
+		// filter's guide, as the direct light's re-light writes them.
+		static void RelightReflectionChange(const RHI::Ref<RHI::RHITexture>& record0,
+											const RHI::Ref<RHI::RHITexture>& record1,
+											const RHI::Ref<RHI::RHITexture>& record2,
+											const RHI::Ref<RHI::RHITexture>& record3,
+											MeasuredChangeHistory& history);
+		static bool CanMeasureReflectionChange();
+		// **Measured change, phase 3: the traced bounce.** After the GI trace, on
+		// its own grid: one texel per 3x3 block -- the world point, the surface
+		// texel, the rays cast there and the luminance written -- with the frame
+		// and eye beside it. The seed is a hash of that texel and frame and a hit
+		// chooses no lamps, so the same rays are cast again next frame.
+		// `checkRays`: 0 casts the trace's count at each point, 1 one ray
+		// (RayOptimisationPreset::ChangeRays).
+		static void RecordGiChange(RHI::RHICommandList& cmd,
+								   const RHI::Ref<RHI::RHITexture>& depth,
+								   const RHI::Ref<RHI::RHITexture>& surface,
+								   const RHI::Ref<RHI::RHITexture>& budget,
+								   const RHI::Ref<RHI::RHITexture>& traced,
+								   const RHI::Ref<RHI::RHITexture>& velocity,
+								   const GiTraceView& view, int rays, int checkRays,
+								   MeasuredChangeHistory& history);
+		static void RelightGiChange(RHI::RHICommandList& cmd,
+									const RHI::Ref<RHI::RHITexture>& record0,
+									const RHI::Ref<RHI::RHITexture>& record1,
+									const RHI::Ref<RHI::RHITexture>& record2,
+									MeasuredChangeHistory& history);
+		static bool CanMeasureGiChange();
 		// RT-8 job 1: and whether the sea can take the same route.
 		static bool CanTraceDirectWater();
 		// **RT-8 job 1: the direct light over the sea's own layer.** Its

@@ -46,22 +46,55 @@ void main()
 #define RV_TRACE_ONLY
 // This pass's rays count in the reflection lane, not the bounce's.
 #define RV_REFLECTION_TRACE
+#ifdef RV_REFLECTION_RELIGHT
+// **Measured change (docs/RT-MEASURED-CHANGE.md, phase 2): the eye the record
+// was taken from**, for the thin-member fade inside traversal. A global,
+// because the traversal is in the header below and the push block after it;
+// main sets it first.
+vec3 g_TraceCamera = vec3(0.0);
+#define RV_TRACE_CAMERA g_TraceCamera
+#endif
 #include "include/pbr_fragment.glsl"
+#ifdef RV_REFLECTION_RECORD
+#include "include/change_record.glsl"
+#endif
 
 layout(location = 0) in vec2 v_UV;
 
 // The scene pass's surface attachment: world normal octahedral in rg,
 // roughness in b, metallic in a; `b <= 0` is no surface. Its depth. The tile
 // allocator's map, or the surface again when there is none this frame.
+#ifdef RV_REFLECTION_RELIGHT
+// **Measured change, phase 2: last frame's record, in the first four slots.** One
+// texel per 3x3 block: 0 the world position and, in w, the sampled pixel's
+// column shifted past three flag bits (1 a traced glossy surface, 4 moving); 1
+// and 3 the G-buffer's surface and albedo texels exactly as the trace read
+// them; 2 the luminance the trace wrote, and the pixel's row in w.
+layout(set = 3, binding = 0) uniform sampler2D u_Record0;
+layout(set = 3, binding = 1) uniform sampler2D u_Record1;
+layout(set = 3, binding = 2) uniform sampler2D u_Record2;
+layout(set = 3, binding = 3) uniform sampler2D u_Record3;
+#else
 layout(set = 3, binding = 0) uniform sampler2D u_Surface;
 layout(set = 3, binding = 1) uniform sampler2D u_Depth;
 layout(set = 3, binding = 2) uniform sampler2D u_Budget;
+#endif
 // **The albedo lane, for the metal's own colour.** rgb is the albedo and
 // a is the dielectric specular scalar -- exactly what the lit shader
 // builds F0 from, and F0 for a metal *is* the metal's colour. Without it
 // this pass hands the compositor an untinted picture and a coloured metal
 // reflects the room in grey.
+#ifndef RV_REFLECTION_RELIGHT
 layout(set = 3, binding = 3) uniform sampler2D u_Albedo;
+#endif
+#ifdef RV_REFLECTION_RECORD
+// **Measured change, phase 2: what the record keeps beside the G-buffer** -- the
+// picture the trace just wrote, and the scene's velocity, which with the
+// camera's own motion taken out says whether the surface under the sampled
+// pixel moved.
+layout(set = 3, binding = 4) uniform sampler2D u_Traced;
+layout(set = 3, binding = 5) uniform sampler2D u_Velocity;
+#endif
 
 layout(push_constant) uniform LampParams
 {
@@ -79,11 +112,23 @@ layout(push_constant) uniform LampParams
 	vec4 Trace;
 } u_Lamps;
 
+#if defined(RV_REFLECTION_RECORD)
+layout(location = 0) out vec4 o_Record0;
+layout(location = 1) out vec4 o_Record1;
+layout(location = 2) out vec4 o_Record2;
+layout(location = 3) out vec4 o_Record3;
+#elif defined(RV_REFLECTION_RELIGHT)
+// The change at the block and its reference, and the guide the filter stops at
+// edges with -- the direct light's layout, the highlight lane left empty.
+layout(location = 0) out vec4 o_Change;
+layout(location = 1) out vec4 o_ChangeGuide;
+#else
 layout(location = 0) out vec4 o_Reflection;
 // The ray's direction (octahedral) and the pdf it was drawn with, for the
 // resolve's ratio estimator: a neighbour's hit point re-aimed from another
 // texel is a sample of that texel's lobe, weighted by lobe / this pdf.
 layout(location = 1) out vec4 o_Hit;
+#endif
 
 // The surface attachment's encoding is octahedral.glsl's, in zero to one; the
 // lit header already includes that file (guarded), so its decoder is the one
@@ -137,6 +182,35 @@ vec3 GlossyReflectionLD(vec3 N, vec3 V, float roughness, ivec2 texel, uint frame
 
 void main()
 {
+#if defined(RV_REFLECTION_RECORD)
+	o_Record0 = vec4(0.0);
+	o_Record1 = vec4(0.0);
+	o_Record2 = vec4(0.0);
+	o_Record3 = vec4(0.0);
+	// **One pixel of this block, a different one each frame.**
+	const ivec2 block = ivec2(gl_FragCoord.xy);
+	const ivec2 size = textureSize(u_Surface, 0);
+	const uint pick = BudgetHash(uint(block.x) ^ (uint(block.y) << 16u)
+								 ^ (uint(u_Scene.GlobalIllumination.y) * 0x27D4EB2Du) ^ 0x5BD1E995u) % 9u;
+	const ivec2 texel = min(block * 3 + ivec2(int(pick % 3u), int(pick / 3u)), size - 1);
+	const vec4 surface = texelFetch(u_Surface, texel, 0);
+	if (surface.b <= 0.0)
+		return;
+#elif defined(RV_REFLECTION_RELIGHT)
+	o_Change = vec4(0.0, -1.0, 0.0, -1.0);
+	o_ChangeGuide = vec4(0.0);
+	// **Last frame's sampled pixel.** A block with no traced surface, or one that
+	// moved, says nothing about the light.
+	const ivec2 block = ivec2(gl_FragCoord.xy);
+	const vec4 record0 = texelFetch(u_Record0, block, 0);
+	const vec4 record2 = texelFetch(u_Record2, block, 0);
+	const uint recordFlags = uint(record0.w);
+	if ((recordFlags & 1u) == 0u || (recordFlags & 4u) != 0u)
+		return;
+	const ivec2 texel = ivec2(int(recordFlags >> 3u), int(record2.w));
+	const vec4 surface = texelFetch(u_Record1, block, 0);
+	g_TraceCamera = u_Lamps.Probe.xyz;
+#else
 	o_Reflection = vec4(0.0, 0.0, 0.0, -1.0);
 	o_Hit = vec4(0.0);
 
@@ -145,6 +219,7 @@ void main()
 	const vec4 surface = texelFetch(u_Surface, texel, 0);
 	if (surface.b <= 0.0)
 		return;
+#endif
 
 	// The same window the lit shader weighs its mirror by: outside it the
 	// probe answers alone and no ray is cast.
@@ -154,6 +229,12 @@ void main()
 	if (mirror <= 0.0)
 		return;
 
+#ifdef RV_REFLECTION_RELIGHT
+	const vec3 P = record0.xyz;
+	const vec3 N = SurfaceNormal(surface.rg);
+	const vec3 V = normalize(u_Lamps.Probe.xyz - P);
+	const uint frame = uint(u_Lamps.Probe.w);
+#else
 	const float depth = texelFetch(u_Depth, texel, 0).r;
 	if (depth >= 1.0)
 		return;
@@ -168,12 +249,31 @@ void main()
 	const vec3 P = clip.xyz / clip.w;
 	const vec3 N = SurfaceNormal(surface.rg);
 	const vec3 V = normalize(u_Scene.CameraPosition.xyz - P);
+	const uint frame = uint(u_Scene.GlobalIllumination.y);
+#endif
+#if defined(RV_REFLECTION_RECORD)
+	// **The record, and nothing traced.** The luminance is of what the trace
+	// wrote at this pixel -- through its half-float target, as the re-light's
+	// comparison allows for.
+	{
+		// Moved on its own, the camera's motion taken out (include/change_record.glsl).
+		const bool moving = RecordMovedOnItsOwn(texelFetch(u_Velocity, texel, 0).xy, P,
+												vec2(textureSize(u_Velocity, 0)));
+		const vec4 wrote = texelFetch(u_Traced, texel, 0);
+		const uint flags = (wrote.a >= 0.0 ? 1u : 0u) | (moving ? 4u : 0u);
+		o_Record0 = vec4(P, float((uint(texel.x) << 3u) | flags));
+		o_Record1 = surface;
+		o_Record2 = vec4(dot(wrote.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0, 0.0, float(texel.y));
+		o_Record3 = texelFetch(u_Albedo, texel, 0);
+		return;
+	}
+#endif
 
 	// One ray a texel. The preset's MirrorRays column, which used to be the
 	// count drawn here, sets how many neighbours' rays the resolve gathers
 	// instead (WR-16 R3, 2026-09-06); the tile allocator's per-tile scaling
 	// of that count went with it and would return as a scaling of the taps.
-	const vec3 direction = GlossyReflectionLD(N, V, roughness, texel, uint(u_Scene.GlobalIllumination.y));
+	const vec3 direction = GlossyReflectionLD(N, V, roughness, texel, frame);
 	const TracedSurface hit = TraceSurface(P, N, direction, 1.0e4);
 	vec3 radiance = hit.Missed
 				  ? hit.Sky
@@ -190,7 +290,11 @@ void main()
 	// The lit shader used to do this and collapse it to a luminance, because
 	// the weight it passes on has one channel. That is what made gold reflect
 	// grey. Stored tinted, the picture is what it always should have been.
+#ifdef RV_REFLECTION_RELIGHT
+	const vec4 albedo = texelFetch(u_Record3, block, 0);
+#else
 	const vec4 albedo = texelFetch(u_Albedo, texel, 0);
+#endif
 	const vec3 F0 = mix(vec3(0.08 * clamp(albedo.a, 0.0, 1.0)), albedo.rgb,
 						clamp(surface.a, 0.0, 1.0));
 	const vec2 envBRDF = EnvBRDF(max(dot(N, V), 0.0), roughness);
@@ -214,12 +318,27 @@ void main()
 	// the answer.
 	const float tintLuma = dot(reflectance, vec3(0.2126, 0.7152, 0.0722));
 	const vec3 tint = tintLuma > 1.0e-5 ? reflectance / tintLuma : vec3(1.0);
+#if defined(RV_REFLECTION_RELIGHT)
+	// **The change at this block: the same ray, traced into this frame's scene,
+	// against what it found last frame.** A difference inside a half-float step
+	// and a hair is the write, not the light.
+	{
+		const float now = dot(min(radiance, vec3(64.0)) * tint, vec3(0.2126, 0.7152, 0.0722));
+		float delta = now - record2.x;
+		const float reference = max(max(now, record2.x), 0.0);
+		if (abs(delta) <= 0.004 * reference + 1.0e-4)
+			delta = 0.0;
+		o_Change = vec4(delta, reference, 0.0, 0.0);
+		o_ChangeGuide = vec4(N, dot(N, P));
+	}
+#elif !defined(RV_REFLECTION_RECORD)
 	o_Reflection = vec4(min(radiance, vec3(64.0)) * tint, travelled);
 	// GGX sampled by its distribution of half vectors: pdf(L) = D(H) NoH / (4 VoH).
 	const vec3 H = normalize(direction + V);
 	const float pdf = DistributionGGX(N, H, roughness) * max(dot(N, H), 1.0e-4)
 					/ (4.0 * max(dot(V, H), 1.0e-4));
 	o_Hit = vec4(OctEncode(direction), min(pdf, 6.0e4), 0.0);
+#endif
 
 	// The ray above and the shadow rays its hit walked: flushed here, since
 	// the lit shader's flush is compiled out under RV_TRACE_ONLY. `false`:

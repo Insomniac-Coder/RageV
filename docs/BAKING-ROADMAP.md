@@ -218,6 +218,19 @@ capturing, or two probes facing each other capture each other one frame deeper
 every frame. Any multi-bounce bake has to solve this properly (iterate to
 convergence) rather than inherit the single-frame rule.
 
+**Switching a baked light throws the bake away (known, and accepted by the owner
+2026-09-14).** A lamp whose `Mobility` is anything but `Realtime` feeds
+`Scene::LightingHash`. Switched off -- intensity zero -- it leaves `CollectLights`,
+the hash changes and the field is recreated: no file on disk matches the new hash,
+so the field is zeroed and a solve is asked for, and the traced bounce takes over
+and rebuilds what the field held. Measured on the bridge's 120 Hybrid sodium lamps
+(`docs/RT-MEASURED-CHANGE.md`, "The water test"): a tenth of their light still on
+the structure 79 frames after the switch while the temporal filters hold under 1%
+of it, and gone from the water -- which never reads the field -- within a few
+frames. Realtime lamps are not in the hash and switch cleanly (the showroom car's:
+a tenth left after 10 frames). **The owner's ruling: a baked light is baked for a
+reason; a light that switches is made Realtime.**
+
 ---
 
 ## 3. Recommended order

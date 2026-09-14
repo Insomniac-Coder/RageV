@@ -3016,6 +3016,9 @@ namespace RageV
 			data.CastShadows = light.Light.CastShadows;
 			data.Mobility = light.Light.Mobility;
 			data.HybridRadius = light.Light.HybridRadius;
+			// Measured change: the entity, so last frame's place of this lamp
+			// can be found after a switch has renumbered the list.
+			data.Id = (uint32_t)item + 1u;
 
 			lights.push_back(data);
 		}
@@ -3385,7 +3388,7 @@ namespace RageV
 			// the file holds.
 			const uint32_t resolution = (uint32_t)Math::Clamp(probe.Resolution, 16, 1024);
 			if (!probe.Probe || probe.Probe->GetFaceSize() != resolution ||
-				probe.Probe->GetSamples() != Renderer::GetTargetSamples())
+				!probe.Probe->MatchesTarget())
 			{
 				probe.Probe = std::make_shared<ReflectionProbe>(Renderer::GetDevice(), resolution);
 				probe.NextFace = 0;

@@ -1,6 +1,15 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-13 (night): **the entry below headed "the edge flicker was
+**Read this first.** Updated 2026-09-14: **the entry below headed "the anti-lag replaced by
+measuring change" is the current hand-off**, on top of the 2026-09-13 late-night entry after it,
+whose uncommitted state still stands.
+
+**Superseded header.** Updated 2026-09-13 (late night): **the entry below headed "validation
+cleanup mid-way" is the current hand-off** -- the owner stopped the session mid-task and said
+not to revert anything; it lists the unpushed commits, the uncommitted and unverified changes,
+the two validation errors left, and the anti-lag decision.
+
+**Superseded header.** Updated 2026-09-13 (night): **the entry below headed "the edge flicker was
 RT-6 refusing the jitter" is the current hand-off** (RT-20 pushed, scenetest green), and the one after it ("the histories were
 rounding the light away") still holds the day's earlier state and its open list.
 
@@ -18,6 +27,221 @@ table and is the one list. **Before picking anything up, read the ten-item list 
 -- every one of them cost hours today and eight are repeatable by anyone. Older headers follow.
 
 **Superseded header.** Updated 2026-09-07 night: **the whole RT-first series is committed and merged to `main`** (`d34c905`, merged as `ddc7827` -- the sentence "nothing is committed" below was true when it was written and is not now), and **the thirteenth entry is the current hand-off**: two outside reviews were read against the code and filed, adding **six items -- RT-6.6 through RT-6.11 and RT-14**, of which **RT-6.6 is done and measured** (its record is in RT-SERIES.md; uncommitted). `docs/RT-SERIES.md` now opens with a status table; read that before picking anything up. The twelfth entry is the RT-3 / RT-3.1 hand-off, the tenth (2026-09-06) the complete one for the RT-first state (recipes, flags, traps, what is where). `docs/RT-SERIES.md` is the one list with the records of RT-1, RT-2, RT-2.1, RT-3 and RT-3.1. Nothing is committed. **RT-6's geometric half is done** -- the temporal resolve refuses a history by depth, normal and object id, with a neighbour search before it gives up, and the bridge is visibly sharper for it (`build/rt3/taa_car_sidebyside.png`). Its still-feedback half is deferred by the owner to RT-8, because the sea reads zero velocity and nothing in the G-buffer says "water". **Open from the owner and not yet started: improve the denoiser and accumulation, and make the ground reflection less blurry** -- the reflection signal's young blur is `YoungRadius = 12`, and a validated history (RT-6, RT-5) is the precondition for weakening it. The AO look is accepted; the deferred resolve is **RT-2.2**, owner-filed for the end of the series.
+
+## 2026-09-14: the anti-lag replaced by measuring change -- all three phases, on by default (verified), the moving camera built and measured; the water next
+
+**Read `docs/RT-MEASURED-CHANGE.md` first** -- the design, the owner's decisions, and every
+measurement (sections "Phase 1 measured", "Cost cut", "Phase 2", "Phase 3", "Made the engine's
+anti-lag"). Everything below is **uncommitted, built into the Release binaries, and now on by
+default** (`--measured-change=off` is the reference arm), on top of the 2026-09-13 late-night
+entry's uncommitted state, which still stands (do not revert anything; `e71cf0c` and `8d2a318` still
+unpushed; the owner's editor-resaved `showroom.rage` is still not ours).
+
+### State (evening): the owner's three tasks -- "Verify the switch-on and the deletion of the old anti-lag / The moving camera, which is postponed but still a must / The water's own filters, for later"
+
+1. **Verified** (doc: "Default on, verified"): validation clean with no flag (bridge: only the two
+   known errors); check off matches the build before measured change (garage but for its frame-168
+   noise; bridge within its own run-to-run spread); no flag matches `on5` (lights-button curve 10 / 44
+   / 106, bridge identical); scenetest Vulkan 2491 / OpenGL 2432, no failures.
+2. **The moving camera: built and measured** (doc: "The moving camera"). The check no longer waits
+   for a still camera: camera out of the keys, the direct re-light walks the world grid, the records'
+   "moving" flag takes the camera's motion out, the accumulate and TAA read the map where each pixel's
+   history came from, the record retaken every frame the camera moves. Exact in motion (forced maps
+   black); lights button while dollying: 50% of the light gone at 1 frame (5 with the check off), 25%
+   at 2 (14), 10% at 15 (25). Each history keeps as little or less moving as parked. Still pictures
+   unchanged except ~400 ceiling-tube-rim pixels up to 11-15 levels, because the check now also
+   measures the scene finishing arriving on frame 2 (bisected: old first-frame timing matched
+   exactly). **Cost: parked 0.048 ms; camera moving 0.94 ms at Quality** (the bounce record 0.60,
+   the direct record 0.28). **Owner's call: the bounce's check casts one ray under Balanced and
+   Performance** (`RayOptimisationPreset::ChangeRays`, `--change-rays`): 0.56 ms moving, pictures the
+   same parked and moving (doc: "The bounce's check at one ray"). Validation clean, scenetest green.
+   Uncommitted, built.
+3. **The water: tested, nothing to build** (doc: "The water test"). The bridge's 120 sodium lamps
+   switched off mid-run: their light is off the water within a few frames with the check off or on
+   (10% left at 4-5 frames, 2% at 14-16) -- the sea's own averaging is short. **Found on the way**:
+   the light on the bridge structure lingers for over a second (10% left at 79 frames as shipped),
+   and it is the bake, not the filters -- the Hybrid lamps leaving the light list change the lighting
+   hash, the stored field is discarded (zeroed, a solve asked for) and the traced bounce rebuilds what
+   it held. Reported to the owner; not taken up.
+
+### The owner's instructions, in force
+
+- **The lighting must not change.** The owner ruled out anything that alters the picture (stable
+  light ids in the trace were dropped for that): the check replays, it never re-keys the trace.
+- **Both filters** (the signal's accumulator and TAA) are driven by the map.
+- **In order:** (1) phase 3, the bounce light (GI); test; if good, this becomes the engine's
+  anti-lag method, on by default, old anti-lag deleted -- **done and verified**. (2) **The moving
+  camera is non-negotiable** -- **done** (above). (3) The water (the bridge's sea lamps and sea mirror
+  have their own filters) -- **next, not started**. The lamp lenses are fine as they are (owner looked).
+- Explain in few plain words; report after each task; ask before spawning agents.
+
+### What was built
+
+- **Phase 1, direct light** (`direct_trace.rvshader`): `RV_DIRECT_RECORD` (one pixel per 3x3
+  block: world position, the G-buffer's surface/albedo/id texels, the trace's luminance, AND the
+  reservoir's picks and weights -- eight RGBA32F lanes) and `RV_DIRECT_RELIGHT` (replays those
+  picks with this frame's lamp data, the same soft-shadow rays, lamps new this frame added in full).
+  Draw keys are macros (`RV_DIRECT_ROLL`, `RV_DIRECT_PIXEL`, `RV_DIRECT_EYE`, `RV_TRACE_PIXEL/FRAME/
+  ANIMATED/CAMERA`) that spell the trace's own text when not re-lighting. **Why picks are stored:**
+  a fresh reservoir draw read other lamps' resampling as change (bridge beacons).
+  `LightRenderData::Id` (entity+1) and the two-half `u_ChangeRolls` map (now->then index, then->now).
+- **Phase 2, reflections** (`reflection_trace.rvshader`): `RV_REFLECTION_RECORD/RELIGHT`, four
+  lanes; the ray's direction is a sequence and a hit chooses no lamps, so the same ray is traced
+  again. **The reflection accumulator's alpha is also the lit shader's probe trust** (fades the probe
+  in over 4 frames): with the check on, the blend count rides `o_Ident.g` and the alpha keeps its
+  trust -- restarting the alpha brought the old probe image back and TAA held it.
+- `change_filter.rvshader` (PostProcess `ChangeFilter`): signed a-trous over the block grid, shares
+  at the end, floor 0.02 (`--change-iterations`, `--change-floor`). Accumulate and TAA: frame count
+  capped at 1/share. Debug views `--debug-view=change` and `reflection-change`.
+- **Cost cut**: `DirectChangeKey` / `ReflectionChangeKey` (Renderer3D.cpp) hash every input the
+  re-light reads (lamps, cull records, cluster/grid/field blocks, camera, `RayShadows::
+  GetGeometryKey`, and ray-instance materials for reflections). Same key as the record's: no draw,
+  no map, record kept. One record target per signal (`MeasuredChangeHistory`, TemporalHistory.h),
+  loaded with `RGLoad::Preserve`.
+
+### Measured (numbers in the doc)
+
+- Lights button: frames until 10% / 5% of the lamps' light is left -- today 145 / 186, phase 1
+  64 / 118, **phases 1+2: 15 / 63**. What is left is the **GI history** (44% over its settled value 20
+  frames after the switch, `--capture-signals`); direct diffuse 1.1%, reflections 0.3%.
+- Parked garage: identical to today within its known frame-168 noise; bridge quiet frames identical,
+  +2% frame change during beacon flashes (the map fires as a speckled field there -- real beacon light
+  seen through one soft-shadow ray; a wider or support-weighted filter is the lever if it shows);
+  dolly identical; chrome cube mixed on 0.1% of pixels. Cost parked: **0.045 ms** both phases.
+  Validation clean (bridge shows only the two known 09-13 errors); scenetest green both backends.
+- Traps paid for: the first run after a rebuild differs from the next (~1 level on 0.1% of the
+  bridge) -- compare against a second run; the re-light pipeline's attachment formats must match the
+  graph target's (VUID-08910); `Renderer3D.h` declarations must come after `GiTraceView`.
+
+### Phase 3 (GI) -- built and measured
+
+`rtgi_trace.rvshader` under `RV_GI_RECORD` / `RV_GI_RELIGHT`, on the trace's own grid, three lanes;
+the record keeps the tile allocator's ray count, and **lights its own stored point** (a half-res
+texel centre sits on the corner of four full-res depth texels, so the trace's own output could not
+be replayed exactly). Key `GiChangeKey` adds emitters, emitter tables, probes and the bounce
+settings. Forced map black. Lights button: **10% left at 10 frames, 5% at 44** (today 145 / 186;
+after phase 2 15 / 63). Still garage, bridge, cube, dolly: the same as after phase 2. Cost parked
+**0.055 ms** all three. Validation clean, scenetest green both backends. What is left at 5% is not
+looked at yet. **Memory grows with the screen**: ~30 MB for the direct record at 1600x900, so
+roughly 170 MB at 4K by pixel count (not measured) -- packing lanes into half floats where exact is
+the lever.
+
+### The moving camera -- built (the five places it needed the camera, each replaced)
+
+1. Keys: no camera (`DirectChangeKey()`); a re-light reads the record's point, eye and frame.
+2. `direct_trace.rvshader`'s re-light walks the world grid (`RelightCellIndex`, `RV_CELL_INDEX`), or
+   every positional lamp outside it; the trace itself still walks its cluster cell, text unchanged in
+   effect.
+3. `reflection_accumulate` reads the map at `texel + 0.5 + travelled` (the picture's own `shift`),
+   `taa_resolve` at `gl_FragCoord - velocity / TexelSize`; both at the texel itself under their
+   motion floors.
+4. `include/change_record.glsl`: `RecordMovedOnItsOwn` (the three record variants).
+5. Records: retaken when the key changed or the camera moved (`SameCamera`); re-light only on a record
+   taken under last frame's camera (`RecordIsLastFrame`). Scripts: `mc_measure.py` cases `fademove*`,
+   `fademoveview`, `fademovecap*`, `fadecap10*`, `cubemove`, `startview`; `fademove` and `mapcount`
+   analyses; `mc_cost.py moving`. **Arm names decide the flag**: `on*` on, `def*` nothing, the rest off.
+
+## 2026-09-13 (late night): validation cleanup mid-way, and the anti-lag to be replaced by measuring change -- STOPPED HERE
+
+**The owner stopped the session here (the five-hour limit) and said: do not revert any changes.**
+Everything below is exactly as it was left.
+
+### State of the repository
+
+- `main` is **2 commits ahead of `origin/main`, not pushed** -- push only on the owner's word:
+  - `e71cf0c` scenetest green on both backends (the five standing failures: black stand-ins
+    for the resolve's guide/material bindings, `u_ScreenReflectionSurface` declared only under
+    `RV_RAY_REFLECTIONS` with the new `RHIResourceSet::HasBinding`, the runtime physics check
+    counting the scene's own bodies). Vulkan 2491 / OpenGL 2432, none failing.
+  - `8d2a318` RT-5 part 5, first half: the young-history blur passes skipped wherever the
+    young radius is under half a texel (reflections, direct pair, sea lamps, sea mirror --
+    they were exact copies; 0.279 ms of GPU in the garage), one descriptor set per blur stride
+    (the rewrite-after-bind tripwire: 576 reports -> 0), `taa_guide` no longer pushes into a
+    layout with no push range. Garage bit-identical, bridge Deck bit-identical to the RT-20
+    build. **Its message is wrong on one point**: the 3 bridge pixels that moved by one level
+    on `e71cf0c`'s build are *not* the include change -- this build has the same include and
+    matches RT-20 exactly. Cause unknown (build-level; possibly the undefined behaviour the
+    tripwire reported).
+- **Uncommitted in the working tree, built into the current Release binaries, NOT yet
+  verified by scenetest or a pixel-identity run:**
+  1. `VulkanDevice.cpp` -- the validation callback prints the named objects and the command
+     buffer's label stack after each error/warning (`objects: ...`, `recorded in: ...`). This
+     is what found everything below; keep it.
+  2. `Renderer.h/.cpp`, `ReflectionProbe.h/.cpp`, `Scene.cpp` -- the probe face's attachment
+     formats come from `Renderer::GetTargetAttachmentFormats()` instead of a hand copy that said
+     the surface lane was RGBA8 after it became RGBA16F (VUID-...-08910 on every probe draw,
+     `Renderer3D.pbr` in `Reflection probe face`). `ReflectionProbe::MatchesTarget()` replaces
+     the samples-only rebuild test.
+  3. `Renderer3D.cpp` `FlushBlended` -- the water set writes the lamp probe (binding 7) only
+     `if (waterSet->HasBinding(7))`: the surface-only pass has no probe block, and the write was
+     what crashed the Khronos layer on the bridge.
+  4. `reflection_accumulate.rvshader` -- `o_Motion`/`o_Ident` declared and written only for
+     the specular variant (`#elif !defined(RV_SIGNAL_DIFFUSE)`), as its comment always said; the
+     occlusion and GI accumulates wrote lanes their targets do not have.
+  5. `EngineConfig.h/.cpp`, `Renderer3D.cpp` -- `--ao-blur=<texels>` / `--gi-blur=<texels>`
+     measurement flags (negative = tuning, 0 skips the blur passes) for part 5's second half.
+     Unmeasured.
+  6. `tools/scripts/garage/session_2026_09_13/rt5p5_blur.py` -- that measurement, written, not
+     run; and this note's own script.
+  The owner's editor-resaved `showroom.rage` (+ .meta) is still theirs, never ours to commit.
+
+### Validation, where it stands (with the uncommitted changes built)
+
+- **Garage (`showroom.rage` from HEAD), 72 frames under `--validation=on`: zero messages.**
+- **Bridge Deck camera: runs to the end under validation now (it crashed before), two message
+  kinds left, both found and not yet fixed -- the owner's last instruction was to focus on these
+  byte/format mismatches:**
+  1. `VUID-vkCmdDraw-mipmapMode-04770` in `Renderer3D.direct.water.shade`: set 3 binding 4
+     `u_ChoiceIn` is `R32G32B32A32_UINT`, bound with `s_Data->PointSampler`, whose `SamplerDesc`
+     leaves `Mipmap` at its default `Linear`. **Planned fix:** `exact.Mipmap =
+     MipmapMode::Nearest` where `PointSampler` is created (`Renderer3D.cpp`, the `SamplerDesc
+     exact` block near line 1505) -- a point sampler should not blend mips anyway; then prove the
+     garage and bridge bit-identical, since it touches every point-sampled read.
+  2. `VUID-vkCmdPushConstants-offset-01795` recorded in `WaterAccumulateLamps`: the C++ pushes
+     `LampPushConstants` (112 bytes: mat4 + History + Probe + Trace) and
+     `water_accumulate.rvshader`'s `LampParams` declares 96 (no `Trace`). **Planned fix:** add
+     `vec4 Trace;` (unused) to that block, as `include/water_lamps.glsl` and
+     `reflection_trace.rvshader` already declare it.
+- After those: rebuild the whole Release config, `scenetest` on both backends (from its own
+  directory), garage + bridge bit-identity against `8d2a318`'s frames
+  (`rt5b_rt5p5_park_*`, `build/rt5/rt20/bridge/deck_rt5p5_*`), both validation runs clean, commit.
+
+### RT-5 part 4, the anti-lag: measured, fails, and the owner chose its replacement
+
+- Renders done (`rt5p4_antilag.py run fade|park|bridge 0 2 3`); **only `fade` analysed**
+  (`rt5_fade_analyse.py al_fade_0 al_fade_N 470 899 8.3`). `park` and `bridge` frames exist and
+  are unanalysed (`rt5p4_antilag.py analyse park|bridge 0 2 3`).
+- The lamps fade faster -- 95% gone at 90 frames (N=2) and 122 (N=3) against 186 off -- **but a
+  still picture never settles**: before the switch the region changes 2.89 levels a frame at
+  N=2 and 1.87 at N=3 against 0.48 off, and the picture sits 3-4 levels from the off arm. The
+  owner watched the test windows: "there is so much jitter and noise".
+- **Why, from the code** (not yet confirmed by painting where it fires): (a) the resolve compares
+  one noisy sample against the pixel's history at 2-3 of its own deviations, which plain noise
+  crosses a few percent of frames; (b) a reset sets `frames = 1`, which collapses the moments to
+  one sample, so the next frame's noise estimate is the 0.02 floor and it fires again -- a pixel
+  that trips can stay in a reset loop; (c) the accumulator compares its history with the fresh
+  3x3 mean, which differs legitimately at shadow edges; (d) both reset whole, so every false trip
+  is a flash of raw noise.
+- **Owner's decision: "Measure real change instead of guessing"** -- temporal gradients in the
+  manner of A-SVGF (Schied et al. 2018): each frame re-shade a sparse stratified subset of
+  pixels (about 1 in 9) with *last frame's* random numbers and surface sample, difference it
+  against last frame's value (identical randomness, so the difference is real change, not
+  noise), filter the sparse gradients into a dense map, and use it to shorten the accumulators'
+  memory and the resolve's still feedback smoothly where light really changed. **Next step is a
+  written design against this engine** (which signals first -- direct light, then reflections;
+  how the trace passes take the previous frame's salt; forward projection vs same-pixel
+  re-shade under the jitter; where last frame's fresh values are kept; the gradient filter; the
+  cost), brought to the owner before building. The current `--anti-lag` code in
+  `reflection_accumulate` and `taa_resolve` is to be deleted once the replacement lands.
+
+### Also open, found this session
+
+- RT-5 part 5 second half: occlusion and GI blurs off against on (flags and script ready).
+- A thin rim round each garage ceiling tube reports motion while parked (RT-20's rule skips it).
+- The chrome cube's vertical stripes after it passes the car -- in the shipped resolve too.
+- The 3 bridge pixels that flip by one level between builds (see `8d2a318` above).
+- RT-18 (coverage mask), RT-16's design call (now to be answered by the gradient work), the
+  highlight bound, `water_foam` / `irradiance_fill` rounding.
 
 ## 2026-09-13 (night): the edge flicker was RT-6 refusing the jitter -- RT-20 fixed, and scenetest green
 

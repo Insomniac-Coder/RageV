@@ -22,12 +22,40 @@ namespace RageV::Vk
 			const VkDebugUtilsMessengerCallbackDataEXT* data,
 			void*)
 		{
+			// **And by name, for the two severities anyone reads.** The layer's
+			// text gives objects as handles, and a handle does not say which of
+			// a few hundred pipelines drew or which pass the draw sat in -- the
+			// last error left standing after RT-5 part 5 could not be traced
+			// from the message alone. The engine names its pipelines and labels
+			// its passes for the layer already; the callback carries both.
+			std::string context;
+			if (severity & (VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
+							| VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT))
+			{
+				for (uint32_t i = 0; i < data->objectCount; ++i)
+				{
+					if (data->pObjects[i].pObjectName)
+					{
+						context += context.empty() ? "\n  objects: " : ", ";
+						context += data->pObjects[i].pObjectName;
+					}
+				}
+				for (uint32_t i = 0; i < data->cmdBufLabelCount; ++i)
+				{
+					if (data->pCmdBufLabels[i].pLabelName)
+					{
+						context += i == 0 ? "\n  recorded in: " : " < ";
+						context += data->pCmdBufLabels[i].pLabelName;
+					}
+				}
+			}
+
 			// The original callback logged everything at TRACE, which buried
 			// genuine validation errors in the noise.
 			if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
-				RV_CORE_ERROR("[Vulkan] {0}", data->pMessage);
+				RV_CORE_ERROR("[Vulkan] {0}{1}", data->pMessage, context);
 			else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
-				RV_CORE_WARN("[Vulkan] {0}", data->pMessage);
+				RV_CORE_WARN("[Vulkan] {0}{1}", data->pMessage, context);
 			else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
 				RV_CORE_INFO("[Vulkan] {0}", data->pMessage);
 			else

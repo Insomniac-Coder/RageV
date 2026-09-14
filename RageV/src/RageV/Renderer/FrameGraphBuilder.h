@@ -148,6 +148,14 @@ namespace RageV
 		// means the DirectTrace pass cannot run for this caller and the lit
 		// shader traces its own rays, as a probe capture and scenetest want.
 		TemporalHistory* DirectLight = nullptr;
+		// Measured change (docs/RT-MEASURED-CHANGE.md): the record the direct
+		// light's check re-lights next frame. Null, or --measured-change off,
+		// and the frame is exactly the one before the check existed.
+		MeasuredChangeHistory* DirectChange = nullptr;
+		// And the traced reflections' (phase 2).
+		MeasuredChangeHistory* ReflectionChange = nullptr;
+		// And the traced bounce's (phase 3).
+		MeasuredChangeHistory* GiChange = nullptr;
 
 		// Where global illumination keeps last frame's indirect diffuse for
 		// this frame's lighting to read. ENGINE-NOTES 7av.

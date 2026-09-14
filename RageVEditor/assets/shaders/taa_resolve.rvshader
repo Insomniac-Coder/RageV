@@ -238,17 +238,20 @@ layout(push_constant) uniform Params
 	// taps alone. Zero is the reference arm (--taa-box-geometry=off) and
 	// is exactly the behaviour before RT-6.8.
 	float BoxGeometry;
-	// **RT-5/RT-16: the anti-lag.** How many of this pixel's own standard
-	// deviations its history's mean may sit from what its neighbours report
-	// now before the average is restarted. Zero is off, which is every frame
-	// before RT-5. Took the pad rather than growing the block.
-	float AntiLag;
 	// **RT-5: the frame number**, for the draw that rounds this pass's running
 	// averages onto the half grid (include/half_float.glsl). The jitter above
 	// repeats every eight frames, and a rounding that repeats with it would
 	// leave each pixel a fixed pattern of its own eight draws.
 	float Frame;
+	// **Measured change (docs/RT-MEASURED-CHANGE.md): one when binding 11 holds
+	// the direct light's change map.** Zero is the resolve as it was.
+	float Change;
 } u_Params;
+
+// The change map, on the 3x3 block grid of this pass's own size: r the share of
+// the direct diffuse measured to have changed since last frame, g the
+// highlight's. Black and unread where `Change` is zero.
+layout(set = 0, binding = 11) uniform sampler2D u_Change;
 
 // **How far the box may open on a surface whose shading does not depend on
 // where the eye is.**
@@ -633,11 +636,6 @@ bool JitterCrossing(vec2 uv, vec2 pastUv, vec4 now)
 // cycles and forgets a flash in a quarter of a second.
 const float kMomentFrames = 16.0;
 
-// **The floor under the anti-lag's noise estimate**, in luma. A converged
-// pixel's sigma goes to nothing, and without a floor any rounding difference
-// reads as news -- which is half of why R4 fired on stills.
-const float kAntiLagFloor = 0.02;
-
 // **RT-6.11: a sharper history fetch than bilinear.** Nine taps arranged as
 // the standard five bilinear fetches would be, written out because this
 // pass reads one texture and clarity is worth more here than four fetches.
@@ -1007,29 +1005,32 @@ void main()
 	// still feedback is safe to stand on -- and where the identity lanes are
 	// not bound this is exactly the old test, unchanged.
 	const float stillness = motionTexels < kStillWithinTexels ? 1.0 : 0.0;
-	// **RT-5/RT-16: the evidence-driven anti-lag, in the filter that holds the
-	// lag.** The accumulator got the same test first and it was worth nothing
-	// here (111 frames to 110, measured), because turning the accumulator's
-	// history off entirely is only worth ten of the hundred and eleven. The
-	// lag is TAA's, and TAA had no such test.
-	//
-	// Reaching this line means the geometric test has already agreed this is
-	// the same surface, and `stillness` says the pixel did not move. So the
-	// question is only whether the **light on it** changed -- and the moments
-	// this pass already keeps say how much this pixel wobbles when nothing is
-	// happening. `centreYCoCg.x` is the *filtered* neighbourhood's luma, not
-	// the raw sample: comparing a history against one noisy sample is what
-	// sank R4 twice.
-	if (u_Params.AntiLag > 0.0 && stillness > 0.5 && u_Params.HasMoments > 0.5)
-	{
-		const float noise = max(sqrt(max(prevMoments.z - prevMoments.y * prevMoments.y, 0.0)),
-								kAntiLagFloor);
-		if (abs(prevMoments.y - centreYCoCg.x) > u_Params.AntiLag * noise)
-			frames = 1.0;
-	}
 	const float feedback = mix(u_Params.Feedback,
 							   max(u_Params.Feedback, u_Params.StillFeedback), stillness);
-	const float alpha = max(1.0 / frames, 1.0 - feedback);
+	float alpha = max(1.0 / frames, 1.0 - feedback);
+	// **Measured change, the anti-lag: the other filter holding the lag (RT-16).**
+	// The accumulators alone were worth ten frames of RT-5's hundred and eleven;
+	// the lag is this pass's as much as theirs. Where a share
+	// of the light is known to have changed, this frame counts for at least that
+	// share, and the count -- which the moments forget by, and which the next
+	// frames rebuild from -- restarts there. Nothing measured, nothing runs.
+	if (u_Params.Change > 0.5)
+	{
+		// Read where the history came from, as the accumulate reads it: the map
+		// is on last frame's grid, so this pixel moved back by its velocity --
+		// which is the pixel itself wherever it counts as still.
+		const vec2 blocks = vec2(textureSize(u_Change, 0));
+		const vec2 historyAt = motionTexels < kStillWithinTexels
+							 ? gl_FragCoord.xy
+							 : gl_FragCoord.xy - velocity / u_Params.TexelSize;
+		const vec2 measured = texture(u_Change, (historyAt / 3.0) / blocks).rg;
+		const float share = max(measured.r, measured.g);
+		if (share > 0.0)
+		{
+			frames = max(min(frames, 1.0 / share), 1.0);
+			alpha = max(alpha, 1.0 / frames);
+		}
+	}
 	const float momentAlpha = max(alpha, 1.0 / kMomentFrames);
 	const float momMean = mix(prevMoments.y, currentLuma, momentAlpha);
 	const float momMeanSq = mix(prevMoments.z, currentLuma * currentLuma, momentAlpha);

@@ -28,6 +28,11 @@
 #ifndef RV_TRACE_FRAME
 #define RV_TRACE_FRAME mod(u_Scene.GlobalIllumination.y, 1024.0)
 #endif
+// The pixel the soft-shadow point's gradient noise is read at. A pass that
+// re-lights a point it did not draw names the pixel that did (measured change).
+#ifndef RV_TRACE_PIXEL
+#define RV_TRACE_PIXEL gl_FragCoord.xy
+#endif
 // Whether a structure was built this frame at all; without one every ray
 // answers lit.
 #ifndef RV_TRACE_READY
@@ -312,7 +317,7 @@ float TraceShadowSoftFromMasked(vec3 worldPos, vec3 Ng, vec3 L, float tMax,
 
 	// The pixel's shift: one gradient-noise value per axis, the second read
 	// at an offset so the two are not the same pattern.
-	const vec2 pixel = gl_FragCoord.xy;
+	const vec2 pixel = RV_TRACE_PIXEL;
 	vec2 shift = vec2(InterleavedGradientNoise(pixel),
 					  InterleavedGradientNoise(pixel + vec2(5.588238, 5.588238)));
 	// Walked by the golden ratio per frame, only while a temporal filter is

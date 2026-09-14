@@ -96,6 +96,7 @@ namespace RageV
 				case 35: return "assets/shaders/signal_upsample.rvshader";
 				case 36: return "assets/shaders/gbuffer_guide.rvshader";
 				case 37: return "assets/shaders/taa_guide.rvshader";
+				case 38: return "assets/shaders/change_filter.rvshader";
 				default: return "assets/shaders/fog.rvshader";
 			}
 		}
@@ -116,7 +117,7 @@ namespace RageV
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not -- so the number is
 			// asserted against it in Init instead, where the enum is in scope.
-			std::array<Ref<RHIShader>, 38> Shaders;
+			std::array<Ref<RHIShader>, 39> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -180,7 +181,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 38,
+		static_assert((int)Shader::Count <= 39,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -334,7 +335,8 @@ namespace RageV
 							   // RT-8: binding 9, the water layer.
 							   const Ref<RHITexture>& eighth, Sampling eighthSampling,
 							   // RT-20: binding 10, the resolve's surface motion.
-							   const Ref<RHITexture>& ninth, Sampling ninthSampling)
+							   const Ref<RHITexture>& ninth, Sampling ninthSampling,
+							   const Ref<RHITexture>& tenth, Sampling tenthSampling)
 	{
 		if (!s_Data || !s_Data->Ready || !first)
 			return;
@@ -467,6 +469,9 @@ namespace RageV
 		// takes badly (see `second` above). So the set is asked.
 		if (ninth && set->HasBinding(10))
 			set->SetTexture(10, ninth, samplerFor(ninthSampling));
+		// Measured change: binding 11, the same way and for the same reason.
+		if (tenth && set->HasBinding(11))
+			set->SetTexture(11, tenth, samplerFor(tenthSampling));
 
 		// The counters, for the passes that count and the one that draws
 		// them (WR-16 S0). Only when the caller passed one, which it does
@@ -1595,7 +1600,8 @@ namespace RageV
 									  const Ref<RHITexture>& waterMotion,
 									  // RT-20: the scene's own velocity lane; null when
 									  // `velocity` already is it.
-									  const Ref<RHITexture>& surfaceVelocity)
+									  const Ref<RHITexture>& surfaceVelocity,
+									  const Ref<RHITexture>& change)
 	{
 		// The base block, then this frame's jitter (clip units, as the scene
 		// block carries it): the resolve filters the current frame around
@@ -1612,12 +1618,15 @@ namespace RageV
 			float Material = 0.0f;
 			// RT-6.8: whether the box may be built from this surface alone.
 			float BoxGeometry = 0.0f;
-			float AntiLag = 0.0f;
 			// RT-5: the frame number the resolve draws its half-grid rounding
 			// from -- tonemap's grain takes the same count for the same reason.
 			float Frame = 0.0f;
+			// Measured change (the anti-lag): one where binding 11 holds the
+			// change map.
+			float Change = 0.0f;
 		};
 		TemporalParams full;
+		full.Change = change ? 1.0f : 0.0f;
 		full.Jitter = jitter;
 		full.StillFeedback = Math::Clamp(stillFeedback, 0.0f, 0.98f);
 		// Both lanes, and a history to compare against: with either missing the
@@ -1626,8 +1635,6 @@ namespace RageV
 		full.Geometry = (guideCurrent && guidePrevious && hasHistory) ? 1.0f : 0.0f;
 		full.Material = material ? 1.0f : 0.0f;
 		full.BoxGeometry = boxGeometry ? 1.0f : 0.0f;
-		// RT-5/RT-16: the anti-lag, from the engine.
-		full.AntiLag = EngineConfig::Get().SignalAntiLag;
 		full.Frame = (float)(Renderer::GetFrameCount() & 0xFFFFFFu);
 		PostParams& params = full.Base;
 		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
@@ -1694,7 +1701,27 @@ namespace RageV
 				 // itself when that already is the scene's -- the occlusion
 				 // accumulator's case.
 				 surfaceVelocity ? surfaceVelocity : (velocity ? velocity : s_Data->Black),
-				 Sampling::Point);
+				 Sampling::Point,
+				 // Measured change: binding 11, filtered -- a smooth field of
+				 // fractions a third of this pass's resolution. Black where there
+				 // is none, which `Change` says is not data.
+				 change ? change : s_Data->Black, Sampling::Linear);
+	}
+
+	void PostProcess::FilterChange(RHICommandList& cmd, const Ref<RHITexture>& change,
+								   const Ref<RHITexture>& guide, int step, bool last, float floor,
+								   Format outputFormat)
+	{
+		if (!s_Data || !change || !guide)
+			return;
+		PostParams params;
+		params.A = (float)Math::Max(step, 0);
+		params.B = last ? 1.0f : 0.0f;
+		params.C = Math::Clamp(floor, 0.0f, 1.0f);
+		// Point: every tap is a whole block, and the guide's normal and distance
+		// averaged between two blocks describe neither.
+		Dispatch(cmd, Shader::ChangeFilter, outputFormat, change, guide, &params, sizeof(params),
+				 Sampling::Point, Sampling::Point);
 	}
 
 	void PostProcess::GiDenoise(RHICommandList& cmd, const Ref<RHITexture>& current,

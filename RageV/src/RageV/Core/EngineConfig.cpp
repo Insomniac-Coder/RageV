@@ -431,6 +431,19 @@ namespace RageV
 			catch (...) { RV_CORE_WARN("reflection-blur expects a number of texels; got '{0}'", value); return false; }
 			return true;
 		}
+		// And the occlusion's and the indirect light's (RT-5 part 5).
+		if (key == "ao-blur" || key == "aoblur")
+		{
+			try { config.AoBlurRadius = std::stof(value); }
+			catch (...) { RV_CORE_WARN("ao-blur expects a number of texels; got '{0}'", value); return false; }
+			return true;
+		}
+		if (key == "gi-blur" || key == "giblur")
+		{
+			try { config.GiBlurRadius = std::stof(value); }
+			catch (...) { RV_CORE_WARN("gi-blur expects a number of texels; got '{0}'", value); return false; }
+			return true;
+		}
 
 		if (key == "terrain-lod-error" || key == "terrainloderror")
 		{
@@ -526,28 +539,46 @@ namespace RageV
 		if (key == "water-lamp-accumulate" || key == "waterlampaccumulate")
 			return ParseBool(value, config.WaterLampAccumulate);
 		// RT-8 job 3: the sea's averaging on the contract, or its own.
-		if (key == "anti-lag" || key == "antilag")
+		// Measured change (docs/RT-MEASURED-CHANGE.md): the anti-lag, on by default.
+		if (key == "measured-change" || key == "measuredchange")
+			return ParseBool(value, config.MeasuredChange);
+		if (key == "change-force" || key == "changeforce")
+			return ParseBool(value, config.ChangeForce);
+		if (key == "change-iterations" || key == "changeiterations")
 		{
 			try
 			{
-				config.SignalAntiLag = Math::Clamp(std::stof(value), 0.0f, 64.0f);
+				config.ChangeIterations = Math::Clamp(std::stoi(value), 0, 5);
 			}
 			catch (const std::exception&)
 			{
-				RV_CORE_WARN("anti-lag expects a number from 0 to 64; got '{0}'", value);
+				RV_CORE_WARN("change-iterations expects a whole number from 0 to 5; got '{0}'", value);
 				return false;
 			}
 			return true;
 		}
-		if (key == "anti-lag-floor" || key == "antilagfloor")
+		if (key == "change-floor" || key == "changefloor")
 		{
 			try
 			{
-				config.SignalAntiLagFloor = Math::Clamp(std::stof(value), 0.0f, 16.0f);
+				config.ChangeFloor = Math::Clamp(std::stof(value), 0.0f, 1.0f);
 			}
 			catch (const std::exception&)
 			{
-				RV_CORE_WARN("anti-lag-floor expects a number from 0 to 16; got '{0}'", value);
+				RV_CORE_WARN("change-floor expects a number from 0 to 1; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+		if (key == "change-rays" || key == "changerays")
+		{
+			try
+			{
+				config.ChangeRaysOverride = Math::Clamp(std::stoi(value), 0, 1);
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("change-rays expects 0 (the trace's count) or 1; got '{0}'", value);
 				return false;
 			}
 			return true;
@@ -907,6 +938,13 @@ namespace RageV
 				config.DebugView = EngineConfig::DebugViewMode::GiLight;
 			else if (lowered == "gi-refusal" || lowered == "girefusal")
 				config.DebugView = EngineConfig::DebugViewMode::GiRefusal;
+			// Measured change: the filtered map, which a still scene leaves black.
+			else if (lowered == "change")
+				config.DebugView = EngineConfig::DebugViewMode::Change;
+			else if (lowered == "reflection-change" || lowered == "reflectionchange")
+				config.DebugView = EngineConfig::DebugViewMode::ReflectionChange;
+			else if (lowered == "gi-change" || lowered == "gichange")
+				config.DebugView = EngineConfig::DebugViewMode::GiChange;
 			else
 			{
 				RV_CORE_WARN("debug-view expects rays, lights, confidence, importance, "

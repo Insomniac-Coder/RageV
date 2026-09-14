@@ -131,6 +131,25 @@ removes acne and starts causing peter-panning. **There is no value that has
 neither** — which is why the shadow pass also renders back faces, so the depth
 it compares against is the far side of the object rather than the near one.
 
+## Switching lights on and off
+
+A script can switch a light at any moment -- the showroom's lights button does. **How cleanly
+the old light goes depends on the light's `Mobility`** (see the
+[component reference](components.md)):
+
+- **`Realtime`** -- nothing about the light is baked, so the switch is live everywhere at
+  once and the old light is gone within a few frames (the showroom car's lamps: 90% gone after
+  10 frames).
+- **`Half bake`, `Full bake` and `Hybrid Full Bake`** -- part of the light is stored in the
+  scene's bake. Switching one makes the bake stop matching the lights, so the engine throws the
+  bake away and rebuilds that lighting live, from nothing. What the bake held fades over a
+  second or more (the bridge's sodium lamps: a tenth of their light still there 80 frames
+  after the switch).
+
+> [!TRAP]
+> **This is what baking costs, not a defect.** A bake is worked out ahead of time for lights
+> that stay as they are. **Make any light a script switches `Realtime`.**
+
 ## Where to go next
 
 - [Component reference](components.md) — every field on the light and probe
