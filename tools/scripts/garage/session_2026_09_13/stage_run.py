@@ -180,7 +180,27 @@ def restore():
     if io.open(PROJECT, 'rb').read() != PROJECT_BYTES:
         io.open(PROJECT, 'wb').write(PROJECT_BYTES)
     ok = io.open(PROJECT, 'rb').read() == PROJECT_BYTES
-    for name in (ACC, TAA, DIRECT):
+    # **Every shader any variant can stage, read from VARIANTS as it stands now** --
+    # a script may add variants for shaders this file never names. The fixed list
+    # this used to be (the accumulator, the resolve, the direct pass) left a staged
+    # `reflection_resolve.rvshader` in place after RT-4's R11 arms (2026-09-14), and
+    # every run after the first one that staged it rendered with the modified
+    # resolve: two "ship" runs a sequence apart differed by up to 233 levels, which
+    # read as run-to-run nondeterminism in the engine.
+    # And any other staged file that differs from its source, whichever process
+    # staged it: a variant registered only in another script's run is not in this
+    # process's VARIANTS.
+    names = {ACC, TAA, DIRECT}
+    for subs in VARIANTS.values():
+        for shader, _, _ in subs or []:
+            names.add(shader)
+    for folder, _, files in os.walk(STAGED_DIR):
+        for f in files:
+            rel = os.path.relpath(os.path.join(folder, f), STAGED_DIR)
+            src = os.path.join(SRC_DIR, rel)
+            if os.path.exists(src) and io.open(src, 'rb').read() != io.open(os.path.join(folder, f), 'rb').read():
+                names.add(rel)
+    for name in sorted(names):
         src, dst = os.path.join(SRC_DIR, name), os.path.join(STAGED_DIR, name)
         shutil.copyfile(src, dst)
         ok = ok and io.open(src, 'rb').read() == io.open(dst, 'rb').read()
