@@ -75,7 +75,44 @@ def set_field(text, tag, field, value):
     return text[:start] + new_block + text[end:]
 
 
+def sync_bake():
+    """**The copy's bake, where the engine looks for it** (found 2026-09-15).
+
+    The engine finds a scene's bake by the scene file's stem (BakedLighting: assets/baked/<stem>),
+    and every run here plays a renamed copy -- showroom_burst.rage -- so it looked in
+    baked/showroom_burst, found nothing, logged "no bake matches this scene's current lighting.
+    Falling back to Realtime", and every garage measurement taken through this harness until
+    that day was of realtime bounce light rather than the owner's bake. The lighting hash was the
+    bake's own (field_1b8757848b86dc03) all along; only the folder was wrong.
+
+    So the source scene's bake folder is copied beside it under the copy's name -- copied, not
+    linked, so nothing a run writes can reach the owner's bake -- and refreshed only when a file
+    in the source differs by size or time. BURST_BAKE names the source folder; by default the
+    source scene's stem with stage_run's _head suffix taken off (showroom_head -> showroom)."""
+    baked = os.path.join(PROJECT, 'assets', 'baked')
+    name = os.environ.get('BURST_BAKE') or re.sub(r'_head$', '', os.path.splitext(SCENE)[0])
+    src = os.path.join(baked, name)
+    dst = os.path.join(baked, 'showroom_burst')
+    if not os.path.isdir(src) or os.path.abspath(src) == os.path.abspath(dst):
+        return
+    os.makedirs(dst, exist_ok=True)
+    for f in os.listdir(src):
+        a, b = os.path.join(src, f), os.path.join(dst, f)
+        if not os.path.isfile(a):
+            continue
+        sa = os.stat(a)
+        if os.path.isfile(b):
+            sb = os.stat(b)
+            if sb.st_size == sa.st_size and int(sb.st_mtime) == int(sa.st_mtime):
+                continue
+        shutil.copy2(a, b)
+    for f in os.listdir(dst):
+        if not os.path.exists(os.path.join(src, f)):
+            os.remove(os.path.join(dst, f))
+
+
 def make_scene(speed, stop):
+    sync_bake()
     src = os.path.join(SCENES, SCENE)
     dst = os.path.join(SCENES, 'showroom_burst.rage')
     text = open(src, encoding='utf-8').read()

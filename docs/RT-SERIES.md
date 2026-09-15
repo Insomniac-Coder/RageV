@@ -31,7 +31,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 
 ## Status at a glance
 
-**Twenty-eight of thirty-five items are closed, one is part-done (RT-13), six are open -- RT-15 reopened 2026-09-14 by the owner; RT-18 and RT-17 built 2026-09-15. Every RT-6.x sub-item is finished.** (2026-09-14: RT-5 and RT-16 closed by measured change and the retired young blur; RT-7 closed on the owner's word once tube length reached the ray-traced lamp pass; RT-4 closed on the owner's word with R11 carried into the new RT-21.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
+**Twenty-eight of thirty-six items are closed, one is part-done (RT-13), seven are open -- RT-15 reopened 2026-09-14 by the owner; RT-18 and RT-17 built 2026-09-15; RT-22 filed 2026-09-15. Every RT-6.x sub-item is finished.** (2026-09-14: RT-5 and RT-16 closed by measured change and the retired young blur; RT-7 closed on the owner's word once tube length reached the ray-traced lamp pass; RT-4 closed on the owner's word with R11 carried into the new RT-21.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
 
 | # | status | effort | risk | in a line |
 |---|---|---|---|---|
@@ -70,6 +70,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-19** | ✅ **done 2026-09-08** | — | — | the refusal reasons, totalled per frame |
 | **RT-20** | ✅ **done 2026-09-13** — RT-6's surface test fired on the jitter at every edge; a still edge now keeps its own history unless what it showed was moving | — | — | edges flicker on a parked camera while the jitter is on |
 | **RT-21** | open — **new 2026-09-14** (from RT-7 and RT-4). `DistributionGGX`'s `max(PI * denom * denom, 1e-4)` caps a narrow lobe's peak: a sized light's highlight on a smooth surface reaches 1-17% of its brightness (roughness 0.1 and under), point-light highlights under roughness ~0.27 are dimmed, and the reflection resolve's pdf ratio is distorted (the garage floor settles 2.5 levels under a per-texel reference; uncapped, 2.4-3.1 over it). Needs a proper reference first -- many rays a texel, weighted by NoL, no mirror ray standing in for a draw under the horizon -- then the cap and the resolve against it. **Changes every shiny highlight in every scene**: before/after on the garage and the bridge | 1-2 d | moderate | the highlight formula's safety cap |
+| **RT-22** | open -- **new 2026-09-15 (owner)**. **A moving light's lighting trails behind it.** A Realtime point light carried across the garage with a glowing cube: the pool it throws on the floor and the glow on the car stay where the light was for a few frames and arrive late where it is -- against the same pose settled, 11.9% of the floor beside the car off by more than 16 levels, 12.3% of the car's side. Measured change already takes two thirds of it (41.5% without); of what is left, the traced reflections hold about a third (7.1% with them off) and the direct light's history the rest. No bounce light from a moving light where the bounce is baked (expected). Record below | not priced | moderate | a moving light's lighting keeps up with it |
 
 **Three new items on 2026-09-08 (RT-17..RT-19)**, from the owner's *Object-Aware Temporal Rendering* document; the section below the reviews records what that document proposed that this engine already had, what was taken, and what was rejected and why.
 
@@ -1702,6 +1703,39 @@ judged by eye: 12 is soft, 3 has the gravel crisp, 0 trades texture for grain.
 the virtual image's, which the accumulator already computes -- is the only way
 the composite could move, and it needs a second velocity lane. Not attempted.
 *(Done the same day as RT-6.1.)*
+
+### RT-22 — open, filed 2026-09-15 (owner): a moving light's lighting trails behind it
+
+**The owner's question:** what happens when the moving object is an emitter and a source of
+light. **The test** (`emitter_mover.py`, `emitter_lag.py`): a 0.4 m cube, emissive [8, 5, 2.5],
+with a Realtime point light 0.45 m under it (warm, intensity 25, range 10, casting shadows),
+both driven by the Slider at 1.5 m/s across the owner's shot and the close-up; each arm against
+its own settled pose (the drive stopped where frame 100 has it, frames 150-169).
+
+**What works.** The light pool, the car's lit side and the car's shadow on the floor move with
+the light; the glow shows in the wet floor, the car's side glass and its door.
+
+**What trails.** Red where the moving frame still holds the light's old place, blue where the
+new place has not arrived (`build/emitter/close_vs_settled.png`):
+
+| arm | floor beside the car, px off by > 16 | the car's side |
+|---|---|---|
+| as shipped | 11.9% | 12.3% |
+| measured change off | 41.5% | 14.5% |
+| the direct light's history off (the lit loop; takes measured change with it) | 40.7% | 12.4% |
+| traced reflections off | 7.1% | 10.6% |
+| the bounce signal off | 11.9% (identical: the garage's bounce is baked) | 12.3% |
+
+**By design, not part of the item (owner):** a glowing object alone lights nothing -- only 16
+glowing surfaces get shadow rays aimed at them and the garage's tube bars fill the list, so the
+cube with no point light shows only in reflections -- "that's how our tube lights work too". A
+moving light's bounce is absent where the bounce comes from a bake.
+
+**A harness defect found on the way, fixed:** `burst.py` plays a renamed copy of the scene,
+the engine looks for a bake by the scene's stem, and it never found the showroom's -- every
+garage measurement through the harness until this day was of realtime bounce light
+("Falling back to Realtime" in the log). Comparisons between arms of one run stand; absolute
+pictures differed from the editor's. `sync_bake()` now copies the bake beside the copy.
 
 ### RT-17 — ✅ built 2026-09-15 (uncommitted): the reflection history tests what its rays struck
 

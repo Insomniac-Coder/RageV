@@ -102,7 +102,16 @@ default (`--measured-change=off` is the reference arm). The owner's editor-resav
   staged file that differs from its source. **Anything that stages shaders must check the whole
   staged directory.**
 
-### State (2026-09-15): RT-17 built (uncommitted) after RT-18 (pushed); RT-15 next
+### State (2026-09-15, later): RT-17 pushed; RT-22 filed; the harness now finds the bake; RT-15 next
+
+- **RT-22 filed** (owner): a moving light's lighting trails behind it -- 12% of the floor beside the car
+  off by >16 levels against the settled pose; measured change takes two thirds, reflections a third of
+  the rest. A glowing object alone lighting nothing is by design (owner: "that's how our tube lights work").
+- **Read before trusting any older garage number: the harness never used the bake.** `burst.py` renamed
+  the scene and the engine looks for a bake by the scene's stem, so every run fell back to realtime
+  bounce light. Fixed (`sync_bake()`); comparisons inside one run stand, absolute pictures do not.
+
+### State (2026-09-15): RT-17 built after RT-18 (pushed); RT-15 next
 
 - **RT-17**: the reflection history tests what its rays struck (instance and normal), only where
   something moved; identical parked, dolly and bridge; the floor under the driving car a third fewer
