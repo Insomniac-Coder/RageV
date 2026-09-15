@@ -54,6 +54,13 @@ namespace RageV
 		// masks below it carries, and the RAY_INSTANCE_STATIC bit a hit reads
 		// to decide whether the fully baked lights are in the field for it.
 		bool Static = false;
+		// **RT-17: whether the instance moved this frame** -- its world transform
+		// against last frame's, or posed by a skeleton. A reflection's history is
+		// only told that what its ray struck has changed when something that
+		// moved is involved: a glossy ray lands on a tube one frame and on the
+		// ceiling the next for no reason but its sampling, and none of that is a
+		// ghost.
+		bool Moving = false;
 	};
 
 	class RayShadows
@@ -103,7 +110,7 @@ namespace RageV
 								const std::vector<Mat4>* bones = nullptr,
 								const RHI::Ref<Material>& material = nullptr,
 								const MaterialParams& params = MaterialParams{},
-								uint64_t owner = 0, bool isStatic = false);
+								uint64_t owner = 0, bool isStatic = false, bool moving = false);
 		static void Build(RHI::RHICommandList& cmd);
 
 		// This frame's casters, one per instance the structure was built

@@ -108,6 +108,14 @@ layout(set = 3, binding = 6) uniform sampler2D u_Velocity;
 // 0.05 + 0.01 * eyeDistance -- a quarter of a metre at twenty.
 layout(set = 3, binding = 9) uniform sampler2D u_SurfaceId;
 layout(set = 3, binding = 10) uniform sampler2D u_HistoryIdent;
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+// **RT-17: what this frame's rays struck** (reflection_trace's third lane): r the
+// instance's identity, zero for a miss; g the struck normal, five bits a side.
+// Its history is the id lane's b and a. Read only where Change.y says a trace
+// wrote it and something moved this frame or the last -- the sea's mirror has no
+// such lane and is bound black, and a still scene skips the test.
+layout(set = 3, binding = 12) uniform sampler2D u_FreshIdentity;
+#endif
 #ifdef RV_SIGNAL_PAIR
 // The second payload (RT-first T5): a signal of two pictures -- the direct
 // light's diffuse and specular halves -- sharing every test above. Its fresh
@@ -507,6 +515,80 @@ const float kRoughHitTolerance = 1.50;
 // pop rather than as a reflection catching up.
 const float kHitAgree = 0.2;
 
+// **RT-17: and has what the ray hits been replaced?** RT-6.10 asks how far the
+// ray went, which misses the case its own record names: something crossing the
+// reflection at about the distance the ray already travelled. Two questions,
+// both about what the history showed against what this frame's rays show:
+// whether the object is another one, and -- the same object -- whether the face
+// the ray lands on has turned. A mirror's ray lands on one thing, so the test is
+// whole there and gone by roughness 0.3, where a lobe's rays land on many things
+// every frame for no reason but the sampling.
+//
+// **Only where something that moved is involved** -- the object the history's ray
+// struck, or one this frame's rays around the texel strike. Built first without it,
+// the test fired on 9% of a parked garage: a glossy floor's ray lands on a tube
+// one frame and on the ceiling the next, for no reason but its sampling, and an
+// average over a still room is right however many objects it is made of. A
+// ghost needs something to have moved.
+//
+// **Against the fresh 3x3, not the texel alone.** Under the jitter a texel that
+// sits on a reflected edge sees the object one frame and what is behind it the
+// next; asking only the centre would call that a change and shorten every
+// reflected edge's memory. What the history showed counts as still there if any
+// ray in the 3x3 still lands on it -- so only a change wider than a texel is one.
+//
+// Scaled, not refused, for RT-6.3's reason; the floor is how much of a history
+// a texel keeps when what it shows has been replaced.
+const float kHitIdentityAgree = 0.2;
+// The cosine under which the struck face has turned: twenty-five degrees, well
+// above the six the packing quantises to.
+const float kHitNormalAgree = 0.9;
+
+// The lane's green: the normal in the low ten bits, 1024 above them where the
+// struck instance moved this frame.
+bool StruckMoving(float packed) { return packed >= 1023.5; }
+
+vec3 UnpackStruckNormal(float packed)
+{
+	const float bits = packed - (StruckMoving(packed) ? 1024.0 : 0.0);
+	const float u = floor(bits / 32.0);
+	return OctDecode(vec2(u, bits - u * 32.0) / 31.0);
+}
+
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+float IdentityConfidence(ivec2 texel, ivec2 size, vec2 was, float roughness)
+{
+	if (u_Reflection.Change.y < 0.5)
+		return 1.0;
+	const float sensitivity = 1.0 - smoothstep(0.05, 0.3, roughness);
+	if (sensitivity <= 0.0)
+		return 1.0;
+	const vec3 wasNormal = was.x > 0.5 ? UnpackStruckNormal(was.y) : vec3(0.0);
+	// The texel's own ray first: still the same thing is the usual answer.
+	{
+		const vec2 own = texelFetch(u_FreshIdentity, texel, 0).rg;
+		if (abs(own.x - was.x) <= 0.5
+			&& (was.x < 0.5 || dot(UnpackStruckNormal(own.y), wasNormal) >= kHitNormalAgree))
+			return 1.0;
+	}
+	bool moving = was.x > 0.5 && StruckMoving(was.y);
+	for (int y = -1; y <= 1; ++y)
+	{
+		for (int x = -1; x <= 1; ++x)
+		{
+			const vec2 now = texelFetch(u_FreshIdentity, clamp(texel + ivec2(x, y), ivec2(0), size - 1), 0).rg;
+			moving = moving || (now.x > 0.5 && StruckMoving(now.y));
+			if (abs(now.x - was.x) > 0.5)
+				continue;
+			// A miss matches a miss; the sky has no face to turn.
+			if (was.x < 0.5 || dot(UnpackStruckNormal(now.y), wasNormal) >= kHitNormalAgree)
+				return 1.0;
+		}
+	}
+	return moving ? mix(1.0, kHitIdentityAgree, sensitivity) : 1.0;
+}
+#endif
+
 float HitConfidence(float nowImage, float wasImage, float roughness)
 {
 	// Relative, not absolute: a metre of change matters on a reflection two
@@ -803,6 +885,13 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 			// reflector tests cannot ask -- a static mirror, a static camera and a
 			// moving object in the reflection pass every one of them.
 			const float hit = HitConfidence(g_FreshImage, c.reflector.a, roughness);
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+			// RT-17: and is it still the same thing the ray lands on?
+			const float identity = IdentityConfidence(ivec2(gl_FragCoord.xy), size,
+													  texelFetch(u_HistoryIdent, pastTexel, 0).ba, roughness);
+#else
+			const float identity = 1.0;
+#endif
 			// **RT-8: a layer with no object ids does not get an id test.** The
 			// sea is one surface and its layer carries no id lane, so the test
 			// would be comparing this frame's packed normal against last
@@ -826,7 +915,7 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 												  offPlane));
 			c.matchConfidence = smoothstep(0.8, 0.94, facing)
 							  * planeAgree
-							  * material * idPenalty * hit;
+							  * material * idPenalty * hit * identity;
 		}
 		// Bilinear where the texel itself matched; the neighbour's own value
 		// where it did not, since the texels between belong to the other side.
@@ -1307,7 +1396,9 @@ void main()
 	o_Motion = vec4(g_HaveMotion ? g_ImageMotion : vec2(0.0),
 					OctEncode(reflect(sight, N)));
 	// RT-6.5: who this texel was, for the next frame's fourth check.
-	o_Ident = vec4(g_ObjectId, u_Reflection.Change.x > 0.5 ? g_BlendFrames : 0.0, 0.0, 0.0);
+	// RT-17: and what its ray struck, for the next frame's identity check.
+	o_Ident = vec4(g_ObjectId, u_Reflection.Change.x > 0.5 ? g_BlendFrames : 0.0,
+				   u_Reflection.Change.y > 0.5 ? texelFetch(u_FreshIdentity, texel, 0).rg : vec2(0.0));
 #endif
 	// **RT-5: the four running averages this pass keeps, rounded onto the half
 	// grid here rather than by the write** -- the picture, its twin, the image

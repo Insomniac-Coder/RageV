@@ -742,7 +742,10 @@ struct RayInstance
 	// Below this a candidate triangle is not there. Read only when the masked
 	// bit is set.
 	float AlphaCutoff;
-	uint  _pad1;
+	// RT-17: who this instance is, stable from frame to frame (the entity folded
+	// into 1..1021, 1022 for one with no entity) -- the row index is not, since
+	// the table is rebuilt every frame in whatever order the casters arrive.
+	uint  Identity;
 	vec4  BaseColor;
 	vec4  EmissiveColor;
 	vec4  Surface;            // metallic, roughness, occlusion, normal scale
@@ -766,6 +769,8 @@ const uint RAY_INSTANCE_MASKED = 4u;
 // hit on it takes the fully baked lights from the field, as the surface
 // itself does on screen; a hit on a moving instance walks them live.
 const uint RAY_INSTANCE_STATIC = 8u;
+// RT-17: the instance moved this frame (RayCaster::Moving).
+const uint RAY_INSTANCE_MOVING = 16u;
 
 layout(std430, set = 0, binding = 15) readonly buffer RayInstanceBlock
 {
@@ -2533,6 +2538,11 @@ struct TracedSurface
 	// whether the fully baked lights are in the field for this surface, or
 	// were walked live into Direct.
 	bool Static;
+	// **RT-17: what the ray hit**, as RayInstance::Identity says it -- zero where
+	// it missed -- so a reflection's history can ask whether its ray still lands
+	// on the same object; and whether that object moved this frame.
+	uint Identity;
+	bool Moving;
 };
 
 // `reach` is how far the ray may travel, in world metres. A reflection wants
@@ -2553,6 +2563,8 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	surface.IsEmitter = false;
 	surface.Backface = false;
 	surface.Static = false;
+	surface.Identity = 0u;
+	surface.Moving = false;
 
 	// Off the surface along its geometric normal, the shadow ray's offset,
 	// for the shadow ray's reason.
@@ -2584,6 +2596,8 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 
 	RayInstance hit = u_RayInstances.Instances[instance];
 	surface.Static = (hit.Flags & RAY_INSTANCE_STATIC) != 0u;
+	surface.Identity = hit.Identity;
+	surface.Moving = (hit.Flags & RAY_INSTANCE_MOVING) != 0u;
 	RayWords indices = RayWords(hit.IndexAddress);
 	RayFloats positions = RayFloats(hit.PositionAddress);
 	RayFloats attributes = RayFloats(hit.AttributeAddress);

@@ -139,7 +139,8 @@ namespace RageV
 			// Read only when the masked bit is set, so it costs nothing for
 			// the geometry that is simply there.
 			float    AlphaCutoff;
-			uint32_t _pad1;
+			// RT-17: who this instance is, stable from frame to frame -- see the fill.
+			uint32_t Identity;
 			Vec4 BaseColor;
 			Vec4 EmissiveColor;
 			Vec4 Surface;                // metallic, roughness, occlusion, normal scale
@@ -177,6 +178,8 @@ namespace RageV
 		// baked lights from the field, as the surface itself does on screen;
 		// a hit on a moving instance walks them live.
 		constexpr uint32_t kRayInstanceStatic = 8u;
+		// RT-17: the instance moved this frame (RayCaster::Moving).
+		constexpr uint32_t kRayInstanceMoving = 16u;
 
 		// Mirrors the std140 SceneData block in pbr.rvshader.
 		struct SceneUniforms
@@ -717,6 +720,11 @@ namespace RageV
 			// the glass layer's signals (set 3), and this frame's four, handed over
 			// around the transparent draw the way the water's lamps are.
 			bool GlassSignalCompiled = false;
+			// RT-17: whether any ray instance moved this frame, and last frame --
+			// with neither, no reflection can have been replaced by something
+			// moving, and the accumulate skips the identity test altogether.
+			bool RayAnyMoving = false;
+			bool RayAnyMovingLast = false;
 			Ref<RHITexture> GlassDirectDiffuse;
 			Ref<RHITexture> GlassDirectSpecular;
 			Ref<RHITexture> GlassLayerDepth;
@@ -3588,10 +3596,13 @@ namespace RageV
 			// **RT-6.5: the specular accumulate writes a fifth** -- the object
 			// id under each texel, the one history test position, facing and
 			// material cannot stand in for.
-			const int extras = pass == 0 ? 1 : pass == 2 ? 4 : pass == 4 ? 2 : pass == 6 ? 3 : pass == 7 ? 1 : 0;
+			// **RT-17: and the trace a third** -- what each ray struck, two
+			// channels, a transient lane of four bytes a texel (RT-14's terms).
+			const int extras = pass == 0 ? 2 : pass == 2 ? 4 : pass == 4 ? 2 : pass == 6 ? 3 : pass == 7 ? 1 : 0;
 			for (int extra = 0; extra < extras; ++extra)
 			{
-				reflection.ColorFormats.push_back(Format::R16G16B16A16_SFLOAT);
+				reflection.ColorFormats.push_back(pass == 0 && extra == 1 ? Format::R16G16_SFLOAT
+																		   : Format::R16G16B16A16_SFLOAT);
 				reflection.BlendPerAttachment.push_back(BlendPreset::Opaque);
 			}
 			reflection.DepthFormat = Format::Undefined;
@@ -5469,6 +5480,8 @@ namespace RageV
 				const std::vector<RayCaster>& casters = RayShadows::GetCasters();
 				s_Data->RayInstanceScratch.clear();
 				s_Data->RayInstanceScratch.reserve(casters.size());
+				s_Data->RayAnyMovingLast = s_Data->RayAnyMoving;
+				s_Data->RayAnyMoving = false;
 				for (const RayCaster& caster : casters)
 				{
 					const Material* key = caster.MaterialRef.get();
@@ -5532,8 +5545,22 @@ namespace RageV
 					}
 					if (caster.Static)
 						row.Flags |= kRayInstanceStatic;
+					if (caster.Moving)
+					{
+						row.Flags |= kRayInstanceMoving;
+						s_Data->RayAnyMoving = true;
+					}
 
 					row.MaterialIndex = it->second;
+					// **RT-17: an identity that survives the frame.** The row index
+					// does not -- the table is rebuilt in whatever order the casters
+					// arrive -- and the owner does: the entity, the same id the area
+					// emitters match on. Folded into 1..1021 so it stays exact in the
+					// half float the reflection trace writes it into; two entities
+					// sharing a fold only hide a change between the two of them.
+					// Zero is a miss, 1022 an instance with no entity (the terrain).
+					row.Identity = caster.Owner != 0
+								 ? (uint32_t)(((caster.Owner & 0xFFFFFull) % 1021ull) + 1ull) : 1022u;
 					row.BaseColor = caster.Params.BaseColor;
 					row.EmissiveColor = caster.Params.EmissiveColor;
 					row.Surface = { caster.Params.Metallic, caster.Params.Roughness,
@@ -7137,7 +7164,8 @@ namespace RageV
 									  const RHI::Ref<RHITexture>& previous2,
 									  const RHI::Ref<RHITexture>& surfaceId,
 									  const RHI::Ref<RHITexture>& previousIdent,
-									  const RHI::Ref<RHITexture>& change)
+									  const RHI::Ref<RHITexture>& change,
+									  const RHI::Ref<RHITexture>& freshIdentity)
 	{
 		const bool diffuse = signal.Type == SignalParams::Kind::Diffuse;
 		const Ref<RHIPipeline>& pipeline = fresh2 ? s_Data->SignalAccumulateDiffusePairPipeline
@@ -7189,6 +7217,11 @@ namespace RageV
 		if (inputs->HasBinding(11))
 			inputs->SetTexture(11, change ? change : TextureLoader::TransparentBlack(*s_Data->Device),
 							   s_Data->WaterClampSampler ? s_Data->WaterClampSampler : s_Data->PointSampler);
+		// RT-17: what the rays struck, on the specular kind only; black, and
+		// Change.y zero, where the signal's trace writes no such lane.
+		if (inputs->HasBinding(12))
+			inputs->SetTexture(12, freshIdentity ? freshIdentity : TextureLoader::TransparentBlack(*s_Data->Device),
+							   s_Data->PointSampler);
 		inputs->Commit();
 
 		SignalPushConstants push;
@@ -7226,7 +7259,11 @@ namespace RageV
 		push.Tuning = { signal.SmearTexels, signal.MovingMemory, signal.SilhouetteMemory, signal.PairMemory };
 		push.Blur = { signal.YoungRadius, signal.BlurFrames, signal.YoungOverreach, signal.MaxRadius };
 		// Measured change: x one where the map at binding 11 is this signal's.
-		push.Change = { change ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f };
+		// RT-17: y one where the identity lane is this signal's and something moved
+		// this frame or the last -- a still scene's history cannot hold a ghost.
+		push.Change = { change ? 1.0f : 0.0f,
+						freshIdentity && (s_Data->RayAnyMoving || s_Data->RayAnyMovingLast) ? 1.0f : 0.0f,
+						0.0f, 0.0f };
 		motion.ViewProjection = s_Data->Scene.ViewProjection;
 		// **RT-6.3: and the eye that went with it.** Each signal keeps its own
 		// motion record -- this is the signal's, not the temporal resolve's -- so

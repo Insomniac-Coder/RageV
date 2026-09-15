@@ -2896,8 +2896,12 @@ namespace RageV
 				// Static or moving (7cx): the instance's mask, and the bit a
 				// hit reads. A skinned caster is never static, whatever the
 				// component says -- the same rule RefreshDrawList applies.
+				// RT-17: and whether it moved this frame -- posed, or its transform
+				// is not the one it had (PreviousWorld is last frame's by now).
+				const bool moving = bones != nullptr
+								 || std::memcmp(&transform.World, &transform.PreviousWorld, sizeof(Mat4)) != 0;
 				RayShadows::AddInstance(resolved, transform.World, bones, material, params,
-										(uint64_t)item + 1, mesh.Static && !resolved->IsSkinned());
+										(uint64_t)item + 1, mesh.Static && !resolved->IsSkinned(), moving);
 			}
 
 			// The terrain, every chunk, no frustum: a hill outside the view

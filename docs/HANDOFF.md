@@ -102,6 +102,15 @@ default (`--measured-change=off` is the reference arm). The owner's editor-resav
   staged file that differs from its source. **Anything that stages shaders must check the whole
   staged directory.**
 
+### State (2026-09-15): RT-17 built (uncommitted) after RT-18 (pushed); RT-15 next
+
+- **RT-17**: the reflection history tests what its rays struck (instance and normal), only where
+  something moved; identical parked, dolly and bridge; the floor under the driving car a third fewer
+  ghost pixels. RT-SERIES has the record, including the first version's trap (it fired on 9% of a
+  parked garage without the moving gate).
+- **The owner's rule for cost**: measure it during RT tasks, optimise only in the dedicated pass after
+  the whole series.
+
 ### State (2026-09-15 morning): RT-18 built and committed; RT-17 next (owner's order: RT-18, RT-17, then RT-15)
 
 - **RT-18**: a silhouette's untested history no longer applies where an object moves on its own

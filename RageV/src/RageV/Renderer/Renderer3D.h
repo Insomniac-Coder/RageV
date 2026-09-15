@@ -409,7 +409,11 @@ namespace RageV
 									 // Measured change: the filtered map on the 3x3 block
 									 // grid, red the diffuse's changed share, green the
 									 // twin's. Null is every frame before the check.
-									 const RHI::Ref<RHI::RHITexture>& change = nullptr);
+									 const RHI::Ref<RHI::RHITexture>& change = nullptr,
+									 // RT-17: what the trace's rays struck (its third lane),
+									 // for the specular kind's identity test. Null for a
+									 // signal whose trace writes none, and the test is off.
+									 const RHI::Ref<RHI::RHITexture>& freshIdentity = nullptr);
 
 		static void ShadeWaterLamps(const RHI::Ref<RHI::RHITexture>& surface,
 									const RHI::Ref<RHI::RHITexture>& material,

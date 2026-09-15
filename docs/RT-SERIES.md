@@ -31,7 +31,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 
 ## Status at a glance
 
-**Twenty-six of thirty-five items are closed, one is part-done (RT-13), eight are open -- RT-15 reopened 2026-09-14 by the owner. Every RT-6.x sub-item is finished.** (2026-09-14: RT-5 and RT-16 closed by measured change and the retired young blur; RT-7 closed on the owner's word once tube length reached the ray-traced lamp pass; RT-4 closed on the owner's word with R11 carried into the new RT-21.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
+**Twenty-eight of thirty-five items are closed, one is part-done (RT-13), six are open -- RT-15 reopened 2026-09-14 by the owner; RT-18 and RT-17 built 2026-09-15. Every RT-6.x sub-item is finished.** (2026-09-14: RT-5 and RT-16 closed by measured change and the retired young blur; RT-7 closed on the owner's word once tube length reached the ray-traced lamp pass; RT-4 closed on the owner's word with R11 carried into the new RT-21.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
 
 | # | status | effort | risk | in a line |
 |---|---|---|---|---|
@@ -65,7 +65,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-14** | ✅ **done 2026-09-07** — and it says do not pack the G-buffer | — | — | the G-buffer's bandwidth, measured before anything is packed |
 | **RT-15** | **reopened 2026-09-14 (owner)** — closed 2026-09-08 on a flicker number (the cube's panel 15.20 -> 4.39) that did not describe the picture: **"the moment the cube moves the entire reflection on it falls apart"** (owner), and the driving car's body sparkles and trails in its traced reflections (RT-13's record isolates it to the reflections). The owner put it after RT-13 stage 3 and asked to be reminded | not priced | moderate | the reflection accumulator reprojects by object motion |
 | **RT-16** | ✅ **done 2026-09-14** — measured change: the lights button's light 90% gone after 10 frames (145 before), 15 with the camera moving. A *baked* light switched off still fades slowly, because its bake is thrown away and rebuilt -- accepted as a known thing (docs/BAKING-ROADMAP.md, docs/manual/lighting.md) | — | — | a reflection takes seconds to leave the floor when its light goes out |
-| **RT-17** | open — **new** | 2-3 d | moderate | the accumulator tests what the ray *hit*, by identity |
+| **RT-17** | ✅ **built 2026-09-15** (owner: built to take a variable out, measured small here) -- the struck instance and normal in a transient trace lane, kept in the id lane's spare channels, tested only where something moved; the floor under the driving car 3.37% -> 2.30% ghost pixels, everything still identical (record below) | — | — | the accumulator tests what the ray *hit*, by identity |
 | **RT-18** | ✅ **built 2026-09-15** -- a moving silhouette's history is tested like any other: the cube's stripes and the car's trail gone, everything still identical; the band the cube uncovers each frame goes to RT-9 (more rays, owner); the older face's speckles and the bottom bar's banding are noted for later (record below) | — | — | history cannot outlive the silhouette it belongs to |
 | **RT-19** | ✅ **done 2026-09-08** | — | — | the refusal reasons, totalled per frame |
 | **RT-20** | ✅ **done 2026-09-13** — RT-6's surface test fired on the jitter at every edge; a still edge now keeps its own history unless what it showed was moving | — | — | edges flicker on a parked camera while the jitter is on |
@@ -1702,6 +1702,46 @@ judged by eye: 12 is soft, 3 has the gravel crisp, 0 trades texture for grain.
 the virtual image's, which the accumulator already computes -- is the only way
 the composite could move, and it needs a second velocity lane. Not attempted.
 *(Done the same day as RT-6.1.)*
+
+### RT-17 — ✅ built 2026-09-15 (uncommitted): the reflection history tests what its rays struck
+
+**Built on the owner's word after measurement said it would change little here** ("build
+RT-17 anyway, let's eliminate all the unnecessary variables so that we can actually pin
+point the issue later"). The case it answers -- something moving through a still
+reflector's picture at about the distance the ray already went, which RT-6.10's hit
+distance cannot see -- was measured first against a settled reference per pose (the car
+stopped where frame 75 has it, frames 150-169): on the garage's floor and poles the history
+was worse than one frame's rays by 16 levels on 0.00-0.35% of pixels.
+
+**What was built.**
+- The trace writes a third lane (R16G16, transient): r the struck instance's identity, g the
+  struck normal in ten bits plus 1024 where that instance moved this frame.
+- The identity is stable across frames: `RayInstance::Identity` (the `_pad1` word) is the
+  caster's entity folded into 1..1021 (1022 for no entity, zero a miss) -- the row index is
+  rebuilt every frame in arrival order. `RayCaster::Moving` / `RAY_INSTANCE_MOVING` (16): posed,
+  or `World` differs from `PreviousWorld`.
+- The accumulator keeps the identity in the id lane's spare b and a (no new history) and,
+  on the specular kind, scales the match confidence to 0.2 where the history's struck object
+  is no longer struck by any ray in the fresh 3x3, or is struck with its face turned by more
+  than 25 degrees -- whole on a mirror, gone by roughness 0.3.
+
+**Trap paid, the first version: the test fired on 9% of a parked garage.** A glossy
+floor's ray lands on a tube one frame and on the ceiling the next for no reason but its
+sampling. The test now counts a change only when an instance that moved this frame is
+involved, and the engine skips it altogether on a frame where nothing moved this frame or
+the last (`Change.y`). Painted red where it fired: 0.000% of the parked garage, 0.34-0.56% of
+the driving car's frames -- the floor under the car, the poles' reflections of it, and the
+car's panels reflecting its own moving parts.
+
+**Measured** (`rt17_test.py`, `rt17_ref.py`; off = the test switched off in a staged copy):
+- Parked garage, camera dolly, the bridge's deck, pier and glitter: identical (at most 1 level).
+- Cube crossing: mean 0.02 levels apart, at most 23. Car close-up: 0.35% of pixels over 4
+  levels. Car wide: 0.05%.
+- **The floor under the driving car at the close-up**, against the settled pose: error 6.05 ->
+  5.68, pixels worse than one frame's rays by 16 levels 3.37% -> 2.30%. Poles and the rest of
+  the floor unchanged.
+- Cost: nothing parked (the accumulate 0.599 -> 0.595 ms); about 0.06 ms while anything moves.
+  Validation clean under TAA, MSAA and SSAA with the car driving; scenetest Vulkan exit 0.
 
 ### RT-18 — ✅ built 2026-09-15: a moving silhouette's history is tested like any other
 

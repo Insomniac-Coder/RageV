@@ -1287,7 +1287,9 @@ namespace RageV
 							 SignalGuidance guide = {},
 							 // Measured change: this signal's change map, or none, and
 							 // whether it was drawn this frame.
-							 RGResource change = kRGInvalid, const bool* changeLive = nullptr) -> SignalResult
+							 RGResource change = kRGInvalid, const bool* changeLive = nullptr,
+							 // RT-17: the trace whose third lane holds what its rays struck.
+							 RGResource identity = kRGInvalid) -> SignalResult
 		{
 			// **The texel-denominated tuning follows the grid.** Every one of these
 			// four is counted in texels of the signal's own target, and a texel at
@@ -1337,10 +1339,12 @@ namespace RageV
 						builder.Sample(previous);
 					if (change != kRGInvalid)
 						builder.Sample(change);
+					if (identity != kRGInvalid)
+						builder.Sample(identity);
 					builder.DisableDepth();
 				},
 				[params, fresh, sceneHDR, current, previous, hasHistory, motion, pair,
-				 guideId, guideIdLane, change, changeLive,
+				 guideId, guideIdLane, change, changeLive, identity,
 				 specular = params.Type != Renderer3D::SignalParams::Kind::Diffuse,
 				 guideDepth, guideSurface, guideVelocity, guideDepthLane, guideNormalLane,
 				 guideVelocityLane, ownGuide, depthAttachment]
@@ -1369,7 +1373,8 @@ namespace RageV
 						specular ? context.Color(guideId, guideIdLane) : nullptr,
 						specular && hasHistory ? context.Color(previous, 4) : nullptr,
 						change != kRGInvalid && (!changeLive || *changeLive)
-							? context.Color(change) : nullptr);
+							? context.Color(change) : nullptr,
+						identity != kRGInvalid ? context.Color(identity, 2) : nullptr);
 				});
 			// **RT-5 part 5: no blur passes where the signal asks for no blur.**
 			// The blur returns its input untouched wherever the young radius
@@ -2196,7 +2201,8 @@ namespace RageV
 			traceDesc.Name = "ReflectionTrace";
 			traceDesc.Color = Format::R16G16B16A16_SFLOAT;
 			// The ray's direction and pdf, for the resolve's ratio estimator.
-			traceDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT };
+			// RT-17: and what each ray struck, for the accumulate's identity test.
+			traceDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT, Format::R16G16_SFLOAT };
 			traceDesc.Depth = Format::Undefined;
 			traceDesc.Scale = (float)supersample;
 			const RGResource traced = graph.CreateTarget(traceDesc);
@@ -2337,7 +2343,7 @@ namespace RageV
 															resolved, currentReflections, previousReflections,
 															reflectionHistory, &desc.Reflections->Motion(),
 															reflectionBlurDesc, false, {}, reflectionChange,
-															reflectionChangeLive).Target;
+															reflectionChangeLive, traced).Target;
 		}
 		else if (desc.ReflectionChange)
 		{
@@ -2517,7 +2523,7 @@ namespace RageV
 			RGTargetDesc glassRayDesc;
 			glassRayDesc.Name = "GlassReflectionTrace";
 			glassRayDesc.Color = Format::R16G16B16A16_SFLOAT;
-			glassRayDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT };
+			glassRayDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT, Format::R16G16_SFLOAT };
 			glassRayDesc.Depth = Format::Undefined;
 			glassRayDesc.Scale = (float)supersample;
 			const RGResource glassRays = graph.CreateTarget(glassRayDesc);
@@ -2588,7 +2594,8 @@ namespace RageV
 				glassReflected = addSignal(kGlassMirrorPasses, Renderer3D::GlassReflectionSignal(),
 										   glassResolved, currentMirror, previousMirror,
 										   glassMirror.HasHistory(), &glassMirror.Motion(),
-										   mirrorBlurDesc, false, mirrorGuide).Target;
+										   mirrorBlurDesc, false, mirrorGuide, kRGInvalid, nullptr,
+										   glassRays).Target;
 				glassMirror.Advance();
 			}
 		}
