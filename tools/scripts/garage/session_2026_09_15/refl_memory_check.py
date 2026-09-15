@@ -29,13 +29,13 @@ CASES = {
     'car': ('close', dict(frames=20, first=55, BURST_SLIDE=s2.CAR)),
 }
 
-if 'render' in sys.argv:
+if __name__ == '__main__' and 'render' in sys.argv:
     for case, (cam, opts) in CASES.items():
         s2.arms_at(cam, [('mem_%s_%s' % (case, arm), variant, [], dict(opts))
                          for arm, variant in (('ship', 'ship'), ('noavg', 'noaverage'))])
 
 S = os.path.join(stage_run.SHOTS, 'rt5b_mem_%s_%s_%d.png')
-for case, (cam, opts) in CASES.items():
+for case, (cam, opts) in (CASES.items() if __name__ == '__main__' else []):
     rows = {}
     for arm in ('ship', 'noavg'):
         fr = [np.asarray(Image.open(S % (case, arm, k)).convert('L'), dtype=float)[:860]
