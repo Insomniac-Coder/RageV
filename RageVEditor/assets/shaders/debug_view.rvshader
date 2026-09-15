@@ -89,7 +89,8 @@ layout(push_constant) uniform Params
 	//          2 two colours (kept or refused), 3 a vector in rg,
 	//          4 an octahedral normal in rg.
 	// Channel: 0 r, 1 g, 2 b, 3 a, 4 the standard deviation the second
-	//          and first moments in g and b describe.
+	//          and first moments in g and b describe, 5 a below the moving
+	//          mark (RT-15: a modulo eight).
 	float Display;
 	float Channel;
 	// Whether the value comes from the counts buffer rather than u_Aux.
@@ -198,6 +199,9 @@ void main()
 			  : channel == 1 ? aux.g
 			  : channel == 2 ? aux.b
 			  : channel == 3 ? aux.a
+				// RT-15: the alpha below the reflection accumulator's moving-curved
+				// mark (8), which rides above its choice-and-refusal code.
+			  : channel == 5 ? mod(aux.a, 8.0)
 				// The moments: E[x^2] - E[x]^2, floored at zero because a
 				// half float's rounding can make a converged pixel's variance
 				// very slightly negative.

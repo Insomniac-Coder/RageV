@@ -61,6 +61,16 @@ namespace RageV
 		// ceiling the next for no reason but its sampling, and none of that is a
 		// ghost.
 		bool Moving = false;
+		// **RT-15: and where it stood last frame** -- last frame's object-to-world,
+		// read only where Travelled is set. A reflection whose ray struck this
+		// instance looks for its history where the struck point's image was, which
+		// is the point carried back through this matrix rather than the one the ray
+		// found.
+		Mat4 PreviousWorld{ 1.0f };
+		// Whether that transform differs from this frame's. Narrower than Moving,
+		// which a pose alone sets: a posed instance standing still has no travel,
+		// and an exact zero is what keeps a still scene's reflection bit-identical.
+		bool Travelled = false;
 	};
 
 	class RayShadows
@@ -110,7 +120,8 @@ namespace RageV
 								const std::vector<Mat4>* bones = nullptr,
 								const RHI::Ref<Material>& material = nullptr,
 								const MaterialParams& params = MaterialParams{},
-								uint64_t owner = 0, bool isStatic = false, bool moving = false);
+								uint64_t owner = 0, bool isStatic = false, bool moving = false,
+								const Mat4* previousWorld = nullptr);
 		static void Build(RHI::RHICommandList& cmd);
 
 		// This frame's casters, one per instance the structure was built

@@ -2901,7 +2901,8 @@ namespace RageV
 				const bool moving = bones != nullptr
 								 || std::memcmp(&transform.World, &transform.PreviousWorld, sizeof(Mat4)) != 0;
 				RayShadows::AddInstance(resolved, transform.World, bones, material, params,
-										(uint64_t)item + 1, mesh.Static && !resolved->IsSkinned(), moving);
+										(uint64_t)item + 1, mesh.Static && !resolved->IsSkinned(), moving,
+										&transform.PreviousWorld);
 			}
 
 			// The terrain, every chunk, no frustum: a hill outside the view

@@ -291,6 +291,10 @@ namespace RageV
 									 // The albedo lane: F0's colour, so a metal's
 									 // reflection carries the metal's own tint.
 									 const RHI::Ref<RHI::RHITexture>& albedo,
+									 // RT-15b: the scene's velocity lane, for the texels whose
+									 // surface moves on its own and so cast more rays; null
+									 // (the glass layer) casts one everywhere.
+									 const RHI::Ref<RHI::RHITexture>& velocity,
 									 float giAverage,
 									 // RT-13 stage 3: tracing the glass layer rather than
 									 // the G-buffer, on an input set of its own.
@@ -301,7 +305,11 @@ namespace RageV
 									   const RHI::Ref<RHI::RHITexture>& hit,
 									   const RHI::Ref<RHI::RHITexture>& depth,
 									   const RHI::Ref<RHI::RHITexture>& surface,
-									   bool glassLayer = false);
+									   bool glassLayer = false,
+									   // RT-15: the trace's fourth lane, how far what each ray struck
+									   // travelled -- what splits the resolved picture into its still
+									   // part and its moving part. Null writes no moving part.
+									   const RHI::Ref<RHI::RHITexture>& travel = nullptr);
 		// **The reconstruction contract (RT-first T4, docs/RT-FIRST.md).** One
 		// temporal accumulator and one young-history blur for every stochastic
 		// signal, in two kinds: Specular reprojects by the surface and by the
@@ -328,6 +336,9 @@ namespace RageV
 			float BlurFrames = 32.0f;      // gone by this many frames
 			float YoungOverreach = 1.5f;   // Specular: how far past the lobe while young
 			float MaxRadius = 8.0f;        // Diffuse: the radius bound, texels
+			// Specular, RT-15: the young radius where the reflector is curved and moving
+			// on its own -- every other texel keeps YoungRadius (zero on reflections).
+			float MovingRadius = 0.0f;
 			float PairMemory = 0.0f;       // Pair: the twin's own memory in frames; zero shares the first payload's
 			// **RT-8: what is bound at the depth slot.** False, and it is clip
 			// depth and the contract rebuilds the world point from it -- every
@@ -389,7 +400,14 @@ namespace RageV
 							   const RHI::Ref<RHI::RHITexture>& surface,
 							   const RHI::Ref<RHI::RHITexture>& imageDistance,
 							   int stride,
-							   const RHI::Ref<RHI::RHITexture>& accumulated2 = nullptr);
+							   const RHI::Ref<RHI::RHITexture>& accumulated2 = nullptr,
+							   // RT-15: the accumulate's third attachment, whose alpha
+							   // marks a curved reflector moving on its own (specular).
+							   const RHI::Ref<RHI::RHITexture>& extra = nullptr);
+		// RT-15: whether any traced instance moved in either of the last two frames
+		// the instance table was built for -- read when the graph is built, so it
+		// describes the frames before this one.
+		static bool AnyInstanceMoved();
 
 		static void AccumulateSignal(const SignalParams& signal,
 									 const RHI::Ref<RHI::RHITexture>& fresh,
@@ -413,7 +431,15 @@ namespace RageV
 									 // RT-17: what the trace's rays struck (its third lane),
 									 // for the specular kind's identity test. Null for a
 									 // signal whose trace writes none, and the test is off.
-									 const RHI::Ref<RHI::RHITexture>& freshIdentity = nullptr);
+									 const RHI::Ref<RHI::RHITexture>& freshIdentity = nullptr,
+									 // RT-15: how far what they struck travelled since last
+									 // frame (the trace's fourth lane), for where the history
+									 // of a moving reflected object is. Null with the above.
+									 const RHI::Ref<RHI::RHITexture>& freshTravel = nullptr,
+									 // RT-15: the moving layer -- this frame's (the resolve's second
+									 // lane) and the one kept last frame (the history's sixth).
+									 const RHI::Ref<RHI::RHITexture>& freshMoving = nullptr,
+									 const RHI::Ref<RHI::RHITexture>& previousMoving = nullptr);
 
 		static void ShadeWaterLamps(const RHI::Ref<RHI::RHITexture>& surface,
 									const RHI::Ref<RHI::RHITexture>& material,

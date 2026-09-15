@@ -62,11 +62,17 @@ layout(set = 0, binding = 1) uniform sampler2D u_Reflection;
 layout(set = 0, binding = 2) uniform sampler2D u_ReflectionMotion;
 // The scene's own velocity, for everything that is not mostly a reflection.
 layout(set = 0, binding = 3) uniform sampler2D u_Velocity;
+// **RT-15: the accumulator's moving layer** -- the part of the picture whose rays
+// struck something that moved (reflection_accumulate.rvshader). Black where there
+// is none.
+layout(set = 0, binding = 6) uniform sampler2D u_ReflectionMoving;
 
 layout(push_constant) uniform Params
 {
 	float TexelX;        // PostParams' shared header
 	float TexelY;
+	// RT-15: one where the temporal resolve runs after this pass, and the moving
+	// layer is added after it instead (reflection_composite_moving.rvshader).
 	float A;
 	float B;
 	float C;
@@ -88,7 +94,17 @@ void main()
 	// resampled back by the jitter it still changed by five levels a frame,
 	// parked -- 2026-09-06.)
 	const vec4 reflection = texture(u_Reflection, uv);
-	const vec3 added = reflection.a > 0.0 ? max(reflection.rgb, vec3(0.0)) : vec3(0.0);
+	vec3 added = reflection.a > 0.0 ? max(reflection.rgb, vec3(0.0)) : vec3(0.0);
+	// **RT-15: under a temporal resolve, the still layer alone.** The resolve fetches
+	// one history per pixel with one motion, and a pixel that shows both a still
+	// reflection and a moving one has two: following the moving one dragged the wet
+	// floor's still light ripples sideways under the chrome cube, and following the
+	// still one left the moving one's old reflection behind. So the moving layer --
+	// already averaged by the accumulator along its own motion -- stays out of the
+	// resolve and is added after it, and the resolve sees only what its motion lane
+	// describes.
+	if (u_Params.A > 0.5)
+		added = max(added - max(texture(u_ReflectionMoving, uv).rgb, vec3(0.0)), vec3(0.0));
 	const float weight = max(scene.a, 0.0);
 	// The weight has done its work; nothing after this reads the alpha.
 	o_Color = vec4(scene.rgb + weight * added, 0.0);

@@ -563,7 +563,20 @@ namespace RageV
 										RHI::Format outputFormat,
 										const RHI::Ref<RHI::RHITexture>& reflectionMotion = nullptr,
 										const RHI::Ref<RHI::RHITexture>& velocity = nullptr,
-										RHI::Format motionFormat = RHI::Format::Undefined);
+										RHI::Format motionFormat = RHI::Format::Undefined,
+										// RT-15: the accumulator's moving layer, and whether it is
+										// left out here to be added after the temporal resolve
+										// (ReflectionMovingComposite).
+										const RHI::Ref<RHI::RHITexture>& movingLayer = nullptr,
+										bool movingAfterResolve = false);
+		// **RT-15: the reflection's moving layer, added after the temporal resolve** --
+		// `frame` the resolved image, `lit` the lit frame whose alpha is the weight
+		// (reflection_composite_moving.rvshader).
+		static void ReflectionMovingComposite(RHI::RHICommandList& cmd,
+											  const RHI::Ref<RHI::RHITexture>& frame,
+											  const RHI::Ref<RHI::RHITexture>& movingLayer,
+											  const RHI::Ref<RHI::RHITexture>& lit,
+											  RHI::Format outputFormat);
 
 		static void DebugView(RHI::RHICommandList& cmd, const RHI::Ref<RHI::RHITexture>& frame,
 							  const RHI::Ref<RHI::RHITexture>& aux,
@@ -646,6 +659,8 @@ namespace RageV
 			TaaGuide,
 			// Measured change (phase 1): the change map's a-trous filter.
 			ChangeFilter,
+			// RT-15: the traced reflection's moving layer, after the temporal resolve.
+			ReflectionMovingComposite,
 			Count
 		};
 

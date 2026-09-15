@@ -749,6 +749,11 @@ struct RayInstance
 	vec4  BaseColor;
 	vec4  EmissiveColor;
 	vec4  Surface;            // metallic, roughness, occlusion, normal scale
+	// RT-15: last frame's object-to-world as three rows, where RAY_INSTANCE_TRAVELLED
+	// is set -- where a point of this instance stood last frame. Unread elsewhere.
+	vec4  PreviousRow0;
+	vec4  PreviousRow1;
+	vec4  PreviousRow2;
 };
 const uint RAY_INSTANCE_POSED = 1u;
 // The area-emitter list holds a rectangle standing for this instance, so a
@@ -771,6 +776,9 @@ const uint RAY_INSTANCE_MASKED = 4u;
 const uint RAY_INSTANCE_STATIC = 8u;
 // RT-17: the instance moved this frame (RayCaster::Moving).
 const uint RAY_INSTANCE_MOVING = 16u;
+// RT-15: its transform changed since last frame, and PreviousRow0..2 hold the old one
+// (RayCaster::Travelled) -- narrower than moving, which a pose alone sets.
+const uint RAY_INSTANCE_TRAVELLED = 32u;
 
 layout(std430, set = 0, binding = 15) readonly buffer RayInstanceBlock
 {
@@ -2401,6 +2409,19 @@ void ProbeBlendAt(vec3 position, out float slotA, out float slotB,
 	}
 }
 
+// **The one probe a traced hit is lit by** (2026-09-15): the strongest of the blend
+// above at the hit's own position, the sky where none reaches. One and not the
+// blend, as the bounce's GiProbeSlotAt chooses: a hit is not screen-continuous,
+// so the fade the blend buys is not seen there, and it would be two cube fetches
+// per term where one does. The reflection and water passes used to light every
+// hit with slot zero -- the sky, which inside a closed room is black.
+float ProbeSlotAt(vec3 position)
+{
+	float slotA, slotB, weightA, weightB;
+	ProbeBlendAt(position, slotA, slotB, weightA, weightB);
+	return weightA > 0.0 ? slotA : 0.0;
+}
+
 // **A cube captured at a point is only right at that point.**
 //
 // Everywhere else the reflected ray should be traced to where it actually
@@ -2543,7 +2564,38 @@ struct TracedSurface
 	// on the same object; and whether that object moved this frame.
 	uint Identity;
 	bool Moving;
+	// **RT-15: and how far the struck point travelled since last frame**, in world
+	// metres -- this frame's point less the same point of the object carried through
+	// last frame's transform. Zero unless the instance's transform changed. The
+	// reflection's history is where that point's image stood, not where this frame's is.
+	vec3 Travel;
+	// **The specular half of the hit** (2026-09-15): the roughness and F0 the struck
+	// surface reflects with, the direction the ray came from, and the live lamps'
+	// highlight summed by the light loop -- so ShadeTraced can light the hit through
+	// the same lobe the lit shader lights the surface on screen with. A hit used to
+	// be shaded Lambert alone, and Lambert on a metal is nothing: the garage's box
+	// is Metallic 1, so a flat mirror facing the camera, which shows the wall behind
+	// it, showed black. Filled under RV_HIT_SPECULAR; zero and unread elsewhere.
+	float Roughness;
+	vec3 F0;
+	vec3 View;
+	vec3 Specular;
 };
+
+// **Which passes shade a hit with its specular half.** The lit shader's own in-line
+// mirror and refraction rays always; a trace-only pass asks for it itself before the
+// include (reflection_trace, water_trace). The bounce (rtgi_trace) and the bake's
+// solve (irradiance_fill) do not, so the field and the realtime bounce are what they
+// were: giving them the term is one define each, and a re-bake to see it.
+#if !defined(RV_TRACE_ONLY) && !defined(RV_HIT_SPECULAR)
+#define RV_HIT_SPECULAR
+#endif
+#ifdef RV_HIT_SPECULAR
+// Defined further down with the rest of the lobe; a hit needs them here.
+float DistributionGGX(vec3 N, vec3 H, float roughness);
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness);
+vec3 FresnelSchlick(float cosTheta, vec3 F0);
+#endif
 
 // `reach` is how far the ray may travel, in world metres. A reflection wants
 // the whole scene; a diffuse bounce does not -- see Renderer::SetGiReach.
@@ -2565,6 +2617,11 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	surface.Static = false;
 	surface.Identity = 0u;
 	surface.Moving = false;
+	surface.Travel = vec3(0.0);
+	surface.Roughness = 1.0;
+	surface.F0 = vec3(0.0);
+	surface.View = -direction;
+	surface.Specular = vec3(0.0);
 
 	// Off the surface along its geometric normal, the shadow ray's offset,
 	// for the shadow ray's reason.
@@ -2634,6 +2691,15 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	vec3 hitPosition = origin + Ng * offset
 					 + direction * rayQueryGetIntersectionTEXT(q, true);
 	vec2 hitUv = uv0 * w0 + uv1 * bary.x + uv2 * bary.y;
+	// RT-15: the same point of the object, where last frame's transform put it. A
+	// posed hit's skin is this frame's either way, so only the instance's own
+	// motion is in it -- the part a reflection can follow.
+	if ((hit.Flags & RAY_INSTANCE_TRAVELLED) != 0u)
+	{
+		const vec4 local = vec4(worldToObject * vec4(hitPosition, 1.0), 1.0);
+		surface.Travel = hitPosition - vec3(dot(hit.PreviousRow0, local), dot(hit.PreviousRow1, local),
+											dot(hit.PreviousRow2, local));
+	}
 
 	vec3 objectNormal;
 	if ((hit.Flags & RAY_INSTANCE_POSED) != 0u)
@@ -2687,10 +2753,15 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	// carries a colour the surface does not have -- which is exactly the tell
 	// that gives a screen-space trick away. Roughness is unused here: a hit is
 	// shaded Lambert, so only the albedo moves.
-	{
-		float ignored = 1.0;
-		ApplyMacro(albedo, ignored, hitPosition, material.Macro.x, material.Macro.y);
-	}
+	// **And the roughness through the same macro** (2026-09-15): the field moves
+	// roughness against albedo, and the hit's specular half reflects with it. The
+	// albedo comes out bit-identical to the `ignored` roughness this used to pass.
+	float roughness = hit.Surface.y;
+#ifdef RV_HIT_SPECULAR
+	if ((material.MapFlags & MAP_ROUGHNESS) != 0)
+		roughness *= textureLod(u_Textures[nonuniformEXT(material.Maps1.x)], uv, 0.0).r;
+#endif
+	ApplyMacro(albedo, roughness, hitPosition, material.Macro.x, material.Macro.y);
 
 	vec3 emissive = hit.EmissiveColor.rgb;
 	if ((material.MapFlags & MAP_EMISSIVE) != 0)
@@ -2698,6 +2769,20 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	float metallic = hit.Surface.x;
 	if ((material.MapFlags & MAP_METALLIC) != 0)
 		metallic *= textureLod(u_Textures[nonuniformEXT(material.Maps1.y)], uv, 0.0).r;
+#ifdef RV_HIT_SPECULAR
+	// What the struck surface reflects with: the lit shader's F0 (0.08 * specular for
+	// a dielectric, the albedo itself for a metal), its clamped roughness, and the
+	// view vector, which for a hit is back along the ray.
+	float hitSpecularScalar = material.Specular;
+	if ((material.MapFlags & MAP_SPECULAR) != 0)
+		hitSpecularScalar *= textureLod(u_Textures[nonuniformEXT(material.Maps1.z)], uv, 0.0).r;
+	const vec3 hitF0 = mix(vec3(0.08 * clamp(hitSpecularScalar, 0.0, 1.0)), albedo,
+						   clamp(metallic, 0.0, 1.0));
+	roughness = clamp(roughness, 0.045, 1.0);   // fully smooth aliases badly, as on screen
+	const vec3 hitV = normalize(-direction);
+	const float hitNdotV = max(dot(hitNormal, hitV), 0.0);
+	vec3 hitSpecular = vec3(0.0);
+#endif
 
 	// Lambert only, every light, no clustering -- a hit is not on screen and
 	// has no cluster -- and a shadow ray for the sun alone.
@@ -2951,8 +3036,21 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 										 sqrt(max(distance2, 1.0e-8)));
 			}
 		}
-		lit += diffuse / PI * lightColor * attenuation * max(dot(hitNormal, L), 0.0) * shadow
-			 * hitLiveShare;
+		const float hitNdotL = max(dot(hitNormal, L), 0.0);
+		lit += diffuse / PI * lightColor * attenuation * hitNdotL * shadow * hitLiveShare;
+#ifdef RV_HIT_SPECULAR
+		// **The lamp's highlight on the struck surface**: Cook-Torrance through the
+		// terms the lit shader uses, toward where the ray came from, and shared with
+		// the field by the same hitLiveShare the diffuse is.
+		{
+			const vec3 H = normalize(hitV + L);
+			const float D = DistributionGGX(hitNormal, H, roughness);
+			const float G = GeometrySmith(hitNormal, hitV, L, roughness);
+			const vec3 F = FresnelSchlick(max(dot(H, hitV), 0.0), hitF0);
+			hitSpecular += (D * G * F / (4.0 * hitNdotV * hitNdotL + 0.0001))
+						  * lightColor * attenuation * hitNdotL * shadow * hitLiveShare;
+		}
+#endif
 	}
 
 	surface.Position = hitPosition;
@@ -2962,6 +3060,12 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	surface.Emissive = emissive;
 	surface.IsEmitter = (hit.Flags & RAY_INSTANCE_EMITTER) != 0u;
 	surface.Backface = hitBackface;
+#ifdef RV_HIT_SPECULAR
+	surface.Roughness = roughness;
+	surface.F0 = hitF0;
+	surface.View = hitV;
+	surface.Specular = hitSpecular;
+#endif
 	return surface;
 }
 
@@ -2988,8 +3092,9 @@ bool g_FillFeedback = false;
 
 // A described hit plus what arrives at it. Callers check `Missed` first: this
 // deliberately does not, so a miss does not pay for an irradiance fetch it
-// throws away.
-vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
+// throws away. `probe` is the cube a hit reflects (RV_HIT_SPECULAR): the one the
+// caller lit the hit's diffuse with, unread where the specular half is off.
+vec3 ShadeTraced(TracedSurface surface, vec3 arriving, float probe)
 {
 	// **Added to the flat ambient, not put in its place.** The field stores
 	// bounced light only, and `arriving` is the probe -- the sky half. Each of
@@ -2998,6 +3103,8 @@ vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
 	// version did, when a cell still held sky as well, and it made the field
 	// stand in for terms it was already standing beside.
 	vec3 ambientLight = u_Scene.Ambient.rgb * u_Scene.Ambient.a;
+	// The hit's specular half (2026-09-15), under RV_HIT_SPECULAR; nothing otherwise.
+	vec3 specular = vec3(0.0);
 #ifdef RV_IRRADIANCE_FILL
 	// **Only the solve reads the field at a hit, and only for the traced
 	// flavour -- this is what turns its passes into bounces.** No frame
@@ -3057,10 +3164,50 @@ vec3 ShadeTraced(TracedSurface surface, vec3 arriving)
 		vec3 hitCoherent;
 		if (VolumeIrradiance(surface.Position, surface.Normal, true, hitBounce, hitSky, hitDirect,
 							 hitDirection, hitCoherent))
+		{
 			ambientLight += hitDirect;
+#ifdef RV_HIT_SPECULAR
+			// **And their highlight**, from the dominant lamp the field recovers
+			// (DerivedLamp) -- the virtual lamp the lit shader gives a static surface
+			// on screen (its bakedHighlight). Their diffuse arrived through hitDirect.
+			if (dot(hitCoherent, hitCoherent) > 0.0)
+			{
+				const float NdotLb = max(dot(surface.Normal, hitDirection), 0.0);
+				if (NdotLb > 0.0)
+				{
+					const vec3 Hb = normalize(surface.View + hitDirection);
+					const float Db = DistributionGGX(surface.Normal, Hb, surface.Roughness);
+					const float Gb = GeometrySmith(surface.Normal, surface.View, hitDirection, surface.Roughness);
+					const vec3 Fb = FresnelSchlick(max(dot(Hb, surface.View), 0.0), surface.F0);
+					specular += (Db * Gb * Fb
+								 / (4.0 * max(dot(surface.Normal, surface.View), 0.0) * NdotLb + 0.0001))
+							  * hitCoherent * NdotLb;
+				}
+			}
+#endif
+		}
+	}
+#ifdef RV_HIT_SPECULAR
+	// **The room the struck surface reflects: the probe through the split-sum term**,
+	// as the lit shader's environment specular -- the roughness picks the convolution
+	// level, the parallax carries the reflected ray out to the probe's sphere. One
+	// probe, the one the caller lit the diffuse with; the ray itself goes no deeper
+	// (TraceReflection: one bounce, by construction), so what a mirror shows of a
+	// mirror is the probe's view of the room. And the live lamps' highlights, which
+	// the light loop summed. On a metal these three are the whole of what it shows.
+	{
+		const float NoV = max(dot(surface.Normal, surface.View), 0.0);
+		const vec3 R = RotateIntoSky(reflect(-surface.View, surface.Normal));
+		const vec3 prefiltered = textureLod(u_Environment,
+											vec4(ProbeParallax(surface.Position, R, probe), probe),
+											surface.Roughness * u_Scene.Environment.y).rgb
+						   * u_Scene.Environment.x;
+		const vec2 envBRDF = textureLod(u_BRDF, vec2(NoV, surface.Roughness), 0.0).rg;
+		specular += surface.Specular + prefiltered * (surface.F0 * envBRDF.x + envBRDF.y);
 	}
 #endif
-	return surface.Direct + surface.Diffuse * (ambientLight + arriving) + surface.Emissive;
+#endif
+	return surface.Direct + specular + surface.Diffuse * (ambientLight + arriving) + surface.Emissive;
 }
 
 // Unchanged in what it returns (7ax): find the surface, shade it with the
@@ -3072,7 +3219,7 @@ vec3 TraceReflection(vec3 origin, vec3 Ng, vec3 direction, float probe)
 	TracedSurface surface = TraceSurface(origin, Ng, direction, 1.0e4);
 	if (surface.Missed)
 		return surface.Sky;
-	return ShadeTraced(surface, ProbeIrradiance(surface.Normal, probe));
+	return ShadeTraced(surface, ProbeIrradiance(surface.Normal, probe), probe);
 }
 
 // **The mirror ray, scattered by roughness** (owner, 2026-09-05 night: the
@@ -6092,7 +6239,7 @@ void main()
 				const float through = length(behindHit.Position - v_WorldPos);
 				quadT = exp(-waterSigma * through) * (1.0 - foam);
 				vec3 behind = ShadeTraced(behindHit,
-										  ProbeIrradiance(behindHit.Normal, v_Instance.x));
+										  ProbeIrradiance(behindHit.Normal, v_Instance.x), v_Instance.x);
 				// The traced form knows exactly where the bottom is, so the
 				// caustic web lands on the real hit point.
 				behind *= 1.0 + WaterCaustics(behindHit.Position.xz, through,

@@ -996,6 +996,10 @@ namespace RageV
 								// because the plane test's tolerance is a quarter of a metre
 								// at twenty.
 								tracedReflections ? Format::R16G16B16A16_SFLOAT
+												  : Format::Undefined,
+								// RT-15: the moving layer -- the part of the picture whose
+								// rays struck something that moved, which follows that thing.
+								tracedReflections ? Format::R16G16B16A16_SFLOAT
 												  : Format::Undefined);
 
 			if (reflections.Current() && reflections.Previous())
@@ -1289,7 +1293,10 @@ namespace RageV
 							 // whether it was drawn this frame.
 							 RGResource change = kRGInvalid, const bool* changeLive = nullptr,
 							 // RT-17: the trace whose third lane holds what its rays struck.
-							 RGResource identity = kRGInvalid) -> SignalResult
+							 RGResource identity = kRGInvalid,
+							 // RT-15: whether the fresh target's second lane is the part of the
+							 // picture whose rays struck something that moved (the resolve's).
+							 bool movingLayer = false) -> SignalResult
 		{
 			// **The texel-denominated tuning follows the grid.** Every one of these
 			// four is counted in texels of the signal's own target, and a texel at
@@ -1303,6 +1310,7 @@ namespace RageV
 				params.Slack *= scale;
 				params.SmearTexels *= scale;
 				params.YoungRadius *= scale;
+				params.MovingRadius *= scale;
 				params.MaxRadius *= scale;
 			}
 			const RGResource guideDepth = guide.Depth != kRGInvalid ? guide.Depth : sceneHDR;
@@ -1344,7 +1352,7 @@ namespace RageV
 					builder.DisableDepth();
 				},
 				[params, fresh, sceneHDR, current, previous, hasHistory, motion, pair,
-				 guideId, guideIdLane, change, changeLive, identity,
+				 guideId, guideIdLane, change, changeLive, identity, movingLayer,
 				 specular = params.Type != Renderer3D::SignalParams::Kind::Diffuse,
 				 guideDepth, guideSurface, guideVelocity, guideDepthLane, guideNormalLane,
 				 guideVelocityLane, ownGuide, depthAttachment]
@@ -1374,7 +1382,12 @@ namespace RageV
 						specular && hasHistory ? context.Color(previous, 4) : nullptr,
 						change != kRGInvalid && (!changeLive || *changeLive)
 							? context.Color(change) : nullptr,
-						identity != kRGInvalid ? context.Color(identity, 2) : nullptr);
+						identity != kRGInvalid ? context.Color(identity, 2) : nullptr,
+						// RT-15: and how far what they struck travelled, beside it.
+						identity != kRGInvalid ? context.Color(identity, 3) : nullptr,
+						// RT-15: the moving layer, fresh from the resolve and kept last frame.
+						specular && movingLayer ? context.Color(fresh, 1) : nullptr,
+						specular && hasHistory ? context.Color(previous, 5) : nullptr);
 				});
 			// **RT-5 part 5: no blur passes where the signal asks for no blur.**
 			// The blur returns its input untouched wherever the young radius
@@ -1386,7 +1399,16 @@ namespace RageV
 			// validation layer reported every frame. The reader takes the
 			// accumulate's target itself, which is what the copies held texel for
 			// texel.
-			if (params.YoungRadius < 0.5f)
+			// **RT-15: and the moving curved reflector's radius counts only while
+			// something moves** -- the accumulator marks no texel in a still scene,
+			// so the passes would be copies there. Asked of the instance table as it
+			// stood when this graph was built: the last two frames', so a mover gets
+			// its blur from its second frame and keeps it two frames past its stop,
+			// when no texel is marked any more and the passes copy.
+			const bool specularKind = params.Type != Renderer3D::SignalParams::Kind::Diffuse;
+			const bool movingBlur = specularKind && params.MovingRadius >= 0.5f
+								 && Renderer3D::AnyInstanceMoved();
+			if (params.YoungRadius < 0.5f && !movingBlur)
 				return SignalResult{ current, 3u };
 			// Three blur passes at strides 1, 2, 4: each reads the previous
 			// pass's output; the first reads the history itself, which is
@@ -1415,7 +1437,7 @@ namespace RageV
 							builder.Sample(guideDepth);
 						builder.DisableDepth();
 					},
-					[params, input, current, sceneHDR, stride, pair,
+					[params, input, current, sceneHDR, stride, pair, specularKind,
 					 guideDepth, guideSurface, guideDepthLane, guideNormalLane,
 					 ownGuide, depthAttachment](RGPassContext& context)
 					{
@@ -1427,7 +1449,9 @@ namespace RageV
 											   context.Color(current, 1),
 											   stride,
 											   // the twin: attachment 3 of the accumulated target, 1 of a blurred one
-											   pair ? context.Color(input, input == current ? 3 : 1) : nullptr);
+											   pair ? context.Color(input, input == current ? 3 : 1) : nullptr,
+											   // RT-15: the accumulate's extra, whose alpha marks a moving curved reflector
+											   specularKind ? context.Color(current, 2) : nullptr);
 					});
 				blurInput = output;
 				blurred = output;
@@ -2202,7 +2226,9 @@ namespace RageV
 			traceDesc.Color = Format::R16G16B16A16_SFLOAT;
 			// The ray's direction and pdf, for the resolve's ratio estimator.
 			// RT-17: and what each ray struck, for the accumulate's identity test.
-			traceDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT, Format::R16G16_SFLOAT };
+			// RT-15: and how far that moved since last frame, for where its history is.
+			traceDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT, Format::R16G16_SFLOAT,
+									  Format::R16G16B16A16_SFLOAT };
 			traceDesc.Depth = Format::Undefined;
 			traceDesc.Scale = (float)supersample;
 			const RGResource traced = graph.CreateTarget(traceDesc);
@@ -2217,13 +2243,15 @@ namespace RageV
 						builder.Sample(budgetPrevious);
 					builder.DisableDepth();
 				},
-				[sceneHDR, normalIndex, albedoIndex, budgetMap = budgetPrevious, budgetBound,
+				[sceneHDR, normalIndex, albedoIndex, velocityIndex, budgetMap = budgetPrevious, budgetBound,
 				 giAverage = rtPreset.GiRays](RGPassContext& context)
 				{
 					Renderer3D::TraceReflections(context.Color(sceneHDR, normalIndex),
 												 context.Depth(sceneHDR),
 												 budgetBound ? context.Color(budgetMap) : nullptr,
 												 context.Color(sceneHDR, albedoIndex),
+												 // RT-15b: the velocity lane, for the moving texels' rays.
+												 context.Color(sceneHDR, velocityIndex),
 												 giAverage);
 				});
 
@@ -2231,7 +2259,8 @@ namespace RageV
 			// before any frame is averaged (reflection_resolve.rvshader).
 			RGTargetDesc resolveDesc = traceDesc;
 			resolveDesc.Name = "ReflectionResolve";
-			resolveDesc.ExtraColors.clear();
+			// RT-15: and a second lane, the part of it whose rays struck something that moved.
+			resolveDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT };
 			const RGResource resolved = graph.CreateTarget(resolveDesc);
 			graph.AddPass("ReflectionResolve",
 				[&](RGPassBuilder& builder)
@@ -2246,7 +2275,8 @@ namespace RageV
 					Renderer3D::ResolveReflections(context.Color(traced),
 												   context.Color(traced, 1),
 												   context.Depth(sceneHDR),
-												   context.Color(sceneHDR, normalIndex));
+												   context.Color(sceneHDR, normalIndex), false,
+												   context.Color(traced, 3));
 				});
 			// The previous frame's picture, surface and moments, when there is one.
 			// **The reconstruction contract (RT-first T4).** The accumulate and
@@ -2343,7 +2373,10 @@ namespace RageV
 															resolved, currentReflections, previousReflections,
 															reflectionHistory, &desc.Reflections->Motion(),
 															reflectionBlurDesc, false, {}, reflectionChange,
-															reflectionChangeLive, traced).Target;
+															reflectionChangeLive, traced,
+															// RT-15: the layer exists for the pass after the
+															// resolve alone; without that pass it is not kept.
+															EngineConfig::Get().ReflectionMovingLayer).Target;
 		}
 		else if (desc.ReflectionChange)
 		{
@@ -2523,7 +2556,8 @@ namespace RageV
 			RGTargetDesc glassRayDesc;
 			glassRayDesc.Name = "GlassReflectionTrace";
 			glassRayDesc.Color = Format::R16G16B16A16_SFLOAT;
-			glassRayDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT, Format::R16G16_SFLOAT };
+			glassRayDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT, Format::R16G16_SFLOAT,
+										 Format::R16G16B16A16_SFLOAT };
 			glassRayDesc.Depth = Format::Undefined;
 			glassRayDesc.Scale = (float)supersample;
 			const RGResource glassRays = graph.CreateTarget(glassRayDesc);
@@ -2544,11 +2578,14 @@ namespace RageV
 												 context.Depth(glassLayer),
 												 glassBudgetBound ? context.Color(budgetMap) : nullptr,
 												 context.Color(glassLayer, 2),
+												 // RT-15b: no velocity for the glass layer: one ray a texel.
+												 nullptr,
 												 giAverage, true);
 				});
 			RGTargetDesc glassResolveDesc = glassRayDesc;
 			glassResolveDesc.Name = "GlassReflectionResolve";
-			glassResolveDesc.ExtraColors.clear();
+			// RT-15: and a second lane, the part of it whose rays struck something that moved.
+			glassResolveDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT };
 			const RGResource glassResolved = graph.CreateTarget(glassResolveDesc);
 			graph.AddPass("GlassReflectionResolve",
 				[&](RGPassBuilder& builder)
@@ -2563,16 +2600,19 @@ namespace RageV
 					Renderer3D::ResolveReflections(context.Color(glassRays),
 												   context.Color(glassRays, 1),
 												   context.Depth(glassLayer),
-												   context.Color(glassLayer, 1), true);
+												   context.Color(glassLayer, 1), true,
+												   context.Color(glassRays, 3));
 				});
-			// The opaque reflections' five lanes: the picture, the reflector, what
-			// was learned of it, the virtual image's motion and the object id.
+			// The opaque reflections' six lanes: the picture, the reflector, what
+			// was learned of it, the virtual image's motion, the object id and the
+			// moving layer (RT-15).
 			TemporalHistory& glassMirror = *desc.GlassReflections;
 			glassMirror.Prepare(Renderer::GetDevice(),
 								desc.Width * (uint32_t)supersample, desc.Height * (uint32_t)supersample,
 								Format::R16G16B16A16_SFLOAT, "GlassReflections",
 								Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
-								Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT);
+								Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
+								Format::R16G16B16A16_SFLOAT);
 			if (glassMirror.Current() && glassMirror.Previous())
 			{
 				const RGResource previousMirror = graph.Import(glassMirror.Previous(), "GlassReflectionsPrevious");
@@ -2595,7 +2635,7 @@ namespace RageV
 										   glassResolved, currentMirror, previousMirror,
 										   glassMirror.HasHistory(), &glassMirror.Motion(),
 										   mirrorBlurDesc, false, mirrorGuide, kRGInvalid, nullptr,
-										   glassRays).Target;
+										   glassRays, true).Target;
 				glassMirror.Advance();
 			}
 		}
@@ -3160,9 +3200,10 @@ namespace RageV
 						});
 
 					TemporalHistory& mirror = *desc.WaterReflectionLight;
-					// The specular kind's five: the picture, the surface, the
-					// extra, the image motion, the id lane. The sea has no ids,
-					// but the attachment is the pipeline's and must exist.
+					// The specular kind's six: the picture, the surface, the
+					// extra, the image motion, the id lane and the moving layer.
+					// The sea has no ids and no moving layer, but the attachments
+					// are the pipeline's and must exist.
 					mirror.Prepare(Renderer::GetDevice(),
 								   (uint32_t)Math::Max(1u, (desc.Width * (uint32_t)supersample)
 															   / (uint32_t)traceScale),
@@ -3170,7 +3211,8 @@ namespace RageV
 															   / (uint32_t)traceScale),
 								   Format::R16G16B16A16_SFLOAT, "WaterReflectionSignal",
 								   Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
-								   Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT);
+								   Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
+								   Format::R16G16B16A16_SFLOAT);
 					if (mirror.Current() && mirror.Previous())
 					{
 						const RGResource pastMirror =
@@ -3317,6 +3359,16 @@ namespace RageV
 		RGResource shaded = sceneHDR;
 		// RT-6.1: the composite's velocity lane, when it ran.
 		RGResource reflectionMotion = kRGInvalid;
+		// **RT-15: the reflection's moving layer goes around the temporal resolve.** Where the
+		// resolve runs, the composite adds the still layer alone and a pass after the resolve
+		// adds the moving one, weighted from the lit frame the composite read -- see
+		// reflection_composite.rvshader for why one motion per pixel cannot carry both.
+		// **Off by default since 2026-09-15 (--reflection-moving-layer):** what goes around the
+		// resolve also goes around its smoothing, and the moving layer's grain showed as
+		// speckles on the floor under the chrome cube and flicker on the pipes mirroring it.
+		RGResource reflectionLit = kRGInvalid;
+		const bool movingAfterResolve = wantTemporal && tracedReflections
+									  && EngineConfig::Get().ReflectionMovingLayer;
 		// --- the opaque glossy reflection, added ---------------------------------
 		//
 		// **RT-6.1: before the temporal resolve, and it hands the resolve the
@@ -3354,7 +3406,8 @@ namespace RageV
 						builder.Sample(sceneHDR);
 						builder.DisableDepth();
 					},
-					[before, blurred, currentReflections, sceneHDR, velocityIndex]
+					[before, blurred, currentReflections, sceneHDR, velocityIndex, movingAfterResolve,
+					 traced = tracedReflections]
 					(RGPassContext& context)
 					{
 						PostProcess::ReflectionComposite(context.Cmd, context.Color(before),
@@ -3364,11 +3417,15 @@ namespace RageV
 														 // the scene's, and the lane it writes.
 														 context.Color(currentReflections, 3),
 														 context.Color(sceneHDR, velocityIndex),
-														 Format::R16G16_SFLOAT);
+														 Format::R16G16_SFLOAT,
+														 // RT-15: the moving layer, left for after the resolve.
+														 traced ? context.Color(currentReflections, 5) : nullptr,
+														 movingAfterResolve);
 					});
 				shaded = composited;
 				// The resolve reads this instead of the scene's lane.
 				reflectionMotion = composited;
+				reflectionLit = before;
 			}
 
 			// Swapped here for the reason the SSR chain swaps: what was written
@@ -3551,6 +3608,37 @@ namespace RageV
 				// spends a session reading the target it is writing.
 				history.Advance();
 			}
+		}
+
+		// RT-15: the reflection's moving layer, onto the resolved frame. After the block above
+		// whether or not the resolve could run -- the composite left it out on the promise
+		// that this pass would add it -- and into a target of its own, so the resolve's history,
+		// which is the target it just wrote, never holds it.
+		if (movingAfterResolve && reflectionLit != kRGInvalid)
+		{
+			RGTargetDesc movedDesc;
+			movedDesc.Name = "ReflectionMovingComposited";
+			movedDesc.Color = Format::R16G16B16A16_SFLOAT;
+			movedDesc.Depth = Format::Undefined;
+			const RGResource moved = graph.CreateTarget(movedDesc);
+			const RGResource resolvedFrame = shaded;
+			const RGResource lit = reflectionLit;
+			graph.AddPass("ReflectionMovingComposite",
+				[&](RGPassBuilder& builder)
+				{
+					builder.Write(moved);
+					builder.Sample(resolvedFrame);
+					builder.Sample(currentReflections);
+					builder.Sample(lit);
+					builder.DisableDepth();
+				},
+				[resolvedFrame, currentReflections, lit](RGPassContext& context)
+				{
+					PostProcess::ReflectionMovingComposite(context.Cmd, context.Color(resolvedFrame),
+														  context.Color(currentReflections, 5),
+														  context.Color(lit), Format::R16G16B16A16_SFLOAT);
+				});
+			shaded = moved;
 		}
 
 		// What SSR and SSAO both reconstruct view space from: the clip planes,
@@ -5104,7 +5192,8 @@ namespace RageV
 			//
 			// Display: 0 a ramp, 1 the picture, 2 two colours, 3 a vector in rg,
 			// 4 an octahedral normal. Channel: 0 r, 1 g, 2 b, 3 a, 4 the standard
-			// deviation the moments in g and b describe.
+			// deviation the moments in g and b describe, 5 a below the reflection
+			// accumulator's moving-curved mark (RT-15: modulo eight).
 			struct ViewSpec
 			{
 				float       Scale = 1.0f;
@@ -5181,7 +5270,7 @@ namespace RageV
 				spec.Missing = kMissingReflection;
 				break;
 			case EngineConfig::DebugViewMode::ReflectionChoice:
-				spec.Aux = reflectionAux; spec.Attachment = 2; spec.Channel = 3;
+				spec.Aux = reflectionAux; spec.Attachment = 2; spec.Channel = 5;
 				spec.Scale = 6.0f; spec.Name = "reflection-choice";
 				spec.Missing = kMissingReflection;
 				break;

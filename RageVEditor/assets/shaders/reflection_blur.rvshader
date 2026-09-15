@@ -47,6 +47,12 @@ layout(set = 3, binding = 3) uniform sampler2D u_ImageDistance;
 #ifdef RV_SIGNAL_PAIR
 layout(set = 3, binding = 4) uniform sampler2D u_Accumulated2;   // the twin, same weights
 #endif
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+// **RT-15: the accumulator's third attachment**, whose alpha carries 8 above its
+// choice-and-refusal code where the reflector is curved and moves on its own
+// (reflection_accumulate.rvshader, kMovingCurvedMark). Black where none is bound.
+layout(set = 3, binding = 5) uniform sampler2D u_Extra;
+#endif
 
 layout(push_constant) uniform ReflectionParams
 {
@@ -60,7 +66,9 @@ layout(push_constant) uniform ReflectionParams
 	// The young-history blur's tuning (RT-first T4, Renderer3D::SignalParams):
 	// x the radius at one frame of history, y the frames at which it has
 	// faded to nothing, z how far past the lobe's footprint it may reach
-	// while young (specular), w the radius bound in texels (diffuse).
+	// while young (specular), w the radius bound in texels (diffuse) -- and on
+	// the specular kind, RT-15, the radius at one frame where the texel is marked
+	// a curved reflector moving on its own.
 	vec4 Blur;
 	// **Declared because the block is pushed whole, not because this pass
 	// reads them.** `BlurSignal` pushes `sizeof(SignalPushConstants)`, and a
@@ -183,7 +191,16 @@ void main()
 	const float young = 1.0 - clamp((centre.a - 1.0) / (kBlurFrames - 1.0), 0.0, 1.0);
 	// No gloss window here: the footprint bound below already says how
 	// far a lobe allows; mirrors have no footprint and get no blur.
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+	// **RT-15: and a radius of its own where the reprojection is approximate** --
+	// a curved reflector moving on its own, whose short history is grain no other
+	// frame can average away. Every other texel keeps kYoungRadius, which is zero
+	// on the reflections, and is copied through untouched.
+	const bool movingCurved = texelFetch(u_Extra, texel, 0).a >= 7.75;
+	float radius = max(kYoungRadius, movingCurved ? u_Reflection.Blur.w : 0.0) * young * young;
+#else
 	float radius = kYoungRadius * young * young;
+#endif
 	if (radius < 0.5)
 		return;
 

@@ -431,6 +431,23 @@ namespace RageV
 			catch (...) { RV_CORE_WARN("reflection-blur expects a number of texels; got '{0}'", value); return false; }
 			return true;
 		}
+		// RT-15: and on curved reflectors moving on their own alone.
+		if (key == "reflection-moving-blur" || key == "reflectionmovingblur")
+		{
+			try { config.ReflectionMovingBlurRadius = std::stof(value); }
+			catch (...) { RV_CORE_WARN("reflection-moving-blur expects a number of texels; got '{0}'", value); return false; }
+			return true;
+		}
+		// RT-15b: the rays a texel casts where its surface moves on its own.
+		if (key == "reflection-moving-rays" || key == "reflectionmovingrays")
+		{
+			try { config.ReflectionMovingRays = std::stoi(value); }
+			catch (...) { RV_CORE_WARN("reflection-moving-rays expects a count; got '{0}'", value); return false; }
+			return true;
+		}
+		// RT-15: the moving layer added after the temporal resolve; off, all of it before.
+		if (key == "reflection-moving-layer" || key == "reflectionmovinglayer")
+			return ParseBool(value, config.ReflectionMovingLayer);
 		// And the occlusion's and the indirect light's (RT-5 part 5).
 		if (key == "ao-blur" || key == "aoblur")
 		{

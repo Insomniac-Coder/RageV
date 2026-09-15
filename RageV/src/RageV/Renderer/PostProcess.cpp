@@ -97,6 +97,7 @@ namespace RageV
 				case 36: return "assets/shaders/gbuffer_guide.rvshader";
 				case 37: return "assets/shaders/taa_guide.rvshader";
 				case 38: return "assets/shaders/change_filter.rvshader";
+				case 39: return "assets/shaders/reflection_composite_moving.rvshader";
 				default: return "assets/shaders/fog.rvshader";
 			}
 		}
@@ -117,7 +118,7 @@ namespace RageV
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not -- so the number is
 			// asserted against it in Init instead, where the enum is in scope.
-			std::array<Ref<RHIShader>, 39> Shaders;
+			std::array<Ref<RHIShader>, 40> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -181,7 +182,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 39,
+		static_assert((int)Shader::Count <= 40,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -1783,19 +1784,37 @@ namespace RageV
 	void PostProcess::ReflectionComposite(RHICommandList& cmd, const Ref<RHITexture>& scene,
 										  const Ref<RHITexture>& reflection, Format outputFormat,
 										  const Ref<RHITexture>& reflectionMotion,
-										  const Ref<RHITexture>& velocity, Format motionFormat)
+										  const Ref<RHITexture>& velocity, Format motionFormat,
+										  const Ref<RHITexture>& movingLayer, bool movingAfterResolve)
 	{
 		if (!s_Data || !scene || !reflection)
 			return;
 		PostParams params;
+		// RT-15: the moving layer left for after the resolve.
+		params.A = movingLayer && movingAfterResolve ? 1.0f : 0.0f;
 		// The two pictures linear, so a supersampled one averages down to an
 		// output pixel rather than picking a texel of it. **The two motion lanes
 		// point** (RT-6.1): a velocity is a measurement per pixel, and the
 		// average of two pixels' motion is the motion of nothing.
+		// RT-15: the moving layer at binding 6, linear like the picture it is part of,
+		// and black where there is none -- a declared binding is always filled.
 		Dispatch(cmd, Shader::ReflectionComposite, outputFormat, scene, reflection,
 				 &params, sizeof(params), Sampling::Linear, Sampling::Linear,
 				 reflectionMotion, Sampling::Point, velocity, Sampling::Point,
-				 nullptr, nullptr, motionFormat);
+				 nullptr, nullptr, motionFormat, Format::Undefined, nullptr,
+				 movingLayer ? movingLayer : s_Data->Black, Sampling::Linear);
+	}
+
+	void PostProcess::ReflectionMovingComposite(RHICommandList& cmd, const Ref<RHITexture>& frame,
+												const Ref<RHITexture>& movingLayer,
+												const Ref<RHITexture>& lit, Format outputFormat)
+	{
+		if (!s_Data || !frame || !movingLayer || !lit)
+			return;
+		PostParams params;
+		Dispatch(cmd, Shader::ReflectionMovingComposite, outputFormat, frame, movingLayer,
+				 &params, sizeof(params), Sampling::Linear, Sampling::Linear,
+				 lit, Sampling::Linear);
 	}
 
 	void PostProcess::DebugView(RHICommandList& cmd, const Ref<RHITexture>& frame,

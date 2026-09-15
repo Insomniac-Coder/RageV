@@ -1,0 +1,57 @@
+// **RT-15: the moving layer of the traced reflection, added after the temporal
+// resolve.**
+//
+// The accumulator keeps the part of each reflection whose rays struck something
+// that moved apart from the rest, and follows that thing with it
+// (reflection_accumulate.rvshader). The composite before the resolve adds only the
+// still part, because the resolve reprojects a pixel along one motion and would
+// otherwise drag one layer along the other's (reflection_composite.rvshader). This
+// pass adds the moving part to the resolved frame, with the same weight the lit
+// shader wrote for the whole reflection, at the same texel. Nothing after the
+// resolve reads the resolve's own history, so the moving layer never enters it.
+#type vertex
+#version 450 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 450 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Color;
+
+// The frame the temporal resolve produced.
+layout(set = 0, binding = 0) uniform sampler2D u_Frame;
+// The accumulator's moving layer: rgb the layer, a its frames.
+layout(set = 0, binding = 1) uniform sampler2D u_Moving;
+// The lit frame before the reflection was composited: alpha the reflection's
+// weight at this pixel (reflection_composite.rvshader).
+layout(set = 0, binding = 2) uniform sampler2D u_Lit;
+
+layout(push_constant) uniform Params
+{
+	float TexelX;        // PostParams' shared header
+	float TexelY;
+	float A;
+	float B;
+	float C;
+	float FlipY;
+} u_Params;
+
+void main()
+{
+	// Every input is a rendered image, so all flip together (PostProcess::Dispatch).
+	const bool flip = u_Params.FlipY > 0.5;
+	const vec2 uv = vec2(v_UV.x, flip ? 1.0 - v_UV.y : v_UV.y);
+	const vec4 frame = texture(u_Frame, uv);
+	const vec4 moving = texture(u_Moving, uv);
+	const float weight = max(texture(u_Lit, uv).a, 0.0);
+	const vec3 added = moving.a > 0.0 ? max(moving.rgb, vec3(0.0)) : vec3(0.0);
+	o_Color = vec4(frame.rgb + weight * added, frame.a);
+}

@@ -144,8 +144,11 @@ namespace RageV
 			Vec4 BaseColor;
 			Vec4 EmissiveColor;
 			Vec4 Surface;                // metallic, roughness, occlusion, normal scale
+			// RT-15: last frame's object-to-world, its three rows, where the travelled
+			// bit is set (zero elsewhere, and unread): where a struck point stood last frame.
+			Vec4 PreviousRows[3];
 		};
-		static_assert(sizeof(GpuRayInstance) == 96, "Must match RayInstance in pbr_fragment.glsl");
+		static_assert(sizeof(GpuRayInstance) == 144, "Must match RayInstance in pbr_fragment.glsl");
 		static_assert(offsetof(GpuRayInstance, BaseColor) == 48, "RayInstance vec4s begin at 48");
 		constexpr uint32_t kRayInstanceBinding = 15;
 		// Where the visible-index buffer binds (roadmap 8.16). Declared by
@@ -180,6 +183,9 @@ namespace RageV
 		constexpr uint32_t kRayInstanceStatic = 8u;
 		// RT-17: the instance moved this frame (RayCaster::Moving).
 		constexpr uint32_t kRayInstanceMoving = 16u;
+		// RT-15: its transform changed since last frame, and PreviousRows hold the old
+		// one (RayCaster::Travelled).
+		constexpr uint32_t kRayInstanceTravelled = 32u;
 
 		// Mirrors the std140 SceneData block in pbr.rvshader.
 		struct SceneUniforms
@@ -3598,7 +3604,11 @@ namespace RageV
 			// material cannot stand in for.
 			// **RT-17: and the trace a third** -- what each ray struck, two
 			// channels, a transient lane of four bytes a texel (RT-14's terms).
-			const int extras = pass == 0 ? 2 : pass == 2 ? 4 : pass == 4 ? 2 : pass == 6 ? 3 : pass == 7 ? 1 : 0;
+			// **RT-15: and a fourth** -- how far that struck point travelled since
+			// last frame, three channels in a transient lane of eight bytes a texel.
+			// **RT-15: and the resolve a second, the moving part of its picture, and the
+			// specular accumulate a sixth, the moving layer it keeps apart.**
+			const int extras = pass == 0 ? 3 : pass == 1 ? 1 : pass == 2 ? 5 : pass == 4 ? 2 : pass == 6 ? 3 : pass == 7 ? 1 : 0;
 			for (int extra = 0; extra < extras; ++extra)
 			{
 				reflection.ColorFormats.push_back(pass == 0 && extra == 1 ? Format::R16G16_SFLOAT
@@ -5550,6 +5560,14 @@ namespace RageV
 						row.Flags |= kRayInstanceMoving;
 						s_Data->RayAnyMoving = true;
 					}
+					if (caster.Travelled)
+					{
+						row.Flags |= kRayInstanceTravelled;
+						// Column-major: row r is the r-th element of each column.
+						const Mat4& was = caster.PreviousWorld;
+						for (int r = 0; r < 3; ++r)
+							row.PreviousRows[r] = { was[0][r], was[1][r], was[2][r], was[3][r] };
+					}
 
 					row.MaterialIndex = it->second;
 					// **RT-17: an identity that survives the frame.** The row index
@@ -6847,6 +6865,7 @@ namespace RageV
 									  const RHI::Ref<RHITexture>& depth,
 									  const RHI::Ref<RHITexture>& budget,
 									  const RHI::Ref<RHITexture>& albedo,
+									  const RHI::Ref<RHITexture>& velocity,
 									  float giAverage, bool glassLayer)
 	{
 		if (!s_Data || !s_Data->ReflectionTracePipeline || !s_Data->ActiveScene)
@@ -6875,6 +6894,12 @@ namespace RageV
 		// its rgb is then a normal, which makes a nonsense tint rather than a
 		// crash, and that path does not trace.
 		inputs->SetTexture(3, albedo ? albedo : surface, s_Data->PointSampler);
+		// RT-15b: the velocity lane, for the texels that cast more rays. Asked of the
+		// set, for RT-20's reason: a staged older copy has no binding 4. Black where the
+		// caller has none (the glass layer): nothing moved, one ray everywhere.
+		if (inputs->HasBinding(4))
+			inputs->SetTexture(4, velocity ? velocity : TextureLoader::TransparentBlack(*s_Data->Device),
+							   s_Data->PointSampler);
 		inputs->Commit();
 
 		LampPushConstants push;
@@ -6882,7 +6907,12 @@ namespace RageV
 		push.History.y = Math::Max(giAverage, 1.0f);
 		FillLampFlip(push, *s_Data);
 		const Vec2 gloss = Renderer::GetReflectionGloss();
-		push.Trace = Vec4(0.0f, gloss.x, gloss.y, budget ? 1.0f : 0.0f);
+		// RT-15b: Trace.x carries the rays a texel casts where its surface moves on its
+		// own (four unless --reflection-moving-rays says otherwise). It used to carry the
+		// probe a hit is lit by, always zero; the shader finds that at the hit now.
+		const int movingRays = EngineConfig::Get().ReflectionMovingRays;
+		push.Trace = Vec4((float)(movingRays >= 0 ? Math::Clamp(movingRays, 1, 16) : 4),
+						  gloss.x, gloss.y, budget ? 1.0f : 0.0f);
 
 		cmd->BindPipeline(s_Data->ReflectionTracePipeline);
 		cmd->BindResourceSet(0, slot.LampSet);
@@ -6901,7 +6931,8 @@ namespace RageV
 										const RHI::Ref<RHITexture>& hit,
 										const RHI::Ref<RHITexture>& depth,
 										const RHI::Ref<RHITexture>& surface,
-										bool glassLayer)
+										bool glassLayer,
+										const RHI::Ref<RHITexture>& travel)
 	{
 		if (!s_Data || !s_Data->ReflectionResolvePipeline || !s_Data->ActiveScene)
 			return;
@@ -6921,6 +6952,11 @@ namespace RageV
 		inputs->SetTexture(1, depth, s_Data->PointSampler);
 		inputs->SetTexture(2, surface, s_Data->PointSampler);
 		inputs->SetTexture(3, hit, s_Data->PointSampler);
+		// RT-15: how far what each ray struck travelled, which splits the picture into
+		// its still part and its moving part. Black where the trace wrote none: all still.
+		if (inputs->HasBinding(4))
+			inputs->SetTexture(4, travel ? travel : TextureLoader::TransparentBlack(*s_Data->Device),
+							   s_Data->PointSampler);
 		inputs->Commit();
 
 		ReflectionPushConstants push;
@@ -6944,7 +6980,8 @@ namespace RageV
 								const RHI::Ref<RHITexture>& surface,
 								const RHI::Ref<RHITexture>& imageDistance,
 								int stride,
-								const RHI::Ref<RHITexture>& accumulated2)
+								const RHI::Ref<RHITexture>& accumulated2,
+								const RHI::Ref<RHITexture>& extra)
 	{
 		const bool diffuse = signal.Type == SignalParams::Kind::Diffuse;
 		const Ref<RHIPipeline>& pipeline = accumulated2 ? s_Data->SignalBlurDiffusePairPipeline
@@ -6970,6 +7007,11 @@ namespace RageV
 		inputs->SetTexture(3, imageDistance, s_Data->PointSampler);
 		if (accumulated2)
 			inputs->SetTexture(4, accumulated2, s_Data->PointSampler);
+		// RT-15: the specular blur's mark of a curved reflector moving on its own. Asked
+		// of the set, for RT-20's reason: a staged older copy has no binding 5.
+		if (inputs->HasBinding(5))
+			inputs->SetTexture(5, extra ? extra : TextureLoader::TransparentBlack(*s_Data->Device),
+							   s_Data->PointSampler);
 		inputs->Commit();
 
 		SignalPushConstants push;
@@ -6983,7 +7025,10 @@ namespace RageV
 		push.Probe.w = (signal.PositionLane ? 1.0f : 0.0f)
 					 + (signal.UpNormalLane ? 2.0f : 0.0f);
 		push.Tuning = { signal.SmearTexels, signal.MovingMemory, signal.SilhouetteMemory, signal.PairMemory };
-		push.Blur = { signal.YoungRadius, signal.BlurFrames, signal.YoungOverreach, signal.MaxRadius };
+		// RT-15: the w lane is the diffuse kind's radius bound and, on the specular
+		// kind, which has no bound there, the moving curved reflector's young radius.
+		push.Blur = { signal.YoungRadius, signal.BlurFrames, signal.YoungOverreach,
+					  diffuse ? signal.MaxRadius : signal.MovingRadius };
 
 		cmd->BindPipeline(pipeline);
 		cmd->BindResourceSet(0, slot.LampSet);
@@ -6992,6 +7037,11 @@ namespace RageV
 		cmd->BindResourceSet(3, inputs);
 		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
 		cmd->Draw(3);
+	}
+
+	bool Renderer3D::AnyInstanceMoved()
+	{
+		return s_Data && (s_Data->RayAnyMoving || s_Data->RayAnyMovingLast);
 	}
 
 	// The frames behind the reflection, averaged in (reflection_accumulate.rvshader),
@@ -7037,6 +7087,17 @@ namespace RageV
 		const float radius = EngineConfig::Get().ReflectionBlurRadius;
 		if (radius >= 0.0f)
 			signal.YoungRadius = radius;
+		// **RT-15: but back where the reprojection is only approximate** -- a curved
+		// reflector moving on its own, the one case neither history (the image's nor
+		// the surface's) follows exactly, so its memory stays short and its grain
+		// shows (owner, 2026-09-15: "they appear a bit noisy"). Flat movers keep none:
+		// a moving flat mirror's image history is exact, and blurring the chrome cube
+		// smeared its sharp reflection into bands. Twelve at the owner's word; the
+		// accumulator marks the texels (reflection_accumulate.rvshader, kMovingCurved).
+		signal.MovingRadius = 12.0f;
+		const float moving = EngineConfig::Get().ReflectionMovingBlurRadius;
+		if (moving >= 0.0f)
+			signal.MovingRadius = moving;
 		return signal;
 	}
 
@@ -7165,7 +7226,10 @@ namespace RageV
 									  const RHI::Ref<RHITexture>& surfaceId,
 									  const RHI::Ref<RHITexture>& previousIdent,
 									  const RHI::Ref<RHITexture>& change,
-									  const RHI::Ref<RHITexture>& freshIdentity)
+									  const RHI::Ref<RHITexture>& freshIdentity,
+									  const RHI::Ref<RHITexture>& freshTravel,
+									  const RHI::Ref<RHITexture>& freshMoving,
+									  const RHI::Ref<RHITexture>& previousMoving)
 	{
 		const bool diffuse = signal.Type == SignalParams::Kind::Diffuse;
 		const Ref<RHIPipeline>& pipeline = fresh2 ? s_Data->SignalAccumulateDiffusePairPipeline
@@ -7222,6 +7286,22 @@ namespace RageV
 		if (inputs->HasBinding(12))
 			inputs->SetTexture(12, freshIdentity ? freshIdentity : TextureLoader::TransparentBlack(*s_Data->Device),
 							   s_Data->PointSampler);
+		// RT-15: how far what they struck moved, beside it, and black with it --
+		// read under the same Change.y, so a lane that is not this signal's is never read.
+		if (inputs->HasBinding(13))
+			inputs->SetTexture(13, freshIdentity && freshTravel ? freshTravel
+								   : TextureLoader::TransparentBlack(*s_Data->Device),
+							   s_Data->PointSampler);
+		// RT-15: the moving layer -- this frame's from the resolve, last frame's from the
+		// history's sixth lane (sampled like the picture, since it is read where the picture
+		// is). Black where the signal has none, and Change.z says so.
+		if (inputs->HasBinding(14))
+			inputs->SetTexture(14, freshMoving ? freshMoving : TextureLoader::TransparentBlack(*s_Data->Device),
+							   s_Data->PointSampler);
+		if (inputs->HasBinding(15))
+			inputs->SetTexture(15, previousMoving && hasHistory ? previousMoving
+								   : TextureLoader::TransparentBlack(*s_Data->Device),
+							   historySampler);
 		inputs->Commit();
 
 		SignalPushConstants push;
@@ -7261,9 +7341,12 @@ namespace RageV
 		// Measured change: x one where the map at binding 11 is this signal's.
 		// RT-17: y one where the identity lane is this signal's and something moved
 		// this frame or the last -- a still scene's history cannot hold a ghost.
+		// RT-15: z one where the moving layer is this signal's -- a resolve split the picture
+		// and a history keeps the layer -- and something moved this frame or the last.
+		const bool moved = s_Data->RayAnyMoving || s_Data->RayAnyMovingLast;
 		push.Change = { change ? 1.0f : 0.0f,
-						freshIdentity && (s_Data->RayAnyMoving || s_Data->RayAnyMovingLast) ? 1.0f : 0.0f,
-						0.0f, 0.0f };
+						freshIdentity && moved ? 1.0f : 0.0f,
+						freshMoving && freshIdentity && moved ? 1.0f : 0.0f, 0.0f };
 		motion.ViewProjection = s_Data->Scene.ViewProjection;
 		// **RT-6.3: and the eye that went with it.** Each signal keeps its own
 		// motion record -- this is the signal's, not the temporal resolve's -- so

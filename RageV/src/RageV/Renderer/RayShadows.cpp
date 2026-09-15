@@ -260,7 +260,7 @@ namespace RageV
 
 	void RayShadows::AddInstance(const Ref<Mesh>& mesh, const Mat4& world, const std::vector<Mat4>* bones,
 								 const Ref<Material>& material, const MaterialParams& params,
-								 uint64_t owner, bool isStatic, bool moving)
+								 uint64_t owner, bool isStatic, bool moving, const Mat4* previousWorld)
 	{
 		if (!s_Data || !s_Data->Available || !mesh)
 			return;
@@ -286,6 +286,8 @@ namespace RageV
 		record.Owner = owner;
 		record.Static = isStatic;
 		record.Moving = moving;
+		record.PreviousWorld = previousWorld ? *previousWorld : world;
+		record.Travelled = previousWorld && std::memcmp(previousWorld, &world, sizeof(Mat4)) != 0;
 
 		// A posed skinned caster: this frame's structure for a caster slot,
 		// refit in Build from the vertices the compute pass writes. Falls

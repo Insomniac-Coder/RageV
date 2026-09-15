@@ -8,7 +8,7 @@ namespace RageV
 	void TemporalHistory::Prepare(RHIDevice& device, uint32_t width, uint32_t height,
 								  Format format, const char* name, Format secondFormat,
 								  Format thirdFormat, Format fourthFormat,
-								  Format fifthFormat)
+								  Format fifthFormat, Format sixthFormat)
 	{
 		if (width == 0 || height == 0)
 		{
@@ -22,7 +22,7 @@ namespace RageV
 		if (m_Targets[0] && m_Width == width && m_Height == height
 			&& m_Format == format && m_SecondFormat == secondFormat
 			&& m_ThirdFormat == thirdFormat && m_FourthFormat == fourthFormat
-			&& m_FifthFormat == fifthFormat)
+			&& m_FifthFormat == fifthFormat && m_SixthFormat == sixthFormat)
 			return;
 
 		RenderTargetDesc desc;
@@ -38,6 +38,9 @@ namespace RageV
 		// RT-6.5: the reflection accumulator's object id.
 		if (fifthFormat != Format::Undefined)
 			desc.ColorAttachments.push_back({ fifthFormat });
+		// RT-15: the reflection accumulator's moving layer.
+		if (sixthFormat != Format::Undefined)
+			desc.ColorAttachments.push_back({ sixthFormat });
 		// No depth. Nothing in a temporal resolve tests or writes it, and an
 		// attachment nobody uses would still force every pipeline drawn here
 		// to declare a matching depth format.
@@ -55,6 +58,7 @@ namespace RageV
 		m_ThirdFormat = thirdFormat;
 		m_FourthFormat = fourthFormat;
 		m_FifthFormat = fifthFormat;
+		m_SixthFormat = sixthFormat;
 
 		// Freshly allocated images hold whatever the driver left in them.
 		// Blending against that would put one frame of somebody else's memory

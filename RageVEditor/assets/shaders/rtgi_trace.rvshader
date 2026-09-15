@@ -610,7 +610,8 @@ void main()
 			arriving = second.Missed
 					 ? second.Sky
 					 : ShadeTraced(second, ProbeIrradiance(second.Normal,
-														   GiProbeSlotAt(second.Position)));
+														   GiProbeSlotAt(second.Position)),
+														   GiProbeSlotAt(second.Position));
 		}
 
 		// **Emissive removed where the emitters answered for it**, and only
@@ -626,7 +627,8 @@ void main()
 		// here and added nowhere, and a scene simply lost it. With the flag
 		// the fallback the cap documents is finally the one that happens:
 		// what the list omits, the hemisphere term still finds.
-		vec3 shaded = max(ShadeTraced(first, arriving) - (first.IsEmitter ? first.Emissive : vec3(0.0)),
+		vec3 shaded = max(ShadeTraced(first, arriving, GiProbeSlotAt(first.Position))
+						  - (first.IsEmitter ? first.Emissive : vec3(0.0)),
 						  vec3(0.0));
 
 		// **And a bound on what is left, which is the honest half of this.**

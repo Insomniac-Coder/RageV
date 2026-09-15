@@ -276,7 +276,7 @@ void main()
 		// For the traced flavour, ShadeTraced reads the previous sweep's
 		// field at this hit -- the feedback that turns passes into bounces.
 		// The screen flavour skips it; see g_FillFeedback at the top of main.
-		const vec3 radiance = ShadeTraced(hit, ProbeIrradiance(hit.Normal, 0.0));
+		const vec3 radiance = ShadeTraced(hit, ProbeIrradiance(hit.Normal, 0.0), 0.0);
 
 		// **The ray's direction in the box's frame**, because that is the frame
 		// the faces are named in and the frame a reader asks in. Orthonormal,

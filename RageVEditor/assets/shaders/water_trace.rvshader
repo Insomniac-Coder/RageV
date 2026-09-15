@@ -41,6 +41,9 @@ void main()
 #version 460 core
 
 #define RV_TRACE_ONLY
+// A hit is an image the eye sees: shaded with its specular half (pbr_fragment's
+// RV_HIT_SPECULAR), so a metal in the sea's mirror is not black.
+#define RV_HIT_SPECULAR
 #include "include/pbr_fragment.glsl"
 #include "include/water_lobe.glsl"
 #include "include/water_lamps.glsl"
@@ -79,6 +82,9 @@ void main()
 		return;
 	}
 
-	o_Reflection = vec4(ShadeTraced(hit, ProbeIrradiance(hit.Normal, u_Lamps.Trace.x)),
+	// The probe at the hit, as the reflection pass chooses it (2026-09-15); Trace.x
+	// was always zero here too.
+	const float hitProbe = ProbeSlotAt(hit.Position);
+	o_Reflection = vec4(ShadeTraced(hit, ProbeIrradiance(hit.Normal, hitProbe), hitProbe),
 						length(hit.Position - p.Position));
 }

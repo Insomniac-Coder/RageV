@@ -115,6 +115,17 @@ layout(set = 3, binding = 10) uniform sampler2D u_HistoryIdent;
 // wrote it and something moved this frame or the last -- the sea's mirror has no
 // such lane and is bound black, and a still scene skips the test.
 layout(set = 3, binding = 12) uniform sampler2D u_FreshIdentity;
+// **RT-15: and how far what they struck travelled since last frame** (the trace's
+// fourth lane): world metres in rgb, zero for a miss and for anything that stood
+// still. Read under the same Change.y, and bound black with the lane above.
+layout(set = 3, binding = 13) uniform sampler2D u_FreshTravel;
+// **RT-15: the moving layer.** This frame's, from the resolve's second lane: rgb the part of
+// the picture whose rays struck something that moved, a the share of the lobe those rays
+// carried. And the one this pass kept last frame, in the history's sixth lane: rgb the layer,
+// a its frames (zero where there was none). Read where Change.z says a resolve split this
+// signal's picture and something moved; bound black otherwise.
+layout(set = 3, binding = 14) uniform sampler2D u_FreshMoving;
+layout(set = 3, binding = 15) uniform sampler2D u_HistoryMoving;
 #endif
 #ifdef RV_SIGNAL_PAIR
 // The second payload (RT-first T5): a signal of two pictures -- the direct
@@ -169,7 +180,8 @@ vec2 MeasuredChangeAt(vec2 at)
 
 // Why the texel's own history was refused this frame, for the
 // `reflection-refusal` debug view: 0 kept, 1 off screen, 2 none there,
-// 3 normal, 4 plane, 5 roughness. Written into o_Extra.a above `choice`.
+// 3 normal, 4 plane, 5 roughness, 6 another object (RT-15c, the specular
+// instance). Written into o_Extra.a above `choice`.
 int g_Refusal = 0;
 // RT-6.1: where the picture this texel took came from, last frame -- set
 // when a candidate is accepted, so the motion write below has something to
@@ -197,6 +209,10 @@ float g_BlendFrames = 1.0;
 // RT-18: whether something in this silhouette's 3x3 moves on its own, which takes
 // the silhouette's exemption away (HistoryAt; ObjectMovesAround says why).
 bool g_SilhouetteMoving = false;
+// RT-15: whether the reflector is curved and moves on its own -- the case neither
+// history follows exactly. Chooses between them (main) and marks the texel for the
+// young blur (o_Extra.a, kMovingCurvedMark).
+bool g_MovingCurved = false;
 
 layout(location = 0) out vec4 o_Accumulated;
 layout(location = 1) out vec4 o_Surface;
@@ -221,6 +237,10 @@ layout(location = 3) out vec4 o_Accumulated2;
 layout(location = 3) out vec4 o_Motion;
 // RT-6.5: the object id under this texel, for the next frame's test.
 layout(location = 4) out vec4 o_Ident;
+// **RT-15: the moving layer this texel keeps**, for the next frame (see u_HistoryMoving).
+// The picture in the first attachment is the sum of both layers, so every reader of it --
+// the lit shader, the blur, the composite, the glass pane -- sees one picture as before.
+layout(location = 5) out vec4 o_MovingLayer;
 #endif
 
 // **RT-15: the least motion, in texels, that counts as motion.** See
@@ -258,6 +278,29 @@ float Luma(vec3 c)
 {
 	return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
+
+// **RT-15c: the object-aware history's rule, made hard** (owner, 2026-09-15: "I WANT THE
+// OBJECT AWARE TEMPORAL HISTORY TO DO ITS JOB").
+//
+// A history belongs to the object it was gathered on, and only a texel showing that
+// object may use it -- refused outright where the ids differ, never weighed. And everything
+// that builds one keeps to its object: the candidates (HistoryAt), the filtered read of the
+// texel's own (OwnHistoryPicture) and the bound it is held to (Neighbourhood). Kept that
+// way, no stored picture ever holds two objects' light, so the id written beside it is the
+// truth about what it holds, and the next frame's test can rely on it.
+//
+// Before this, a different object's history was only weighed down when it also sat off the
+// plane (kIdAgree), a silhouette texel's own history was kept with no test at all, and the
+// filter and the bound read across object edges. The chrome cube crossing the car's wing
+// showed the result: the cube's texels uncovered beside the wing started from the wing's
+// light and faded it out over several frames, one vertical streak per frame of travel.
+//
+// On the specular instance, whose id lanes are real. A layer that says it has no ids
+// (PreviousEye.w two, the sea) is one object, and every texel of it passes.
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+bool HardObjectIds() { return u_Reflection.PreviousEye.w <= 1.5; }
+bool SameObject(float id) { return !HardObjectIds() || abs(id - g_ObjectId) < 0.5; }
+#endif
 
 // **RT-6.3: how far the reflection direction may swing before last frame's
 // picture stops being this frame's reflection** -- as a cosine, scaled by
@@ -304,6 +347,13 @@ void Neighbourhood(ivec2 texel, ivec2 size, out vec3 mean, out vec3 sd)
 			const vec4 f = texelFetch(u_Fresh, at, 0);
 			if (f.a < 0.0)
 				continue;
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+			// RT-15c: the bound is this object's own light. A neighbour on another object
+			// opened it by that object's picture -- at an edge, the other side's history
+			// then fitted inside it.
+			if (!SameObject(texelFetch(u_SurfaceId, at, 0).r))
+				continue;
+#endif
 			sum += f.rgb;
 			sum2 += f.rgb * f.rgb;
 			n += 1.0;
@@ -587,7 +637,104 @@ float IdentityConfidence(ivec2 texel, ivec2 size, vec2 was, float roughness)
 	}
 	return moving ? mix(1.0, kHitIdentityAgree, sensitivity) : 1.0;
 }
+
+// **RT-15: two layers, because one colour cannot move two ways.** A glossy texel's picture
+// is its lobe: the still room where the rays land on it, and whatever moved where they land
+// on that. As one stored colour the two could only be reprojected together, and neither way
+// is right: kept in place, a moving object's old reflection stays behind as a ghost; carried
+// along with the object (Zeng et al. 2021's glossy reflection motion vector, tried first),
+// the still reflection around it is dragged too -- measured smearing the floor's light
+// ripples sideways under the chrome cube and sphere, worse there than averaging nothing. So
+// the resolve splits the picture by what each ray struck, and this pass keeps the moving
+// part in a layer of its own (the sixth attachment): the still layer is reprojected exactly
+// as before, the moving layer follows what its rays struck, and the picture written is
+// their sum. Where nothing moved the moving layer is zero and every line below reduces to
+// the one-layer pass, bit for bit.
+bool MovingLayerLive() { return u_Reflection.Change.z > 0.5; }
+
+// How far the moving things this texel's 3x3 struck travelled: their mean, the still hits
+// and the misses left out -- the moving layer is only their light, so it follows them whole.
+vec3 MoverTravel(ivec2 texel, ivec2 size)
+{
+	vec3 sum = vec3(0.0);
+	float movers = 0.0;
+	for (int y = -1; y <= 1; ++y)
+	{
+		for (int x = -1; x <= 1; ++x)
+		{
+			const vec3 t = texelFetch(u_FreshTravel, clamp(texel + ivec2(x, y), ivec2(0), size - 1), 0).rgb;
+			if (dot(t, t) > 0.0)
+			{
+				sum += t;
+				movers += 1.0;
+			}
+		}
+	}
+	return movers > 0.0 ? sum / movers : vec3(0.0);
+}
+
+// The fresh 3x3's mean and spread for each layer, where Neighbourhood gives them for the
+// whole picture: the still layer is bounded by the still part, the moving by the moving.
+void NeighbourhoodLayers(ivec2 texel, ivec2 size, out vec3 meanStill, out vec3 sdStill,
+						 out vec3 meanMoving, out vec3 sdMoving)
+{
+	vec3 sum = vec3(0.0), sum2 = vec3(0.0), msum = vec3(0.0), msum2 = vec3(0.0);
+	float n = 0.0;
+	for (int y = -1; y <= 1; ++y)
+	{
+		for (int x = -1; x <= 1; ++x)
+		{
+			const ivec2 at = clamp(texel + ivec2(x, y), ivec2(0), size - 1);
+			const vec4 f = texelFetch(u_Fresh, at, 0);
+			if (f.a < 0.0)
+				continue;
+			// RT-15c: this object's light alone, as Neighbourhood keeps it.
+			if (!SameObject(texelFetch(u_SurfaceId, at, 0).r))
+				continue;
+			const vec3 m = clamp(texelFetch(u_FreshMoving, at, 0).rgb, vec3(0.0), max(f.rgb, vec3(0.0)));
+			const vec3 s = max(f.rgb - m, vec3(0.0));
+			sum += s;
+			sum2 += s * s;
+			msum += m;
+			msum2 += m * m;
+			n += 1.0;
+		}
+	}
+	n = max(n, 1.0);
+	meanStill = sum / n;
+	sdStill = sqrt(max(sum2 / n - meanStill * meanStill, vec3(0.0)));
+	meanMoving = msum / n;
+	sdMoving = sqrt(max(msum2 / n - meanMoving * meanMoving, vec3(0.0)));
+}
+
+// The moving layer kept where a candidate was found, read the way its picture was.
+vec4 PastMovingAt(Candidate c)
+{
+	return c.bilinear ? texture(u_HistoryMoving, c.pastUv) : texelFetch(u_HistoryMoving, c.pastTexel, 0);
+}
 #endif
+
+// **RT-15: the curvature past which a moving reflector's histories are both
+// approximate**, per metre, as Curvature returns it (past its plane allowance). The
+// image history carries a flat mirror's reflection exactly under any motion
+// (ImageThen); on a curve the image sits at a distance that changes across the
+// surface and with the motion, and the car's body and the chrome sphere both measured
+// their image history misplaced -- averaging nothing was nearer the settled picture.
+const float kCurvedMover = 0.2;
+// How much nearer the fresh neighbourhood the surface's history must sit than the
+// image's, in the neighbourhood's own spreads, before a curved mover takes it: clearly
+// nearer, so a tie stays with the image, which is right more often (measured 0.7
+// against always and against 0.5, 2026-09-15).
+const float kSurfaceNearer = 0.7;
+// Added to o_Extra.a where g_MovingCurved: reflection_blur's mark. Above the
+// choice-and-refusal code (0..6.5), which the debug view reads below it.
+const float kMovingCurvedMark = 8.0;
+
+// A displacement mirrored through a plane with this normal.
+vec3 MirrorVector(vec3 v, vec3 N)
+{
+	return v - 2.0 * dot(N, v) * N;
+}
 
 float HitConfidence(float nowImage, float wasImage, float roughness)
 {
@@ -728,7 +875,11 @@ bool ObjectMovesAround(ivec2 texel, ivec2 size)
 // **Only ever called with the texel own history** (see the call site): on a
 // neighbour the search reached, the stored plane belongs to a different
 // point of the surface and the residual is its shape, not its travel.
-vec3 ImageThen(vec3 P, vec3 N, vec3 sight, float image, Candidate atSurface)
+//
+// **RT-15: and the seen point may have moved too** -- `seenTravel`, how far what the
+// ray sees travelled, already shrunk as its image is. Taken off the seen point before
+// it is mirrored through last frame's plane; zero, and nothing changes.
+vec3 ImageThen(vec3 P, vec3 N, vec3 sight, float image, Candidate atSurface, vec3 seenTravel)
 {
 	const vec3 I = P + sight * image;
 	const vec3 wasN = DecodeSurfaceNormal(atSurface.reflector.rg);
@@ -736,8 +887,8 @@ vec3 ImageThen(vec3 P, vec3 N, vec3 sight, float image, Candidate atSurface)
 	// where the plane did not move, so a still reflector returns the image
 	// it had bit for bit.
 	if (dot(wasN, N) > 0.9999)
-		return I - 2.0 * (dot(N, P) - atSurface.reflector.b) * N;
-	const vec3 seen = I - 2.0 * (dot(N, I) - dot(N, P)) * N;
+		return I - 2.0 * (dot(N, P) - atSurface.reflector.b) * N - MirrorVector(seenTravel, N);
+	const vec3 seen = I - 2.0 * (dot(N, I) - dot(N, P)) * N - seenTravel;
 	return seen - 2.0 * (dot(wasN, seen) - atSurface.reflector.b) * wasN;
 }
 
@@ -759,6 +910,29 @@ float ShortenedMemory(float base, float moved, float slack, float fewest,
 	if (silhouette)
 		memory = min(memory, max(base / (1.0 + neighbourMotion / slack), kSilhouetteMemory));
 	return max(memory, fewest);
+}
+
+// **RT-15c: the texel's own history, filtered only within its object.** The bilinear read
+// at the reprojected point is right on a surface and wrong across an edge, where up to three
+// of its four texels are the other object's picture -- a quarter of the wing's light at a
+// time on the cube beside it, in a texel whose id says cube. Where any of the four belongs
+// to another object the texel under the point is read alone; it has already passed the id
+// test (HistoryAt).
+vec4 OwnHistoryPicture(vec2 pastUv, ivec2 pastTexel, ivec2 size)
+{
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+	if (HardObjectIds())
+	{
+		const ivec2 base = ivec2(floor(pastUv * vec2(size) - 0.5));
+		for (int i = 0; i < 4; ++i)
+		{
+			const ivec2 at = clamp(base + ivec2(i & 1, i >> 1), ivec2(0), size - 1);
+			if (!SameObject(texelFetch(u_HistoryIdent, at, 0).r))
+				return texelFetch(u_History, pastTexel, 0);
+		}
+	}
+#endif
+	return texture(u_History, pastUv);
 }
 
 bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
@@ -816,6 +990,19 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 			continue;
 		}
 		c.extra = texelFetch(u_HistoryExtra, pastTexel, 0);
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+		// **RT-15c: another object's history is never this one's.** First, before any test
+		// that weighs a candidate, and before the silhouette rule below -- so that rule keeps
+		// a texel's own history across the jitter's side flip only where both sides are the
+		// same object. Where they are two, the side the texel shows this frame takes its own
+		// object's history from the neighbour that kept it, and the edge's coverage is left to
+		// the temporal resolve, as every other edge in the frame is.
+		if (!SameObject(texelFetch(u_HistoryIdent, pastTexel, 0).r))
+		{
+			if (k == 0) g_Refusal = 6;
+			continue;
+		}
+#endif
 		// At a silhouette the texel's own history is kept whichever side it
 		// showed last frame: under jitter the side flips every frame, and a
 		// history refused there was one frame old and shook (2026-09-06,
@@ -823,6 +1010,8 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 		// reflections). Averaged across the flip it is the coverage-weighted
 		// picture, which is what TAA's colour is at the same texel. The
 		// bound below still holds it to this frame's neighbourhood.
+		// **RT-15c: on the specular instance, only across one object's own edge** (the id
+		// test above has already refused the other object's side).
 		// **RT-18: not where something moves on its own** -- there that history
 		// is the other side's, and it stays behind (ObjectMovesAround).
 		c.matchConfidence = 1.0;
@@ -901,6 +1090,8 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 			// a layer with no ids. Read as `> 1.5`, so the direction test's
 			// `> 0.5` above is untouched.
 			const bool noIds = u_Reflection.PreviousEye.w > 1.5;
+			// RT-15c: on the specular instance a candidate of another object never gets
+			// here (refused at the top of the search), so this weight is one there.
 			const float idPenalty =
 				(noIds || abs(wasId - g_ObjectId) < 0.5)
 					? 1.0
@@ -919,7 +1110,8 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 		}
 		// Bilinear where the texel itself matched; the neighbour's own value
 		// where it did not, since the texels between belong to the other side.
-		c.past = k == 0 ? texture(u_History, c.pastUv) : texelFetch(u_History, pastTexel, 0);
+		// RT-15c: and the filter kept to this object (OwnHistoryPicture).
+		c.past = k == 0 ? OwnHistoryPicture(c.pastUv, pastTexel, size) : texelFetch(u_History, pastTexel, 0);
 		c.pastTexel = pastTexel;
 		c.bilinear = k == 0;
 		if (c.past.a > 0.0)
@@ -1000,7 +1192,9 @@ void CountSignal(bool kept, int refusal, float frames, float twin)
 	}
 	// One reason per refused pixel, numbered as g_Refusal is: off screen,
 	// none there, normal, plane, roughness. They sum to the refused count
-	// by construction, which is the check if a printed line looks wrong.
+	// by construction, which is the check if a printed line looks wrong --
+	// less RT-15c's sixth, another object, which has no lane of its own
+	// (the frames lane follows the fifth).
 	for (uint r = 1u; r <= 5u; ++r)
 	{
 		const uint n = subgroupAdd((real && !kept && uint(refusal) == r) ? 1u : 0u);
@@ -1039,6 +1233,11 @@ void main()
 		// Nothing here reflects, so there is no image to have moved. Zero is
 		// read by the resolve as "use the surface's", which is right.
 		o_Motion = vec4(0.0);
+		// RT-15: and no moving layer to keep.
+		o_MovingLayer = vec4(0.0);
+		// RT-15c: and no object. The filter's id test reads this lane on texels that took
+		// no candidate, and a lane left unwritten there holds whatever the target held.
+		o_Ident = vec4(0.0);
 #endif
 #ifdef RV_SIGNAL_PAIR
 		o_Accumulated2 = vec4(0.0);
@@ -1091,7 +1290,21 @@ void main()
 	// needs the value *this frame's ray* produced.
 	g_FreshImage = image;
 
-	vec3 kept = fresh.rgb;
+	// RT-15: this frame's picture as its two layers. The still layer is the whole picture on
+	// every signal but the reflections', and on those wherever nothing moved.
+	vec3 freshStill = fresh.rgb;
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+	const vec4 freshMovingLane = MovingLayerLive() ? texelFetch(u_FreshMoving, texel, 0) : vec4(0.0);
+	const vec3 freshMoving = clamp(freshMovingLane.rgb, vec3(0.0), max(fresh.rgb, vec3(0.0)));
+	if (MovingLayerLive())
+		freshStill = max(fresh.rgb - freshMoving, vec3(0.0));
+	// What the moving layer keeps: this frame's until a history of it is found, and no
+	// frames behind it -- where no ray struck a mover it is nothing, at once, so a mover
+	// that has passed leaves no reflection of itself behind.
+	vec3 keptMoving = freshMoving;
+	float framesMoving = freshMovingLane.a > 0.0 ? 1.0 : 0.0;
+#endif
+	vec3 kept = freshStill;
 	float frames = 1.0;
 	float choice = 0.0;
 	float momMean = luma;
@@ -1139,14 +1352,50 @@ void main()
 			// camera arm puts it.
 			const bool moved = dot(objectShift, objectShift) > 0.0;
 			imagePoint = (moved && atSurface.bilinear)
-			           ? ImageThen(P, N, sight, image, atSurface)
+			           ? ImageThen(P, N, sight, image, atSurface, vec3(0.0))
 			           : P + sight * image;
 		}
 		Candidate c;
 		bool have = HistoryAt(imagePoint, size, P, N, roughness, eyeDistance,
 		                      silhouette, vec2(0.0), c);
 		choice = have ? 1.0 : 0.0;
-		if (!have && haveSurface)
+		// **RT-15: on a curved reflector moving on its own, both histories, and the
+		// one nearer this frame's picture.** Neither follows it exactly: the image
+		// history is placed by an image distance that varies across the curve and
+		// with the motion, the surface history by the surface, which is where a
+		// rough lobe's blurred picture travels but not a sharp one's. Measured on the
+		// driving car's body, the image history alone was further from the settled
+		// picture than averaging nothing at all. So each candidate is scored by how
+		// far its picture sits from the fresh 3x3's mean, in that neighbourhood's
+		// spreads, and the surface's is taken when it is clearly nearer
+		// (kSurfaceNearer) -- the choice the dual-source denoisers make per pixel.
+		// Car body error 6.82 -> 5.75 against its settled pose; the flat chrome
+		// cube, whose image history is exact, never enters.
+		g_MovingCurved = dot(objectShift, objectShift) > 0.0 && curvature > kCurvedMover;
+		if (have && haveSurface && g_MovingCurved)
+		{
+			vec3 nearMean, nearSd;
+			Neighbourhood(texel, size, nearMean, nearSd);
+			const float spread = max(Luma(nearSd), 1.0e-4);
+			const float byImage = abs(Luma(c.past.rgb) - Luma(nearMean)) / spread;
+			const float bySurface = abs(Luma(atSurface.past.rgb) - Luma(nearMean)) / spread;
+			if (bySurface < kSurfaceNearer * byImage)
+			{
+				c = atSurface;
+				choice = 0.5;
+			}
+		}
+		// **RT-15e: but not on a flat reflector moving on its own.** Its image history is exact
+		// (ImageThen), and where there is none -- the strip its leading edge covers this frame --
+		// its surface history is the wrong picture: the surface carries its own old place, whose
+		// reflection stood one frame of travel away. Taken, every new strip started as a copy of
+		// the picture shifted by the travel and kept it for the frames that history held, so the
+		// moving chrome cube's reflected detail repeated every four texels (its travel a frame)
+		// and smeared along its path -- the vertical bands and horizontal lines the owner saw, which
+		// took seconds to fade after it stopped (2026-09-15). The strip starts from its own rays
+		// instead. A curved mover keeps the fallback: its choice between the two is made above.
+		const bool flatMover = dot(objectShift, objectShift) > 0.0 && curvature <= kCurvedMover;
+		if (!have && haveSurface && !flatMover)
 		{
 			c = atSurface;
 			have = true;
@@ -1188,10 +1437,23 @@ void main()
 							  : mix(12.0, max(u_Reflection.Probe.x, 0.0),
 									smoothstep(0.08, 0.3, roughness));
 			vec3 mean, sd;
-			Neighbourhood(texel, size, mean, sd);
+			// RT-15: the still layer's history is the picture kept less the moving layer kept
+			// with it, and its bound the fresh still part's -- both the whole picture's where
+			// the moving layer is not live.
+			vec3 pastStill = c.past.rgb;
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+			if (MovingLayerLive())
+			{
+				vec3 ignoredMean, ignoredSd;
+				NeighbourhoodLayers(texel, size, mean, sd, ignoredMean, ignoredSd);
+				pastStill = max(c.past.rgb - PastMovingAt(c).rgb, vec3(0.0));
+			}
+			else
+#endif
+				Neighbourhood(texel, size, mean, sd);
 			const float sigma = sqrt(max(c.extra.b - c.extra.g * c.extra.g, 0.0));
 			const vec3 halfWidth = max(sd * width, vec3(kTemporalSigma * sigma));
-			const vec3 held = clamp(c.past.rgb, mean - halfWidth, mean + halfWidth);
+			const vec3 held = clamp(pastStill, mean - halfWidth, mean + halfWidth);
 
 			// How far the picture moved since last frame, in texels, on the
 			// unjittered grid both sides: a parked camera reads the half
@@ -1313,7 +1575,7 @@ void main()
 			frames = blendFrames;
 #endif
 			g_BlendFrames = blendFrames;
-			kept = mix(held, fresh.rgb, 1.0 / blendFrames);
+			kept = mix(held, freshStill, 1.0 / blendFrames);
 #ifdef RV_SIGNAL_PAIR
 			// The twin: read where the candidate was read, bounded by its
 			// own neighbourhood at the same width, blended by the same
@@ -1375,6 +1637,52 @@ void main()
 			momMean = mix(c.extra.g, luma, momentAlpha);
 			momMeanSq = mix(c.extra.b, luma * luma, momentAlpha);
 		}
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+		// **RT-15: the moving layer, followed.** Where this texel's rays struck something that
+		// moved, its history is where that thing's image stood last frame: the struck points'
+		// travel, mirrored through the reflector and shrunk as the image is (the mirror
+		// equation's 1 / (1 + 2 d k) on a curve, the lobe's dominant fraction on a rough surface),
+		// taken off the image point -- through last frame's plane where the reflector moved
+		// too. The still layer's tests find the reflector there; the layer is bounded by the
+		// fresh moving part and remembers as a picture moving that far may.
+		if (MovingLayerLive() && freshMovingLane.a > 0.0)
+		{
+			const vec3 seenTravel = MoverTravel(texel, size)
+								  * (clamp(dominant, 0.0, 1.0) / (1.0 + 2.0 * travelled * curvature));
+			const vec3 movingPoint = (haveSurface && dot(objectShift, objectShift) > 0.0 && atSurface.bilinear)
+									? ImageThen(P, N, sight, image, atSurface, seenTravel)
+									: P + sight * image - MirrorVector(seenTravel, N);
+			// The search reports why it refused into the debug view's code; that code is the
+			// still layer's, so it is kept.
+			const int stillRefusal = g_Refusal;
+			Candidate cm;
+			const bool haveMoving = HistoryAt(movingPoint, size, P, N, roughness, eyeDistance,
+											 silhouette, vec2(0.0), cm);
+			g_Refusal = stillRefusal;
+			const vec4 pastMoving = haveMoving ? PastMovingAt(cm) : vec4(0.0);
+			if (pastMoving.a > 0.0)
+			{
+				vec3 stillMean, stillSd, movingMean, movingSd;
+				NeighbourhoodLayers(texel, size, stillMean, stillSd, movingMean, movingSd);
+				const float movingWidth = PositionLane()
+										? max(u_Reflection.Probe.x, 0.0)
+										: mix(12.0, max(u_Reflection.Probe.x, 0.0), smoothstep(0.08, 0.3, roughness));
+				const vec3 movingHalf = max(movingSd * movingWidth, vec3(1.0e-4));
+				const vec3 heldMoving = clamp(pastMoving.rgb, movingMean - movingHalf, movingMean + movingHalf);
+				const vec2 movingShift = cm.thenNdc - (nowNdc - u_Scene.Jitter.xy);
+				const float movingMoved = length(movingShift * 0.5 * vec2(size));
+				const float movingGloss = smoothstep(0.0, 0.3, roughness);
+				const float movingSlack = max(u_Reflection.Probe.y, 0.25) * mix(0.25, 1.0, movingGloss);
+				const float movingFewest = mix(1.0, max(u_Reflection.History.z, 1.0), movingGloss);
+				const float movingMemory = ShortenedMemory(max(u_Reflection.History.y, 1.0), movingMoved,
+														   movingSlack, movingFewest, silhouette, neighbourMotion);
+				framesMoving = min(pastMoving.a + 1.0, movingMemory);
+				keptMoving = mix(heldMoving, freshMoving, 1.0 / framesMoving);
+				// The motion lane stays the still layer's: the temporal resolve never sees this
+				// layer, which the composite adds after it (reflection_composite_moving.rvshader).
+			}
+		}
+#endif
 	}
 
 #if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
@@ -1409,8 +1717,17 @@ void main()
 	// touched.
 	const uvec2 roundingPixel = uvec2(texel);
 	const uint roundingFrame = uint(u_Scene.GlobalIllumination.y);
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+	// RT-15: the picture is both layers; the moving one is kept beside it, rounded on its own
+	// draw so the still layer read back from the difference stays unbiased.
+	o_Accumulated = vec4(StoreAsHalf(kept + keptMoving, HalfRoundingDraw(roundingPixel, roundingFrame, 0u)),
+						 frames);
+	o_MovingLayer = vec4(StoreAsHalf(keptMoving, HalfRoundingDraw(roundingPixel, roundingFrame, 5u)),
+						 framesMoving);
+#else
 	o_Accumulated = vec4(StoreAsHalf(kept, HalfRoundingDraw(roundingPixel, roundingFrame, 0u)),
 						 frames);
+#endif
 #ifdef RV_SIGNAL_PAIR
 	// RT-8: the twin's own frame count, not the first half's -- see the
 	// memory block above for why the two must be able to differ.
@@ -1427,10 +1744,12 @@ void main()
 	// image's), the refusal reason in the integer part.
 	// RT-6.5: the roughness with the metallic in its integer part, so the
 	// next frame can tell a metal from a dielectric at the same roughness.
+	// RT-15: and kMovingCurvedMark above both where the reflector is curved and moves
+	// on its own, which is what reflection_blur reads to give the texel its radius.
 	o_Extra = vec4(PackMaterial(roughness, g_Metallic),
 				   StoreAsHalf(momMean, HalfRoundingDraw(roundingPixel, roundingFrame, 3u)),
 				   StoreAsHalf(momMeanSq, HalfRoundingDraw(roundingPixel, roundingFrame, 4u)),
-				   0.5 * choice + float(g_Refusal));
+				   0.5 * choice + float(g_Refusal) + (g_MovingCurved ? kMovingCurvedMark : 0.0));
 #ifdef RV_SIGNAL_PAIR
 	CountSignal(g_Kept, g_Refusal, frames, twinFrames);
 #else

@@ -46,6 +46,9 @@ layout(set = 3, binding = 1) uniform sampler2D u_Depth;
 layout(set = 3, binding = 2) uniform sampler2D u_Surface;
 // The trace's second attachment: ray direction (octahedral) and pdf.
 layout(set = 3, binding = 3) uniform sampler2D u_Hit;
+// **RT-15: the trace's fourth, how far what each ray struck travelled since last frame**
+// (zero for a miss and for anything that stood still). Black where no trace wrote one.
+layout(set = 3, binding = 4) uniform sampler2D u_Travel;
 
 layout(push_constant) uniform ReflectionParams
 {
@@ -62,6 +65,15 @@ layout(push_constant) uniform ReflectionParams
 } u_Reflection;
 
 layout(location = 0) out vec4 o_Resolved;
+// **RT-15: and the part of it that moving things make.** A glossy texel's picture is its
+// lobe: the still room where rays land on it, and whatever moved where they land on that.
+// Stored as one colour, the two can only be reprojected together -- so a history that
+// follows a moving object drags the still reflection around it along (the floor's light
+// ripples under the chrome cube, smeared sideways), and one that stays put leaves the
+// object's old reflection behind. The same weighted sum, split by whether each ray struck
+// something that moved: rgb the moving rays' share of the picture (the still part is the
+// rest), a the share of the weight they carried -- how much of the lobe the movers cover.
+layout(location = 1) out vec4 o_ResolvedMoving;
 
 // The widest the kernel gets, in texels each way, at the rough end of the
 // gloss window.
@@ -120,6 +132,13 @@ bool SurfaceAt(ivec2 texel, ivec2 size, out vec3 P, out vec3 N, out float roughn
 	return true;
 }
 
+// Whether a texel's ray struck something that moved.
+bool StruckMover(ivec2 at)
+{
+	const vec3 t = texelFetch(u_Travel, at, 0).rgb;
+	return dot(t, t) > 0.0;
+}
+
 float Rotation(ivec2 texel)
 {
 	// Interleaved gradient noise, advanced by the frame.
@@ -133,6 +152,8 @@ void main()
 	const ivec2 size = textureSize(u_Fresh, 0);
 	const vec4 fresh = texelFetch(u_Fresh, texel, 0);
 	o_Resolved = fresh;
+	// Every early return below keeps this texel's own ray, so its moving part is that ray's.
+	o_ResolvedMoving = fresh.a >= 0.0 && StruckMover(texel) ? vec4(fresh.rgb, 1.0) : vec4(0.0);
 	if (fresh.a < 0.0)
 		return;
 
@@ -187,6 +208,8 @@ void main()
 	vec3 sum = vec3(0.0);
 	float distanceSum = 0.0;
 	float weightSum = 0.0;
+	vec3 movingSum = vec3(0.0);
+	float movingWeight = 0.0;
 	for (int i = -1; i < taps; ++i)
 	{
 		ivec2 at = texel;
@@ -237,7 +260,16 @@ void main()
 		sum += f.rgb * w;
 		distanceSum += distanceHere * w;
 		weightSum += w;
+		if (StruckMover(at))
+		{
+			movingSum += f.rgb * w;
+			movingWeight += w;
+		}
 	}
 	if (weightSum > 0.0)
+	{
 		o_Resolved = vec4(sum / weightSum, distanceSum / weightSum);
+		// Over the same denominator, so the still part is exactly the rest.
+		o_ResolvedMoving = vec4(movingSum / weightSum, movingWeight / weightSum);
+	}
 }

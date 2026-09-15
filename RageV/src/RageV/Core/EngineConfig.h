@@ -388,6 +388,20 @@ namespace RageV
 		// A measurement dial for the reflection signal's young-history blur,
 		// in texels; negative means the tuning's own value.
 		float ReflectionBlurRadius = -1.0f;
+		// **--reflection-moving-blur=<texels> (RT-15):** the same blur where the
+		// reflector is curved and moving on its own, alone; negative, the tuning's.
+		float ReflectionMovingBlurRadius = -1.0f;
+		// **--reflection-moving-rays=<count> (RT-15b):** the rays a texel casts where its
+		// surface moves on its own (reflection_trace.rvshader); negative, the tuning's four.
+		int ReflectionMovingRays = -1;
+		// **--reflection-moving-layer=on|off (RT-15 item 2):** the part of the reflection
+		// whose rays struck something moving, kept as a layer of its own and added after the
+		// temporal resolve. **Off since 2026-09-15, on the owner's word:** what is added after
+		// TAA misses TAA's smoothing, so its grain reached the screen as speckles on the wet
+		// floor under the moving chrome cube and flicker along the chrome pipes that mirror it.
+		// Off, the whole reflection is composited before the resolve, as before RT-15, and
+		// the accumulator keeps one layer.
+		bool  ReflectionMovingLayer = false;
 		// **--ao-blur / --gi-blur=<texels> (RT-5 part 5):** the same dial for the
 		// occlusion and indirect signals. Negative, the tuning's own -- zero since
 		// 2026-09-14, when the blur was measured to add nothing and retired, so
