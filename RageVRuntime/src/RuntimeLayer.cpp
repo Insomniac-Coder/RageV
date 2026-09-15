@@ -255,12 +255,15 @@ void RuntimeLayer::CaptureSignals()
 	};
 	// What each attachment is: direct 0 the diffuse before the albedo and 3 the
 	// specular; the others' 0 the signal; taa 0 the resolved colour before the
-	// tone curve.
+	// tone curve. The reflections keep all five: 0 the picture (a the frames),
+	// 1 the reflector, 2 what was learned of it (a the choice and refusal), 3 the
+	// image's motion and 4 the object id -- the lanes a staged diagnostic writes
+	// into when the question is which rule set the memory.
 	const Named table[] = {
 		{ "direct", &m_DirectLight, { 0u, 3u } },
 		{ "glassdirect", &m_GlassDirectLight, { 0u, 3u } },
 		{ "glassreflections", &m_GlassReflections, { 0u } },
-		{ "reflections", &m_Reflections, { 0u } },
+		{ "reflections", &m_Reflections, { 0u, 1u, 2u, 3u, 4u } },
 		{ "occlusion", &m_Occlusion, { 0u } },
 		{ "gi", &m_GiLight, { 0u } },
 		{ "taa", &m_History, { 0u } },

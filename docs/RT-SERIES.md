@@ -57,16 +57,16 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-6.11** | ✅ **done 2026-09-07** — **the biggest sharpness win of the day** | — | — | Catmull-Rom; its negative result had expired |
 | RT-7 | ✅ **done 2026-09-14 (owner's call)** — tube lights: `SourceLength` and `SourceRadius` shade as a tube in the raster loop (2026-09-08) and now in the ray-traced lamp pass too, with soft shadows along the tube's length. **The tubes' mirror reflections stay ray traced** (rays see the glowing bars). Tried and removed the same day, on the owner's rejection: linking a light to its glowing mesh so the light, not the rays, drew the reflection, and taking the light's brightness from the mesh — the floor reflections vanished, because the light's highlight cannot draw a mirror (DistributionGGX's 1e-4 denominator cap leaves a sharp highlight a few percent of its brightness; measured against a brute-force tube). The 16-byte light record's cost on the bridge was not measured | — | — | the tubes as line lights |
 | RT-8 | ✅ **closed 2026-09-09 by the owner** — job 1 shipped (the sea's own choose-and-shade retired for the shared pass); **jobs 2 and 3 dropped**, not deferred: job 2 regressed the bridge and its approach is wrong, job 3 measured no gain | — | — | the water on the G-buffer |
-| RT-9 | open | 2-3 d | moderate | the budget's shadow lane, and confidence drives allocation |
+| RT-9 | open -- **owner 2026-09-15: more rays where history is young is the way for the strip a moving object uncovers** (RT-18's record) | 2-3 d | moderate | the budget's shadow lane, and confidence drives allocation |
 | RT-10 | open | 5-7 d | **high** | ReSTIR DI on the G-buffer |
 | RT-11 | open | 1-2 d | low-moderate | next-event estimation at GI and reflection hits |
 | RT-12 | ✅ **done 2026-09-07** | — | — | the signal debug views, complete |
-| RT-13 | **skinned + layered ✅ done inside RT-2**; transparent 🔨 **option 2 (owner): all three stages built 2026-09-14** -- the glass layer, its lamp light and its reflections -- behind `--glass-layer=on` (default off), uncommitted; the owner approved the look; cost and the panes behind for the optimisation pass | — | — | every opaque surface in the G-buffer; glass through the shared passes |
+| RT-13 | **skinned + layered ✅ done inside RT-2**; transparent 🔨 **option 2 (owner): all three stages built 2026-09-14** -- the glass layer, its lamp light and its reflections -- behind `--glass-layer=on` (default off), pushed (302e165); the owner approved the look; cost and the panes behind for the optimisation pass | — | — | every opaque surface in the G-buffer; glass through the shared passes |
 | **RT-14** | ✅ **done 2026-09-07** — and it says do not pack the G-buffer | — | — | the G-buffer's bandwidth, measured before anything is packed |
 | **RT-15** | **reopened 2026-09-14 (owner)** — closed 2026-09-08 on a flicker number (the cube's panel 15.20 -> 4.39) that did not describe the picture: **"the moment the cube moves the entire reflection on it falls apart"** (owner), and the driving car's body sparkles and trails in its traced reflections (RT-13's record isolates it to the reflections). The owner put it after RT-13 stage 3 and asked to be reminded | not priced | moderate | the reflection accumulator reprojects by object motion |
 | **RT-16** | ✅ **done 2026-09-14** — measured change: the lights button's light 90% gone after 10 frames (145 before), 15 with the camera moving. A *baked* light switched off still fades slowly, because its bake is thrown away and rebuilt -- accepted as a known thing (docs/BAKING-ROADMAP.md, docs/manual/lighting.md) | — | — | a reflection takes seconds to leave the floor when its light goes out |
 | **RT-17** | open — **new** | 2-3 d | moderate | the accumulator tests what the ray *hit*, by identity |
-| **RT-18** | open — **new** | 1-2 d | low | history cannot outlive the silhouette it belongs to |
+| **RT-18** | ✅ **built 2026-09-15** -- a moving silhouette's history is tested like any other: the cube's stripes and the car's trail gone, everything still identical; the band the cube uncovers each frame goes to RT-9 (more rays, owner); the older face's speckles and the bottom bar's banding are noted for later (record below) | — | — | history cannot outlive the silhouette it belongs to |
 | **RT-19** | ✅ **done 2026-09-08** | — | — | the refusal reasons, totalled per frame |
 | **RT-20** | ✅ **done 2026-09-13** — RT-6's surface test fired on the jitter at every edge; a still edge now keeps its own history unless what it showed was moving | — | — | edges flicker on a parked camera while the jitter is on |
 | **RT-21** | open — **new 2026-09-14** (from RT-7 and RT-4). `DistributionGGX`'s `max(PI * denom * denom, 1e-4)` caps a narrow lobe's peak: a sized light's highlight on a smooth surface reaches 1-17% of its brightness (roughness 0.1 and under), point-light highlights under roughness ~0.27 are dimmed, and the reflection resolve's pdf ratio is distorted (the garage floor settles 2.5 levels under a per-texel reference; uncapped, 2.4-3.1 over it). Needs a proper reference first -- many rays a texel, weighted by NoL, no mirror ray standing in for a draw under the horizon -- then the cap and the resolve against it. **Changes every shiny highlight in every scene**: before/after on the garage and the bridge | 1-2 d | moderate | the highlight formula's safety cap |
@@ -1702,6 +1702,63 @@ judged by eye: 12 is soft, 3 has the gravel crisp, 0 trades texture for grain.
 the virtual image's, which the accumulator already computes -- is the only way
 the composite could move, and it needs a second velocity lane. Not attempted.
 *(Done the same day as RT-6.1.)*
+
+### RT-18 — ✅ built 2026-09-15: a moving silhouette's history is tested like any other
+
+**The owner's order: RT-18 and RT-17 before RT-15**, because ghosting makes false
+positives of everything measured after it. A first proposal to lengthen the memory on
+moving objects instead (option B) rested on a wrong claim -- that the memory falls to one
+frame there -- and measurement took it apart the same morning: on the driving car the
+reflection holds about 5 frames (the image moves 5-7 texels a frame and the motion rules
+cap it), on the cube about 15, and a staged floor of 16 frames changed nothing. The owner's
+order was right.
+
+**The defect.** `HistoryAt` keeps a silhouette texel's own history with no test at all, so
+a parked edge whose side flips with the jitter averages into its coverage (WR-16 R5). While
+an object moves, that history is the other side's picture and the edge's highlight -- and a
+frame later the texel is inside the object, where the history passes every test and stays.
+Rendered with the averaging off, the moving cube's face is dark and clean; averaged, it
+filled with bright vertical stripes, one column of its own edge per frame. The car left a
+grainy trail behind its rear the same way.
+
+**The fix.** The exemption holds only where nothing in the 3x3 moves on its own
+(`ObjectMovesAround`: `ObjectShift` on each neighbour, the velocity lane read first so a
+still texel costs a fetch). A camera move alone keeps it. Reading any motion instead -- the
+velocity lane's length -- changed 3% of the dolly's pixels by up to 241 levels for nothing
+the dolly needed, so it was measured and not taken.
+
+| case | as shipped | RT-18 | this frame only, no averaging |
+|---|---|---|---|
+| cube: grain (px > 16 from their 3x3 median) | 9.47% | 4.66% | 2.02% |
+| cube: mean level | 33.9 | 22.1 | 17.4 |
+| cube: frame-to-frame | 2.81 | 1.73 | 1.72 |
+| car: grain | 3.57% | 2.79% | 2.71% |
+
+Parked garage, camera dolly and the bridge's deck, pier and glitter cameras: identical to
+shipped (at most 13 levels, in a handful of pixels). Cost within this machine's drift (the
+four accumulate passes together under 0.1 ms). Validation clean under TAA, MSAA and SSAA
+with the cube moving; scenetest Vulkan exit 0. The shared code means the lamp light, the
+bounce and the occlusion signals take the same rule.
+
+**Left on the cube, and not RT-18's:**
+- **The strip the cube uncovers each frame starts from one ray**, about four texels wide, so
+  neighbouring strips differ and read as bands. No history exists for those texels. The
+  young blur smooths them (`--reflection-blur=6`: cube grain 4.66% -> 3.16%, car 2.79% ->
+  1.39%) and costs a moving camera's floor 19% of its detail (12: 30%) -- the reason it was
+  retired. More rays where history is young is RT-9's subject.
+- **The older part of the face keeps bright speckles, and the bar along its bottom bands
+  vertically** (owner, marked on the young-blur picture): the young blur does not reach
+  them, and neither is explained yet.
+
+**The owner's decisions (2026-09-15):** the uncovered strip is to be answered with **more
+rays where history is young** -- RT-9's confidence-driven allocation -- not with the young
+blur. **The speckles on the older face and the bottom bar's banding are a known issue for
+later**, noted here and in RT-9's row; nothing is built for them yet.
+
+**Instrument added:** `--capture-signals=reflections` now keeps all five lanes (the
+picture, the reflector, what was learned, the image motion, the id), so a staged
+accumulator can write its memory's steps where the capture reads them back
+(`refl_memory_diag.py`).
 
 ### RT-13 — 🔨 the glass joins the shared passes: stages 1, 2 and 3 built 2026-09-14 (uncommitted; `--glass-layer=on`, default off)
 

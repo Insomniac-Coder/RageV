@@ -102,7 +102,18 @@ default (`--measured-change=off` is the reference arm). The owner's editor-resav
   staged file that differs from its source. **Anything that stages shaders must check the whole
   staged directory.**
 
-### State (night): RT-13 stages 1, 2 and 3 built, uncommitted; RT-15 reopened (owner)
+### State (2026-09-15 morning): RT-18 built and committed; RT-17 next (owner's order: RT-18, RT-17, then RT-15)
+
+- **RT-18**: a silhouette's untested history no longer applies where an object moves on its own
+  (`reflection_accumulate.rvshader`, `ObjectMovesAround`). The moving cube's stripes and the
+  car's trail are gone; parked, dolly and bridge identical. RT-SERIES has the record.
+- **Open on the moving cube**: the strip it uncovers each frame starts from one ray -- **owner: more
+  rays where history is young (RT-9) is the way, not the young blur**; speckles on the older part of
+  its face and vertical banding on its bottom bar -- **owner: a known issue for later**, unexplained.
+- **Correction for the record**: reflection memory on moving objects is ~5 frames (car) and ~15
+  (cube), not one frame as said to the owner and withdrawn.
+
+### State (night): RT-13 stages 1, 2 and 3 built, now pushed; RT-15 reopened (owner)
 
 - **Stage 3 built**: the glass layer's reflections through the shared chain; the owner approved the
   look ("closer to a real glass reflection"). +0.36 / +0.91 ms frame (owner's shot / close-up);

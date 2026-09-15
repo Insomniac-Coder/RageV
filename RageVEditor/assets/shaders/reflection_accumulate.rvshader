@@ -186,6 +186,9 @@ bool g_Kept = false;
 // Measured change: the frames the blend itself carries, kept apart from the
 // trust in the alpha (see the memory block). One with no history.
 float g_BlendFrames = 1.0;
+// RT-18: whether something in this silhouette's 3x3 moves on its own, which takes
+// the silhouette's exemption away (HistoryAt; ObjectMovesAround says why).
+bool g_SilhouetteMoving = false;
 
 layout(location = 0) out vec4 o_Accumulated;
 layout(location = 1) out vec4 o_Surface;
@@ -579,6 +582,49 @@ vec2 ObjectShift(ivec2 texel, vec3 P, vec2 nowNdc)
 	return shift;
 }
 
+// **RT-18: history cannot outlive the silhouette it belongs to.**
+//
+// A silhouette texel keeps its own history with no test at all (HistoryAt), so
+// that a parked edge whose side flips with the jitter averages into its coverage
+// instead of shaking. That history is the picture of whichever side the texel
+// showed last frame. While the object moves, it is the *other* side's picture
+// and the edge's highlight -- and one frame later the texel is inside the object,
+// where that history passes every test and stays. So the moving chrome cube kept
+// a column of its own edge behind every frame, and its face filled with bright
+// vertical stripes (owner, 2026-09-15: "the moment the cube moves the entire
+// reflection on it falls apart"); the car left a grainy trail behind its rear.
+// Measured with the averaging switched off, the cube's face is dark and clean.
+//
+// **Only objects moving on their own count**, the question ObjectShift answers on
+// each neighbour. A camera move alone keeps the exemption: both sides of a still
+// edge reproject consistently, and the dolly renders identical to before this
+// (measured). Reading any motion instead -- the velocity lane's length -- changed
+// 3% of the dolly's pixels, by up to 241 levels, for nothing the dolly needed.
+bool ObjectMovesAround(ivec2 texel, ivec2 size)
+{
+	for (int y = -1; y <= 1; ++y)
+	{
+		for (int x = -1; x <= 1; ++x)
+		{
+			const ivec2 at = clamp(texel + ivec2(x, y), ivec2(0), size - 1);
+			// The velocity lane first: zero wherever nothing moved, which is every
+			// texel of a still scene, and the surface is not rebuilt for those.
+			const vec2 velocity = texelFetch(u_Velocity, at, 0).xy;
+			if (dot(velocity, velocity) <= 0.0)
+				continue;
+			vec3 Pn, Nn;
+			if (!SurfaceAt(at, size, Pn, Nn))
+				continue;
+			const vec2 uvAt = (vec2(at) + 0.5) / vec2(size);
+			const float rowAt = u_Reflection.History.w > 0.5 ? 1.0 - uvAt.y : uvAt.y;
+			const vec2 shift = ObjectShift(at, Pn, vec2(uvAt.x * 2.0 - 1.0, rowAt * 2.0 - 1.0));
+			if (dot(shift, shift) > 0.0)
+				return true;
+		}
+	}
+	return false;
+}
+
 // **RT-15: and where the picture behind the surface stood last frame.**
 //
 // The reflection is not painted on the reflector, so it does not travel
@@ -695,8 +741,10 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 		// reflections). Averaged across the flip it is the coverage-weighted
 		// picture, which is what TAA's colour is at the same texel. The
 		// bound below still holds it to this frame's neighbourhood.
+		// **RT-18: not where something moves on its own** -- there that history
+		// is the other side's, and it stays behind (ObjectMovesAround).
 		c.matchConfidence = 1.0;
-		if (!(silhouette && k == 0))
+		if (!(silhouette && k == 0 && !g_SilhouetteMoving))
 		{
 			const vec3 wasN = DecodeSurfaceNormal(c.reflector.rg);
 			const float facing = dot(wasN, N);
@@ -971,6 +1019,8 @@ void main()
 		// RT-15: the surface history is looked for where the surface was, not
 		// where the camera alone would put it.
 		const vec2 objectShift = ObjectShift(texel, P, nowNdc);
+		// RT-18: asked only at a silhouette, the one place the answer is used.
+		g_SilhouetteMoving = silhouette && ObjectMovesAround(texel, size);
 		const bool haveSurface = HistoryAt(P, size, P, N, roughness, eyeDistance,
 		                                   silhouette, objectShift, atSurface);
 #ifdef RV_SIGNAL_DIFFUSE
