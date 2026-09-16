@@ -57,7 +57,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-6.11** | ✅ **done 2026-09-07** — **the biggest sharpness win of the day** | — | — | Catmull-Rom; its negative result had expired |
 | RT-7 | ✅ **done 2026-09-14 (owner's call)** — tube lights: `SourceLength` and `SourceRadius` shade as a tube in the raster loop (2026-09-08) and now in the ray-traced lamp pass too, with soft shadows along the tube's length. **The tubes' mirror reflections stay ray traced** (rays see the glowing bars). Tried and removed the same day, on the owner's rejection: linking a light to its glowing mesh so the light, not the rays, drew the reflection, and taking the light's brightness from the mesh — the floor reflections vanished, because the light's highlight cannot draw a mirror (DistributionGGX's 1e-4 denominator cap leaves a sharp highlight a few percent of its brightness; measured against a brute-force tube). The 16-byte light record's cost on the bridge was not measured | — | — | the tubes as line lights |
 | RT-8 | ✅ **closed 2026-09-09 by the owner** — job 1 shipped (the sea's own choose-and-shade retired for the shared pass); **jobs 2 and 3 dropped**, not deferred: job 2 regressed the bridge and its approach is wrong, job 3 measured no gain | — | — | the water on the G-buffer |
-| RT-9 | open -- **owner 2026-09-15: more rays where history is young is the way for the strip a moving object uncovers** (RT-18's record) | 2-3 d | moderate | the budget's shadow lane, and confidence drives allocation |
+| RT-9 | 🔨 **half built 2026-09-16** -- the confidence lane (the accumulator's own history, read by the trace) and the reflection's tile allocation: one ray count per 16x16 tile, earned only where young texels sit together, and nothing at all where nothing moved. On by default and free (-0.05 ms driving, +0.09 parked), and it earns nothing in the garage as it stands -- record below. **Not built:** the direct pass reading the tile map, one rays-per-pixel dial across land and water, the honest per-pass counters | 1-2 d left | moderate | the budget's shadow lane, and confidence drives allocation |
 | RT-10 | open | 5-7 d | **high** | ReSTIR DI on the G-buffer |
 | RT-11 | open | 1-2 d | low-moderate | next-event estimation at GI and reflection hits |
 | RT-12 | ✅ **done 2026-09-07** | — | — | the signal debug views, complete |
@@ -282,6 +282,67 @@ tell you the motion itself is a lie. That is what RT-19's totals and a staged co
 for.
 
 ## Records
+
+### RT-9 — 🔨 the confidence lane and the reflection's own tile allocation, built 2026-09-16
+
+**What was built, in the order it was measured.**
+
+**1. The lane (the item's own precondition).** Every filter works out how much it trusts its
+memory and throws the answer away at the end of the pass. The reflection trace now reads the
+accumulator's own history at each texel: the frames behind the picture, the refusal code, the
+reflector kept and whose it was. Costs nothing; nothing consumes it unless the allocation is on.
+
+**2. Per-texel allocation: measured, and wrong.** Rays keyed on each texel's own history cost
+**+1.05 ms driving and +1.33 ms parked for no gain** (blobs on the moving cube 11.0% against the
+motion rule's 10.6%). Two reasons, both worth keeping:
+- **The young texels are not only the mover's strip.** Five per cent of a *parked* garage reads
+  young -- thin edges, and glossy rays that keep landing on something new -- while its median texel
+  has the full sixty-four frames behind it.
+- **Scattered rays are paid for by their neighbours.** A group of pixels runs at the pace of its
+  greediest member, so 5% of texels asking for four rays cost 1.33 ms where their share is 0.55.
+
+Two of my own mistakes on the way, both now comments in the shader: keying on the refusal code
+(it fires at every edge even when a neighbour was accepted and the picture is fine) and treating
+object id zero as "new" (the garage box *is* id zero). Each cost about 2 ms for nothing.
+
+**3. Per tile, which is the item's own design.** A small pass (`reflection_budget.rvshader`,
+0.09 ms) reads the history at 16x16 tiles and writes one ray count per tile, held by the ray
+budget's own dead band and dwell; the trace reads its tile's number. The map is a second
+tile-sized history, because the budget's four lanes are full (two counts, the averaged demand, the
+packed dwells) -- a repack has nowhere to put a third dwell inside a half float.
+
+**4. Only where the young texels are *together*.** A tile earns rays when a quarter of it is young
+*runs* -- young texels beside young texels, which is what an uncovered band looks like -- and
+nothing when it is a scattering of thin edges. Cost fell from +0.63/+0.77 ms to +0.25/+0.56.
+
+**5. And nothing at all where nothing moved** (owner, 2026-09-16). `Renderer3D::CameraStill`
+against the signal's own motion record -- on the eye and its facing, not the view-projection,
+which carries the jitter and so differs every frame on a camera that has not moved. **The
+reflections' motion record never wrote a facing**, so the first version of this test reported
+"turned" on every frame of a still garage and the pass ran anyway; found with a probe line, fixed
+by recording the facing beside the eye.
+
+**Where that leaves it, honestly.** With the still gate in, RT-9 changes nothing measurable in
+this scene:
+
+| | before RT-9 | RT-9 as shipped |
+|---|---|---|
+| camera dolly, wet floor speckle (f70..f115) | 0.82 → 0.71% | 0.82 → 0.71% (identical) |
+| moving cube, blobs on the face | 10.62 → 4.95% | 10.93 → 4.75% |
+| parked garage | — | 0.024% of pixels differ by more than 8 levels |
+| cost, driving / parked | — | **-0.05 / +0.09 ms** |
+
+**The one improvement measured on the way was in a still scene** -- the garage floor's speckle fell
+from 0.82% to 0.73% when tiles bought rays for thin edges -- and that is exactly what the owner
+asked to stop paying for. During the dolly itself the uncovered bands are thin enough at 0.6 m/s
+that no tile reaches the quarter bar, so the picture is the motion rule's.
+
+So the item stands as **machinery without a bill**: on by default, free, and ready for a scene with
+real disocclusion bands (a fast camera, or a fast mover) -- with the numbers above saying it earns
+nothing in the garage as it is. `--reflection-confidence-rays=off` restores RT-15b's motion rule
+(four rays wherever a surface moves on its own). What is **not** built from RT-9's row: the direct
+pass reading the tile map, one "rays per pixel" dial across land and water, and the honest
+per-pass counters.
 
 ### RT-15 — 🔨 built 2026-09-15/16 (`8d7741a`, pushed): the moving chrome cube
 

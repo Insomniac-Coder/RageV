@@ -96,6 +96,21 @@ layout(set = 3, binding = 3) uniform sampler2D u_Albedo;
 // **RT-15b: the scene's velocity**, for whether the surface under the texel moved on its
 // own this frame -- the texels that cast more than one ray (see main).
 layout(set = 3, binding = 4) uniform sampler2D u_Velocity;
+// **RT-9: what the accumulator knew at each texel last frame.** Its picture (the frames
+// behind it in the alpha), what it learned (the refusal code in the alpha: 0 kept, 1 off
+// screen, 2 none there, 3 normal, 4 plane, 5 roughness, 6 another object), the reflector it
+// kept (alpha below zero where there was none) and whose it was (r, the object id). Every one
+// of these is worked out per texel and thrown away at the end of the accumulate; read here,
+// they say where reconstruction could not answer -- which is where a ray is worth casting.
+// Black, and History.z zero, where there is no history yet or the allocation is switched off.
+layout(set = 3, binding = 5) uniform sampler2D u_PastPicture;
+layout(set = 3, binding = 6) uniform sampler2D u_PastExtra;
+layout(set = 3, binding = 7) uniform sampler2D u_PastSurface;
+layout(set = 3, binding = 8) uniform sampler2D u_PastIdent;
+// **RT-9: and the count this tile may spend** (reflection_budget.rvshader): r the rays,
+// g the frames it has been held, b the share of the tile that asked for it. One number
+// for 16x16 pixels, because a scattered count is paid for by every pixel in the group.
+layout(set = 3, binding = 9) uniform sampler2D u_TileRays;
 #endif
 #ifdef RV_REFLECTION_RECORD
 // **Measured change, phase 2: what the record keeps beside the G-buffer** -- the
@@ -339,17 +354,43 @@ void main()
 	// writes their mean; every other texel casts its one, bit for bit as before. The
 	// cost is the moving texels' alone: a few thousand extra rays a frame for the cube,
 	// against the million and a half this pass casts.
+	// **RT-9: the rays follow what the accumulator knew here last frame.**
+	//
+	// Every filter in this engine works out how much it trusts its memory and throws the answer
+	// away; the four lanes above are that answer, kept. Where the history was refused, or has
+	// only just begun, or there was none at all, reconstruction cannot answer and a ray can;
+	// where it has settled, one ray is all a texel needs and the average carries the rest. The
+	// specification's constraint is that the budget is *spent* differently, not raised: this
+	// replaces RT-15b's flat "four rays on anything moving on its own", which paid for a whole
+	// moving face to fix the strip at its leading edge.
+	//
+	// Last frame's texel is found by the velocity lane, which carries the camera's motion and
+	// the object's together -- the same arm the accumulator reprojects by, in the same units
+	// (`byMotion = nowNdc - 2 * velocity`). Off screen, or where the reflector kept there was
+	// another object's or none, the texel is new: it gets the most.
 	int rays = 1;
+	if (u_Lamps.History.z > 0.5)
+	{
+		// The tile's count, decided before this pass ran from the share of the tile whose
+		// history had just begun, and held there by the ray budget's dead band and dwell.
+		const vec2 tileUv = (vec2(texel) + 0.5) / vec2(size);
+		const float allocated = texture(u_TileRays, vec2(tileUv.x,
+															  u_Lamps.History.w > 0.5 ? 1.0 - tileUv.y : tileUv.y)).r;
+		rays = clamp(int(allocated + 0.5), 1, clamp(int(u_Lamps.Trace.x + 0.5), 1, 16));
+	}
+	else
+	{
+		// RT-15b's rule, kept behind `--reflection-confidence-rays=off`: four rays wherever
+		// the surface moves on its own, one everywhere else.
+		const int movingRays = clamp(int(u_Lamps.Trace.x + 0.5), 1, 16);
+		if (movingRays > 1 && RecordMovedOnItsOwn(texelFetch(u_Velocity, texel, 0).xy, P, vec2(size)))
+			rays = movingRays;
+	}
 	vec3 radianceSum = radiance;
 	float travelledSum = travelled;
 	vec3 directionSum = direction;
 	vec3 travelSum = hit.Missed ? vec3(0.0) : hit.Travel;
 	float moversStruck = (!hit.Missed && dot(hit.Travel, hit.Travel) > 0.0) ? 1.0 : 0.0;
-	{
-		const int movingRays = clamp(int(u_Lamps.Trace.x + 0.5), 1, 16);
-		if (movingRays > 1 && RecordMovedOnItsOwn(texelFetch(u_Velocity, texel, 0).xy, P, vec2(size)))
-			rays = movingRays;
-	}
 	for (int r = 1; r < rays; ++r)
 	{
 		const vec3 more = GlossyReflectionLD(N, V, roughness, texel, frame, uint(r));

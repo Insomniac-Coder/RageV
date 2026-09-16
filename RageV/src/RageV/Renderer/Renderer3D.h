@@ -298,7 +298,19 @@ namespace RageV
 									 float giAverage,
 									 // RT-13 stage 3: tracing the glass layer rather than
 									 // the G-buffer, on an input set of its own.
-									 bool glassLayer = false);
+									 bool glassLayer = false,
+									 // **RT-9: what this signal knew at each texel last frame** --
+									 // the picture (its alpha the frames behind it), what it learned
+									 // (the refusal code in the alpha), the reflector it kept (its
+									 // alpha below zero where there was none) and whose it was. The
+									 // ray allocation's input: null leaves every texel on the old
+									 // rule, which is what the glass layer and the first frame do.
+									 const RHI::Ref<RHI::RHITexture>& pastPicture = nullptr,
+									 const RHI::Ref<RHI::RHITexture>& pastExtra = nullptr,
+									 const RHI::Ref<RHI::RHITexture>& pastSurface = nullptr,
+									 const RHI::Ref<RHI::RHITexture>& pastIdent = nullptr,
+									 // RT-9: this tile's ray count, in r (reflection_budget.rvshader).
+									 const RHI::Ref<RHI::RHITexture>& tileRays = nullptr);
 		// The rough surfaces' rays shared across their neighbourhood before
 		// any frame is averaged (reflection_resolve.rvshader).
 		static void ResolveReflections(const RHI::Ref<RHI::RHITexture>& fresh,
@@ -414,6 +426,8 @@ namespace RageV
 		// the instance table was built for -- read when the graph is built, so it
 		// describes the frames before this one.
 		static bool AnyInstanceMoved();
+		// RT-9: whether the eye is where it was, against a signal's own motion record.
+		static bool CameraStill(const CameraMotion& motion);
 
 		static void AccumulateSignal(const SignalParams& signal,
 									 const RHI::Ref<RHI::RHITexture>& fresh,

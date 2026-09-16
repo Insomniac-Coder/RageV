@@ -1331,6 +1331,11 @@ namespace RageV
 			Ref<RHISampler> EnvironmentSampler;
 
 			SceneUniforms Scene{};
+			// RT-9: this frame's eye and the way it looks, kept so a pass can ask whether the
+			// camera moved. The scene block carries the position but not the facing, and the
+			// view-projection carries the jitter, which changes every frame on a still camera.
+			Vec4 SceneEye{ 0.0f, 0.0f, 0.0f, 0.0f };
+			Vec4 SceneForward{ 0.0f, 0.0f, -1.0f, 0.0f };
 			bool SceneActive = false;
 
 			unsigned int DrawCalls = 0;
@@ -3835,6 +3840,10 @@ namespace RageV
 
 		// Recorded after reading, and only for a real chain. What this frame
 		// draws with is what the next frame of *this* chain reprojects from.
+		s_Data->SceneEye = Vec4(cameraTransform[3][0], cameraTransform[3][1],
+								cameraTransform[3][2], 1.0f);
+		s_Data->SceneForward = Vec4(-cameraTransform[2][0], -cameraTransform[2][1],
+									-cameraTransform[2][2], 0.0f);
 		if (motion)
 		{
 			motion->ViewProjection = viewProjection;
@@ -6808,6 +6817,10 @@ namespace RageV
 		// bit-identical, 2026-09-07).
 		motion.Eye = Vec4(s_Data->Scene.CameraPosition.x, s_Data->Scene.CameraPosition.y,
 						  s_Data->Scene.CameraPosition.z, 1.0f);
+		// RT-9: and which way it looked, so a pass can ask whether the camera has moved at
+		// all. Left at its default this record answered "turned" on every frame of a still
+		// camera, and the tile allocation ran in a garage where nothing moves (2026-09-16).
+		motion.Forward = s_Data->SceneForward;
 
 		cmd->BindPipeline(s_Data->WaterChoosePipeline);
 		cmd->BindResourceSet(0, slot.LampSet);
@@ -6874,7 +6887,12 @@ namespace RageV
 									  const RHI::Ref<RHITexture>& budget,
 									  const RHI::Ref<RHITexture>& albedo,
 									  const RHI::Ref<RHITexture>& velocity,
-									  float giAverage, bool glassLayer)
+									  float giAverage, bool glassLayer,
+									  const RHI::Ref<RHITexture>& pastPicture,
+									  const RHI::Ref<RHITexture>& pastExtra,
+									  const RHI::Ref<RHITexture>& pastSurface,
+									  const RHI::Ref<RHITexture>& pastIdent,
+									  const RHI::Ref<RHITexture>& tileRays)
 	{
 		if (!s_Data || !s_Data->ReflectionTracePipeline || !s_Data->ActiveScene)
 			return;
@@ -6908,11 +6926,30 @@ namespace RageV
 		if (inputs->HasBinding(4))
 			inputs->SetTexture(4, velocity ? velocity : TextureLoader::TransparentBlack(*s_Data->Device),
 							   s_Data->PointSampler);
+		// **RT-9: what this signal knew here last frame**, for the ray allocation. Four lanes of
+		// the accumulator's own history, read at the reprojected texel: the picture (frames in
+		// the alpha), what it learned (the refusal code), the reflector it kept, and whose it
+		// was. Asked of the set, as binding 4 is: a staged older copy of this shader declares
+		// none of them. Black where the caller has no history, and History.z says so.
+		const bool pastBound = pastPicture && pastExtra && pastSurface && pastIdent;
+		{
+			const RHI::Ref<RHITexture>& black = TextureLoader::TransparentBlack(*s_Data->Device);
+			const RHI::Ref<RHITexture>* lanes[4] = { &pastPicture, &pastExtra, &pastSurface, &pastIdent };
+			for (uint32_t i = 0; i < 4; ++i)
+				if (inputs->HasBinding(5 + i))
+					inputs->SetTexture(5 + i, pastBound ? *lanes[i] : black, s_Data->PointSampler);
+			// RT-9: and the tile map the allocation wrote, if it ran.
+			if (inputs->HasBinding(9))
+				inputs->SetTexture(9, tileRays ? tileRays : black, s_Data->PointSampler);
+		}
 		inputs->Commit();
 
 		LampPushConstants push;
 		push.PreviousViewProjection = Math::Inverse(s_Data->Scene.ViewProjection);
 		push.History.y = Math::Max(giAverage, 1.0f);
+		// RT-9: one where the four lanes above are this signal's own history, and the rays may
+		// be spent by what it says; zero leaves every texel on the old rule.
+		push.History.z = tileRays && EngineConfig::Get().ReflectionConfidenceRays ? 1.0f : 0.0f;
 		FillLampFlip(push, *s_Data);
 		const Vec2 gloss = Renderer::GetReflectionGloss();
 		// RT-15b: Trace.x carries the rays a texel casts where its surface moves on its
@@ -7061,6 +7098,25 @@ namespace RageV
 	bool Renderer3D::AnyInstanceMoved()
 	{
 		return s_Data && (s_Data->RayAnyMoving || s_Data->RayAnyMovingLast);
+	}
+
+	// **RT-9: whether the eye is where it was.** Against the signal's own motion record, and
+	// on the eye and its facing rather than the view-projection: the projection carries the
+	// frame's jitter, so it differs every frame on a camera that has not moved at all, and a
+	// test on it would never report a still one. w zero means nothing has been recorded yet,
+	// which is a frame with no history and not a still camera.
+	bool Renderer3D::CameraStill(const CameraMotion& motion)
+	{
+		if (!s_Data || motion.Eye.w < 0.5f)
+			return false;
+		const Vec3 moved(s_Data->SceneEye.x - motion.Eye.x, s_Data->SceneEye.y - motion.Eye.y,
+						 s_Data->SceneEye.z - motion.Eye.z);
+		if (Math::Dot(moved, moved) > 1.0e-10f)
+			return false;
+		const Vec3 turned(s_Data->SceneForward.x - motion.Forward.x,
+						  s_Data->SceneForward.y - motion.Forward.y,
+						  s_Data->SceneForward.z - motion.Forward.z);
+		return Math::Dot(turned, turned) <= 1.0e-10f;
 	}
 
 	// The frames behind the reflection, averaged in (reflection_accumulate.rvshader),
@@ -7394,6 +7450,10 @@ namespace RageV
 		// bit-identical, 2026-09-07).
 		motion.Eye = Vec4(s_Data->Scene.CameraPosition.x, s_Data->Scene.CameraPosition.y,
 						  s_Data->Scene.CameraPosition.z, 1.0f);
+		// RT-9: and which way it looked, so a pass can ask whether the camera has moved at
+		// all. Left at its default this record answered "turned" on every frame of a still
+		// camera, and the tile allocation ran in a garage where nothing moves (2026-09-16).
+		motion.Forward = s_Data->SceneForward;
 
 		cmd->BindPipeline(pipeline);
 		cmd->BindResourceSet(0, slot.LampSet);
@@ -7541,6 +7601,10 @@ namespace RageV
 		// bit-identical, 2026-09-07).
 		motion.Eye = Vec4(s_Data->Scene.CameraPosition.x, s_Data->Scene.CameraPosition.y,
 						  s_Data->Scene.CameraPosition.z, 1.0f);
+		// RT-9: and which way it looked, so a pass can ask whether the camera has moved at
+		// all. Left at its default this record answered "turned" on every frame of a still
+		// camera, and the tile allocation ran in a garage where nothing moves (2026-09-16).
+		motion.Forward = s_Data->SceneForward;
 
 		cmd->BindPipeline(s_Data->WaterAccumulatePipeline);
 		cmd->BindResourceSet(0, slot.LampSet);

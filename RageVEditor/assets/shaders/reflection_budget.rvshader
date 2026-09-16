@@ -1,0 +1,146 @@
+// **RT-9: the reflection's rays, allocated per tile by what its history says.**
+//
+// The accumulator knows, per texel, how many frames stand behind its picture, and throws the
+// number away. Read back, it says where reconstruction cannot answer: a texel whose history has
+// just begun holds one frame of a few rays, and no amount of averaging will help it this frame.
+// A ray will.
+//
+// **Per tile, and that is the whole reason this pass exists.** Allocated per texel it was
+// measured costing 1.0-1.3 ms for no gain (2026-09-16): the young texels are scattered -- five
+// per cent of a *parked* garage is young, on edges and where a glossy ray keeps landing on
+// something else -- and a graphics card runs a group of pixels at the pace of the greediest one
+// in it, so scattered rays are paid for by their neighbours too. A tile's count is one number for
+// 16x16 pixels, which is coherent by construction, and the allocator's own stillness machinery
+// (a dead band and a dwell, WR-16 S3) keeps it from stepping about between frames.
+//
+// The output is the shape the tile budget writes: the count in r, its dwell in g, and the share
+// that asked for it in b, for the debug view and the next frame's band.
+#type vertex
+#version 460 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 460 core
+
+layout(location = 0) in vec2 v_UV;
+layout(location = 0) out vec4 o_Budget;
+
+// The reflection accumulator's own history: the picture (the frames behind it in the alpha) and
+// the reflector it kept (alpha below zero where there was none, which is a texel that traces
+// nothing and must not count either way).
+layout(set = 0, binding = 0) uniform sampler2D u_PastPicture;
+layout(set = 0, binding = 1) uniform sampler2D u_PastSurface;
+// What this pass wrote last frame: the count to hold and how long it has been held.
+layout(set = 0, binding = 2) uniform sampler2D u_History;
+
+layout(push_constant) uniform Params
+{
+	// The shared post block first, as every pass here lays it out: the map's texel
+	// size, three floats and the backend's flip (PostProcess::PostParams).
+	float TexelX;
+	float TexelY;
+	float TileSize;      // A: pixels a tile covers, each way
+	float Most;          // B: the rays a tile may be given
+	float HasHistory;    // C
+	float FlipY;
+
+	float Width;         // of the picture the history is kept at
+	float Height;
+	float Young;         // frames at or under which a texel is asking for rays
+	float DeadBand;      // how far the share must move before the count follows
+	float Dwell;         // and how long the count must then sit still
+} u_Budget;
+
+// The dwell counter saturates where a half float is still exact.
+const float kDwellCap = 31.0;
+
+// The tile budget's own rule, in the same words: held while the target is inside the band or the
+// dwell has not run out; otherwise the target, and the dwell restarts. A tile that had nothing
+// takes its target at once -- there is no count to walk from.
+vec2 Hold(float held, float target, float dwell, float band, float wanted)
+{
+	const float dwellFrames = min(wanted, kDwellCap);
+	if (held <= 0.0)
+		return vec2(floor(target + 0.5), 0.0);
+	if (abs(target - held) < band || dwell < dwellFrames)
+		return vec2(held, min(dwell + 1.0, kDwellCap));
+	const float next = floor(target + 0.5);
+	return next == held ? vec2(held, min(dwell + 1.0, kDwellCap)) : vec2(next, 0.0);
+}
+
+void main()
+{
+	const ivec2 tile = ivec2(gl_FragCoord.xy);
+	const int size = int(u_Budget.TileSize + 0.5);
+	const ivec2 pictureSize = ivec2(int(u_Budget.Width + 0.5), int(u_Budget.Height + 0.5));
+	const ivec2 origin = tile * size;
+
+	// **Every other texel each way.** A quarter of the reads for the same share to within a
+	// texel or two, on a number that is thresholded against a dead band of a whole ray.
+	float glossy = 0.0;
+	float young = 0.0;
+	// **Young texels next to young texels.** A tile is worth extra rays when what it
+	// cannot reconstruct is a *band* -- the strip a mover or the camera has just
+	// uncovered -- and not when it is a scattering of thin edges and glossy rays that
+	// keep landing on something new. Five per cent of a parked garage is young that
+	// second way, and paying four rays for it cost 0.77 ms for a picture nobody was
+	// complaining about (2026-09-16). Counted as pairs along the row: a young texel
+	// whose neighbour in the sample lattice is young too.
+	float runs = 0.0;
+	for (int y = 0; y < size; y += 2)
+	{
+		bool wasYoung = false;
+		for (int x = 0; x < size; x += 2)
+		{
+			const ivec2 at = origin + ivec2(x, y);
+			if (any(greaterThanEqual(at, pictureSize)))
+			{
+				wasYoung = false;
+				continue;
+			}
+			if (texelFetch(u_PastSurface, at, 0).a < 0.0)
+			{
+				wasYoung = false;
+				continue;          // nothing glossy stood here: it asks for nothing
+			}
+			glossy += 1.0;
+			const bool isYoung = texelFetch(u_PastPicture, at, 0).a <= u_Budget.Young;
+			if (isYoung)
+			{
+				young += 1.0;
+				if (wasYoung)
+					runs += 1.0;
+			}
+			wasYoung = isYoung;
+		}
+	}
+
+	// The share of this tile that cannot be reconstructed, and the count it asks for: one ray
+	// where nothing is young, the most where all of it is. A tile with no glossy texel at all
+	// asks for one -- it will trace nothing anyway, and zero is a step the next frame would
+	// have to walk back.
+	// The share that is asking together, and the count it earns: one ray where nothing is,
+	// the most where the whole tile is. Under a tenth of the tile is a scattering and
+	// edges and get nothing (measured: the dolly keeps its win at a quarter, and the parked
+	// garage stops paying for its poles).
+	const float share = glossy > 0.0 ? runs / glossy : 0.0;
+	const float asking = share < 0.25 ? 0.0 : clamp((share - 0.25) / 0.35, 0.0, 1.0);
+	const float target = clamp(1.0 + asking * (u_Budget.Most - 1.0), 1.0, max(u_Budget.Most, 1.0));
+
+	vec2 held = vec2(floor(target + 0.5), 0.0);
+	if (u_Budget.HasHistory > 0.5)
+	{
+		const vec2 uv = (vec2(tile) + 0.5) / max(vec2(textureSize(u_History, 0)), vec2(1.0));
+		const vec4 was = texture(u_History, vec2(uv.x, u_Budget.FlipY > 0.5 ? 1.0 - uv.y : uv.y));
+		held = Hold(was.r, target, max(was.g, 0.0), u_Budget.DeadBand, u_Budget.Dwell);
+	}
+
+	o_Budget = vec4(held.x, held.y, share, 0.0);
+}

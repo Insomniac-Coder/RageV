@@ -387,6 +387,17 @@ namespace RageV
 
 		// 3: importance and the mean become ray counts, one per type, eased
 		// toward rather than stepped to.
+		// RT-9: the reflection's rays per tile, from how young its history is there.
+		static void ReflectionBudget(RHI::RHICommandList& cmd,
+									 const RHI::Ref<RHI::RHITexture>& pastPicture,
+									 const RHI::Ref<RHI::RHITexture>& pastSurface,
+									 const RHI::Ref<RHI::RHITexture>& history,
+									 uint32_t tilesX, uint32_t tilesY, uint32_t tileSize,
+									 uint32_t pictureWidth, uint32_t pictureHeight,
+									 float mostRays, float youngFrames,
+									 float deadBand, float dwellFrames,
+									 RHI::Format outputFormat);
+
 		static void TileBudget(RHI::RHICommandList& cmd,
 				   const RHI::Ref<RHI::RHITexture>& tiles,
 				   const RHI::Ref<RHI::RHITexture>& mean,
@@ -661,6 +672,8 @@ namespace RageV
 			ChangeFilter,
 			// RT-15: the traced reflection's moving layer, after the temporal resolve.
 			ReflectionMovingComposite,
+			// RT-9: the reflection's rays per tile, from how young its history is there.
+			ReflectionBudget,
 			Count
 		};
 

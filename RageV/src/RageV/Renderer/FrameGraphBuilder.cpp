@@ -947,6 +947,11 @@ namespace RageV
 
 		Renderer::ScreenReflections reflectionsForScene;
 		RGResource previousReflections = kRGInvalid;
+		// RT-9: the reflection's tile map of ray counts, and its size.
+		// RT-9: the scale the reflection history is kept at, for the tile map's own size.
+		uint32_t reflectionScaleForBudget = 1;
+		uint32_t reflectionBudgetTilesX = 0;
+		uint32_t reflectionBudgetTilesY = 0;
 		RGResource currentReflections = kRGInvalid;
 		// Which of the two the lit shader's hook reads: this frame's under the
 		// traced form (RT-4), last frame's under the screen-space trace.
@@ -981,6 +986,7 @@ namespace RageV
 			// reason. The screen-space trace runs on the resolved image and keeps
 			// the output size.
 			const uint32_t reflectionScale = tracedReflections ? (uint32_t)supersample : 1u;
+			reflectionScaleForBudget = reflectionScale;
 			reflections.Prepare(Renderer::GetDevice(), desc.Width * reflectionScale,
 								desc.Height * reflectionScale,
 								Format::R16G16B16A16_SFLOAT, "ScreenReflections",
@@ -1001,6 +1007,22 @@ namespace RageV
 								// rays struck something that moved, which follows that thing.
 								tracedReflections ? Format::R16G16B16A16_SFLOAT
 												  : Format::Undefined);
+
+			// **RT-9: and the map of what each tile of it may spend.** Tile-sized (16 pixels a
+			// side, as the ray budget's own tiles are), a pair so this frame can read what last
+			// frame decided and hold it there.
+			if (desc.ReflectionBudget && tracedReflections && PostProcess::IsReady())
+			{
+				reflectionBudgetTilesX = Math::Max((desc.Width * reflectionScale + 15u) / 16u, 1u);
+				reflectionBudgetTilesY = Math::Max((desc.Height * reflectionScale + 15u) / 16u, 1u);
+				desc.ReflectionBudget->Prepare(Renderer::GetDevice(), reflectionBudgetTilesX,
+											   reflectionBudgetTilesY, Format::R16G16B16A16_SFLOAT,
+											   "ReflectionBudget");
+			}
+			else if (desc.ReflectionBudget)
+			{
+				desc.ReflectionBudget->Invalidate();
+			}
 
 			if (reflections.Current() && reflections.Previous())
 			{
@@ -2241,6 +2263,68 @@ namespace RageV
 			const RGResource traced = graph.CreateTarget(traceDesc);
 			const bool budgetBound = budgetPrevious != kRGInvalid && budgetHasHistory;
 
+			// **RT-9: what this signal knew at each texel last frame.** The accumulator works
+			// out, per texel, how much it trusts its memory -- the frames behind it, which test
+			// refused it, the reflector it was gathered on -- and every one of those numbers is
+			// thrown away at the end of the pass that makes it. Bound here, they are the input
+			// the ray allocation needs: rays where reconstruction cannot answer, and one where
+			// it can. Read only where the history is real; nothing is consumed unless
+			// `--reflection-confidence-rays` says so.
+			const bool pastBound = previousReflections != kRGInvalid
+								&& desc.Reflections && desc.Reflections->HasHistory();
+			// **RT-9: the tile's ray count, decided before the trace runs.** One number for
+			// 16x16 pixels, from the share of them whose history has just begun, held by the
+			// ray budget's own dead band and dwell. Per texel this was measured costing
+			// 1.0-1.3 ms for no gain (the shader's header says why); per tile the count is
+			// coherent across a group of pixels, which is how a graphics card wants to be
+			// asked. Only where the allocation is switched on and there is a history to read.
+			RGResource reflectionBudgetMap = kRGInvalid;
+			// **And nothing is asked at all where nothing has moved.** A still camera over a
+			// still scene has every history it will ever need; the tiles that still read young
+			// there are thin edges whose picture nobody has complained about, and buying them
+			// rays cost half a millisecond a frame for it (2026-09-16). The trace then falls
+			// back to one ray a texel, which is what a still scene asked for before RT-9.
+			const bool rt9InstancesMoved = Renderer3D::AnyInstanceMoved();
+			const bool rt9CameraStill = Renderer3D::CameraStill(desc.Reflections->Motion());
+			const bool anythingMoved = rt9InstancesMoved || !rt9CameraStill;
+			if (pastBound && anythingMoved && config.ReflectionConfidenceRays && desc.ReflectionBudget
+				&& desc.ReflectionBudget->Current() && desc.ReflectionBudget->Previous())
+			{
+				TemporalHistory& mirror = *desc.ReflectionBudget;
+				const bool mirrorHistory = mirror.HasHistory();
+				const RGResource mirrorPrevious = graph.Import(mirror.Previous(), "ReflectionBudgetPrevious");
+				const RGResource mirrorCurrent = graph.Import(mirror.Current(), "ReflectionBudgetCurrent");
+				const uint32_t mostRays = (uint32_t)Math::Clamp(
+					config.ReflectionMovingRays >= 0 ? config.ReflectionMovingRays : 4, 1, 16);
+				graph.AddPass("ReflectionBudget",
+					[&](RGPassBuilder& builder)
+					{
+						builder.Write(mirrorCurrent);
+						builder.Sample(previousReflections);
+						if (mirrorHistory)
+							builder.Sample(mirrorPrevious);
+						builder.DisableDepth();
+					},
+					[past = previousReflections, mirrorPrevious, mirrorHistory,
+					 tilesX = reflectionBudgetTilesX, tilesY = reflectionBudgetTilesY,
+					 width = desc.Width * reflectionScaleForBudget,
+					 height = desc.Height * reflectionScaleForBudget, mostRays,
+					 deadBand = desc.Render.RayBudgetDeadBand,
+					 dwell = desc.Render.RayBudgetDwell](RGPassContext& context)
+					{
+						PostProcess::ReflectionBudget(context.Cmd, context.Color(past),
+													  context.Color(past, 1),
+													  mirrorHistory ? context.Color(mirrorPrevious) : nullptr,
+													  tilesX, tilesY, 16u, width, height,
+													  (float)mostRays,
+													  // A history of six frames or fewer is one no
+													  // averaging can rescue this frame.
+													  6.0f, deadBand, dwell,
+													  Format::R16G16B16A16_SFLOAT);
+					});
+				reflectionBudgetMap = mirrorCurrent;
+				mirror.Advance();
+			}
 			graph.AddPass("ReflectionTrace",
 				[&](RGPassBuilder& builder)
 				{
@@ -2248,9 +2332,15 @@ namespace RageV
 					builder.Sample(sceneHDR);
 					if (budgetBound)
 						builder.Sample(budgetPrevious);
+					if (pastBound)
+						builder.Sample(previousReflections);
+					if (reflectionBudgetMap != kRGInvalid)
+						builder.Sample(reflectionBudgetMap);
 					builder.DisableDepth();
 				},
 				[sceneHDR, normalIndex, albedoIndex, velocityIndex, budgetMap = budgetPrevious, budgetBound,
+				 past = previousReflections, pastBound,
+				 mirrorMap = reflectionBudgetMap, budgetMapBound = reflectionBudgetMap != kRGInvalid,
 				 giAverage = rtPreset.GiRays](RGPassContext& context)
 				{
 					Renderer3D::TraceReflections(context.Color(sceneHDR, normalIndex),
@@ -2259,7 +2349,16 @@ namespace RageV
 												 context.Color(sceneHDR, albedoIndex),
 												 // RT-15b: the velocity lane, for the moving texels' rays.
 												 context.Color(sceneHDR, velocityIndex),
-												 giAverage);
+												 giAverage, false,
+												 // RT-9: last frame's picture (its alpha is the frames
+												 // behind it), what it learned (the refusal code in the
+												 // alpha), the reflector it kept, and whose it was.
+												 pastBound ? context.Color(past) : nullptr,
+												 pastBound ? context.Color(past, 2) : nullptr,
+												 pastBound ? context.Color(past, 1) : nullptr,
+												 pastBound ? context.Color(past, 4) : nullptr,
+												 // RT-9: and this tile's own count.
+												 budgetMapBound ? context.Color(mirrorMap) : nullptr);
 				});
 
 			// The rough surfaces' rays, shared across their neighbourhood

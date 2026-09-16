@@ -198,6 +198,12 @@ namespace RageV
 		// and scenetest want exactly that.
 		TemporalHistory* RayBudget = nullptr;
 
+		// **RT-9: the reflection's own tile map.** The ray budget's four lanes are full (two
+		// counts, the averaged demand, a pair of dwell counters), so the reflection's count
+		// gets a map of its own rather than a repack: tile-sized, a few thousand texels.
+		// Null leaves every texel on the motion rule, which is what came before.
+		TemporalHistory* ReflectionBudget = nullptr;
+
 		// **Ray-traced occlusion's own accumulation.**
 		//
 		// RTAO is the one noisy term with no temporal filter at all: it is

@@ -90,6 +90,8 @@ private:
 	// One texel per 16x16 tile: what the ray budget gave each tile last
 	// frame, and what that tile looked like, which is how it measures motion.
 	RageV::TemporalHistory m_RayBudget;
+	// RT-9: the reflection's own tile map of ray counts.
+	RageV::TemporalHistory m_RayBudgetReflection;
 	// Ray-traced occlusion's accumulation. See FrameDesc::Occlusion.
 	RageV::TemporalHistory m_Occlusion;
 	// RT-3: the traced bounce's accumulation. See FrameDesc::GiLight.

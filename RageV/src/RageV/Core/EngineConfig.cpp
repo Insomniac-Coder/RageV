@@ -448,6 +448,9 @@ namespace RageV
 		// RT-15: the moving layer added after the temporal resolve; off, all of it before.
 		if (key == "reflection-moving-layer" || key == "reflectionmovinglayer")
 			return ParseBool(value, config.ReflectionMovingLayer);
+		// RT-9: the rays a texel casts follow what its history says, not its motion.
+		if (key == "reflection-confidence-rays" || key == "reflectionconfidencerays")
+			return ParseBool(value, config.ReflectionConfidenceRays);
 		// RT-15: the young blur's radius scaled by the texel's own uncertainty.
 		if (key == "reflection-noise-blur" || key == "reflectionnoiseblur")
 			return ParseBool(value, config.ReflectionNoiseBlur);

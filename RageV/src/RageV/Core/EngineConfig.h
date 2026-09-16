@@ -411,6 +411,11 @@ namespace RageV
 		// it), so a settled part of a moving surface keeps its detail and only the unsettled
 		// part is smoothed. Off, every young texel takes the full radius, as before.
 		bool  ReflectionNoiseBlur = true;
+		// **--reflection-confidence-rays=on|off (RT-9):** a texel's rays follow what the
+		// accumulator knew there last frame -- many where its history was refused or has just
+		// begun, one where it has settled -- instead of the count following motion alone
+		// (RT-15b's four rays on anything moving on its own). Off leaves that rule in place.
+		bool  ReflectionConfidenceRays = true;
 		// **--ao-blur / --gi-blur=<texels> (RT-5 part 5):** the same dial for the
 		// occlusion and indirect signals. Negative, the tuning's own -- zero since
 		// 2026-09-14, when the blur was measured to add nothing and retired, so

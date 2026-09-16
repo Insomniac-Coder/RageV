@@ -1,6 +1,8 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-16: **the entry below headed "RT-15: the moving chrome cube"
+**Read this first.** Updated 2026-09-16 (night): **the entry below headed "RT-9 half built" is the current hand-off**, and the RT-15 entry after it is the day's larger piece.
+
+**Superseded header.** Updated 2026-09-16: **the entry below headed "RT-15: the moving chrome cube"
 is the current hand-off** -- RT-15 built, committed and pushed (`8d7741a`, scripts `8c8ac44`),
 with three things the owner has listed as still open. The 2026-09-14 entry after it still holds
 for measured change.
@@ -32,6 +34,27 @@ table and is the one list. **Before picking anything up, read the ten-item list 
 -- every one of them cost hours today and eight are repeatable by anyone. Older headers follow.
 
 **Superseded header.** Updated 2026-09-07 night: **the whole RT-first series is committed and merged to `main`** (`d34c905`, merged as `ddc7827` -- the sentence "nothing is committed" below was true when it was written and is not now), and **the thirteenth entry is the current hand-off**: two outside reviews were read against the code and filed, adding **six items -- RT-6.6 through RT-6.11 and RT-14**, of which **RT-6.6 is done and measured** (its record is in RT-SERIES.md; uncommitted). `docs/RT-SERIES.md` now opens with a status table; read that before picking anything up. The twelfth entry is the RT-3 / RT-3.1 hand-off, the tenth (2026-09-06) the complete one for the RT-first state (recipes, flags, traps, what is where). `docs/RT-SERIES.md` is the one list with the records of RT-1, RT-2, RT-2.1, RT-3 and RT-3.1. Nothing is committed. **RT-6's geometric half is done** -- the temporal resolve refuses a history by depth, normal and object id, with a neighbour search before it gives up, and the bridge is visibly sharper for it (`build/rt3/taa_car_sidebyside.png`). Its still-feedback half is deferred by the owner to RT-8, because the sea reads zero velocity and nothing in the G-buffer says "water". **Open from the owner and not yet started: improve the denoiser and accumulation, and make the ground reflection less blurry** -- the reflection signal's young blur is `YoungRadius = 12`, and a validated history (RT-6, RT-5) is the precondition for weakening it. The AO look is accepted; the deferred resolve is **RT-2.2**, owner-filed for the end of the series.
+
+## 2026-09-16 (night): RT-9 half built -- the confidence lane and the reflection's tile allocation
+
+**Committed and pushed.** The full record is `docs/RT-SERIES.md`'s RT-9 entry; the short of it:
+
+- The reflection trace can read what the accumulator knew at each texel last frame (frames,
+  refusal, reflector, object). Free, and the precondition the item names.
+- Rays are allocated **per 16x16 tile**, not per texel: per texel cost 1.0-1.3 ms for nothing,
+  because young texels are scattered (5% of a *parked* garage) and a group of pixels runs at
+  the pace of its greediest member.
+- A tile earns rays only where its young texels sit **together** (a quarter of it, as runs),
+  and **not at all** where no instance moved and the camera is still
+  (`Renderer3D::CameraStill`, on the eye and facing -- the view-projection carries the jitter).
+- **On by default** (`--reflection-confidence-rays=off` restores RT-15b's motion rule).
+  Cost -0.05 ms driving, +0.09 parked.
+
+**Read this before building on it:** with the still gate in, RT-9 earns nothing measurable in
+the garage. The one gain seen on the way -- floor speckle 0.82% -> 0.73% -- was in a *still*
+scene, which is what the gate now refuses to pay for; and at 0.6 m/s the dolly's uncovered
+bands never reach the quarter bar. It is machinery waiting for a scene with real
+disocclusion, and it is honest to call it that.
 
 ## 2026-09-16: RT-15 -- the moving chrome cube reflects the room, before TAA, without bands
 

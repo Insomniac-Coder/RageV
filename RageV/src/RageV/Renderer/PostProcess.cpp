@@ -98,6 +98,7 @@ namespace RageV
 				case 37: return "assets/shaders/taa_guide.rvshader";
 				case 38: return "assets/shaders/change_filter.rvshader";
 				case 39: return "assets/shaders/reflection_composite_moving.rvshader";
+				case 40: return "assets/shaders/reflection_budget.rvshader";
 				default: return "assets/shaders/fog.rvshader";
 			}
 		}
@@ -118,7 +119,7 @@ namespace RageV
 			// One per Shader::Count. Not spelled with the enum because that is
 			// private to PostProcess and this struct is not -- so the number is
 			// asserted against it in Init instead, where the enum is in scope.
-			std::array<Ref<RHIShader>, 40> Shaders;
+			std::array<Ref<RHIShader>, 41> Shaders;
 
 			// Keyed by shader and output format: a pipeline bakes the format it
 			// renders into, and this chain writes an HDR one then an LDR one.
@@ -182,7 +183,7 @@ namespace RageV
 
 		ShaderCompiler::Init();
 
-		static_assert((int)Shader::Count <= 40,
+		static_assert((int)Shader::Count <= 41,
 					  "PostData::Shaders is too small; grow it with the enum");
 
 		bool ok = true;
@@ -1054,6 +1055,49 @@ namespace RageV
 
 		Dispatch(cmd, Shader::TileReduce, outputFormat, source, nullptr,
 				 &params, sizeof(params), Sampling::Point);
+	}
+
+	// **RT-9: the reflection's rays per tile.** Reads the accumulator's own history -- the
+	// frames behind each texel's picture, and whether a reflector stood there at all -- and
+	// writes the count this tile's trace may spend, held by the same dead band and dwell the
+	// ray budget uses. Per tile and not per texel: the measurement that says why is in the
+	// shader's header.
+	void PostProcess::ReflectionBudget(RHICommandList& cmd, const Ref<RHITexture>& pastPicture,
+									   const Ref<RHITexture>& pastSurface,
+									   const Ref<RHITexture>& history,
+									   uint32_t tilesX, uint32_t tilesY, uint32_t tileSize,
+									   uint32_t pictureWidth, uint32_t pictureHeight,
+									   float mostRays, float youngFrames,
+									   float deadBand, float dwellFrames, Format outputFormat)
+	{
+		if (!s_Data || !pastPicture || !pastSurface)
+			return;
+
+		struct ReflectionBudgetParams
+		{
+			PostParams Base;
+			float Width = 0.0f;
+			float Height = 0.0f;
+			float Young = 6.0f;
+			float DeadBand = 0.75f;
+			float Dwell = 8.0f;
+		};
+
+		ReflectionBudgetParams params;
+		params.Base.TexelSize = { 1.0f / (float)Math::Max(tilesX, 1u),
+								  1.0f / (float)Math::Max(tilesY, 1u) };
+		params.Base.A = (float)tileSize;
+		params.Base.B = mostRays;
+		params.Base.C = history ? 1.0f : 0.0f;
+		params.Width = (float)pictureWidth;
+		params.Height = (float)pictureHeight;
+		params.Young = youngFrames;
+		params.DeadBand = deadBand;
+		params.Dwell = dwellFrames;
+
+		Dispatch(cmd, Shader::ReflectionBudget, outputFormat, pastPicture, pastSurface,
+				 &params, sizeof(params), Sampling::Point, Sampling::Point,
+				 history ? history : s_Data->Black, Sampling::Point);
 	}
 
 	void PostProcess::TileBudget(RHICommandList& cmd, const Ref<RHITexture>& tiles,
