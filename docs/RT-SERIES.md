@@ -380,9 +380,75 @@ extras (four rays on the mover's texels, the young blur) are the rest of the dri
 **Both are for the optimisation pass after the RT series** (owner's rule); the candidates are the
 per-hit probe fetch and the blur's three passes.
 
-**Open, owner-listed 2026-09-16:** the speckles and grain on the moving cube, the spoiler trace,
-and the streaks' cause. RT-9 (more rays where the history is young) is still the owner's direction
-for the strip a mover uncovers.
+### RT-15, the four fixes after it (2026-09-16): speckles, grain, and the spoiler streaks
+
+The owner asked the design question plainly -- *"are we doing something wrong? how do the industry
+giants do it?"* -- and the answer was that this engine had four of the six steps a production
+reflection denoiser runs. The two it was missing are the two things they were looking at.
+
+**1. The history fix.** A moving surface covers screen texels that have no history, and what those
+texels hold is this frame's few rays. Every production denoiser answers that with a spatial blur of
+**this frame's** picture, on the same surface, fading out as the history rebuilds (NVIDIA's NRD
+calls it exactly that; Lumen and FidelityFX have the same step). This engine had it for curved
+movers alone -- a flat one, the chrome cube, got nothing. The accumulator now marks any texel whose
+surface moved on its own, and the blur reads that mark. A texel young because the *camera* moved
+stays unmarked, so RT-5 part 5's measured refusal still stands. `--reflection-moving-blur`, **4 at
+the owner's word** (12 was the curved-mover number): the cube's face went from 3.8% of its pixels
+in speckle to 0.7%.
+
+**2. The firefly clamp, twice.** A ray that lands on a ceiling tube brings back tens of times what
+the rest of the lobe does, and a running average keeps that one draw at one part in n for the life
+of the history -- the bright dots, still as much as moving. The sample is now scaled back to what
+its neighbours say (`--reflection-firefly`, three spreads).
+- **In the accumulator**, against this texel's eight neighbours on the same object, the centre left
+  out so a firefly cannot raise its own ceiling. Stopped cube 1.42% of the face in speckle -> 0.38%.
+- **And in the resolve, which is where it had to be.** That pass shares a texel's rays with its
+  neighbours over a disc, so one wild ray reaches the accumulator already spread over twenty texels
+  with its neighbours lifted around it, where no clamp against neighbours can see it. Clamped
+  against the taps it is about to average, it never spreads: moving face 0.70% -> **0.06%**,
+  stopped cube **0.00%**.
+
+**3. The blur's width from the texel's own uncertainty.** The accumulator already stores the two
+moments of what arrives, so the error left in an average of `frames` samples is the spread over the
+root of the count. Measured on the moving cube's face: 0.011 at the quarter point, 0.030 at the
+middle, 0.24 at nine tenths -- and the bright bumps the owner kept pointing at sat at 0.18 and
+above. The radius now fades in across 0.02 to 0.20 (`--reflection-noise-blur`), so the settled parts
+of a moving face keep their detail. The brightest bump against the settled cube: **+60 levels
+before, +18 after**.
+
+**4. The spoiler streaks: the direct light had no object test at all.** The bars under the car's
+wing are not reflections -- with the direct light's memory off they vanish, with the traced
+reflections off they are still there and stronger. The pair's id binding fell back to the surface
+attachment, so its "same object" test compared a normal with a normal, and the light gathered on
+the wing was kept on the cube crossing behind it; the captured lane shows those columns holding
+**21 frames of a value 3.4x brighter** than the columns beside them. The direct light now keeps its
+own object lane (a fifth attachment, two channels) and refuses another object's light, exactly as
+the reflections do -- the owner's rule: *"an object's memory should only be limited to itself"*.
+**Streaks gone**, and with only this change switched on and off the parked garage differs on
+**0.004%** of its pixels and the dolly on **0.002%**.
+
+**Cost of the four, together** (A B B A, 300 frames, on mains): **+0.40 ms with the car driving,
++0.33 ms parked** -- the resolve's extra pass over its taps (+0.2), the blur's three passes while
+something moves, and +0.07 in the accumulate.
+
+**What is left, and where it goes.** The moving cube still carries soft blobs on its approach: the
+face is 10% blobs there against 7% at its calmest moment. Measured against a 16-ray settled truth,
+our one-ray picture sits 8.6 levels from it and a 16-ray one 3.8 -- **sample count is the lever, not
+smoothing**, and the owner has put ray allocation for near-mirror surfaces in **RT-10 (ReSTIR)**
+rather than spending rays here. The clamps cost about 3 levels of accuracy at one ray, which is the
+price of the dot-free look.
+
+**Three traps this day paid for.**
+- **Measure the whole run, not one frame.** Every number above frame 120 was taken at the calmest
+  moment of the cube's crossing; the approach is half again as noisy, and the owner saw it first.
+- **A reference has to be shown to be right.** The settled cube was used as truth for hours and had
+  its own spots; a 16-ray settled render is the truth (`manyrays` in rt15e/rt15f).
+- **A target grown alone is silent; a pipeline grown alone is not.** The direct light's fifth
+  attachment needed `Renderer3D`'s pipeline list too -- ten validation errors a frame until it did.
+
+**Open, owner-listed 2026-09-16:** the blobs on the moving cube's approach (RT-10's ray allocation),
+and the cube reading softer than the chrome bars beside it (the resolve shares rays across a flat
+surface and cannot on a round one; not yet measured against the truth).
 
 ### RT-20 — ✅ done 2026-09-13 (`182f422`): the edge flicker was RT-6's surface test firing on the jitter
 

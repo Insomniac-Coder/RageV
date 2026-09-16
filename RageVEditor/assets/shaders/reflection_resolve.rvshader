@@ -61,6 +61,8 @@ layout(push_constant) uniform ReflectionParams
 	// for the second, which reads the first's output and so reaches twice
 	// as far for the same taps -- the dilated (a-trous) second pass every
 	// SVGF-class denoiser uses to get a wide kernel cheaply.
+	// **RT-15, x: the firefly clamp's width**, in the taps' own spreads; zero switches
+	// it off (`--reflection-firefly`).
 	vec4 Probe;
 } u_Reflection;
 
@@ -205,6 +207,43 @@ void main()
 
 	const int taps = min(clamp(int(u_Scene.Indirect.w + 0.5), 1, 8) * 8, kMaxTaps);
 
+	// **RT-15: what the taps say before any of them is trusted.** One ray that lands on a
+	// ceiling tube comes back tens of times what the rest of this lobe does; averaged in, it
+	// becomes a bright bump twenty texels wide -- and by the time the accumulator sees it, its
+	// neighbours carry it too, so a clamp against them cannot tell it from the picture. The
+	// luminance mean and spread of the same taps this texel is about to average, in one cheap
+	// pass over the fresh lane alone: a tap above `mean + sigmas * spread` is scaled back to
+	// it below. Zero (`--reflection-firefly=0`) skips both the pass and the clamp.
+	const float fireflySigmas = u_Reflection.Probe.x;
+	float tapCap = 1.0e30;
+	if (fireflySigmas > 0.0)
+	{
+		float lumaSum = 0.0, lumaSqSum = 0.0, lumaCount = 0.0;
+		for (int i = -1; i < taps; ++i)
+		{
+			ivec2 at = texel;
+			if (i >= 0)
+			{
+				const float r = sqrt((float(i) + 0.5) / float(taps));
+				const float theta = float(i) * 2.39996323 + rotation;
+				at = clamp(texel + ivec2(round(reach * r * vec2(cos(theta), sin(theta)))), ivec2(0), size - 1);
+			}
+			const vec4 f = texelFetch(u_Fresh, at, 0);
+			if (f.a < 0.0)
+				continue;
+			const float l = dot(f.rgb, vec3(0.2126, 0.7152, 0.0722));
+			lumaSum += l;
+			lumaSqSum += l * l;
+			lumaCount += 1.0;
+		}
+		if (lumaCount >= 4.0)
+		{
+			const float mean = lumaSum / lumaCount;
+			const float sd = sqrt(max(lumaSqSum / lumaCount - mean * mean, 0.0));
+			tapCap = mean + fireflySigmas * sd;
+		}
+	}
+
 	vec3 sum = vec3(0.0);
 	float distanceSum = 0.0;
 	float weightSum = 0.0;
@@ -257,12 +296,19 @@ void main()
 		const float pdfTheirs = DistributionGGX(Nn, Hn, rn) * max(dot(Nn, Hn), 1.0e-4)
 							  / (4.0 * max(dot(Vn, Hn), 1.0e-4));
 		const float w = min(pdfHere / max(pdfTheirs, 1.0e-4), kMaxWeight) * exp(-2.0 * r * r);
-		sum += f.rgb * w;
+		// RT-15: and the tap scaled back where it stands above what the rest of them say.
+		vec3 radiance = f.rgb;
+		{
+			const float l = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
+			if (l > tapCap && l > 1.0e-6)
+				radiance *= tapCap / l;
+		}
+		sum += radiance * w;
 		distanceSum += distanceHere * w;
 		weightSum += w;
 		if (StruckMover(at))
 		{
-			movingSum += f.rgb * w;
+			movingSum += radiance * w;
 			movingWeight += w;
 		}
 	}

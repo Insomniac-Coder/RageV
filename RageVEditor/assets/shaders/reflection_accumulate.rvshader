@@ -213,12 +213,25 @@ bool g_SilhouetteMoving = false;
 // history follows exactly. Chooses between them (main) and marks the texel for the
 // young blur (o_Extra.a, kMovingCurvedMark).
 bool g_MovingCurved = false;
+// **RT-15f: whether the reflector moves on its own at all, curved or flat.** The mark the
+// young blur reads: a surface that moves covers screen texels that have no history of their
+// own, and what those texels hold is this frame's few rays. The blur is of this frame's
+// picture across the same surface and fades as the history rebuilds -- the "history fix"
+// every production reflection denoiser runs after its temporal pass. A texel young because
+// the *camera* moved is not marked: that trade (the garage floor's detail under a dolly) was
+// measured and refused in RT-5 part 5.
+bool g_SelfMoving = false;
 
 layout(location = 0) out vec4 o_Accumulated;
 layout(location = 1) out vec4 o_Surface;
 layout(location = 2) out vec4 o_Extra;
 #ifdef RV_SIGNAL_PAIR
 layout(location = 3) out vec4 o_Accumulated2;
+// **RT-15: and the object this texel's light was gathered on.** The pair had no object test at
+// all: its id binding fell back to the surface attachment, so the test compared a normal with a
+// normal and one object's light could be kept on another. The chrome cube crossing the car's
+// wing showed it as bars under the wing -- the owner's spoiler streaks.
+layout(location = 4) out vec4 o_Ident;
 #elif !defined(RV_SIGNAL_DIFFUSE)
 // **RT-5 part 5: the specular variant alone, as the paragraph below always
 // said.** The guard was `#else`, so the occlusion and indirect accumulates
@@ -297,7 +310,7 @@ float Luma(vec3 c)
 //
 // On the specular instance, whose id lanes are real. A layer that says it has no ids
 // (PreviousEye.w two, the sea) is one object, and every texel of it passes.
-#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+#if !defined(RV_SIGNAL_DIFFUSE)
 bool HardObjectIds() { return u_Reflection.PreviousEye.w <= 1.5; }
 bool SameObject(float id) { return !HardObjectIds() || abs(id - g_ObjectId) < 0.5; }
 #endif
@@ -347,7 +360,7 @@ void Neighbourhood(ivec2 texel, ivec2 size, out vec3 mean, out vec3 sd)
 			const vec4 f = texelFetch(u_Fresh, at, 0);
 			if (f.a < 0.0)
 				continue;
-#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+#if !defined(RV_SIGNAL_DIFFUSE)
 			// RT-15c: the bound is this object's own light. A neighbour on another object
 			// opened it by that object's picture -- at an edge, the other side's history
 			// then fitted inside it.
@@ -363,6 +376,39 @@ void Neighbourhood(ivec2 texel, ivec2 size, out vec3 mean, out vec3 sd)
 	mean = sum / n;
 	sd = sqrt(max(sum2 / n - mean * mean, vec3(0.0)));
 }
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+// **RT-15: what this texel's eight neighbours say, without the texel itself.** The firefly
+// clamp's ceiling: a sample that stands far above these is one draw's weight, not the
+// picture. The centre is left out on purpose -- a firefly in the middle of its own
+// neighbourhood raises the mean by a ninth and the spread by much more, and would let itself
+// through. Same object only, as every other neighbourhood here (RT-15c). False where too few
+// neighbours have a picture to say anything with.
+bool NeighboursAround(ivec2 texel, ivec2 size, out vec3 mean, out vec3 sd)
+{
+	vec3 sum = vec3(0.0), sum2 = vec3(0.0);
+	float n = 0.0;
+	for (int y = -1; y <= 1; ++y)
+	{
+		for (int x = -1; x <= 1; ++x)
+		{
+			if (x == 0 && y == 0)
+				continue;
+			const ivec2 at = clamp(texel + ivec2(x, y), ivec2(0), size - 1);
+			const vec4 f = texelFetch(u_Fresh, at, 0);
+			if (f.a < 0.0 || !SameObject(texelFetch(u_SurfaceId, at, 0).r))
+				continue;
+			sum += f.rgb;
+			sum2 += f.rgb * f.rgb;
+			n += 1.0;
+		}
+	}
+	if (n < 3.0)
+		return false;
+	mean = sum / n;
+	sd = sqrt(max(sum2 / n - mean * mean, vec3(0.0)));
+	return true;
+}
+#endif
 #ifdef RV_SIGNAL_PAIR
 void Neighbourhood2(ivec2 texel, ivec2 size, out vec3 mean, out vec3 sd)
 {
@@ -920,7 +966,7 @@ float ShortenedMemory(float base, float moved, float slack, float fewest,
 // test (HistoryAt).
 vec4 OwnHistoryPicture(vec2 pastUv, ivec2 pastTexel, ivec2 size)
 {
-#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+#if !defined(RV_SIGNAL_DIFFUSE)
 	if (HardObjectIds())
 	{
 		const ivec2 base = ivec2(floor(pastUv * vec2(size) - 0.5));
@@ -990,7 +1036,7 @@ bool HistoryAt(vec3 world, ivec2 size, vec3 P, vec3 N, float roughness,
 			continue;
 		}
 		c.extra = texelFetch(u_HistoryExtra, pastTexel, 0);
-#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+#if !defined(RV_SIGNAL_DIFFUSE)
 		// **RT-15c: another object's history is never this one's.** First, before any test
 		// that weighs a candidate, and before the silhouette rule below -- so that rule keeps
 		// a texel's own history across the jitter's side flip only where both sides are the
@@ -1241,6 +1287,8 @@ void main()
 #endif
 #ifdef RV_SIGNAL_PAIR
 		o_Accumulated2 = vec4(0.0);
+		// RT-15: and no object, so a texel with nothing in it cannot be mistaken for one.
+		o_Ident = vec4(0.0);
 #endif
 		return;
 	}
@@ -1260,7 +1308,9 @@ void main()
 	// a whole number, negated for a static surface, so it is compared and
 	// never interpolated.
 	g_ObjectId = texelFetch(u_SurfaceId, texel, 0).r;
-	const float luma = Luma(fresh.rgb);
+	// RT-15: scaled with the sample where the firefly clamp pulls it back, so the moments
+	// describe what was kept rather than what the draw returned.
+	float luma = Luma(fresh.rgb);
 
 	// The image behind the surface: the ray's distance for a flat mirror,
 	// nearer for anything that curves -- and nearer again for anything
@@ -1294,10 +1344,34 @@ void main()
 	// every signal but the reflections', and on those wherever nothing moved.
 	vec3 freshStill = fresh.rgb;
 #if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+	// **RT-15: the firefly clamp, before anything is averaged.** A ray that lands on a ceiling
+	// tube brings back tens of times what its texel's other rays do. The average that follows
+	// keeps that one draw at one part in n for as long as the history lives, which is the
+	// bright dots on the chrome cube -- standing still as much as moving -- and the soft blobs
+	// the young blur turned them into. The sample is scaled back to what its neighbours say,
+	// not thrown away: the light it found is there, it is the weight of one draw that is wrong.
+	// The neighbours are this frame's eight, on this object (RT-15c), and the centre is left
+	// out of them so a firefly cannot raise its own ceiling.
+	float fireflyScale = 1.0;
+	{
+		const float sigmas = u_Reflection.Change.w;
+		vec3 around, spread;
+		if (sigmas > 0.0 && NeighboursAround(texel, size, around, spread))
+		{
+			const float cap = Luma(around) + sigmas * Luma(spread);
+			const float here = Luma(freshStill);
+			if (here > cap && here > 1.0e-6)
+				fireflyScale = cap / here;
+		}
+	}
+	freshStill *= fireflyScale;
+	luma *= fireflyScale;
+#endif
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
 	const vec4 freshMovingLane = MovingLayerLive() ? texelFetch(u_FreshMoving, texel, 0) : vec4(0.0);
 	const vec3 freshMoving = clamp(freshMovingLane.rgb, vec3(0.0), max(fresh.rgb, vec3(0.0)));
 	if (MovingLayerLive())
-		freshStill = max(fresh.rgb - freshMoving, vec3(0.0));
+		freshStill = max(fresh.rgb * fireflyScale - freshMoving, vec3(0.0));
 	// What the moving layer keeps: this frame's until a history of it is found, and no
 	// frames behind it -- where no ray struck a mover it is nothing, at once, so a mover
 	// that has passed leaves no reflection of itself behind.
@@ -1321,6 +1395,8 @@ void main()
 		// RT-15: the surface history is looked for where the surface was, not
 		// where the camera alone would put it.
 		const vec2 objectShift = ObjectShift(texel, P, nowNdc);
+		// RT-15f: the young blur's mark, set before either history is looked for.
+		g_SelfMoving = dot(objectShift, objectShift) > 0.0;
 		// RT-18: asked only at a silhouette, the one place the answer is used.
 		g_SilhouetteMoving = silhouette && ObjectMovesAround(texel, size);
 		const bool haveSurface = HistoryAt(P, size, P, N, roughness, eyeDistance,
@@ -1729,6 +1805,8 @@ void main()
 						 frames);
 #endif
 #ifdef RV_SIGNAL_PAIR
+	// RT-15: who this texel was, for the next frame's object test.
+	o_Ident = vec4(g_ObjectId, 0.0, 0.0, 0.0);
 	// RT-8: the twin's own frame count, not the first half's -- see the
 	// memory block above for why the two must be able to differ.
 	o_Accumulated2 = vec4(StoreAsHalf(kept2, HalfRoundingDraw(roundingPixel, roundingFrame, 1u)),
@@ -1749,7 +1827,8 @@ void main()
 	o_Extra = vec4(PackMaterial(roughness, g_Metallic),
 				   StoreAsHalf(momMean, HalfRoundingDraw(roundingPixel, roundingFrame, 3u)),
 				   StoreAsHalf(momMeanSq, HalfRoundingDraw(roundingPixel, roundingFrame, 4u)),
-				   0.5 * choice + float(g_Refusal) + (g_MovingCurved ? kMovingCurvedMark : 0.0));
+				   0.5 * choice + float(g_Refusal)
+				   + ((g_MovingCurved || g_SelfMoving) ? kMovingCurvedMark : 0.0));
 #ifdef RV_SIGNAL_PAIR
 	CountSignal(g_Kept, g_Refusal, frames, twinFrames);
 #else

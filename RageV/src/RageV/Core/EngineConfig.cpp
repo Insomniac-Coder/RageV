@@ -448,6 +448,16 @@ namespace RageV
 		// RT-15: the moving layer added after the temporal resolve; off, all of it before.
 		if (key == "reflection-moving-layer" || key == "reflectionmovinglayer")
 			return ParseBool(value, config.ReflectionMovingLayer);
+		// RT-15: the young blur's radius scaled by the texel's own uncertainty.
+		if (key == "reflection-noise-blur" || key == "reflectionnoiseblur")
+			return ParseBool(value, config.ReflectionNoiseBlur);
+		// RT-15: the firefly clamp's width, in the fresh neighbourhood's spreads.
+		if (key == "reflection-firefly" || key == "reflectionfirefly")
+		{
+			try { config.ReflectionFireflySigmas = std::stof(value); }
+			catch (...) { RV_CORE_WARN("reflection-firefly expects a number of spreads; got '{0}'", value); return false; }
+			return true;
+		}
 		// And the occlusion's and the indirect light's (RT-5 part 5).
 		if (key == "ao-blur" || key == "aoblur")
 		{

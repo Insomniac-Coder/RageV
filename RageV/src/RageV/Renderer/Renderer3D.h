@@ -339,6 +339,12 @@ namespace RageV
 			// Specular, RT-15: the young radius where the reflector is curved and moving
 			// on its own -- every other texel keeps YoungRadius (zero on reflections).
 			float MovingRadius = 0.0f;
+			// Specular, RT-15: how far above its neighbours a fresh sample may stand before it
+			// is pulled back to them, in their spreads. A ray that lands on a tube returns tens
+			// of times the texel's own light, and a running average keeps that one sample at
+			// 1/n for as long as the history lives -- the dots on the chrome cube, and the soft
+			// blobs they became once the young blur spread them. Zero switches it off.
+			float FireflySigmas = 0.0f;
 			float PairMemory = 0.0f;       // Pair: the twin's own memory in frames; zero shares the first payload's
 			// **RT-8: what is bound at the depth slot.** False, and it is clip
 			// depth and the contract rebuilds the world point from it -- every

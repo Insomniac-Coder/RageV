@@ -1375,11 +1375,13 @@ namespace RageV
 						pair ? context.Color(fresh, 1) : nullptr,
 						pair && hasHistory ? context.Color(previous, 3) : nullptr,
 						// RT-6.5: the G-buffer's object id, and this signal's own copy of
-						// it from last frame. Only the specular accumulate keeps a fifth
-						// attachment for it; the diffuse kinds pass null and the binding
-						// falls back to the surface, which is what it did before.
-						specular ? context.Color(guideId, guideIdLane) : nullptr,
-						specular && hasHistory ? context.Color(previous, 4) : nullptr,
+						// it from last frame. **RT-15: the direct light's pair keeps a fifth
+						// attachment for it too** -- it had no object test at all before, and
+						// one object's light was kept on another. The remaining diffuse kinds
+						// (the occlusion, the bounce, the sea) pass null and the binding falls
+						// back to the surface, which is what it did before.
+						specular || pair ? context.Color(guideId, guideIdLane) : nullptr,
+						(specular || pair) && hasHistory ? context.Color(previous, 4) : nullptr,
 						change != kRGInvalid && (!changeLive || *changeLive)
 							? context.Color(change) : nullptr,
 						identity != kRGInvalid ? context.Color(identity, 2) : nullptr,
@@ -1836,15 +1838,20 @@ namespace RageV
 			}
 			// The contract: the pair accumulated over the frames behind it
 			// (surface reprojection, the tests, the bound, the motion-capped
-			// memory) and blurred while young. Four attachments: the diffuse,
-			// the surface, the extra, the specular twin.
+			// memory) and blurred while young. Five attachments: the diffuse,
+			// the surface, the extra, the specular twin -- and **RT-15: the object
+			// each texel's light was gathered on**, two channels of it. Without that
+			// lane this signal had no object test at all: its id binding fell back to
+			// the surface and compared a normal against a normal, so the light of one
+			// object could be kept on another. The chrome cube crossing the car's wing
+			// showed it as the bars the owner called the spoiler streaks.
 			directLit = directTraced;
 			TemporalHistory& direct = *desc.DirectLight;
 			direct.Prepare(Renderer::GetDevice(),
 						   desc.Width * (uint32_t)supersample, desc.Height * (uint32_t)supersample,
 						   Format::R16G16B16A16_SFLOAT, "DirectLight",
 						   Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
-						   Format::R16G16B16A16_SFLOAT);
+						   Format::R16G16B16A16_SFLOAT, Format::R16G16_SFLOAT);
 			if (direct.Current() && direct.Previous())
 			{
 				const RGResource previousDirect = graph.Import(direct.Previous(), "DirectPrevious");
@@ -2509,7 +2516,11 @@ namespace RageV
 								desc.Width * (uint32_t)supersample, desc.Height * (uint32_t)supersample,
 								Format::R16G16B16A16_SFLOAT, "GlassDirectLight",
 								Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
-								Format::R16G16B16A16_SFLOAT);
+								Format::R16G16B16A16_SFLOAT,
+								// RT-15: the object each texel's light was gathered on, as the
+								// opaque direct light keeps it -- the pair's shader writes the
+								// lane on every instance of it.
+								Format::R16G16_SFLOAT);
 			if (glassDirect.Current() && glassDirect.Previous())
 			{
 				const RGResource previousGlass = graph.Import(glassDirect.Previous(), "GlassDirectPrevious");
@@ -2987,7 +2998,10 @@ namespace RageV
 								  Format::R16G16B16A16_SFLOAT, "WaterLampSignal",
 								  Format::R16G16B16A16_SFLOAT,
 								  Format::R16G16B16A16_SFLOAT,
-								  Format::R16G16B16A16_SFLOAT);
+								  Format::R16G16B16A16_SFLOAT,
+								  // RT-15: the pair's object lane, written on every instance of
+								  // the shader. The sea says it has no ids, so nothing reads it.
+								  Format::R16G16_SFLOAT);
 					if (light.Current() && light.Previous())
 					{
 						const RGResource pastLight =

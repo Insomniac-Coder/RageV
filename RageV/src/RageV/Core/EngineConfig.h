@@ -402,6 +402,15 @@ namespace RageV
 		// Off, the whole reflection is composited before the resolve, as before RT-15, and
 		// the accumulator keeps one layer.
 		bool  ReflectionMovingLayer = false;
+		// **--reflection-firefly=<spreads> (RT-15):** how far above its neighbours a fresh
+		// reflection sample may stand before it is scaled back to them; zero switches the
+		// clamp off, negative means the tuning's own three.
+		float ReflectionFireflySigmas = -1.0f;
+		// **--reflection-noise-blur=on|off (RT-15):** the young blur's radius scaled by how
+		// uncertain the texel's own average still is (its stored spread over the frames behind
+		// it), so a settled part of a moving surface keeps its detail and only the unsettled
+		// part is smoothed. Off, every young texel takes the full radius, as before.
+		bool  ReflectionNoiseBlur = true;
 		// **--ao-blur / --gi-blur=<texels> (RT-5 part 5):** the same dial for the
 		// occlusion and indirect signals. Negative, the tuning's own -- zero since
 		// 2026-09-14, when the blur was measured to add nothing and retired, so

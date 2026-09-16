@@ -196,8 +196,30 @@ void main()
 	// a curved reflector moving on its own, whose short history is grain no other
 	// frame can average away. Every other texel keeps kYoungRadius, which is zero
 	// on the reflections, and is copied through untouched.
-	const bool movingCurved = texelFetch(u_Extra, texel, 0).a >= 7.75;
+	const vec4 extra = texelFetch(u_Extra, texel, 0);
+	const bool movingCurved = extra.a >= 7.75;
 	float radius = max(kYoungRadius, movingCurved ? u_Reflection.Blur.w : 0.0) * young * young;
+	// **RT-15: and only as much of it as the texel's own uncertainty asks for.**
+	//
+	// A young history is not the same thing as a noisy one. The accumulator already keeps the
+	// two moments of what arrives (`extra.g`, `extra.b`), so the spread of a texel's samples is
+	// known, and the error left in an average of `frames` of them is that spread over the root
+	// of the count. Measured on the moving chrome cube at roughness 0.12 (frame 120, its face,
+	// 8666 texels): that relative error is 0.011 at the quarter point, 0.030 at the middle,
+	// 0.14 at three quarters and 0.24 at nine tenths -- and the bright bumps the owner saw sit
+	// at 0.18 and above. So the radius fades in across 0.02 to 0.20: the settled parts of a
+	// moving face keep their detail (which is what made the cube read blurry beside the chrome
+	// bars), and the unsettled parts still get the whole of it.
+	//
+	// Not a substitute for the history's own ramp: `young` still gates it, so nothing with a
+	// grown history is touched however noisy its samples are.
+	if (u_Reflection.History.z > 0.5 && radius > 0.0)
+	{
+		const float mean = max(extra.g, 1.0e-3);
+		const float spread = sqrt(max(extra.b - extra.g * extra.g, 0.0));
+		const float relativeError = spread / (sqrt(max(centre.a, 1.0)) * mean);
+		radius *= smoothstep(0.02, 0.20, relativeError);
+	}
 #else
 	float radius = kYoungRadius * young * young;
 #endif

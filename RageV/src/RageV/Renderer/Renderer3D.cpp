@@ -3608,10 +3608,18 @@ namespace RageV
 			// last frame, three channels in a transient lane of eight bytes a texel.
 			// **RT-15: and the resolve a second, the moving part of its picture, and the
 			// specular accumulate a sixth, the moving layer it keeps apart.**
-			const int extras = pass == 0 ? 3 : pass == 1 ? 1 : pass == 2 ? 5 : pass == 4 ? 2 : pass == 6 ? 3 : pass == 7 ? 1 : 0;
+			// **RT-15: and the pair accumulate a fifth** -- the object each texel's light was
+			// gathered on. Two channels: without it the pair had no object test at all (its id
+			// binding fell back to the surface and compared a normal with a normal), and one
+			// object's light was kept on another. **The count on this list is the pipeline's
+			// own**, as the water accumulate's note below says: a target grown alone leaves the
+			// write going nowhere, and a pipeline grown alone is a validation error on every
+			// draw (both paid for, 2026-09-08 and 2026-09-16).
+			const int extras = pass == 0 ? 3 : pass == 1 ? 1 : pass == 2 ? 5 : pass == 4 ? 2 : pass == 6 ? 4 : pass == 7 ? 1 : 0;
 			for (int extra = 0; extra < extras; ++extra)
 			{
 				reflection.ColorFormats.push_back(pass == 0 && extra == 1 ? Format::R16G16_SFLOAT
+																		 : pass == 6 && extra == 3 ? Format::R16G16_SFLOAT
 																		   : Format::R16G16B16A16_SFLOAT);
 				reflection.BlendPerAttachment.push_back(BlendPreset::Opaque);
 			}
@@ -6962,6 +6970,12 @@ namespace RageV
 		ReflectionPushConstants push;
 		push.InverseViewProjection = Math::Inverse(s_Data->Scene.ViewProjection);
 		push.History.w = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+		// **RT-15: the firefly clamp's width, here as well as in the accumulator.** This pass
+		// shares a texel's rays with its neighbours over a disc, so one wild ray arrives at the
+		// accumulator already spread across twenty texels and its neighbours are raised with it
+		// -- where a clamp against neighbours cannot see it any more. Clamped here, against the
+		// taps this texel is about to average, it never spreads. Same setting for both.
+		push.Probe.x = ReflectionSignal().FireflySigmas;
 
 		cmd->BindPipeline(s_Data->ReflectionResolvePipeline);
 		cmd->BindResourceSet(0, slot.LampSet);
@@ -7018,6 +7032,11 @@ namespace RageV
 		push.InverseViewProjection = Math::Inverse(s_Data->Scene.ViewProjection);
 		push.History.y = signal.BlurFrames;
 		push.History.w = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+		// **RT-15: and how much of the radius the texel's own uncertainty asks for.** One is the
+		// old behaviour (the full radius wherever the history is young); zero switches the
+		// measurement off. See reflection_blur.rvshader for the two thresholds and where they
+		// come from. `--reflection-noise-blur=off`.
+		push.History.z = EngineConfig::Get().ReflectionNoiseBlur ? 1.0f : 0.0f;
 		push.Probe.z = (float)Math::Max(stride, 1);
 		// RT-8: and the same bitfield the accumulate sets, from the same lane,
 		// so a signal cannot have one pass reading a layer one way and the
@@ -7087,17 +7106,35 @@ namespace RageV
 		const float radius = EngineConfig::Get().ReflectionBlurRadius;
 		if (radius >= 0.0f)
 			signal.YoungRadius = radius;
-		// **RT-15: but back where the reprojection is only approximate** -- a curved
-		// reflector moving on its own, the one case neither history (the image's nor
-		// the surface's) follows exactly, so its memory stays short and its grain
-		// shows (owner, 2026-09-15: "they appear a bit noisy"). Flat movers keep none:
-		// a moving flat mirror's image history is exact, and blurring the chrome cube
-		// smeared its sharp reflection into bands. Twelve at the owner's word; the
-		// accumulator marks the texels (reflection_accumulate.rvshader, kMovingCurved).
-		signal.MovingRadius = 12.0f;
+		// **RT-15: the history fix -- the young blur wherever a reflector moves on its own.**
+		// A moving surface covers screen texels that have no history of their own, and what
+		// they hold is this frame's few rays: the speckles on the chrome cube. So the
+		// accumulator marks every texel whose surface moved on its own (flat or curved,
+		// reflection_accumulate.rvshader) and the blur smooths this frame's picture across
+		// the same surface, fading out as the history rebuilds -- the "history fix" every
+		// production reflection denoiser runs after its temporal pass. A texel young because
+		// the *camera* moved is not marked: that trade was measured and refused in RT-5 part 5.
+		//
+		// **Four, at the owner's word (2026-09-16).** Twelve was the curved-mover number
+		// before the flat ones joined; at four the cube's face keeps its reflected shapes and
+		// its speckle drops from 3.8% of the face to 0.7% -- and RT-15's noise-driven width
+		// (`--reflection-noise-blur`) takes most of that four away again wherever the texel's
+		// own average has settled. Raise it if a moving surface reads grainy.
+		signal.MovingRadius = 4.0f;
 		const float moving = EngineConfig::Get().ReflectionMovingBlurRadius;
 		if (moving >= 0.0f)
 			signal.MovingRadius = moving;
+		// **RT-15: and a fresh sample may not stand far above its neighbours.** One ray that
+		// lands on a ceiling tube comes back tens of times the texel's own light; the running
+		// average then keeps it at one part in n for the life of the history, which is the dots
+		// on the chrome cube -- still as well as moving -- and the soft blobs the young blur
+		// made of them. Three spreads of the fresh neighbourhood, and the sample is scaled back
+		// to that, not dropped: the light it found is real, it is the weight of one draw that is
+		// wrong. `--reflection-firefly=0` switches it off.
+		signal.FireflySigmas = 3.0f;
+		const float firefly = EngineConfig::Get().ReflectionFireflySigmas;
+		if (firefly >= 0.0f)
+			signal.FireflySigmas = firefly;
 		return signal;
 	}
 
@@ -7346,7 +7383,9 @@ namespace RageV
 		const bool moved = s_Data->RayAnyMoving || s_Data->RayAnyMovingLast;
 		push.Change = { change ? 1.0f : 0.0f,
 						freshIdentity && moved ? 1.0f : 0.0f,
-						freshMoving && freshIdentity && moved ? 1.0f : 0.0f, 0.0f };
+						freshMoving && freshIdentity && moved ? 1.0f : 0.0f,
+						// RT-15: the firefly clamp's width, on the specular instance alone.
+						diffuse ? 0.0f : signal.FireflySigmas };
 		motion.ViewProjection = s_Data->Scene.ViewProjection;
 		// **RT-6.3: and the eye that went with it.** Each signal keeps its own
 		// motion record -- this is the signal's, not the temporal resolve's -- so

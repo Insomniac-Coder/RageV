@@ -65,10 +65,29 @@ the car driving** (14.15 → 16.23) and **+1.29 ms parked** (13.02 → 14.31), n
 `ReflectionTrace` -- a probe fetch and a BRDF at every hit. The optimisation pass after the series
 owns it.
 
-**Open, and the owner has listed them in this order:** the speckles and grain on the moving cube,
-the spoiler trace under the car's wing, and the streaks' own cause (the hard object check did not
-remove them -- both sides of that edge are the same cube). RT-9, more rays where the history is
-young, is still the owner's direction for the strip a mover uncovers.
+**Then four more fixes the same night, on the owner's go, and the record for each is in
+`docs/RT-SERIES.md`** ("RT-15, the four fixes after it"):
+
+- **The history fix**: the young blur on **any** reflector moving on its own, not only curved ones
+  (`--reflection-moving-blur`, **4**). A texel young because the camera moved is still not blurred.
+- **The firefly clamp in two places** (`--reflection-firefly`, 3 spreads): in the accumulator
+  against the texel's eight same-object neighbours, and **in the resolve against the taps it is
+  about to average** -- which is where it had to be, because the resolve spreads one wild ray over
+  twenty texels before the accumulator ever sees it.
+- **The blur's width from the texel's own uncertainty** (`--reflection-noise-blur`): the stored
+  spread over the root of the frames behind it, faded in across 0.02 to 0.20.
+- **The direct light keeps its own object lane** (a fifth attachment, `R16G16`) and refuses another
+  object's light. It had **no object test at all** before -- the binding fell back to the surface --
+  and that was the spoiler streaks: the wing's light kept on the cube crossing behind it.
+
+**Cost of the four: +0.40 ms driving, +0.33 ms parked** (A B B A, on mains). Validation clean,
+scene test green.
+
+**Open, and where the owner has put it:** the blobs left on the moving cube's approach are a
+sample-count problem (one ray a frame sits 8.6 levels from a 16-ray settled truth; 16 rays sit 3.8),
+and **ray allocation for near-mirror surfaces belongs to RT-10 (ReSTIR)**, not to more rays here.
+The cube also reads softer than the chrome bars beside it, because the resolve shares rays across a
+flat surface and cannot across a round one; not yet measured against the truth.
 
 **Three traps this session paid for.**
 
