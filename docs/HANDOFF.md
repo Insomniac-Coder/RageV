@@ -1,6 +1,11 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-14: **the entry below headed "the anti-lag replaced by
+**Read this first.** Updated 2026-09-16: **the entry below headed "RT-15: the moving chrome cube"
+is the current hand-off** -- RT-15 built, committed and pushed (`8d7741a`, scripts `8c8ac44`),
+with three things the owner has listed as still open. The 2026-09-14 entry after it still holds
+for measured change.
+
+**Superseded header.** Updated 2026-09-14: **the entry below headed "the anti-lag replaced by
 measuring change" is the current hand-off**, on top of the 2026-09-13 late-night entry after it,
 whose uncommitted state still stands.
 
@@ -27,6 +32,59 @@ table and is the one list. **Before picking anything up, read the ten-item list 
 -- every one of them cost hours today and eight are repeatable by anyone. Older headers follow.
 
 **Superseded header.** Updated 2026-09-07 night: **the whole RT-first series is committed and merged to `main`** (`d34c905`, merged as `ddc7827` -- the sentence "nothing is committed" below was true when it was written and is not now), and **the thirteenth entry is the current hand-off**: two outside reviews were read against the code and filed, adding **six items -- RT-6.6 through RT-6.11 and RT-14**, of which **RT-6.6 is done and measured** (its record is in RT-SERIES.md; uncommitted). `docs/RT-SERIES.md` now opens with a status table; read that before picking anything up. The twelfth entry is the RT-3 / RT-3.1 hand-off, the tenth (2026-09-06) the complete one for the RT-first state (recipes, flags, traps, what is where). `docs/RT-SERIES.md` is the one list with the records of RT-1, RT-2, RT-2.1, RT-3 and RT-3.1. Nothing is committed. **RT-6's geometric half is done** -- the temporal resolve refuses a history by depth, normal and object id, with a neighbour search before it gives up, and the bridge is visibly sharper for it (`build/rt3/taa_car_sidebyside.png`). Its still-feedback half is deferred by the owner to RT-8, because the sea reads zero velocity and nothing in the G-buffer says "water". **Open from the owner and not yet started: improve the denoiser and accumulation, and make the ground reflection less blurry** -- the reflection signal's young blur is `YoungRadius = 12`, and a validated history (RT-6, RT-5) is the precondition for weakening it. The AO look is accepted; the deferred resolve is **RT-2.2**, owner-filed for the end of the series.
+
+## 2026-09-16: RT-15 -- the moving chrome cube reflects the room, before TAA, without bands
+
+**Committed and pushed on the owner's word:** `8d7741a` (engine, shaders) and `8c8ac44` (the
+measurement scripts), on top of `3432e08`. The owner's editor-resaved `showroom.rage` (+ .meta)
+is still modified in the tree and still not ours to commit. **The full record is
+`docs/RT-SERIES.md`'s RT-15 entry**; this is what a reader needs before touching the reflection
+path.
+
+**What changed, in one line each.**
+
+- A traced hit takes its specular half and the probe at the hit (`RV_HIT_SPECULAR`,
+  `ProbeSlotAt`). Before this, every metal seen in a reflection was black, the garage box
+  included -- that, and not the rays, was the black cube.
+- `--reflection-moving-layer` (EngineConfig, **off**): the two-layer split and the composite
+  after the temporal resolve. Off, the whole reflection is composited before TAA as it was
+  before RT-15. It is off because what goes around the resolve goes around its smoothing.
+- Four reflection rays a texel where the surface moves on its own (`--reflection-moving-rays`),
+  and the young blur on curved movers (`--reflection-moving-blur`, 12).
+- The reflection accumulator's object check is hard on the specular instance: another object's
+  history is refused (`g_Refusal` 6), the texel's own history is filtered only within its
+  object, the bound reads only its object's neighbours.
+- No surface-history fallback on a **flat** reflector moving on its own: that history is the
+  picture one frame of travel out of place, and taking it was what drew the bands.
+- `GlossyReflectionLD`'s per-texel rotation is the R2 sequence at `x + 1601 y` in fixed point.
+  It used to be `fract(vec2(texel) * vec2(a1, a2))` -- x from the column, y from the row, which
+  is a grid on any flat face whose history is young.
+
+**What it costs** (2026-09-16, on mains, A B B A, 300 frames, the owner's shot): **+2.08 ms with
+the car driving** (14.15 → 16.23) and **+1.29 ms parked** (13.02 → 14.31), nearly all of it in
+`ReflectionTrace` -- a probe fetch and a BRDF at every hit. The optimisation pass after the series
+owns it.
+
+**Open, and the owner has listed them in this order:** the speckles and grain on the moving cube,
+the spoiler trace under the car's wing, and the streaks' own cause (the hard object check did not
+remove them -- both sides of that edge are the same cube). RT-9, more rays where the history is
+young, is still the owner's direction for the strip a mover uncovers.
+
+**Three traps this session paid for.**
+
+- **Measure a pole the mover never crosses.** The first pipe-flicker number was taken on the
+  column the cube drives through, so it reported the cube's own edge and pointed at the wrong
+  change.
+- **A reference has to be shown to be right.** "The cube's rays are fine" was measured against a
+  settled picture that was itself black.
+- **The band metrics ranked the arms differently from the eye.** The strips in
+  `build/rt15/objectaware/` are what decided it; the column/row detail numbers moved by tenths.
+
+**How to run what checked it:** `rt15_build.py smoke` (validation and compile errors),
+`rt15_checks.py bridge render` (the three bridge cameras against `build/rt17/bridge`),
+`rt15f_cost.py` (A B B A, 300-frame benchmarks, RT-15's dials off against the build),
+`rt15d_bands.py` and `rt15e_sampling.py` (the band arms and the sampling variants),
+`rt15c_objectaware.py` (the whole-scene arms: HEAD, the build, and one change off at a time).
 
 ## 2026-09-14: the anti-lag replaced by measuring change -- all three phases, on by default (verified), the moving camera built and measured; the water next
 

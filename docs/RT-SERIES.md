@@ -63,7 +63,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-12 | ✅ **done 2026-09-07** | — | — | the signal debug views, complete |
 | RT-13 | **skinned + layered ✅ done inside RT-2**; transparent 🔨 **option 2 (owner): all three stages built 2026-09-14** -- the glass layer, its lamp light and its reflections -- behind `--glass-layer=on` (default off), pushed (302e165); the owner approved the look; cost and the panes behind for the optimisation pass | — | — | every opaque surface in the G-buffer; glass through the shared passes |
 | **RT-14** | ✅ **done 2026-09-07** — and it says do not pack the G-buffer | — | — | the G-buffer's bandwidth, measured before anything is packed |
-| **RT-15** | **reopened 2026-09-14 (owner)** — closed 2026-09-08 on a flicker number (the cube's panel 15.20 -> 4.39) that did not describe the picture: **"the moment the cube moves the entire reflection on it falls apart"** (owner), and the driving car's body sparkles and trails in its traced reflections (RT-13's record isolates it to the reflections). The owner put it after RT-13 stage 3 and asked to be reminded | not priced | moderate | the reflection accumulator reprojects by object motion |
+| **RT-15** | 🔨 **built 2026-09-15/16** (`8d7741a`, pushed) — the cube reflects the room again (metal hits were shaded Lambert-only and came back black), the whole reflection is composited **before** TAA again (`--reflection-moving-layer`, off), the object check is hard on the specular instance, and the moving cube's bands are gone (no surface-history fallback on a flat mover; the ray rotation is R2 at the texel's index). **Three things stay open, owner-listed:** speckles and grain on the moving cube, the spoiler trace under the car's wing, and the streaks' own cause. Record below | not priced | moderate | the reflection accumulator reprojects by object motion |
 | **RT-16** | ✅ **done 2026-09-14** — measured change: the lights button's light 90% gone after 10 frames (145 before), 15 with the camera moving. A *baked* light switched off still fades slowly, because its bake is thrown away and rebuilt -- accepted as a known thing (docs/BAKING-ROADMAP.md, docs/manual/lighting.md) | — | — | a reflection takes seconds to leave the floor when its light goes out |
 | **RT-17** | ✅ **built 2026-09-15** (owner: built to take a variable out, measured small here) -- the struck instance and normal in a transient trace lane, kept in the id lane's spare channels, tested only where something moved; the floor under the driving car 3.37% -> 2.30% ghost pixels, everything still identical (record below) | — | — | the accumulator tests what the ray *hit*, by identity |
 | **RT-18** | ✅ **built 2026-09-15** -- a moving silhouette's history is tested like any other: the cube's stripes and the car's trail gone, everything still identical; the band the cube uncovers each frame goes to RT-9 (more rays, owner); the older face's speckles and the bottom bar's banding are noted for later (record below) | — | — | history cannot outlive the silhouette it belongs to |
@@ -282,6 +282,107 @@ tell you the motion itself is a lie. That is what RT-19's totals and a staged co
 for.
 
 ## Records
+
+### RT-15 — 🔨 built 2026-09-15/16 (`8d7741a`, pushed): the moving chrome cube
+
+**The owner's four complaints, in the order they were answered.** "The cube just doesn't reflect
+the environment correctly"; speckles on the floor under it and flicker on the chrome pipes; the
+vertical bands on its face while it moves; the streaks under the car's wing.
+
+**1. The cube was black because every metal in a reflection was black.** `ShadeTraced` lit a hit
+with its Lambert half alone, and a metal has no Lambert half -- the garage box (floor, walls and
+ceiling are one mesh, `pbr_Cube_0`, Metallic 1) came back black, so the cube's rays returned
+black however correct they were. A hit now takes **its specular half and the probe at the hit**
+(`RV_HIT_SPECULAR`, `ProbeSlotAt`; the reflection and water traces define it, the bounce passes
+its own slot). Before this, "the rays and normals are fine" was measured against a settled
+reference that was itself black -- a reference has to be shown to be right before it is trusted.
+
+**2. The reflection of a moving thing may not be added after TAA.** RT-15's item 2 split the
+picture into a still layer and a moving layer and composited the moving one *after* the temporal
+resolve, so TAA could not smear it into a trail. What goes around the resolve also goes around
+its smoothing: that layer's grain reached the screen. Frame-to-frame change in levels, the cube
+crossing the car at roughness 0.12, frames 111-130 (`rt15_scene_arms.py`, `pole_check`):
+
+| arm | floor under the cube | a chrome pole at the cube's height |
+|---|---|---|
+| HEAD (`3432e08`) | 0.98 | 1.02 |
+| the moving layer after TAA | 1.27 | **2.88** |
+| **the whole reflection before TAA (shipped)** | **1.04** | **1.12** |
+| hit specular off (reference only -- the cube goes black) | 0.98 | 1.02 |
+
+So `--reflection-moving-layer` is **off by default** and the composite adds the whole picture
+before the resolve, as it did before RT-15. The two-layer machinery stays behind the flag.
+**A trap worth keeping:** the first pipe measurement was taken on the pole at x=629, which the
+cube crosses -- it read the cube's own bright edge passing and said the flicker came from the hit
+shine. Measure a pole the mover never crosses.
+
+**3. The bands were the surface history, one frame of travel out of place.** A flat mirror
+sliding in its own plane shows a *still* picture, so its image history is exact and its **surface**
+history is not: the surface carries its own old place, whose reflection stood one frame of travel
+away. Where the image history was missing -- the strip the leading edge covers each frame -- the
+accumulator fell back to the surface history and the strip started as a copy of the picture shifted
+by ~4 texels, kept for as many frames as that history claimed. Hence detail repeating every four
+texels across the face, smears along the path, and the owner's "it takes a few seconds for the
+banding to disappear when the cube stops".
+
+- **Fix A:** no surface-history fallback where the reflector moves on its own and is flat
+  (`curvature <= kCurvedMover`). A curved mover keeps it -- item 1 chooses between the two there.
+- **Fix B:** `GlossyReflectionLD`'s per-texel rotation was `fract(vec2(texel) * vec2(a1, a2))`:
+  its x followed the column and its y the row, and x is how far the ray tilts from the mirror
+  while y is which way. `fract(a1 x)` comes round about every four columns. A still texel averages
+  all 64 frames of the sequence and the pattern cancels; a young history keeps part of it, which
+  on a flat face is a grid of faint bands and lines. It is now the R2 sequence at the texel's own
+  index (`x + 1601 y`, in fixed point).
+
+**What the pictures show and the numbers did not.** The band metrics (column and row detail of
+the moving frame against the same cube stopped in the same place) moved by tenths and ranked the
+arms differently from the eye; the strips do not
+(`build/rt15/objectaware/5_bands_fix.png`, `7_moving_cube_r012_stills.png`). **More rays are not
+the answer here:** at 16 rays a texel the grid was still there. The owner judged the clip and the
+stills: "the vertical bands seem to be gone".
+
+**4. The object check was made hard, and it did not fix the streaks.** On the specular instance:
+another object's history is refused outright (refusal code 6), the texel's own history is
+filtered only within its object, and the bound reads only its object's neighbours -- the owner's
+*Object-Aware Temporal History* document, §4 and §10-11. RT-15b's silhouette-mover mark, which had
+hidden the streaks, is gone. **The streaks came back with it**, so their cause is still open:
+they are bars under the wing, on the strip the cube uncovers, and the object check cannot see
+them because both sides are the same cube.
+
+**Checks.** `scenetest` green on Vulkan and OpenGL (exit 0 both). The car driving at the close-up
+with `--validation=on`: **0 validation messages, 0 shader compile errors**. The bridge, three
+cameras, 48 frames each, against the pre-RT-15 frames (`build/rt17/bridge`): mean brightness
+within 0.22 levels, and by size of difference --
+
+| camera | pixels differing by more than 4 levels | more than 16 |
+|---|---|---|
+| deck | 0.59% | 0.11% |
+| pier | 0.29% | 0.05% |
+| glitter | 1.99% | 0.14% |
+
+-- which is the new ray pattern's grain on dark water, not a visible change
+(`build/rt15/objectaware/bridge_before_after.png`).
+
+**Cost (2026-09-16, laptop on mains; `rt15f_cost.py`, A B B A, 300-frame benchmarks at the
+owner's shot, HEAD's showroom with the harness's cube).** The `before` arm has every RT-15 dial
+off -- item 1's choice, the hit's specular half and the probe at the hit, `--reflection-moving-blur=0`,
+`--reflection-moving-rays=1`; the object check and the band fixes stay in, being a fetch or two
+a texel. Milliseconds:
+
+| scene | frame before | frame ship | difference | where it is |
+|---|---|---|---|---|
+| the car driving | 14.15 | 16.23 | **+2.08** | ReflectionTrace 3.47 → 5.39; the three blur passes 0.28; accumulate +0.03 |
+| parked | 13.02 | 14.31 | **+1.29** | ReflectionTrace 3.58 → 4.86 |
+
+Parked there is no mover, so that 1.28 ms is the hit's shading alone: a probe fetch and a BRDF at
+every reflection hit, which is the price of a metal in a mirror not being black. The moving
+extras (four rays on the mover's texels, the young blur) are the rest of the driving number.
+**Both are for the optimisation pass after the RT series** (owner's rule); the candidates are the
+per-hit probe fetch and the blur's three passes.
+
+**Open, owner-listed 2026-09-16:** the speckles and grain on the moving cube, the spoiler trace,
+and the streaks' cause. RT-9 (more rays where the history is young) is still the owner's direction
+for the strip a mover uncovers.
 
 ### RT-20 — ✅ done 2026-09-13 (`182f422`): the edge flicker was RT-6's surface test firing on the jitter
 
