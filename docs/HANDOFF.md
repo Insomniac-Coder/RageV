@@ -1,6 +1,28 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-20: **the entry below headed "RT-9 closed" is the current hand-off.** RT-9 is done, the import cache was found serving meshes this build cannot read, and the 2026-09-16 entry after it still describes the reflections' half.
+**Read this first.** Updated 2026-09-20 (later): **the entry below headed "RT-13 closed" is the current hand-off.** With RT-9, RT-15 and RT-13 all closed today, **thirty-one of thirty-six RT items are done and five are open** -- RT-10, RT-11, RT-21, RT-22 and RT-2.2, which is deliberately last. The entry after it covers RT-9 and the import cache.
+
+## 2026-09-20 (later): RT-13 closed -- the glass layer is on by default
+
+**Uncommitted at the time of writing.** The full record is `docs/RT-SERIES.md`'s RT-13 entry.
+
+- `GlassLayer` defaults to **true**; `--glass-layer=off` is the old path.
+- **+0.45 ms** at the owner's shot (eight runs, palindrome order, spread under 0.09 inside an
+  arm), for the reflection look the owner approved. 0.54 ms of new passes, 0.09 given back.
+- Validation clean under TAA/MSAA/SSAA on the garage, close-up and bridge; scenetest green on
+  both backends; the bridge byte-identical; only glass pixels change, against a 0.000% noise
+  floor (two runs of the same arm are identical here).
+- **Moving glass does enter the layer.** `DrawKind::Static` is the vertex layout, not "does not
+  move" -- I doubted this from the old record's wording and was wrong.
+- **The panes behind the nearest stay on the old path**, by the owner's decision. A second layer
+  only moves the wall to pane 3; depth peeling costs a full set of passes per pane *and* hands
+  each layer's memory to whatever pane is that far away this frame; borrowing the nearest pane's
+  picture is a reflection from the wrong angle. Glass's own rays go to the optimisation pass.
+
+**A trap worth keeping: `--camera` is overridden by the scene's own camera script.** The first
+picture check ran both the wide and the "close-up" arms from the orbit script's default pose and
+the two arms came out of the same camera. `burst.py` swaps that script out, which is why the
+harness's `BURST_CAM` is the way to choose a pose.
 
 **Superseded header.** Updated 2026-09-16 (night): the entry headed "RT-9 half built" was the hand-off, and the RT-15 entry after it is that day's larger piece.
 

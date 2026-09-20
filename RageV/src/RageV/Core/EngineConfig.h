@@ -582,10 +582,16 @@ namespace RageV
 		bool  WaterDirect = true;
 		// **--glass-layer=on|off (RT-13, owner's option 2, 2026-09-14): the nearest
 		// pane of glass as a G-buffer layer of its own**, so the shared ray-traced
-		// passes can shade glass as they shade the opaque scene. Stage 1 draws the
-		// layer and nothing reads it yet (`--debug-view=glass-layer` shows it);
-		// off by default until the passes that read it are measured.
-		bool  GlassLayer = false;
+		// passes can shade glass as they shade the opaque scene. All three stages
+		// read it now: the layer, the lamp light on the nearest pane, and its
+		// reflections (`--debug-view=glass-layer` shows the layer itself).
+		//
+		// **On by default from 2026-09-20 (owner), and it costs more, not less**:
+		// the owner's shot 14.36 -> 14.71 ms, the close-up 17.90 -> 18.81, for the
+		// reflection look they approved ("closer to a real glass reflection"). Most
+		// of that is the panes *behind* the nearest, which still cast their own
+		// rays -- RT-13's last open question. `--glass-layer=off` is the old path.
+		bool  GlassLayer = true;
 		// **--water-direct-block=on|off (RT-8 job 1): run the sea's shared
 		// direct pass on the block grid its lamp choice is made on.**
 		//

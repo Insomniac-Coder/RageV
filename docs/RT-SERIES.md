@@ -31,7 +31,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 
 ## Status at a glance
 
-**Twenty-eight of thirty-six items are closed, one is part-done (RT-13), seven are open -- RT-15 reopened 2026-09-14 by the owner; RT-18 and RT-17 built 2026-09-15; RT-22 filed 2026-09-15. Every RT-6.x sub-item is finished.** (2026-09-14: RT-5 and RT-16 closed by measured change and the retired young blur; RT-7 closed on the owner's word once tube length reached the ray-traced lamp pass; RT-4 closed on the owner's word with R11 carried into the new RT-21.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
+**Thirty-one of thirty-six items are closed and five are open -- RT-9, RT-15 and RT-13 all closed 2026-09-20, the last two on the owner's word ("speckle, grain and spoiler trace are gone"; "leave it and close RT-13"). What is left is RT-10, RT-11, RT-21, RT-22 and RT-2.2, which is deliberately last. Every RT-6.x sub-item is finished.** (2026-09-14: RT-5 and RT-16 closed by measured change and the retired young blur; RT-7 closed on the owner's word once tube length reached the ray-traced lamp pass; RT-4 closed on the owner's word with R11 carried into the new RT-21.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
 
 | # | status | effort | risk | in a line |
 |---|---|---|---|---|
@@ -61,9 +61,9 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-10 | open | 5-7 d | **high** | ReSTIR DI on the G-buffer |
 | RT-11 | open | 1-2 d | low-moderate | next-event estimation at GI and reflection hits |
 | RT-12 | ✅ **done 2026-09-07** | — | — | the signal debug views, complete |
-| RT-13 | **skinned + layered ✅ done inside RT-2**; transparent 🔨 **option 2 (owner): all three stages built 2026-09-14** -- the glass layer, its lamp light and its reflections -- behind `--glass-layer=on` (default off), pushed (302e165); the owner approved the look; cost and the panes behind for the optimisation pass | — | — | every opaque surface in the G-buffer; glass through the shared passes |
+| RT-13 | ✅ **done 2026-09-20 (owner's call)** — **skinned + layered done inside RT-2**; transparent: all three stages (the glass layer, its lamp light, its reflections) **on by default from 2026-09-20**, `--glass-layer=off` restores the old path. Costs **+0.45 ms** at the owner's shot (0.54 ms of new passes, 0.09 given back where the nearest pane stops casting its own rays) for the reflection look the owner approved. Validation clean under TAA/MSAA/SSAA, scenetest green on both backends, the bridge byte-identical, and only glass pixels change (0.06% of the wide shot, 0.82% of the close-up, against a 0.000% noise floor). **Moving glass does enter the layer** -- `DrawKind::Static` is the vertex layout, not "does not move". **The panes behind the nearest stay on the old path, by the owner's decision**: a second layer only moves the wall to the third pane, depth peeling costs a full set of passes per pane *and* hands each layer's memory to whichever pane is that far away this frame, and borrowing the nearest pane's picture is a reflection from the wrong angle. Glass's own rays (1.3 ms of the close-up's 2.0 ms transparent pass) are the optimisation pass's | — | — | every opaque surface in the G-buffer; glass through the shared passes |
 | **RT-14** | ✅ **done 2026-09-07** — and it says do not pack the G-buffer | — | — | the G-buffer's bandwidth, measured before anything is packed |
-| **RT-15** | 🔨 **built 2026-09-15/16** (`8d7741a`, pushed) — the cube reflects the room again (metal hits were shaded Lambert-only and came back black), the whole reflection is composited **before** TAA again (`--reflection-moving-layer`, off), the object check is hard on the specular instance, and the moving cube's bands are gone (no surface-history fallback on a flat mover; the ray rotation is R2 at the texel's index). **Three things stay open, owner-listed:** speckles and grain on the moving cube, the spoiler trace under the car's wing, and the streaks' own cause. Record below | not priced | moderate | the reflection accumulator reprojects by object motion |
+| **RT-15** | ✅ **done 2026-09-20 (owner's call: "speckle, grain and spoiler trace are gone")** — built 2026-09-15/16 (`8d7741a`, pushed): the cube reflects the room again (metal hits were shaded Lambert-only and came back black), the whole reflection is composited **before** TAA again (`--reflection-moving-layer`, off), the object check is hard on the specular instance, and the moving cube's bands are gone (no surface-history fallback on a flat mover; the ray rotation is R2 at the texel's index). The three the owner had left open were answered by the four fixes after it: the young blur on any self-moving reflector, the firefly clamp in the accumulator and again in the resolve, the blur width driven by the texel's own noise, and the direct light's object lane -- which is what ended the streaks under the wing. **Carried elsewhere, not dropped:** the blobs on the cube's approach are RT-10's (the owner's call: ReSTIR should own the ray spend), and the cube reading softer than the chrome bars is unmeasured against a truth render. Records below | not priced | moderate | the reflection accumulator reprojects by object motion |
 | **RT-16** | ✅ **done 2026-09-14** — measured change: the lights button's light 90% gone after 10 frames (145 before), 15 with the camera moving. A *baked* light switched off still fades slowly, because its bake is thrown away and rebuilt -- accepted as a known thing (docs/BAKING-ROADMAP.md, docs/manual/lighting.md) | — | — | a reflection takes seconds to leave the floor when its light goes out |
 | **RT-17** | ✅ **built 2026-09-15** (owner: built to take a variable out, measured small here) -- the struck instance and normal in a transient trace lane, kept in the id lane's spare channels, tested only where something moved; the floor under the driving car 3.37% -> 2.30% ghost pixels, everything still identical (record below) | — | — | the accumulator tests what the ray *hit*, by identity |
 | **RT-18** | ✅ **built 2026-09-15** -- a moving silhouette's history is tested like any other: the cube's stripes and the car's trail gone, everything still identical; the band the cube uncovers each frame goes to RT-9 (more rays, owner); the older face's speckles and the bottom bar's banding are noted for later (record below) | — | — | history cannot outlive the silhouette it belongs to |
@@ -397,7 +397,13 @@ whose four lanes are full, and the reduce chain widened with it. This half adds 
 cannot answer and takes nowhere, which is the reflections' shape and what was approved. If the
 average-preserving form is wanted, it is a build of its own.
 
-### RT-15 — 🔨 built 2026-09-15/16 (`8d7741a`, pushed): the moving chrome cube
+### RT-15 — ✅ closed 2026-09-20 by the owner; built 2026-09-15/16 (`8d7741a`, pushed): the moving chrome cube
+
+**Closed on the owner's word, 2026-09-20: "speckle, grain and spoiler trace are gone."** The
+three they had left open were answered by the four fixes recorded after this section. What
+travels on rather than closing with it: the blobs on the cube's approach (RT-10's, the owner's
+call) and the cube reading softer than the chrome bars, which has never been measured against a
+settled truth render.
 
 **The owner's four complaints, in the order they were answered.** "The cube just doesn't reflect
 the environment correctly"; speckles on the floor under it and flicker on the chrome pipes; the
@@ -2115,7 +2121,54 @@ picture, the reflector, what was learned, the image motion, the id), so a staged
 accumulator can write its memory's steps where the capture reads them back
 (`refl_memory_diag.py`).
 
-### RT-13 — 🔨 the glass joins the shared passes: stages 1, 2 and 3 built 2026-09-14 (uncommitted; `--glass-layer=on`, default off)
+### RT-13 — ✅ closed 2026-09-20: on by default, and the panes behind stay as they are
+
+**The default, 2026-09-20 (owner: "turn it on by default and run the full check set").**
+`GlassLayer` is `true`; `--glass-layer=off` is the old path.
+
+- **Validation** 0 messages and no shader failure on the garage under TAA, MSAA and SSAA, on the
+  close-up and on the bridge. **scenetest** OK on Vulkan and OpenGL. **The bridge is
+  byte-identical** -- it has no glass.
+- **What the default changes**, parked: the owner's shot 0.057% of pixels over 2 levels (0.021%
+  over 16), the close-up 0.819% (0.231%), a 60-frame dolly 0.086% (0.034%) and only in the band
+  the car passes through. **Two runs of the same arm differ by 0.000%**, so every one of those
+  numbers is the glass and nothing else.
+- **Cost +0.45 ms** at the owner's shot: eight runs of 200 frames, palindrome order, off
+  15.569/15.595/15.598 against on 16.008/16.022/16.023/16.086, spread under 0.09 inside an arm.
+  (The session's first off run read 14.754 -- a cold GPU, not counted.) The new passes are
+  0.544 ms of it -- trace 0.146, direct trace 0.132, reflection accumulate 0.120, direct
+  accumulate 0.080, resolve 0.052, the layer 0.014 -- and about 0.09 comes back where the nearest
+  pane stops casting its own rays. **The record's earlier +0.35 ms was measured before RT-15's
+  four fixes and RT-9 landed**, so the baseline itself moved.
+
+**Moving glass does enter the layer**, which I had doubted from this record's own wording. The
+layer takes `DrawKind::Static` draws, and in this engine that names the *vertex layout* -- plain
+rigid meshes as against skinned, terrain-layered and water -- not whether the thing moves. The
+car's glass is in the layer while it drives, and the silhouette moves with it. What cannot enter:
+glass on a skinned mesh, glass on terrain, and water.
+
+**The panes behind the nearest stay on the old path (owner, 2026-09-20: "leave it and close
+RT-13").** One pixel holds one note, so the layer describes the nearest pane only; every pane
+behind it keeps the pre-RT-13 path, walking the lamps and casting its own rays as it is drawn.
+That path has no limit and its picture is right at any number of panes. The three answers and
+why two were rejected:
+- **A second layer** covers pane 2 and leaves pane 3 exactly where pane 2 is now (the owner's own
+  objection). Another full set of passes and a second note per pixel, and a cap to decide anyway.
+- **Depth peeling** generalises it -- draw the glass again, keeping only what is further than the
+  last pass kept -- at a full set of passes *per pane* (0.54 ms each here, ~1.6 for three), paid
+  over the whole screen, plus the old path past whatever cap is chosen. **And the serious part is
+  not the cost: "layer 2" is a position, not a surface.** Swing the camera and the side window
+  becomes nearer than the windscreen, so layer 2's memory is handed to a different pane -- which
+  is the wrong-surface memory this whole series exists to stop. Buildable with a per-pane identity
+  test (RT-6.5's machinery), but that is a build of its own.
+- **Borrowing the nearest pane's settled picture** saves nearly the whole 1.3 ms and shows a
+  reflection from the wrong angle; plausible on flat side glass, wrong on curved.
+
+**What travels to the optimisation pass:** glass casting its own reflection rays, 1.3 ms of the
+close-up's 2.0 ms transparent pass when that split was measured (before RT-15 and RT-9 moved the
+baseline). That is a cost question for every pane, not a structural one for the second.
+
+### RT-13 — the glass joins the shared passes: stages 1, 2 and 3 built 2026-09-14 (`--glass-layer=on`, now the default)
 
 **The owner's choice (option 2).** Glass is lit and reflected by the same ray-traced
 passes as every opaque surface, through a G-buffer layer of its own, in three stages:
