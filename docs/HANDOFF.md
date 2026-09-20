@@ -1,6 +1,37 @@
 # RageV — handoff
 
-**Read this first.** Updated 2026-09-16 (night): **the entry below headed "RT-9 half built" is the current hand-off**, and the RT-15 entry after it is the day's larger piece.
+**Read this first.** Updated 2026-09-20: **the entry below headed "RT-9 closed" is the current hand-off.** RT-9 is done, the import cache was found serving meshes this build cannot read, and the 2026-09-16 entry after it still describes the reflections' half.
+
+**Superseded header.** Updated 2026-09-16 (night): the entry headed "RT-9 half built" was the hand-off, and the RT-15 entry after it is that day's larger piece.
+
+## 2026-09-20: RT-9 closed, and the import cache was re-importing on every launch
+
+**Uncommitted at the time of writing.** The full record is `docs/RT-SERIES.md`'s RT-9 entry. In short:
+
+- **The counters are honest for every pass.** The sea's mirror pass (`water_trace`) never flushed
+  them at all, so its rays and its hits' shadow rays were counted by nobody -- the reflection
+  pass's own bug (WR-16 R2) in the other half. Water rays now read 0.31 M a frame where they read
+  0.16 M, and the bounce's lane is untouched. Picture byte-identical.
+- **`--water-reflection=full|half|quarter` never worked**: it parsed its value and never set the
+  flag the frame graph reads, so that pass could not be turned on by anything since 2026-09-09.
+- **"Rays per pixel" was already one dial** across land and water. The sea's mirror *size* is
+  deliberately not on it (the half-res pass was demoted for smearing the deck's lights).
+- **The direct pass takes its lamp count per tile** (`--direct-confidence-rays`, on by default),
+  on the same rule and holds as the reflections'. **It earns nothing measurable here**: a coin
+  flip against the reference at four lamps for +0.15 ms, and at the project's Quality (eight,
+  the shader's ceiling) there is no headroom at all, so the pass is skipped.
+
+**The cache defect, which is the one to remember.** `ImportCache::Fetch` served any entry whose
+*file existed*, never asking what version it held. The mesh cook went to version 3 on 2026-09-01
+(`d34c905`), so every cached mesh from before that was handed over, refused by the importer, and
+re-imported from source -- **on every launch, for ever**, behind one warning, and nothing ever
+wrote the fresh cook back. 68 of 70 entries were stale, the showroom's Porsche among them (the
+owner saw the warning in the editor). Fetch now checks the cooked version (`MeshCook::
+IsCurrentVersion`, `TextureCook::IsCurrentVersion`) and treats a wrong one as a miss, which
+re-cooks and overwrites in place. Verified: the warning fires once, the entry becomes version 3,
+the second launch is silent. The showroom, camp and bridge scenes and scenetest healed their
+entries on one load each; three models remain stale until their scenes are opened. The car's
+re-import was costing 0.1 s a launch, not seconds -- the size of that number is the honest part.
 
 **Superseded header.** Updated 2026-09-16: **the entry below headed "RT-15: the moving chrome cube"
 is the current hand-off** -- RT-15 built, committed and pushed (`8d7741a`, scripts `8c8ac44`),

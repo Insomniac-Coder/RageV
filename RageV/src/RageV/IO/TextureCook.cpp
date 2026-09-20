@@ -544,6 +544,15 @@ namespace RageV::IO
 		return bytes && size >= 4 && std::memcmp(bytes, kMagic, 4) == 0;
 	}
 
+	bool TextureCook::IsCurrentVersion(const uint8_t* bytes, size_t size)
+	{
+		if (!IsCooked(bytes, size) || size < 8)
+			return false;
+		uint32_t version = 0;
+		std::memcpy(&version, bytes + 4, sizeof(version));
+		return version == kVersion;
+	}
+
 	bool TextureCook::Deserialize(CookedTexture& out, const uint8_t* bytes, size_t size)
 	{
 		if (!IsCooked(bytes, size))

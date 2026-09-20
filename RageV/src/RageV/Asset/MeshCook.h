@@ -25,5 +25,12 @@ namespace RageV::Assets
 
 		// The sniff GltfImporter does before handing bytes to cgltf.
 		static bool IsCooked(const uint8_t* bytes, size_t size);
+
+		// And whether it is a cook *this build can read*. The import cache asks
+		// before serving an entry: without it a version bump leaves every cached
+		// mesh being refused by the importer and re-imported from source on every
+		// launch, for ever, because the cache only ever checked that a file was
+		// there (found 2026-09-20 -- 68 of 70 entries were a version behind).
+		static bool IsCurrentVersion(const uint8_t* bytes, size_t size);
 	};
 }

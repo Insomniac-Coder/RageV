@@ -305,9 +305,31 @@ namespace RageV::Assets
 		// The whole point: a stat, not a parse. The hash is in the name, so a
 		// file that is there is a current cook of this source and a file that
 		// is not is the only signal needed to rebuild.
+		//
+		// **Except across a version bump** (2026-09-20). The name answers "is
+		// this the same source", never "can this build read it", and the two
+		// stopped being the same question when the mesh cook went to version 3
+		// on 2026-09-01: the cache went on serving version-2 bytes, the importer
+		// refused them and re-imported from the .glb, and nothing wrote the new
+		// cook back -- so the showroom re-imported its car from source on every
+		// launch, for ever, behind one warning. Eight bytes of the file answer
+		// it, and a wrong version falls through to the cook below, which
+		// overwrites the entry in place.
 		std::error_code error;
 		if (fs::exists(key.File, error) && ReadFile(key.File, out))
-			return true;
+		{
+			const std::string extension = ToLower(absoluteSource.extension().string());
+			const bool readable = IsCookedMesh(extension)
+									  ? MeshCook::IsCurrentVersion(out.data(), out.size())
+								: IsCookedTexture(extension)
+									  ? IO::TextureCook::IsCurrentVersion(out.data(), out.size())
+									  : true;
+			if (readable)
+				return true;
+			RV_CORE_INFO("Import cache: {0} was cooked by an older build; cooking it again",
+						 key.Relative);
+			out.clear();
+		}
 
 		std::vector<uint8_t> source;
 		if (!IO::VFS::ReadBytes(absoluteSource, source))

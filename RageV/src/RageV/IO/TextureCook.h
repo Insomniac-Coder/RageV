@@ -61,6 +61,10 @@ namespace RageV::IO
 		// before handing anything to stb.
 		static bool IsCooked(const uint8_t* bytes, size_t size);
 
+		// And whether this build reads that version -- what the import cache asks
+		// before serving the entry (MeshCook::IsCurrentVersion says why).
+		static bool IsCurrentVersion(const uint8_t* bytes, size_t size);
+
 		// The RHI format this data uploads as, given the colour space the
 		// slot asked for. BC4/BC5 have no sRGB variant and are never asked
 		// for one -- data maps load linear.
