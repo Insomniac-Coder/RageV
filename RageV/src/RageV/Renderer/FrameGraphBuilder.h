@@ -204,6 +204,12 @@ namespace RageV
 		// Null leaves every texel on the motion rule, which is what came before.
 		TemporalHistory* ReflectionBudget = nullptr;
 
+		// **RT-9: and the same for the direct light's lamps.** One count per 16x16 tile
+		// from how young this signal's own history is there, with the level's count as the
+		// floor. A map of its own for the same reason as above. Null, or
+		// `--direct-confidence-rays=off`, leaves every pixel on the level's count.
+		TemporalHistory* DirectBudget = nullptr;
+
 		// **Ray-traced occlusion's own accumulation.**
 		//
 		// RTAO is the one noisy term with no temporal filter at all: it is

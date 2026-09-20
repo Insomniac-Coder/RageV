@@ -56,6 +56,12 @@ layout(push_constant) uniform Params
 	float Young;         // frames at or under which a texel is asking for rays
 	float DeadBand;      // how far the share must move before the count follows
 	float Dwell;         // and how long the count must then sit still
+	// **What a tile gets when it is asking for nothing** (RT-9's second half,
+	// 2026-09-20). One for the reflections: a settled texel traces its single
+	// ray. The direct light's floor is the level's own count, because a pixel
+	// that drops below it loses lamps it was always shading -- this pass only
+	// says where *more* is worth buying.
+	float Least;
 } u_Budget;
 
 // The dwell counter saturates where a half float is still exact.
@@ -132,7 +138,9 @@ void main()
 	// garage stops paying for its poles).
 	const float share = glossy > 0.0 ? runs / glossy : 0.0;
 	const float asking = share < 0.25 ? 0.0 : clamp((share - 0.25) / 0.35, 0.0, 1.0);
-	const float target = clamp(1.0 + asking * (u_Budget.Most - 1.0), 1.0, max(u_Budget.Most, 1.0));
+	const float least = max(u_Budget.Least, 1.0);
+	const float most = max(u_Budget.Most, least);
+	const float target = clamp(least + asking * (most - least), least, most);
 
 	vec2 held = vec2(floor(target + 0.5), 0.0);
 	if (u_Budget.HasHistory > 0.5)

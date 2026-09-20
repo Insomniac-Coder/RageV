@@ -451,6 +451,9 @@ namespace RageV
 		// RT-9: the rays a texel casts follow what its history says, not its motion.
 		if (key == "reflection-confidence-rays" || key == "reflectionconfidencerays")
 			return ParseBool(value, config.ReflectionConfidenceRays);
+		// RT-9: and the direct light's lamps, per tile, on the same terms.
+		if (key == "direct-confidence-rays" || key == "directconfidencerays")
+			return ParseBool(value, config.DirectConfidenceRays);
 		// RT-15: the young blur's radius scaled by the texel's own uncertainty.
 		if (key == "reflection-noise-blur" || key == "reflectionnoiseblur")
 			return ParseBool(value, config.ReflectionNoiseBlur);
@@ -546,6 +549,11 @@ namespace RageV
 							 value);
 				return false;
 			}
+			// **And say that a run asked**, which is the whole gate on the pass
+			// (FrameGraphBuilder: `HasWaterReflectionOverride ? ... : 1`). Set
+			// nowhere until RT-9, 2026-09-20, so the flag parsed its value,
+			// returned true, and the pass stayed off whatever was typed.
+			config.HasWaterReflectionOverride = true;
 			return true;
 		}
 

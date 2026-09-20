@@ -416,6 +416,14 @@ namespace RageV
 		// begun, one where it has settled -- instead of the count following motion alone
 		// (RT-15b's four rays on anything moving on its own). Off leaves that rule in place.
 		bool  ReflectionConfidenceRays = true;
+		// **--direct-confidence-rays=on|off (RT-9):** the same for the direct light's
+		// lamps -- a tile whose young texels sit together keeps more lamps per pixel than
+		// the level's count, up to the shader's eight, and every other tile keeps exactly
+		// the level's. On by default (owner, 2026-09-20), with the measurement
+		// that says what that buys in the record: nothing visible in the garage,
+		// which runs at eight lamps -- the shader's own ceiling -- so there is no
+		// headroom to allocate. It reads as a coin flip at four.
+		bool  DirectConfidenceRays = true;
 		// **--ao-blur / --gi-blur=<texels> (RT-5 part 5):** the same dial for the
 		// occlusion and indirect signals. Negative, the tuning's own -- zero since
 		// 2026-09-14, when the blur was measured to add nothing and retired, so

@@ -910,7 +910,11 @@ namespace RageV
 									 const GiTraceView& view, int rays,
 									 // RT-13 stage 2: tracing the glass layer rather than
 									 // the G-buffer, on an input set of its own.
-									 bool glassLayer = false);
+									 bool glassLayer = false,
+									 // RT-9: one lamp count per 16x16 tile, from how young this
+									 // signal's own history is there. Null leaves every pixel on
+									 // `rays`, which is what it had before.
+									 const RHI::Ref<RHI::RHITexture>& tileLights = nullptr);
 		// RT-13 stage 2: the glass layer's settled lamp light and the layer's depth
 		// and id, for the transparent draw (set 3), handed over around it and
 		// taken back after, the water lamps' shape. Null clears them.

@@ -681,6 +681,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.Indirect = &m_SceneIndirect;
 	scene.RayBudget = &m_SceneRayBudget;
 	scene.ReflectionBudget = &m_SceneRayBudgetReflection;
+	scene.DirectBudget = &m_SceneRayBudgetDirect;
 	scene.Occlusion = &m_SceneOcclusion;
 	scene.GiLight = &m_SceneGiLight;
 	scene.TaaGuide = &m_SceneTaaGuide;
@@ -836,6 +837,7 @@ void EditorLayer::OnUpdate(Timestep ts)
 		game.Indirect = &m_GameIndirect;
 		game.RayBudget = &m_GameRayBudget;
 		game.ReflectionBudget = &m_GameRayBudgetReflection;
+		game.DirectBudget = &m_GameRayBudgetDirect;
 		game.Occlusion = &m_GameOcclusion;
 		game.GiLight = &m_GameGiLight;
 		game.TaaGuide = &m_GameTaaGuide;

@@ -1068,7 +1068,8 @@ namespace RageV
 									   uint32_t tilesX, uint32_t tilesY, uint32_t tileSize,
 									   uint32_t pictureWidth, uint32_t pictureHeight,
 									   float mostRays, float youngFrames,
-									   float deadBand, float dwellFrames, Format outputFormat)
+									   float deadBand, float dwellFrames, Format outputFormat,
+									   float leastRays)
 	{
 		if (!s_Data || !pastPicture || !pastSurface)
 			return;
@@ -1081,6 +1082,7 @@ namespace RageV
 			float Young = 6.0f;
 			float DeadBand = 0.75f;
 			float Dwell = 8.0f;
+			float Least = 1.0f;
 		};
 
 		ReflectionBudgetParams params;
@@ -1094,6 +1096,7 @@ namespace RageV
 		params.Young = youngFrames;
 		params.DeadBand = deadBand;
 		params.Dwell = dwellFrames;
+		params.Least = leastRays;
 
 		Dispatch(cmd, Shader::ReflectionBudget, outputFormat, pastPicture, pastSurface,
 				 &params, sizeof(params), Sampling::Point, Sampling::Point,

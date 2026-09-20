@@ -396,7 +396,11 @@ namespace RageV
 									 uint32_t pictureWidth, uint32_t pictureHeight,
 									 float mostRays, float youngFrames,
 									 float deadBand, float dwellFrames,
-									 RHI::Format outputFormat);
+									 RHI::Format outputFormat,
+									 // What a tile that asks for nothing gets: one ray for the
+									 // reflections, the level's own lamp count for the direct
+									 // light, which must not lose lamps where nothing moved.
+									 float leastRays = 1.0f);
 
 		static void TileBudget(RHI::RHICommandList& cmd,
 				   const RHI::Ref<RHI::RHITexture>& tiles,

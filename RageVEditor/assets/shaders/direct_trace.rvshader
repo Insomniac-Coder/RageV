@@ -126,6 +126,17 @@ layout(set = 3, binding = 0) uniform sampler2D u_DepthIn;
 layout(set = 3, binding = 1) uniform sampler2D u_SurfaceIn;
 layout(set = 3, binding = 2) uniform sampler2D u_AlbedoIn;
 layout(set = 3, binding = 3) uniform sampler2D u_SurfaceIdIn;
+// **RT-9: the lamps this tile may keep** (reflection_budget.rvshader, run on
+// this signal's own history): r the count, g the frames it has been held, b the
+// share of the tile that asked. One number for 16x16 pixels -- a count that
+// varies inside a group of pixels is paid for by every pixel in it. Only the
+// plain trace reads it; the record, the re-light and the sea's own passes have
+// their own inputs in these slots and shade what they are told to.
+#if !defined(RV_DIRECT_RECORD) && !defined(RV_DIRECT_CHOOSE) \
+ && !defined(RV_DIRECT_SHADE) && !defined(RV_DIRECT_WATER)
+#define RV_DIRECT_TILE_LIGHTS
+layout(set = 3, binding = 7) uniform sampler2D u_TileLights;
+#endif
 #endif
 #if defined(RV_DIRECT_RECORD)
 // **Measured change: what the record keeps beside the G-buffer** -- the pair
@@ -841,7 +852,22 @@ void main()
 	}
 #endif
 
-	const int K = clamp(int(u_Direct.Rays + 0.5), 0, int(kMaxRays));
+	// The level's count, and **RT-9: what this tile earned on top of it**. The
+	// sign of `Rays` says whether a tile map is bound, which is the bounce's own
+	// idiom (rtgi_trace) and keeps the push block the size it is; the count
+	// itself is never negative. The map's number is a floor of the level's, so a
+	// tile that asks for nothing shades exactly what it always did.
+	int K = clamp(int(abs(u_Direct.Rays) + 0.5), 0, int(kMaxRays));
+#ifdef RV_DIRECT_TILE_LIGHTS
+	if (u_Direct.Rays < 0.0 && K > 0)
+	{
+		const vec2 size = vec2(max(textureSize(u_DepthIn, 0), ivec2(1)));
+		const vec2 uv = gl_FragCoord.xy / size;
+		const float allocated = texture(u_TileLights,
+										vec2(uv.x, u_Direct.FlipY > 0.5 ? 1.0 - uv.y : uv.y)).r;
+		K = clamp(int(allocated + 0.5), K, int(kMaxRays));
+	}
+#endif
 #if defined(RV_DIRECT_SHADE)
 	// **The chosen lamps, shaded and traced.** Everything above this is the
 	// same point the choose pass built; this is what the fused path does with

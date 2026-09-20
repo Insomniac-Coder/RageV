@@ -478,9 +478,11 @@ private:
 	RageV::TemporalHistory m_SceneRayBudget;
 	// RT-9: the reflection's own tile map of ray counts.
 	RageV::TemporalHistory m_SceneRayBudgetReflection;
+	RageV::TemporalHistory m_SceneRayBudgetDirect;
 	RageV::TemporalHistory m_GameRayBudget;
 	// RT-9: the reflection's own tile map of ray counts, for the game view.
 	RageV::TemporalHistory m_GameRayBudgetReflection;
+	RageV::TemporalHistory m_GameRayBudgetDirect;
 
 	// Ray-traced occlusion's accumulation, one per chain like every other:
 	// the viewport and the game view are different sizes showing different

@@ -41,6 +41,11 @@ void main()
 #version 460 core
 
 #define RV_TRACE_ONLY
+// The sea's mirror rays belong to the water's lane, not the bounce's -- the
+// lane chain reads RV_TRACE_ONLY as "the bounce" (RT-9, 2026-09-20: this pass
+// never flushed at all, so its rays and its hits' shadow rays were counted by
+// nobody -- the reflection pass's own bug, WR-16 R2, in the other half).
+#define RV_WATER_TRACE
 // A hit is an image the eye sees: shaded with its specular half (pbr_fragment's
 // RV_HIT_SPECULAR), so a metal in the sea's mirror is not black.
 #define RV_HIT_SPECULAR
@@ -79,12 +84,21 @@ void main()
 	{
 		// The sky, at a distance no reconstruction should tighten around.
 		o_Reflection = vec4(hit.Sky, 1.0e4);
-		return;
+	}
+	else
+	{
+		// The probe at the hit, as the reflection pass chooses it (2026-09-15); Trace.x
+		// was always zero here too.
+		const float hitProbe = ProbeSlotAt(hit.Position);
+		o_Reflection = vec4(ShadeTraced(hit, ProbeIrradiance(hit.Normal, hitProbe), hitProbe),
+							length(hit.Position - p.Position));
 	}
 
-	// The probe at the hit, as the reflection pass chooses it (2026-09-15); Trace.x
-	// was always zero here too.
-	const float hitProbe = ProbeSlotAt(hit.Position);
-	o_Reflection = vec4(ShadeTraced(hit, ProbeIrradiance(hit.Normal, hitProbe), hitProbe),
-						length(hit.Position - p.Position));
+	// The ray above and the shadow rays its hit walked. A sky hit used to
+	// return here, which is why this is one flush at the end and not two:
+	// the rule is one call every live lane reaches. `false` -- the lit pass
+	// counted this pixel as a lit fragment already.
+#ifdef RV_RAY_COUNTERS
+	FlushRayCounters(false);
+#endif
 }

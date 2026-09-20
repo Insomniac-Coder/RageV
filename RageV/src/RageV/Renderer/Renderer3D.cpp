@@ -7887,7 +7887,8 @@ namespace RageV
 									  const Ref<RHITexture>& albedo,
 									  const Ref<RHITexture>& surfaceId,
 									  Format targetColor,
-									  const GiTraceView& view, int rays, bool glassLayer)
+									  const GiTraceView& view, int rays, bool glassLayer,
+									  const Ref<RHITexture>& tileLights)
 	{
 		if (!s_Data || !s_Data->DirectShader || !depth || !surface || !albedo || !surfaceId)
 			return;
@@ -7931,6 +7932,12 @@ namespace RageV
 		inputs->SetTexture(1, surface, s_Data->PointSampler);
 		inputs->SetTexture(2, albedo, s_Data->PointSampler);
 		inputs->SetTexture(3, surfaceId, s_Data->PointSampler);
+		// RT-9: the tile's lamp count, where the allocation ran. Black otherwise --
+		// the shader only reads it when the pushed count is negative.
+		if (inputs->HasBinding(7))
+			inputs->SetTexture(7, tileLights ? tileLights
+											 : TextureLoader::TransparentBlack(*s_Data->Device),
+							   s_Data->PointSampler);
 		inputs->Commit();
 
 		struct DirectParams
@@ -7944,7 +7951,10 @@ namespace RageV
 		params.InvP0 = view.InvProjection0;
 		params.InvP1 = view.InvProjection1;
 		params.FlipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
-		params.Rays = (float)Math::Clamp(rays, 0, 8);
+		// RT-9: negative where a tile map is bound, which is how the bounce says
+		// the same thing (rtgi_trace) -- a count is never legitimately negative,
+		// so the sign is free and the push block stays the size it is.
+		params.Rays = (float)Math::Clamp(rays, 0, 8) * (tileLights ? -1.0f : 1.0f);
 		// The same frame index and the same "is there a filter" test the lit
 		// shader's own draws use, so a sample walks exactly as it did there.
 		params.Frame = s_Data->Scene.GlobalIllumination.y;

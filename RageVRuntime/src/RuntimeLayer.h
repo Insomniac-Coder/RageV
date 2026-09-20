@@ -92,6 +92,8 @@ private:
 	RageV::TemporalHistory m_RayBudget;
 	// RT-9: the reflection's own tile map of ray counts.
 	RageV::TemporalHistory m_RayBudgetReflection;
+	// RT-9: and the direct light's lamps per tile.
+	RageV::TemporalHistory m_RayBudgetDirect;
 	// Ray-traced occlusion's accumulation. See FrameDesc::Occlusion.
 	RageV::TemporalHistory m_Occlusion;
 	// RT-3: the traced bounce's accumulation. See FrameDesc::GiLight.

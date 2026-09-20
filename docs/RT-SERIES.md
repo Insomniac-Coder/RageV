@@ -57,7 +57,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | **RT-6.11** | ✅ **done 2026-09-07** — **the biggest sharpness win of the day** | — | — | Catmull-Rom; its negative result had expired |
 | RT-7 | ✅ **done 2026-09-14 (owner's call)** — tube lights: `SourceLength` and `SourceRadius` shade as a tube in the raster loop (2026-09-08) and now in the ray-traced lamp pass too, with soft shadows along the tube's length. **The tubes' mirror reflections stay ray traced** (rays see the glowing bars). Tried and removed the same day, on the owner's rejection: linking a light to its glowing mesh so the light, not the rays, drew the reflection, and taking the light's brightness from the mesh — the floor reflections vanished, because the light's highlight cannot draw a mirror (DistributionGGX's 1e-4 denominator cap leaves a sharp highlight a few percent of its brightness; measured against a brute-force tube). The 16-byte light record's cost on the bridge was not measured | — | — | the tubes as line lights |
 | RT-8 | ✅ **closed 2026-09-09 by the owner** — job 1 shipped (the sea's own choose-and-shade retired for the shared pass); **jobs 2 and 3 dropped**, not deferred: job 2 regressed the bridge and its approach is wrong, job 3 measured no gain | — | — | the water on the G-buffer |
-| RT-9 | 🔨 **half built 2026-09-16** -- the confidence lane (the accumulator's own history, read by the trace) and the reflection's tile allocation: one ray count per 16x16 tile, earned only where young texels sit together, and nothing at all where nothing moved. On by default and free (-0.05 ms driving, +0.09 parked), and it earns nothing in the garage as it stands -- record below. **Not built:** the direct pass reading the tile map, one rays-per-pixel dial across land and water, the honest per-pass counters | 1-2 d left | moderate | the budget's shadow lane, and confidence drives allocation |
+| RT-9 | ✅ **built 2026-09-16/20** -- the confidence lane (the accumulator's own history, read by the trace) and tile allocation for **both** signals: one count per 16x16 tile, earned only where young texels sit together, nothing at all where nothing moved, and the level's own count as the floor. Both on by default. **It earns nothing measurable in this project**: the reflections' half is free and changes nothing in the garage; the direct half cannot change anything at Quality (eight lamps is the shader's ceiling, so the pass is skipped) and reads as a coin flip against the reference at four, for +0.15 ms. The counters are honest for every pass (the sea's mirror pass never flushed at all), and "rays per pixel" was already one dial across land and water -- records below | — | — | the budget's shadow lane, and confidence drives allocation |
 | RT-10 | open | 5-7 d | **high** | ReSTIR DI on the G-buffer |
 | RT-11 | open | 1-2 d | low-moderate | next-event estimation at GI and reflection hits |
 | RT-12 | ✅ **done 2026-09-07** | — | — | the signal debug views, complete |
@@ -340,9 +340,62 @@ that no tile reaches the quarter bar, so the picture is the motion rule's.
 So the item stands as **machinery without a bill**: on by default, free, and ready for a scene with
 real disocclusion bands (a fast camera, or a fast mover) -- with the numbers above saying it earns
 nothing in the garage as it is. `--reflection-confidence-rays=off` restores RT-15b's motion rule
-(four rays wherever a surface moves on its own). What is **not** built from RT-9's row: the direct
-pass reading the tile map, one "rays per pixel" dial across land and water, and the honest
-per-pass counters.
+(four rays wherever a surface moves on its own).
+
+#### RT-9's other three, 2026-09-20
+
+**1. The counters, honest for every pass.** `water_trace` -- the sea's own mirror pass -- **never
+flushed its counters at all**, so its rays and the shadow rays its hits walked were counted by
+nobody; and had it flushed, they would have landed in the bounce's lane, because the lane is chosen
+by a compile flag and that pass shares the bounce's. Exactly the reflection pass's own bug (WR-16
+R2, when its lane read 0.04 M). It now says `RV_WATER_TRACE`, which the lane chain maps to the
+water's, and flushes once at the end of main -- the sky-hit early return became an `else`, since the
+rule is one call every live lane reaches.
+
+On the bridge at the pier camera, 60 frames, with that pass switched on: water **0.16 -> 0.31 M**
+rays a frame, shadow 2.01 -> 2.02 M (the mirror hits' rays, never counted), bounce still 0.00 M --
+so they land where they belong. The picture is byte-identical.
+
+**And the reason I could not see it at first:** `--water-reflection=full|half|quarter` parses its
+value, returns success, and **never set the flag the frame graph reads**, so since that pass was
+made opt-in (2026-09-09) no typed flag could turn it on. One line.
+
+Audited the rest rather than assumed: the direct light, the bounce, the reflections and the sea's
+lamp shading all flush and all land in the right lane. The probe fill traces without counters on
+purpose (bake time, its own set) and says so.
+
+**2. "Rays per pixel", one dial across land and water: already true.** The direct-light pass and the
+water's lamp sampler both read `RayOptimisationPreset::RaysPerPixel`, and `--rays-per-pixel`
+overrides both. The row was written before T5 and S4 landed. What is *not* on the dial is the sea's
+mirror **size** (`ReflectionScale`): nothing reads that column, deliberately -- the half-resolution
+pass was demoted on 2026-09-09 because its picture smeared the deck's white lights into the tower's
+red, and the sea traces its mirror in the water draw instead. Left as it is.
+
+**3. The direct pass reading a tile map.** The same pass, rule and holds as the reflections' half,
+run on the direct light's own history: `--direct-confidence-rays` (on by default, owner), the
+level's count as the floor so no tile ever loses lamps, up to the shader's eight where a tile's
+young texels sit together, and nothing while the scene is still.
+
+**What it buys, measured honestly: nothing here.**
+
+| the garage's dolly, 120 frames | flat 4 lamps | tiles allocate |
+|---|---|---|
+| distance to the reference (every lamp shaded), while moving | 0.5355 | 0.5353 |
+| the same, after the camera stops | 0.5514 | 0.5514 (identical -- the still gate) |
+| frames closer to the reference | — | 61 of 120 |
+
+A coin flip, changing 0.01-0.03% of pixels while the camera moves. **And at the project's own
+setting it cannot change anything at all**: Quality keeps eight lamps a pixel, which is the shader's
+ceiling, so every tile's answer is the count it already had -- the pass is skipped there rather than
+paying 0.09 ms to write a constant. Where it does run (a moving scene at four lamps) it costs
+**+0.15 ms** (A B B A: off 7.011/7.074, on 7.168/7.224).
+
+**The shape not built, and why.** The row's "like GI does" means joining the S3 allocator, where
+tiles *trade* a fixed screen average rather than adding to it -- which is the specification's own
+constraint (do not raise the count globally). That needs a third count and a third dwell in a map
+whose four lanes are full, and the reduce chain widened with it. This half adds where reconstruction
+cannot answer and takes nowhere, which is the reflections' shape and what was approved. If the
+average-preserving form is wanted, it is a build of its own.
 
 ### RT-15 — 🔨 built 2026-09-15/16 (`8d7741a`, pushed): the moving chrome cube
 

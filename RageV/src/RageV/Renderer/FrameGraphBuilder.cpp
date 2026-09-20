@@ -1752,14 +1752,99 @@ namespace RageV
 			directView.InvProjection0 = desc.InvProjection0;
 			directView.InvProjection1 = desc.InvProjection1;
 			directView.View = desc.View;
+
+			// **RT-9's second half: the lamps allocated per tile, before the trace runs.**
+			// The history this signal settled last frame says where reconstruction cannot
+			// answer -- a texel whose picture has just begun holds one frame of one
+			// stochastic draw of the lamps, and averaging will not save it this frame. More
+			// lamps there will. The same pass, rule and holds as the reflections' (the
+			// shader's header has the measurements): per tile because a count that varies
+			// inside a group of pixels is paid for by every pixel in it, only where the
+			// young texels sit *together*, and nothing at all where nothing moved. The
+			// level's own count is the floor, so a settled tile shades what it always did.
+			TemporalHistory& direct = *desc.DirectLight;
+			direct.Prepare(Renderer::GetDevice(),
+						   desc.Width * (uint32_t)supersample, desc.Height * (uint32_t)supersample,
+						   Format::R16G16B16A16_SFLOAT, "DirectLight",
+						   Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
+						   Format::R16G16B16A16_SFLOAT, Format::R16G16_SFLOAT);
+			const bool directPair = direct.Current() && direct.Previous();
+			RGResource previousDirect = kRGInvalid;
+			if (directPair)
+				previousDirect = graph.Import(direct.Previous(), "DirectPrevious");
+			RGResource directBudgetMap = kRGInvalid;
+			const bool directMoved = Renderer3D::AnyInstanceMoved()
+								  || !Renderer3D::CameraStill(direct.Motion());
+			// **And not where there is no headroom to allocate.** `directRays` is the
+			// level's count and the shader's ceiling is eight, so at Quality (which is
+			// eight) every tile's answer is the count it already had -- the pass would
+			// cost 0.09 ms a frame to write a constant. Zero means every lamp is shaded,
+			// which is the reference arm and has no count to spend either.
+			const int kDirectMostLamps = 8;
+			if (desc.DirectBudget && directPair && direct.HasHistory() && directMoved
+				&& directRays > 0 && directRays < kDirectMostLamps
+				&& config.DirectConfidenceRays && PostProcess::IsReady())
+			{
+				const uint32_t tilesX =
+					Math::Max((desc.Width * (uint32_t)supersample + 15u) / 16u, 1u);
+				const uint32_t tilesY =
+					Math::Max((desc.Height * (uint32_t)supersample + 15u) / 16u, 1u);
+				desc.DirectBudget->Prepare(Renderer::GetDevice(), tilesX, tilesY,
+										   Format::R16G16B16A16_SFLOAT, "DirectBudget");
+				if (desc.DirectBudget->Current() && desc.DirectBudget->Previous())
+				{
+					TemporalHistory& lamps = *desc.DirectBudget;
+					const bool lampsHistory = lamps.HasHistory();
+					const RGResource lampsPrevious = graph.Import(lamps.Previous(), "DirectBudgetPrevious");
+					const RGResource lampsCurrent = graph.Import(lamps.Current(), "DirectBudgetCurrent");
+					graph.AddPass("DirectBudget",
+						[&](RGPassBuilder& builder)
+						{
+							builder.Write(lampsCurrent);
+							builder.Sample(previousDirect);
+							if (lampsHistory)
+								builder.Sample(lampsPrevious);
+							builder.DisableDepth();
+						},
+						[past = previousDirect, lampsPrevious, lampsHistory, tilesX, tilesY,
+						 width = desc.Width * (uint32_t)supersample,
+						 height = desc.Height * (uint32_t)supersample, directRays,
+						 deadBand = desc.Render.RayBudgetDeadBand,
+						 dwell = desc.Render.RayBudgetDwell](RGPassContext& context)
+						{
+							PostProcess::ReflectionBudget(context.Cmd, context.Color(past),
+														  context.Color(past, 1),
+														  lampsHistory ? context.Color(lampsPrevious) : nullptr,
+														  tilesX, tilesY, 16u, width, height,
+														  // The most a pixel may keep is the
+														  // shader's own ceiling (kMaxRays).
+														  (float)kDirectMostLamps,
+														  // A history of six frames or fewer is one
+														  // no averaging can rescue this frame.
+														  6.0f, deadBand, dwell,
+														  Format::R16G16B16A16_SFLOAT,
+														  (float)directRays);
+						});
+					directBudgetMap = lampsCurrent;
+					lamps.Advance();
+				}
+			}
+			else if (desc.DirectBudget)
+			{
+				desc.DirectBudget->Invalidate();
+			}
+
 			graph.AddPass("DirectTrace",
 				[&](RGPassBuilder& builder)
 				{
 					builder.Write(directTraced);
 					builder.Sample(sceneHDR);
+					if (directBudgetMap != kRGInvalid)
+						builder.Sample(directBudgetMap);
 					builder.DisableDepth();
 				},
-				[sceneHDR, normalIndex, albedoIndex, surfaceIdIndex, directView, directRays]
+				[sceneHDR, normalIndex, albedoIndex, surfaceIdIndex, directView, directRays,
+				 directBudgetMap]
 				(RGPassContext& context)
 				{
 					Renderer3D::TraceDirectLight(context.Cmd,
@@ -1768,7 +1853,9 @@ namespace RageV
 												 context.Color(sceneHDR, albedoIndex),
 												 context.Color(sceneHDR, surfaceIdIndex),
 												 Format::R16G16B16A16_SFLOAT,
-												 directView, directRays);
+												 directView, directRays, false,
+												 directBudgetMap != kRGInvalid
+													 ? context.Color(directBudgetMap) : nullptr);
 				});
 			// **Measured change, phase 1 (docs/RT-MEASURED-CHANGE.md).** The record's
 			// choices shaded again against this frame's lamps, the differences
@@ -1867,16 +1954,11 @@ namespace RageV
 			// the surface and compared a normal against a normal, so the light of one
 			// object could be kept on another. The chrome cube crossing the car's wing
 			// showed it as the bars the owner called the spoiler streaks.
+			// Prepared and imported before the trace, because RT-9's allocation reads
+			// this history to decide the trace's own lamp count.
 			directLit = directTraced;
-			TemporalHistory& direct = *desc.DirectLight;
-			direct.Prepare(Renderer::GetDevice(),
-						   desc.Width * (uint32_t)supersample, desc.Height * (uint32_t)supersample,
-						   Format::R16G16B16A16_SFLOAT, "DirectLight",
-						   Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
-						   Format::R16G16B16A16_SFLOAT, Format::R16G16_SFLOAT);
-			if (direct.Current() && direct.Previous())
+			if (directPair)
 			{
-				const RGResource previousDirect = graph.Import(direct.Previous(), "DirectPrevious");
 				currentDirect = graph.Import(direct.Current(), "DirectCurrent");
 				const bool directHistory = direct.HasHistory();
 				RGTargetDesc directBlurDesc = directDesc;

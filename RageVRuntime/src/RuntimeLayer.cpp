@@ -541,6 +541,7 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.Indirect = &m_Indirect;
 	frame.RayBudget = &m_RayBudget;
 	frame.ReflectionBudget = &m_RayBudgetReflection;
+	frame.DirectBudget = &m_RayBudgetDirect;
 	frame.Occlusion = &m_Occlusion;
 	frame.GiLight = &m_GiLight;
 	frame.TaaGuide = &m_TaaGuide;

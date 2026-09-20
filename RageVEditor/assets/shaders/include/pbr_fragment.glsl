@@ -613,7 +613,11 @@ const uint RAY_LANE_HIT_LIGHTS  = 9u;   // lights those hits walked, summed
 // says so with RV_REFLECTION_TRACE so its rays land in their own lane
 // (WR-16 R2, 2026-09-06: until then they were never flushed at all and
 // the report's reflection figure was the in-line leftovers, 0.04 M).
-#if defined(RV_REFLECTION_TRACE)
+// The sea's own trace pass says so the same way (RT-9, 2026-09-20): it too
+// includes this file under RV_TRACE_ONLY, and its rays are the water's.
+#if defined(RV_WATER_TRACE)
+const uint RAY_LANE_SURFACE = RAY_LANE_WATER;
+#elif defined(RV_REFLECTION_TRACE)
 const uint RAY_LANE_SURFACE = RAY_LANE_REFLECTION;
 #elif defined(RV_TRACE_ONLY)
 const uint RAY_LANE_SURFACE = RAY_LANE_GI;
