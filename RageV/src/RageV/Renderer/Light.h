@@ -168,6 +168,19 @@ namespace RageV
 		Vec3 TangentV{ 0.0f, 0.0f, 1.0f };
 		Vec3 Radiance{ 0.0f };
 
+		// **Half the fitting's own thickness**, along the rectangle's normal:
+		// the bounding box's thin half-extent, in world units (RT-11).
+		//
+		// The rectangle is built at the box's centre, so it is *inside* the
+		// fitting -- and a ray aimed at it is stopped by the fitting's own
+		// shell before it arrives. Every aimed sample this engine has ever
+		// taken was shadowed by the lamp it was aimed at. With the thickness
+		// the sampler can move its point out to whichever face is turned
+		// toward the surface being lit, which is where the light leaves the
+		// fitting, and the ray then arrives without anything having to be
+		// made transparent.
+		float HalfThickness{ 0.0f };
+
 		// Which object this rectangle stands for, as an opaque id the scene
 		// chooses and the renderer only compares. **The traced bounce needs
 		// to know, at a hit, whether the surface it landed on is one this

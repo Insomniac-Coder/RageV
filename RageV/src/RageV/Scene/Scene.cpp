@@ -2231,6 +2231,15 @@ namespace RageV
 
 					AreaEmitter emitter;
 					emitter.Centre = Vec3(transform.World * Vec4(localCentre, 1.0f));
+					// RT-11: the thin half-extent, in world units -- the scale
+					// the transform applies along that axis, since the sampler
+					// steps the point out in world space.
+					{
+						Vec3 thin(0.0f);
+						thin[normalAxis] = halfExtent[normalAxis];
+						emitter.HalfThickness =
+							Math::Length(Vec3(transform.World * Vec4(thin, 0.0f)));
+					}
 					emitter.TangentU = Vec3(transform.World * Vec4(u, 0.0f));
 					emitter.TangentV = Vec3(transform.World * Vec4(v, 0.0f));
 					emitter.Radiance = radiance;

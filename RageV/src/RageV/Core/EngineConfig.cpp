@@ -186,6 +186,12 @@ namespace RageV
 			return ParseBool(value, config.AoHistory);
 		if (key == "glass-history" || key == "glasshistory")
 			return ParseBool(value, config.GlassHistory);
+		// RT-11: one light per traced hit.
+		if (key == "hit-light-sampling" || key == "hitlightsampling")
+			return ParseBool(value, config.HitLightSampling);
+		// RT-11: the reflections' aimed emitter sample.
+		if (key == "reflection-nee" || key == "reflectionnee")
+			return ParseBool(value, config.ReflectionNee);
 		if (key == "reflection-history" || key == "reflectionhistory")
 			return ParseBool(value, config.ReflectionHistory);
 

@@ -2476,10 +2476,17 @@ vec3 ProbeParallax(vec3 position, vec3 direction, float slot)
 // occlusion: a mirror of a brick wall shows the wall's colour and lighting,
 // not its mortar's bump. Exact for emissive geometry, which is what the
 // check that judges it is made of.
-#ifdef RV_RAY_GI
-// The bounce rays' die (7at). The same integer hash the post passes use, kept
-// here rather than shared because a shader include that exists for one caller
-// is a file to find rather than a line to read.
+// **The die every traced pass draws from** (7at). The same integer hash the
+// post passes use, kept here rather than shared because a shader include that
+// exists for one caller is a file to find rather than a line to read.
+//
+// **Outside the RV_RAY_GI guard since RT-11**, and the move was not cosmetic.
+// These two sat inside it while `TraceSurface` -- which every traced pass
+// calls, bounce or not -- is compiled for variants that define no such thing.
+// A reflections-only variant that reached for GiRandom therefore failed to
+// compile, the failure was swallowed, the pipeline fell back, and the picture
+// changed by fourteen display levels on the garage's back wall with every
+// switch involved turned off. Shared code needs shared helpers.
 uint GiHash(uint x)
 {
 	x ^= x >> 16; x *= 0x7FEB352Du;
@@ -2499,6 +2506,8 @@ float GiRandom(inout uint seed)
 	seed = GiHash(seed);
 	return float(seed & 0x00FFFFFFu) / 16777216.0;
 }
+
+#ifdef RV_RAY_GI
 
 // One cosine-weighted direction about `n`, advancing the seed by two draws.
 //
@@ -2797,6 +2806,48 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	// before WR-10 decides what to build. Uniform, so the loop is not
 	// compiled out; the picture with it off is wrong on purpose.
 	const int hitLightCount = u_Scene.RayRates.z > 0.5 ? 0 : u_Scene.LightCount;
+
+	// **RT-11: one light per hit, chosen by what it is worth here.**
+	//
+	// This loop is the last place in the engine that shades every light. A
+	// reflection ray lands on the garage floor and that floor point then asks
+	// all twenty lamps whether they light it, with a shadow ray each -- so one
+	// reflection ray costs up to twenty more, and shadow rays are three
+	// quarters of the frame's rays.
+	//
+	// So the loop now walks the lights to *weigh* them -- brightness, falloff,
+	// cone, facing, the baked share, everything but the ray -- and keeps one,
+	// with a chance proportional to what it is worth. One shadow ray is cast
+	// after the loop, for the kept light, and its answer is scaled back up by
+	// how unlikely the keep was. The average over frames is the same picture;
+	// each frame is grainier, which is the trade, and the signal's own
+	// accumulator is what absorbs it.
+	//
+	// Weighted reservoir sampling rather than a scored table: the candidate
+	// list has no bound, and this keeps one light in four registers.
+	//
+	// Not in the bake (RV_IRRADIANCE_FILL): bake time is the cheap currency
+	// and the solve wants the exact answer, so it keeps shading them all.
+#ifdef RV_IRRADIANCE_FILL
+	const bool hitOneLight = false;
+#else
+	// RayRates.w bit 25.
+	const bool hitOneLight = (int(u_Scene.RayRates.w + 0.5) & 33554432) != 0;
+#endif
+	// The hit point and the frame, so neighbouring hits choose independently
+	// and a still pixel walks the lights over time instead of keeping one.
+	uint hitSeed = GiHash(floatBitsToUint(hitPosition.x)
+						  ^ (floatBitsToUint(hitPosition.y) * 0x9E3779B9u)
+						  ^ (floatBitsToUint(hitPosition.z) * 0x85EBCA6Bu)
+						  ^ (uint(u_Scene.GlobalIllumination.y) * 0x27D4EB2Du));
+	float hitSeen = 0.0;         // the worth of every light walked so far
+	float hitKeptWorth = 0.0;    // and of the one kept
+	vec3  hitKeptL = vec3(0.0, 1.0, 0.0);
+	vec3  hitKeptColor = vec3(0.0);
+	float hitKeptAtten = 0.0;
+	float hitKeptShare = 1.0;
+	float hitKeptReach = 1.0e4;  // how far its shadow ray goes
+	bool  hitKeptShadows = false;
 #ifndef RV_TRACE_ONLY
 	// **WR-10: the hit takes the cluster it falls in.** The cluster grid is
 	// cut through the camera's view, and this loop assumed a hit had no
@@ -2927,7 +2978,9 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 			// gathered, and Renderer3D copies it through untouched. Stated
 			// here because it makes that an invariant this shader depends on.
 			L = -light.Direction.xyz;
-			if (int(light.Shadow.x) != 0)
+			// RT-11: not here when one light is kept -- the ray is cast once,
+			// after the loop, for whichever light that turns out to be.
+			if (!hitOneLight && int(light.Shadow.x) != 0)
 				shadow = TraceShadowFrom(hitPosition, hitNormal, L, 1.0e4);
 		}
 		else
@@ -3034,13 +3087,47 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 			// Bounded by the distance to the light rather than by the sky:
 			// what is behind a lamp cannot shadow it, and a ray that stops at
 			// the source is the cheaper half of the same question.
-			if (int(light.Shadow.x) != 0)
+			// RT-11: not here when one light is kept; see hitOneLight.
+			if (!hitOneLight && int(light.Shadow.x) != 0)
 			{
 				shadow = TraceShadowFrom(hitPosition, hitNormal, L,
 										 sqrt(max(distance2, 1.0e-8)));
 			}
 		}
 		const float hitNdotL = max(dot(hitNormal, L), 0.0);
+		if (hitOneLight)
+		{
+			// **What this light is worth here, before any ray.** Its brightness
+			// through everything the walk already worked out. A poor measure of
+			// worth costs grain and nothing else -- the scale-up below divides
+			// by the very chance this produces -- so it deliberately leaves out
+			// the one thing that would need a ray, which is whether anything is
+			// in the way.
+			const float worth = dot(lightColor, vec3(0.2126, 0.7152, 0.0722))
+							  * attenuation * hitNdotL * hitLiveShare;
+			if (worth > 0.0)
+			{
+				hitSeen += worth;
+				// Keep this one with chance worth/seen: after the last light
+				// every candidate has been kept with chance worth/total, which
+				// is what makes the scale-up below unbiased.
+				if (GiRandom(hitSeed) * hitSeen <= worth)
+				{
+					hitKeptWorth = worth;
+					hitKeptL = L;
+					hitKeptColor = lightColor;
+					hitKeptAtten = attenuation;
+					hitKeptShare = hitLiveShare;
+					hitKeptShadows = int(light.Shadow.x) != 0;
+					// From the light's own position, not the distance the branch
+					// above worked out: that one is local to the branch, and a
+					// directional light never entered it.
+					hitKeptReach = light.Position.w == 0.0 ? 1.0e4
+								 : max(length(light.Position.xyz - hitPosition), 1.0e-4);
+				}
+			}
+			continue;
+		}
 		lit += diffuse / PI * lightColor * attenuation * hitNdotL * shadow * hitLiveShare;
 #ifdef RV_HIT_SPECULAR
 		// **The lamp's highlight on the struck surface**: Cook-Torrance through the
@@ -3055,6 +3142,32 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 						  * lightColor * attenuation * hitNdotL * shadow * hitLiveShare;
 		}
 #endif
+	}
+
+	// **RT-11: the kept light, its one shadow ray, and the scale-up.** See
+	// hitOneLight. `hitSeen / hitKeptWorth` is one over the chance this light
+	// was kept with, so a dim light that wins the draw stands in for all of
+	// them and a scene lit by one lamp is unchanged bar the ray count.
+	if (hitOneLight && hitKeptWorth > 0.0)
+	{
+		float shadow = 1.0;
+		if (hitKeptShadows)
+			shadow = TraceShadowFrom(hitPosition, hitNormal, hitKeptL, hitKeptReach);
+		if (shadow > 0.0)
+		{
+			const float hitNdotL = max(dot(hitNormal, hitKeptL), 0.0);
+			const float carried = shadow * (hitSeen / hitKeptWorth);
+			lit += diffuse / PI * hitKeptColor * hitKeptAtten * hitNdotL
+				 * carried * hitKeptShare;
+#ifdef RV_HIT_SPECULAR
+			const vec3 H = normalize(hitV + hitKeptL);
+			const float D = DistributionGGX(hitNormal, H, roughness);
+			const float G = GeometrySmith(hitNormal, hitV, hitKeptL, roughness);
+			const vec3 F = FresnelSchlick(max(dot(H, hitV), 0.0), hitF0);
+			hitSpecular += (D * G * F / (4.0 * hitNdotV * hitNdotL + 0.0001))
+						  * hitKeptColor * hitKeptAtten * hitNdotL * carried * hitKeptShare;
+#endif
+		}
 	}
 
 	surface.Position = hitPosition;

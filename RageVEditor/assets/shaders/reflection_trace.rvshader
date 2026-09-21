@@ -111,6 +111,47 @@ layout(set = 3, binding = 8) uniform sampler2D u_PastIdent;
 // g the frames it has been held, b the share of the tile that asked for it. One number
 // for 16x16 pixels, because a scattered count is paid for by every pixel in the group.
 layout(set = 3, binding = 9) uniform sampler2D u_TileRays;
+
+// **RT-11: the scene's area emitters, and where on each one the light is.**
+//
+// The bounce pass has aimed at these since it was built (rtgi_trace): for every
+// ray it casts it *also* picks a point on a ceiling tube and fires one ray
+// straight at it, so a tube's light arrives every frame at full strength
+// whether or not a hemisphere ray happened to point at one. This pass never
+// learned to. A reflection ray found a tube only by luck, and when it did it
+// brought back the tube's whole radiance at the weight of one lobe sample --
+// two or three hundred display levels against a floor's two. Hit or miss by
+// chance, one ray a texel: that is the sparkle measured on the driving car
+// (2026-09-21), and it is the estimator, not the filter that comes after it.
+//
+// Same rows and same aiming tables as the bounce reads, to the byte -- one
+// upload, two readers -- so what the two passes call a lamp is one answer.
+struct GiEmitter
+{
+	vec4 CentreArea;
+	// The two half-extents; their w lanes, with Radiance.w, are the unit plane
+	// normal, built once on the CPU rather than per shadow ray.
+	vec4 TangentU;
+	vec4 TangentV;
+	vec4 Radiance;
+	// x where this emitter's table starts in u_EmitterCdf, y cells a side (zero:
+	// radiate evenly and the two rows below are unread), z the emissive map's
+	// heap slot, w log2(y).
+	vec4 Aim;
+	// Texture uv to the rectangle's own (su, sv) in [-1, 1].
+	vec4 UvToSurface0;
+	vec4 UvToSurface1;
+};
+
+layout(std430, set = 3, binding = 10) readonly buffer ReflectionEmitterBlock
+{
+	GiEmitter u_Emitters[];
+};
+
+layout(std430, set = 3, binding = 11) readonly buffer ReflectionEmitterCdfBlock
+{
+	float u_EmitterCdf[];
+};
 #endif
 #ifdef RV_REFLECTION_RECORD
 // **Measured change, phase 2: what the record keeps beside the G-buffer** -- the
@@ -137,6 +178,9 @@ layout(push_constant) uniform LampParams
 	// yz: the gloss window a surface must sit inside to earn a ray. w: one when
 	// u_Budget is the allocator's map.
 	vec4 Trace;
+	// RT-11: x how many rows of u_Emitters are real (zero: no aimed sample and
+	// this pass behaves exactly as it did before RT-11).
+	vec4 Nee;
 } u_Lamps;
 
 #if defined(RV_REFLECTION_RECORD)
@@ -273,6 +317,367 @@ vec3 GlossyReflectionLD(vec3 N, vec3 V, float roughness, ivec2 texel, uint frame
 #endif
 }
 
+#if !defined(RV_REFLECTION_RECORD) && !defined(RV_REFLECTION_RELIGHT)
+// **How densely the lobe this pass samples points at `L`** -- the same number
+// o_Hit's third lane already carries for the first ray, as a function so the
+// aimed samples can ask it about a direction nothing was drawn along.
+//
+// This is what makes the two estimators below comparable. One draws a direction
+// from the lobe and looks at what is there; the other picks a point on a lamp
+// and asks how likely the lobe was to have looked at it. Weighing them against
+// each other needs both answers in the same units, which is a density per unit
+// solid angle.
+float LobePdf(vec3 N, vec3 V, vec3 L, float roughness)
+{
+	const float alpha = roughness * roughness;
+	// A mirror has no lobe to speak of: all of its density sits on one
+	// direction, and no aimed sample will ever land on it. Reported as
+	// enormous, which drives the weighting below to "the mirror ray carries
+	// this" -- which is the right answer and the picture it already produces.
+	if (alpha < 1.0e-4)
+		return 1.0e8;
+	const vec3 H = normalize(V + L);
+	const float NoH = max(dot(N, H), 0.0);
+	const float VoH = max(dot(V, H), 1.0e-4);
+	const float D = DistributionGGX(N, H, roughness);
+#ifdef RV_REFLECTION_VNDF
+	// Heitz 2018: drawing from the visible normals makes the density
+	// G1(V) D(H) / (4 NoV), the masking term and NoH having cancelled.
+	// Smith's exact G1 for GGX, not the lit shader's GeometrySchlickGGX --
+	// that one carries the direct-lighting k and is a different function.
+	const float NoV = max(dot(N, V), 1.0e-4);
+	const float a2 = alpha * alpha;
+	const float G1 = 2.0 * NoV / (NoV + sqrt(a2 + (1.0 - a2) * NoV * NoV));
+	return G1 * D / (4.0 * NoV);
+#else
+	return D * NoH / (4.0 * VoH);
+#endif
+}
+
+// **Which listed emitter the ray struck, by the entity it belongs to.**
+// Returns -1 when the struck instance is in no row, which is every hit in the
+// scene but the handful on a fitting.
+//
+// By identity and not by geometry, and that distinction was worth seventeen
+// display levels. The rectangle a row describes sits at the mesh's bounding-box
+// centre, so a ray that strikes a tube lands on the tube's *shell* -- a plane
+// test against the rectangle finds nothing, the caller below then keeps the
+// hit's whole glow, and the aimed sample adds that same light a second time.
+// The identity is exact and costs a compare. See GiEmitter::UvToSurface0.w.
+int EmitterOf(uint identity, int emitters)
+{
+	if (identity == 0u)
+		return -1;
+	for (int i = 0; i < emitters; ++i)
+	{
+		if (uint(u_Emitters[i].UvToSurface0.w + 0.5) == identity)
+			return i;
+	}
+	return -1;
+}
+
+// **How densely the aimed sampler would have drawn the point the ray struck.**
+// One for a row that radiates evenly; for one with an aiming table, the cell's
+// share of the whole times the number of cells -- the same number the sampler
+// used going the other way, so the two weights below still sum to one.
+//
+// The struck point is projected onto the rectangle's plane first, because it is
+// on the fitting's shell rather than on the rectangle: the rectangle is what
+// the estimator models the fitting as, and the projection is where on that
+// model the light came from.
+float EmitterDensityAt(GiEmitter light, vec3 point)
+{
+	float density = 1.0;
+	{
+		const vec3 d = point - light.CentreArea.xyz;
+		const float uLen2 = max(dot(light.TangentU.xyz, light.TangentU.xyz), 1.0e-9);
+		const float vLen2 = max(dot(light.TangentV.xyz, light.TangentV.xyz), 1.0e-9);
+		const float su = clamp(dot(d, light.TangentU.xyz) / uLen2, -1.0, 1.0);
+		const float sv = clamp(dot(d, light.TangentV.xyz) / vLen2, -1.0, 1.0);
+
+		const int grid = int(light.Aim.y + 0.5);
+		if (grid > 0)
+		{
+			// Back through the uv map to the cell, so the density here is the
+			// same number the aimed sampler used going the other way. The map
+			// is affine, so its inverse is a two by two.
+			const float a = light.UvToSurface0.x, b = light.UvToSurface0.y;
+			const float c = light.UvToSurface0.z;
+			const float e = light.UvToSurface1.x, f = light.UvToSurface1.y;
+			const float g = light.UvToSurface1.z;
+			const float det = a * f - b * e;
+			if (abs(det) > 1.0e-12)
+			{
+				const float u = (f * (su - c) - b * (sv - g)) / det;
+				const float v = (-e * (su - c) + a * (sv - g)) / det;
+				const int shift = int(light.Aim.w + 0.5);
+				const int cx = clamp(int(u * float(grid)), 0, grid - 1);
+				const int cy = clamp(int(v * float(grid)), 0, grid - 1);
+				const int cell = (cy << shift) + cx;
+				const int base = int(light.Aim.x + 0.5);
+				const float upper = u_EmitterCdf[base + cell];
+				const float lower = cell > 0 ? u_EmitterCdf[base + cell - 1] : 0.0;
+				density = max(upper - lower, 1e-9) * float(grid * grid);
+			}
+		}
+	}
+	return density;
+}
+
+// **What one emitter is worth to this texel, before any ray is cast.**
+//
+// The first build of RT-11 picked one of the sixteen rows uniformly, and that
+// is what made it fail: a garage texel sees one tube and fifteen it cannot,
+// so fifteen draws in sixteen came back zero and the sixteenth came back at
+// sixteen times weight. The aimed sample was a lottery of its own -- and the
+// caps downstream, which exist precisely to stop lotteries, ate it. Measured
+// on the wet floor: the weighting took 0.72 display levels off and the aim
+// gave 0.10 back.
+//
+// So the pick is by what each row is worth here: its brightness, its size,
+// how squarely it faces this point, how far it is, and -- the part that makes
+// it a *reflection's* score rather than a surface's -- how much of this
+// texel's lobe actually points at it. Three probes along the rectangle, the
+// centre and the two ends of its longer side, because a ceiling tube is long
+// and thin and its centre alone says nothing about whether the lobe clips an
+// end of it.
+//
+// A bad score costs variance and nothing else: the weights below divide by the
+// probability the score produced, so the picture is the same whatever it says.
+float EmitterScore(vec3 P, vec3 N, vec3 V, float roughness, GiEmitter light)
+{
+	const vec3 lightNormal = vec3(light.TangentU.w, light.TangentV.w, light.Radiance.w);
+	const float power = dot(light.Radiance.rgb, vec3(0.2126, 0.7152, 0.0722))
+					  * max(light.CentreArea.w, 0.0);
+	if (power <= 0.0)
+		return 0.0;
+	const bool longU = dot(light.TangentU.xyz, light.TangentU.xyz)
+					 >= dot(light.TangentV.xyz, light.TangentV.xyz);
+	const vec3 along = longU ? light.TangentU.xyz : light.TangentV.xyz;
+	float best = 0.0;
+	for (int p = 0; p < 3; ++p)
+	{
+		const vec3 point = light.CentreArea.xyz + along * (float(p) - 1.0);
+		vec3 toLight = point - P;
+		const float distance2 = max(dot(toLight, toLight), 1.0e-4);
+		toLight *= inversesqrt(distance2);
+		if (dot(N, toLight) <= 0.0)
+			continue;
+		const float cosLight = abs(dot(lightNormal, toLight));
+		best = max(best, cosLight * LobePdf(N, V, toLight, roughness) / distance2);
+	}
+	return power * best;
+}
+
+// **The chance the pick above lands on row `index`.** Zero when nothing here
+// is worth aiming at, which the caller reads as "no aimed sample this ray".
+float EmitterChance(vec3 P, vec3 N, vec3 V, float roughness, int emitters, int index)
+{
+	float total = 0.0;
+	float mine = 0.0;
+	for (int i = 0; i < emitters; ++i)
+	{
+		const float s = EmitterScore(P, N, V, roughness, u_Emitters[i]);
+		total += s;
+		if (i == index)
+			mine = s;
+	}
+	return total > 0.0 ? mine / total : 0.0;
+}
+
+// **The density the aimed sampler draws a point at, per unit solid angle.**
+// `chance` is the row's share of the score above (it was 1/16 while the pick
+// was uniform); times the aiming table's density where the row has one; then
+// area to solid angle by the usual d^2 / cos.
+float EmitterPdf(float area, float density, float chance, float distance2, float cosLight)
+{
+	if (area <= 0.0 || cosLight <= 1.0e-4 || chance <= 0.0)
+		return 0.0;
+	return chance * density * distance2 / (area * cosLight);
+}
+
+// **RT-11: one aimed sample, weighed against the lobe ray that was cast anyway.**
+//
+// The two strategies answer the same question -- how much emitter light reaches
+// this texel -- and each is hopeless where the other is good. A mirror's lobe is
+// a needle: aiming at a lamp almost never lands on it, and the mirror ray finds
+// it every frame. A rough floor's lobe is a dish: the lamp is a small part of it
+// and the ray finds it once in fifty frames, at fifty times the brightness.
+//
+// Balance-heuristic weights, so the sum of the two is the same picture and
+// neither is counted twice. What that buys here is not just less variance but a
+// *bound*: the aimed sample's value is Le * pLobe / (pLobe + pLight), which can
+// never exceed the lamp's own radiance however narrow the lobe gets. The lucky
+// ray that used to return three hundred levels now returns what it is worth.
+vec3 AimedAtEmitters(vec3 P, vec3 N, vec3 V, float roughness, int emitters, inout uint seed)
+{
+	// The row, by its share of the score. Kept in a register file rather than
+	// scored twice: the first build walked the rows once to total them and
+	// again to find the draw, and each walk is sixteen rows times three probes
+	// times a GGX evaluation -- the single largest thing this pass added, and
+	// it was buying the same sixteen numbers twice.
+	float score[16];
+	float total = 0.0;
+	for (int i = 0; i < 16; ++i)
+	{
+		score[i] = i < emitters ? EmitterScore(P, N, V, roughness, u_Emitters[i]) : 0.0;
+		total += score[i];
+	}
+	if (total <= 0.0)
+		return vec3(0.0);
+
+	const float draw = GiRandom(seed) * total;
+	int pick = emitters - 1;
+	float walked = 0.0;
+	for (int i = 0; i < 16; ++i)
+	{
+		walked += score[i];
+		// `score[i] > 0` as well as the sum: a draw of exactly zero would
+		// otherwise land on row zero whatever it is worth, and a row worth
+		// nothing has a probability of nothing -- dividing by which turns
+		// one texel into a white spot.
+		if (score[i] > 0.0 && walked >= draw)
+		{
+			pick = i;
+			break;
+		}
+	}
+	const float chance = max(score[pick], 1.0e-9) / total;
+	const GiEmitter light = u_Emitters[pick];
+
+	float su = 0.0;
+	float sv = 0.0;
+	float density = 1.0;
+	vec2 aimUv = vec2(0.0);
+
+	const int grid = int(light.Aim.y + 0.5);
+	if (grid > 0)
+	{
+		// The cell, by binary search over the cumulative table -- the bounce's
+		// sampler exactly, including its power-of-two shift in place of a
+		// runtime integer divide.
+		const int base = int(light.Aim.x + 0.5);
+		const int cells = grid * grid;
+		const float draw = GiRandom(seed);
+		const int shift = int(light.Aim.w + 0.5);
+		int low = 0;
+		int high = cells - 1;
+		for (int step = 0; step < 12 && low < high; step++)
+		{
+			const int mid = (low + high) >> 1;
+			if (u_EmitterCdf[base + mid] < draw)
+				low = mid + 1;
+			else
+				high = mid;
+		}
+		const float upper = u_EmitterCdf[base + low];
+		const float lower = low > 0 ? u_EmitterCdf[base + low - 1] : 0.0;
+		const float chance = max(upper - lower, 1e-9);
+		const vec2 cell = vec2(float(low & (grid - 1)), float(low >> shift));
+		aimUv = (cell + vec2(GiRandom(seed), GiRandom(seed))) / float(grid);
+		su = light.UvToSurface0.x * aimUv.x + light.UvToSurface0.y * aimUv.y + light.UvToSurface0.z;
+		sv = light.UvToSurface1.x * aimUv.x + light.UvToSurface1.y * aimUv.y + light.UvToSurface1.z;
+		density = chance * float(cells);
+	}
+	else
+	{
+		su = GiRandom(seed) * 2.0 - 1.0;
+		sv = GiRandom(seed) * 2.0 - 1.0;
+	}
+
+	// **Out to the face the fitting turns toward this texel** (RT-11).
+	//
+	// The rectangle is built at the mesh's bounding-box centre, so it sits
+	// inside the housing and a ray aimed at it is stopped by the housing's own
+	// shell -- which is why every aimed sample this engine took came back
+	// black. Stepping the point out by half the fitting's thickness, on
+	// whichever side this texel is, puts it on the surface the light actually
+	// leaves from: the ray then arrives without anything being made
+	// transparent, and a texel the fitting genuinely faces away from is still
+	// occluded by it, as it should be.
+	const vec3 lightNormal = vec3(light.TangentU.w, light.TangentV.w, light.Radiance.w);
+	const vec3 flat_ = light.CentreArea.xyz
+					 + light.TangentU.xyz * su
+					 + light.TangentV.xyz * sv;
+	const float side = dot(P - flat_, lightNormal) >= 0.0 ? 1.0 : -1.0;
+	const vec3 point = flat_ + lightNormal * (light.UvToSurface1.w * side);
+	vec3 toLight = point - P;
+	const float distance2 = max(dot(toLight, toLight), 1e-6);
+	const float dist = sqrt(distance2);
+	toLight /= dist;
+
+	if (dot(N, toLight) <= 0.0)
+		return vec3(0.0);
+	// Two-sided: a fitting recessed into a ceiling is one plane, and which way
+	// its winding runs is not something a scene should have to know.
+	const float cosLight = abs(dot(lightNormal, toLight));
+	if (cosLight <= 1.0e-4)
+		return vec3(0.0);
+
+	const float pLight = EmitterPdf(light.CentreArea.w, density, chance, distance2, cosLight);
+	if (pLight <= 0.0)
+		return vec3(0.0);
+	const float pLobe = LobePdf(N, V, toLight, roughness);
+	// The weight and the conversion at once: (pLobe / pLight) * (pLight /
+	// (pLobe + pLight)) is pLobe / (pLobe + pLight), and writing it that way
+	// keeps a near-mirror's enormous pLobe out of a division it would dominate.
+	const float share = pLobe / max(pLobe + pLight, 1.0e-9);
+	if (share <= 0.0)
+		return vec3(0.0);
+
+	// Only whether anything blocks -- terminate on the first hit, no attributes
+	// and no shading. Shortened by a hair so it ends before the lamp's own
+	// surface rather than inside it.
+	// Through the fitting's own shell, which the rectangle sits inside of, and
+	// nothing else: see g_ShadowThroughEmitters. Cleared straight after, so the
+	// rays this pass casts for anything else are unchanged.
+	// No pass-through: the point above is on the fitting's own face, so the
+	// ray stops just short of it and the shell is no longer in the way. It was
+	// needed while the point was the rectangle's centre, and letting a ray
+	// through the whole fitting also let a wall see tubes the housing should
+	// have hidden -- thirteen display levels, measured at sixteen rays.
+	const float visible = TraceShadowFrom(P, N, toLight, dist * 0.999);
+	if (visible <= 0.0)
+		return vec3(0.0);
+
+	// With a table Radiance is the material's unfolded scalar and the map says
+	// what share of it this texel emits; without one it already carries the
+	// map's average.
+	vec3 radiance = light.Radiance.rgb;
+	if (grid > 0)
+		radiance *= textureLod(u_Textures[nonuniformEXT(int(light.Aim.z + 0.5))], aimUv, 0.0).rgb;
+	return radiance * share * visible;
+}
+
+// **And how much of a struck lamp's own glow this ray may still keep**: the
+// other half of the same weighting. One where the hit is not on a listed
+// emitter, so every ordinary surface is untouched; near one on a mirror, where
+// the lobe ray is the better estimator and always was; near zero on a rough
+// floor, where the aimed sample above is now carrying that light smoothly and
+// counting the lucky ray as well would count it twice.
+float StruckEmitterShare(vec3 P, vec3 N, vec3 V, vec3 L, float roughness,
+						 vec3 hitPoint, uint identity, int emitters)
+{
+	const int index = EmitterOf(identity, emitters);
+	if (index < 0)
+		return 1.0;
+	const GiEmitter light = u_Emitters[index];
+	const float density = EmitterDensityAt(light, hitPoint);
+	const vec3 toLight = hitPoint - P;
+	const float distance2 = max(dot(toLight, toLight), 1e-6);
+	const vec3 lightNormal = vec3(light.TangentU.w, light.TangentV.w, light.Radiance.w);
+	const float cosLight = abs(dot(lightNormal, normalize(toLight)));
+	// The same chance the pick would have given this row, so the two weights
+	// still sum to one at every point on it.
+	const float chance = EmitterChance(P, N, V, roughness, emitters, index);
+	const float pLight = EmitterPdf(light.CentreArea.w, density, chance, distance2, cosLight);
+	if (pLight <= 0.0)
+		return 1.0;
+	const float pLobe = LobePdf(N, V, L, roughness);
+	return pLobe / max(pLobe + pLight, 1.0e-9);
+}
+#endif
+
 void main()
 {
 #if defined(RV_REFLECTION_RECORD)
@@ -384,6 +789,37 @@ void main()
 	// Declared for every variant, because the attachment is written by all of them.
 	float emissiveSum = hit.Missed ? 0.0 : dot(hit.Emissive, vec3(0.2126, 0.7152, 0.0722));
 #if !defined(RV_REFLECTION_RECORD) && !defined(RV_REFLECTION_RELIGHT)
+	// **RT-11: and one ray aimed straight at a lamp, for every ray drawn from
+	// the lobe.** See AimedAtEmitters. Zero emitters leaves every line below
+	// inert and this pass bit-identical to what it was.
+	const int emitters = clamp(int(u_Lamps.Nee.x + 0.5), 0, 16);
+	// Its own stream, seeded by the texel and the frame -- not the lattice the
+	// directions are drawn from, which is a fixed sequence a texel walks and
+	// would tie where the sample lands on the lamp to which way the ray went.
+	uint neeSeed = GiHash(uint(texel.x) * 73856093u ^ uint(texel.y) * 19349663u
+						  ^ frame * 83492791u);
+	if (emitters > 0)
+	{
+		// What is left of a struck lamp's own glow once the aimed sample is
+		// carrying that light, and the whole of it where the ray struck
+		// anything else. `IsEmitter` first so an ordinary hit -- which is
+		// almost every hit -- never walks the rows.
+		const float share = (hit.Missed || !hit.IsEmitter) ? 1.0
+						  : StruckEmitterShare(P, N, V, direction, roughness,
+											   hit.Position, hit.Identity, emitters);
+		const vec3 kept = hit.Missed ? vec3(0.0) : hit.Emissive * share;
+		if (!hit.Missed)
+			radiance = max(radiance - (hit.Emissive - kept), vec3(0.0));
+		const vec3 aimed = AimedAtEmitters(P, N, V, roughness, emitters, neeSeed);
+		radiance += aimed;
+		// The clamp downstream reads this lane to tell a ray that found a lamp
+		// from a ray that got lucky (2026-09-21). With the aimed sample most of
+		// a lamp's light no longer arrives as a hit, so the lane now carries
+		// both halves -- what the ray kept and what the aim brought.
+		emissiveSum = dot(kept + aimed, vec3(0.2126, 0.7152, 0.0722));
+	}
+#endif
+#if !defined(RV_REFLECTION_RECORD) && !defined(RV_REFLECTION_RELIGHT)
 	// **RT-15b: more rays where the surface moves on its own.** A flat mirror sliding
 	// in its own plane shows a still picture, so a screen texel's history is only as
 	// old as the frames the mirror has covered it: the strip at its leading edge is
@@ -441,11 +877,28 @@ void main()
 		const vec3 more = GlossyReflectionLD(N, V, roughness, texel, frame, uint(r));
 		const TracedSurface hitMore = TraceSurface(P, N, more, 1.0e4);
 		const float probeMore = ProbeSlotAt(hitMore.Position);
-		radianceSum += hitMore.Missed
+		vec3 arrived = hitMore.Missed
 					 ? hitMore.Sky
 					 : ShadeTraced(hitMore, ProbeIrradiance(hitMore.Normal, probeMore), probeMore);
-		emissiveSum += hitMore.Missed ? 0.0
-					 : dot(hitMore.Emissive, vec3(0.2126, 0.7152, 0.0722));
+		float glow = hitMore.Missed ? 0.0
+				   : dot(hitMore.Emissive, vec3(0.2126, 0.7152, 0.0722));
+		// RT-11: this ray's own aimed sample, on its own turn of the stream.
+		if (emitters > 0)
+		{
+			neeSeed = GiHash(neeSeed ^ (uint(r) * 0x9E3779B9u));
+			const float shareMore = (hitMore.Missed || !hitMore.IsEmitter) ? 1.0
+								  : StruckEmitterShare(P, N, V, more, roughness,
+													   hitMore.Position, hitMore.Identity,
+													   emitters);
+			const vec3 keptMore = hitMore.Missed ? vec3(0.0) : hitMore.Emissive * shareMore;
+			if (!hitMore.Missed)
+				arrived = max(arrived - (hitMore.Emissive - keptMore), vec3(0.0));
+			const vec3 aimedMore = AimedAtEmitters(P, N, V, roughness, emitters, neeSeed);
+			arrived += aimedMore;
+			glow = dot(keptMore + aimedMore, vec3(0.2126, 0.7152, 0.0722));
+		}
+		radianceSum += arrived;
+		emissiveSum += glow;
 		travelledSum += hitMore.Missed ? 1.0e4 : length(hitMore.Position - P);
 		directionSum += more;
 		if (!hitMore.Missed && dot(hitMore.Travel, hitMore.Travel) > 0.0)

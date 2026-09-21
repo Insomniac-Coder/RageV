@@ -71,6 +71,29 @@
 // still asks for the test: the sea's lamp pass casts shadow rays under the
 // bridge's masked thin members and must see through them exactly as the
 // water pass does.
+// **RT-11: whether a light fitting may stop the ray currently being traced.**
+//
+// It must not, when the ray is one aimed *at* a fitting. The area-emitter
+// rectangle a shadow ray is aimed at is built from the mesh's bounding box and
+// sits at its centre (Scene.cpp), which for a tube or a panel is inside the
+// housing -- so the near half of the fitting's own shell stands between the
+// floor and the rectangle, and stopped every aimed ray. Measured on the garage
+// floor: the aim delivered 0.2 display levels where it owed 1.3, and with the
+// visibility test removed entirely it delivered 13.6 and landed within 1.3
+// levels of the sixteen-ray truth. The ray was right and the occluder was the
+// lamp itself.
+//
+// A global rather than a parameter because the traversal loop is shared by
+// every ray in the engine and takes no arguments; set it, trace, clear it.
+// False everywhere else, so no other ray changes.
+bool g_ShadowThroughEmitters = false;
+// **And which fitting**, as RayInstance::Identity folds it (1..1021). Only the
+// one the ray is aimed at is passed through: skipping every emitter let a wall
+// texel see tubes that the fittings between them should have hidden, and at
+// sixteen rays that showed as the back wall converging seven display levels
+// above the answer while the floor matched.
+uint g_ShadowThroughEmitter = 0u;
+
 #if defined(RV_RAY_REFLECTIONS) || defined(RV_RAY_GI) || defined(RV_RAY_REFRACTION) || defined(RV_RAY_CUTOUT_TEST)
 #define RV_RAY_BASE_FLAGS 0u
 
@@ -78,6 +101,13 @@ bool RayCandidateIsThere(rayQueryEXT query)
 {
 	const uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
 	RayInstance hit = u_RayInstances.Instances[instance];
+
+	// **RT-11: the fitting does not shadow the ray aimed at it.** See
+	// g_ShadowThroughEmitters. Before the test below, because a fitting is
+	// ordinary solid geometry and would take the fast exit.
+	if (g_ShadowThroughEmitters && (hit.Flags & RAY_INSTANCE_EMITTER) != 0u
+		&& hit.Identity == g_ShadowThroughEmitter)
+		return false;
 
 	// Solid geometry that merely happens to be in a non-opaque instance --
 	// and the fast exit for everything if the flags ever disagree.

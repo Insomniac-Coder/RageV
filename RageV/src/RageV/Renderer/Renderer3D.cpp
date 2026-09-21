@@ -977,6 +977,15 @@ namespace RageV
 				Ref<RHIBuffer> GiProbes;
 				uint32_t GiEmitterCdfCapacity = 0;
 				Ref<RHIBuffer> GiEmitterCdf;
+				// RT-11: the same rows again for the reflection trace, which
+				// reads them in a pass of its own. Its own pair rather than a
+				// share of the bounce's, because the two passes are recorded
+				// into one command buffer and a host-visible buffer written
+				// between two recorded draws is written under the first one.
+				uint32_t ReflectionEmitterCapacity = 0;
+				Ref<RHIBuffer> ReflectionEmitters;
+				uint32_t ReflectionEmitterCdfCapacity = 0;
+				Ref<RHIBuffer> ReflectionEmitterCdf;
 				uint32_t GiEmitterCapacity = 0;
 				// The batch's per-instance array. Grows to the largest scene
 				// this slot has drawn and stays there, so a steady scene stops
@@ -1473,6 +1482,52 @@ namespace RageV
 
 			buffer = grown;
 			capacity = target;
+			return true;
+		}
+
+		// **This frame's emitter rows and their aiming tables, into one pair of
+		// buffers (RT-11).** Two passes read them now -- the bounce, which has
+		// aimed at the fittings since it was built, and the reflections, which
+		// learned to in RT-11 -- and what the two call a lamp has to be one
+		// answer, so there is one packer rather than two.
+		//
+		// At least one entry in each even where the scene has no emitter at
+		// all: a binding the layout declares and the set leaves unwritten is a
+		// validation error, not a harmless omission.
+		bool UploadEmitters(Ref<RHIBuffer>& rows, uint32_t& rowCapacity,
+							Ref<RHIBuffer>& cdf, uint32_t& cdfCapacity,
+							uint32_t& rowCount, uint32_t& cdfCount)
+		{
+			rowCount = Math::Max((uint32_t)s_Data->Emitters.size(), 1u);
+			cdfCount = Math::Max((uint32_t)s_Data->EmitterCdf.size(), 1u);
+			if (!EnsureInstanceBuffer(rows, rowCapacity, rowCount,
+									  sizeof(Renderer3DData::GpuEmitter), "Renderer3D.emitters")
+				|| !EnsureInstanceBuffer(cdf, cdfCapacity, cdfCount, sizeof(float),
+										 "Renderer3D.emittercdf"))
+				return false;
+
+			if (s_Data->Emitters.empty())
+			{
+				const Renderer3DData::GpuEmitter none{};
+				rows->Upload(&none, sizeof(none));
+			}
+			else
+			{
+				rows->Upload(s_Data->Emitters.data(),
+							 (uint64_t)s_Data->Emitters.size()
+								 * sizeof(Renderer3DData::GpuEmitter));
+			}
+
+			if (s_Data->EmitterCdf.empty())
+			{
+				const float none = 1.0f;
+				cdf->Upload(&none, sizeof(none));
+			}
+			else
+			{
+				cdf->Upload(s_Data->EmitterCdf.data(),
+							(uint64_t)s_Data->EmitterCdf.size() * sizeof(float));
+			}
 			return true;
 		}
 	}
@@ -2234,44 +2289,16 @@ namespace RageV
 		// binding the layout declares and the set leaves unwritten is a
 		// validation error rather than a harmless omission, which is the rule
 		// the instance buffers above already follow.
-		const uint32_t emitterRows = Math::Max((uint32_t)s_Data->Emitters.size(), 1u);
-		if (EnsureInstanceBuffer(slot.GiEmitters, slot.GiEmitterCapacity, emitterRows,
-								 sizeof(Renderer3DData::GpuEmitter), "Renderer3D.giemitters"))
+		// RT-11: packed by the shared UploadEmitters, which the reflection
+		// trace calls as well so the two passes read one answer.
+		uint32_t emitterRows = 1;
+		uint32_t cdfCount = 1;
+		if (UploadEmitters(slot.GiEmitters, slot.GiEmitterCapacity, slot.GiEmitterCdf,
+						   slot.GiEmitterCdfCapacity, emitterRows, cdfCount))
 		{
-			if (s_Data->Emitters.empty())
-			{
-				const Renderer3DData::GpuEmitter none{};
-				slot.GiEmitters->Upload(&none, sizeof(none));
-			}
-			else
-			{
-				slot.GiEmitters->Upload(s_Data->Emitters.data(),
-										(uint64_t)s_Data->Emitters.size()
-											* sizeof(Renderer3DData::GpuEmitter));
-			}
-
 			slot.GiInputs->SetStorageBuffer(2, slot.GiEmitters, 0,
 											(uint64_t)emitterRows
 												* sizeof(Renderer3DData::GpuEmitter));
-		}
-
-		// The aiming tables, all of this frame's end to end. At least one
-		// float for the same reason the row above needs at least one row: a
-		// declared binding left unwritten is a validation error.
-		const uint32_t cdfCount = Math::Max((uint32_t)s_Data->EmitterCdf.size(), 1u);
-		if (EnsureInstanceBuffer(slot.GiEmitterCdf, slot.GiEmitterCdfCapacity, cdfCount,
-								 sizeof(float), "Renderer3D.giemittercdf"))
-		{
-			if (s_Data->EmitterCdf.empty())
-			{
-				const float none = 1.0f;
-				slot.GiEmitterCdf->Upload(&none, sizeof(none));
-			}
-			else
-			{
-				slot.GiEmitterCdf->Upload(s_Data->EmitterCdf.data(),
-										  (uint64_t)s_Data->EmitterCdf.size() * sizeof(float));
-			}
 			slot.GiInputs->SetStorageBuffer(3, slot.GiEmitterCdf, 0,
 											(uint64_t)cdfCount * sizeof(float));
 		}
@@ -3149,6 +3176,29 @@ namespace RageV
 										  source.Emission->Cdf.begin(),
 										  source.Emission->Cdf.end());
 			}
+
+			// **RT-11: the entity this rectangle stands for, folded exactly as
+			// the ray instance folds it** (RayInstance::Identity, 1..1021).
+			//
+			// A traced hit has to know *which* listed emitter it struck, to
+			// weigh the glow it brings back against the sample aimed at that
+			// same emitter. Asking where the hit point is does not answer it:
+			// the rectangle is built from the mesh's bounding box and sits at
+			// its centre, so a ray that strikes a tube lands on the tube's
+			// shell, centimetres off the rectangle's plane. The geometric test
+			// found nothing, the hit kept its whole glow on top of the aimed
+			// sample, and at sixteen rays the two together converged
+			// seventeen display levels above the answer.
+			//
+			// UvToSurface0's w lane, which the aiming map left at zero and
+			// nothing read.
+			// RT-11: half the fitting's thickness, so the sampler can step its
+			// point out to the face turned toward what it is lighting.
+			// UvToSurface1's w lane, left at zero by the aiming map.
+			row.UvToSurface1.w = source.HalfThickness;
+			row.UvToSurface0.w = source.Owner != 0
+							   ? (float)(((source.Owner & 0xFFFFFull) % 1021ull) + 1ull)
+							   : 1022.0f;
 
 			s_Data->Emitters.push_back(row);
 			s_Data->EmitterOwners.push_back(source.Owner);
@@ -4071,6 +4121,9 @@ namespace RageV
 						+ (s_Data->AoSignalRequested ? 8388608 : 0)
 						// bit 24: the traced bounce is this frame's, read by texel
 						// rather than reprojected out of last frame's (RT-3).
+						// bit 25: a traced hit keeps one light and scales it up
+						// rather than shading them all (RT-11).
+						+ (EngineConfig::Get().HitLightSampling ? 33554432 : 0)
 						+ (s_Data->GiSignalRequested ? 16777216 : 0)));
 		}
 
@@ -6946,6 +6999,22 @@ namespace RageV
 			if (inputs->HasBinding(9))
 				inputs->SetTexture(9, tileRays ? tileRays : black, s_Data->PointSampler);
 		}
+
+		// **RT-11: the emitter rows, so the rays can aim at a fitting instead of
+		// finding one by luck.** Asked of the set for RT-20's reason: a staged
+		// older copy of this shader declares neither binding.
+		uint32_t emitterRows = 0;
+		uint32_t emitterCdf = 0;
+		if (inputs->HasBinding(10) && inputs->HasBinding(11)
+			&& UploadEmitters(slot.ReflectionEmitters, slot.ReflectionEmitterCapacity,
+							  slot.ReflectionEmitterCdf, slot.ReflectionEmitterCdfCapacity,
+							  emitterRows, emitterCdf))
+		{
+			inputs->SetStorageBuffer(10, slot.ReflectionEmitters, 0,
+									 (uint64_t)emitterRows * sizeof(Renderer3DData::GpuEmitter));
+			inputs->SetStorageBuffer(11, slot.ReflectionEmitterCdf, 0,
+									 (uint64_t)emitterCdf * sizeof(float));
+		}
 		inputs->Commit();
 
 		LampPushConstants push;
@@ -6968,7 +7037,21 @@ namespace RageV
 		if (s_Data->Heap)
 			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
 		cmd->BindResourceSet(3, inputs);
-		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
+		// **RT-11: how many emitter rows are real, past the block the lamp
+		// passes share.** Only this pipeline's shader declares the extra lane,
+		// so only this push is the wider one; the others keep pushing theirs.
+		// Zero where the rows did not reach the set, or where the switch is
+		// off, and the pass is then bit-identical to what it was before RT-11.
+		struct WideLampPush
+		{
+			LampPushConstants Base;
+			Vec4 Nee{ 0.0f };
+		} wide;
+		wide.Base = push;
+		wide.Nee.x = (emitterRows > 0 && !s_Data->Emitters.empty()
+					  && EngineConfig::Get().ReflectionNee)
+				   ? (float)Math::Min((uint32_t)s_Data->Emitters.size(), 16u) : 0.0f;
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(wide), &wide);
 		cmd->Draw(3);
 	}
 

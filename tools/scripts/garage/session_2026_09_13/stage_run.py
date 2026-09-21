@@ -254,6 +254,20 @@ def lamps_off_scene(head, seconds):
 # committed showroom_moving.rage, which was authored from the 09-07 showroom.
 # `start` is where it begins along world X; it drives +X at `speed` m/s for
 # `stop` seconds of scene time, then holds still.
+# **2026-09-21: this block used to be written in a schema the loader does not
+# have.** `Material:` was a nested map of base colour, metallic and roughness --
+# and MeshComponent's Material field is an *asset handle*, with the per-mesh
+# values being overrides each gated on its own Override flag. So none of it was
+# read: every moving-cube run this project has taken rendered the default matte
+# material, and the "near-mirror chrome cube" was a grey box. Written the way
+# showroom.rage writes it now.
+#
+# **And the material is a real asset now**, assets/materials/chrome_test.rmat:
+# metallic 1, roughness 0.12, no maps. It has to be an asset, because `Material: 0`
+# resolves to none and a MeshComponent with no material ignores its overrides too
+# -- verified by overriding the base colour to pure red and getting the same grey
+# box back. The Override flags below are kept anyway so the values are visible
+# here and agree with the asset.
 CUBE_ENTITY = '''  - EntityID: 7311000000000000101
     TagComponent:
       Tag: MovingPanel
@@ -264,12 +278,19 @@ CUBE_ENTITY = '''  - EntityID: 7311000000000000101
     MeshComponent:
       Static: false
       Mesh: 8241982477996916736
-      Material:
-        BaseColor: [0.95, 0.95, 1, 1]
-        Emissive: [0, 0, 0, 1]
-        Metallic: 1
-        Roughness: 0.12
-        Occlusion: 1
+      Material: 7311000000000000202
+      OverrideBaseColor: true
+      BaseColor: [0.95, 0.95, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: true
+      Metallic: 1
+      OverrideRoughness: true
+      Roughness: 0.12
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
     NativeScriptComponent:
       Script: Slider
       Fields:

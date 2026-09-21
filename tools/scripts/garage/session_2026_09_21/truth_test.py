@@ -28,8 +28,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 'session_2026_09_13'))
 import stage_run as sr  # noqa: E402
 
+# Every file an arm may differ in. The lit header and the shadow traversal
+# joined the list on 2026-09-21: RT-11 changed both, and while they were
+# missing the truth and shipped arms were rendered with the working tree's
+# copies -- so a run scored a change against itself.
 SHADERS = ['reflection_trace.rvshader', 'reflection_resolve.rvshader',
-           'reflection_accumulate.rvshader']
+           'reflection_accumulate.rvshader', 'rtgi_trace.rvshader',
+           'include/pbr_fragment.glsl', 'include/ray_shadow_trace.glsl']
 MANY = ('\tvec3 radianceSum = radiance;', '\trays = 16;\n\tvec3 radianceSum = radiance;')
 
 CAMS = {'garage': '-2.3,0.72,-2,11,0,4', 'close': '-4.3,1.0,-2,3.2,25,8'}

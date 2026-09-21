@@ -433,6 +433,20 @@ namespace RageV
 		// and the old reflection-only-by-name switch turned all six off together --
 		// every temporal experiment taken with it measured more than it said.
 		bool  ReflectionHistory = true;
+		// **--reflection-nee=on|off (RT-11, 2026-09-21):** whether a reflection
+		// ray also aims one sample straight at an area emitter and weighs the
+		// two against each other. Off, a ray finds a ceiling fitting only by
+		// luck and brings back its whole radiance when it does -- which is the
+		// sparkle measured on the driving car. A measurement switch, not a
+		// quality dial: on is the estimator being right.
+		bool  ReflectionNee = true;
+		// **--hit-light-sampling=on|off (RT-11, 2026-09-21):** whether a
+		// traced hit keeps one light, chosen by what it is worth there, and
+		// scales it up -- against shading every light with a shadow ray each.
+		// The last place in the engine that walks them all; shadow rays are
+		// three quarters of the frame's rays. Off, every hit shades every
+		// light exactly as it did.
+		bool  HitLightSampling = true;
 		bool  DirectHistory = true;
 		bool  GiHistory = true;
 		bool  AoHistory = true;

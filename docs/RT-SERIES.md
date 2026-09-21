@@ -31,7 +31,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 
 ## Status at a glance
 
-**Thirty-two of thirty-six items are closed and four are open -- RT-9, RT-15 and RT-13 all closed 2026-09-20, the last two on the owner's word ("speckle, grain and spoiler trace are gone"; "leave it and close RT-13"). RT-10 was DROPPED and RT-21 closed on 2026-09-21 (see their rows); what is left is RT-11, RT-22, the new RT-23 and RT-2.2, which is deliberately last. Every RT-6.x sub-item is finished.** (2026-09-14: RT-5 and RT-16 closed by measured change and the retired young blur; RT-7 closed on the owner's word once tube length reached the ray-traced lamp pass; RT-4 closed on the owner's word with R11 carried into the new RT-21.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
+**Thirty-two of thirty-six items are closed and four are open -- RT-9, RT-15 and RT-13 all closed 2026-09-20, the last two on the owner's word ("speckle, grain and spoiler trace are gone"; "leave it and close RT-13"). RT-10 was DROPPED and RT-21 closed on 2026-09-21 (see their rows); RT-11 closed 2026-09-21; what is left is RT-22, the new RT-23 and RT-2.2, which is deliberately last. Every RT-6.x sub-item is finished.** (2026-09-14: RT-5 and RT-16 closed by measured change and the retired young blur; RT-7 closed on the owner's word once tube length reached the ray-traced lamp pass; RT-4 closed on the owner's word with R11 carried into the new RT-21.) Effort is solo days at this week's pace; the detail behind each number is the complexity table below.
 
 | # | status | effort | risk | in a line |
 |---|---|---|---|---|
@@ -59,7 +59,7 @@ This replaces two lists: `docs/RT-FIRST.md` §2b (T1–T13) and `docs/RENDERING-
 | RT-8 | ✅ **closed 2026-09-09 by the owner** — job 1 shipped (the sea's own choose-and-shade retired for the shared pass); **jobs 2 and 3 dropped**, not deferred: job 2 regressed the bridge and its approach is wrong, job 3 measured no gain | — | — | the water on the G-buffer |
 | RT-9 | ✅ **built 2026-09-16/20** -- the confidence lane (the accumulator's own history, read by the trace) and tile allocation for **both** signals: one count per 16x16 tile, earned only where young texels sit together, nothing at all where nothing moved, and the level's own count as the floor. Both on by default. **It earns nothing measurable in this project**: the reflections' half is free and changes nothing in the garage; the direct half cannot change anything at Quality (eight lamps is the shader's ceiling, so the pass is skipped) and reads as a coin flip against the reference at four, for +0.15 ms. The counters are honest for every pass (the sea's mirror pass never flushed at all), and "rays per pixel" was already one dial across land and water -- records below | — | — | the budget's shadow lane, and confidence drives allocation |
 | RT-10 | ❌ **DROPPED 2026-09-21 (owner: "we have tried everything in the book for RT-10 and things just get worse")** -- built, measured, and taken back out. The three stages (choose-then-shade, neighbours' picks borrowed, picks kept across frames) were on by default for one day. Measured against every lamp shaded, in the garage: stage 1 identical, stage 2 and stage 3 each **further from the correct picture**, for about +3 ms a frame; on the bridge no stage changed the picture at all and they still cost 1.3 to 1.7 ms. The owner then watched the driving car on the commit before the stages beside the tree with them in, and called the earlier one plainly better. Everything RT-10 -- the stages, the lamp picks walking with the accumulate, the visibility check on a reused pick -- is parked on `wip/2026-09-21-rt10-and-sea`, not deleted. **Worth coming back to, and the branch is the starting point.** What is missing is a mechanism, not a dial: every dial was tried and measured (ray count 4 to 32, the parallax distance, the fallback branch, the curvature classification, the blur width) and none of them moved it. The two things never built are the reprojection by what the ray actually struck (RT-17 already records the hit's instance and its previous transform) and a correct weight for a pick whose visibility has changed since it was chosen. Anyone picking this up starts by reading the branch's `docs/` notes and the truth-render harness in `tools/scripts/garage/session_2026_09_21/`. | dropped | -- | ReSTIR DI on the G-buffer |
-| RT-11 | open | 1-2 d | low-moderate | next-event estimation at GI and reflection hits |
+| RT-11 | DONE 2026-09-21 | 1 d | low-moderate | next-event estimation at GI and reflection hits |
 | RT-12 | ✅ **done 2026-09-07** | — | — | the signal debug views, complete |
 | RT-13 | ✅ **done 2026-09-20 (owner's call)** — **skinned + layered done inside RT-2**; transparent: all three stages (the glass layer, its lamp light, its reflections) **on by default from 2026-09-20**, `--glass-layer=off` restores the old path. Costs **+0.45 ms** at the owner's shot (0.54 ms of new passes, 0.09 given back where the nearest pane stops casting its own rays) for the reflection look the owner approved. Validation clean under TAA/MSAA/SSAA, scenetest green on both backends, the bridge byte-identical, and only glass pixels change (0.06% of the wide shot, 0.82% of the close-up, against a 0.000% noise floor). **Moving glass does enter the layer** -- `DrawKind::Static` is the vertex layout, not "does not move". **The panes behind the nearest stay on the old path, by the owner's decision**: a second layer only moves the wall to the third pane, depth peeling costs a full set of passes per pane *and* hands each layer's memory to whichever pane is that far away this frame, and borrowing the nearest pane's picture is a reflection from the wrong angle. Glass's own rays (1.3 ms of the close-up's 2.0 ms transparent pass) are the optimisation pass's | — | — | every opaque surface in the G-buffer; glass through the shared passes |
 | **RT-14** | ✅ **done 2026-09-07** — and it says do not pack the G-buffer | — | — | the G-buffer's bandwidth, measured before anything is packed |
@@ -140,6 +140,73 @@ Effort is solo days at this week's pace (build, measure, report, wait); risk is 
 | RT-9 | 2–3 d | moderate | The tile map's four lanes are full (a second map or a repack); the allocator's restlessness has a history — the sixty-second still test at 0.01 changes per tile per second is the bar, and the direct signal's own temporal moments are the new importance input to get right. |
 | RT-10 (dropped) | 5–7 d | **high** | Bias control (M caps, the MIS weights for spatial reuse, visibility reuse or not); the water's version measured as a loss for a physical reason, and land must be shown to differ; the garage shows little at K = 4, so the bridge's 78-light pixels are the test throughout. |
 | RT-11 | 1–2 d | low–moderate | Mostly RT-1's score applied at the hit; the noise it moves into GI and reflections must be absorbed by their contracts, measured on the reflection arms. |
+
+### RT-11, done 2026-09-21
+
+**Both halves built, and the frame came out faster than it went in.**
+
+**(a) The reflections learned to aim at the emitters.** The bounce pass has done it
+since it was built -- for every ray it casts it also picks a point on a fitting and
+fires one ray straight at it -- and this pass never did. A reflection ray found a tube
+only by luck and brought back its whole radiance when it did: hit or miss by chance at
+one ray a texel, which is the sparkle measured on the driving car. The aimed sample is
+combined with the lobe ray by the balance heuristic, so a mirror still takes its lamp
+from the mirror ray and a rough floor takes it from the aim, and neither counts it
+twice. The emitter is picked by what it is worth to the texel -- brightness, size,
+facing, distance, and how much of the texel's lobe points at it, probed at the centre
+and both ends of the rectangle's long side -- because a uniform pick over sixteen rows
+made the aim a lottery of its own and the caps downstream ate it (0.10 display levels
+delivered against 1.27 removed).
+
+**(b) A traced hit keeps one light instead of shading them all.** The loop walks the
+lights to weigh them, keeps one by weighted reservoir with a chance proportional to
+what it is worth, casts a single shadow ray after the loop and scales the answer back
+up. `--hit-light-sampling=off` restores the old walk. Not in the bake, which keeps
+shading them all because bake time is the cheap currency.
+
+**Measured at one ray, against the 16-ray truth** (`truth_test.py`, distance then
+bright specks, the truth's own count in brackets): garage wet floor 13.31 -> 9.69 and
+7014 -> 5372 (4509); cube face 5.05 -> 2.92 and 507 -> 282 (289); cube floor
+12.77 -> 9.93 and 3213 -> 2096 (1214); car body 2.84 -> 2.73 and 3259 -> 2965 (3159);
+car floor 2.71 -> 2.46 and 271 -> 218 (229). Every region closer on both counts, which
+nothing else in this series has managed.
+
+**Unbiased, and that is the test that matters.** At sixteen rays HEAD and RT-11
+converge to the same picture -- back wall 42.84 vs 42.25, floor 86.45 vs 85.03, cube
+region 37.29 vs 37.74. Different estimator, same answer.
+
+**Cost: -1.75 ms** (18.88 -> 17.12 ms, 1600x900, interleaved eight runs). (a) costs
+0.70 and (b) saves 2.25.
+
+**Three engine defects found on the way, all older than RT-11:**
+
+- **A lamp shadowed every ray aimed at it.** The area-emitter rectangle is built from
+  the mesh's bounding box and sits at its *centre*, so for a tube or a panel it is
+  inside the housing and the near half of the shell stopped the ray. Every aimed sample
+  this engine has ever cast was blocked by the lamp it was aimed at -- the bounce pass
+  included, since it was built. The sampler now steps its point out to whichever face
+  is turned toward the surface being lit (`AreaEmitter::HalfThickness`), so the ray
+  arrives without anything being made transparent. Worth eleven display levels on the
+  garage floor.
+- **A hit could not tell which listed emitter it struck.** It matched by position
+  against a rectangle the ray never lands on, found nothing, and kept the hit's whole
+  glow on top of the aimed sample. It matches by entity identity now
+  (`GiEmitter::UvToSurface0.w`), which was worth seventeen display levels of
+  double-counting at sixteen rays.
+- **A swallowed shader compile failure.** `GiHash`/`GiRandom` sat inside
+  `#ifdef RV_RAY_GI` while `TraceSurface`, which every traced pass calls, is compiled
+  for variants that define no such thing. A reflections-only variant that reached for
+  them failed to compile, **nothing was logged**, the pipeline fell back, and the
+  picture moved fourteen display levels on the back wall with every RT-11 switch turned
+  off. It wasted most of an evening's measurements. The helpers are shared now, and
+  **the engine silently swallowing a shader compile failure is still open** -- there is
+  no defect more expensive than one that reports nothing.
+
+**Switches:** `--reflection-nee=on|off`, `--hit-light-sampling=on|off`, both on by
+default. `truth_test.py` now restores `pbr_fragment.glsl` and `ray_shadow_trace.glsl`
+as well; while it did not, its truth and shipped arms rendered with the working tree's
+copies and a run scored a change against itself.
+
 | RT-12 | 0.5–1 d | low | Plumbing; the log ramp is the only design. |
 | RT-13 | 0.5 d to decide; 2–3 d if a layer | low | Deciding is most of it; a thin transparent layer is a bounded copy of the water's prepass. |
 | RT-16 | 1-2 d | moderate | Half of it is a measurement -- count the frames, and find which of the two filters is holding the light -- and half is the design question the measurement will force: whether a signal should pass through its own accumulator *and* TAA, which is a consequence of RT-6.1 that was never priced. Shortening either memory trades against the noise it exists to hide. |

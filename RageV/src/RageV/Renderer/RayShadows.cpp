@@ -269,10 +269,24 @@ namespace RageV
 		memcpy(instance.Transform, &world[0][0], sizeof(instance.Transform));
 		instance.CustomIndex = (uint32_t)s_Data->Instances.size();
 
-		// **Only a cutout asks traversal to stop and think.** Everything else
-		// keeps the hardware's own commit, so a scene without cutouts pays
-		// nothing for the loop that tests them.
-		instance.ForceNoOpaque = material && material->GetBlendMode() == BlendMode::Masked;
+		// **Only a cutout asks traversal to stop and think** -- and, since
+		// RT-11, a light fitting. Everything else keeps the hardware's own
+		// commit, so a scene without cutouts or emitters pays nothing for the
+		// loop that tests them.
+		//
+		// A fitting has to report its hits as candidates or the shader is
+		// never asked about them: the hardware commits an opaque instance and
+		// ends the ray. A ray aimed at an area emitter must be allowed through
+		// the emitter's own shell (g_ShadowThroughEmitters), and being asked
+		// is what makes that possible. The test is the emitter list's own --
+		// the entity's resolved emissive over one, as Scene.cpp applies it --
+		// so exactly the meshes that can appear in that list opt in, and the
+		// candidate loop returns true for them on every other ray.
+		const Vec3 emissive = Vec3(params.EmissiveColor);
+		const bool emitter =
+			Math::Max(emissive.x, Math::Max(emissive.y, emissive.z)) > 1.0f;
+		instance.ForceNoOpaque = emitter
+							  || (material && material->GetBlendMode() == BlendMode::Masked);
 
 		// **One of two worlds** (kMaskStatic / kMaskMoving, 7cx): what lets
 		// the bake's solve see only what it bakes, and a static pixel's

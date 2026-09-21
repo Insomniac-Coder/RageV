@@ -503,7 +503,20 @@ void main()
 				// question here is only whether anything blocks, which is what
 				// TraceShadowFrom asks: terminate-on-first-hit, no attributes,
 				// no shading. Identical answer, a fraction of the work.
-				if (TraceShadowFrom(world, N, toLight, distance * 0.999) > 0.0)
+				// **RT-11: through the fitting's own shell, and nothing else.**
+				//
+				// The rectangle this ray is aimed at is built from the mesh's
+				// bounding box and sits at its centre, so for a tube or a panel
+				// it is *inside* the housing -- and the near half of the housing
+				// stopped the ray. Every aimed sample this pass has ever taken
+				// was shadowed by the lamp it was aimed at. Found while building
+				// the reflections' own aim (2026-09-21), where it cost eleven
+				// display levels on the garage floor.
+				g_ShadowThroughEmitters = true;
+				g_ShadowThroughEmitter = uint(light.UvToSurface0.w + 0.5);
+				const float aimVisible = TraceShadowFrom(world, N, toLight, distance * 0.999);
+				g_ShadowThroughEmitters = false;
+				if (aimVisible > 0.0)
 				{
 					// Area density to solid angle: pdf_w = pdf_A * d^2 / cos.
 					// The estimator is Li * cos_surface / pdf_w, and the 1/pi
