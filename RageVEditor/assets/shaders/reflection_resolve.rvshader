@@ -214,11 +214,37 @@ void main()
 	// luminance mean and spread of the same taps this texel is about to average, in one cheap
 	// pass over the fresh lane alone: a tap above `mean + sigmas * spread` is scaled back to
 	// it below. Zero (`--reflection-firefly=0`) skips both the pass and the clamp.
+	// How far the cap may open for a ray drawn from a likely direction, as a
+	// multiple of the strict cap. Bounded so one enormous density cannot lift it
+	// without limit; a true firefly's density is below the mean, not above it.
+	const float kCredibleDensity = 16.0;
+	// How much of a tap's light has to be the struck surface's own glow before the
+	// cap comes off it entirely. Half: a lamp seen directly in a mirror is nearly
+	// all its own emission, while a bright floor lit by one is not.
+	const float kEmitterShare = 0.5;
 	const float fireflySigmas = u_Reflection.Probe.x;
 	float tapCap = 1.0e30;
+	// The mean density these taps were drawn at, against which each tap's own is
+	// judged below. Zero where no tap carried one, which leaves the cap flat.
+	float meanPdf = 0.0;
 	if (fireflySigmas > 0.0)
 	{
 		float lumaSum = 0.0, lumaSqSum = 0.0, lumaCount = 0.0;
+		// **The two brightest taps, which is what tells a lamp from a stray ray
+		// (2026-09-21).** A ray that got lucky is bright on its own; a reflection of
+		// something bright is bright in several taps at once. Keeping the second
+		// highest gives the cap a floor that a real feature raises and a single spike
+		// does not.
+		float highest = 0.0, secondHighest = 0.0;
+		// **And how likely each of these rays was to be drawn at all (2026-09-21).**
+		// The trace has always written the density its direction came from -- the
+		// lane's own comment calls it "as unread as it was" -- and this is what it is
+		// for. A bright sample from a direction the lobe strongly favours is a lamp
+		// sitting where the mirror points; a bright sample from an unlikely direction
+		// is a ray that got lucky, and the estimator will pay it an enormous weight.
+		// Cutting both by the same luminance rule is what was taking a fifth of the
+		// garage floor's reflected light.
+		float pdfSum = 0.0, pdfCount = 0.0;
 		for (int i = -1; i < taps; ++i)
 		{
 			ivec2 at = texel;
@@ -235,12 +261,28 @@ void main()
 			lumaSum += l;
 			lumaSqSum += l * l;
 			lumaCount += 1.0;
+			if (l > highest) { secondHighest = highest; highest = l; }
+			else if (l > secondHighest) { secondHighest = l; }
+			const float pdfDrawn = texelFetch(u_Hit, at, 0).z;
+			if (pdfDrawn > 0.0)
+			{
+				pdfSum += pdfDrawn;
+				pdfCount += 1.0;
+			}
 		}
 		if (lumaCount >= 4.0)
 		{
 			const float mean = lumaSum / lumaCount;
 			const float sd = sqrt(max(lumaSqSum / lumaCount - mean * mean, 0.0));
-			tapCap = mean + fireflySigmas * sd;
+			// **And never below what a second tap already agrees on.** The mean and
+			// spread of a dark floor with one lamp in it are both small, so the cap
+			// landed just above the floor and cut the one tap carrying the lamp --
+			// measured on the garage: the reflection came out a fifth darker than a
+			// sixteen-ray render of the same shot, and the clamp was most of it. A
+			// second tap at the same level is a second ray that found the same thing,
+			// which a stray ray by definition does not have.
+			tapCap = max(mean + fireflySigmas * sd, secondHighest);
+			meanPdf = pdfCount > 0.0 ? pdfSum / pdfCount : 0.0;
 		}
 	}
 
@@ -296,12 +338,34 @@ void main()
 		const float pdfTheirs = DistributionGGX(Nn, Hn, rn) * max(dot(Nn, Hn), 1.0e-4)
 							  / (4.0 * max(dot(Vn, Hn), 1.0e-4));
 		const float w = min(pdfHere / max(pdfTheirs, 1.0e-4), kMaxWeight) * exp(-2.0 * r * r);
-		// RT-15: and the tap scaled back where it stands above what the rest of them say.
+		// RT-15: and the tap scaled back where it stands above what the rest of them
+		// say -- **but judged against how likely its own direction was** (2026-09-21).
+		// The cap opens in proportion to the density this tap's ray was drawn at: a
+		// direction the lobe favours ten times more than the average of these taps is
+		// allowed ten times the brightness before it counts as a stray, up to a bound
+		// so that a single enormous density cannot lift the cap without limit. A tap
+		// drawn from an unlikely direction keeps the strict cap it always had.
 		vec3 radiance = f.rgb;
 		{
 			const float l = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
-			if (l > tapCap && l > 1.0e-6)
-				radiance *= tapCap / l;
+			float cap = tapCap;
+			const vec2 hitLanes = texelFetch(u_Hit, at, 0).zw;
+			// **A ray that found something glowing is not a stray (2026-09-21).**
+			// The trace now records how much of this tap's light is the struck
+			// surface's own emission. Where that accounts for most of it, the tap is
+			// a lamp seen in the mirror -- the brightest thing in the room, landing
+			// exactly where the reflection says it should -- and the cap is lifted off
+			// it. Where the brightness came from somewhere else, the cap stands. This
+			// is the piece the clamp never had: it was judging every bright sample by
+			// how far it stood above its neighbours, which on a dark floor condemns
+			// the one sample doing the work.
+			const float emissiveShare = hitLanes.y / max(l, 1.0e-6);
+			if (emissiveShare > kEmitterShare)
+				cap = 1.0e30;
+			else if (meanPdf > 0.0)
+				cap *= clamp(hitLanes.x / meanPdf, 1.0, kCredibleDensity);
+			if (l > cap && l > 1.0e-6)
+				radiance *= cap / l;
 		}
 		sum += radiance * w;
 		distanceSum += distanceHere * w;

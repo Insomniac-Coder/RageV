@@ -262,6 +262,10 @@ const float kMotionFloor = 0.125;
 // How many frames the moments remember: enough to know the grain's
 // spread, short enough to forget a light that went out.
 const float kMomentFrames = 16.0;
+// How much wider the bound stands once a history has its full memory, and the
+// count at which it gets there. One would be the old behaviour at every age.
+const float kSettledBound = 2.0;
+const float kSettledFrames = 32.0;
 // How many of the pixel's own standard deviations the bound opens to.
 const float kTemporalSigma = 2.0;
 // **The smear cap (WR-16 R12, 2026-09-06).** A running average of a moving
@@ -342,6 +346,32 @@ float DirectionConfidence(vec3 nowDir, vec3 thenDir, float roughness)
 	const float lowest = mix(kMirrorSensitivity, kRoughSensitivity,
 							 clamp(roughness, 0.0, 1.0));
 	return smoothstep(lowest, mix(lowest, 1.0, 0.5), agree);
+}
+
+// **Held to the box without being squeezed into it (2026-09-21).**
+//
+// `clamp` works on each colour channel alone, and a reflection of a warm lamp on
+// a dark floor is a different distance outside the box in each of the three. Cut
+// separately, the three come back in different proportions: the light is dimmed
+// *and* its colour walks toward the neighbourhood's. A bright line one or two
+// texels wide -- which is exactly what a tube's reflection is -- loses most of
+// what makes it a highlight, every frame, for as long as the camera looks at it.
+//
+// So the colour is moved *toward* the box instead: the whole vector is shortened
+// along the line from the neighbourhood's mean until it reaches the boundary, and
+// it stops there. A value inside the box is untouched. A value outside comes back
+// to the boundary with its direction -- its hue and its balance -- intact, which
+// is what a temporal resolve's clip-toward-centre does and what this pass never
+// did. The distance it moves is the same; what changes is that it stops being
+// three independent cuts.
+vec3 ClipToBound(vec3 value, vec3 mean, vec3 halfWidth)
+{
+	const vec3 offset = value - mean;
+	const vec3 limit = max(halfWidth, vec3(1.0e-5));
+	// How many box half-widths out it stands, on its furthest channel.
+	const vec3 units = abs(offset) / limit;
+	const float furthest = max(units.x, max(units.y, units.z));
+	return furthest > 1.0 ? mean + offset / furthest : value;
 }
 
 // The bound on a history: the fresh 3x3's mean and spread, widened. Not the
@@ -448,6 +478,8 @@ void Neighbourhood2(ivec2 texel, ivec2 size, out vec3 mean, out vec3 sd)
 // any future layer with a position of its own can take the same route.
 // A bitfield, not a flag: a layer describes itself in one number.
 bool PositionLane() { return (int(u_Reflection.Probe.w + 0.5) & 1) != 0; }
+// 2026-09-21: and whether to look for the history where the reflected thing moved to.
+bool FollowHit() { return (int(u_Reflection.Probe.w + 0.5) & 4) != 0; }
 bool UpNormalLane() { return (int(u_Reflection.Probe.w + 0.5) & 2) != 0; }
 
 // **RT-8: how this layer encodes a normal.** Octahedral for the G-buffer, and
@@ -698,25 +730,73 @@ float IdentityConfidence(ivec2 texel, ivec2 size, vec2 was, float roughness)
 // the one-layer pass, bit for bit.
 bool MovingLayerLive() { return u_Reflection.Change.z > 0.5; }
 
-// How far the moving things this texel's 3x3 struck travelled: their mean, the still hits
-// and the misses left out -- the moving layer is only their light, so it follows them whole.
+// **How far the moving thing this texel's rays struck has travelled -- one thing, not
+// whatever the 3x3 happened to hit (2026-09-21).**
+//
+// This used to average every non-zero travel vector in the neighbourhood. Two objects
+// crossing in opposite directions inside one reflection average to nearly nothing, and
+// the picture is then reprojected by a motion that describes neither of them; one object
+// beside a still one is dragged toward it. Measured the hard way: feeding this average
+// into the image reprojection made the driving car's floor worse, not better, and the
+// reason was here rather than in the reprojection it fed.
+//
+// So the travel now belongs to a group. The group is what this texel's own rays struck
+// where that thing moved; where they struck nothing moving, it is the thing most of the
+// moving neighbours struck. Taps outside the group are left out, and a neighbourhood with
+// no clear group returns nothing at all -- which the caller reads as "do not follow
+// anything", the honest answer when a rough pixel's lobe is spread over several movers.
+//
+// `o_Ident`'s red is the struck instance, folded into 1..1021 by the trace (RT-17); zero
+// is a miss or a still hit, which is why it can stand for "no group".
 vec3 MoverTravel(ivec2 texel, ivec2 size)
 {
-	vec3 sum = vec3(0.0);
+	vec3 travel[9];
+	float ident[9];
 	float movers = 0.0;
-	for (int y = -1; y <= 1; ++y)
+	for (int i = 0; i < 9; ++i)
 	{
-		for (int x = -1; x <= 1; ++x)
+		const ivec2 at = clamp(texel + ivec2(i % 3 - 1, i / 3 - 1), ivec2(0), size - 1);
+		travel[i] = texelFetch(u_FreshTravel, at, 0).rgb;
+		ident[i] = dot(travel[i], travel[i]) > 0.0 ? texelFetch(u_FreshIdentity, at, 0).r : 0.0;
+		movers += ident[i] > 0.0 ? 1.0 : 0.0;
+	}
+	if (movers <= 0.0)
+		return vec3(0.0);
+	// This texel's own struck mover first: it is the one whose image sits here.
+	float group = ident[4];
+	if (group <= 0.0)
+	{
+		// Otherwise the one most of the moving taps struck. A tie leaves the group at
+		// whichever was counted first, which is no worse than the average this replaces.
+		float best = 0.0;
+		for (int i = 0; i < 9; ++i)
 		{
-			const vec3 t = texelFetch(u_FreshTravel, clamp(texel + ivec2(x, y), ivec2(0), size - 1), 0).rgb;
-			if (dot(t, t) > 0.0)
+			if (ident[i] <= 0.0)
+				continue;
+			float count = 0.0;
+			for (int j = 0; j < 9; ++j)
+				count += (ident[j] == ident[i]) ? 1.0 : 0.0;
+			if (count > best)
 			{
-				sum += t;
-				movers += 1.0;
+				best = count;
+				group = ident[i];
 			}
 		}
+		// No majority among the movers: several things are moving through this pixel's
+		// lobe and no single vector describes them. Follow none.
+		if (best * 2.0 <= movers)
+			return vec3(0.0);
 	}
-	return movers > 0.0 ? sum / movers : vec3(0.0);
+	vec3 sum = vec3(0.0);
+	float kept = 0.0;
+	for (int i = 0; i < 9; ++i)
+	{
+		if (ident[i] != group)
+			continue;
+		sum += travel[i];
+		kept += 1.0;
+	}
+	return kept > 0.0 ? sum / kept : vec3(0.0);
 }
 
 // The fresh 3x3's mean and spread for each layer, where Neighbourhood gives them for the
@@ -1427,9 +1507,20 @@ void main()
 			// motion, no move, and the image point stays exactly where the
 			// camera arm puts it.
 			const bool moved = dot(objectShift, objectShift) > 0.0;
+			// **2026-09-21: and where what we are looking at has moved to.**
+			// `seenTravel` is how far the thing this texel's rays struck has
+			// travelled since last frame -- one object's, now that the gather is
+			// identity-aware (MoverTravel) -- mirrored through the reflector and
+			// shrunk the way the image is. Zero where nothing this pixel sees moved,
+			// which is every pixel of a still scene, so the lookup is unchanged there.
+			const vec3 seenTravel = FollowHit()
+								  ? MoverTravel(texel, size)
+									* (clamp(dominant, 0.0, 1.0)
+									   / (1.0 + 2.0 * travelled * curvature))
+								  : vec3(0.0);
 			imagePoint = (moved && atSurface.bilinear)
-			           ? ImageThen(P, N, sight, image, atSurface, vec3(0.0))
-			           : P + sight * image;
+			           ? ImageThen(P, N, sight, image, atSurface, seenTravel)
+			           : P + sight * image - MirrorVector(seenTravel, N);
 		}
 		Candidate c;
 		bool have = HistoryAt(imagePoint, size, P, N, roughness, eyeDistance,
@@ -1528,8 +1619,24 @@ void main()
 #endif
 				Neighbourhood(texel, size, mean, sd);
 			const float sigma = sqrt(max(c.extra.b - c.extra.g * c.extra.g, 0.0));
-			const vec3 halfWidth = max(sd * width, vec3(kTemporalSigma * sigma));
-			const vec3 held = clamp(pastStill, mean - halfWidth, mean + halfWidth);
+			vec3 halfWidth = max(sd * width, vec3(kTemporalSigma * sigma));
+			// **And opened by how long this history has been agreeing with itself
+			// (2026-09-21).** The bound exists to catch a history that is *wrong* --
+			// one that belongs to another surface, or to this one before it moved.
+			// A history with sixty frames behind it on a still camera is not wrong;
+			// it is the most settled estimate in the frame, and holding it to its
+			// neighbours' spread as tightly as a two-frame one pulls every thin
+			// bright feature down to the floor around it. Measured on the garage's
+			// wet floor: the bound alone was taking a fifth of the reflection's light
+			// against a sixteen-ray render of the same shot.
+			//
+			// So the box widens with the count behind the picture -- doubling by the
+			// time a texel has its full memory -- and a young history keeps the bound
+			// exactly as it was. A history that is genuinely wrong is caught by the
+			// tests above this (surface, plane, facing, object), not by the box.
+			halfWidth *= mix(1.0, kSettledBound,
+							 clamp((c.past.a - 1.0) / max(kSettledFrames - 1.0, 1.0), 0.0, 1.0));
+			const vec3 held = ClipToBound(pastStill, mean, halfWidth);
 
 			// How far the picture moved since last frame, in texels, on the
 			// unjittered grid both sides: a parked camera reads the half
@@ -1777,7 +1884,20 @@ void main()
 	// same lane, read from the previous history, is what makes
 	// `1 - dot(R_now, R_prev)` a difference of two stored vectors rather
 	// than a reconstruction from two cameras.
-	o_Motion = vec4(g_HaveMotion ? g_ImageMotion : vec2(0.0),
+	// **A zero here now means the reflection stood still, and nothing else
+	// (2026-09-21).** It used to mean either that, or that no history was found to
+	// measure a shift from -- one value for two facts. The compositor could only
+	// guess between them by testing whether the vector was non-zero, so a flat
+	// mirror sliding in its own plane, whose reflected world genuinely does not
+	// move, was read as "no measurement" and given the mirror's own motion
+	// instead: the resolve then chased a reflection that was standing still.
+	//
+	// Rather than spend a channel on a validity bit -- the other two carry the
+	// reflection's direction and have no room -- the pass writes the surface's
+	// own motion where it has nothing better. That is exactly the guess the
+	// compositor was making, made here where the answer is known, and it leaves
+	// zero free to mean what it says.
+	o_Motion = vec4(g_HaveMotion ? g_ImageMotion : texelFetch(u_Velocity, texel, 0).xy,
 					OctEncode(reflect(sight, N)));
 	// RT-6.5: who this texel was, for the next frame's fourth check.
 	// RT-17: and what its ray struck, for the next frame's identity check.

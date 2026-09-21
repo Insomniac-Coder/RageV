@@ -52,6 +52,23 @@ layout(set = 3, binding = 4) uniform sampler2D u_Accumulated2;   // the twin, sa
 // choice-and-refusal code where the reflector is curved and moves on its own
 // (reflection_accumulate.rvshader, kMovingCurvedMark). Black where none is bound.
 layout(set = 3, binding = 5) uniform sampler2D u_Extra;
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+// The uncertainty the previous pass left; black on the first, which reads the
+// accumulator's moments instead (u_Reflection.Tuning.w says which).
+layout(set = 3, binding = 6) uniform sampler2D u_VarianceIn;
+// **How many frames the picture was actually blended over (2026-09-21).**
+//
+// Not the same number as the picture's alpha. On the reflections that alpha is
+// the lit shader's trust in this picture against its probe, and the accumulator
+// deliberately holds it steady through a restart so a light change does not bring
+// the old probe capture back. The count the blend really ran on is kept in the id
+// lane's green instead -- and this pass was reading the alpha. So a pixel whose
+// history had just been cut to a single frame by the anti-lag was handed to the
+// filter as fully converged, the young ramp read zero, and the one place that most
+// needed smoothing got none. Zero here means the count was never written (the
+// measured-change pass was off), and the alpha stands in.
+layout(set = 3, binding = 7) uniform sampler2D u_BlendCount;
+#endif
 #endif
 
 layout(push_constant) uniform ReflectionParams
@@ -85,6 +102,16 @@ layout(push_constant) uniform ReflectionParams
 layout(location = 0) out vec4 o_Blurred;
 #ifdef RV_SIGNAL_PAIR
 layout(location = 1) out vec4 o_Blurred2;
+#elif !defined(RV_SIGNAL_DIFFUSE)
+// **The uncertainty this pass leaves behind (2026-09-21).** Filtered with the
+// square of the weights the colour was filtered with, which is what an average
+// of n values does to their variance, and read by the next pass in place of the
+// accumulator's raw moments. Without it the second and third passes judge a
+// picture they have already smoothed against the noise of the one they started
+// from: every tap then looks like an outlier, the weights collapse, and the two
+// wider passes do nothing -- which is half of why widening the blur never
+// worked here.
+layout(location = 1) out float o_Variance;
 #endif
 
 // **WR-16 R12 (2026-09-06): the blur is the short history's partner.** Its
@@ -110,6 +137,17 @@ const int kMaxRadius = 3;
 #define kBlurFrames (u_Reflection.Blur.y)
 const float kLobeWidth = 2.8;
 const float kPassShare = 0.57735;   // three passes share the variance
+// **How far a luminance difference may stand from the centre before a tap stops
+// counting**, in standard deviations of the centre's own uncertainty (SVGF's
+// sigma_l). Four is the paper's figure and the one every implementation since has
+// kept: at four sigma a tap that differs by noise still counts, and a tap that
+// differs because the picture genuinely changes there does not. This is the weight
+// that makes a wide blur safe -- without it, widening the radius is the choice
+// between grain and mush that the young blur was retired for.
+const float kSigmaL = 4.0;
+// The floor under that scale, so a texel whose samples all agree does not divide
+// by nothing and reject every neighbour.
+const float kSigmaLFloor = 1.0e-3;
 
 // **RT-8: and the same surface from a layer that knows where it is.** The
 // contract rebuilds P from the depth buffer, which assumes the signal it is
@@ -169,6 +207,21 @@ bool SurfaceAt(ivec2 texel, ivec2 size, out vec3 P, out vec3 N, out float roughn
 	return true;
 }
 
+#if !defined(RV_SIGNAL_DIFFUSE) && !defined(RV_SIGNAL_PAIR)
+// **What a texel's picture is still uncertain by.** The first pass has only the
+// accumulator's two moments: the spread of the samples that made the average, over
+// the count behind it. Every pass after reads what the pass before it left, which
+// has been filtered along with the colour and so falls as the picture settles --
+// which is the point of carrying it at all.
+float VarianceAt(ivec2 at, float frames)
+{
+	if (u_Reflection.Tuning.w > 0.5)
+		return max(texelFetch(u_VarianceIn, at, 0).r, 0.0);
+	const vec4 e = texelFetch(u_Extra, at, 0);
+	return max(e.b - e.g * e.g, 0.0) / max(frames, 1.0);
+}
+#endif
+
 void main()
 {
 	const ivec2 texel = ivec2(gl_FragCoord.xy);
@@ -188,7 +241,18 @@ void main()
 	if (!SurfaceAt(texel, size, P, N, roughness))
 		return;
 
-	const float young = 1.0 - clamp((centre.a - 1.0) / (kBlurFrames - 1.0), 0.0, 1.0);
+#if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
+	// The real count, and the alpha only where none was written. See u_BlendCount.
+	const float carried = texelFetch(u_BlendCount, texel, 0).g;
+	const float frames = carried > 0.0 ? carried : centre.a;
+#else
+	const float frames = centre.a;
+#endif
+	const float young = 1.0 - clamp((frames - 1.0) / (kBlurFrames - 1.0), 0.0, 1.0);
+#if !defined(RV_SIGNAL_DIFFUSE) && !defined(RV_SIGNAL_PAIR)
+	// Carried even where this pass returns early, or the next one reads nothing.
+	o_Variance = VarianceAt(texel, frames);
+#endif
 	// No gloss window here: the footprint bound below already says how
 	// far a lobe allows; mirrors have no footprint and get no blur.
 #if !defined(RV_SIGNAL_PAIR) && !defined(RV_SIGNAL_DIFFUSE)
@@ -213,15 +277,71 @@ void main()
 	//
 	// Not a substitute for the history's own ramp: `young` still gates it, so nothing with a
 	// grown history is touched however noisy its samples are.
-	if (u_Reflection.History.z > 0.5 && radius > 0.0)
+	// **The texel's own uncertainty, and the radius it asks for (2026-09-21).**
+	//
+	// The accumulator keeps two luminance moments per texel, so the spread of the
+	// samples that made this average is known, and the error left in the average is
+	// that spread over the root of the count. Two things were wrong with using it
+	// only as a fade on a radius that was itself zero:
+	//
+	//  * **A short history's moments are not trustworthy.** Two or three samples
+	//    tell you almost nothing about their own spread, which is exactly where the
+	//    blur is needed. So where the count is low the moments of the 3x3 stand in,
+	//    which is the estimate SVGF falls back on for the same reason.
+	//  * **A settled texel can still be noisy.** The old radius was gated on `young`
+	//    and on the moving-reflector mark, so a parked floor whose every texel had a
+	//    full history and visible grain asked for nothing. Uncertainty does not care
+	//    how many frames stand behind it.
+	//
+	// So: the uncertainty decides the radius, the history's own ramp only adds to it.
+	float variance = 0.0;
+	float relativeError = 0.0;
+	{
+		float mean = extra.g;
+		float meanSq = extra.b;
+		// Too few frames to believe the texel's own pair: take the neighbourhood's.
+		if (frames < 4.0)
+		{
+			float sum = 0.0, sumSq = 0.0, count = 0.0;
+			for (int y = -1; y <= 1; ++y)
+			{
+				for (int x = -1; x <= 1; ++x)
+				{
+					const ivec2 at = clamp(texel + ivec2(x, y), ivec2(0), size - 1);
+					if (texelFetch(u_Accumulated, at, 0).a <= 0.0)
+						continue;
+					const vec4 e = texelFetch(u_Extra, at, 0);
+					sum += e.g;
+					sumSq += e.b;
+					count += 1.0;
+				}
+			}
+			if (count > 0.0)
+			{
+				mean = sum / count;
+				meanSq = sumSq / count;
+			}
+		}
+		// The spread of the samples, then the error left in their average.
+		variance = max(meanSq - mean * mean, 0.0) / max(frames, 1.0);
+		relativeError = sqrt(variance) / max(mean, 1.0e-3);
+	}
+	if (u_Reflection.History.z > 0.5)
+	{
+		// The same fade as before, no longer behind the young ramp or the moving
+		// mark: the reach is what the uncertainty asks for, and a settled texel
+		// with no spread asks for nothing and is copied through untouched.
+		radius = max(radius, u_Reflection.Blur.w * smoothstep(0.02, 0.20, relativeError));
+	}
+	else if (radius > 0.0)
 	{
 		const float mean = max(extra.g, 1.0e-3);
 		const float spread = sqrt(max(extra.b - extra.g * extra.g, 0.0));
-		const float relativeError = spread / (sqrt(max(centre.a, 1.0)) * mean);
-		radius *= smoothstep(0.02, 0.20, relativeError);
+		radius *= smoothstep(0.02, 0.20, spread / (sqrt(max(frames, 1.0)) * mean));
 	}
 #else
 	float radius = kYoungRadius * young * young;
+	const float variance = 0.0;
 #endif
 	if (radius < 0.5)
 		return;
@@ -249,9 +369,17 @@ void main()
 #else
 	const vec2 reach = min(vec2(radius), footprint / texelSize * (1.0 + kYoungOverreach * young * young));
 #endif
-	// Radius is two sigmas; this pass carries its share at its stride, and a
-	// seven-tap window supports a sigma of about one and a half.
+	// **Radius is two sigmas, and sigma is counted in taps, not in texels
+	// (2026-09-21).** The three passes widen by standing their seven taps further
+	// apart -- stride 1, then 2, then 4 -- which is the whole of what an a-trous
+	// filter is. Dividing sigma by that stride took the widening straight back out
+	// again: every pass then covered the same texels as the first, so passes two and
+	// three were near copies and the support never grew past seven texels however
+	// large the radius. Sigma now stands in tap space, the stride does the widening,
+	// and a pass whose stride already reaches past what the radius asks for stops.
 	const int stride = max(int(u_Reflection.Probe.z + 0.5), 1);
+	if (max(reach.x, reach.y) < float(stride))
+		return;
 	const vec2 sigma = min(0.5 * reach * kPassShare / float(stride), vec2(1.5));
 	if (max(sigma.x, sigma.y) < 0.15)
 		return;
@@ -260,6 +388,11 @@ void main()
 
 	vec3 sum = vec3(0.0);
 	float weightSum = 0.0;
+#if !defined(RV_SIGNAL_DIFFUSE)
+	// The square of the weights, for the variance this pass leaves behind.
+	float varianceSum = 0.0;
+	float weightSqSum = 0.0;
+#endif
 	for (int y = -kMaxRadius; y <= kMaxRadius; ++y)
 	{
 		for (int x = -kMaxRadius; x <= kMaxRadius; ++x)
@@ -276,13 +409,37 @@ void main()
 			w *= pow(max(dot(N, Nn), 0.0), 8.0);
 			w *= exp(-abs(dot(N, Pn - P)) / planeTolerance);
 			w *= abs(rn - roughness) < 0.2 ? 1.0 : 0.0;
+#if !defined(RV_SIGNAL_DIFFUSE)
+			// **And the weight that tells noise from detail (2026-09-21).** The three
+			// tests above ask whether the neighbour is the same surface; none of them
+			// asks whether its picture differs for a reason. A tap whose luminance sits
+			// within the centre's own uncertainty is the same value seen through noise
+			// and is averaged in; one that stands far outside it is a different thing --
+			// a lamp's reflection ending, an edge in the reflected room -- and is
+			// dropped. This is why a wide radius can be spent here without turning the
+			// floor to mush, and why every earlier attempt to widen it was refused by
+			// eye: the blur could only ever smooth everything equally.
+			{
+				const float lc = dot(centre.rgb, vec3(0.2126, 0.7152, 0.0722));
+				const float ln = dot(f.rgb, vec3(0.2126, 0.7152, 0.0722));
+				w *= exp(-abs(lc - ln) / (kSigmaL * sqrt(variance) + kSigmaLFloor));
+			}
+#endif
 			sum += f.rgb * w;
 #ifdef RV_SIGNAL_PAIR
 			sum2 += texelFetch(u_Accumulated2, at, 0).rgb * w;
 #endif
 			weightSum += w;
+#if !defined(RV_SIGNAL_DIFFUSE) && !defined(RV_SIGNAL_PAIR)
+			varianceSum += w * w * VarianceAt(at, frames);
+			weightSqSum += w * w;
+#endif
 		}
 	}
+#if !defined(RV_SIGNAL_DIFFUSE) && !defined(RV_SIGNAL_PAIR)
+	// An average of values with weights w has variance sum(w^2 v) / (sum w)^2.
+	o_Variance = weightSum > 0.0 ? varianceSum / (weightSum * weightSum) : variance;
+#endif
 	if (weightSum > 0.0)
 	{
 		o_Blurred = vec4(sum / weightSum, centre.a);

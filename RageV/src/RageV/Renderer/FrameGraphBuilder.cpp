@@ -192,7 +192,19 @@ namespace RageV
 		// Every mode but None is a pass PostProcess owns. Without it the chain
 		// would tone map into an intermediate that nothing then reads, and the
 		// window would be black with no error anywhere.
-		return PostProcess::IsReady() ? requested : AntiAliasing::None;
+		if (!PostProcess::IsReady())
+			return AntiAliasing::None;
+		// **With the rays on, the resolve is not optional (owner, 2026-09-21).**
+		// Every traced signal settles over frames, and every one of those
+		// averages needs the raster to move under it: with a still raster each
+		// pixel draws the same lamps at the same point every frame and the
+		// average is one answer averaged with itself. Measured twice in one
+		// night -- the sea's orange dots and the land's frozen lamp picks --
+		// so a ray-traced frame resolves temporally or not at all. `--aa=` is
+		// still honoured with the rays off, which is what the checks use.
+		if (ResolveRayTracing(render))
+			return AntiAliasing::TAA;
+		return requested;
 	}
 
 	bool ResolveRayTracing(const RenderSettings& render)
@@ -1432,7 +1444,15 @@ namespace RageV
 			const bool specularKind = params.Type != Renderer3D::SignalParams::Kind::Diffuse;
 			const bool movingBlur = specularKind && params.MovingRadius >= 0.5f
 								 && Renderer3D::AnyInstanceMoved();
-			if (params.YoungRadius < 0.5f && !movingBlur)
+			// **2026-09-21: and wherever a texel's own uncertainty may ask for a
+			// radius.** The filter is no longer the moving reflector's alone: a parked
+			// floor whose every texel has a full history and visible grain asks for it
+			// too, and nothing moved to let these passes be built. The shader still
+			// returns its input untouched where the uncertainty is small, so a settled
+			// and clean picture pays three copies and nothing else.
+			const bool varianceFilter = specularKind && params.MovingRadius >= 0.5f
+									 && EngineConfig::Get().ReflectionNoiseBlur;
+			if (params.YoungRadius < 0.5f && !movingBlur && !varianceFilter)
 				return SignalResult{ current, 3u };
 			// Three blur passes at strides 1, 2, 4: each reads the previous
 			// pass's output; the first reads the history itself, which is
@@ -1440,6 +1460,9 @@ namespace RageV
 			blurDesc.ExtraColors.clear();
 			if (pair)
 				blurDesc.ExtraColors.push_back(blurDesc.Color);
+			// 2026-09-21: the specular blur leaves its uncertainty beside the picture.
+			else if (specularKind)
+				blurDesc.ExtraColors.push_back(Format::R16_SFLOAT);
 			RGResource blurred = kRGInvalid;
 			RGResource blurInput = current;
 			const std::string base = blurDesc.Name;
@@ -1461,7 +1484,7 @@ namespace RageV
 							builder.Sample(guideDepth);
 						builder.DisableDepth();
 					},
-					[params, input, current, sceneHDR, stride, pair, specularKind,
+					[params, input, current, sceneHDR, stride, pair, specularKind, pass,
 					 guideDepth, guideSurface, guideDepthLane, guideNormalLane,
 					 ownGuide, depthAttachment](RGPassContext& context)
 					{
@@ -1475,7 +1498,14 @@ namespace RageV
 											   // the twin: attachment 3 of the accumulated target, 1 of a blurred one
 											   pair ? context.Color(input, input == current ? 3 : 1) : nullptr,
 											   // RT-15: the accumulate's extra, whose alpha marks a moving curved reflector
-											   specularKind ? context.Color(current, 2) : nullptr);
+											   specularKind ? context.Color(current, 2) : nullptr,
+											   // 2026-09-21: and the uncertainty the pass before left, which
+											   // exists only from the second pass on.
+											   specularKind && !pair && pass > 0
+												   ? context.Color(input, 1) : nullptr,
+											   // 2026-09-21: the accumulate's id lane, whose green carries the
+											   // count the blend really ran on.
+											   specularKind && !pair ? context.Color(current, 4) : nullptr);
 					});
 				blurInput = output;
 				blurred = output;
@@ -3562,8 +3592,11 @@ namespace RageV
 		// resolve also goes around its smoothing, and the moving layer's grain showed as
 		// speckles on the floor under the chrome cube and flicker on the pipes mirroring it.
 		RGResource reflectionLit = kRGInvalid;
+		// 2026-09-21: the layer existing and the layer being added after the resolve
+		// are two decisions now, not one. See EngineConfig::ReflectionMovingAfterResolve.
 		const bool movingAfterResolve = wantTemporal && tracedReflections
-									  && EngineConfig::Get().ReflectionMovingLayer;
+									  && EngineConfig::Get().ReflectionMovingLayer
+									  && EngineConfig::Get().ReflectionMovingAfterResolve;
 		// --- the opaque glossy reflection, added ---------------------------------
 		//
 		// **RT-6.1: before the temporal resolve, and it hands the resolve the

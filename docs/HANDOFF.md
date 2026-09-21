@@ -1,5 +1,52 @@
 # RageV — handoff
 
+**Read this first.** Updated 2026-09-21 (afternoon): **the moving reflection's sparkle is the
+rays, not the denoiser.** Measured: the same frame-to-frame jump rate with the reflection's
+history on and off, and four fifths of the raw number is the car's own edges moving. The
+reflection's share is ~630 pixels a frame, all of it on the chrome poles and the floor beside
+them. Five reconstruction fixes were built and measured against a 16-ray truth render and all
+are losses or inert -- see RT-23's row in docs/RT-SERIES.md for the list and the numbers.
+
+- **The instrument to use from now on** is `tools/scripts/garage/session_2026_09_21/truth_test.py`:
+  the same shot with the reflection trace forced to 16 rays a texel, scored against. It is a
+  same-estimator reference -- it judges reconstruction, not whether the estimator is right.
+- **In the tree, uncommitted:** the TAA-with-rays rule; RT-21's highlight floor (1e-4 -> 1e-9);
+  the firefly clamp told what the ray struck (the trace writes the hit's emissive luminance into
+  `o_Hit.w`, which had been a literal zero); visible-normal sampling behind `RV_REFLECTION_VNDF`,
+  off by default; the full variance/edge-stopping filter (measured inert, left in); and the
+  Stage 1 contract fixes -- per-signal history switches, the motion-validity contract, and the
+  real blend count reaching the blur.
+- **The trap that cost the most:** the runtime reads shaders from its own staged copy, so
+  editing the source and running the exe measures the old shader. `stage_run.restore()` stages
+  the current source; two "no change" results were this and nothing else.
+
+
+**Read this first.** Updated 2026-09-21: **RT-10 is dropped and main is back to
+`5b6d052` plus one change.** The night's work -- the three ReSTIR stages, the lamp picks
+walking wherever the direct light is averaged, the visibility check on a reused pick, and
+the sea's lamp-walk fix -- is parked whole on the branch `wip/2026-09-21-rt10-and-sea`.
+Nothing was deleted and the sea fix can be brought back on its own.
+
+- **Why it was dropped.** Measured against every lamp shaded: in the garage stage 1 was
+  identical, stages 2 and 3 each landed further from the correct picture, for about +3 ms
+  a frame; on the bridge no stage changed the picture at all and they still cost. The
+  owner then watched the driving car on `5b6d052` beside the tree with the stages in and
+  called the earlier one plainly better. His word: "we have tried everything in the book
+  for RT-10 and things just get worse."
+- **The one change that stayed: with the rays on, the frame resolves with TAA.**
+  `ResolveAntiAliasing` returns `TAA` whenever `ResolveRayTracing` is true, so `--aa=none`,
+  `msaa` and `ssaa` apply only with the rays off (which is what the checks use). The reason
+  is the night's other lesson, paid for twice: a traced signal settles over frames, and
+  every one of those averages needs the raster to move under it. With a still raster the
+  sea drew the same lamps at the same point every frame (the owner's orange dots) and so
+  did the land.
+- **Still open and untouched by any of this:** the reflection accumulator on surfaces that
+  move on their own -- the streaks on the driving car's body and the blotches on the
+  moving chrome cube. Proven this night to be the kept memory landing in the wrong place,
+  and *not* the ray count, the parallax distance, the fallback branch, the curvature
+  classification or the blur width. The branch holds the truth-render harness that shows it.
+
+
 **Read this first.** Updated 2026-09-20 (later): **the entry below headed "RT-13 closed" is the current hand-off.** With RT-9, RT-15 and RT-13 all closed today, **thirty-one of thirty-six RT items are done and five are open** -- RT-10, RT-11, RT-21, RT-22 and RT-2.2, which is deliberately last. The entry after it covers RT-9 and the import cache.
 
 ## 2026-09-20 (later): RT-13 closed -- the glass layer is on by default

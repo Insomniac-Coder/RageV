@@ -3620,11 +3620,15 @@ namespace RageV
 			// own**, as the water accumulate's note below says: a target grown alone leaves the
 			// write going nowhere, and a pipeline grown alone is a validation error on every
 			// draw (both paid for, 2026-09-08 and 2026-09-16).
-			const int extras = pass == 0 ? 3 : pass == 1 ? 1 : pass == 2 ? 5 : pass == 4 ? 2 : pass == 6 ? 4 : pass == 7 ? 1 : 0;
+			// **2026-09-21: and the specular blur a second** -- the uncertainty it
+			// leaves behind, one channel, read by the next pass at its own stride.
+			const int extras = pass == 0 ? 3 : pass == 1 ? 1 : pass == 2 ? 5 : pass == 3 ? 1
+							 : pass == 4 ? 2 : pass == 6 ? 4 : pass == 7 ? 1 : 0;
 			for (int extra = 0; extra < extras; ++extra)
 			{
 				reflection.ColorFormats.push_back(pass == 0 && extra == 1 ? Format::R16G16_SFLOAT
 																		 : pass == 6 && extra == 3 ? Format::R16G16_SFLOAT
+																		 : pass == 3 ? Format::R16_SFLOAT
 																		   : Format::R16G16B16A16_SFLOAT);
 				reflection.BlendPerAttachment.push_back(BlendPreset::Opaque);
 			}
@@ -7032,7 +7036,9 @@ namespace RageV
 								const RHI::Ref<RHITexture>& imageDistance,
 								int stride,
 								const RHI::Ref<RHITexture>& accumulated2,
-								const RHI::Ref<RHITexture>& extra)
+								const RHI::Ref<RHITexture>& extra,
+								const RHI::Ref<RHITexture>& varianceIn,
+								const RHI::Ref<RHITexture>& blendCount)
 	{
 		const bool diffuse = signal.Type == SignalParams::Kind::Diffuse;
 		const Ref<RHIPipeline>& pipeline = accumulated2 ? s_Data->SignalBlurDiffusePairPipeline
@@ -7063,6 +7069,18 @@ namespace RageV
 		if (inputs->HasBinding(5))
 			inputs->SetTexture(5, extra ? extra : TextureLoader::TransparentBlack(*s_Data->Device),
 							   s_Data->PointSampler);
+		// 2026-09-21: what the previous pass left. Declared on the specular kind only;
+		// black stands in on the first pass, which reads the moments instead.
+		if (inputs->HasBinding(6))
+			inputs->SetTexture(6, varianceIn ? varianceIn
+											 : TextureLoader::TransparentBlack(*s_Data->Device),
+							   s_Data->PointSampler);
+		// 2026-09-21: the count the blend ran on. Black where the measured-change
+		// pass never wrote one, which the shader reads as "use the alpha".
+		if (inputs->HasBinding(7))
+			inputs->SetTexture(7, blendCount ? blendCount
+											 : TextureLoader::TransparentBlack(*s_Data->Device),
+							   s_Data->PointSampler);
 		inputs->Commit();
 
 		SignalPushConstants push;
@@ -7079,8 +7097,17 @@ namespace RageV
 		// so a signal cannot have one pass reading a layer one way and the
 		// other reading it another.
 		push.Probe.w = (signal.PositionLane ? 1.0f : 0.0f)
-					 + (signal.UpNormalLane ? 2.0f : 0.0f);
+					 + (signal.UpNormalLane ? 2.0f : 0.0f)
+					 // 2026-09-21: bit 2, whether the history is looked for where the
+					 // reflected thing moved to. See EngineConfig::ReflectionFollowHit.
+					 + (signal.Type != SignalParams::Kind::Diffuse
+						&& EngineConfig::Get().ReflectionFollowHit ? 4.0f : 0.0f);
 		push.Tuning = { signal.SmearTexels, signal.MovingMemory, signal.SilhouetteMemory, signal.PairMemory };
+		// 2026-09-21: whether the uncertainty comes from the pass before (one) or from
+		// the accumulator's own moments (zero). Read on the specular blur only; the
+		// pair kind's w lane is its own memory and is left alone.
+		if (!diffuse && !accumulated2)
+			push.Tuning.w = varianceIn ? 1.0f : 0.0f;
 		// RT-15: the w lane is the diffuse kind's radius bound and, on the specular
 		// kind, which has no bound there, the moving curved reflector's young radius.
 		push.Blur = { signal.YoungRadius, signal.BlurFrames, signal.YoungOverreach,
@@ -7191,6 +7218,7 @@ namespace RageV
 		const float firefly = EngineConfig::Get().ReflectionFireflySigmas;
 		if (firefly >= 0.0f)
 			signal.FireflySigmas = firefly;
+				signal.History = EngineConfig::Get().ReflectionHistory;
 		return signal;
 	}
 
@@ -7200,6 +7228,7 @@ namespace RageV
 	{
 		SignalParams signal = DirectSignal();
 		signal.Slot = 6;
+				signal.History = EngineConfig::Get().GlassHistory;
 		return signal;
 	}
 
@@ -7218,6 +7247,7 @@ namespace RageV
 		signal.PairMemory = 4.0f;
 		// The direct light has no mirror end: the young-history blur is bounded
 		// in texels (MaxRadius) and the rough-surface floor applies everywhere.
+				signal.History = EngineConfig::Get().DirectHistory;
 		return signal;
 	}
 
@@ -7401,11 +7431,9 @@ namespace RageV
 		push.InverseViewProjection = Math::Inverse(s_Data->Scene.ViewProjection);
 		push.PreviousViewProjection = motion.ViewProjection;
 		push.PreviousEye = motion.Eye;
-		const EngineConfig& config = EngineConfig::Get();
-		const bool readHistory = !(config.HasReflectionHistoryOverride
-								   && !config.ReflectionHistoryOverride);
+		// 2026-09-21: the signal's own answer, not a global one. See SignalParams::History.
 		push.History.x = previous && previousSurface && previousExtra && hasHistory
-					   && readHistory ? 1.0f : 0.0f;
+					   && signal.History ? 1.0f : 0.0f;
 		push.History.y = signal.Memory;
 		push.History.z = signal.Fewest;
 		push.History.w = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
@@ -7417,7 +7445,11 @@ namespace RageV
 		// recovered rather than octahedral. The w lane, because the blur's z is
 		// its stride.
 		push.Probe.w = (signal.PositionLane ? 1.0f : 0.0f)
-					 + (signal.UpNormalLane ? 2.0f : 0.0f);
+					 + (signal.UpNormalLane ? 2.0f : 0.0f)
+					 // 2026-09-21: bit 2, whether the history is looked for where the
+					 // reflected thing moved to. See EngineConfig::ReflectionFollowHit.
+					 + (signal.Type != SignalParams::Kind::Diffuse
+						&& EngineConfig::Get().ReflectionFollowHit ? 4.0f : 0.0f);
 		// RT-8: and which signal this is, so the counters can keep the sea's
 		// numbers apart from the reflections'. The blur has no use for z.
 		push.Probe.z = (float)index;
@@ -7703,6 +7735,7 @@ namespace RageV
 		// The measurement dial (RT-5 part 5): --ao-blur=6 is the blur as it was.
 		if (EngineConfig::Get().AoBlurRadius >= 0.0f)
 			signal.YoungRadius = EngineConfig::Get().AoBlurRadius;
+				signal.History = EngineConfig::Get().AoHistory;
 		return signal;
 	}
 
@@ -7734,6 +7767,7 @@ namespace RageV
 		// (the pixel's own measured fluctuation) is what actually holds this
 		// signal; this keeps the spatial ceiling from fighting it.
 		signal.BoundWidth = 6.0f;
+				signal.History = EngineConfig::Get().GiHistory;
 		return signal;
 	}
 

@@ -402,6 +402,22 @@ namespace RageV
 		// Off, the whole reflection is composited before the resolve, as before RT-15, and
 		// the accumulator keeps one layer.
 		bool  ReflectionMovingLayer = false;
+		// **--reflection-follow-hit=on|off (2026-09-21):** whether the reflection's history
+		// is looked for where the *reflected thing* has moved to, as well as where the
+		// reflector has. A car driving over a still floor moves its own reflection across
+		// that floor while the floor itself stands still; without this the history is read
+		// where the floor was, which is where the car's reflection no longer is.
+		//
+		// Separate from the moving layer on purpose. That flag made three decisions at
+		// once -- follow the reflected thing, keep its light in a layer of its own, and
+		// composite that layer after the temporal resolve -- so the one measurement ever
+		// taken of it could not say which of the three was responsible for what.
+		bool  ReflectionFollowHit = false;
+		// **--reflection-moving-after-resolve=on|off (2026-09-21):** whether the moving
+		// layer is added after the temporal resolve rather than before it. Only meaningful
+		// with the layer on. After the resolve it keeps its own motion but misses the
+		// resolve's smoothing, which is the grain that took the layer out of the build.
+		bool  ReflectionMovingAfterResolve = true;
 		// **--reflection-firefly=<spreads> (RT-15):** how far above its neighbours a fresh
 		// reflection sample may stand before it is scaled back to them; zero switches the
 		// clamp off, negative means the tuning's own three.
@@ -411,6 +427,16 @@ namespace RageV
 		// it), so a settled part of a moving surface keeps its detail and only the unsettled
 		// part is smoothed. Off, every young texel takes the full radius, as before.
 		bool  ReflectionNoiseBlur = true;
+		// **--reflection-history / --direct-history / --gi-history / --ao-history /
+		// --glass-history=on|off (2026-09-21):** whether that one signal reads its own
+		// temporal history. One switch per signal, because they share one accumulator
+		// and the old reflection-only-by-name switch turned all six off together --
+		// every temporal experiment taken with it measured more than it said.
+		bool  ReflectionHistory = true;
+		bool  DirectHistory = true;
+		bool  GiHistory = true;
+		bool  AoHistory = true;
+		bool  GlassHistory = true;
 		// **--reflection-confidence-rays=on|off (RT-9):** a texel's rays follow what the
 		// accumulator knew there last frame -- many where its history was refused or has just
 		// begun, one where it has settled -- instead of the count following motion alone

@@ -224,15 +224,53 @@ vec3 GlossyReflectionLD(vec3 N, vec3 V, float roughness, ivec2 texel, uint frame
 							  + vec2(float(ray)) * vec2(0.7548776662, 0.5698402910));
 	const float u1 = fract(Halton(index, 2u) + rotation.x);
 	const float u2 = fract(Halton(index, 3u) + rotation.y);
-	const float cosTheta = sqrt((1.0 - u1) / (1.0 + (alpha * alpha - 1.0) * u1));
-	const float sinTheta = sqrt(max(1.0 - cosTheta * cosTheta, 0.0));
-	const float phi = 6.2831853 * u2;
 	const vec3 axis = abs(N.x) < 0.7 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
 	const vec3 t = normalize(cross(axis, N));
 	const vec3 b = cross(N, t);
+#ifdef RV_REFLECTION_VNDF
+	// **The visible half of the lobe, not the whole of it (2026-09-21, Heitz 2018).**
+	//
+	// Drawing a half-vector from the distribution alone produces directions that go
+	// *into* the surface -- more and more of them as the surface roughens or the view
+	// grazes -- and this function used to hand every one of those back as the exact
+	// mirror direction instead. That is not a small correction at the edges: it takes
+	// every rejected draw across the whole frame and piles it on one direction, and
+	// where that direction finds a lamp the pixel comes back many times brighter than
+	// its neighbours. It is counted at full weight, so nothing downstream can tell it
+	// from light that is really there. Measured on the driving car: twelve thousand
+	// pixels a frame jumping more than forty levels, at the same rate with the
+	// reflection's history switched off -- the sparkle was never the accumulator's.
+	//
+	// Sampling the *visible* normals instead draws only half-vectors the eye can
+	// actually see, so a below-horizon direction is a numerical edge case rather than
+	// a routine outcome, and no direction has to stand in for the rejected ones.
+	const vec3 Ve = vec3(dot(V, t), dot(V, b), dot(V, N));
+	const vec3 Vh = normalize(vec3(alpha * Ve.x, alpha * Ve.y, Ve.z));
+	const float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+	const vec3 T1 = lensq > 0.0 ? vec3(-Vh.y, Vh.x, 0.0) * inversesqrt(lensq) : vec3(1.0, 0.0, 0.0);
+	const vec3 T2 = cross(Vh, T1);
+	const float rad = sqrt(u1);
+	const float phi = 6.2831853 * u2;
+	const float p1 = rad * cos(phi);
+	float p2 = rad * sin(phi);
+	const float s = 0.5 * (1.0 + Vh.z);
+	p2 = (1.0 - s) * sqrt(max(1.0 - p1 * p1, 0.0)) + s * p2;
+	const vec3 Nh = p1 * T1 + p2 * T2 + sqrt(max(1.0 - p1 * p1 - p2 * p2, 0.0)) * Vh;
+	const vec3 He = normalize(vec3(alpha * Nh.x, alpha * Nh.y, max(Nh.z, 0.0)));
+	const vec3 H = normalize(t * He.x + b * He.y + N * He.z);
+	const vec3 L = reflect(-V, H);
+	// Below the horizon here is the numerical edge, not the rule. The mirror is still
+	// the only direction available, and it now stands in for a handful of draws
+	// rather than for every rejected one.
+	return dot(L, N) > 0.0 ? L : mirror;
+#else
+	const float cosTheta = sqrt((1.0 - u1) / (1.0 + (alpha * alpha - 1.0) * u1));
+	const float sinTheta = sqrt(max(1.0 - cosTheta * cosTheta, 0.0));
+	const float phi = 6.2831853 * u2;
 	const vec3 H = normalize(t * (sinTheta * cos(phi)) + b * (sinTheta * sin(phi)) + N * cosTheta);
 	const vec3 L = reflect(-V, H);
 	return dot(L, N) > 0.02 ? L : mirror;
+#endif
 }
 
 void main()
@@ -342,6 +380,9 @@ void main()
 				  ? hit.Sky
 				  : ShadeTraced(hit, ProbeIrradiance(hit.Normal, hitProbe), hitProbe);
 	const float travelled = hit.Missed ? 1.0e4 : length(hit.Position - P);
+	// **How much of what came back is the thing itself glowing (2026-09-21).**
+	// Declared for every variant, because the attachment is written by all of them.
+	float emissiveSum = hit.Missed ? 0.0 : dot(hit.Emissive, vec3(0.2126, 0.7152, 0.0722));
 #if !defined(RV_REFLECTION_RECORD) && !defined(RV_REFLECTION_RELIGHT)
 	// **RT-15b: more rays where the surface moves on its own.** A flat mirror sliding
 	// in its own plane shows a still picture, so a screen texel's history is only as
@@ -387,6 +428,10 @@ void main()
 			rays = movingRays;
 	}
 	vec3 radianceSum = radiance;
+	// The clamp downstream has to tell a ray that found a lamp from a ray that got
+	// lucky, and by the time it sees them they are both just a bright number. The hit
+	// knows: a surface that emits carries it here, and nothing has ever written it
+	// down -- `o_Hit`'s fourth lane has been a literal zero since the pass was built.
 	float travelledSum = travelled;
 	vec3 directionSum = direction;
 	vec3 travelSum = hit.Missed ? vec3(0.0) : hit.Travel;
@@ -399,6 +444,8 @@ void main()
 		radianceSum += hitMore.Missed
 					 ? hitMore.Sky
 					 : ShadeTraced(hitMore, ProbeIrradiance(hitMore.Normal, probeMore), probeMore);
+		emissiveSum += hitMore.Missed ? 0.0
+					 : dot(hitMore.Emissive, vec3(0.2126, 0.7152, 0.0722));
 		travelledSum += hitMore.Missed ? 1.0e4 : length(hitMore.Position - P);
 		directionSum += more;
 		if (!hitMore.Missed && dot(hitMore.Travel, hitMore.Travel) > 0.0)
@@ -408,6 +455,7 @@ void main()
 		}
 	}
 	radiance = radianceSum / float(rays);
+	emissiveSum /= float(rays);
 #endif
 
 	// **The surface's own reflectance, in colour.** The same split-sum term
@@ -469,7 +517,8 @@ void main()
 					/ (4.0 * max(dot(V, H), 1.0e-4));
 	// RT-15b: the rays' mean direction where there were several -- the resolve re-aims
 	// the texel's hit point from it; the pdf is the first ray's, as unread as it was.
-	o_Hit = vec4(OctEncode(rays > 1 ? normalize(directionSum) : direction), min(pdf, 6.0e4), 0.0);
+	o_Hit = vec4(OctEncode(rays > 1 ? normalize(directionSum) : direction), min(pdf, 6.0e4),
+				 min(emissiveSum, 6.0e4));
 	// RT-17: the identity, and the struck normal as five bits each way.
 	const vec2 struck = hit.Missed ? vec2(0.0) : floor(OctEncode(hit.Normal) * 31.0 + 0.5);
 	o_HitIdentity = vec4(float(hit.Missed ? 0u : hit.Identity),

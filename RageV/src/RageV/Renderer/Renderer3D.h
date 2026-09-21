@@ -358,6 +358,20 @@ namespace RageV
 			// blobs they became once the young blur spread them. Zero switches it off.
 			float FireflySigmas = 0.0f;
 			float PairMemory = 0.0f;       // Pair: the twin's own memory in frames; zero shares the first payload's
+			// **Whether this signal reads its own history at all (2026-09-21).**
+			//
+			// It was one switch inside `AccumulateSignal`, read straight off the engine
+			// config -- and that function is every signal's: the reflections, the direct
+			// light pair, the occlusion, the bounce, the glass layer and the sea all pass
+			// through it. So `--reflection-history=off`, whose name says reflections,
+			// switched off the history of all six. A reference render taken that way came
+			// out 38% brighter than the shipped picture and was useless as a reference,
+			// which is how this was found. Every arm of every temporal experiment in this
+			// project that used that flag was measuring more than it named.
+			//
+			// Now each signal carries its own answer and the accumulator reads nothing
+			// global. A flag that names one signal changes one signal.
+			bool History = true;
 			// **RT-8: what is bound at the depth slot.** False, and it is clip
 			// depth and the contract rebuilds the world point from it -- every
 			// signal before the sea. True, and it is the layer's own position
@@ -421,7 +435,13 @@ namespace RageV
 							   const RHI::Ref<RHI::RHITexture>& accumulated2 = nullptr,
 							   // RT-15: the accumulate's third attachment, whose alpha
 							   // marks a curved reflector moving on its own (specular).
-							   const RHI::Ref<RHI::RHITexture>& extra = nullptr);
+							   const RHI::Ref<RHI::RHITexture>& extra = nullptr,
+							   // 2026-09-21: the uncertainty the previous pass left, or null on
+							   // the first, which reads the accumulator's own moments.
+							   const RHI::Ref<RHI::RHITexture>& varianceIn = nullptr,
+							   // 2026-09-21: and the id lane, whose green is the count the blend
+							   // really ran on -- the picture's alpha is the lit shader's trust.
+							   const RHI::Ref<RHI::RHITexture>& blendCount = nullptr);
 		// RT-15: whether any traced instance moved in either of the last two frames
 		// the instance table was built for -- read when the graph is built, so it
 		// describes the frames before this one.

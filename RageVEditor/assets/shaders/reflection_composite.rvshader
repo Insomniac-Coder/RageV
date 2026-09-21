@@ -127,9 +127,11 @@ void main()
 	const float reflected = dot(weight * added, kLuma);
 	const float rest = dot(max(scene.rgb, vec3(0.0)), kLuma);
 	const vec2 surfaceMotion = texture(u_Velocity, uv).xy;
+	// **2026-09-21: the lane is always meaningful now.** The accumulator writes the
+	// surface's own motion where it could not measure the image's, so a zero here
+	// says the reflection stood still -- which is the truth on a mirror sliding in
+	// its own plane, and used to be overridden by the mirror's motion because the
+	// two cases shared one value.
 	const vec2 imageMotion = texture(u_ReflectionMotion, uv).xy;
-	// A zero lane means the accumulator had no history to measure a shift
-	// from; the surface's motion is the better guess then, not a standstill.
-	const bool haveImage = dot(imageMotion, imageMotion) > 0.0;
-	o_Motion = (reflected > rest && haveImage) ? imageMotion : surfaceMotion;
+	o_Motion = reflected > rest ? imageMotion : surfaceMotion;
 }

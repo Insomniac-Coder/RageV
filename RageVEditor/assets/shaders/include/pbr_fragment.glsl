@@ -3305,7 +3305,15 @@ float DistributionGGX(vec3 N, vec3 H, float roughness)
 	float a2 = a * a;
 	float NdotH = max(dot(N, H), 0.0);
 	float denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
-	return a2 / max(PI * denom * denom, 0.0001);
+	// **The floor is on the divisor, so it was a ceiling on the highlight**
+	// (RT-21, 2026-09-21). At roughness 0.1 the true divisor is about 3e-8 and
+	// the old floor of 1e-4 stood in for it, which held a peak of roughly 3000
+	// down to 1 -- every polished surface reading flat. The division is exactly
+	// as safe at 1e-9, which is far below anything a real material reaches, so
+	// nothing is capped that should not be and a mirror still cannot divide by
+	// zero. Owner's call on the two options: lower the floor rather than put a
+	// minimum on roughness.
+	return a2 / max(PI * denom * denom, 1e-9);
 }
 
 // Smith geometry term with the Schlick-GGX approximation.

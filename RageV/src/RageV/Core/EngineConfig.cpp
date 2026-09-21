@@ -176,11 +176,18 @@ namespace RageV
 			return ParseBool(value, config.ReflectionPassOverride);
 		}
 
+		// 2026-09-21: one switch per signal; they share an accumulator and must not
+		// share a control. The old flag kept its name and now means what it says.
+		if (key == "direct-history" || key == "directhistory")
+			return ParseBool(value, config.DirectHistory);
+		if (key == "gi-history" || key == "gihistory")
+			return ParseBool(value, config.GiHistory);
+		if (key == "ao-history" || key == "aohistory")
+			return ParseBool(value, config.AoHistory);
+		if (key == "glass-history" || key == "glasshistory")
+			return ParseBool(value, config.GlassHistory);
 		if (key == "reflection-history" || key == "reflectionhistory")
-		{
-			config.HasReflectionHistoryOverride = true;
-			return ParseBool(value, config.ReflectionHistoryOverride);
-		}
+			return ParseBool(value, config.ReflectionHistory);
 
 		if (key == "rt-ao" || key == "rtao")
 		{
@@ -446,6 +453,11 @@ namespace RageV
 			return true;
 		}
 		// RT-15: the moving layer added after the temporal resolve; off, all of it before.
+		// 2026-09-21: the moving layer's three decisions, one control each.
+		if (key == "reflection-follow-hit" || key == "reflectionfollowhit")
+			return ParseBool(value, config.ReflectionFollowHit);
+		if (key == "reflection-moving-after-resolve" || key == "reflectionmovingafterresolve")
+			return ParseBool(value, config.ReflectionMovingAfterResolve);
 		if (key == "reflection-moving-layer" || key == "reflectionmovinglayer")
 			return ParseBool(value, config.ReflectionMovingLayer);
 		// RT-9: the rays a texel casts follow what its history says, not its motion.

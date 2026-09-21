@@ -12310,6 +12310,11 @@ void main()
 
 		// SSAA draws the scene larger and resolves it down, so it adds a pass
 		// *before* bloom and skips the one after tone mapping entirely.
+		// **2026-09-21: and the rays off for this one.** A ray-traced frame resolves
+		// temporally whatever `AA` asks for (FrameGraphBuilder's ResolveAntiAliasing),
+		// so SSAA is only reachable with the rays off -- which is the configuration
+		// this block is describing and the one the checks use.
+		render.RayTracing = false;
 		render.AA = AntiAliasing::SSAA;
 		render.SupersampleFactor = 2;
 		Check(build(1600, 900, render, post), "with SSAA it compiles");
@@ -12386,6 +12391,16 @@ void main()
 			// gone before anyone can point at it.
 			RenderSettings other = render;
 			other.AA = AntiAliasing::FXAA;
+			// **2026-09-21: and the rays off with it.** A ray-traced frame now
+			// resolves temporally whatever `AA` says (FrameGraphBuilder's
+			// ResolveAntiAliasing): every traced signal settles over frames and
+			// each of those averages needs the raster to move under it, so
+			// asking for FXAA with the rays on no longer stops the resolve.
+			// What this block is checking -- that switching away forgets the
+			// accumulated image rather than resuming from it ten seconds later
+			// -- is unchanged, and needs a switch that really does leave the
+			// temporal path.
+			other.RayTracing = false;
 			Check(buildTemporal(other), "switching to FXAA compiles");
 			Check(!hasPass("TAA resolve"), "and stops resolving");
 			Check(!history.HasHistory(),
