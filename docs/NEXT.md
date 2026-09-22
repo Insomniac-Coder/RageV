@@ -1,5 +1,7 @@
 # RageV — the one list
 
+> **2026-09-23, owner-set: RT-24 comes before anything else** -- one fast camera spin around the car smears the whole scene (suspects: the car and the chrome poles). `docs/RT-SERIES.md` RT-24 and HANDOFF.md's top have the first step.**
+
 > **2026-09-07: RT-2.1 done (records in `docs/RT-SERIES.md`): the terrain's cost was the parallax march at mip 0, not the raster -- Headland 20.3 → 14.5 ms, the picture unchanged; HANDOFF.md's eleventh entry is this session's hand-off. The AO look is accepted. Next is RT-3 on the owner's green signal; the deferred resolve is RT-2.2, owner-filed for the end of the series.**
 
 > **2026-09-06 late night: RT-1 and RT-2 are done (records in `docs/RT-SERIES.md`); HANDOFF.md's tenth entry is the complete hand-off for a wiped context. Next is RT-3 on the owner's green signal, after they judge RT-2's two open decisions (the AO look; the G-buffer's cost on terrain). The T and R series are one RT series now — `docs/RT-SERIES.md` is the order; the WR series comes after it.**

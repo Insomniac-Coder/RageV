@@ -1,9 +1,11 @@
 # RageV -- handoff
 
-**Read this first.** Updated 2026-09-23. **RT-22's window streak is FIXED by the owner's eye, and the
+**Read this first.** Updated 2026-09-23. **RT-24 (below) is the owner's highest priority and comes before everything else.** **RT-22's window streak is FIXED by the owner's eye, and the
 pane's grain after it; committed at b30d5cd on the owner's word, and it REGRESSES the bridge's water
 glitter (0.80% -> 0.97% of the frame blinking) until the general rule below replaces the frame filter's.**
 Open, parked by the owner for later: the delayed reflection stop, the cable flicker, and that rule.
+
+**RT-24, the owner's HIGHEST PRIORITY (2026-09-23): before anything else.** One fast spin of the camera around the car smears the whole scene -- ghosting under camera motion. Owner's prime suspects: **the car and the chrome poles** (shiny, curved, view-dependent -- mostly reflection). **Second symptom, same family (owner): on fast movements the reflections of the ceiling tube lights on the car take a fraction of a second to update** -- the reflection lags the camera on a curved reflector. Agreed first step, not yet run: `watch_arm.py` with a case that KEEPS the scene's ShowroomCamera (watch_arm swaps it out today via `wm.still_camera`, so a new case must skip that and pass no --camera) so the owner spins by hand, and `--reflection-history=off`: smear on the car and poles gone -> the reflection accumulator; still there -> the frame filter on those surfaces. Then split further by switch, one arm at a time. Bisect by signal first, fix only the layer that holds it.
 
 ## 2026-09-23: RT-22's streak, the pane's grain, and what is parked
 
