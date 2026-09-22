@@ -268,12 +268,18 @@ def lamps_off_scene(head, seconds):
 # -- verified by overriding the base colour to pure red and getting the same grey
 # box back. The Override flags below are kept anyway so the values are visible
 # here and agree with the asset.
+# **Pitched 25 degrees, and that is not cosmetic (2026-09-22).** Standing
+# square at the back of the garage, this cube's mirror direction goes straight
+# back past the camera into the dark end of the room, so it reflects nothing and
+# reads as matte however good the reflections are -- which is exactly how it read
+# for a whole session. Tilted, its face takes in the ceiling and the tubes come
+# up in it cleanly. A reflection fixture has to be pointed at something.
 CUBE_ENTITY = '''  - EntityID: 7311000000000000101
     TagComponent:
       Tag: MovingPanel
     TransformComponent:
       Position: [%g, 1.6, -6]
-      Rotation: [0, 0, 0]
+      Rotation: [25, 0, 0]
       Scale: [1.2, 1.2, 1.2]
     MeshComponent:
       Static: false
@@ -298,6 +304,56 @@ CUBE_ENTITY = '''  - EntityID: 7311000000000000101
         StopAfter: %g
 '''
 
+
+
+# **The mirror control (2026-09-22): a chrome plate flat on the garage floor.**
+#
+# The instrument for "does a reflection carry the room's light, or only its
+# lamps?" -- a question that cost most of a session because every earlier test
+# compared a reflection against a *guess* at what it should be. With the plate
+# down, one frame holds each surface twice, seen directly and seen in the
+# mirror, through one tonemap at one exposure, so the two are comparable
+# without any cross-render correction. Metallic white at roughness 0.02
+# reflects about 95%, so a correct reflection lands near parity and a broken
+# one lands near zero. Measured 2026-09-22: ceiling 71%, tube 87%, graffiti
+# wall 106% -- reflections carry the lighting.
+#
+# tools/scripts/garage/mirror_control.py renders it and prints the three
+# ratios. Use the camera it uses; the regions are chosen for that pose.
+MIRROR_PLATE = '''  - EntityID: 7311000000000000303
+    TagComponent:
+      Tag: MirrorControl
+    TransformComponent:
+      Position: [-2.0, 0.06, -4.0]
+      Rotation: [0, 0, 0]
+      Scale: [7, 0.02, 7]
+    MeshComponent:
+      Static: false
+      Mesh: 8241982477996916736
+      Material: 7311000000000000202
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideEmissive: false
+      EmissiveColor: [0, 0, 0, 1]
+      OverrideMetallic: true
+      Metallic: 1
+      OverrideRoughness: true
+      Roughness: 0.02
+      OverrideOcclusion: false
+      Occlusion: 1
+      OverrideNormalScale: false
+      NormalScale: 1
+'''
+
+
+def mirror_control_scene(scene):
+    """`scene` with the chrome control plate laid on the floor."""
+    text = scene.decode('utf-8').replace(CRLF, LF)
+    if 'MirrorControl' in text:
+        sys.exit('the scene already has a MirrorControl')
+    if not text.endswith(LF):
+        text += LF
+    return (text + MIRROR_PLATE.replace(CRLF, LF)).encode('utf-8')
 
 def moving_cube_scene(scene, start, speed, stop):
     text = scene.decode('utf-8').replace(CRLF, LF)
