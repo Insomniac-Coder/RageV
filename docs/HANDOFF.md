@@ -1,9 +1,9 @@
 # RageV -- handoff
 
 **Read this first.** Updated 2026-09-23. **RT-22's window streak is FIXED by the owner's eye, and the
-pane's grain after it; ALL UNCOMMITTED, and the tree as it stands REGRESSES the bridge's water glitter
-(0.80% -> 0.97% of the frame blinking).** Do not commit the frame filter half without the general rule
-below. Open, parked by the owner for later: the delayed reflection stop, the cable flicker, and that rule.
+pane's grain after it; committed at b30d5cd on the owner's word, and it REGRESSES the bridge's water
+glitter (0.80% -> 0.97% of the frame blinking) until the general rule below replaces the frame filter's.**
+Open, parked by the owner for later: the delayed reflection stop, the cable flicker, and that rule.
 
 ## 2026-09-23: RT-22's streak, the pane's grain, and what is parked
 
