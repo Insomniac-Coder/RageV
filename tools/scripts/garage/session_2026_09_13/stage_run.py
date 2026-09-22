@@ -268,7 +268,20 @@ def lamps_off_scene(head, seconds):
 # -- verified by overriding the base colour to pure red and getting the same grey
 # box back. The Override flags below are kept anyway so the values are visible
 # here and agree with the asset.
-# **Pitched 25 degrees, and that is not cosmetic (2026-09-22).** Standing
+# **Steel, not a perfect white mirror, and pitched 25 degrees (2026-09-22).**
+# All three numbers are the difference between a fixture that shows the room and
+# one that shows nothing, and the first version of this tilt got two of them
+# wrong. A base colour of white at metallic 1 is a reflectance of about one, and
+# at roughness 0.12 pitched steeply into the ceiling the tubes smear across the
+# whole face and clip: the cube reads as a blank white slab and the poles behind
+# it are buried under the blowout. Steel's 0.55 and a roughness of 0.04 keep the
+# tubes as bars rather than a smear, and 25 degrees puts the ceiling in the face:
+# the tubes come up as three clean bars, which is the reflection this fixture
+# exists to show moving. Shallower angles take in the dark end of the garage and
+# read as black; a yaw instead of a pitch does the same. The owner picked this
+# pose by eye against the alternatives.
+#
+# **And pitched at all, which is not cosmetic either.** Standing
 # square at the back of the garage, this cube's mirror direction goes straight
 # back past the camera into the dark end of the room, so it reflects nothing and
 # reads as matte however good the reflections are -- which is exactly how it read
@@ -286,13 +299,13 @@ CUBE_ENTITY = '''  - EntityID: 7311000000000000101
       Mesh: 8241982477996916736
       Material: 7311000000000000202
       OverrideBaseColor: true
-      BaseColor: [0.95, 0.95, 1, 1]
+      BaseColor: [0.55, 0.56, 0.55, 1]
       OverrideEmissive: false
       EmissiveColor: [0, 0, 0, 1]
       OverrideMetallic: true
       Metallic: 1
       OverrideRoughness: true
-      Roughness: 0.12
+      Roughness: 0.04
       OverrideOcclusion: false
       Occlusion: 1
       OverrideNormalScale: false

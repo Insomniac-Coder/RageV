@@ -1,8 +1,8 @@
 Material: chrome_test
-BaseColor: [0.95, 0.95, 1, 1]
+BaseColor: [0.55, 0.56, 0.55, 1]
 Emissive: [0, 0, 0, 1]
 Metallic: 1
-Roughness: 0.12
+Roughness: 0.04
 Occlusion: 1
 NormalScale: 1
 Specular: 0.5
