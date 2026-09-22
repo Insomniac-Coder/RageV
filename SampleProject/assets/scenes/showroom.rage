@@ -1,4 +1,4 @@
-﻿Scene: The showroom
+Scene: The showroom
 Version: 6
 Environment:
   AmbientColor: [0.42, 0.52, 0.68]
@@ -10,6 +10,17 @@ Environment:
   SkyIntensity: 1
   SkyRotation: 0
   SkyTexture: 0
+  SkyCurve: 0.45
+  CityGlowColor: [0, 0, 0]
+  CityGlowBearing: 0
+  CityAzimuthK: 6
+  CityElevationK: 12
+  MoonColor: [0, 0, 0]
+  MoonElevation: 0
+  MoonBearing: 0
+  MoonDisc: 0.0046
+  MoonTexture: 0
+  SkyDither: false
 Entities:
   - EntityID: 6756093626407939214
     TagComponent:
@@ -54,10 +65,13 @@ Entities:
       Color: [0.86, 0.91, 1]
       Intensity: 0
       Range: 8
+      SourceRadius: 0
+      SourceLength: 0
       InnerCone: 15
       OuterCone: 30
       CastShadows: false
       Mobility: Realtime
+      HybridRadius: 2
   - EntityID: 17043282302990482894
     TagComponent:
       Tag: Headlamp Beam Right
@@ -70,10 +84,13 @@ Entities:
       Color: [0.86, 0.91, 1]
       Intensity: 0
       Range: 8
+      SourceRadius: 0
+      SourceLength: 0
       InnerCone: 15
       OuterCone: 30
       CastShadows: false
       Mobility: Realtime
+      HybridRadius: 2
   - EntityID: 16933430478517993665
     TagComponent:
       Tag: Tail Glow Left
@@ -86,10 +103,13 @@ Entities:
       Color: [1, 0.1, 0.045]
       Intensity: 0
       Range: 7
+      SourceRadius: 0
+      SourceLength: 0
       InnerCone: 22
       OuterCone: 46
       CastShadows: false
       Mobility: Realtime
+      HybridRadius: 2
   - EntityID: 11454287864178063394
     TagComponent:
       Tag: Tail Glow Right
@@ -102,10 +122,13 @@ Entities:
       Color: [1, 0.1, 0.045]
       Intensity: 0
       Range: 7
+      SourceRadius: 0
+      SourceLength: 0
       InnerCone: 22
       OuterCone: 46
       CastShadows: false
       Mobility: Realtime
+      HybridRadius: 2
   - EntityID: 13406562209107611697
     TagComponent:
       Tag: Showroom Probe
@@ -121,6 +144,7 @@ Entities:
       FarClip: 80
       Rate: PerFrame
       FacesPerFrame: 6
+      Recapture: false
   - EntityID: 5693641162652923729
     TagComponent:
       Tag: Showroom Canvas
@@ -134,14 +158,14 @@ Entities:
       MatchWidthOrHeight: 0.5
       SortOrder: 0
   - EntityID: 8970289143430244441
+    RelationshipComponent:
+      Parent: 5693641162652923729
     TagComponent:
       Tag: Credit Bar
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 5693641162652923729
     UIRectComponent:
       AnchorMin: [0, 1]
       AnchorMax: [1, 1]
@@ -154,14 +178,14 @@ Entities:
       Texture: 0
       Color: [0, 0, 0, 0.85]
   - EntityID: 11490137062086526443
+    RelationshipComponent:
+      Parent: 8970289143430244441
     TagComponent:
       Tag: Credit Text
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 8970289143430244441
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 1]
@@ -171,7 +195,7 @@ Entities:
       Visible: true
       BlocksPointer: false
     UITextComponent:
-      Text: '"2024 Porsche 992 GT3 R" (https://skfb.ly/pMLAu) by Dave Love SketchFab is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).'
+      Text: "\"2024 Porsche 992 GT3 R\" (https://skfb.ly/pMLAu) by Dave Love SketchFab is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/)."
       Font: 12355000851502047045
       Size: 17
       Color: [0.82, 0.83, 0.86, 0.86]
@@ -179,19 +203,19 @@ Entities:
       Wrap: false
       LineSpacing: 1
   - EntityID: 3050198340312232882
+    RelationshipComponent:
+      Parent: 5693641162652923729
     TagComponent:
       Tag: Stats Panel
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 5693641162652923729
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [0, 0]
       OffsetMin: [11, 11]
-      OffsetMax: [367, 161.640625]
+      OffsetMax: [367, 161.64062]
       SortOrder: 2
       Visible: false
       BlocksPointer: false
@@ -201,14 +225,14 @@ Entities:
     ManagedScriptComponent:
       Script: Stats
   - EntityID: 3594440577201042337
+    RelationshipComponent:
+      Parent: 3050198340312232882
     TagComponent:
       Tag: Stats Frame
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3050198340312232882
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 0]
@@ -218,7 +242,7 @@ Entities:
       Visible: false
       BlocksPointer: false
     UITextComponent:
-      Text: ''
+      Text: ""
       Font: 12355000851502047045
       Size: 21
       Color: [0.88, 0.89, 0.92, 0.95]
@@ -226,14 +250,14 @@ Entities:
       Wrap: false
       LineSpacing: 1
   - EntityID: 11305732895755753991
+    RelationshipComponent:
+      Parent: 3050198340312232882
     TagComponent:
       Tag: Stats Mode
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3050198340312232882
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 0]
@@ -243,7 +267,7 @@ Entities:
       Visible: false
       BlocksPointer: false
     UITextComponent:
-      Text: ''
+      Text: ""
       Font: 12355000851502047045
       Size: 14
       Color: [0.52, 0.53, 0.58, 0.95]
@@ -251,14 +275,14 @@ Entities:
       Wrap: false
       LineSpacing: 1
   - EntityID: 9392721664371784442
+    RelationshipComponent:
+      Parent: 3050198340312232882
     TagComponent:
       Tag: Stats Rule
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3050198340312232882
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 0]
@@ -271,14 +295,14 @@ Entities:
       Texture: 0
       Color: [0.878, 0.188, 0.188, 0.9]
   - EntityID: 9595623585694902222
+    RelationshipComponent:
+      Parent: 3050198340312232882
     TagComponent:
       Tag: Stats Render Caption
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3050198340312232882
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 0]
@@ -288,7 +312,7 @@ Entities:
       Visible: false
       BlocksPointer: false
     UITextComponent:
-      Text: 'RENDER'
+      Text: RENDER
       Font: 12355000851502047045
       Size: 14
       Color: [0.52, 0.53, 0.58, 0.95]
@@ -296,14 +320,14 @@ Entities:
       Wrap: false
       LineSpacing: 1
   - EntityID: 3470161063590603844
+    RelationshipComponent:
+      Parent: 3050198340312232882
     TagComponent:
       Tag: Stats Render
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3050198340312232882
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 0]
@@ -313,7 +337,7 @@ Entities:
       Visible: false
       BlocksPointer: false
     UITextComponent:
-      Text: ''
+      Text: ""
       Font: 12355000851502047045
       Size: 14
       Color: [0.88, 0.89, 0.92, 0.95]
@@ -321,14 +345,14 @@ Entities:
       Wrap: true
       LineSpacing: 1
   - EntityID: 7718832658216925044
+    RelationshipComponent:
+      Parent: 3050198340312232882
     TagComponent:
       Tag: Stats Post Caption
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3050198340312232882
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 0]
@@ -338,7 +362,7 @@ Entities:
       Visible: false
       BlocksPointer: false
     UITextComponent:
-      Text: 'POST'
+      Text: POST
       Font: 12355000851502047045
       Size: 14
       Color: [0.52, 0.53, 0.58, 0.95]
@@ -346,24 +370,24 @@ Entities:
       Wrap: false
       LineSpacing: 1
   - EntityID: 4640708201371326126
+    RelationshipComponent:
+      Parent: 3050198340312232882
     TagComponent:
       Tag: Stats Post
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3050198340312232882
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 0]
       OffsetMin: [85, 106.828125]
-      OffsetMax: [-11, 139.640625]
+      OffsetMax: [-11, 139.64062]
       SortOrder: 3
       Visible: false
       BlocksPointer: false
     UITextComponent:
-      Text: ''
+      Text: ""
       Font: 12355000851502047045
       Size: 14
       Color: [0.88, 0.89, 0.92, 0.95]
@@ -371,14 +395,14 @@ Entities:
       Wrap: true
       LineSpacing: 1
   - EntityID: 3625221143699009174
+    RelationshipComponent:
+      Parent: 8970289143430244441
     TagComponent:
       Tag: Mode Button
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 8970289143430244441
     UIRectComponent:
       AnchorMin: [1, 0]
       AnchorMax: [1, 1]
@@ -400,39 +424,39 @@ Entities:
     ManagedScriptComponent:
       Script: ShowroomMode
       Fields:
-        StudioFills: 'Key Light,Kicker Left,Kicker Right'
-        ShowroomFills: ''
+        StudioFills: Key Light,Kicker Left,Kicker Right
+        ShowroomFills: ""
         FillIntensity: 14.7
         StudioFillIntensity: 11.0
-        KeyLight: 'Key Light'
+        KeyLight: Key Light
         KeyIntensity: 46
         StudioKeyIntensity: 30
         KeyInner: 34
         KeyOuter: 62
         StudioKeyInner: 20
         StudioKeyOuter: 44
-        Kickers: 'Kicker Left,Kicker Right'
+        Kickers: Kicker Left,Kicker Right
         KickerIntensity: 26
         StudioKickerIntensity: 0.0
-        BayLights: 'Bay Downlight Light 0,Bay Downlight Light 1,Bay Downlight Light 2,Bay Downlight Light 3'
+        BayLights: Bay Downlight Light 0,Bay Downlight Light 1,Bay Downlight Light 2,Bay Downlight Light 3
         BayIntensity: 4.5
         StudioBayIntensity: 0.0
-        BayLenses: 'Bay Downlight 0,Bay Downlight 1,Bay Downlight 2,Bay Downlight 3'
-        Luminaire: 'Luminaire'
-        LuminaireMaterial: 'materials/showroom_panel.rmat'
-        StudioLuminaireMaterial: 'materials/showroom_panel_off.rmat'
-        ProbeName: 'Showroom Probe'
-        LabelName: 'Mode Label'
+        BayLenses: Bay Downlight 0,Bay Downlight 1,Bay Downlight 2,Bay Downlight 3
+        Luminaire: Luminaire
+        LuminaireMaterial: materials/showroom_panel.rmat
+        StudioLuminaireMaterial: materials/showroom_panel_off.rmat
+        ProbeName: Showroom Probe
+        LabelName: Mode Label
         StartMode: 1
   - EntityID: 9906918275020402428
+    RelationshipComponent:
+      Parent: 3625221143699009174
     TagComponent:
       Tag: Mode Label
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 3625221143699009174
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 1]
@@ -450,14 +474,14 @@ Entities:
       Wrap: false
       LineSpacing: 1
   - EntityID: 12923420513844985912
+    RelationshipComponent:
+      Parent: 8970289143430244441
     TagComponent:
       Tag: Lights Button
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 8970289143430244441
     UIRectComponent:
       AnchorMin: [1, 0]
       AnchorMax: [1, 1]
@@ -479,26 +503,26 @@ Entities:
     ManagedScriptComponent:
       Script: ShowroomLights
       Fields:
-        CarRoot: 'porsche_992_gt3_r'
-        FrontParts: 'EXT_Emissive_Light_Front,ST_FRONT_'
-        RearParts: 'EXT_Emissive_Light_Rear,EXT_Glass_Emissive_Rear'
-        FrontLamps: 'Headlamp Beam Left,Headlamp Beam Right'
-        RearLamps: 'Tail Glow Left,Tail Glow Right'
-        LabelName: 'Lights Label'
+        CarRoot: porsche_992_gt3_r
+        FrontParts: EXT_Emissive_Light_Front,ST_FRONT_
+        RearParts: EXT_Emissive_Light_Rear,EXT_Glass_Emissive_Rear
+        FrontLamps: Headlamp Beam Left,Headlamp Beam Right
+        RearLamps: Tail Glow Left,Tail Glow Right
+        LabelName: Lights Label
         FrontEmissive: 19 21 24
         RearEmissive: 16 0.7 0.35
         FrontIntensity: 88
         RearIntensity: 30
         StartOn: false
   - EntityID: 10360658189589823178
+    RelationshipComponent:
+      Parent: 12923420513844985912
     TagComponent:
       Tag: Lights Label
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    RelationshipComponent:
-      Parent: 12923420513844985912
     UIRectComponent:
       AnchorMin: [0, 0]
       AnchorMax: [1, 1]
@@ -588,6 +612,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328038
       Material: 2555912822331742475
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -621,6 +646,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328039
       Material: 16305899894354109941
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -663,6 +689,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328040
       Material: 14410393754700119308
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -696,6 +723,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328041
       Material: 2179402113545288960
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -747,6 +775,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328042
       Material: 13246742660372728734
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -780,6 +809,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328043
       Material: 7973799599751185669
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -822,6 +852,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328044
       Material: 7885824914003414962
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -855,6 +886,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328045
       Material: 12451671288989957718
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -906,6 +938,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328046
       Material: 11072412272217196171
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -939,6 +972,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328047
       Material: 3862303244821855271
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -981,6 +1015,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328048
       Material: 9685086169980038776
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1014,6 +1049,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328049
       Material: 8362761441163183276
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1065,6 +1101,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328050
       Material: 17035327701763597624
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1098,6 +1135,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328051
       Material: 6110302096007223057
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1140,6 +1178,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328052
       Material: 12514813068552968414
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1173,6 +1212,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328053
       Material: 16957303627429152682
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1215,6 +1255,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328054
       Material: 6401395958584581662
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1248,6 +1289,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328055
       Material: 16368794532956433189
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1281,6 +1323,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328056
       Material: 12025137607494732292
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1314,6 +1357,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328057
       Material: 18145212659881015391
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1347,6 +1391,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328058
       Material: 557099801439726826
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1380,6 +1425,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328059
       Material: 5674491357153536737
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1413,6 +1459,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328060
       Material: 8198485776781011044
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1446,6 +1493,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328061
       Material: 11995927068327895899
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1479,6 +1527,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328062
       Material: 5301226356273356796
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1512,6 +1561,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328063
       Material: 11397680359089673232
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1545,6 +1595,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328064
       Material: 16697277567128295077
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1578,6 +1629,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328065
       Material: 5452598958727806577
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1611,6 +1663,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328066
       Material: 5452598958727806577
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1644,6 +1697,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328067
       Material: 16697277567128295077
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1677,6 +1731,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328068
       Material: 16697277567128295077
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1710,6 +1765,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328069
       Material: 16697277567128295077
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1743,6 +1799,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328070
       Material: 5452598958727806577
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1776,6 +1833,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328071
       Material: 5452598958727806577
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1809,6 +1867,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328072
       Material: 5452598958727806577
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1842,6 +1901,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328073
       Material: 5452598958727806577
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1875,6 +1935,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328074
       Material: 5452598958727806577
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1908,6 +1969,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328075
       Material: 5452598958727806577
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1941,6 +2003,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328076
       Material: 6996453753338532393
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -1974,6 +2037,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328077
       Material: 11214495306785170555
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2007,6 +2071,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328078
       Material: 18357047837752686232
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2040,6 +2105,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328079
       Material: 16697277567128295077
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2073,6 +2139,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328080
       Material: 3551496596712188154
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2106,6 +2173,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328081
       Material: 3551496596712188154
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2139,6 +2207,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328082
       Material: 9168374282728222232
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2181,6 +2250,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328083
       Material: 12716106525025966347
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2214,6 +2284,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328084
       Material: 7753536040554747301
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2256,6 +2327,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328085
       Material: 14080597599109782491
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2298,6 +2370,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328086
       Material: 12533532725747813278
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2340,6 +2413,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328087
       Material: 14608781586472789677
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2382,6 +2456,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328088
       Material: 16045132305560908992
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2424,6 +2499,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328089
       Material: 13431416436011678568
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2457,6 +2533,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328090
       Material: 223162669279324539
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2499,6 +2576,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328091
       Material: 16885140967017558098
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2532,6 +2610,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328092
       Material: 4129187239417780942
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2574,6 +2653,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328093
       Material: 16261321276681618391
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2607,6 +2687,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328094
       Material: 16885140967017558098
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2649,6 +2730,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328095
       Material: 16261321276681618391
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2682,6 +2764,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328096
       Material: 16885140967017558098
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2724,6 +2807,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328097
       Material: 11397680359089673232
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2757,6 +2841,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328098
       Material: 16543582280556213879
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2790,6 +2875,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328099
       Material: 9933668496746637796
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2823,6 +2909,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328100
       Material: 12863112832379778538
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2856,6 +2943,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328101
       Material: 18006628464930216262
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2889,6 +2977,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328102
       Material: 16885140967017558098
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2922,6 +3011,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328103
       Material: 8476480697054455671
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2955,6 +3045,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328104
       Material: 4151795956457352346
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -2988,6 +3079,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328105
       Material: 13587639289113789212
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3021,6 +3113,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328106
       Material: 4606138980363892375
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3063,6 +3156,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328107
       Material: 9156200777659117863
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3096,6 +3190,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328108
       Material: 11397680359089673232
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3129,6 +3224,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328109
       Material: 16543582280556213879
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3162,6 +3258,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328110
       Material: 9933668496746637796
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3195,6 +3292,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328111
       Material: 14791090733500169838
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3228,6 +3326,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328112
       Material: 18006628464930216262
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3261,6 +3360,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328113
       Material: 16885140967017558098
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3294,6 +3394,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328114
       Material: 13587639289113789212
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3327,6 +3428,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328115
       Material: 11656528682102713313
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3360,6 +3462,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328116
       Material: 4606138980363892375
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3402,6 +3505,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328117
       Material: 12716106525025966347
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3435,6 +3539,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328118
       Material: 15937701699934436385
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3477,6 +3582,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328119
       Material: 18006628464930216262
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3510,6 +3616,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328120
       Material: 13815435637300954752
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3552,6 +3659,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328121
       Material: 6721820523928552715
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3585,6 +3693,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328122
       Material: 12611380732894659784
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3618,6 +3727,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328123
       Material: 6567120129741216018
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3651,6 +3761,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328124
       Material: 9881641480279653856
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3684,6 +3795,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328125
       Material: 9116212598681569408
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3717,6 +3829,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328126
       Material: 3515951974950212959
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3750,6 +3863,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328127
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3783,6 +3897,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328128
       Material: 9668569574638251676
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3816,6 +3931,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328129
       Material: 18006628464930216262
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3849,6 +3965,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328130
       Material: 8216289627026190575
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3882,6 +3999,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328131
       Material: 3052437185338945800
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3924,6 +4042,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328132
       Material: 14132724504524401870
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3957,6 +4076,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328133
       Material: 93896119500439710
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -3990,6 +4110,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328134
       Material: 4606138980363892375
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4023,6 +4144,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328135
       Material: 9933668496746637796
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4056,6 +4178,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328136
       Material: 2490077838312602128
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4089,6 +4212,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328137
       Material: 6351943775631513607
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4122,6 +4246,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328138
       Material: 1043029980570044200
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4155,6 +4280,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328139
       Material: 17509157101347040330
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4188,6 +4314,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328140
       Material: 1909820267256428387
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4221,6 +4348,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328141
       Material: 1653753552696040040
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4254,6 +4382,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328142
       Material: 1653753552696040040
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4287,6 +4416,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328143
       Material: 15608213960726821160
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4320,6 +4450,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328144
       Material: 10331916563706721157
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4353,6 +4484,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328145
       Material: 9881641480279653856
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4386,6 +4518,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328146
       Material: 1038939403186526791
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4419,6 +4552,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328147
       Material: 15824732046377306699
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4452,6 +4586,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328148
       Material: 10866459115159667836
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4485,6 +4620,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328149
       Material: 14225137982023617597
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4518,6 +4654,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328150
       Material: 16329275491280123355
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4551,6 +4688,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328151
       Material: 16329275491280123355
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4584,6 +4722,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328152
       Material: 8835446077964511291
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4617,6 +4756,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328153
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4650,6 +4790,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328154
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4683,6 +4824,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328155
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4716,6 +4858,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328156
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4749,6 +4892,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328157
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4782,6 +4926,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328158
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4815,6 +4960,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328159
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4848,6 +4994,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328160
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4881,6 +5028,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328161
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4914,6 +5062,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328162
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4947,6 +5096,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328163
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -4980,6 +5130,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328164
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5013,6 +5164,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328165
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5046,6 +5198,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328166
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5079,6 +5232,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328167
       Material: 14726745610411783832
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5112,6 +5266,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328168
       Material: 287747017206861762
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5145,6 +5300,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328169
       Material: 11337162226428579004
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5178,6 +5334,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328170
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5211,6 +5368,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328171
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5244,6 +5402,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328172
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5277,6 +5436,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328173
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5310,6 +5470,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328174
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5343,6 +5504,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328175
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5376,6 +5538,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328176
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5409,6 +5572,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328177
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5442,6 +5606,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328178
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5475,6 +5640,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328179
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5508,6 +5674,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328180
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5541,6 +5708,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328181
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5574,6 +5742,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328182
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5607,6 +5776,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328183
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5640,6 +5810,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328184
       Material: 10711879502584877328
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5673,6 +5844,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328185
       Material: 18083713429448479717
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5706,6 +5878,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328186
       Material: 13587639289113789212
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5766,6 +5939,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328187
       Material: 2385112130939618029
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5799,6 +5973,7 @@ Entities:
     MeshComponent:
       Mesh: 1188120948367328188
       Material: 6054455539751445460
+      Static: false
       OverrideBaseColor: false
       BaseColor: [1, 1, 1, 1]
       OverrideEmissive: false
@@ -5819,6 +5994,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     IrradianceVolumeComponent:
+      AutoFit: false
       Extents: [24, 3.5, 27.5]
       Spacing: 1
       MaxResolution: 96
@@ -9369,10 +9545,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000001683686237
     TagComponent:
       Tag: Tube 004
@@ -9385,10 +9564,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000004250030823
     TagComponent:
       Tag: Tube 007
@@ -9401,10 +9583,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000002049832453
     TagComponent:
       Tag: Tube 010
@@ -9417,10 +9602,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000003810830271
     TagComponent:
       Tag: Tube 013
@@ -9433,10 +9621,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000002471383856
     TagComponent:
       Tag: Tube 016
@@ -9449,10 +9640,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000000066145953
     TagComponent:
       Tag: Tube 019
@@ -9465,10 +9659,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000003205416170
     TagComponent:
       Tag: Tube 022
@@ -9481,10 +9678,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000000560615753
     TagComponent:
       Tag: Tube 025
@@ -9497,10 +9697,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000001608199668
     TagComponent:
       Tag: Tube 028
@@ -9513,10 +9716,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000001058841617
     TagComponent:
       Tag: Tube 031
@@ -9529,10 +9735,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000002709008818
     TagComponent:
       Tag: Tube 036
@@ -9545,10 +9754,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000000835136547
     TagComponent:
       Tag: Tube 039
@@ -9561,10 +9773,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000003914621804
     TagComponent:
       Tag: Tube 042
@@ -9577,10 +9792,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000001999697615
     TagComponent:
       Tag: Tube 045
@@ -9593,10 +9811,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000000159484530
     TagComponent:
       Tag: Tube 048
@@ -9609,10 +9830,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000001766196119
     TagComponent:
       Tag: Tube 051
@@ -9625,10 +9849,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000000422377240
     TagComponent:
       Tag: Tube 054
@@ -9641,10 +9868,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000002149951138
     TagComponent:
       Tag: Tube 057
@@ -9657,10 +9887,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000003590051146
     TagComponent:
       Tag: Tube 237
@@ -9673,10 +9906,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 20
       Range: 16
+      SourceRadius: 0.075
+      SourceLength: 3.07
       InnerCone: 60
       OuterCone: 88
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000001656714330
     TagComponent:
       Tag: Blend Area Light
@@ -9689,10 +9925,13 @@ Entities:
       Color: [0.589, 0.803, 1]
       Intensity: 40
       Range: 26
+      SourceRadius: 0
+      SourceLength: 0
       InnerCone: 60
       OuterCone: 85
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000000552821375
     TagComponent:
       Tag: Blend Point Light
@@ -9705,10 +9944,13 @@ Entities:
       Color: [1, 1, 1]
       Intensity: 40
       Range: 22
+      SourceRadius: 0
+      SourceLength: 0
       InnerCone: 20
       OuterCone: 30
       CastShadows: true
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000002107796992
     TagComponent:
       Tag: Wall Fixture
@@ -9721,10 +9963,13 @@ Entities:
       Color: [1, 0.6, 0.26]
       Intensity: 5
       Range: 7
+      SourceRadius: 0
+      SourceLength: 0
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
       Mobility: Half bake
+      HybridRadius: 2
   - EntityID: 7810000000811611019
     TagComponent:
       Tag: Key Light
@@ -9737,10 +9982,13 @@ Entities:
       Color: [0.95, 0.97, 1]
       Intensity: 0
       Range: 14
+      SourceRadius: 0
+      SourceLength: 0
       InnerCone: 26
       OuterCone: 46
       CastShadows: true
       Mobility: Realtime
+      HybridRadius: 2
   - EntityID: 7810000004274484919
     TagComponent:
       Tag: Kicker Left
@@ -9753,10 +10001,13 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 0
       Range: 7
+      SourceRadius: 0
+      SourceLength: 0
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
       Mobility: Realtime
+      HybridRadius: 2
   - EntityID: 7810000002720144064
     TagComponent:
       Tag: Kicker Right
@@ -9769,7 +10020,10 @@ Entities:
       Color: [0.342, 0.631, 1]
       Intensity: 0
       Range: 7
+      SourceRadius: 0
+      SourceLength: 0
       InnerCone: 20
       OuterCone: 30
       CastShadows: false
       Mobility: Realtime
+      HybridRadius: 2
