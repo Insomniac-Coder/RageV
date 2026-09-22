@@ -24,9 +24,11 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'session_2026_09_13'))
 sys.path.insert(0, os.path.join(HERE, 'session_2026_09_21'))
+sys.path.insert(0, os.path.join(HERE, 'session_2026_09_15'))
 import stage_run as sr          # noqa: E402
 import burst                    # noqa: E402
 import watch_mover as wm        # noqa: E402
+import emitter_mover as em      # noqa: E402
 
 SPEED = 0.35
 # The garage's default pose -- the one the owner judges from. The close 'car'
@@ -142,17 +144,69 @@ VARIANTS = {
          '	return;\n'
          '	vec3 sum = vec3(0.0);\n	float distanceSum = 0.0;\n	float weightSum = 0.0;'),
     ],
-    # The tube's light handed to the aimed ray by the power heuristic instead of
-    # the balance heuristic (2026-09-22): a rare hit on a glowing tube counts for
-    # far less wherever the aimed ray is the better estimate, a mirror unchanged.
-    # Inert on the parked floor's 16-ray score; the moving car is the judge.
-    'power': [
+    # The balance heuristic back, for the aimed ray and a struck lamp's glow. The
+    # power heuristic replaced it on 2026-09-23 (RT-22): the grain on the car
+    # window's reflection of the moving glowing cube, owner-judged gone. Inert on
+    # the parked floor's 16-ray score (2026-09-22). This arm shows what it was.
+    'balance': [
         ('reflection_trace.rvshader',
-         '	const float share = pLobe / max(pLobe + pLight, 1.0e-9);',
-         '	const float share = pLobe * pLight / max(pLobe * pLobe + pLight * pLight, 1.0e-18);'),
+         '	const float share = pLobe * pLight / max(pLobe * pLobe + pLight * pLight, 1.0e-18);',
+         '	const float share = pLobe / max(pLobe + pLight, 1.0e-9);'),
         ('reflection_trace.rvshader',
-         '	return pLobe / max(pLobe + pLight, 1.0e-9);',
-         '	return pLobe * pLobe / max(pLobe * pLobe + pLight * pLight, 1.0e-18);'),
+         '	return pLobe * pLobe / max(pLobe * pLobe + pLight * pLight, 1.0e-18);',
+         '	return pLobe / max(pLobe + pLight, 1.0e-9);'),
+    ],
+    # RT-22 (2026-09-22): a clearly measured change restarts the average outright
+    # instead of blending by its share. Priced on the drive it halves the floor's
+    # trail -- and REJECTED by eye: a moving reflection changes every frame, so it
+    # restarted every frame and the cube's image on the floor went raw and shaky.
+    # Kept as the switch that shows it.
+    'restart': ('reflection_accumulate.rvshader',
+                'blendFrames = max(min(blendFrames, 1.0 / measured.x), 1.0);',
+                'blendFrames = measured.x > 0.1 ? 1.0 : max(min(blendFrames, 1.0 / measured.x), 1.0);'),
+    # RT-22 (2026-09-23): the frame filter's temporal floor off -- the box no longer
+    # widens by the pixel's own recent swing, which a light sweeping past a still
+    # pixel inflates. Thin geometry flickers again under the jitter with it off.
+    'noflickerfloor': ('taa_resolve.rvshader',
+                       'const float kTemporalSigma = 2.0;',
+                       'const float kTemporalSigma = 0.0;'),
+    # The candidate fix: the floor kept only where the 3x3 spans another surface --
+    # an outline, where jitter coverage flicker happens -- and strict mid-surface.
+    'edgefloor': ('taa_resolve.rvshader',
+                  'const float temporalSigma = sqrt(max(momMeanSq - momMean * momMean, 0.0)) * stillness;',
+                  'const float temporalSigma = sqrt(max(momMeanSq - momMean * momMean, 0.0)) * stillness\n'
+                  '\t\t\t\t\t\t\t  * ((!boxGeometry || sameSurface < 8) ? 1.0 : 0.0);'),
+    # RT-22's self-check: red wherever the resolve reads the pixel as covered by a
+    # see-through surface (the transparent pass's revealage, binding 13).
+    'coveredmap': ('taa_resolve.rvshader',
+                   'const bool outline = !boxGeometry || sameSurface < 8;',
+                   'const bool outline = !boxGeometry || sameSurface < 8;\n'
+                   '\tif (covered) { o_Color = vec4(4.0, 0.0, 0.0, 1.0); o_Moments = vec4(1.0); return; }'),
+    # RT-22: the pane's settled reflection (RT-13 stage 3) not taken, so the nearest
+    # pane casts its own rays as before stage 3; its settled lamp light stays.
+    'glassownrays': ('include/pbr_fragment.glsl',
+                     'const bool glassReflected = directSignal && textureSize(u_GlassReflection, 0).x > 1;',
+                     'const bool glassReflected = false && directSignal && textureSize(u_GlassReflection, 0).x > 1;'),
+    # RT-22: red wherever the resolve still widens by the pixel's own swing (an
+    # outline, not under glass) -- where a stopped mover's reflection can still hang.
+    'relaxmap': ('taa_resolve.rvshader',
+                 'const bool outline = !boxGeometry || sameSurface < 8;',
+                 'const bool outline = !boxGeometry || sameSurface < 8;\n'
+                 '\tif (outline && !covered) { o_Color = vec4(4.0, 0.0, 0.0, 1.0); o_Moments = vec4(1.0); return; }'),
+    # RT-22: four rays a texel where no allocation ran -- which is the glass layer's
+    # trace alone (the opaque trace's tile allocation overwrites it).
+    'glassrays4': ('reflection_trace.rvshader',
+                   '\tint rays = 1;',
+                   '\tint rays = 4;'),
+    # RT-22: the pane's lamp light back on the loop (the pane walks and traces its
+    # own lamps), its settled reflection kept -- which of the two carries the grain.
+    'glassownlamps': [
+        ('include/pbr_fragment.glsl',
+         '\tconst bool directSignal = glassDepth > 0.0',
+         '\tconst bool directSignal = false;\n\tconst bool glassSettled = glassDepth > 0.0'),
+        ('include/pbr_fragment.glsl',
+         'const bool glassReflected = directSignal && textureSize(u_GlassReflection, 0).x > 1;',
+         'const bool glassReflected = glassSettled && textureSize(u_GlassReflection, 0).x > 1;'),
     ],
     'noexempt': ('reflection_resolve.rvshader',
                  '			if (emissiveShare > kEmitterShare)',
@@ -166,6 +220,10 @@ def scene_for(case, seconds):
     head = io.open(os.path.join(sr.SCENES, 'showroom.rage'), 'rb').read()
     if case == 'cube':
         return sr.moving_cube_scene(head, -9.0, SPEED, seconds)
+    if case == 'light':
+        # RT-22's drive: a glowing cube with a live point light under it, 1.5 m/s
+        # across the close shot (session_2026_09_15/emitter_mover.py).
+        return em.scene(seconds)
     text = head.decode('utf-8').replace('\r\n', '\n')
     out, count = [], 0
     for part in re.split(r'(?=\n  - EntityID: )', text):
@@ -181,11 +239,16 @@ def scene_for(case, seconds):
 
 
 def play(case, seconds, flags):
-    cam = DEFAULT_CAM
+    cam = '-4.3,1.0,-2,3.2,25,8' if case == 'light' else DEFAULT_CAM
     stage = None
+    no_jitter = False
     rest = []
     for f in flags:
-        if f.startswith('--cam='):
+        if f == '--no-jitter':
+            # The temporal jitter's scale is a project setting with no flag; the
+            # project is edited for the run and restored byte for byte after it.
+            no_jitter = True
+        elif f.startswith('--cam='):
             cam = f.split('=', 1)[1]
         elif f.startswith('--stage='):
             stage = f.split('=', 1)[1]
@@ -202,6 +265,15 @@ def play(case, seconds, flags):
     try:
         if not sr.restore():
             sys.exit('the staged shader copies did not restore')
+        if no_jitter:
+            text = sr.PROJECT_BYTES.decode('utf-8')
+            was, now = sr.NO_JITTER
+            eol = '\r\n' if '\r\n' in text else '\n'
+            was, now = was.replace('\n', eol), now.replace('\n', eol)
+            if text.count(was) != 1:
+                sys.exit('TemporalJitterScale matched %d times' % text.count(was))
+            io.open(sr.PROJECT, 'wb').write(text.replace(was, now).encode('utf-8'))
+            print('project: TemporalJitterScale 0 for this run')
         if stage:
             spec = VARIANTS[stage]
             triples = spec if isinstance(spec, list) else [spec]

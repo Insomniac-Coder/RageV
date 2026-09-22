@@ -537,10 +537,12 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.GlassReflections = &m_GlassReflections;
 	frame.DirectChange = &m_DirectChange;
 	frame.ReflectionChange = &m_ReflectionChange;
+	frame.GlassReflectionChange = &m_GlassReflectionChange;
 	frame.GiChange = &m_GiChange;
 	frame.Indirect = &m_Indirect;
 	frame.RayBudget = &m_RayBudget;
 	frame.ReflectionBudget = &m_RayBudgetReflection;
+	frame.GlassReflectionBudget = &m_RayBudgetGlassReflection;
 	frame.DirectBudget = &m_RayBudgetDirect;
 	frame.Occlusion = &m_Occlusion;
 	frame.GiLight = &m_GiLight;

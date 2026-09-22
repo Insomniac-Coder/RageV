@@ -338,7 +338,9 @@ namespace RageV
 							   const Ref<RHITexture>& eighth, Sampling eighthSampling,
 							   // RT-20: binding 10, the resolve's surface motion.
 							   const Ref<RHITexture>& ninth, Sampling ninthSampling,
-							   const Ref<RHITexture>& tenth, Sampling tenthSampling)
+							   const Ref<RHITexture>& tenth, Sampling tenthSampling,
+							   const Ref<RHITexture>& eleventh, Sampling eleventhSampling,
+							   const Ref<RHITexture>& twelfth, Sampling twelfthSampling)
 	{
 		if (!s_Data || !s_Data->Ready || !first)
 			return;
@@ -474,6 +476,12 @@ namespace RageV
 		// Measured change: binding 11, the same way and for the same reason.
 		if (tenth && set->HasBinding(11))
 			set->SetTexture(11, tenth, samplerFor(tenthSampling));
+		// The reflections' measured change: binding 12 (2026-09-22).
+		if (eleventh && set->HasBinding(12))
+			set->SetTexture(12, eleventh, samplerFor(eleventhSampling));
+		// The transparent pass's revealage: binding 13 (RT-22, 2026-09-23).
+		if (twelfth && set->HasBinding(13))
+			set->SetTexture(13, twelfth, samplerFor(twelfthSampling));
 
 		// The counters, for the passes that count and the one that draws
 		// them (WR-16 S0). Only when the caller passed one, which it does
@@ -1651,7 +1659,9 @@ namespace RageV
 									  // RT-20: the scene's own velocity lane; null when
 									  // `velocity` already is it.
 									  const Ref<RHITexture>& surfaceVelocity,
-									  const Ref<RHITexture>& change)
+									  const Ref<RHITexture>& change,
+									  const Ref<RHITexture>& reflectionChange,
+									  const Ref<RHITexture>& revealage)
 	{
 		// The base block, then this frame's jitter (clip units, as the scene
 		// block carries it): the resolve filters the current frame around
@@ -1674,9 +1684,12 @@ namespace RageV
 			// Measured change (the anti-lag): one where binding 11 holds the
 			// change map.
 			float Change = 0.0f;
+			// RT-22: one where binding 13 holds the transparent pass's revealage.
+			float Covered = 0.0f;
 		};
 		TemporalParams full;
-		full.Change = change ? 1.0f : 0.0f;
+		full.Change = (change || reflectionChange) ? 1.0f : 0.0f;
+		full.Covered = revealage ? 1.0f : 0.0f;
 		full.Jitter = jitter;
 		full.StillFeedback = Math::Clamp(stillFeedback, 0.0f, 0.98f);
 		// Both lanes, and a history to compare against: with either missing the
@@ -1755,7 +1768,13 @@ namespace RageV
 				 // Measured change: binding 11, filtered -- a smooth field of
 				 // fractions a third of this pass's resolution. Black where there
 				 // is none, which `Change` says is not data.
-				 change ? change : s_Data->Black, Sampling::Linear);
+				 change ? change : s_Data->Black, Sampling::Linear,
+				 // And the reflections' map, binding 12, read the same way (2026-09-22).
+				 reflectionChange ? reflectionChange : s_Data->Black, Sampling::Linear,
+				 // RT-22: binding 13, the revealage. Point: a pixel is covered or it is
+				 // not, and half a pane's edge is not a pane. Black where there is none,
+				 // which `Covered` says is not data.
+				 revealage ? revealage : s_Data->Black, Sampling::Point);
 	}
 
 	void PostProcess::FilterChange(RHICommandList& cmd, const Ref<RHITexture>& change,

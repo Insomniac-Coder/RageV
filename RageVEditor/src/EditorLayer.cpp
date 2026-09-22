@@ -677,10 +677,12 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.GlassReflections = &m_SceneGlassReflections;
 	scene.DirectChange = &m_SceneDirectChange;
 	scene.ReflectionChange = &m_SceneReflectionChange;
+	scene.GlassReflectionChange = &m_SceneGlassReflectionChange;
 	scene.GiChange = &m_SceneGiChange;
 	scene.Indirect = &m_SceneIndirect;
 	scene.RayBudget = &m_SceneRayBudget;
 	scene.ReflectionBudget = &m_SceneRayBudgetReflection;
+	scene.GlassReflectionBudget = &m_SceneRayBudgetGlassReflection;
 	scene.DirectBudget = &m_SceneRayBudgetDirect;
 	scene.Occlusion = &m_SceneOcclusion;
 	scene.GiLight = &m_SceneGiLight;
@@ -833,10 +835,12 @@ void EditorLayer::OnUpdate(Timestep ts)
 		game.GlassReflections = &m_GameGlassReflections;
 		game.DirectChange = &m_GameDirectChange;
 		game.ReflectionChange = &m_GameReflectionChange;
+		game.GlassReflectionChange = &m_GameGlassReflectionChange;
 		game.GiChange = &m_GameGiChange;
 		game.Indirect = &m_GameIndirect;
 		game.RayBudget = &m_GameRayBudget;
 		game.ReflectionBudget = &m_GameRayBudgetReflection;
+		game.GlassReflectionBudget = &m_GameRayBudgetGlassReflection;
 		game.DirectBudget = &m_GameRayBudgetDirect;
 		game.Occlusion = &m_GameOcclusion;
 		game.GiLight = &m_GameGiLight;

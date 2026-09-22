@@ -246,12 +246,29 @@ layout(push_constant) uniform Params
 	// **Measured change (docs/RT-MEASURED-CHANGE.md): one when binding 11 holds
 	// the direct light's change map.** Zero is the resolve as it was.
 	float Change;
+	// **RT-22 (2026-09-23): one when binding 13 holds the transparent pass's
+	// revealage**, so the resolve knows which pixels show a see-through surface.
+	float Covered;
 } u_Params;
 
 // The change map, on the 3x3 block grid of this pass's own size: r the share of
 // the direct diffuse measured to have changed since last frame, g the
 // highlight's. Black and unread where `Change` is zero.
 layout(set = 0, binding = 11) uniform sampler2D u_Change;
+// **And the reflections' change map (2026-09-22)**, on its own block grid, read by uv.
+// A reflection moving across a still surface was never a change to this pass, so
+// its fifty-frame still memory dragged it (RT-22). Black and unread where none is bound.
+layout(set = 0, binding = 12) uniform sampler2D u_ReflectionChange;
+// **The transparent pass's revealage (RT-22, 2026-09-23)**: what survives of the
+// opaque scene behind every see-through surface drawn over this pixel, one where
+// none was. The transparent pass writes no velocity, no material and no identity,
+// so every lane this resolve reads at a window describes the cabin behind it --
+// and the pane's own light (a lamp's glint, a reflection sliding across it) is
+// shading on a smooth surface the lanes never mention. Read where `Covered` says.
+layout(set = 0, binding = 13) uniform sampler2D u_Revealage;
+// Under this the pixel shows a see-through surface. Just short of one: the lane
+// is eight bits, and a clear pane still takes a few per cent.
+const float kCoveredBelow = 0.99;
 
 // **How far the box may open on a surface whose shading does not depend on
 // where the eye is.**
@@ -1024,7 +1041,8 @@ void main()
 							 ? gl_FragCoord.xy
 							 : gl_FragCoord.xy - velocity / u_Params.TexelSize;
 		const vec2 measured = texture(u_Change, (historyAt / 3.0) / blocks).rg;
-		const float share = max(measured.r, measured.g);
+		const vec2 reflected = texture(u_ReflectionChange, historyAt * u_Params.TexelSize).rg;
+		const float share = max(max(measured.r, measured.g), max(reflected.r, reflected.g));
 		if (share > 0.0)
 		{
 			frames = max(min(frames, 1.0 / share), 1.0);
@@ -1036,7 +1054,22 @@ void main()
 	const float momMeanSq = mix(prevMoments.z, currentLuma * currentLuma, momentAlpha);
 	// Only for a pixel that did not move: on water and anything else whose
 	// shading legitimately changes in place, the fluctuation is the picture.
-	const float temporalSigma = sqrt(max(momMeanSq - momMean * momMean, 0.0)) * stillness;
+	//
+	// **RT-22 (2026-09-23): and only at an outline, never on glass.** The floor is
+	// for coverage flicker -- a rope or a picket drawn in the frames the jitter lands
+	// on it -- and that happens where the 3x3 spans another surface. Mid-surface the
+	// same floor read a real change as flicker: a light sweeping past a still pixel
+	// swings its moments, the box opened by that swing, and the 0.98 still memory
+	// kept the old picture through it for the moments' sixteen frames -- the streak
+	// a moving light left on the car's window, and a stopped car's reflection
+	// sliding on after it. Owner-judged gone with the floor off, and kept only at
+	// outlines the window still streaked in the shape of the cabin's roll cage:
+	// the outlines are the cabin's, seen through the pane. So a covered pixel gets
+	// none.
+	const bool covered = u_Params.Covered > 0.5 && texture(u_Revealage, uv).r < kCoveredBelow;
+	const bool outline = !boxGeometry || sameSurface < 8;
+	const float temporalSigma = sqrt(max(momMeanSq - momMean * momMean, 0.0)) * stillness
+							  * (outline && !covered ? 1.0 : 0.0);
 	// RT-12: reached here the history was reused, so the reason is whatever
 	// refused the *centre* texel -- zero when it matched outright, and the
 	// clause that sent the search to a neighbour otherwise. That difference
@@ -1067,7 +1100,9 @@ void main()
 	// a surface stops behaving like a mirror (0.15, the gloss threshold the
 	// reflection accumulator uses for the same distinction) and is fully open
 	// by half rough, which is ordinary concrete, brick and paint.
-	if (u_Params.Material > 0.5)
+	// Not under glass (RT-22): the lane is the cabin's, and a pane's reflection is
+	// entirely a function of the view.
+	if (u_Params.Material > 0.5 && !covered)
 	{
 		const vec4 material = texelFetch(u_Material, ivec2(gl_FragCoord.xy), 0);
 		const float stability = (1.0 - clamp(material.a, 0.0, 1.0))

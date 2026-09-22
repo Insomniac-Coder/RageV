@@ -998,7 +998,9 @@ namespace RageV
 										   const RHI::Ref<RHI::RHITexture>& velocity,
 										   const RHI::Ref<RHI::RHITexture>& travel,
 										   const GiTraceView& view,
-										   MeasuredChangeHistory& history);
+										   MeasuredChangeHistory& history,
+										   // RT-22: the glass layer's, on sets of its own.
+										   bool glassLayer = false);
 		// And later, before the accumulate: the record's rays traced into this
 		// frame's scene and compared -- the change and its reference, and the
 		// filter's guide, as the direct light's re-light writes them.
@@ -1006,7 +1008,8 @@ namespace RageV
 											const RHI::Ref<RHI::RHITexture>& record1,
 											const RHI::Ref<RHI::RHITexture>& record2,
 											const RHI::Ref<RHI::RHITexture>& record3,
-											MeasuredChangeHistory& history);
+											MeasuredChangeHistory& history,
+											bool glassLayer = false);
 		static bool CanMeasureReflectionChange();
 		// **Measured change, phase 3: the traced bounce.** After the GI trace, on
 		// its own grid: one texel per 3x3 block -- the world point, the surface

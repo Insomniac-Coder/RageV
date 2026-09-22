@@ -648,10 +648,15 @@ vec3 AimedAtEmitters(vec3 P, vec3 N, vec3 V, float roughness, int emitters, inou
 	if (pLight <= 0.0)
 		return vec3(0.0);
 	const float pLobe = LobePdf(N, V, toLight, roughness);
-	// The weight and the conversion at once: (pLobe / pLight) * (pLight /
-	// (pLobe + pLight)) is pLobe / (pLobe + pLight), and writing it that way
-	// keeps a near-mirror's enormous pLobe out of a division it would dominate.
-	const float share = pLobe / max(pLobe + pLight, 1.0e-9);
+	// The weight and the conversion at once: (pLobe / pLight) * the aimed
+	// sample's weight. **The power heuristic, not the balance (RT-22,
+	// 2026-09-23)**: the balance left the aimed ray a share on a near-mirror,
+	// where the lobe ray is the better estimator, and at a glowing object's edge
+	// that share jumped frame to frame -- the grain on the car window's
+	// reflection of a moving glowing cube, owner-judged gone with this. Measured
+	// inert on the parked floor against the 16-ray truth (2026-09-22).
+	// (pLobe / pLight) * (pLight^2 / (pLobe^2 + pLight^2)).
+	const float share = pLobe * pLight / max(pLobe * pLobe + pLight * pLight, 1.0e-18);
 	if (share <= 0.0)
 		return vec3(0.0);
 
@@ -704,7 +709,8 @@ float StruckEmitterShare(vec3 P, vec3 N, vec3 V, vec3 L, float roughness,
 	if (pLight <= 0.0)
 		return 1.0;
 	const float pLobe = LobePdf(N, V, L, roughness);
-	return pLobe / max(pLobe + pLight, 1.0e-9);
+	// The power heuristic, as the aimed sample's weight above is (RT-22).
+	return pLobe * pLobe / max(pLobe * pLobe + pLight * pLight, 1.0e-18);
 }
 #endif
 

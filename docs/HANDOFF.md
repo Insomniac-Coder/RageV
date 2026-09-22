@@ -1,9 +1,72 @@
 # RageV -- handoff
 
-**Read this first.** Updated 2026-09-22 (late evening). **RT-23 is FIXED, judged by the owner on the
-slow car pass ("99% gone"): the measured change's re-light was not drawing what the trace drew,
-so it called the whole floor "changed" every frame the car moved and restarted its average.
-Committed. What is left of the RT series is RT-22 and RT-2.2.**
+**Read this first.** Updated 2026-09-23. **RT-22's window streak is FIXED by the owner's eye, and the
+pane's grain after it; ALL UNCOMMITTED, and the tree as it stands REGRESSES the bridge's water glitter
+(0.80% -> 0.97% of the frame blinking).** Do not commit the frame filter half without the general rule
+below. Open, parked by the owner for later: the delayed reflection stop, the cable flicker, and that rule.
+
+## 2026-09-23: RT-22's streak, the pane's grain, and what is parked
+
+Every arm below was judged live by the owner on `watch_arm.py light 8` (the moving glowing cube and
+its point light past the parked car) or `watch_arm.py car 20`. The arms are in watch_arm.py's VARIANTS.
+
+**1. The streak on the car window was the frame filter's temporal floor.** `taa_resolve.rvshader` widens
+its box by the pixel's own recent swing (`kTemporalSigma * temporalSigma`, moments over 16 frames), so a
+light sweeping past a still pixel opens the box that should throw the stale picture out, and the 0.98
+still memory keeps it: a trail. `--stage=noflickerfloor` (floor off): streak gone, and the car's floor
+reflection stopped "pretty much instantly". Floor kept only at outlines (`--stage=edgefloor`): the streak
+survived in the shape of the cabin's roll cage -- **the transparent pass writes no velocity, material
+or identity, so at a window every lane the resolve reads is the cabin behind it.** Now built: the resolve
+reads the OIT revealage (sceneHDR attachment 2, binding 13, `Covered`) and a covered pixel gets no floor
+and no rough-surface x8 widening; elsewhere the floor applies only where the 3x3 spans another surface
+(`sameSurface < 8`). Owner: streak gone. `--stage=coveredmap` paints what counts as covered (windows,
+lamp lenses); `--stage=relaxmap` where the floor still applies (outlines only -- the floor is clean).
+
+**THE REGRESSION: that rule is decided by *where* a pixel is, and the sea proves it wrong.** The sea is
+drawn by the transparent pass, so it is "covered" and lost its floor and widening: on the bridge (parked,
+clock pinned, 16 frames from 240, check_glint_flicker.py) blinking went 0.80% -> 0.97%, every new blink
+the lamp glitter on the water. I exempted the water; **owner: "that is a BAD FIX -- cables can exist in
+an area without water too". Removed.** A rule keyed on a surface type is not a fix.
+
+**The general rule to build (proposed, owner parked it): decide by how the pixel changes, not where it
+is.** Coverage flicker swings back and forth on the jitter's 8-frame cycle; a real change moves one way
+and stays. Keep one more small value per pixel in the frame filter's memory (the side of the history the
+input fell on last frame and how many frames running it has stayed there); the floor opens only while
+the input keeps swinging, and closes once it has stayed on one side for a jitter cycle. It replaces the
+outline rule and the glass rule, and needs no water rule. Test on all four: the window drive, the car's
+stop, the bridge cables and the bridge water, against the numbers above.
+
+**2. The grain left on the window was the pane's reflection, and two things fixed it.** Bisected live:
+not the glass lamp light (`--stage=glassownlamps`), not the jitter (`watch_arm.py --no-jitter`, a new
+flag that edits and restores the project), not one-lamp-per-hit (`--hit-light-sampling=off`); memory off
+cleared most of it (`--reflection-history=off`, which also covers the pane: GlassReflectionSignal copies
+ReflectionSignal; `--glass-history` covers only the pane's lamp light).
+- **The pane's reflection now has the floor's measured change and RT-9 ray plan** (FrameGraphBuilder's
+  RT-13 stage 3 block; `GlassReflectionChange`, `GlassReflectionBudget` in the frame desc and in both
+  apps; the record and re-light take `glassLayer` for sets of their own). Before, it cast one ray
+  everywhere, borrowed the floor's budget map and could only guess a change from its own picture. About
+  0.14 ms. Validation layer clean. Owner: "better but still a tiny bit grainy on the edges".
+- **The aimed ray's weighting is the power heuristic, not the balance** (reflection_trace.rvshader, the
+  aimed sample's `share` and `StruckEmitterShare`). On a near-mirror the balance left the aimed ray a share
+  that jumped frame to frame at a glowing object's edge (`--reflection-nee=off` was "almost good"). Owner:
+  "good enough". Against the 16-ray truth: wet floor 7.748 -> 7.813 from the truth, 5302 -> 5289 specks;
+  cube face 1.290 -> 1.308, 293 -> 289; floor under it 7.434 -> 7.494 -- no measurable change. `--stage=balance`
+  shows the old rule.
+
+**Parked by the owner, 2026-09-23:**
+- **The delayed reflection stop.** With the floor fully off the car's reflection stopped at once; with the
+  built rule it is "a fraction of a second slower", and with `--reflection-history=off` it stops instantly
+  -- so what is left is the reflection accumulator's own memory after the stop (its "something moved" gates
+  close within two frames of the stop: RT-17's identity test, RT-9's allocation, the moving blur).
+- **The cable flicker.** The bridge's cables and tower blink in both versions of the frame filter (the
+  2026-09-02 record's TAA numbers); today's change neither caused nor fixed it.
+- **The general flicker rule above**, which is also what removes the water regression.
+
+**Found in passing, not fixed:** reflection_accumulate's `kSettledBound` widening reads `c.past.a`, the
+trust the anti-lag never resets -- the fb9cbe9 "which counter says young" trap a fourth time.
+
+**Also uncommitted:** the garage's bake for the tube lengths (field_f4dea8343577fbbf, rvprobe + two
+rvfields) was never committed with 22fc27c; bakes are normally in the repo.
 
 ## RT-23 fixed: the anti-lag's re-light drew a different ray from the trace
 
@@ -82,6 +145,32 @@ map (the trace's travel lane w painted): parked one ray everywhere, moving up to
 tiles around and under the car and nowhere else. Trace cost unchanged (4.2 ms). Ceiling is
 `--reflection-moving-rays` (4).
 
+
+**RT-22, half taken the same night, and where it stood** (superseded by the 2026-09-23 entry at the top). By switch, live on the moving-light drive
+(`watch_arm.py light 8`): not the glass layer, not its memory, not the reflection memory -- the frame
+filter, whose still memory (0.98, fifty frames) drags anything that changes on a still surface and
+was only ever told about the direct light's changes. **Done:** `taa_resolve.rvshader` reads the
+reflections' change map too (binding 12, `PostProcess::TemporalResolve(..., reflectionChange)`):
+floor trail 9.2 -> 4.8 levels, car side 7.5 -> 7.0, flicker unchanged, floor smooth by eye.
+**Rejected, measured:** restarting outright above a tenth of measured change (raw and shaky on a
+moving reflection -- it changes every frame); recording what is *shown* instead of the fresh ray
+(floods the change map: the shown picture is a clamped, gathered average, a fresh ray is not).
+**Open, with the two things to try next (owner, 2026-09-22 night):**
+- **The glow of the moving light on the car's window.** The glass pane's light is never measured:
+  the re-light runs on opaque surfaces only, so no filter can restart it. **To try: a re-light for
+  the glass pane** -- the direct light's record and re-light (direct_trace.rvshader's RECORD and
+  RELIGHT variants, the change filter chain) run a second time on the glass layer's own surface
+  lanes, its change map fed to the pane's accumulator (GlassDirectSignal) and to the frame filter
+  beside the two it reads now. About a day; nothing new in kind, the same passes on a second
+  surface. Judge on the drive: the glow on the window keeps up with the light.
+- **The cube's reflection stopping a fraction of a second after the cube.** The reflection
+  accumulator's blend on a moving reflected object. **To try: refuse the reflection memory where
+  the ray struck something that moved** (the trace's travel lane already says so), so the mover's
+  image is redrawn from fresh rays each frame and stops when it stops. Rejected on 09-21 as too
+  noisy -- but that was before RT-9's allocator counted a restarted texel as young (fb9cbe9): a
+  refused pixel now gets up to `--reflection-moving-rays` (4) rays instead of one, and the ceiling
+  is a setting. A staged shader arm, no build; the owner judges the noise against the lag. Moving
+  the memory along with the cube (RT-15's layer) measured worse and stays rejected.
 
 **RT-22 re-measured after all this (same harness, `session_2026_09_15/emitter_lag.py`):** the trail
 is unchanged to slightly better with the tubes as points (floor beside the moving light 11.9% -> 11.1%

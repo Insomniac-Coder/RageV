@@ -163,7 +163,16 @@ namespace RageV
 									 // size. Where it reads a share of the light changed, the
 									 // history's weight and moments give way by that share. Null
 									 // is the resolve exactly as it was.
-									 const RHI::Ref<RHI::RHITexture>& change = nullptr);
+									 const RHI::Ref<RHI::RHITexture>& change = nullptr,
+									 // **And the reflections' (2026-09-22).** A reflection moving across a still
+									 // surface is a change this filter was never told of, and its still memory
+									 // dragged it for fifty frames (RT-22). Null leaves it as it was.
+									 const RHI::Ref<RHI::RHITexture>& reflectionChange = nullptr,
+									 // **RT-22 (2026-09-23): the transparent pass's revealage**, which
+									 // says where a see-through surface covers the pixel -- the one
+									 // thing none of the lanes above describe. Null treats every
+									 // pixel as uncovered, which is what it was.
+									 const RHI::Ref<RHI::RHITexture>& revealage = nullptr);
 
 		// **Measured change (docs/RT-MEASURED-CHANGE.md, phase 1): one a-trous
 		// pass over the block grid.** `change` holds the re-light's differences
@@ -758,6 +767,12 @@ namespace RageV
 							 // Measured change: binding 11, the resolve's change map.
 							 // Asked of the layout like binding 10.
 							 const RHI::Ref<RHI::RHITexture>& tenth = nullptr,
-							 Sampling tenthSampling = Sampling::Linear);
+							 Sampling tenthSampling = Sampling::Linear,
+							 // Measured change of the reflections: binding 12 (2026-09-22).
+							 const RHI::Ref<RHI::RHITexture>& eleventh = nullptr,
+							 Sampling eleventhSampling = Sampling::Linear,
+							 // The transparent pass's revealage: binding 13 (RT-22, 2026-09-23).
+							 const RHI::Ref<RHI::RHITexture>& twelfth = nullptr,
+							 Sampling twelfthSampling = Sampling::Point);
 	};
 }

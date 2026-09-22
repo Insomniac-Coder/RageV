@@ -159,6 +159,9 @@ namespace RageV
 		MeasuredChangeHistory* DirectChange = nullptr;
 		// And the traced reflections' (phase 2).
 		MeasuredChangeHistory* ReflectionChange = nullptr;
+		// And the glass layer's reflections' (RT-22, 2026-09-23): the pane's own check,
+		// on the pane's own lanes. Null and the pane's memory guesses as it did.
+		MeasuredChangeHistory* GlassReflectionChange = nullptr;
 		// And the traced bounce's (phase 3).
 		MeasuredChangeHistory* GiChange = nullptr;
 
@@ -203,6 +206,9 @@ namespace RageV
 		// gets a map of its own rather than a repack: tile-sized, a few thousand texels.
 		// Null leaves every texel on the motion rule, which is what came before.
 		TemporalHistory* ReflectionBudget = nullptr;
+		// **And the glass layer's reflections' (RT-22, 2026-09-23)**, from the pane's own
+		// history. Null and the pane casts one ray a texel, as it did.
+		TemporalHistory* GlassReflectionBudget = nullptr;
 
 		// **RT-9: and the same for the direct light's lamps.** One count per 16x16 tile
 		// from how young this signal's own history is there, with the level's count as the

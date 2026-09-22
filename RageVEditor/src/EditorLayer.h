@@ -455,6 +455,8 @@ private:
 	RageV::MeasuredChangeHistory m_GameDirectChange;
 	RageV::MeasuredChangeHistory m_SceneReflectionChange;   // and phase 2
 	RageV::MeasuredChangeHistory m_GameReflectionChange;
+	RageV::MeasuredChangeHistory m_SceneGlassReflectionChange;   // and the pane's (RT-22)
+	RageV::MeasuredChangeHistory m_GameGlassReflectionChange;
 	RageV::MeasuredChangeHistory m_SceneGiChange;   // and phase 3
 	RageV::MeasuredChangeHistory m_GameGiChange;
 	// WR-16 S4b: the sea's choices, one per chain like every history here.
@@ -482,6 +484,9 @@ private:
 	RageV::TemporalHistory m_GameRayBudget;
 	// RT-9: the reflection's own tile map of ray counts, for the game view.
 	RageV::TemporalHistory m_GameRayBudgetReflection;
+	// RT-22: and the glass layer's reflections', one per chain.
+	RageV::TemporalHistory m_SceneRayBudgetGlassReflection;
+	RageV::TemporalHistory m_GameRayBudgetGlassReflection;
 	RageV::TemporalHistory m_GameRayBudgetDirect;
 
 	// Ray-traced occlusion's accumulation, one per chain like every other:

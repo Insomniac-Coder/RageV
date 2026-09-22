@@ -1119,6 +1119,9 @@ namespace RageV
 				// Stage 3: the reflection trace's and resolve's, for the same reason.
 				Ref<RHIResourceSet> GlassReflectionTraceInputs;
 				Ref<RHIResourceSet> GlassReflectionResolveInputs;
+				// And its measured change's record and re-light (RT-22, 2026-09-23).
+				Ref<RHIResourceSet> GlassReflectionRecordInputs;
+				Ref<RHIResourceSet> GlassReflectionRelightInputs;
 				// One GpuMaterial per distinct material this scene drew, on the
 				// bindless path only (ENGINE-NOTES 7al). Rebuilt every frame;
 				// materials x 64 bytes, and it means no second free list.
@@ -8496,7 +8499,8 @@ namespace RageV
 											const RHI::Ref<RHITexture>& velocity,
 											const RHI::Ref<RHITexture>& travel,
 											const GiTraceView& view,
-											MeasuredChangeHistory& history)
+											MeasuredChangeHistory& history,
+											bool glassLayer)
 	{
 		if (!s_Data || !s_Data->ReflectionRecordShader || !s_Data->ActiveScene)
 			return;
@@ -8523,15 +8527,21 @@ namespace RageV
 			s_Data->ReflectionRecordPipeline = s_Data->Device->CreatePipeline(record);
 			for (auto& frame : s_Data->SceneSlots)
 				for (auto& each : frame)
+				{
 					each.ReflectionRecordInputs = nullptr;
+					each.GlassReflectionRecordInputs = nullptr;
+				}
 		}
 		if (!s_Data->ReflectionRecordPipeline)
 			return;
-		if (!slot.ReflectionRecordInputs)
-			slot.ReflectionRecordInputs = s_Data->Device->CreateResourceSet(s_Data->ReflectionRecordPipeline, 3);
-		if (!slot.ReflectionRecordInputs)
+		// RT-22: the glass layer's record on a set of its own, for the trace's reason --
+		// both are recorded into one command buffer.
+		Ref<RHIResourceSet>& inputs = glassLayer ? slot.GlassReflectionRecordInputs
+												 : slot.ReflectionRecordInputs;
+		if (!inputs)
+			inputs = s_Data->Device->CreateResourceSet(s_Data->ReflectionRecordPipeline, 3);
+		if (!inputs)
 			return;
-		const Ref<RHIResourceSet>& inputs = slot.ReflectionRecordInputs;
 		inputs->SetTexture(0, surface, s_Data->PointSampler);
 		inputs->SetTexture(1, depth, s_Data->PointSampler);
 		inputs->SetTexture(2, surface, s_Data->PointSampler);
@@ -8581,7 +8591,8 @@ namespace RageV
 											 const RHI::Ref<RHITexture>& record1,
 											 const RHI::Ref<RHITexture>& record2,
 											 const RHI::Ref<RHITexture>& record3,
-											 MeasuredChangeHistory& history)
+											 MeasuredChangeHistory& history,
+											 bool glassLayer)
 	{
 		history.RelitThisFrame = false;
 		if (!s_Data || !s_Data->ReflectionRelightShader || !s_Data->ActiveScene || !history.Written)
@@ -8610,16 +8621,21 @@ namespace RageV
 			s_Data->ReflectionRelightPipeline = s_Data->Device->CreatePipeline(relight);
 			for (auto& frame : s_Data->SceneSlots)
 				for (auto& each : frame)
+				{
 					each.ReflectionRelightInputs = nullptr;
+					each.GlassReflectionRelightInputs = nullptr;
+				}
 		}
 		if (!s_Data->ReflectionRelightPipeline)
 			return;
-		if (!slot.ReflectionRelightInputs)
-			slot.ReflectionRelightInputs = s_Data->Device->CreateResourceSet(s_Data->ReflectionRelightPipeline, 3);
-		if (!slot.ReflectionRelightInputs)
+		// RT-22: the glass layer's re-light on its own set, as its record is.
+		Ref<RHIResourceSet>& inputs = glassLayer ? slot.GlassReflectionRelightInputs
+												 : slot.ReflectionRelightInputs;
+		if (!inputs)
+			inputs = s_Data->Device->CreateResourceSet(s_Data->ReflectionRelightPipeline, 3);
+		if (!inputs)
 			return;
 		history.RelitThisFrame = true;
-		const Ref<RHIResourceSet>& inputs = slot.ReflectionRelightInputs;
 		inputs->SetTexture(0, record0, s_Data->PointSampler);
 		inputs->SetTexture(1, record1, s_Data->PointSampler);
 		inputs->SetTexture(2, record2, s_Data->PointSampler);

@@ -84,6 +84,7 @@ private:
 	RageV::TemporalHistory m_GlassReflections;   // RT-13 stage 3
 	RageV::MeasuredChangeHistory m_DirectChange;   // measured change, phase 1
 	RageV::MeasuredChangeHistory m_ReflectionChange;   // and phase 2
+	RageV::MeasuredChangeHistory m_GlassReflectionChange;   // and the pane's (RT-22)
 	RageV::MeasuredChangeHistory m_GiChange;   // and phase 3
 	// Indirect diffuse, one frame late (ENGINE-NOTES 7av).
 	RageV::TemporalHistory m_Indirect;
@@ -92,6 +93,8 @@ private:
 	RageV::TemporalHistory m_RayBudget;
 	// RT-9: the reflection's own tile map of ray counts.
 	RageV::TemporalHistory m_RayBudgetReflection;
+	// RT-22: and the glass layer's reflections'.
+	RageV::TemporalHistory m_RayBudgetGlassReflection;
 	// RT-9: and the direct light's lamps per tile.
 	RageV::TemporalHistory m_RayBudgetDirect;
 	// Ray-traced occlusion's accumulation. See FrameDesc::Occlusion.

@@ -566,6 +566,8 @@ namespace RageV
 					if (desc.DirectLight)  desc.DirectLight->Invalidate();
 					if (desc.GlassDirectLight) desc.GlassDirectLight->Invalidate();
 					if (desc.GlassReflections) desc.GlassReflections->Invalidate();
+					if (desc.GlassReflectionChange) desc.GlassReflectionChange->Invalidate();
+					if (desc.GlassReflectionBudget) desc.GlassReflectionBudget->Invalidate();
 					if (desc.GiLight)      desc.GiLight->Invalidate();
 					if (desc.Occlusion)    desc.Occlusion->Invalidate();
 					if (desc.RayBudget)    desc.RayBudget->Invalidate();
@@ -2778,6 +2780,24 @@ namespace RageV
 		if (glassLit != kRGInvalid && tracedReflections && currentReflections != kRGInvalid
 			&& desc.GlassReflections != nullptr)
 		{
+			// The opaque reflections' six lanes: the picture, the reflector, what
+			// was learned of it, the virtual image's motion, the object id and the
+			// moving layer (RT-15). **Prepared before the trace (RT-22, 2026-09-23)**:
+			// the pane's ray plan reads last frame's, as the floor's does.
+			TemporalHistory& glassMirror = *desc.GlassReflections;
+			glassMirror.Prepare(Renderer::GetDevice(),
+								desc.Width * (uint32_t)supersample, desc.Height * (uint32_t)supersample,
+								Format::R16G16B16A16_SFLOAT, "GlassReflections",
+								Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
+								Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
+								Format::R16G16B16A16_SFLOAT);
+			const bool glassPair = glassMirror.Current() && glassMirror.Previous();
+			const RGResource previousMirror = glassPair
+				? graph.Import(glassMirror.Previous(), "GlassReflectionsPrevious") : kRGInvalid;
+			const RGResource currentMirror = glassPair
+				? graph.Import(glassMirror.Current(), "GlassReflectionsCurrent") : kRGInvalid;
+			const bool glassPastBound = glassPair && glassMirror.HasHistory();
+
 			RGTargetDesc glassRayDesc;
 			glassRayDesc.Name = "GlassReflectionTrace";
 			glassRayDesc.Color = Format::R16G16B16A16_SFLOAT;
@@ -2787,6 +2807,56 @@ namespace RageV
 			glassRayDesc.Scale = (float)supersample;
 			const RGResource glassRays = graph.CreateTarget(glassRayDesc);
 			const bool glassBudgetBound = budgetPrevious != kRGInvalid && budgetHasHistory;
+
+			// **RT-22 (2026-09-23): the pane's own RT-9 ray plan.** The floor's rule on the
+			// pane's history: a tile whose texels have just restarted gets up to
+			// `--reflection-moving-rays` while it rebuilds, whatever restarted it. Until now
+			// the pane cast one ray everywhere and rebuilt a restarted texel from that.
+			RGResource glassTileRays = kRGInvalid;
+			if (desc.GlassReflectionBudget && PostProcess::IsReady())
+			{
+				const uint32_t tilesX = Math::Max((desc.Width * (uint32_t)supersample + 15u) / 16u, 1u);
+				const uint32_t tilesY = Math::Max((desc.Height * (uint32_t)supersample + 15u) / 16u, 1u);
+				TemporalHistory& pane = *desc.GlassReflectionBudget;
+				pane.Prepare(Renderer::GetDevice(), tilesX, tilesY, Format::R16G16B16A16_SFLOAT,
+							 "GlassReflectionBudget");
+				const bool anythingMoved = Renderer3D::AnyInstanceMoved()
+										|| !Renderer3D::CameraStill(glassMirror.Motion());
+				if (glassPastBound && anythingMoved && config.ReflectionConfidenceRays
+					&& pane.Current() && pane.Previous())
+				{
+					const bool paneHistory = pane.HasHistory();
+					const RGResource panePrevious = graph.Import(pane.Previous(), "GlassReflectionBudgetPrevious");
+					const RGResource paneCurrent = graph.Import(pane.Current(), "GlassReflectionBudgetCurrent");
+					const uint32_t mostRays = (uint32_t)Math::Clamp(
+						config.ReflectionMovingRays >= 0 ? config.ReflectionMovingRays : 4, 1, 16);
+					graph.AddPass("GlassReflectionBudget",
+						[&](RGPassBuilder& builder)
+						{
+							builder.Write(paneCurrent);
+							builder.Sample(previousMirror);
+							if (paneHistory)
+								builder.Sample(panePrevious);
+							builder.DisableDepth();
+						},
+						[past = previousMirror, panePrevious, paneHistory, tilesX, tilesY,
+						 width = desc.Width * (uint32_t)supersample,
+						 height = desc.Height * (uint32_t)supersample, mostRays,
+						 deadBand = desc.Render.RayBudgetDeadBand,
+						 dwell = desc.Render.RayBudgetDwell](RGPassContext& context)
+						{
+							PostProcess::ReflectionBudget(context.Cmd, context.Color(past),
+														  context.Color(past, 1),
+														  paneHistory ? context.Color(panePrevious) : nullptr,
+														  tilesX, tilesY, 16u, width, height,
+														  (float)mostRays, 6.0f, deadBand, dwell,
+														  Format::R16G16B16A16_SFLOAT, 1.0f,
+														  context.Color(past, 4));
+						});
+					glassTileRays = paneCurrent;
+					pane.Advance();
+				}
+			}
 			graph.AddPass("GlassReflectionTrace",
 				[&](RGPassBuilder& builder)
 				{
@@ -2794,18 +2864,32 @@ namespace RageV
 					builder.Sample(glassLayer);
 					if (glassBudgetBound)
 						builder.Sample(budgetPrevious);
+					if (glassPastBound)
+						builder.Sample(previousMirror);
+					if (glassTileRays != kRGInvalid)
+						builder.Sample(glassTileRays);
 					builder.DisableDepth();
 				},
 				[glassLayer, budgetMap = budgetPrevious, glassBudgetBound,
+				 past = previousMirror, glassPastBound, glassTileRays,
 				 giAverage = rtPreset.GiRays](RGPassContext& context)
 				{
 					Renderer3D::TraceReflections(context.Color(glassLayer, 1),
 												 context.Depth(glassLayer),
 												 glassBudgetBound ? context.Color(budgetMap) : nullptr,
 												 context.Color(glassLayer, 2),
-												 // RT-15b: no velocity for the glass layer: one ray a texel.
-												 nullptr,
-												 giAverage, true);
+												 // RT-22: the layer's own velocity lane, which the
+												 // record needs and the ray plan reprojects by.
+												 context.Color(glassLayer, 0),
+												 giAverage, true,
+												 // RT-9, as the floor's: last frame's picture, what it
+												 // learned, the reflector it kept, whose it was, and
+												 // this tile's own count.
+												 glassPastBound ? context.Color(past) : nullptr,
+												 glassPastBound ? context.Color(past, 2) : nullptr,
+												 glassPastBound ? context.Color(past, 1) : nullptr,
+												 glassPastBound ? context.Color(past, 4) : nullptr,
+												 glassTileRays != kRGInvalid ? context.Color(glassTileRays) : nullptr);
 				});
 			RGTargetDesc glassResolveDesc = glassRayDesc;
 			glassResolveDesc.Name = "GlassReflectionResolve";
@@ -2828,20 +2912,93 @@ namespace RageV
 												   context.Color(glassLayer, 1), true,
 												   context.Color(glassRays, 3));
 				});
-			// The opaque reflections' six lanes: the picture, the reflector, what
-			// was learned of it, the virtual image's motion, the object id and the
-			// moving layer (RT-15).
-			TemporalHistory& glassMirror = *desc.GlassReflections;
-			glassMirror.Prepare(Renderer::GetDevice(),
-								desc.Width * (uint32_t)supersample, desc.Height * (uint32_t)supersample,
-								Format::R16G16B16A16_SFLOAT, "GlassReflections",
-								Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
-								Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
-								Format::R16G16B16A16_SFLOAT);
-			if (glassMirror.Current() && glassMirror.Previous())
+
+			// **RT-22 (2026-09-23): the pane's measured change -- the floor's check, on the
+			// pane's lanes.** Its memory could only guess a change from its own picture, and
+			// around a moving glow it guessed differently texel to texel and frame to frame:
+			// the grainy outline the owner saw on the car's window. The record's rays traced
+			// again into this frame's scene, as the floor's are (phase 2 above), on sets of
+			// their own.
+			RGResource glassChange = kRGInvalid;
+			const bool* glassChangeLive = nullptr;
+			if (config.MeasuredChange && desc.GlassReflectionChange && Renderer3D::CanMeasureReflectionChange()
+				&& PostProcess::IsReady())
 			{
-				const RGResource previousMirror = graph.Import(glassMirror.Previous(), "GlassReflectionsPrevious");
-				const RGResource currentMirror = graph.Import(glassMirror.Current(), "GlassReflectionsCurrent");
+				MeasuredChangeHistory& change = *desc.GlassReflectionChange;
+				const uint32_t blockWidth = Math::Max(desc.Width * (uint32_t)supersample / 3u, 1u);
+				const uint32_t blockHeight = Math::Max(desc.Height * (uint32_t)supersample / 3u, 1u);
+				change.Prepare(Renderer::GetDevice(), blockWidth, blockHeight, 4);
+				const bool recordIsLast = RecordIsLastFrame(change, desc.View, desc.InvProjection0,
+															 desc.InvProjection1);
+				if (change.Record)
+				{
+					const RGResource record = graph.Import(change.Record, "GlassReflectionChangeRecord");
+					MeasuredChangeHistory* history = &change;
+					if (recordIsLast)
+					{
+						RGTargetDesc relightDesc;
+						relightDesc.Name = "GlassReflectionChangeRelit";
+						relightDesc.Color = Format::R16G16B16A16_SFLOAT;
+						relightDesc.ExtraColors = { Format::R32G32B32A32_SFLOAT };
+						relightDesc.Depth = Format::Undefined;
+						relightDesc.Width = blockWidth;
+						relightDesc.Height = blockHeight;
+						const RGResource relit = graph.CreateTarget(relightDesc);
+						graph.AddPass("GlassReflectionRelight",
+							[&](RGPassBuilder& builder)
+							{
+								builder.Write(relit);
+								builder.Sample(record);
+								builder.DisableDepth();
+							},
+							[record, history](RGPassContext& context)
+							{
+								Renderer3D::RelightReflectionChange(context.Color(record, 0),
+																	context.Color(record, 1),
+																	context.Color(record, 2),
+																	context.Color(record, 3),
+																	*history, true);
+							});
+						static const char* const kGlassFilterPasses[] =
+							{ "GlassReflectionChangeFilter", "GlassReflectionChangeFilter2",
+							  "GlassReflectionChangeFilter4", "GlassReflectionChangeFilter8",
+							  "GlassReflectionChangeFilter16", "GlassReflectionChangeMap" };
+						glassChange = addChangeFilter(relit, relightDesc, history, kGlassFilterPasses);
+						glassChangeLive = &change.RelitThisFrame;
+					}
+					Renderer3D::GiTraceView paneView;
+					paneView.NearClip = desc.NearClip;
+					paneView.FarClip = desc.FarClip;
+					paneView.InvProjection0 = desc.InvProjection0;
+					paneView.InvProjection1 = desc.InvProjection1;
+					paneView.View = desc.View;
+					graph.AddPass("GlassReflectionRecord",
+						[&](RGPassBuilder& builder)
+						{
+							builder.Write(record, RGLoad::Preserve);
+							builder.Sample(glassRays);
+							builder.Sample(glassLayer);
+							builder.DisableDepth();
+						},
+						[glassLayer, glassRays, paneView, history](RGPassContext& context)
+						{
+							Renderer3D::RecordReflectionChange(context.Color(glassLayer, 1),
+															   context.Depth(glassLayer),
+															   context.Color(glassLayer, 2),
+															   context.Color(glassRays),
+															   context.Color(glassLayer, 0),
+															   context.Color(glassRays, 3),
+															   paneView, *history, true);
+						});
+				}
+			}
+			else if (desc.GlassReflectionChange)
+			{
+				desc.GlassReflectionChange->Invalidate();
+			}
+
+			if (glassPair)
+			{
 				SignalGuidance mirrorGuide;
 				mirrorGuide.Depth = glassLayer;
 				mirrorGuide.DepthIsAttachment = true;
@@ -2859,7 +3016,7 @@ namespace RageV
 				glassReflected = addSignal(kGlassMirrorPasses, Renderer3D::GlassReflectionSignal(),
 										   glassResolved, currentMirror, previousMirror,
 										   glassMirror.HasHistory(), &glassMirror.Motion(),
-										   mirrorBlurDesc, false, mirrorGuide, kRGInvalid, nullptr,
+										   mirrorBlurDesc, false, mirrorGuide, glassChange, glassChangeLive,
 										   glassRays, true).Target;
 				glassMirror.Advance();
 			}
@@ -2867,6 +3024,11 @@ namespace RageV
 		else if (desc.GlassReflections)
 		{
 			desc.GlassReflections->Invalidate();
+			// And the pane's check and ray plan, which describe a trace that did not run.
+			if (desc.GlassReflectionChange)
+				desc.GlassReflectionChange->Invalidate();
+			if (desc.GlassReflectionBudget)
+				desc.GlassReflectionBudget->Invalidate();
 		}
 
 		// The overlay goes into the HDR target rather than over the finished
@@ -3768,12 +3930,15 @@ namespace RageV
 							builder.Sample(waterSurface);
 						if (directChange != kRGInvalid)
 							builder.Sample(directChange);
+						if (reflectionChange != kRGInvalid)
+							builder.Sample(reflectionChange);
 						builder.DisableDepth();
 					},
 					[source, sceneHDR, previous, velocityIndex, normalIndex, feedback, stillFeedback,
 					 hasHistory, jitter, taaGuideCurrent, taaGuidePrevious, taaGuideHasHistory,
 					 boxGeometry = config.TaaBoxGeometry,
-					 reflectionMotion, waterSurface, directChange, directChangeLive](RGPassContext& context)
+					 reflectionMotion, waterSurface, directChange, directChangeLive,
+					 reflectionChange, reflectionChangeLive, wantTransparent](RGPassContext& context)
 					{
 						PostProcess::TemporalResolve(
 							context.Cmd,
@@ -3829,7 +3994,16 @@ namespace RageV
 							// Measured change: the direct light's change map, which
 							// RT-16 says this filter has to give way to as well.
 							directChange != kRGInvalid && directChangeLive && *directChangeLive
-								? context.Color(directChange) : nullptr);
+								? context.Color(directChange) : nullptr,
+							// And the reflections' (2026-09-22): a reflection moving across a still
+							// surface is a change this filter was never told of (RT-22).
+							reflectionChange != kRGInvalid && reflectionChangeLive && *reflectionChangeLive
+								? context.Color(reflectionChange) : nullptr,
+							// **RT-22 (2026-09-23): and where a see-through surface covers
+							// the pixel** -- the revealage, attachment 2 wherever the
+							// transparent pass exists. Every other lane here is the
+							// opaque scene's, so at a window it describes the cabin.
+							wantTransparent ? context.Color(sceneHDR, 2) : nullptr);
 					});
 
 				shaded = current;
