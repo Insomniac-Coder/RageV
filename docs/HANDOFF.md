@@ -1,4 +1,118 @@
-# RageV — handoff
+# RageV -- handoff
+
+**Read this first.** Updated 2026-09-22. **RT-11 is done and pushed. RT-23 is bisected but
+NOT fixed -- and the last hours of that session produced no improvement, so start from the
+bisect rather than repeating it.**
+
+## What landed and is pushed (1427163, 643bb6c, 1d7d45b, 88fd395)
+
+**RT-11 -- next-event estimation at reflection hits, and one light per traced hit.**
+The reflections never aimed at the emitters; only the bounce did. A reflection ray found a
+ceiling tube by luck and brought back its whole radiance when it did. Now an aimed sample is
+combined with the lobe ray by the balance heuristic, and the emitter is picked by what it is
+worth to the texel. Separately, a traced hit keeps one light by weighted reservoir and scales
+it up, instead of shading every light with a shadow ray each.
+
+Against the 16-ray truth every region improved on **both** distance and speck count -- garage
+floor 13.31 -> 9.69 and 7014 -> 5372 specks; cube face 5.05 -> 2.92 and 507 -> 282. At sixteen
+rays HEAD and RT-11 converge to the same picture, which is the test that matters. **Cost:
+-1.75 ms** (18.88 -> 17.12 at 1600x900, interleaved). Switches: `--reflection-nee`,
+`--hit-light-sampling`, both on.
+
+**Three older engine defects found underneath it:**
+
+- **A lamp shadowed every ray aimed at it.** The area-emitter rectangle is built at the mesh's
+  bounding-box centre, so for a tube or panel it sits *inside* the housing and the near half of
+  the shell stopped the ray. Every aimed sample this engine ever cast was blocked by the lamp it
+  was aimed at -- the bounce pass included, since it was built. The sampler now steps its point
+  out to the face turned toward what it is lighting (`AreaEmitter::HalfThickness`). Worth eleven
+  display levels on the garage floor.
+- **A hit could not tell which listed emitter it struck**, because it matched by position
+  against a rectangle the ray never lands on. It matches by entity identity now
+  (`GiEmitter::UvToSurface0.w`) -- seventeen levels of double counting at sixteen rays.
+- **A swallowed shader compile failure.** `GiHash`/`GiRandom` sat inside `#ifdef RV_RAY_GI`
+  while `TraceSurface`, which every traced pass calls, is compiled for variants that define no
+  such thing. Nothing was logged, the pipeline fell back, and the picture moved fourteen levels
+  with every switch off. The helpers are shared now. **The engine silently swallowing a shader
+  compile failure is still open, and it is the most expensive defect here** -- the symptom to
+  recognise is *dead code changing the render*.
+
+**The moving-cube fixture was never chrome.** It wrote its material as a nested map; the loader
+reads `MeshComponent::Material` as an asset handle with the per-mesh values as overrides gated
+on their own `Override...` flags. So every moving-cube run in this project's history -- the
+reconstruction arms, the speckle counts, RT-20 -- rendered the engine's default matte material.
+Fixed: `assets/materials/chrome_test.rmat`, steel 0.55 at roughness 0.04, pitched 25 degrees so
+it actually has the ceiling in its face. Note a MeshComponent with **no** material asset ignores
+its overrides too.
+
+**`tools/scripts/garage/mirror_control.py`** -- a chrome plate flat on the floor puts each
+surface in one frame twice, seen directly and seen in the mirror, through one tonemap at one
+exposure. Ceiling 71%, tube 87%, wall 106% of direct; a white metal mirror reflects ~95%. That
+settles a question three separate wrong theories died on: **reflections do carry the room's
+lighting, including of plain non-emissive geometry.**
+
+**`tools/scripts/garage/watch_arm.py`** -- plays one arm live, nothing captured. `watch_arm.py
+car 20 --reflection-moving-blur=0`, any engine switch or a staged shader arm (`--stage=`). Two
+method points it exists to enforce, both of which cost real time before they were understood:
+**a still frame cannot show a speckle**, and **writing a PNG every frame flatters the
+accumulator** -- give the mover a slow speed and let the motion run uncaptured.
+
+## RT-23: bisected, not fixed
+
+**The source is bright outlier rays where the tubes and the car are reflected.** Two passes
+spread them across the whole floor: **the resolve's neighbour gather** and **the three-pass
+blur chain**. Disabling *either* collapses the artefact back onto the tube and car reflections
+-- `--reflection-moving-blur=0` (which zeroes MovingRadius; both the movingBlur and
+varianceFilter conditions require >= 0.5, so the whole chain goes) and a staged `taps = 0` give
+the same picture. **Neither is the cause. An evening went into testing amplifiers.**
+
+**Ruled out, each watched live on a slow car pass, each leaving it unchanged:** the reflection
+history (off), the ray count (16 a texel only makes it fainter), the firefly clamp (off), that
+clamp's second-brightest floor, that clamp's emitter exemption, tap qualification by what the
+neighbour struck, the lobe-over-pdf tap weighting (flattened), the gather's per-frame disc
+rotation (frozen), RT-17's identity confidence scaling, RT-11's one-light-per-hit, RT-11's aimed
+emitter sample, and the confidence-ray allocation. **Made it worse:** the VNDF sampler.
+
+**Timing:** `AnyInstanceMoved()` is `RayAnyMoving || RayAnyMovingLast`, so the chain stays
+scheduled a frame past the stop -- that is the "fraction of a second" tail after the car halts.
+
+**Two facts about the clamp, established by reading and not yet by instrument:**
+the threshold is `mean + sigmas * sd` computed over **all** taps including the outlier, so one
+tap a hundred times the rest inflates the spread until the cap lands above the outlier; and the
+blur's edge-stopping divides by the variance, so where a firefly raises the variance the
+edge-stopping switches itself off and the filter smooths hardest exactly where the spike is.
+
+**What was tried against those two and measured as a bad trade** (in the tree, uncommitted):
+excluding the brightest tap from the statistics that judge it, and making the emitter exemption
+finite (`kEmitterCredit = 32`) instead of `1e30`. Together they took the garage floor from 8.46
+to 10.56 from the 16-ray truth and from 73.96 to 71.62 brightness -- 324 fewer specks bought
+with 2.3 levels of the floor's light, which is the clamp-eats-the-lamp regression RT-11 had just
+fixed, coming back. The owner judged it not worth it, and the speckle on the tube reflection
+survived it anyway.
+
+**The next useful step is an observation, not another fix.** Paint the resolve's output where
+the cap actually fires and run it live: if the floor shows no mark where the speckles are, the
+clamp never sees them and every change to its threshold is wasted. That single instrument would
+have replaced about six of the arms above. **Do that before proposing anything.**
+
+## In the tree, uncommitted (decide before building on it)
+
+- `reflection_resolve.rvshader`: the tap-agreement test (RT-17's identity wired into the resolve,
+  `--reflection-tap-agree`, on) -- built, measured, **does not help**; the robust statistics and
+  the finite emitter credit -- **measured as a bad trade above**.
+- `reflection_trace.rvshader` and its engine wiring: the VNDF sampler turned from a compile
+  define nothing ever set into a real switch (`--reflection-vndf`, **off**: switched on it
+  sprays speckles over the whole floor). Off, the picture is pixel-identical to HEAD -- verified,
+  0 differing pixels.
+- The `--reflection-tap-agree` and `--reflection-vndf` switches, the resolve's identity binding
+  (set 3 binding 5) and `Probe.y`.
+
+**Recommendation:** revert the resolve changes, keep `watch_arm.py`, and take the VNDF switch or
+not as you prefer -- it costs nothing off and it stops the next person re-staging a shader by
+hand to test it.
+
+
+## 2026-09-21 (afternoon) and before
 
 **Read this first.** Updated 2026-09-21 (afternoon): **the moving reflection's sparkle is the
 rays, not the denoiser.** Measured: the same frame-to-frame jump rate with the reflection's
