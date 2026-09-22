@@ -83,6 +83,14 @@ tiles around and under the car and nowhere else. Trace cost unchanged (4.2 ms). 
 `--reflection-moving-rays` (4).
 
 
+**RT-22 re-measured after all this (same harness, `session_2026_09_15/emitter_lag.py`):** the trail
+is unchanged to slightly better with the tubes as points (floor beside the moving light 11.9% -> 11.1%
+off by >16 levels, car side 12.3% -> 12.1%); the anti-lag still takes most of it and the direct
+light's history holds the bulk. With the tubes as line lights the same floor reads 19.5%, and a
+flicker check says that is not noise (two consecutive drive frames change by the same amount either
+way): a 3 m tube throws a wide soft shadow of the moving cube, so the same lag covers more floor.
+RT-22 stays open, unchanged in kind.
+
 ## What landed and is pushed (1427163, 643bb6c, 1d7d45b, 88fd395)
 
 **RT-11 -- next-event estimation at reflection hits, and one light per traced hit.**
