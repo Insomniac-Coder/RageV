@@ -189,6 +189,9 @@ namespace RageV
 		// RT-11: one light per traced hit.
 		if (key == "hit-light-sampling" || key == "hitlightsampling")
 			return ParseBool(value, config.HitLightSampling);
+		// RT-23: the reflections' sampler.
+		if (key == "reflection-vndf" || key == "reflectionvndf")
+			return ParseBool(value, config.ReflectionVndf);
 		// RT-11: the reflections' aimed emitter sample.
 		if (key == "reflection-nee" || key == "reflectionnee")
 			return ParseBool(value, config.ReflectionNee);

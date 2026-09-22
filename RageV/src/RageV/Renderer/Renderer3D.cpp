@@ -6673,6 +6673,23 @@ namespace RageV
 			Vec4 Trace{ 0.0f, 1.0f, 0.0f, 0.0f };
 		};
 
+		// **The two lanes past the block the lamp passes share** (RT-11's emitter
+		// count in x, RT-23's sampler switch in y).
+		//
+		// **Every pipeline built from reflection_trace.rvshader pushes this wider
+		// form, not only the one that traces.** The sampler switch is read by
+		// GlossyReflectionLD, which the record and re-light passes call as well --
+		// and while those two pushed the narrow block, that lane was undefined for
+		// them. The re-light then drew its ray with whichever sampler the garbage
+		// picked, disagreed with the trace about what the ray found, reported a
+		// change at every block, and the floor's reflection history was thrown away
+		// every frame: the floor lost its reflections outright (2026-09-22).
+		struct WideLampPushConstants
+		{
+			LampPushConstants Base;
+			Vec4 Nee{ 0.0f };
+		};
+
 		// The reflection accumulator's push block (reflection_accumulate.rvshader):
 		// its own, because it needs two matrices and the lamp block above has
 		// one, and every lamp pipeline pushes that block's size.
@@ -7042,15 +7059,13 @@ namespace RageV
 		// so only this push is the wider one; the others keep pushing theirs.
 		// Zero where the rows did not reach the set, or where the switch is
 		// off, and the pass is then bit-identical to what it was before RT-11.
-		struct WideLampPush
-		{
-			LampPushConstants Base;
-			Vec4 Nee{ 0.0f };
-		} wide;
+		WideLampPushConstants wide;
 		wide.Base = push;
 		wide.Nee.x = (emitterRows > 0 && !s_Data->Emitters.empty()
 					  && EngineConfig::Get().ReflectionNee)
 				   ? (float)Math::Min((uint32_t)s_Data->Emitters.size(), 16u) : 0.0f;
+		// RT-23: y, whether the rays are drawn from the visible normals.
+		wide.Nee.y = EngineConfig::Get().ReflectionVndf ? 1.0f : 0.0f;
 		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(wide), &wide);
 		cmd->Draw(3);
 	}
@@ -8536,7 +8551,12 @@ namespace RageV
 		if (s_Data->Heap)
 			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
 		cmd->BindResourceSet(3, inputs);
-		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
+		// The wider form: this pass draws the same ray the trace does, so it has to
+		// draw it with the same sampler. See WideLampPushConstants.
+		WideLampPushConstants wide;
+		wide.Base = push;
+		wide.Nee.y = EngineConfig::Get().ReflectionVndf ? 1.0f : 0.0f;
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(wide), &wide);
 		cmd->Draw(3);
 
 		history.Frame = s_Data->Scene.GlobalIllumination.y;
@@ -8614,7 +8634,12 @@ namespace RageV
 		if (s_Data->Heap)
 			cmd->BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
 		cmd->BindResourceSet(3, inputs);
-		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(push), &push);
+		// The wider form: this pass draws the same ray the trace does, so it has to
+		// draw it with the same sampler. See WideLampPushConstants.
+		WideLampPushConstants wide;
+		wide.Base = push;
+		wide.Nee.y = EngineConfig::Get().ReflectionVndf ? 1.0f : 0.0f;
+		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(wide), &wide);
 		cmd->Draw(3);
 	}
 

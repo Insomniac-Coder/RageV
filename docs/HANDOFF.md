@@ -95,22 +95,28 @@ the cap actually fires and run it live: if the floor shows no mark where the spe
 clamp never sees them and every change to its threshold is wasted. That single instrument would
 have replaced about six of the arms above. **Do that before proposing anything.**
 
-## In the tree, uncommitted (decide before building on it)
+## The failed experiments, reverted
 
-- `reflection_resolve.rvshader`: the tap-agreement test (RT-17's identity wired into the resolve,
-  `--reflection-tap-agree`, on) -- built, measured, **does not help**; the robust statistics and
-  the finite emitter credit -- **measured as a bad trade above**.
-- `reflection_trace.rvshader` and its engine wiring: the VNDF sampler turned from a compile
-  define nothing ever set into a real switch (`--reflection-vndf`, **off**: switched on it
-  sprays speckles over the whole floor). Off, the picture is pixel-identical to HEAD -- verified,
-  0 differing pixels.
-- The `--reflection-tap-agree` and `--reflection-vndf` switches, the resolve's identity binding
-  (set 3 binding 5) and `Probe.y`.
+Everything tried against RT-23 that did not pay is **out of the tree**, not left for someone
+else to judge. Reverted: the tap-agreement test (RT-17's identity wired into the resolve), the
+robust clamp statistics, and the finite emitter credit -- the last two together cost 2.3 levels
+of the garage floor's light and took it from 8.46 to 10.56 from the 16-ray truth, for 324 fewer
+specks and no fix to the tube reflection. That is the clamp-eats-the-lamp regression RT-11 had
+just fixed, coming back. Their reasoning is recorded above; the code is in git history.
 
-**Recommendation:** revert the resolve changes, keep `watch_arm.py`, and take the VNDF switch or
-not as you prefer -- it costs nothing off and it stops the next person re-staging a shader by
-hand to test it.
+**Kept, off:** `--reflection-vndf`. The visible-normal sampler was written behind a compile
+define nothing ever set, so it had never run in a build -- the 630 -> 538 sparkle it was
+credited with came from a hand-staged shader and is retired. It is a real switch now, defaulted
+off because switched on it sprays speckles over the whole floor. Off, the picture is
+pixel-identical to the old path (verified, 0 differing pixels). It is kept so the next attempt
+can measure it instead of re-staging a shader by hand.
 
+**One thing that had to come with it:** every pipeline built from `reflection_trace.rvshader`
+now pushes the same wider push block (`WideLampPushConstants`). The record and re-light passes
+call `GlossyReflectionLD` too, and while they pushed the narrow block the sampler lane was
+undefined for them -- the re-light drew its ray with whichever sampler the garbage picked,
+disagreed with the trace about what it found, reported a change at every block, and the floor
+lost its reflections outright.
 
 ## 2026-09-21 (afternoon) and before
 

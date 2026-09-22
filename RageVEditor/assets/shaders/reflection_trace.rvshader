@@ -183,6 +183,15 @@ layout(push_constant) uniform LampParams
 	vec4 Nee;
 } u_Lamps;
 
+// **RT-23: whether the rays are drawn from the *visible* normals** (Heitz 2018)
+// rather than from the whole distribution. A switch rather than the compile
+// define this was written behind -- nothing ever set that define, so the path
+// had never run in a build and the 630 -> 538 sparkle it was credited with came
+// from a hand-staged shader. Off by default: switched on it sprays speckles over
+// the whole floor (owner, 2026-09-22). The sampler and the density it is weighed
+// by both read this lane, so they cannot disagree.
+bool VisibleNormals() { return u_Lamps.Nee.y > 0.5; }
+
 #if defined(RV_REFLECTION_RECORD)
 layout(location = 0) out vec4 o_Record0;
 layout(location = 1) out vec4 o_Record1;
@@ -271,7 +280,8 @@ vec3 GlossyReflectionLD(vec3 N, vec3 V, float roughness, ivec2 texel, uint frame
 	const vec3 axis = abs(N.x) < 0.7 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
 	const vec3 t = normalize(cross(axis, N));
 	const vec3 b = cross(N, t);
-#ifdef RV_REFLECTION_VNDF
+	if (VisibleNormals())
+	{
 	// **The visible half of the lobe, not the whole of it (2026-09-21, Heitz 2018).**
 	//
 	// Drawing a half-vector from the distribution alone produces directions that go
@@ -307,14 +317,15 @@ vec3 GlossyReflectionLD(vec3 N, vec3 V, float roughness, ivec2 texel, uint frame
 	// the only direction available, and it now stands in for a handful of draws
 	// rather than for every rejected one.
 	return dot(L, N) > 0.0 ? L : mirror;
-#else
+	}
+	{
 	const float cosTheta = sqrt((1.0 - u1) / (1.0 + (alpha * alpha - 1.0) * u1));
 	const float sinTheta = sqrt(max(1.0 - cosTheta * cosTheta, 0.0));
 	const float phi = 6.2831853 * u2;
 	const vec3 H = normalize(t * (sinTheta * cos(phi)) + b * (sinTheta * sin(phi)) + N * cosTheta);
 	const vec3 L = reflect(-V, H);
 	return dot(L, N) > 0.02 ? L : mirror;
-#endif
+	}
 }
 
 #if !defined(RV_REFLECTION_RECORD) && !defined(RV_REFLECTION_RELIGHT)
@@ -340,7 +351,8 @@ float LobePdf(vec3 N, vec3 V, vec3 L, float roughness)
 	const float NoH = max(dot(N, H), 0.0);
 	const float VoH = max(dot(V, H), 1.0e-4);
 	const float D = DistributionGGX(N, H, roughness);
-#ifdef RV_REFLECTION_VNDF
+	if (VisibleNormals())
+	{
 	// Heitz 2018: drawing from the visible normals makes the density
 	// G1(V) D(H) / (4 NoV), the masking term and NoH having cancelled.
 	// Smith's exact G1 for GGX, not the lit shader's GeometrySchlickGGX --
@@ -349,9 +361,8 @@ float LobePdf(vec3 N, vec3 V, vec3 L, float roughness)
 	const float a2 = alpha * alpha;
 	const float G1 = 2.0 * NoV / (NoV + sqrt(a2 + (1.0 - a2) * NoV * NoV));
 	return G1 * D / (4.0 * NoV);
-#else
+	}
 	return D * NoH / (4.0 * VoH);
-#endif
 }
 
 // **Which listed emitter the ray struck, by the entity it belongs to.**

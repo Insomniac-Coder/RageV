@@ -440,6 +440,16 @@ namespace RageV
 		// sparkle measured on the driving car. A measurement switch, not a
 		// quality dial: on is the estimator being right.
 		bool  ReflectionNee = true;
+		// **--reflection-vndf=on|off (RT-23, 2026-09-22): OFF.** Whether a reflection
+		// ray is drawn from the *visible* normals (Heitz 2018) or from the whole
+		// distribution. Written 2026-09-21 behind a compile define nothing ever set,
+		// so it had never run in a build -- the 630 -> 538 sparkle it was credited
+		// with came from a hand-staged shader and is retired. Switched on it sprays
+		// speckles over the whole floor (owner, 2026-09-22). Kept as a switch so the
+		// next attempt can measure it instead of re-staging a shader by hand; off,
+		// the picture is pixel-identical to the old path (verified, 0 differing
+		// pixels).
+		bool  ReflectionVndf = false;
 		// **--hit-light-sampling=on|off (RT-11, 2026-09-21):** whether a
 		// traced hit keeps one light, chosen by what it is worth there, and
 		// scales it up -- against shading every light with a shadow ray each.
