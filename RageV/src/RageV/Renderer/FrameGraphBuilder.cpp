@@ -2432,7 +2432,9 @@ namespace RageV
 													  // A history of six frames or fewer is one no
 													  // averaging can rescue this frame.
 													  6.0f, deadBand, dwell,
-													  Format::R16G16B16A16_SFLOAT);
+													  Format::R16G16B16A16_SFLOAT, 1.0f,
+													  // The blend count the anti-lag restarts, so a restarted texel counts as young.
+													  context.Color(past, 4));
 					});
 				reflectionBudgetMap = mirrorCurrent;
 				mirror.Advance();

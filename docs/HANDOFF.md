@@ -1,6 +1,6 @@
 # RageV -- handoff
 
-**Read this first.** Updated 2026-09-22 (evening). **RT-23 is FIXED, judged by the owner on the
+**Read this first.** Updated 2026-09-22 (late evening). **RT-23 is FIXED, judged by the owner on the
 slow car pass ("99% gone"): the measured change's re-light was not drawing what the trace drew,
 so it called the whole floor "changed" every frame the car moved and restarted its average.
 Committed. What is left of the RT series is RT-22 and RT-2.2.**
@@ -70,8 +70,17 @@ moving car -- kept as `watch_arm.py --stage=power`); letting the lamp draw the t
 ray by what made it bright) showed the strays are hits on the glowing tubes -- true, and not the
 cause; it needs `--measured-change=off` now that the travel lane's w carries the ray count.
 
-**What is left of the speckle (the owner's "1%"):** the ragged edge of the tube streaks where
-the car's reflection genuinely changes and the history is legitimately short. Not RT-23.
+**The last 1% (same evening, owner-judged "gone completely"):** the ragged edge of the tube
+streaks under the car's moving reflection, where the anti-lag now restarts honestly. A restarted
+texel is supposed to get RT-9's extra rays while it rebuilds, but `reflection_budget.rvshader`
+judged "young" by the picture's alpha -- which the anti-lag holds steady (the lit shader reads it
+as trust) -- so a restarted texel looked settled and rebuilt a 60:1 edge at one ray a frame. The
+blur was given the real blend count (the id lane's green) on 09-21; the allocator was not. It
+reads it now (`u_PastIdent`, binding 3, `context.Color(past, 4)` from the reflection caller; the
+direct light keeps its count in the alpha and passes nothing). Verified with a staged ray-count
+map (the trace's travel lane w painted): parked one ray everywhere, moving up to four on the
+tiles around and under the car and nowhere else. Trace cost unchanged (4.2 ms). Ceiling is
+`--reflection-moving-rays` (4).
 
 
 ## What landed and is pushed (1427163, 643bb6c, 1d7d45b, 88fd395)

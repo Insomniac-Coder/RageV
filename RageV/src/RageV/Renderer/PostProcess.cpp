@@ -1069,7 +1069,8 @@ namespace RageV
 									   uint32_t pictureWidth, uint32_t pictureHeight,
 									   float mostRays, float youngFrames,
 									   float deadBand, float dwellFrames, Format outputFormat,
-									   float leastRays)
+									   float leastRays,
+									   const Ref<RHITexture>& pastIdent)
 	{
 		if (!s_Data || !pastPicture || !pastSurface)
 			return;
@@ -1100,7 +1101,8 @@ namespace RageV
 
 		Dispatch(cmd, Shader::ReflectionBudget, outputFormat, pastPicture, pastSurface,
 				 &params, sizeof(params), Sampling::Point, Sampling::Point,
-				 history ? history : s_Data->Black, Sampling::Point);
+				 history ? history : s_Data->Black, Sampling::Point,
+				 pastIdent ? pastIdent : s_Data->Black, Sampling::Point);
 	}
 
 	void PostProcess::TileBudget(RHICommandList& cmd, const Ref<RHITexture>& tiles,

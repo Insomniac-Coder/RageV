@@ -39,6 +39,13 @@ layout(set = 0, binding = 0) uniform sampler2D u_PastPicture;
 layout(set = 0, binding = 1) uniform sampler2D u_PastSurface;
 // What this pass wrote last frame: the count to hold and how long it has been held.
 layout(set = 0, binding = 2) uniform sampler2D u_History;
+// **The count the blend actually ran on (2026-09-22).** The picture's alpha is held
+// steady through an anti-lag restart (the lit shader reads it as trust), so a texel the
+// measured change had just restarted read as settled here and got one ray while it
+// rebuilt a tube streak's edge -- the last of RT-23. The id lane's green is the count
+// the blend used (reflection_accumulate: g_BlendFrames), zero where none was written,
+// and the alpha stands in then. Black where the caller has no such lane.
+layout(set = 0, binding = 3) uniform sampler2D u_PastIdent;
 
 layout(push_constant) uniform Params
 {
@@ -117,7 +124,9 @@ void main()
 				continue;          // nothing glossy stood here: it asks for nothing
 			}
 			glossy += 1.0;
-			const bool isYoung = texelFetch(u_PastPicture, at, 0).a <= u_Budget.Young;
+			const float carried = texelFetch(u_PastIdent, at, 0).g;
+			const float frames = carried > 0.0 ? carried : texelFetch(u_PastPicture, at, 0).a;
+			const bool isYoung = frames <= u_Budget.Young;
 			if (isYoung)
 			{
 				young += 1.0;

@@ -400,7 +400,10 @@ namespace RageV
 									 // What a tile that asks for nothing gets: one ray for the
 									 // reflections, the level's own lamp count for the direct
 									 // light, which must not lose lamps where nothing moved.
-									 float leastRays = 1.0f);
+									 float leastRays = 1.0f,
+									   // The accumulator's id lane, whose green is the blend count the anti-lag
+									   // restarts (2026-09-22); null where the signal keeps its count in the alpha.
+									   const RHI::Ref<RHI::RHITexture>& pastIdent = nullptr);
 
 		static void TileBudget(RHI::RHICommandList& cmd,
 				   const RHI::Ref<RHI::RHITexture>& tiles,
