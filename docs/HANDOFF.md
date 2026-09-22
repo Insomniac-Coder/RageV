@@ -65,8 +65,8 @@ ReflectionSignal; `--glass-history` covers only the pane's lamp light).
 **Found in passing, not fixed:** reflection_accumulate's `kSettledBound` widening reads `c.past.a`, the
 trust the anti-lag never resets -- the fb9cbe9 "which counter says young" trap a fourth time.
 
-**Also uncommitted:** the garage's bake for the tube lengths (field_f4dea8343577fbbf, rvprobe + two
-rvfields) was never committed with 22fc27c; bakes are normally in the repo.
+**The garage's bake for the tube lengths** (field_f4dea8343577fbbf, rvprobe + two rvfields), left out
+of 22fc27c, is committed at 24b932f.
 
 ## RT-23 fixed: the anti-lag's re-light drew a different ray from the trace
 
