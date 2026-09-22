@@ -996,6 +996,7 @@ namespace RageV
 										   const RHI::Ref<RHI::RHITexture>& albedo,
 										   const RHI::Ref<RHI::RHITexture>& traced,
 										   const RHI::Ref<RHI::RHITexture>& velocity,
+										   const RHI::Ref<RHI::RHITexture>& travel,
 										   const GiTraceView& view,
 										   MeasuredChangeHistory& history);
 		// And later, before the accumulate: the record's rays traced into this

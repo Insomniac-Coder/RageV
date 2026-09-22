@@ -1,8 +1,78 @@
 # RageV -- handoff
 
-**Read this first.** Updated 2026-09-22. **RT-11 is done and pushed. RT-23 is bisected but
-NOT fixed -- and the last hours of that session produced no improvement, so start from the
-bisect rather than repeating it.**
+**Read this first.** Updated 2026-09-22 (evening). **RT-23 is FIXED, judged by the owner on the
+slow car pass ("99% gone"): the measured change's re-light was not drawing what the trace drew,
+so it called the whole floor "changed" every frame the car moved and restarted its average.
+Committed. What is left of the RT series is RT-22 and RT-2.2.**
+
+## RT-23 fixed: the anti-lag's re-light drew a different ray from the trace
+
+**The symptom.** Speckle across the wet floor while the car moves, gone when it stops, most
+visible where the tubes and the chrome poles are reflected. Every earlier arm changed the
+reflection *estimator* or its filters and none of them moved it, because none of them was the
+mechanism.
+
+**The bisection that found it, all owner-judged live (`tools/scripts/garage/watch_arm.py car 20`,
+corrected scene, real bake):** the direct light alone is clean on the floor; the bounce is baked
+(no live picture, cannot speckle); the occlusion is clean; with `--rt-reflections=off` the floor
+is clean -- so the reflection path, and only it. Its history map (`--debug-view=reflection`)
+showed the floor keeping its memory while the car moved, yet `--measured-change=off` removed the
+speckle outright, twice. The anti-lag shortens the blend without touching the count the map
+draws, which is why no map before this one could show it.
+
+**The proof is a picture: `--debug-view=reflection-change`** (the anti-lag's own map of what
+changed). Parked: black. Car sliding at 0.35 m/s: red over 35% of the frame and 29% of the floor,
+walls and ceiling included -- a car in the middle of the room cannot change the reflection on
+every wall. With `--reflection-nee=off` the red fell to 3%, which pointed at the re-light.
+
+**Three ways the re-light differed from the trace, all fixed in `reflection_trace.rvshader`:**
+- **It had no aimed rays.** RT-11's next-event block and its helpers were compiled out of the
+  RV_REFLECTION_RELIGHT variant, so the re-light re-cast the recorded ray *without* the aimed
+  sample the trace had added, and every texel lit through the aimed ray read as changed. The
+  emitter rows now reach the re-light's set (bindings 10 and 11, `RelightReflectionChange`)
+  and the block compiles for it. Worth 29% -> 0.8% of the floor.
+- **It cast one ray where the trace averaged several.** RT-9's tile allocation raises the count
+  only while something moves -- exactly when the check runs. The trace now writes its count
+  into the travel lane's w (a literal zero before), the record keeps it (`o_Record2.y`, from a
+  new binding 6), and the re-light loops the same count with the same seeds.
+- **It seeded the hit's one-lamp draw with the current frame.** `hitSeed` in
+  `include/pbr_fragment.glsl` mixed `u_Scene.GlobalIllumination.y` directly; it now mixes
+  `RV_TRACE_FRAME`, which the re-light defines as the recorded frame (and `RV_TRACE_PIXEL` as
+  the recorded texel), the way direct_trace's re-light already did. The trace's own draw
+  sequence now wraps at 1024 frames, which changes nothing anyone can see.
+  Together the last two take the floor from 0.8% to 0.3%, the rest being the car's real change.
+
+**Verified:** every reflection variant compiles (the engine only reports a failed re-light,
+and a first attempt that opened one guard but not the rows compiled to *nothing* and made the
+map perfectly black -- the silent-fallback trap again, so the check is now an explicit run and
+a grep for "did not compile"). The anti-lag still reacts to a real light change: with the car's
+headlamps on (`StartOn: true` for ShowroomLights in a harness copy) the moving map lights up
+where the beams sweep and stays black parked. Cost: the re-light pass 0.15 -> 0.40 ms.
+
+**Two things found on the way, both fixed and committed:**
+- **The garage's twenty tubes never had a length in the scene.** RT-7 built the line light and
+  verified it in harness copies; the 09-14 rollback of the light-draws-the-reflection experiment
+  restored the scene "byte-for-byte to its state before RT-7 (tubes length 0)", and nobody put
+  the lengths back. Now `SourceLength: 3.07`, `SourceRadius: 0.075` (measured off the bar mesh:
+  3.073 m by 0.147 m, running along world X, which is the light's local X), re-baked
+  (field_f4dea8343577fbbf). The editor re-save had also turned the Showroom Probe from Baked to
+  Cached and the scene's name to "Untitled"; both put back.
+- **watch_arm played the committed scene under live bounce light.** It built its scene from
+  `git show HEAD:` and its renamed copy had no bake folder (the burst.py trap of 09-15, never
+  applied here). It now reads the on-disk scene and copies the bake beside its copy
+  (`burst.sync_bake(dst)`). Every RT-23 arm judged before today was under both defects.
+
+**Retired by measurement, in case anyone reaches for them again:** the tube soft-shadow theory
+(the scene had no line lights when the speckle was filed); the power heuristic in place of the
+balance heuristic (inert on the parked floor against the 16-ray truth, and "same" by eye on the
+moving car -- kept as `watch_arm.py --stage=power`); letting the lamp draw the tube's reflection
+(not general: a glowing cube has no lamp). The stray map (`--stage=strays`, paints each stray
+ray by what made it bright) showed the strays are hits on the glowing tubes -- true, and not the
+cause; it needs `--measured-change=off` now that the travel lane's w carries the ray count.
+
+**What is left of the speckle (the owner's "1%"):** the ragged edge of the tube streaks where
+the car's reflection genuinely changes and the history is legitimately short. Not RT-23.
+
 
 ## What landed and is pushed (1427163, 643bb6c, 1d7d45b, 88fd395)
 

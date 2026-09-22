@@ -2839,7 +2839,7 @@ TracedSurface TraceSurface(vec3 origin, vec3 Ng, vec3 direction, float reach)
 	uint hitSeed = GiHash(floatBitsToUint(hitPosition.x)
 						  ^ (floatBitsToUint(hitPosition.y) * 0x9E3779B9u)
 						  ^ (floatBitsToUint(hitPosition.z) * 0x85EBCA6Bu)
-						  ^ (uint(u_Scene.GlobalIllumination.y) * 0x27D4EB2Du));
+						  ^ (uint(RV_TRACE_FRAME) * 0x27D4EB2Du));
 	float hitSeen = 0.0;         // the worth of every light walked so far
 	float hitKeptWorth = 0.0;    // and of the one kept
 	vec3  hitKeptL = vec3(0.0, 1.0, 0.0);

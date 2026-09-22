@@ -59,6 +59,14 @@ void main()
 // main sets it first.
 vec3 g_TraceCamera = vec3(0.0);
 #define RV_TRACE_CAMERA g_TraceCamera
+// **And the frame and the pixel the record was drawn at (2026-09-22)**, so the
+// draws the header makes for a hit -- the one lamp it keeps, the soft-shadow
+// point -- are the draws the trace made. Seeded by the current frame, the
+// re-light kept a different lamp and read its own resampling as a change.
+vec2  g_TracePixel = vec2(0.5);
+float g_TraceFrame = 0.0;
+#define RV_TRACE_PIXEL g_TracePixel
+#define RV_TRACE_FRAME g_TraceFrame
 #endif
 #include "include/pbr_fragment.glsl"
 // RT-15b: RecordMovedOnItsOwn, for the extra rays below as well as the record.
@@ -111,6 +119,14 @@ layout(set = 3, binding = 8) uniform sampler2D u_PastIdent;
 // g the frames it has been held, b the share of the tile that asked for it. One number
 // for 16x16 pixels, because a scattered count is paid for by every pixel in the group.
 layout(set = 3, binding = 9) uniform sampler2D u_TileRays;
+#endif
+// **And the rows reach the re-light as well (2026-09-22).** The measured change
+// re-casts a recorded ray and compares what comes back with what the trace
+// wrote; the trace adds an aimed sample to every ray and the re-light did not,
+// so every texel lit through the aimed ray read as "changed" whenever the
+// check ran -- the whole floor restarted its average each frame the car moved,
+// which is RT-23. The re-light draws what the trace drew, rows included.
+#if !defined(RV_REFLECTION_RECORD)
 
 // **RT-11: the scene's area emitters, and where on each one the light is.**
 //
@@ -160,6 +176,9 @@ layout(std430, set = 3, binding = 11) readonly buffer ReflectionEmitterCdfBlock
 // pixel moved.
 layout(set = 3, binding = 4) uniform sampler2D u_Traced;
 layout(set = 3, binding = 5) uniform sampler2D u_Velocity;
+// The trace's travel attachment: its w is how many rays the texel averaged
+// (2026-09-22), for the re-light to draw the same number.
+layout(set = 3, binding = 6) uniform sampler2D u_HitTravel;
 #endif
 
 layout(push_constant) uniform LampParams
@@ -328,7 +347,7 @@ vec3 GlossyReflectionLD(vec3 N, vec3 V, float roughness, ivec2 texel, uint frame
 	}
 }
 
-#if !defined(RV_REFLECTION_RECORD) && !defined(RV_REFLECTION_RELIGHT)
+#if !defined(RV_REFLECTION_RECORD)
 // **How densely the lobe this pass samples points at `L`** -- the same number
 // o_Hit's third lane already carries for the first ray, as a function so the
 // aimed samples can ask it about a direction nothing was drawn along.
@@ -719,6 +738,8 @@ void main()
 	const ivec2 texel = ivec2(int(recordFlags >> 3u), int(record2.w));
 	const vec4 surface = texelFetch(u_Record1, block, 0);
 	g_TraceCamera = u_Lamps.Probe.xyz;
+	g_TracePixel = vec2(texel) + 0.5;
+	g_TraceFrame = mod(u_Lamps.Probe.w, 1024.0);
 #else
 	o_Reflection = vec4(0.0, 0.0, 0.0, -1.0);
 	o_Hit = vec4(0.0);
@@ -774,7 +795,8 @@ void main()
 		const uint flags = (wrote.a >= 0.0 ? 1u : 0u) | (moving ? 4u : 0u);
 		o_Record0 = vec4(P, float((uint(texel.x) << 3u) | flags));
 		o_Record1 = surface;
-		o_Record2 = vec4(dot(wrote.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0, 0.0, float(texel.y));
+		o_Record2 = vec4(dot(wrote.rgb, vec3(0.2126, 0.7152, 0.0722)),
+					  texelFetch(u_HitTravel, texel, 0).w, 0.0, float(texel.y));
 		o_Record3 = texelFetch(u_Albedo, texel, 0);
 		return;
 	}
@@ -799,7 +821,7 @@ void main()
 	// **How much of what came back is the thing itself glowing (2026-09-21).**
 	// Declared for every variant, because the attachment is written by all of them.
 	float emissiveSum = hit.Missed ? 0.0 : dot(hit.Emissive, vec3(0.2126, 0.7152, 0.0722));
-#if !defined(RV_REFLECTION_RECORD) && !defined(RV_REFLECTION_RELIGHT)
+#if !defined(RV_REFLECTION_RECORD)
 	// **RT-11: and one ray aimed straight at a lamp, for every ray drawn from
 	// the lobe.** See AimedAtEmitters. Zero emitters leaves every line below
 	// inert and this pass bit-identical to what it was.
@@ -830,7 +852,14 @@ void main()
 		emissiveSum = dot(kept + aimed, vec3(0.2126, 0.7152, 0.0722));
 	}
 #endif
-#if !defined(RV_REFLECTION_RECORD) && !defined(RV_REFLECTION_RELIGHT)
+#if !defined(RV_REFLECTION_RECORD)
+#if defined(RV_REFLECTION_RELIGHT)
+	// **The count the trace drew here, from the record (2026-09-22).** A re-light
+	// casting one ray against a record that averaged several read the difference
+	// as the light changing, wherever the count was raised -- the young tiles
+	// while something moves, which is exactly when the check runs.
+	const int rays = clamp(int(record2.y + 0.5), 1, 16);
+#else
 	// **RT-15b: more rays where the surface moves on its own.** A flat mirror sliding
 	// in its own plane shows a still picture, so a screen texel's history is only as
 	// old as the frames the mirror has covered it: the strip at its leading edge is
@@ -874,6 +903,7 @@ void main()
 		if (movingRays > 1 && RecordMovedOnItsOwn(texelFetch(u_Velocity, texel, 0).xy, P, vec2(size)))
 			rays = movingRays;
 	}
+#endif
 	vec3 radianceSum = radiance;
 	// The clamp downstream has to tell a ray that found a lamp from a ray that got
 	// lucky, and by the time it sees them they are both just a bright number. The hit
@@ -992,8 +1022,8 @@ void main()
 	// RT-15b: over several rays, the mean travel of those that struck a mover (as the
 	// accumulator's MoverTravel averages a 3x3); the texel then counts as a mover's.
 	o_HitTravel = rays > 1
-				? vec4(moversStruck > 0.0 ? clamp(travelSum / moversStruck, vec3(-1.0e4), vec3(1.0e4)) : vec3(0.0), 0.0)
-				: vec4(hit.Missed ? vec3(0.0) : clamp(hit.Travel, vec3(-1.0e4), vec3(1.0e4)), 0.0);
+				? vec4(moversStruck > 0.0 ? clamp(travelSum / moversStruck, vec3(-1.0e4), vec3(1.0e4)) : vec3(0.0), float(rays))
+				: vec4(hit.Missed ? vec3(0.0) : clamp(hit.Travel, vec3(-1.0e4), vec3(1.0e4)), float(rays));
 #endif
 
 	// The ray above and the shadow rays its hit walked: flushed here, since

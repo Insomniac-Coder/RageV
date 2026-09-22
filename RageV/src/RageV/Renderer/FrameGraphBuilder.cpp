@@ -2577,6 +2577,7 @@ namespace RageV
 																   context.Color(sceneHDR, albedoIndex),
 																   context.Color(traced),
 																   context.Color(sceneHDR, velocityIndex),
+																   context.Color(traced, 3),
 																   reflectionView, *history);
 							});
 					}

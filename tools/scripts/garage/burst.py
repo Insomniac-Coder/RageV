@@ -75,7 +75,7 @@ def set_field(text, tag, field, value):
     return text[:start] + new_block + text[end:]
 
 
-def sync_bake():
+def sync_bake(dst='showroom_burst'):
     """**The copy's bake, where the engine looks for it** (found 2026-09-15).
 
     The engine finds a scene's bake by the scene file's stem (BakedLighting: assets/baked/<stem>),
@@ -92,7 +92,9 @@ def sync_bake():
     baked = os.path.join(PROJECT, 'assets', 'baked')
     name = os.environ.get('BURST_BAKE') or re.sub(r'_head$', '', os.path.splitext(SCENE)[0])
     src = os.path.join(baked, name)
-    dst = os.path.join(baked, 'showroom_burst')
+    # dst is the renamed copy: showroom_burst here, showroom_head for watch_arm,
+    # which played without any bake until it passed one (2026-09-22).
+    dst = os.path.join(baked, dst)
     if not os.path.isdir(src) or os.path.abspath(src) == os.path.abspath(dst):
         return
     os.makedirs(dst, exist_ok=True)

@@ -8494,6 +8494,7 @@ namespace RageV
 											const RHI::Ref<RHITexture>& albedo,
 											const RHI::Ref<RHITexture>& traced,
 											const RHI::Ref<RHITexture>& velocity,
+											const RHI::Ref<RHITexture>& travel,
 											const GiTraceView& view,
 											MeasuredChangeHistory& history)
 	{
@@ -8537,6 +8538,10 @@ namespace RageV
 		inputs->SetTexture(3, albedo, s_Data->PointSampler);
 		inputs->SetTexture(4, traced, s_Data->PointSampler);
 		inputs->SetTexture(5, velocity, s_Data->PointSampler);
+		// The trace's travel lane, whose w is the ray count the re-light replays
+		// (2026-09-22). Asked of the set, as binding 10 is, for a staged older copy.
+		if (inputs->HasBinding(6))
+			inputs->SetTexture(6, travel, s_Data->PointSampler);
 		inputs->Commit();
 
 		// The trace's block, value for value.
@@ -8619,6 +8624,22 @@ namespace RageV
 		inputs->SetTexture(1, record1, s_Data->PointSampler);
 		inputs->SetTexture(2, record2, s_Data->PointSampler);
 		inputs->SetTexture(3, record3, s_Data->PointSampler);
+		// **The emitter rows, as the trace binds them (2026-09-22).** The re-light
+		// draws the recorded ray again, aimed sample included; without the rows
+		// it drew the ray alone, and every texel the aimed sample lights measured
+		// as changed each frame the check ran (RT-23).
+		uint32_t emitterRows = 0;
+		uint32_t emitterCdf = 0;
+		if (inputs->HasBinding(10) && inputs->HasBinding(11)
+			&& UploadEmitters(slot.ReflectionEmitters, slot.ReflectionEmitterCapacity,
+							  slot.ReflectionEmitterCdf, slot.ReflectionEmitterCdfCapacity,
+							  emitterRows, emitterCdf))
+		{
+			inputs->SetStorageBuffer(10, slot.ReflectionEmitters, 0,
+									 (uint64_t)emitterRows * sizeof(Renderer3DData::GpuEmitter));
+			inputs->SetStorageBuffer(11, slot.ReflectionEmitterCdf, 0,
+									 (uint64_t)emitterCdf * sizeof(float));
+		}
 		inputs->Commit();
 
 		// The recorded eye in Probe's xyz and frame in its w; the gloss window and
@@ -8638,6 +8659,9 @@ namespace RageV
 		// draw it with the same sampler. See WideLampPushConstants.
 		WideLampPushConstants wide;
 		wide.Base = push;
+		wide.Nee.x = (emitterRows > 0 && !s_Data->Emitters.empty()
+					  && EngineConfig::Get().ReflectionNee)
+				   ? (float)Math::Min((uint32_t)s_Data->Emitters.size(), 16u) : 0.0f;
 		wide.Nee.y = EngineConfig::Get().ReflectionVndf ? 1.0f : 0.0f;
 		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(wide), &wide);
 		cmd->Draw(3);
