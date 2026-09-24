@@ -1,5 +1,7 @@
 # RageV — the one list
 
+> **2026-09-24, owner-set: the roadmap after RT-24 is `docs/RT-SERIES-2.md`** -- 44 items (RT2-0 to RT2-43) in seven milestones, with the owner's answers to its twelve decisions in its section 5. RT2-0 is RT-24 itself and still comes first; nothing else starts until RT-24 is committed. RT-series 1 closes with RT-24 (RT-22's remaining parts and RT-2.2 move into series 2), and series 2 is also the speed pass that was planned for after the RT series. Its evidence (every finding, the open issues, the benchmark and the reference survey) is `docs/RT-SERIES-2-FINDINGS.md`. The same roadmap is published as a page: https://claude.ai/artifact/WuFvLmahe5TCPiZhUxgcfd
+
 > **2026-09-23, owner-set: RT-24 comes before anything else** -- one fast camera spin around the car smears the whole scene (suspects: the car and the chrome poles). `docs/RT-SERIES.md` RT-24 and HANDOFF.md's top have the first step.**
 
 > **2026-09-07: RT-2.1 done (records in `docs/RT-SERIES.md`): the terrain's cost was the parallax march at mip 0, not the raster -- Headland 20.3 → 14.5 ms, the picture unchanged; HANDOFF.md's eleventh entry is this session's hand-off. The AO look is accepted. Next is RT-3 on the owner's green signal; the deferred resolve is RT-2.2, owner-filed for the end of the series.**
