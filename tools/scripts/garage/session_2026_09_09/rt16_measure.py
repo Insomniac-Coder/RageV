@@ -21,11 +21,13 @@ the switch and dark long after are exactly the reflection that has to go, so
 the mask comes from the sequence itself and cannot be a rectangle drawn where
 the answer looked best.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, re, shutil, subprocess, sys
 import numpy as np
 from PIL import Image
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 SHOTS = os.path.join(ROOT, 'build', 'garage_burst')
 BURST = os.path.join(ROOT, 'tools', 'scripts', 'garage', 'burst.py')
 

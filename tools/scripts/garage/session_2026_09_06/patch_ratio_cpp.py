@@ -5,8 +5,10 @@ texel, weighted by this texel's own lobe over the neighbour's pdf. No
 parallax blur, no over-reach: a band stays as wide as the lobe, a puddle
 texel keeps its narrow lobe among rough neighbours. Replaces the three
 a-trous footprint passes (patch_footprint.py) with one pass."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, re
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 
 def read(p): return open(p, 'rb').read().decode('utf-8')
 def write(p, s): open(p, 'wb').write(s.encode('utf-8')); print('ok', p)

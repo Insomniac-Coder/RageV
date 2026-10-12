@@ -10,10 +10,12 @@ mirror" from "the mirror ray never reaches the tubes at all".
 
     python tools/scripts/garage/static_test.py [tag]
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, sys, shutil, subprocess
 
-SP = r'C:\Users\ism19\Code\RageV\tools\scripts\garage'
-SCENE = r'C:\Users\ism19\Code\RageV\SampleProject\assets\scenes\showroom.rage'
+SP = (_RAGEV + r'\tools\scripts\garage')
+SCENE = (_RAGEV + r'\SampleProject\assets\scenes\showroom.rage')
 sys.path.insert(0, SP)
 import compare
 

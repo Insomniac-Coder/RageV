@@ -109,6 +109,7 @@
 #include "RageV/Managed/Interop.h"
 #include "RageV/Managed/ScriptBuild.h"
 #include "RageV/Project/ModuleBuild.h"
+#include "RageV/Utils/PlatformUtils.h"
 #include "RageV/Project/ScriptGen.h"
 #include "RageV/Project/GameModule.h"
 #include "RageV/Core/ChildProcess.h"
@@ -4143,6 +4144,46 @@ void main()
 	//
 	// Conditional on the module having been built, because the suite must not
 	// require a prior Build Scripts to run at all. Skipping is loud.
+	// The repository can move. Folders the engine needs at run time are found
+	// above the executable, and a game-module cache configured before a move
+	// is recognised as stale (CMake would refuse it, and "configure once"
+	// would trust it forever).
+	void CheckRelocation()
+	{
+		namespace fs = std::filesystem;
+		Check(!Process::FindAboveExecutable("RageVTargets.cmake").empty(),
+			  "the engine's export file is found above the executable");
+		Check(Process::FindAboveExecutable("no_such_folder_anywhere_rv").empty(),
+			  "and a name nowhere above it is not");
+
+		std::error_code error;
+		const fs::path root = fs::temp_directory_path(error) / "rv_relocation_check";
+		fs::create_directories(root / "Source", error);
+		fs::create_directories(root / "engine", error);
+		const fs::path cache = root / "CMakeCache.txt";
+		const auto write = [&](const std::string& home, const std::string& engine)
+		{
+			std::ofstream(cache) << "# a CMake cache\nCMAKE_HOME_DIRECTORY:INTERNAL=" << home
+								 << "\nRAGEV_ENGINE:UNINITIALIZED=" << engine << "\n";
+		};
+		const std::string source = (root / "Source").string(), engine = (root / "engine").string();
+
+		write(source, engine);
+		Check(!ModuleBuild::CachedElsewhere(cache, root / "Source", root / "engine"),
+			  "a module cache made here is kept");
+		write("C:/somewhere/that/moved/Source", engine);
+		Check(ModuleBuild::CachedElsewhere(cache, root / "Source", root / "engine"),
+			  "a module cache made for a project folder that moved is stale");
+		write(source, "C:/somewhere/that/moved/build");
+		Check(ModuleBuild::CachedElsewhere(cache, root / "Source", root / "engine"),
+			  "and so is one made against an engine build that moved");
+		Check(!ModuleBuild::CachedElsewhere(cache, root / "Source", {}),
+			  "but not when no engine was found to compare with");
+		Check(!ModuleBuild::CachedElsewhere(root / "absent.txt", root / "Source", root / "engine"),
+			  "and no cache at all is not a stale one");
+		fs::remove_all(root, error);
+	}
+
 	void CheckGameModule()
 	{
 		if (!Project::GetActive())
@@ -16516,6 +16557,7 @@ int RunTests(int argc, char** argv)
 	CheckTerrain();
 	CheckTerrainBrush();
 	CheckTerrainOps();
+	CheckRelocation();
 	CheckGameModule();
 	CheckProject();
 	CheckProjectTemplate();

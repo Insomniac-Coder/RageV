@@ -14,10 +14,12 @@ The optional folder and file name point it at another export in
 assets/models -- used once to re-import garage_baked through the fixed
 importer before the PBR bake had finished.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import subprocess, os, sys, re, io, glob, shutil
 
-SP = r'C:\Users\ism19\Code\RageV\tools\scripts\garage'
-R = r'C:\Users\ism19\Code\RageV'
+SP = (_RAGEV + r'\tools\scripts\garage')
+R = _RAGEV
 _POS = [a for a in sys.argv[1:] if not a.startswith('--')]
 FOLDER = _POS[1] if len(_POS) > 1 else 'garage_pbr'
 GLTF = _POS[2] if len(_POS) > 2 else 'underground_garage_pbr.gltf'

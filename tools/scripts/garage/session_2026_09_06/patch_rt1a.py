@@ -7,8 +7,10 @@
   sizing (--shade-lights, on screen and at hits) are removed: measurement
   instruments whose questions are answered, dead under the signal.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, re
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 exec(open('tools/scripts/garage/session_2026_09_06/t4_prelude.py', encoding='utf-8').read())
 
 p = 'RageVEditor/assets/shaders/include/pbr_fragment.glsl'; s, nl = load(p)

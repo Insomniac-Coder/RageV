@@ -1017,6 +1017,13 @@ namespace RageV::Managed
 			return EngineConfig::Get().BakeLighting ? 1 : 0;
 		}
 
+		// RT-24: the script moved the camera discontinuously. See Scene::RequestCameraCut.
+		void __cdecl RequestCameraCut()
+		{
+			if (s_Scene)
+				s_Scene->RequestCameraCut();
+		}
+
 		int32_t __cdecl GetRenderSetting(const char* name, char* buffer, int32_t capacity)
 		{
 			if (!s_Scene || !name)
@@ -1120,6 +1127,7 @@ namespace RageV::Managed
 			api.GetGraphicsApi = &GetGraphicsApi;
 			api.IsFeatureActive = &IsFeatureActive;
 			api.IsBakingLighting = &IsBakingLighting;
+			api.RequestCameraCut = &RequestCameraCut;
 			return api;
 		}
 	}

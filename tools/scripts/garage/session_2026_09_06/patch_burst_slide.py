@@ -1,7 +1,9 @@
 """burst.py gains BURST_SLIDE (WR-16 R5's moving-object test): attach the
 engine's Slider to every entity whose tag starts with a prefix, so an
 object moves on its own while the camera stands still (--speed=0)."""
-p = 'C:/Users/ism19/Code/RageV/tools/scripts/garage/burst.py'
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
+p = (_RAGEV + '/tools/scripts/garage/burst.py')
 s = open(p, encoding='utf-8').read()
 anchor = "    switch = os.environ.get('BURST_SWITCH')"
 assert s.count(anchor) == 1, s.count(anchor)

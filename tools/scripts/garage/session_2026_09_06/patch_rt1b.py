@@ -5,8 +5,10 @@
 - WR-16 S1's `--shadow-budget` and S4's `--shade-lights` go: the fields, the
   parsing, the help, the define, their bits in RayRates.w.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, re
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 exec(open('tools/scripts/garage/session_2026_09_06/t4_prelude.py', encoding='utf-8').read())
 
 def cut_lines(s, nl, first_pred, last_pred):

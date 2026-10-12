@@ -14,9 +14,11 @@ exactly once, line endings preserved per file.
      moved on its own (the scene's velocity lane, camera motion taken out) a texel casts
      --reflection-moving-rays rays (four by default) and writes their mean.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, sys
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 CRLF, LF = '\r\n', '\n'
 N = '\n'
 

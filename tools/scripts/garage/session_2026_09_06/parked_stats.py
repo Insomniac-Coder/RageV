@@ -1,9 +1,11 @@
 """Parked per-frame change (frames 170-189), floor drift over 1/4/8/16
 frames, and for converged stills the floor's high-frequency energy.
 Usage: parked_stats.py <arm>... ; stills: parked_stats.py --hf <still.png>..."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import numpy as np, sys
 from PIL import Image
-S = 'C:/Users/ism19/Code/RageV/build/garage_burst/'
+S = (_RAGEV + '/build/garage_burst/')
 def Y(p):
     a = np.asarray(Image.open(S + p).convert('RGB'), dtype=float); return 0.2126*a[...,0] + 0.7152*a[...,1] + 0.0722*a[...,2]
 def box(a, r=4):

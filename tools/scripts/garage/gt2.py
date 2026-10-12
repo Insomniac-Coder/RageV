@@ -1,5 +1,7 @@
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import bpy, os
-OUT = r'C:\Users\ism19\Code\RageV\build\garage_shots\blender_truth.png'
+OUT = (_RAGEV + r'\build\garage_shots\blender_truth.png')
 sc = bpy.context.scene
 sc.render.engine = 'CYCLES'
 try:

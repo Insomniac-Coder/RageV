@@ -8,9 +8,11 @@ magnitude is missing, so it is multiplied back in here.
 (KHR_materials_emissive_strength exists for this, and neither the exporter's
 default settings nor our importer speak it.)
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, re, glob
 
-D = r'C:\Users\ism19\Code\RageV\SampleProject\assets\models\garage_gltf'
+D = (_RAGEV + r'\SampleProject\assets\models\garage_gltf')
 
 STRENGTH = {'light': 16.0, 'light2': 12.0, 'Material.001': 100.0,
             'Blinking Light': 8.0}

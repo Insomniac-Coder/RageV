@@ -2,8 +2,10 @@
 written and nothing built: the build notes gathered from the code go into
 RT-FIRST.md section 2d so the next session starts at the patch, not at the
 reading; the hand-off header and memory say where things stand."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 
 def load(p):
     s = open(p, 'rb').read().decode('utf-8'); return s, ('\r\n' if '\r\n' in s else '\n')

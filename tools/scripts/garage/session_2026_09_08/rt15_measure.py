@@ -4,11 +4,13 @@ The cube is the near-mirror block above the car's tail. Its rectangle is fixed
 and hand-picked from a rendered frame, so it is the same pixels in both arms --
 the geometry does not depend on the accumulator.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import sys, glob, re, os
 import numpy as np
 from PIL import Image
 
-SHOTS = r'C:\Users\ism19\Code\RageV\build\garage_burst'
+SHOTS = (_RAGEV + r'\build\garage_burst')
 CUBE = (545, 315, 630, 390)      # x0, y0, x1, y1
 WALL = (700, 315, 800, 390)      # the static graffiti wall beside it, as a control
 

@@ -362,7 +362,9 @@ void main()
 	const float reach = u_Scene.GlobalIllumination.w > 0.0
 					  ? u_Scene.GlobalIllumination.w : 1.0e4;
 
-	const int emitters = clamp(int(u_Gi.Emitters + 0.5), 0, 16);
+	// Every row (RT-24, 2026-09-25): the cap of sixteen left the rest flagged as emitters, whose
+	// glow the hit below subtracts, but never aimed at -- their light lost from the bounce.
+	const int emitters = max(int(u_Gi.Emitters + 0.5), 0);
 
 	// The variance bound both estimators share; the hemisphere block below
 	// says why it exists and what it trades.

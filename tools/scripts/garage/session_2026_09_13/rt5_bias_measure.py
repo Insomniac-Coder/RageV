@@ -29,11 +29,13 @@ an uncommitted file.
 Writes a float mean of frames 186..249 per arm to build/rt5/<arm>.npy; the
 PNGs stay in build/garage_burst for the per-frame metrics.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, re, shutil, subprocess, sys, time
 import numpy as np
 from PIL import Image
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 RT = os.path.join(ROOT, 'build', 'bin', 'Release', 'RageVRuntime')
 SRC = os.path.join(ROOT, 'RageVEditor', 'assets', 'shaders', 'reflection_accumulate.rvshader')
 STAGED = os.path.join(RT, 'assets', 'shaders', 'reflection_accumulate.rvshader')

@@ -1,6 +1,8 @@
 """burst.py gains BURST_SWITCH (WR-16 R4's change test): attach the Switcher
 native script to every entity whose tag starts with a given prefix."""
-p = 'C:/Users/ism19/Code/RageV/tools/scripts/garage/burst.py'
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
+p = (_RAGEV + '/tools/scripts/garage/burst.py')
 s = open(p, encoding='utf-8').read()
 anchor = "    old = re.search(r'    ManagedScriptComponent:"
 assert s.count(anchor) == 1, s.count(anchor)

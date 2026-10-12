@@ -19,11 +19,13 @@ Per arm:
 And a strip of crops, mid-motion and just after the stop, one row per arm,
 written beside the frames as compare_<tag>.png.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, re, sys, glob
 import numpy as np
 from PIL import Image
 
-SHOTS = r'C:\Users\ism19\Code\RageV\build\garage_burst'
+SHOTS = (_RAGEV + r'\build\garage_burst')
 
 
 def frames_of(tag):

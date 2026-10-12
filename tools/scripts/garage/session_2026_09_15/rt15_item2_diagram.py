@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """RT-15 item 2 as a drawing: what it does, and its catch on a shiny floor (owner, 2026-09-15)."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
 from PIL import Image, ImageDraw, ImageFont
 
-OUT = r'C:\Users\ism19\Code\RageV\build\rt15\item2_diagram.png'
+OUT = (_RAGEV + r'\build\rt15\item2_diagram.png')
 BOLD = ImageFont.truetype('C:/Windows/Fonts/arialbd.ttf', 32)
 TEXT = ImageFont.truetype('C:/Windows/Fonts/arial.ttf', 25)
 BIG = ImageFont.truetype('C:/Windows/Fonts/arialbd.ttf', 40)

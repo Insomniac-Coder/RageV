@@ -1023,6 +1023,21 @@ public static unsafe class Graphics
 	/// </remarks>
 	public static bool IsBakingLighting =>
 		Native.IsReady && Native.Api.IsBakingLighting() != 0;
+
+	/// <summary>Say the camera just moved discontinuously.</summary>
+	/// <remarks>
+	/// Call it after a teleport, a respawn, or a jump to another viewpoint: the
+	/// next frame then starts every temporal history fresh instead of
+	/// reprojecting last frame's picture across the jump. Continuous motion,
+	/// however fast, never needs it -- each history judges that pixel by pixel.
+	/// Switching which camera draws the scene needs no call either; the engine
+	/// sees that itself.
+	/// </remarks>
+	public static void CameraCut()
+	{
+		if (Native.IsReady)
+			Native.Api.RequestCameraCut();
+	}
 }
 
 /// <summary>Turning values into text, for anything that displays them.</summary>

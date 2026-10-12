@@ -734,10 +734,18 @@ namespace RageV {
 			// frame while the phases inside it summed to 26.822 -- parts
 			// larger than the whole, on a run where vsync was off. The step
 			// paces the simulation; the wall clock is how long the frame took.
+			//
+			// **A stall is not time to simulate** (2026-10-12). The measured
+			// step is capped at the fixed step's MaxFrameTime before anything
+			// sees it, OnFrame and particles as well as physics. Uncapped, the
+			// first frames -- which compile shaders and take seconds each --
+			// handed a mover its whole drive in one frame, and the owner's live
+			// window showed the cube only where it ended. A slow frame now just
+			// moves things less, the way Unity's maximum allowed timestep does.
 			const float measured = time - m_LastTime;
 			const float frameTime = config.FrameTime > 0.0f
 								  ? config.FrameTime
-								  : measured;
+								  : Math::Min(measured, m_FixedStep.MaxFrameTime);
 			m_LastTime = time;
 			// The span just closed, which is the previous frame's -- the
 			// current one is not over yet. Filed against this frame's phases,

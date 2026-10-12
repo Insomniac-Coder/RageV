@@ -552,6 +552,8 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	// the number --frame-time pins, and driving the adaptation from it is the
 	// whole of how auto exposure stays reproducible. ENGINE-NOTES 7y.
 	frame.DeltaSeconds = ts.GetSeconds();
+	// RT-24: a camera cut is a fact the scene reports, never a guess from motion.
+	frame.CameraCut = m_Scene->ConsumeCameraCut();
 	frame.DrawScene = [this](RGPassContext& context)
 	{
 		m_Scene->OnRenderRuntime((float)context.Width / (float)context.Height);

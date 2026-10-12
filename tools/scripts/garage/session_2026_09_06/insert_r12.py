@@ -1,7 +1,9 @@
 """Insert the R12 brief ahead of R5 in RENDERING-REVAMP.md, update the
 series' order sentence, NEXT.md and the project memory."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 p = 'docs/RENDERING-REVAMP.md'; s = open(p, 'rb').read().decode('utf-8'); nl = '\r\n' if '\r\n' in s else '\n'
 brief = open('tools/scripts/garage/session_2026_09_06/r12_brief.md', 'rb').read().decode('utf-8').replace('\r\n', '\n').replace('\n', nl)
 marker = "#### R5 · At a silhouette, forget fast when the other side is moving"

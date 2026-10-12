@@ -319,6 +319,14 @@ namespace RageV::Managed
 		// per state. Nothing else should read it -- it is not a quality dial
 		// and a game is never launched with it on.
 		int32_t (__cdecl* IsBakingLighting)();
+
+		// --- appended for protocol 13: a camera cut a script reports (RT-24) ---
+		//
+		// A script that moves the camera discontinuously -- a teleport, a respawn,
+		// a jump to another viewpoint -- says so, and the next frame drops every
+		// temporal history rather than reprojecting across the jump. The engine
+		// no longer guesses a cut from how fast the camera moves.
+		void (__cdecl* RequestCameraCut)();
 	};
 
 	// One raycast hit, as it crosses the boundary. Mirrors RageV::RayHit,
@@ -503,7 +511,8 @@ namespace RageV::Managed
 		// 12: whether this run was started to produce lighting bakes, so a
 		//     scene that has more than one lighting can walk them while the
 		//     baker is watching. See IsBakingLighting.
-		static constexpr int32_t kProtocolVersion = 12;
+		// 13: a camera cut a script reports (RequestCameraCut).
+		static constexpr int32_t kProtocolVersion = 13;
 
 		// Every bit RageV.Interop.SelfTest sets when nothing is wrong, mirrored
 		// here so scenetest asserts against a name rather than against a number

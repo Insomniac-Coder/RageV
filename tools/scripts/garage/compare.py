@@ -4,12 +4,14 @@ The camera comes from the .blend itself (groundtruth.py printed it in engine
 space), so the two pictures are of the same thing and the difference between
 them is the engine's, not the framing's.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import subprocess, os, sys
 import numpy as np
 from PIL import Image
 
-ROOT = r'C:\Users\ism19\Code\RageV'
-SHOTS = r'C:\Users\ism19\Code\RageV\build\garage_shots'
+ROOT = _RAGEV
+SHOTS = (_RAGEV + r'\build\garage_shots')
 RT = os.path.join(ROOT, 'build', 'bin', 'Release', 'RageVRuntime')
 # The page's wide still, resized to the render size (the listing's
 # 86f1415c73.jpg, kept under tools/scripts/garage/reference/). gt3.py

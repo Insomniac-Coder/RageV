@@ -7,8 +7,10 @@ T3: the instance record gains a fourth vec4, `Extra`, whose x is the
 object's id (the record's index + 1) for every stage -- static, skinned,
 layered, water -- instead of borrowing `Indices.x`, which the skinned stage
 uses as its bone base. The vertex stages carry it as v_ObjectId."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 
 def load(p):
     s = open(p, 'rb').read().decode('utf-8'); return s, ('\r\n' if '\r\n' in s else '\n')

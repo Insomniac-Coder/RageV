@@ -1,8 +1,10 @@
 """RT-first T5, the rest of the C++ side after patch_rt_t5b.py stopped at
 the frame graph (its drawGBuffer anchor lacked the comment between the two
 lines): FrameGraphBuilder.cpp and the layers. Do not re-run 5b."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 exec(open('tools/scripts/garage/session_2026_09_06/t4_prelude.py', encoding='utf-8').read())
 
 p = 'RageV/src/RageV/Renderer/FrameGraphBuilder.cpp'; s, nl = load(p)

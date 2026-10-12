@@ -14,6 +14,8 @@ mean of frames 360-399:
 
 Usage: rt4_r11.py [arm ...] | rt4_r11.py --analyse
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, sys
 import numpy as np
 from PIL import Image
@@ -68,4 +70,4 @@ for tag, _ in ARMS:
           % (tag[4:], f.mean(), np.abs(f).mean(), f[bright].mean() if bright.any() else 0.0, d.mean()))
     rows.append([M.label(mean_of(tag), tag[4:]), M.label(M.signed(d, 8), tag[4:] + ' minus truth, x8 (green brighter)')])
 rows.append([M.label(mean_of('r11_truth'), 'truth'), M.label(np.zeros_like(mean_of('r11_truth')), '')])
-M.sheet(rows, r'C:\Users\ism19\Code\RageV\build\rt5\rt4_r11_sheet.png')
+M.sheet(rows, (_RAGEV + r'\build\rt5\rt4_r11_sheet.png'))

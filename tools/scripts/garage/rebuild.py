@@ -5,10 +5,12 @@ folder, the studio scene migrated, Static flags, emissive strengths glTF cannot
 carry, the shell as diffuse concrete, the artist's field of view, and the
 render at the ground truth's framing with the numbers.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import subprocess, os, sys, re, io, glob, shutil
 
-SP = r'C:\Users\ism19\Code\RageV\tools\scripts\garage'
-R = r'C:\Users\ism19\Code\RageV'
+SP = (_RAGEV + r'\tools\scripts\garage')
+R = _RAGEV
 G = os.path.join(R, 'SampleProject', 'assets', 'models', 'garage_baked')
 SCENE = os.path.join(R, 'SampleProject', 'assets', 'scenes', 'showroom.rage')
 sys.path.insert(0, SP)

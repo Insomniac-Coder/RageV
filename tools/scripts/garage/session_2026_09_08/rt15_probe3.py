@@ -5,11 +5,13 @@ does not turn red, nothing below it means anything. Run 2 writes the velocity
 lane's magnitude into the same channel. Staged into the runtime copy only and
 restored, verified byte for byte, whatever happens.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, shutil, subprocess, sys
 import numpy as np
 from PIL import Image
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 SRC = os.path.join(ROOT, 'RageVEditor', 'assets', 'shaders', 'reflection_accumulate.rvshader')
 RT = os.path.join(ROOT, 'build', 'bin', 'Release', 'RageVRuntime')
 STAGED = os.path.join(RT, 'assets', 'shaders', 'reflection_accumulate.rvshader')

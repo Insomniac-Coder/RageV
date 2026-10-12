@@ -1,11 +1,83 @@
 # RageV -- handoff
 
-**Read this first.** Updated 2026-09-23. **RT-24 (below) is the owner's highest priority and comes before everything else.** **RT-22's window streak is FIXED by the owner's eye, and the
-pane's grain after it; committed at b30d5cd on the owner's word, and it REGRESSES the bridge's water
-glitter (0.80% -> 0.97% of the frame blinking) until the general rule below replaces the frame filter's.**
-Open, parked by the owner for later: the delayed reflection stop, the cable flicker, and that rule.
+**Read this first.** Updated 2026-10-12. **RT-24 is done and committed (RT2-0 of `docs/RT-ROADMAP.md`, its
+"Closed, 2026-10-12" note).** `docs/RT-ROADMAP.md` is the single ordered roadmap (its page:
+https://claude.ai/artifact/Wi8RckggavWq8htQos4vh8, rebuilt by
+`tools/scripts/garage/rt24_scratchpad/rt2/build_roadmap.py docs/RT-ROADMAP.md <out.html>`); the RT-SERIES
+documents are history. **Next, by the owner's word: RT2-9, shader and pipeline caches, pulled forward**
+("we desperately need shader caching": every launch spends a long time compiling shaders) -- explain the plan
+and wait for the owner's OK before building. Then the roadmap's order from RT2-1.
 
-**RT-24, the owner's HIGHEST PRIORITY (2026-09-23): before anything else.** One fast spin of the camera around the car smears the whole scene -- ghosting under camera motion. Owner's prime suspects: **the car and the chrome poles** (shiny, curved, view-dependent -- mostly reflection). **Second symptom, same family (owner): on fast movements the reflections of the ceiling tube lights on the car take a fraction of a second to update** -- the reflection lags the camera on a curved reflector. Agreed first step, not yet run: `watch_arm.py` with a case that KEEPS the scene's ShowroomCamera (watch_arm swaps it out today via `wm.still_camera`, so a new case must skip that and pass no --camera) so the owner spins by hand, and `--reflection-history=off`: smear on the car and poles gone -> the reflection accumulator; still there -> the frame filter on those surfaces. Then split further by switch, one arm at a time. Bisect by signal first, fix only the layer that holds it.
+**The repository moved** to `D:/Code_secondary/RageV` (2026-10-12) and no longer cares where it lives: tool
+scripts find the root from their own place (`_RAGEV`), the engine finds its sample project and export file
+above its executable. A moved build folder still needs reconfiguring before it can compile (delete
+`build/CMakeCache.txt` and `build/CMakeFiles`, configure again; the captures in `build/` survive).
+
+**Carried from RT-24, each in its owning item:** the faint floor speckle in a fast swing (RT2-28, RT2-23,
+RT2-47, RT2-24); a moving lamp's reflection about 200-250 ms late (RT2-23, RT2-28); the settle after a stop
+(RT2-27); the bridge water at 0.983% against RT-24's 0.97% gate (RT2-8, whose gate is 0.80%).
+
+## RT-24 in progress (2026-09-23, late): two fixes built, the spread found, ALL UNCOMMITTED
+
+**The owner's rule: commit only once RT-24 is fixed completely.** Uncommitted: `include/pbr_fragment.glsl`
+(fix 1), `reflection_accumulate.rvshader` (fix 2), `tools/scripts/garage/watch_arm.py` (arms, `spin` case,
+`--no-jitter`, `--no-frame-memory`, `spin 0`), and new: `SampleProject/Source/Orbiter.cpp` (Sample.dll is
+rebuilt with it), `tools/scripts/garage/spin_measure.py`, `tools/scripts/garage/ghost_map.py`.
+
+**The instrument (use it before asking the owner to watch anything).**
+- `SampleProject/Source/Orbiter.cpp`: a native camera driver with ShowroomCamera's pose, walls and ceiling.
+  Either a turn (`Speed` deg/s for `SpinFor` s after `Delay` s) or the owner's test: a swing of `Swing`
+  degrees either side of the front, `Rate` times a second. Rebuild the module with
+  `cmake --build SampleProject/bin/module --config Release` (min/max are macros here -- use `Math::Max`).
+- `spin_measure.py <tag> --swing=15 --rate=2 [--stage=a+b] [--no-frame-memory] [engine flags]`: clock pinned,
+  frames captured headless; every pass through centre at full speed sits exactly on the settled pose, so
+  it is scored against the frame three seconds after the stop. Saves `build/rt24/<tag>_moving.png`,
+  `_settled.png`, `_pair.png`, `_after{0,2,5}.png`. Without `--swing` it does a turn ending at the default view.
+- **`--stage=many16`: sixteen reflection rays a texel, moving and settled alike.** The grain goes, the
+  ghosts stay -- the only way the numbers separate ghost from grain. (Its re-light variant needs the
+  `#ifndef RV_REFLECTION_RELIGHT` guard the arm carries, or the check fails to compile and the run exits 3.)
+- Spot scores used throughout (mean |moving - settled|, lower is better): the right pole's reflection
+  across the tube patch (x 1400-1560, y 560-760) and the car's under the bumper (660-940, 560-700).
+- Live for the owner: `watch_arm.py spin 0 [--stage=...]` -- the garage's own mouse camera, **no time
+  limit** (the owner insists; a 40 s limit made them furious), run in the background.
+
+**Fix 1 (built, owner: smear "pretty much gone").** The lit shader trusted the traced reflection a quarter
+per frame of its age and filled the rest with the baked probe (`share = frames * ScreenReflections.x *
+lift`). A turning camera makes every shiny pixel young, so the floor flipped to the probe while moving
+and back when still: the washed-out smear. The probe here is also ~1/3 brighter than the traced picture
+(cut frame mean 65 vs 49), so the fade made cuts flash too (34% of the frame off at a cut, 7% without).
+Now `share = (traced.a > 0 ? 1 : 0) * reflectionWindow` for the traced form and the glass pane.
+
+**Fix 2 (built, owner: ghosting "less, but it exists", now more a blur that spreads).** The reflection
+accumulator never kept fewer than `fewest` (four on a rough floor) frames however far the picture had
+moved, so every swinging frame was three quarters a misplaced old picture. `fewest` now falls with how
+far the picture moved (`/ (1 + max(moved - slack, 0) / slack)`), specular instances only; parked it is
+unchanged (still-camera frames differ exactly as before). Clean test: pole 17.1 -> 8.0 (memory off 7.8).
+
+**Measured inert on the ghost (clean test, don't retry):** RT-6.3's turn rule scaled by alpha; refusing
+the surface fallback past the lobe; the moving-memory floor; surface motion for the TAA; the young blur;
+the firefly clamp; kSettledBound; the direct light's memory (the pole "fan" is a reflection ghost, not
+shadows). Partial only: this frame's image distance (pole 17.1 -> 13.6), the accumulator's own flicker
+floor `kTemporalSigma` 0 (15.1; owner live: "can't tell").
+
+**The confounds that cost hours:** `--reflection-history=off` also (1) dropped the lit shader to the probe
+via the trust fade (gone with fix 1), (2) switched the TAA to surface motion (no image motion written),
+(3) turned the noise blur off (no moments). And the unblurred 1-4-ray test cannot tell ghost from grain --
+every "no change" before many16 was grain-limited.
+
+**The spread (found, not fixed).** Clean test, one at a time: the resolve's neighbour gather off -> worse;
+the young/noise blur off -> grainy and worse; **the frame filter's memory off -> floor as sharp as settled
+and the car's reflection closer.** So the blur that spreads is `taa_resolve` under motion. Next, on the
+clean test, one rule at a time, report before changing anything: (1) how it lines up old frames on shiny
+pixels (RT-6.1's reflection motion lane), (2) its box (how different an old frame may be), (3) its moving
+feedback (0.9, ten frames).
+
+**Also open, owner-reported, not started:** reflections take a fraction of a second to settle after a stop
+(lead: RT-9's extra rays run only *while* something moves, so rebuilding pixels drop to one ray exactly at
+the stop -- keep them on until the rebuild is done; spin_measure's after-stop rows measure it); the car's
+shine settling late; tube-light reflections very noisy while moving (few frames by design now).
+
+**The original filing:** **RT-24, the owner's HIGHEST PRIORITY (2026-09-23): before anything else.** One fast spin of the camera around the car smears the whole scene -- ghosting under camera motion. Owner's prime suspects: **the car and the chrome poles** (shiny, curved, view-dependent -- mostly reflection). **Second symptom, same family (owner): on fast movements the reflections of the ceiling tube lights on the car take a fraction of a second to update** -- the reflection lags the camera on a curved reflector. Agreed first step, not yet run: `watch_arm.py` with a case that KEEPS the scene's ShowroomCamera (watch_arm swaps it out today via `wm.still_camera`, so a new case must skip that and pass no --camera) so the owner spins by hand, and `--reflection-history=off`: smear on the car and poles gone -> the reflection accumulator; still there -> the frame filter on those surfaces. Then split further by switch, one arm at a time. Bisect by signal first, fix only the layer that holds it.
 
 ## 2026-09-23: RT-22's streak, the pane's grain, and what is parked
 

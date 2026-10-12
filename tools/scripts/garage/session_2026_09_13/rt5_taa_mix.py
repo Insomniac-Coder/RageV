@@ -18,11 +18,13 @@ This stages a plain linear mix into the runtime's copy of taa_resolve, runs
 the pair at K = 8 and at every light, and restores the copy. The contract is
 as committed.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, re, shutil, subprocess, sys, time
 import numpy as np
 from PIL import Image
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 RT = os.path.join(ROOT, 'build', 'bin', 'Release', 'RageVRuntime')
 SRC = os.path.join(ROOT, 'RageVEditor', 'assets', 'shaders', 'taa_resolve.rvshader')
 STAGED = os.path.join(RT, 'assets', 'shaders', 'taa_resolve.rvshader')

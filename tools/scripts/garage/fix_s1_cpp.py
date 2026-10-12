@@ -1,5 +1,7 @@
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io
-p = r'C:\Users\ism19\Code\RageV\RageV\src\RageV\Renderer\Renderer3D.cpp'
+p = (_RAGEV + r'\RageV\src\RageV\Renderer\Renderer3D.cpp')
 d = io.open(p, 'r', encoding='utf-8', newline='').read()
 crlf = d.count('\r\n'); print('CRLF:', crlf, 'bare LF:', d.count('\n') - crlf)
 N = '\r\n' if crlf else '\n'

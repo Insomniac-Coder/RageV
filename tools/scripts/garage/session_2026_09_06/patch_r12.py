@@ -5,8 +5,10 @@ more than kSmearTexels of the picture's travel: memory <= 4 / moved, floor
 history length -- 16 texels at one frame, nothing at 32 -- bounded by the
 lobe's footprint per axis and the gloss window, reached with an a-trous
 ladder of three passes (strides 1, 2, 4). The history itself stays sharp."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 
 def patch(p, pairs):
     s = open(p, 'rb').read().decode('utf-8'); nl = '\r\n' if '\r\n' in s else '\n'

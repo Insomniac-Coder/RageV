@@ -11,10 +11,12 @@ Per object because the scene projects its concrete in object space, so no two
 objects share a layout. Sized by surface area so the 47 m floor is not asked
 to share 1024 texels with a light fitting.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import bpy, os, bmesh
 from mathutils import Vector
 
-OUT = r'C:\Users\ism19\Code\RageV\SampleProject\assets\models\garage_lit'
+OUT = (_RAGEV + r'\SampleProject\assets\models\garage_lit')
 os.makedirs(OUT, exist_ok=True)
 
 sc = bpy.context.scene

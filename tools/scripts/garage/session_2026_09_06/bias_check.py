@@ -2,9 +2,11 @@
 against a reference still (9x9 box), per region, plus parked per-frame
 change and drift. Usage: bias_check.py <frame.png> [<ref.png>] (defaults
 to endpose_ref.png = v5 converged)."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import numpy as np, sys
 from PIL import Image
-S = 'C:/Users/ism19/Code/RageV/build/garage_burst/'
+S = (_RAGEV + '/build/garage_burst/')
 def Y(p):
     a = np.asarray(Image.open(S + p).convert('RGB'), dtype=float); return 0.2126*a[...,0] + 0.7152*a[...,1] + 0.0722*a[...,2]
 def box(a, r=4):

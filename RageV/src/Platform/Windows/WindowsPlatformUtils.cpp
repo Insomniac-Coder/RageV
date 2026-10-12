@@ -114,6 +114,38 @@ namespace RageV
 		return true;
 	}
 
+	std::filesystem::path Process::ExecutablePath()
+	{
+		std::wstring buffer(MAX_PATH, L'\0');
+		for (;;)
+		{
+			const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), (DWORD)buffer.size());
+			if (length == 0)
+				return {};
+			if (length < buffer.size())
+			{
+				buffer.resize(length);
+				return buffer;
+			}
+			buffer.resize(buffer.size() * 2);   // truncated: a path longer than MAX_PATH
+		}
+	}
+
+	std::filesystem::path Process::FindAboveExecutable(const std::filesystem::path& name)
+	{
+		std::error_code error;
+		std::filesystem::path folder = ExecutablePath().parent_path();
+		while (!folder.empty())
+		{
+			if (std::filesystem::exists(folder / name, error))
+				return folder / name;
+			if (folder == folder.parent_path())   // the drive root
+				break;
+			folder = folder.parent_path();
+		}
+		return {};
+	}
+
 	bool Process::RelaunchSelf(const std::string& arguments)
 	{
 		CHAR executable[MAX_PATH] = { 0 };

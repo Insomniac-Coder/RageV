@@ -6,11 +6,13 @@ the still (86f1415c73.jpg): the pillar silhouettes in rows 380-580, the
 wall/floor step, the wall's top. Coordinate descent from solve_camera.py's
 answer. Prints the best pose in glTF axes and the scene's (+14 z).
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import bpy, os, math
 import numpy as np
 from mathutils import Vector, Matrix
 
-OUT = r'C:\Users\ism19\Code\RageV\build\garage_shots\camscan'
+OUT = (_RAGEV + r'\build\garage_shots\camscan')
 os.makedirs(OUT, exist_ok=True)
 W, H = 900, 507                       # half the still
 STILL_EDGES = [x / 2 for x in (185, 354, 452, 1511, 1680)]

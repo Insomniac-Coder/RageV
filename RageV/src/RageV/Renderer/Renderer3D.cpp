@@ -731,6 +731,11 @@ namespace RageV
 			// moving, and the accumulate skips the identity test altogether.
 			bool RayAnyMoving = false;
 			bool RayAnyMovingLast = false;
+			// RT2-0 arm C: whether this frame's first instance table has shifted the two
+			// flags already. Reset once a frame, in BeginFrame, so the editor's second view
+			// and every probe-capture face add their movers to the same frame instead of
+			// shifting again -- "last frame" was the last view.
+			bool RayMovingShifted = false;
 			Ref<RHITexture> GlassDirectDiffuse;
 			Ref<RHITexture> GlassDirectSpecular;
 			Ref<RHITexture> GlassLayerDepth;
@@ -1348,6 +1353,10 @@ namespace RageV
 			// view-projection carries the jitter, which changes every frame on a still camera.
 			Vec4 SceneEye{ 0.0f, 0.0f, 0.0f, 0.0f };
 			Vec4 SceneForward{ 0.0f, 0.0f, -1.0f, 0.0f };
+			// RT-24: the projection's scale on each axis (P[0][0], P[1][1]), and whether it is
+			// orthographic -- the frustum's size at a depth, for TAA's same-surface test.
+			Vec2 SceneProjectionScale{ 0.0f, 0.0f };
+			bool SceneOrthographic = false;
 			bool SceneActive = false;
 
 			unsigned int DrawCalls = 0;
@@ -3117,9 +3126,6 @@ namespace RageV
 
 		for (const AreaEmitter& source : emitters)
 		{
-			if (s_Data->Emitters.size() >= kMaxAreaEmitters)
-				break;
-
 			// The rectangle spans centre +/- U +/- V, so its area is that of a
 			// parallelogram with sides 2U and 2V.
 			const float area = 4.0f * Math::Length(Math::Cross(source.TangentU, source.TangentV));
@@ -3675,11 +3681,16 @@ namespace RageV
 			// draw (both paid for, 2026-09-08 and 2026-09-16).
 			// **2026-09-21: and the specular blur a second** -- the uncertainty it
 			// leaves behind, one channel, read by the next pass at its own stride.
-			const int extras = pass == 0 ? 3 : pass == 1 ? 1 : pass == 2 ? 5 : pass == 3 ? 1
+			// **RT-24: and the trace a fifth** -- the light its aimed samples brought, apart
+			// from the lobe's, so the resolve shares only what a re-aimed ray carried.
+			// **RT-24 (2026-09-25): and a sixth** -- the draw behind its first aimed sample, for
+			// the resolve to pool ReSTIR's way; 32 bits a lane, because the resolve divides by it.
+			const int extras = pass == 0 ? 5 : pass == 1 ? 1 : pass == 2 ? 5 : pass == 3 ? 1
 							 : pass == 4 ? 2 : pass == 6 ? 4 : pass == 7 ? 1 : 0;
 			for (int extra = 0; extra < extras; ++extra)
 			{
 				reflection.ColorFormats.push_back(pass == 0 && extra == 1 ? Format::R16G16_SFLOAT
+																		 : pass == 0 && extra == 4 ? Format::R32G32B32A32_SFLOAT
 																		 : pass == 6 && extra == 3 ? Format::R16G16_SFLOAT
 																		 : pass == 3 ? Format::R16_SFLOAT
 																		   : Format::R16G16B16A16_SFLOAT);
@@ -3784,6 +3795,7 @@ namespace RageV
 			s_Data->Heap->BeginFrame(s_Data->Device->GetFrameIndex());
 		// Last frame's acceleration structure is last frame's.
 		RayShadows::BeginFrame();
+		s_Data->RayMovingShifted = false;
 		// Rewinds the ring of per-view cull results, and forgets last frame's
 		// object table -- which must happen before any scene refreshes its
 		// draw list, and does, because this runs once at the top of the frame.
@@ -3901,6 +3913,8 @@ namespace RageV
 								cameraTransform[3][2], 1.0f);
 		s_Data->SceneForward = Vec4(-cameraTransform[2][0], -cameraTransform[2][1],
 									-cameraTransform[2][2], 0.0f);
+		s_Data->SceneProjectionScale = Vec2(camera.GetProjection()[0][0], camera.GetProjection()[1][1]);
+		s_Data->SceneOrthographic = camera.GetProjection()[3][3] != 0.0f;
 		if (motion)
 		{
 			motion->ViewProjection = viewProjection;
@@ -5567,8 +5581,12 @@ namespace RageV
 				const std::vector<RayCaster>& casters = RayShadows::GetCasters();
 				s_Data->RayInstanceScratch.clear();
 				s_Data->RayInstanceScratch.reserve(casters.size());
-				s_Data->RayAnyMovingLast = s_Data->RayAnyMoving;
-				s_Data->RayAnyMoving = false;
+				if (!s_Data->RayMovingShifted)
+				{
+					s_Data->RayAnyMovingLast = s_Data->RayAnyMoving;
+					s_Data->RayAnyMoving = false;
+					s_Data->RayMovingShifted = true;
+				}
 				for (const RayCaster& caster : casters)
 				{
 					const Material* key = caster.MaterialRef.get();
@@ -7066,7 +7084,7 @@ namespace RageV
 		wide.Base = push;
 		wide.Nee.x = (emitterRows > 0 && !s_Data->Emitters.empty()
 					  && EngineConfig::Get().ReflectionNee)
-				   ? (float)Math::Min((uint32_t)s_Data->Emitters.size(), 16u) : 0.0f;
+				   ? (float)s_Data->Emitters.size() : 0.0f;
 		// RT-23: y, whether the rays are drawn from the visible normals.
 		wide.Nee.y = EngineConfig::Get().ReflectionVndf ? 1.0f : 0.0f;
 		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(wide), &wide);
@@ -7082,7 +7100,10 @@ namespace RageV
 										const RHI::Ref<RHITexture>& depth,
 										const RHI::Ref<RHITexture>& surface,
 										bool glassLayer,
-										const RHI::Ref<RHITexture>& travel)
+										const RHI::Ref<RHITexture>& travel,
+										const RHI::Ref<RHITexture>& aimed,
+										const RHI::Ref<RHITexture>& lampSample,
+										const RHI::Ref<RHITexture>& albedo)
 	{
 		if (!s_Data || !s_Data->ReflectionResolvePipeline || !s_Data->ActiveScene)
 			return;
@@ -7107,6 +7128,35 @@ namespace RageV
 		if (inputs->HasBinding(4))
 			inputs->SetTexture(4, travel ? travel : TextureLoader::TransparentBlack(*s_Data->Device),
 							   s_Data->PointSampler);
+		// RT-24: the aimed samples' light, added back after the sharing. Black: none.
+		if (inputs->HasBinding(5))
+			inputs->SetTexture(5, aimed ? aimed : TextureLoader::TransparentBlack(*s_Data->Device),
+							   s_Data->PointSampler);
+		// **RT-24 (2026-09-25): the lamp pool's inputs** -- each texel's draw, the albedo for
+		// its tint, and the emitter rows the draws index, bound as the trace binds them. Black
+		// draws read as "nothing drawn", which pools nothing.
+		const bool lampPool = lampSample && albedo && EngineConfig::Get().ReflectionLampPool > 0;
+		if (inputs->HasBinding(6))
+			inputs->SetTexture(6, lampPool ? lampSample : TextureLoader::TransparentBlack(*s_Data->Device),
+							   s_Data->PointSampler);
+		if (inputs->HasBinding(7))
+			inputs->SetTexture(7, albedo ? albedo : surface, s_Data->PointSampler);
+		bool rowsBound = false;
+		if (inputs->HasBinding(8) && inputs->HasBinding(9))
+		{
+			uint32_t emitterRows = 0;
+			uint32_t emitterCdf = 0;
+			if (UploadEmitters(slot.ReflectionEmitters, slot.ReflectionEmitterCapacity,
+							   slot.ReflectionEmitterCdf, slot.ReflectionEmitterCdfCapacity,
+							   emitterRows, emitterCdf))
+			{
+				inputs->SetStorageBuffer(8, slot.ReflectionEmitters, 0,
+										 (uint64_t)emitterRows * sizeof(Renderer3DData::GpuEmitter));
+				inputs->SetStorageBuffer(9, slot.ReflectionEmitterCdf, 0,
+										 (uint64_t)emitterCdf * sizeof(float));
+				rowsBound = true;
+			}
+		}
 		inputs->Commit();
 
 		ReflectionPushConstants push;
@@ -7118,6 +7168,11 @@ namespace RageV
 		// -- where a clamp against neighbours cannot see it any more. Clamped here, against the
 		// taps this texel is about to average, it never spreads. Same setting for both.
 		push.Probe.x = ReflectionSignal().FireflySigmas;
+		// RT-24 (2026-09-25): y the trace's sampler (visible normals or not), so a lamp point is
+		// weighed by the lobe it was drawn against; w the lamp pool's size, none without its inputs.
+		push.Probe.y = EngineConfig::Get().ReflectionVndf ? 1.0f : 0.0f;
+		push.Probe.w = lampPool && rowsBound && !s_Data->Emitters.empty() && EngineConfig::Get().ReflectionNee
+					 ? (float)Math::Clamp(EngineConfig::Get().ReflectionLampPool, 0, 8) : 0.0f;
 
 		cmd->BindPipeline(s_Data->ReflectionResolvePipeline);
 		cmd->BindResourceSet(0, slot.LampSet);
@@ -7223,6 +7278,25 @@ namespace RageV
 		cmd->Draw(3);
 	}
 
+	// **RT-24 (2026-09-25): what TAA's same-surface test needs of the camera** -- NRD's
+	// disocclusion test. The reprojection takes this frame's rasterised NDC and depth to last
+	// frame's rasterised clip (both view-projections as drawn, jitter included); the floor is
+	// minus the depth at infinity (reverse-Z with a finite far plane); the extent is the
+	// frustum's smaller side per unit of depth, which the shader takes NRD's 1% of. False, and
+	// the 2% test, for an orthographic camera or before any scene.
+	bool Renderer3D::TemporalReprojection(Mat4& reproject, float& depthFloor, float& frustumExtent)
+	{
+		if (!s_Data || s_Data->SceneOrthographic
+			|| !(s_Data->SceneProjectionScale.x > 0.0f) || !(s_Data->SceneProjectionScale.y > 0.0f))
+			return false;
+		reproject = s_Data->Scene.PreviousViewProjection * Math::Inverse(s_Data->Scene.ViewProjection);
+		const Vec4& f = s_Data->SceneForward;
+		const Vec4 infinity = s_Data->Scene.ViewProjection * Vec4(f.x, f.y, f.z, 0.0f);
+		depthFloor = infinity.w > 0.0f ? Math::Max(-infinity.z / infinity.w, 0.0f) : 0.0f;
+		frustumExtent = 2.0f / Math::Max(s_Data->SceneProjectionScale.x, s_Data->SceneProjectionScale.y);
+		return true;
+	}
+
 	bool Renderer3D::AnyInstanceMoved()
 	{
 		return s_Data && (s_Data->RayAnyMoving || s_Data->RayAnyMovingLast);
@@ -7233,18 +7307,31 @@ namespace RageV
 	// frame's jitter, so it differs every frame on a camera that has not moved at all, and a
 	// test on it would never report a still one. w zero means nothing has been recorded yet,
 	// which is a frame with no history and not a still camera.
-	bool Renderer3D::CameraStill(const CameraMotion& motion)
+	//
+	// **RT2-0 arm C (2026-09-24): this frame's camera, not the scene pass's.** The test runs
+	// while the graph is declared, and it used to read the eye the scene pass records --
+	// which for this frame has not run yet, so it held last frame's eye, the same camera the
+	// signal's record was stamped with. A camera-only swing therefore never counted as
+	// motion and the extra rays never ran during a spin (confirmed: ReflectionBudget absent
+	// from the pass table for a whole swing). Probe captures also rewrote that eye per face.
+	// `view` is FrameDesc::View, this frame's camera; the eye and facing come out of its
+	// inverse as the camera-cut test takes them. The tolerance grows with the distance from
+	// the origin, because inverting a view matrix is only good to a few float steps of the
+	// eye's own size -- a parked camera a kilometre out must not read as moving.
+	bool Renderer3D::CameraStill(const CameraMotion& motion, const Mat4& view)
 	{
 		if (!s_Data || motion.Eye.w < 0.5f)
 			return false;
-		const Vec3 moved(s_Data->SceneEye.x - motion.Eye.x, s_Data->SceneEye.y - motion.Eye.y,
-						 s_Data->SceneEye.z - motion.Eye.z);
-		if (Math::Dot(moved, moved) > 1.0e-10f)
+		const Mat4 toWorld = Math::Inverse(view);
+		const Vec3 eyeNow(toWorld[3][0], toWorld[3][1], toWorld[3][2]);
+		const Vec3 facingNow(-toWorld[2][0], -toWorld[2][1], -toWorld[2][2]);
+		const Vec3 moved(eyeNow.x - motion.Eye.x, eyeNow.y - motion.Eye.y, eyeNow.z - motion.Eye.z);
+		const float reach = 2.0e-6f * (1.0f + Math::Length(eyeNow));
+		if (Math::Dot(moved, moved) > reach * reach)
 			return false;
-		const Vec3 turned(s_Data->SceneForward.x - motion.Forward.x,
-						  s_Data->SceneForward.y - motion.Forward.y,
-						  s_Data->SceneForward.z - motion.Forward.z);
-		return Math::Dot(turned, turned) <= 1.0e-10f;
+		const Vec3 turned(facingNow.x - motion.Forward.x, facingNow.y - motion.Forward.y,
+						  facingNow.z - motion.Forward.z);
+		return Math::Dot(turned, turned) <= 1.0e-8f;
 	}
 
 	// The frames behind the reflection, averaged in (reflection_accumulate.rvshader),
@@ -7267,6 +7354,10 @@ namespace RageV
 		SignalParams signal;
 		signal.Type = SignalParams::Kind::Specular;
 		signal.Slot = 0;
+		// **RT-24 (2026-09-24): no eight-frame floor under the smear cap while moving.** The
+		// floor held a reflection at eight frames of a picture that moved -- the after-images the
+		// owner saw on a slow orbit (pole ghost 13.6 -> 10.5 without it, parked unchanged).
+		signal.MovingMemory = 1.0f;
 		// A measurement dial, not a setting: the young blur is what hides the
 		// noise of a short history under motion, and how much of it is still
 		// needed is a question for a sweep now that the resolve validates by
@@ -8498,6 +8589,7 @@ namespace RageV
 											const RHI::Ref<RHITexture>& traced,
 											const RHI::Ref<RHITexture>& velocity,
 											const RHI::Ref<RHITexture>& travel,
+											const RHI::Ref<RHITexture>& aimed,
 											const GiTraceView& view,
 											MeasuredChangeHistory& history,
 											bool glassLayer)
@@ -8506,7 +8598,7 @@ namespace RageV
 			return;
 		RHICommandList* cmd = Renderer::GetCommandList();
 		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
-		if (!cmd || !slot.LampSet || !surface || !depth || !albedo || !traced || !velocity)
+		if (!cmd || !slot.LampSet || !surface || !depth || !albedo || !traced || !velocity || !aimed)
 			return;
 		const uint64_t key = ReflectionChangeKey();
 		if (history.Written && key == history.RecordKey && SameCamera(view, history))
@@ -8552,6 +8644,11 @@ namespace RageV
 		// (2026-09-22). Asked of the set, as binding 10 is, for a staged older copy.
 		if (inputs->HasBinding(6))
 			inputs->SetTexture(6, travel, s_Data->PointSampler);
+		// And its aimed lane (2026-10-12): the record keeps the texel's whole light, the
+		// two lanes summed by the shader's RecordedLight, which is what the re-light
+		// compares. Recording the lobe's lane alone read every lamp-lit texel as changed.
+		if (inputs->HasBinding(7))
+			inputs->SetTexture(7, aimed, s_Data->PointSampler);
 		inputs->Commit();
 
 		// The trace's block, value for value.
@@ -8677,7 +8774,7 @@ namespace RageV
 		wide.Base = push;
 		wide.Nee.x = (emitterRows > 0 && !s_Data->Emitters.empty()
 					  && EngineConfig::Get().ReflectionNee)
-				   ? (float)Math::Min((uint32_t)s_Data->Emitters.size(), 16u) : 0.0f;
+				   ? (float)s_Data->Emitters.size() : 0.0f;
 		wide.Nee.y = EngineConfig::Get().ReflectionVndf ? 1.0f : 0.0f;
 		cmd->PushConstants(ShaderStage::Fragment, 0, sizeof(wide), &wide);
 		cmd->Draw(3);

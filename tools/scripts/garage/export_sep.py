@@ -1,5 +1,7 @@
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import bpy, os, sys
-OUTDIR = r'C:\Users\ism19\Code\RageV\SampleProject\assets\models\garage_gltf'
+OUTDIR = (_RAGEV + r'\SampleProject\assets\models\garage_gltf')
 os.makedirs(OUTDIR, exist_ok=True)
 out = os.path.join(OUTDIR, 'underground_garage.gltf')
 meshes = [o for o in bpy.data.objects if o.type == 'MESH']

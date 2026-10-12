@@ -148,9 +148,10 @@ namespace RageV
 		// project it ought to have been.
 		static bool OpenConfigured();
 
-		// The same, and then `RV_DEFAULT_PROJECT` -- the path CMake bakes in
-		// so a build run out of the build tree finds this repository's sample
-		// project without being told.
+		// The same, and then `RV_DEFAULT_PROJECT` -- a folder name CMake
+		// bakes in, looked for above the executable, so a build run out of
+		// the build tree finds this repository's sample project without being
+		// told, wherever the repository lives.
 		//
 		// **For command-line tools only.** `scenetest` and `rvimport` have
 		// nobody to ask and want a real project to work against. Anything with

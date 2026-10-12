@@ -5,8 +5,10 @@ roughness in o_Surface for the traced paths. The DirectTrace pass must shade
 with the same widened value, and at a silhouette a pass cannot rebuild it
 from the G-buffer (the neighbour's normal is another surface's), so the
 G-buffer carries it: the surface-id lane becomes id + shading roughness."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 exec(open('tools/scripts/garage/session_2026_09_06/t4_prelude.py', encoding='utf-8').read())
 p = 'RageV/src/RageV/Renderer/FrameGraphBuilder.cpp'; s, nl = load(p)
 s = rep(s, nl, "\t\tconstexpr Format kSurfaceIdFormat = Format::R32_SFLOAT;",

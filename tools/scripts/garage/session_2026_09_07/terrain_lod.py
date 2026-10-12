@@ -4,10 +4,12 @@ skirt rule and frustum test as Terrain.cpp / Frustum.cpp -- so a change to
 the level rule can be sized without a rebuild. The runtime's benchmark line
 (patch_rt21a.py) is the truth; this says why the numbers are what they are.
 Usage: python terrain_lod.py [ratio-multipliers...]"""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import struct, math, sys
 import numpy as np
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 PATH = ROOT + r'\SampleProject\assets\terrain\bay.rvterrain'
 SIZE, HEIGHT = 2800.0, 286.8457
 ORIGIN = np.array([0.0, -125.0, 0.0])

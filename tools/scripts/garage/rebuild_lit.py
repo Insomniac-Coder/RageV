@@ -4,10 +4,12 @@ Nothing to scale or override this time: every garage surface carries the
 picture Cycles made of it, as emission over a black base, so the engine
 neither relights it nor needs the tube strengths glTF could not carry.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import subprocess, os, sys, re, io, glob, shutil
 
-SP = r'C:\Users\ism19\Code\RageV\tools\scripts\garage'
-R = r'C:\Users\ism19\Code\RageV'
+SP = (_RAGEV + r'\tools\scripts\garage')
+R = _RAGEV
 G = os.path.join(R, 'SampleProject', 'assets', 'models', 'garage_lit')
 SCENE = os.path.join(R, 'SampleProject', 'assets', 'scenes', 'showroom.rage')
 YAML = os.path.join(R, 'tools', 'scripts', 'data', 'garage_lit.yaml')

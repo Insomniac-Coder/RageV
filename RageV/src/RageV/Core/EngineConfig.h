@@ -385,6 +385,16 @@ namespace RageV
 		// resolve's 3x3 colour box is built only from taps that are the
 		// same surface as the centre pixel. Off is the reference arm.
 		bool  TaaBoxGeometry = true;
+		// **--taa-plane-test=on|off (RT-24, 2026-09-25).** TAA's same-surface depth test in
+		// NRD's form: last frame's depth predicted through last frame's camera, compared along
+		// the surface's slope, 1% of the frustum's size. **Off by default (owner, 2026-09-25):**
+		// measured on the owner-speed swing it matched the depth test switched off -- a quarter
+		// fewer speckles, a third more ghosting on the pole, rougher edges. On the shiny floor
+		// TAA fetches its history by the reflection's motion, so the 2% test was really saying
+		// "the reflection moved too far, start fresh"; NRD's test rightly sees the same floor and
+		// keeps the reflection's old place. It returns with RT2-28, once the reflection is added
+		// after TAA and TAA fetches every pixel by its surface's own motion.
+		bool  TaaPlaneTest = false;
 		// A measurement dial for the reflection signal's young-history blur,
 		// in texels; negative means the tuning's own value.
 		float ReflectionBlurRadius = -1.0f;
@@ -394,6 +404,13 @@ namespace RageV
 		// **--reflection-moving-rays=<count> (RT-15b):** the rays a texel casts where its
 		// surface moves on its own (reflection_trace.rvshader); negative, the tuning's four.
 		int ReflectionMovingRays = -1;
+		// **--reflection-lamp-pool=<neighbours> (RT-24, 2026-09-25):** how many neighbours' lamp
+		// points each texel pools, ReSTIR's way (reflection_resolve.rvshader, "the lamp points,
+		// pooled"): each point weighed from the texel's own position, one kept, one shadow ray.
+		// Zero keeps each texel's own aimed sample alone (fix 1 of 2026-09-24). At most eight;
+		// eight by the owner's choice after judging it live (2026-09-25; +2.1 ms at 1600x900).
+		int ReflectionLampPool = 8;
+
 		// **--reflection-moving-layer=on|off (RT-15 item 2):** the part of the reflection
 		// whose rays struck something moving, kept as a layer of its own and added after the
 		// temporal resolve. **Off since 2026-09-15, on the owner's word:** what is added after
@@ -474,6 +491,14 @@ namespace RageV
 		// which runs at eight lamps -- the shader's own ceiling -- so there is no
 		// headroom to allocate. It reads as a coin flip at four.
 		bool  DirectConfidenceRays = true;
+		// **--confidence-rays-camera=on|off (RT2-0 arm C, 2026-09-24):** whether the camera
+		// moving on its own counts as motion for the two rules above and the glass pane's. Off
+		// by default, owner-judged: once the camera test read this frame's camera, a swing made
+		// every tile young and asked for the most rays everywhere -- about 6 ms a frame more
+		// while moving at 1600x900, no difference the owner could see, and visibly laggier.
+		// Moving objects still count. Off is also what every runtime camera move got before
+		// the test was fixed (it never saw the camera move).
+		bool  ConfidenceRaysOnCameraMotion = false;
 		// **--ao-blur / --gi-blur=<texels> (RT-5 part 5):** the same dial for the
 		// occlusion and indirect signals. Negative, the tuning's own -- zero since
 		// 2026-09-14, when the blur was measured to add nothing and retired, so
@@ -897,8 +922,9 @@ namespace RageV
 		// Ignored outside the editor.
 		std::string Theme;
 
-		// The project to open. Empty falls back to RV_DEFAULT_PROJECT, which
-		// CMake bakes in for builds run out of the build tree, and then to
+		// The project to open. Empty falls back to RV_DEFAULT_PROJECT (a
+		// folder found above the executable, for builds run out of the build
+		// tree), and then to
 		// nothing -- which is a valid state the editor shows rather than
 		// pretending it has a project.
 		std::string ProjectPath;

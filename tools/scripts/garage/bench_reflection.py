@@ -13,9 +13,11 @@ Every number is the engine's own --benchmark report; the per-pass lines are
 `scene/<Pass>  <cpu ms>  <gpu ms>` under "render graph, by pass". Keep the
 editor closed.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, re, subprocess, sys, shutil, statistics
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 RT = os.path.join(ROOT, 'build', 'bin', 'Release', 'RageVRuntime')
 SRC = os.path.join(ROOT, 'RageVEditor', 'assets', 'shaders', 'reflection_trace.rvshader')
 DST = os.path.join(RT, 'assets', 'shaders', 'reflection_trace.rvshader')

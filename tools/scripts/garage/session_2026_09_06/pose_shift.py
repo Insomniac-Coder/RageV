@@ -1,9 +1,11 @@
 """Horizontal shift (px, argmin of mean |diff| over -14..14) between the
 Slider-stop references and the burst frames, and the burst's own per-frame
 shift, per region -- to turn the 6 px pose error into a tick count."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import numpy as np
 from PIL import Image
-S = 'C:/Users/ism19/Code/RageV/build/garage_burst/'
+S = (_RAGEV + '/build/garage_burst/')
 def Y(p):
     a = np.asarray(Image.open(S + p).convert('RGB'), dtype=float); return 0.2126*a[...,0] + 0.7152*a[...,1] + 0.0722*a[...,2]
 def regs(a):

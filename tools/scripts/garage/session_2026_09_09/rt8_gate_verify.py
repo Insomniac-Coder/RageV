@@ -13,11 +13,13 @@ means nothing. So last frame's plane distance is shifted by an absurd constant
 -- a hundred metres, far outside any tolerance -- and the plane refusal must go
 to essentially everything. If it does not, the gate is not reading the history.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, shutil, subprocess, sys
 import numpy as np
 from PIL import Image
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 RT = os.path.join(ROOT, 'build', 'bin', 'Release', 'RageVRuntime')
 STAGED = os.path.join(RT, 'assets', 'shaders', 'water_accumulate.rvshader')
 SRC = os.path.join(ROOT, 'RageVEditor', 'assets', 'shaders', 'water_accumulate.rvshader')

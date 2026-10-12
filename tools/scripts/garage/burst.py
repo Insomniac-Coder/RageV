@@ -22,11 +22,13 @@ the owner's shot, and the wall between them):
   settle -- after the dolly stops, the mean absolute difference to the last
             frame, so the frame it falls under a level is the settle time.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, re, shutil, subprocess, sys, glob
 import numpy as np
 from PIL import Image
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 # BURST_RUNTIME points the runs at another build (a worktree of an older
 # commit, for a before/after); BURST_SCENE at another scene file in the
 # scenes folder (the studio showroom kept from the sign-off commit); BURST_CAM

@@ -2,8 +2,10 @@
 night, at the usage limit): the state after RT-2, the recipes, the flags,
 the traps, the decisions waiting on the owner, where to resume. Into
 HANDOFF.md as its tenth entry (above the ninth), NEXT.md, and memory."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 
 def load(p):
     s = open(p, 'rb').read().decode('utf-8'); return s, ('\r\n' if '\r\n' in s else '\n')

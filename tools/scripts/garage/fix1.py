@@ -1,9 +1,11 @@
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import sys, io, re, glob, os
-sys.path.insert(0, r'C:\Users\ism19\Code\RageV\tools\scripts\garage')
+sys.path.insert(0, (_RAGEV + r'\tools\scripts\garage'))
 import scene_util as S
 
-D = r'C:\Users\ism19\Code\RageV\SampleProject\assets\models\garage'
-SCENE = r'C:\Users\ism19\Code\RageV\SampleProject\assets\scenes\showroom.rage'
+D = (_RAGEV + r'\SampleProject\assets\models\garage')
+SCENE = (_RAGEV + r'\SampleProject\assets\scenes\showroom.rage')
 
 
 def patch(name, fields):

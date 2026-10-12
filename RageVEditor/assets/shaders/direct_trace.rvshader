@@ -397,6 +397,21 @@ bool DirectTerm(DirectPoint p, GpuLight light, out vec3 diffuse, out vec3 specul
 		const float widenedAlpha = min(alpha + 0.5 * angular, 1.0);
 		specScale = (alpha / widenedAlpha) * (alpha / widenedAlpha);
 		specRoughness = sqrt(widenedAlpha);
+		// **RT-24 (2026-09-24): and the energy the length adds, taken back out.** The
+		// representative point puts the lobe's peak everywhere the reflection ray meets the
+		// segment, so a tube drew the full peak along its whole length -- the radius above is
+		// normalised, the length never was. The same rule as the radius, in the one dimension
+		// the length widens: alpha against alpha plus half the tube's angular half-length, seen
+		// from here (the segment's two ends, so a tube seen end-on adds nothing). On the
+		// garage's wet floor the 3.07 m tubes' shine was about 5x too bright on the rougher
+		// patches and up to ~19x on the smoothest.
+		if (light.Extent.x > 0.0)
+		{
+			const vec3 halfAxis = light.Extent.yzw * (0.5 * light.Extent.x);
+			const vec3 toMiddle = light.Position.xyz - p.P;
+			const float subtended = length(normalize(toMiddle + halfAxis) - normalize(toMiddle - halfAxis));
+			specScale *= alpha / min(alpha + 0.25 * subtended, 1.0);
+		}
 #endif
 	}
 #ifdef RV_DIRECT_WATER

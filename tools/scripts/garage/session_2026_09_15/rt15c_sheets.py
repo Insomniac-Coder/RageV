@@ -8,12 +8,14 @@
 
 Usage: rt15c_sheets.py [streaks|floor|car|still ...]
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-S = r'C:\Users\ism19\Code\RageV\build\garage_burst'
-OUT = r'C:\Users\ism19\Code\RageV\build\rt15\objectaware'
+S = (_RAGEV + r'\build\garage_burst')
+OUT = (_RAGEV + r'\build\rt15\objectaware')
 os.makedirs(OUT, exist_ok=True)
 BIG = ImageFont.truetype('arialbd.ttf', 30)
 MID = ImageFont.truetype('arialbd.ttf', 24)

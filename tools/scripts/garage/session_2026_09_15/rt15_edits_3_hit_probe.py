@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """The probe at the hit: ProbeSlotAt in the include, used by the reflection and water passes."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, sys
 
-ROOT = r'C:\Users\ism19\Code\RageV\RageVEditor\assets\shaders'
+ROOT = (_RAGEV + r'\RageVEditor\assets\shaders')
 CRLF, LF = '\r\n', '\n'
 N = '\n'
 

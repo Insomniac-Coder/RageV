@@ -1661,44 +1661,59 @@ namespace RageV
 									  const Ref<RHITexture>& surfaceVelocity,
 									  const Ref<RHITexture>& change,
 									  const Ref<RHITexture>& reflectionChange,
-									  const Ref<RHITexture>& revealage)
+									  const Ref<RHITexture>& revealage,
+									  const Mat4* reproject, float depthFloor, float frustumExtent)
 	{
 		// The base block, then this frame's jitter (clip units, as the scene
 		// block carries it): the resolve filters the current frame around
 		// the unjittered pixel centre before blending it.
+		// **RT-24 (2026-09-25): laid out for the 128 bytes a push block is guaranteed.** The
+		// matrix is 16-byte aligned in the shader's block, so it starts at 32 behind two floats
+		// of padding; the five on/off lanes became one bit field to make room for it.
 		struct TemporalParams
 		{
 			PostParams Base;
+			float Pad0 = 0.0f;
+			float Pad1 = 0.0f;
+			// RT-24: this frame's rasterised NDC and depth to last frame's rasterised clip.
+			Mat4 Reproject{ 1.0f };
 			Vec2 Jitter{ 0.0f };
 			// The feedback for a pixel that did not move; zero for "the same".
 			float StillFeedback = 0.0f;
-			// RT-6: whether the geometric test may run this frame.
-			float Geometry = 0.0f;
-			// RT-6.2: whether the material lane is bound.
-			float Material = 0.0f;
-			// RT-6.8: whether the box may be built from this surface alone.
-			float BoxGeometry = 0.0f;
+			// One bit per optional input (the shader's kInput constants): 1 the geometric
+			// test (RT-6), 2 the material lane (RT-6.2), 4 the box from this surface alone
+			// (RT-6.8), 8 the change map (measured change), 16 the revealage (RT-22).
+			float Inputs = 0.0f;
 			// RT-5: the frame number the resolve draws its half-grid rounding
 			// from -- tonemap's grain takes the same count for the same reason.
 			float Frame = 0.0f;
-			// Measured change (the anti-lag): one where binding 11 holds the
-			// change map.
-			float Change = 0.0f;
-			// RT-22: one where binding 13 holds the transparent pass's revealage.
-			float Covered = 0.0f;
+			// RT-24: minus the depth at infinity, and the frustum's smaller extent per unit of
+			// depth (zero: the 2% test).
+			float DepthFloor = 0.0f;
+			float FrustumExtent = 0.0f;
 		};
+		static_assert(sizeof(TemporalParams) <= 128, "the temporal block must fit 128 bytes");
+		static_assert(offsetof(TemporalParams, Reproject) == 32, "the shader aligns the matrix to 32");
 		TemporalParams full;
-		full.Change = (change || reflectionChange) ? 1.0f : 0.0f;
-		full.Covered = revealage ? 1.0f : 0.0f;
-		full.Jitter = jitter;
-		full.StillFeedback = Math::Clamp(stillFeedback, 0.0f, 0.98f);
+		uint32_t inputs = 0u;
 		// Both lanes, and a history to compare against: with either missing the
 		// test would be comparing this frame to uninitialised memory, which
 		// refuses every pixel and turns the resolve off without saying so.
-		full.Geometry = (guideCurrent && guidePrevious && hasHistory) ? 1.0f : 0.0f;
-		full.Material = material ? 1.0f : 0.0f;
-		full.BoxGeometry = boxGeometry ? 1.0f : 0.0f;
+		if (guideCurrent && guidePrevious && hasHistory) inputs |= 1u;
+		if (material) inputs |= 2u;
+		if (boxGeometry) inputs |= 4u;
+		if (change || reflectionChange) inputs |= 8u;
+		if (revealage) inputs |= 16u;
+		full.Inputs = (float)inputs;
+		full.Jitter = jitter;
+		full.StillFeedback = Math::Clamp(stillFeedback, 0.0f, 0.98f);
 		full.Frame = (float)(Renderer::GetFrameCount() & 0xFFFFFFu);
+		if (reproject && frustumExtent > 0.0f)
+		{
+			full.Reproject = *reproject;
+			full.DepthFloor = Math::Max(depthFloor, 0.0f);
+			full.FrustumExtent = frustumExtent;
+		}
 		PostParams& params = full.Base;
 		params.TexelSize = { 1.0f / (float)Math::Max(width, 1u),
 							 1.0f / (float)Math::Max(height, 1u) };

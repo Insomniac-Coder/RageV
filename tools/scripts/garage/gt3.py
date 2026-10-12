@@ -6,10 +6,12 @@
 matches reference/cgtrader_86f1415c73_wide.jpg to within the measurement
 error; if it is not, the pillars land elsewhere and say so.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import bpy, os, math
 from mathutils import Vector, Matrix
 
-OUT = r'C:\Users\ism19\Code\RageV\build\garage_shots\blender_truth.png'
+OUT = (_RAGEV + r'\build\garage_shots\blender_truth.png')
 # glTF axes -> Blender: (x, y, z) -> (x, -z, y)
 POS_GL = (-4.05, 2.36, 15.91)
 YAW, PITCH = math.radians(3.24), math.radians(1.39)

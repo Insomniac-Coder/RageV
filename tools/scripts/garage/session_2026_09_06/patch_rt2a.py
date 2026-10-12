@@ -8,8 +8,10 @@ needs it): the skinned and layered kinds are drawn into the G-buffer pass.
 - The lit shader's signal inputs no longer exclude the two kinds, and their
   sets carry the bindings again.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, re
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 exec(open('tools/scripts/garage/session_2026_09_06/t4_prelude.py', encoding='utf-8').read())
 
 # ---------------------------------------------------------------- shader guard

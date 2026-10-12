@@ -3,7 +3,9 @@ the disc's size over the lobe's, squared: 4%), sized by the 3x3 minimum hit
 distance (ReBLUR) so a far-hit texel cannot pull the band beside it; the
 weight is the true pdf ratio (this lobe at the re-aimed direction over the
 neighbour's draw), capped at 4, times a Gaussian over the disc."""
-p = 'C:/Users/ism19/Code/RageV/RageVEditor/assets/shaders/reflection_resolve.rvshader'
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
+p = (_RAGEV + '/RageVEditor/assets/shaders/reflection_resolve.rvshader')
 s = open(p, 'rb').read().decode('utf-8'); nl = '\r\n' if '\r\n' in s else '\n'
 def rep(old, new):
     global s; o = old.replace('\n', nl); assert s.count(o) == 1, old[:60]; s = s.replace(o, new.replace('\n', nl))

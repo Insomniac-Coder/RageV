@@ -1,7 +1,9 @@
 """Writes the pre-footprint (v5) resolve shader to the path given, from the
 current source, by reversing patch_footprint.py's edits."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import sys
-src = 'C:/Users/ism19/Code/RageV/RageVEditor/assets/shaders/reflection_resolve.rvshader'
+src = (_RAGEV + '/RageVEditor/assets/shaders/reflection_resolve.rvshader')
 s = open(src, 'rb').read().decode('utf-8')
 i = s.index('\t// The footprint.'); tail = 'const float hitTolerance = max(0.3 * hitDistance, 0.05);\n'; j = s.index(tail) + len(tail)
 s = s[:i] + '\tconst float sigma = float(kMaxRadius) * 0.6 * smoothstep(0.05, 0.45, roughness);\n\tif (sigma < 0.15)\n\t\treturn;\n' + s[j:]

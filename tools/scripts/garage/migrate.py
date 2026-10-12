@@ -3,13 +3,15 @@
 Not a generator -- showroom.rage is hand-owned after this, the way the bridge
 is. Re-running it against the migrated scene would find no room to delete.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import sys, io, re, zlib
-sys.path.insert(0, r'C:\Users\ism19\Code\RageV\tools\scripts\garage')
+sys.path.insert(0, (_RAGEV + r'\tools\scripts\garage'))
 import scene_util as S
 
-SCENE = r'C:\Users\ism19\Code\RageV\SampleProject\assets\scenes\showroom.rage'
+SCENE = (_RAGEV + r'\SampleProject\assets\scenes\showroom.rage')
 SUB = sys.argv[1] if len(sys.argv) > 1 else \
-    r'C:\Users\ism19\Code\RageV\tools\scripts\data\garage_baked.yaml'
+    (_RAGEV + r'\tools\scripts\data\garage_baked.yaml')
 GARAGE_Z = 14.0          # the graffiti wall lands ~13 m behind the car
 
 # The hand-built studio, every piece of it.

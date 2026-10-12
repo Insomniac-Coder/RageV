@@ -10,11 +10,13 @@ there and a bias does not.
 The diff images are the judgement; the table is the index into them. Red is
 darker than the second arm, green brighter, both amplified eight times.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, sys
 import numpy as np
 from PIL import Image, ImageDraw
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 OUT = os.path.join(ROOT, 'build', 'rt5')
 
 

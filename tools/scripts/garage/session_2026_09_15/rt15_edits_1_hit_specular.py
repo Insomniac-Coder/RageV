@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """Apply the hit-specular edits to the source shaders, each substitution matched exactly once,
 line endings preserved per file. Run from anywhere."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, sys
 
-ROOT = r'C:\Users\ism19\Code\RageV\RageVEditor\assets\shaders'
+ROOT = (_RAGEV + r'\RageVEditor\assets\shaders')
 CRLF, LF = '\r\n', '\n'
 N = '\n'
 

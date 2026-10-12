@@ -2,8 +2,10 @@
 accumulator and its blur carry two pictures through one set of surface
 tests, one refusal reason and one blur radius -- the direct light's diffuse
 and specular halves. Compiled out for the reflection instance."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 exec(open('tools/scripts/garage/session_2026_09_06/t4_prelude.py', encoding='utf-8').read())
 
 # ------------------------------------------------------------ accumulate

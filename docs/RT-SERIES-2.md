@@ -1,6 +1,6 @@
 # RT-series 2: roadmap
 
-*Roadmap for the owner, 2026-09-24, with the owner's answers to its twelve decisions (section 5). Nothing in it is built yet. Sources: eight code-area reviews, each checked by a skeptic (164 findings survived); the inventory of 45 open issues; a survey of what current RT-first renderers do; a fresh benchmark on this laptop; and a critic's review of the first draft, whose points were each checked against the code before being applied (the last section lists what changed). The evidence behind every finding and issue id (file and line, the skeptic's verdict, the fix direction) is in `docs/RT-SERIES-2-FINDINGS.md`, with the benchmark and the reference survey. RT-24's work is uncommitted: `include/pbr_fragment.glsl`, `reflection_accumulate.rvshader`, `tools/scripts/garage/watch_arm.py`, `docs/HANDOFF.md` and `docs/RT-SERIES.md` are modified, and `SampleProject/Source/Orbiter.cpp`, `spin_measure.py` and `ghost_map.py` are untracked.*
+*Roadmap for the owner, 2026-09-24, with the owner's answers to its twelve decisions (section 5). Parts of five items were built early during RT-24 and are not committed yet; each item's note says what. Sources: eight code-area reviews, each checked by a skeptic (164 findings survived); the inventory of 45 open issues; a survey of what current RT-first renderers do; a fresh benchmark on this laptop; and a critic's review of the first draft, whose points were each checked against the code before being applied (the last section lists what changed). The evidence behind every finding and issue id (file and line, the skeptic's verdict, the fix direction) is in `docs/RT-SERIES-2-FINDINGS.md`, with the benchmark and the reference survey. RT-24's work is uncommitted (RT2-0's progress note lists it). Section 10 places every fixed value RT-24's hard-coded-values audit found.*
 
 ## The short version
 
@@ -24,7 +24,8 @@
   - an internal render resolution with temporal upscaling.
 - **Then glass and water inside the ray-traced world** (RT2-31 to RT2-33).
 - **Then scale** (RT2-34 to RT2-43): a GPU-resident scene, a ray-tracing world module, a job system, GPU-driven draws, levels of detail, scattered instances such as foliage, streaming, and large-world precision.
-- **Size.** 44 items, roughly 228 to 293 working sessions (a session is about one solo working day, RT-SERIES's unit). Every item longer than a few sessions is broken into named steps, and each step ends with a report. Every milestone leaves the engine working. A new path lands behind a global setting or a measurement flag, is proven against the old path, and the old path is then deleted in a named step.
+- **Last, the fallback and the post chain** (RT2-44 and RT2-45): the raster mode's and post-processing's fixed values replaced by general forms (audit 2, section 10).
+- **Size.** 46 items, roughly 235 to 303 working sessions (a session is about one solo working day, RT-SERIES's unit). Every item longer than a few sessions is broken into named steps, and each step ends with a report. Every milestone leaves the engine working. A new path lands behind a global setting or a measurement flag, is proven against the old path, and the old path is then deleted in a named step.
 - **Target.** 60 FPS at the laptop's native 2560x1600 (the owner's choice, D8), with about 2 ms kept free because this GPU's timings drift. Today's garage at that resolution would cost about 52 ms (an estimate from the 1600x900 benchmark), so it has to get about 3.6 times faster. Render scale stays available as a fallback setting, but the plan does not count on it. The per-pass targets in section 6 are proposals only: each item's first arm measures, and the owner sets the bar from that measurement.
 - **Owner decisions.** All twelve were answered on 2026-09-24; section 5 has each answer and what it changed. In short: this series includes the speed pass; OpenGL is frozen; the RT mode may replace its second scene draw with one compute pass; TAA stops being forced once every signal stands alone, and MSAA 4x becomes selectable; bounce light comes in two layers (baked lights from the bake, Realtime lights live on top); the engine's own upscaler is the default, with DLSS and FSR optional; shader caches are on; glowing surfaces become lights, judged first; the target is 60 FPS at native resolution; RT-24 may be committed with its one TAA reliance written down; the accepted sea work returns with the water rework; and the back glass panes stay a named TAA exception.
 
@@ -404,6 +405,21 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 
 ### RT2-0 · Finish RT-24 (the owner's top priority, in progress)
 
+> **Progress, 2026-09-24 (built, not committed; RT-24 commits only when fully fixed).** Done: arm 0
+> (instruments: `spin_measure.py` scores, `--pan`, the owner-speed swing, `spin_timings.py`); arm C
+> (the camera test fixed, and camera-only extra rays behind `--confidence-rays-camera`, off: 6.6 ms a
+> frame and no visible gain); the prime suspect of the ghosting found with a pan control (the
+> floor's roughness pattern dragged with the reflection) and fixed by a lobe-agreement check;
+> the frame filter follows the surface's motion; the speed-guessed camera cut replaced by reported
+> cuts (it fired 6-8 times a minute on the owner's drags); the frame filter's no-history pixels
+> rebuilt at the pixel centre; the tube lamps' length energy; the resolve no longer spreads aimed
+> lamp light. Dropped: H (parked flicker doubled), J (its motion gate breaks the owner's
+> no-guessed-values rule; ungated it raised parked flicker), and the reflection memory set by its
+> lookup's own uncertainty (built as change 3; it made the orbits worse and was reverted). Owner, live: ghosting "not noticeable", reflections settle "in almost real time".
+> Open: speckle and edge jitter at fast moves, the lights' reflections fatter than on 8 Sept (bisected
+> to RT-21's highlight fix; engine fixes only, no scene changes). A hard-coded-values audit of the
+> reflection chain and the frame filter read 262 fixed values; section 10 places every one it found.
+
 - **What is wrong now.**
   - A fast camera swing in the garage still leaves a blur that spreads over the wet floor; fix 2 turned most of the ghosts into this.
   - Reflections, and the car's shine, settle a fraction of a second after the camera stops.
@@ -449,6 +465,10 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 
 ### RT2-1 · Fail loud, validate clean, and count VRAM
 
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** The bake file
+> loader rejects a file above a fixed "sane" size. General form: check the payload against the size
+> its own header implies, and against the file's length.
+
 - **What is wrong now.**
   - A shader variant that fails to compile makes its pass return early, or makes a different variant run. A pipeline that fails to build leaves a null handle in Release.
   - Only screenshot and benchmark runs exit with code 3. The editor and the owner's live arms are not covered, and one failure once escaped the log entirely.
@@ -480,6 +500,16 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 - **Closes.** rhi-s1, GPU-13, GPU-15, rhi-s2 (the checking half), ISS-24, ISS-25, ISS-36 (the device-loss re-check); the measuring halves of GPU-09 and CORE-05; parts of ISS-6, GI-13, CORE-10 and frame-13.
 
 ### RT2-2 · Instruments that can settle questions
+
+> **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
+> ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'
+> reflections should be: they fattened when RT-21 removed the highlight cap (bisected: 39% of the near
+> floor washed out on 20 Sept, 45% at 50c678f, 48.5% now), and only a reference can say whether today's
+> look is right for the floor's roughness (47% of it at 0.1-0.2) or a remaining defect.
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** The capture
+> harness takes its picture at a fixed frame number. General form: capture once the histories report
+> settled, or after the longest memory in force.
 
 - **What is wrong now.**
   - Questions of bias (the probe against the trace, the floor's darkening, whether the clamps eat light) are judged against references built from the shipped chain. The 16-ray truth keeps every filter it is used to judge.
@@ -533,6 +563,10 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 
 ### RT2-4 · Patches that should not change the picture, and small wins that need no rewrite
 
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** Found by the
+> skeptics: a shadow ray fetches a cutout texture even when the cutoff cannot fail. Guard it (cost
+> only, no change to the picture).
+
 Only fixes whose picture should not change are here. Any fix that turns out to move pixels in the harness moves to RT2-6 and is shown to the owner as its own arm. The five the critic identified as picture-changing (the tile boxes, the particle velocity and weights, the history counter, the tube rims, and the world-grid lookup) are already in RT2-6.
 
 - **What is wrong now.** Ten defects and four missed wins, each found in a review:
@@ -575,6 +609,11 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 
 ### RT2-5 · Stable object identity in exact lanes
 
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** Confirmed
+> independently: CPU-path ids follow submission order, so when the camp's fox or a terrain chunk
+> crosses the frame edge every later id shifts, and both the reflection memory and TAA refuse good
+> history (live on the camp and the bridge, first to fix); and the struck identity folds to 1..1021.
+
 - **What is wrong now.**
   - The G-buffer's object id is exact, but the reflection, glass and direct histories keep it in half-float lanes, which hold whole numbers exactly only up to 2,048 (`FrameGraphBuilder.cpp:1012-1017`, `1802`, `2788-2793`). Above 2,048 a half float holds only every second whole number, above 4,096 every fourth, and so on, so most ids never match, and the accumulator refuses the history outright (`reflection_accumulate.rvshader:1126`). The arithmetic predicts about 11.7% of ids staying exact at 60,000 objects, which fits the measured 10.1% of glossy pixels keeping their history.
   - For everything drawn from the CPU list, the id is this frame's position in the submission list after culling (`Renderer3D.cpp:1413-1417`, `9639-9826`). That covers terrain chunks, skinned meshes, water, and every mesh in the editor's second view or under `--gpu-lit=off`. An object entering or leaving the view renumbers every later one, and TAA and the accumulators throw their histories away.
@@ -597,6 +636,25 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 - **Closes.** geometry-s1, geometry-s2, materials-s3, REFL-02, GEO-17, REFL-17; the integer-id part of MAT-12.
 
 ### RT2-6 · Correctness patches that do change the picture, one at a time
+
+> **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** The motion
+> lane's own precision. It is half-float, so its rounding grows with speed, while two tests treat
+> anything above a fixed 1/8 texel as real motion (`kMotionFloor` in the accumulator, the change record's
+> tolerance): at high speed a still surface reads as moving on its own. General form: the tolerance is the
+> lane's representable error at that magnitude (the half-float step of the velocity, in texels), or the
+> prediction is rounded to the lane's precision before the difference -- so rounding can never fire it.
+> The same rule for two more: the velocity lane's format itself (two half floats; general form: a
+> format whose rounding stays far under a texel at any on-screen motion, such as two 32-bit floats),
+> and the re-light's change test (0.004 of the value plus 1e-4; general form: half a step of the
+> stored half float at that value, plus the float path's own step).
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** Two more arms,
+> both defects rather than tuned values: local probe cubes are sampled in the sky's rotated frame
+> (wrong local reflections whenever the sky is rotated), and the reflection ray budget reads its
+> history through a flipped coordinate, so each tile's rays follow a mirrored tile (first to fix).
+> Arms 8, 11 and 13 were confirmed; arm 13's general form: one weight definition for every see-through
+> writer, derived from the projection. The direct light's and GI's re-light tolerances join the
+> storage-format rule in the note above.
 
 - **What is wrong now, and what changes.** Fourteen arms, one at a time. Each is shown to the owner as its own diff image, with the mean brightness and the bridge's red-to-blue ratio checked before anything is shown. Any fix from RT2-4 that turned out to move pixels joins this list the same way.
   1. **Probes captured after the ray structure is built.** Today every shadow ray in all six faces answers "lit". Probes are captured before `RenderShadows` (`RuntimeLayer.cpp:493`, `EditorLayer.cpp:562`), and `RayShadows::BeginFrame` has already cleared the structure's Active flag. The garage probe is baked, so this needs a re-bake, committed with the work. Afterwards the reference renderer settles ISS-9: which of the probe and the trace is right.
@@ -630,6 +688,17 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 - **Closes.** GI-04, gi-s2, materials-s1, materials-s2, REFL-16, MAT-17, reflections-s4, GI-10, direct-18, REFL-13, ISS-7, ISS-8, ISS-9 (which estimate is right), ISS-31; parts of MAT-16, direct-02 and GI-06.
 
 ### RT2-7 · Random numbers that move in every anti-aliasing mode
+
+> **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** The
+> reflection trace indexes each texel's random rotation as x + 1601 y, so on any target wider than
+> 1601 texels (the reflection grid is 3200 wide at 2x supersampling, the native target 2560) the texel
+> 1601 columns to the right shares its random numbers with the texel one row down. The two are far
+> apart, so no filter mixes them today, but the number is tied to a resolution (first pass only).
+> General form: index by the target's own width, so no two texels share a rotation.
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** Confirmed: the
+> direct light's random draws move only while TAA jitters (this item). Added: on the ray side, the
+> thin-member fade's dither is keyed to a world lattice instead of the ray's own pixel and frame.
 
 - **What is wrong now.**
   - Every random choice in the traced shaders changes from frame to frame only while TAA's jitter is non-zero: lamp picks, soft-shadow points on discs and tubes, shadow-ray thinning, the thin-member fade, the sea's quad lane, `LampFrameSalt` (`pbr_fragment.glsl:4729-4731`, `1380`, `4075`, `4192`, `4819`; `ray_shadow_trace.glsl:24-25`; `water_lamps.glsl:453`; `Renderer3D.cpp:7987`, `8097`, `8267`).
@@ -695,6 +764,21 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 
 ### RT2-10 · One light library; area lights shaded as areas everywhere
 
+> **Part done early, in RT-24 (2026-09-24):** the tube highlight's length energy -- the radius was
+> renormalised and the length was not, so a 3.07 m tube drew its full peak along its whole length.
+> Now the same rule as the radius, in the one dimension the length widens (DirectTrace and the lit
+> loop). The garage's tube shine fell to about a third; the owner judged it good. **Still owed:** the
+> brute-force-tube comparison this item asks for.
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** The sized-lamp
+> highlight. On the sea the direct trace stretches a lamp's streak by fixed factors and renormalises it
+> by a square root (live on the bridge's water, first to fix); the water's own lamp shading and the lit
+> water each add a stretch factor of their own (the first is live); the direct light
+> scores a lamp's highlight with a different lobe than it shades with (live, first to fix); and a hard
+> shadow is recognised by a ray length of 10 km instead of the light's kind. General form: the lobe
+> evaluated against the lamp's real extent with an exact energy normalisation, the score from the
+> shading's own term, the light's kind passed explicitly.
+
 - **What is wrong now.**
   - The range window, spot cone, sized-source highlight and water lobe are typed out eight times in three files, and the copies have drifted. The tube's length reaches the lit loop and DirectTrace but not ray-hit shading or the sea's fallback, and three comments contradict the code.
   - At ray hits every lamp is a point with a hard shadow (`pbr_fragment.glsl:2971-3096`), so a 3.07 m tube is a pinpoint in the chrome and the car.
@@ -720,6 +804,30 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 
 ### RT2-11 · Emissive geometry as sampleable lights; every fixture counted once
 
+> **Part done early, in RT-24 (2026-09-25):** the 16-slot cap is gone. The reflections now pick among
+> every listed emitter in one pass, with weighted reservoir sampling and nothing stored per row. The
+> bounce pass picks evenly among all of them, where before it subtracted the glow of every flagged
+> emitter but aimed at only 16. In the garage, 7 of the 23 fittings had never been aimed at; their lucky
+> hits were most of the fast-swing speckle. Owner-speed swing: motion speckles 861 -> 513 (white
+> 117 -> 85), pole jitter 15.2 -> 9.5, pole grain 13.9 -> 7.7. That is close to the 16-ray reference
+> (494 speckles, 8.8, 8.1). The parked floor is now 1.4 levels from the 16-ray reference, where it
+> was 3.5. Cost: about +0.5 ms in the trace pass, within the frame's noise overall. **Still owed here:**
+> emitters from triangles instead of bounding rectangles, the luminaire link, D7's glowing surfaces
+> without lights, and a picking cost that does not grow with the count (RT2-12).
+
+> **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** Already
+> here: the 16-slot cap (the audit found 7 of the garage's 23 glowing fittings never aimed at, whose
+> lucky hits then skip the resolve's clamp) and the 12-step search. Added: each glowing surface is
+> scored for aimed rays at three fixed points (the centre and both ends of its long axis). A poor score
+> costs only noise and no visible effect was found, but a count of points is a guess at the shape.
+> General form: score at the point on the emitter's axis nearest the lobe's main direction (a
+> closed-form closest approach), plus the centre.
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** Confirmed: the
+> first 16 emitters in scene order, each as its bounding box, and the same cap in GI (this item).
+> Added: a surface counts as an emitter only above an emission of 1.0 (general form: it emits at
+> all), and the ray-structure code repeats that threshold as a second literal.
+
 - **What is wrong now.**
   - Only 16 glowing surfaces get aimed rays in GI and reflections, taken first come, first served in scene order. The garage's 20 tube bars and the car's lamp parts compete for those 16 slots (`Renderer3D.cpp:3118-3121`).
   - Each surface is reduced to its bounding rectangle. A merged mesh, such as all of the bridge's lamp lenses as one entity, therefore radiates over empty space. In the realtime GI fallback that is orders of magnitude too much orange light, which may be the cause of the recorded red bridge.
@@ -743,6 +851,23 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 - **Closes.** direct-03, gi-s1, gi-s3, GI-08, REFL-06, ISS-13, ISS-19; the luminaire half of ISS-28.
 
 ### RT2-12 · Light candidates at a fixed cost per pixel, shared by every pass
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** The Hybrid
+> lamps' cull distance is packed in eighths of a metre in 13 bits and capped at about 1 km by rounding
+> down, so a lamp reaching further loses its light beyond that, a dark ring (the bridge's lamps are far
+> from it; general form: all ones means "never reject", or a rounded-up half float); the world
+> grid's fixed 8x4x32 cells (this item); the orthographic cluster range; and the neighbour-sharing
+> rings of the direct light and the water (a fixed spacing and a water-only normal tolerance).
+
+> **Part done early, in RT-24 (2026-09-25):** the reuse arm's spatial half, for the reflections'
+> aimed lamp samples. Each reflection texel pools its neighbours' lamp points the way ReSTIR does:
+> each point is weighed again from the texel's own position, with pairwise MIS over the samplers' own
+> densities, one is kept, and one shadow ray is traced (`reflection_resolve.rvshader`, behind
+> `--reflection-lamp-pool=<n>`, 0 = off). This replaces fix 1's unshared aimed light without bringing
+> back the halo. Owner-speed swing, 4 / 8 neighbours: car grain 7.01 -> 6.01 / 5.84, tube grain
+> 10.57 -> 9.35 / 9.07, floor sharpness while moving 1.12 -> 0.95 / 0.91. The parked floor is 3.2-3.5
+> levels closer to the 16-ray reference. Cost at 1600x900: +1.0 ms (4) / +2.1 ms (8), left for the
+> optimisation pass. **Still owed here:** temporal reuse, and reuse for the direct light and GI.
 
 - **What is wrong now.**
   - DirectTrace scores every light whose range box touches the pixel's cluster cell, so its cost grows with the number of overlapping lights: 22 per pixel in the garage; 67 to 118 on average (190 at most) on the bridge, where the busiest cluster holds up to 150 of the 189 lights.
@@ -831,6 +956,18 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 
 ### RT2-16 · Views own their histories
 
+> **Part done early, in RT-24 (2026-09-24):** a camera cut is reported, never guessed. The speed and
+> 45-degree rules are gone; `FrameDesc::CameraCut` comes from the scene (its camera changed, it was
+> loaded, or `Scene::RequestCameraCut` / C# `Graphics.CameraCut()`), and from the editor camera's own
+> jumps. The hand-kept list of histories to drop is unchanged and still this item's.
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** The frame counter
+> every traced pass seeds from advances once per scene draw, not per view. The camp's realtime
+> reflection probe draws the scene again several times a second, so the main view skips values (live
+> on the camp); a second viewport, or a probe updating every frame, leaves each view only every other
+> value, so the water's quad lanes visit 2 of 4 and the reflection sequence keeps one parity. General
+> form: one frame index per view, kept with the view's own history state.
+
 - **What is wrong now.**
   - The applications own 16 temporal histories and 4 measured-change records per view (32 and 8 in the editor), and pass them in through 20 named FrameDesc fields. The runtime and each editor view fill those fields line by line, in three nearly identical blocks.
   - Histories are invalidated but never released: `Release` has no caller, and the target pool only grows.
@@ -852,6 +989,12 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 - **Closes.** frame-15; the release part of frame-05; the history half of frame-02; the generic half of framegraph-s2.
 
 ### RT2-17 · Signals and layers as data; Renderer3D split; RT and raster recipes
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** The measured-change
+> filter's plane test is in metres and its floor is an amount per frame (so it follows the frame
+> rate); the joint upsample's depth tolerance; the guide's texel choice through a coordinate that
+> lands between texels. General form: plane tests in pixel units from the view depth and pixel angle,
+> the floor judged on the change the history carries, one integer rule for a texel's representative.
 
 - **What is wrong now.**
   - Each signal is written out by hand inside `BuildFrame`. The glass reflection lane is a near copy of the opaque one, and the measured-change block exists four times.
@@ -932,6 +1075,13 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 
 ### RT2-20 · Ray passes in compute; tile lists; queue and pipeline experiments
 
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** The tile budgets:
+> importance smoothed over a fixed number of frames, motion saturating at 4 pixels a frame, fixed
+> material weights, dwell frames, and the AO budget read without reprojection (a moving object gets
+> another tile's rays). General form: averages over exactly one jitter period (the owner's
+> TemporalJitterPhase), the young share from the accumulators' own counts, reprojected reads, weights
+> from each estimator's contribution.
+
 - **What is wrong now.**
   - Every ray pass is a full-screen fragment pass. That means no shared memory for neighbour gathers and blurs, no dispatch the GPU sizes to cover only the tiles with work, and no async compute.
   - The hit-shading include samples textures with implicit level of detail, which needs screen derivatives, so it cannot run in compute.
@@ -960,6 +1110,17 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 - **Closes.** GPU-02 (the ports), GPU-11 (the experiments, fp16 included), MAT-05, frame-11, the async experiment of GPU-05.
 
 ### RT2-21 · The G-buffer as a designed contract, and one BSDF for every path
+
+> **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** Every surface is
+> forced to at least roughness 0.045 (`pbr_fragment.glsl`, "fully smooth aliases badly"), so no puddle or
+> mirror can be smoother. General form: no floor on the material; any aliasing guard comes from the
+> pixel's own footprint (the variance a pixel actually covers), not a fixed number.
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** Ray origins are
+> lifted by fixed metres (traced hits, shadow rays, AO rays; general form: by the origin's own float
+> precision); parallax step counts fixed at 28/10 and 24/8 (general form: from the texels the ray
+> crosses); the terrain's wall-projection blend tuned on one cliff; the terrain weight map without
+> mips; ray hits reading cutout textures at a fixed mip (general form: ray cones).
 
 - **What is wrong now.**
   - The G-buffer's lanes were never designed as a contract:
@@ -1019,6 +1180,82 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 
 ### RT2-23 · Reflection denoiser v2
 
+> **Parts done early, in RT-24 (2026-09-24), on today's accumulator:** (24b) a content check under
+> any motion -- the history is trusted by how alike the two lobes' pictures are where the reflection
+> slid across the surface; (a consistent resolve) the aimed samples' lamp light kept out of the
+> neighbour sharing and added back per texel. Tried and reverted: (24b) the memory from the lookup's
+> own uncertainty in place of the travel-based smear cap, slack and shrinking floor (change 3; it made
+> the orbits worse), so those rules are still in the source and still this item's. The rewrite itself
+> is still this item's.
+
+> **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** Two in the resolve (the
+> neighbour sharing). (1) A tap whose light is more than half a lamp's own glow skips the outlier clamp
+> entirely (`kEmitterShare` 0.5): the lamp hits a rough floor catches by chance pass whole. General form:
+> no threshold on where light came from -- split each tap into its lamp part and the rest and bound only
+> the rest, or treat every tap by one rule. (2) The disc is a fixed fifth of the lobe (`kReuseFraction`)
+> and each tap's weight is capped (`kMaxWeight`). General form: the disc as large as possible while
+> blurring the reflected image by at most one texel beyond the lobe's own blur, and weights bounded by
+> construction (pairwise MIS over the disc's lobes) instead of by a cap. Also here: sharing lamp light
+> correctly (fix 1 of 2026-09-24 keeps it unshared, which removed the halo but costs grain in motion;
+> re-aiming each pixel's lamp sample toward the lamp point it hit is RT2-12's reuse arm).
+
+> **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** The rest of the
+> reflection chain's fixed values. v2 carries none of them over as a tuned number; each is replaced
+> by the general form given.
+> - *Memory (live).* RT-24's floor that shrinks as the picture travels sets the memory to one frame
+>   at speed, so the one-ray grain reaches the screen unaveraged. Behind it: the travel hyperbola, the
+>   smear cap (`SmearTexels` 6, which alone sets the memory at the slow start and end of a drag),
+>   `slack` with its 0.25 floor and its rule that a mirror forgets four times faster (backwards: a
+>   near-mirror's lookup is exact, so it should keep memory longest), the full memory (`Memory` 64),
+>   `SilhouetteMemory` 4, the 0-0.3 gloss ramp, and the moving layer's own 12, slack and floor.
+>   General form: one rule -- keep N frames while N times how far the old picture can be misplaced
+>   stays within the picture's own blur (the lobe's footprint, never under one texel), and stop
+>   adding frames once the texel's standard error is under one display step. A first build of it
+>   (change 3) made the orbits worse and was reverted: the misplacement estimate needs the work, not
+>   a number. `MovingMemory` (now 1 for reflections, which does nothing) is deleted, and its comment
+>   in `Renderer3D.h` corrected.
+> - *Trust tests (latent).* The direction test (`kMirrorSensitivity`, `kRoughSensitivity`, its
+>   halfway ramp), the hit-distance test (`kMirrorHitTolerance`, `kRoughHitTolerance`, `kHitAgree`,
+>   the ramp to three times, a 0.25 m floor), the struck-object test (`kHitIdentityAgree`,
+>   `kHitNormalAgree`, the 0.05-0.3 ramp), the match confidence (`kMaterialAgree`, `kIdAgree`, the id
+>   and plane ramps, the 0.8-0.94 facing ramp), the facing refusal, the 0.5 roughness refusal, the
+>   silhouette tests, the curvature allowance (0.15 per metre), the plane tolerances in metres (0.05 m
+>   plus 1% of the distance in the accumulator, 0.02 m plus 1% in the resolve and the blur),
+>   `kSurfaceNearer` and `kCurvedMover` (per metre). General form: each tolerance from the spread of
+>   the quantity it tests -- the lobe's angular width for directions, the lobe's hit-distance spread
+>   for distances, the two lobes' overlap for roughness, one texel's depth span for planes, the
+>   normal encoding's own step for curvature. Nothing in metres, no hand-set ramp.
+> - *Bounds (latent).* The glossy end's 12 spreads and its 0.08-0.3 ramp, `BoundWidth` 3,
+>   `kSettledBound` 2 and `kSettledFrames` 32, the moments' 16 frames. General form: the bound is a
+>   stated number of the texel's own measured spreads (a convention, as the firefly clamp's 3 is), and
+>   the moments' memory follows the jitter cycle.
+> - *Image distance (latent).* Its memory (a cap of 8 and a 1:1 blend with the stored distance) and
+>   the 1 km miss clamp; in the trace, a miss written as 10 km and, with more than one ray, a mean of
+>   different surfaces' distances. General form: 24a's one real hit per texel with misses flagged,
+>   blended only where the stored and fresh distances describe the same surface.
+> - *Resolve (latent).* `kCredibleDensity`, `kMaxReach` (24 texels), and the texel-size fallback
+>   (0.0015 of the distance) and floor (0.0002 of it). General form: no separate density bound (the
+>   ratio weight already carries it), the reach from the lobe's footprint, a texel's size from the
+>   projection itself.
+> - *Blur (two live).* The uncertainty gate's edges (0.02 and 0.20, fitted to one measurement): at
+>   speed they give each texel of the rough floor anything from no blur to full blur, independently
+>   of its neighbours, which reads as speckle. `MovingRadius` (4 texels) caps how much one-ray grain
+>   the blur can remove at speed. Also `BlurFrames`, `YoungOverreach`, `kSigmaLFloor` and the mean
+>   floor (absolute 1e-3), and the texel-size fallback and floor. General form: the radius is the
+>   lobe's footprint in texels, and only the edge stop that compares a neighbour's difference with the
+>   centre's own noise decides which taps count, so a settled texel keeps itself with no threshold;
+>   floors relative to the values compared; a texel's size from the projection.
+> - *Rays (latent, one defect).* Four rays where a surface moves on its own; the ray budget's 6-frame
+>   young threshold, 1-ray minimum, 16-pixel tiles, 0.75-ray dead band and 8-frame dwell. And a
+>   defect: the budget reads last frame's counts at the same screen tile, not where the texels were,
+>   so a moving object gets another tile's rays. General form (24d): rays follow each texel's own
+>   measured uncertainty, looked up where the texel was last frame; 24d sets the replacements for
+>   the tile size, dead band and dwell by the same rule instead of carrying them over.
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** The reflection ray
+> budget's young-share thresholds and its row-only pair counting. General form: linear in the share,
+> pairs counted in both directions.
+
 - **What is wrong now.**
   - The depth used to find last frame's picture is smoothed at the surface's old position and averaged with 10 km sky misses.
   - Mirror curvature comes from normal-mapped normals and has no sign, so there is no concave case.
@@ -1051,6 +1288,23 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 
 ### RT2-24 · Direct light: visibility reconstructed apart from shading
 
+> **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** The
+> lamps' own highlights (the direct light's specular half) keep four frames however fast the view
+> turns (`PairMemory` 4, and the diffuse kind's floor of 4): a view-dependent highlight averaged over
+> views it no longer matches -- smear on the chrome poles and the wet floor in motion. General form: a
+> view-dependent payload keeps history only while the view direction stays inside its own lobe (the
+> reflection kind's direction test, floor one), the diffuse half keeping its surface-bound floor.
+> Also: that direction test runs on this signal's view-independent half too, cutting its memory to
+> four on smooth surfaces while the camera turns (it belongs to view-dependent payloads only); and
+> every diffuse-kind signal's blur reaches a fixed 8 texels (`MaxRadius`; first pass only). General
+> form: the reach from this item's penumbra width, in texels.
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** Extra lamps for
+> young pixels use a fixed 6-frame threshold and tile; the shadow-ray fade uses fixed distances
+> (300-600 m at Quality) and a visibility borrow that depends on the order lamps are visited. General
+> form: extra lamps from the history's shortfall against its own memory; skipped rays by Russian
+> roulette (unbiased, order-free); the fade by a lamp's share, not metres.
+
 - **What is wrong now.**
   - The direct light is denoised as shaded light, over time only. The young-pixel blur is off because a spatial filter that stops only at G-buffer edges smeared hard shadow edges on flat surfaces (T5, measured).
   - The specular half keeps four frames and leans on TAA to converge.
@@ -1074,6 +1328,15 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 - **Closes.** direct-04, direct-s2 (the structural half); RT-22's direct-history part.
 
 ### RT2-25 · Bounce light from Realtime lights, added on top of the bake; one hit-shading contract
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** The runtime
+> irradiance field: a fixed blend per sweep and hysteresis, a fixed ray budget, 1 m cells in a 24x12x24
+> box (this item), a lead distance and a move threshold in metres, a direction smoothing per frame,
+> and a box that snaps by a step other than its cell pitch (found by the skeptics). Also GI's bound
+> width, a miss read as sky even where the ray could not have left the scene, and the
+> GI clamps 4 and 32 and the unoccluded sky at bake hits (this item). General form: history kept per
+> world position with change measured, budgets and cell size as owner settings or from the scene's own
+> volumes, one definition of the cell, a miss as sky only when the ray left the scene.
 
 - **What is wrong now.**
   - In a baked scene the engine switches the live bounce pass off completely once the bake is ready. So Realtime lights give direct light but no bounce light at all: the garage has 7 of them and the bridge 14. The floor under RT-22's moving cube lights up, but none of that light reaches the car or the walls.
@@ -1103,6 +1366,15 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 
 ### RT2-26 · One rule for indirect light, and a bake that knows when it is stale
 
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** The Hybrid lamps'
+> baked-to-live transition bands (a fixed band in metres, in three places; general form: the field's
+> own cell spacing, the narrowest transition it can hold); the bake settling, writing and giving up
+> after fixed frame counts (general form: on events -- the solve for this lighting hash finished
+> unchanged); the probe "moved" tolerance; volume padding; BC6H encoding by a fixed box fit (banding);
+> the stamp's epsilon; the CPU probe irradiance's sample count; the 8-volume cap (this item); and the AO
+> signal: a fixed blur reach and no measured-change record, so an occluder's change is caught only by
+> motion.
+
 - **What is wrong now.**
   - The lit pixel adds a probe-or-sky term beside the traced bounce, and the two overlap: a local probe's irradiance already contains the room's light. The field's sky fraction is applied only where the bounce gave no answer. AO, which reaches 0.4 to 0.5 m, multiplies the traced bounce and the stored direct light.
   - The bake's stamp cannot see a moved Static object or an edited material, so a stale bake is silently wrong until someone re-bakes.
@@ -1131,6 +1403,10 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 
 ### RT2-27 · Reflections tiered by roughness; rough reflections from stored light
 
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** The probe parallax
+> proxy takes its radius from the blend radius instead of the capture; 16 probe slots. General form:
+> the proxy from the capture, slots from the scene's probe count within a memory budget.
+
 - **What is wrong now.**
   - Every reflection pixel is traced at full resolution and gets the full resolve and three blurs, even when glossy and settled. In the garage that is 10.6 ms at 1600x900.
   - Above roughness 0.6 the reflection comes only from the baked probe, which is about a third brighter than the trace.
@@ -1155,6 +1431,27 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 - **Closes.** REFL-08, reflections-s2; the fallback part of ISS-9.
 
 ### RT2-28 · The final temporal pass does anti-aliasing only
+
+> **Part done early, in RT-24 (2026-09-24):** the frame filter fetches every pixel's history by the
+> surface's own motion; the brightness-chosen reflection motion is gone (the reflection keeps its own
+> memory). Measured on the garage's slow orbit: pole ghost 10.5 -> 7.7 at 16 rays, parked flicker
+> unchanged. Separately, its no-history pixels (first frame, off screen, another surface) are now the
+> current frame rebuilt at the pixel centre instead of the raw jittered sample.
+
+> **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** Three fixed values in the
+> frame filter. (1) "Same surface" allows a 2% depth difference (`kDepthTolerance`), which on a thin
+> chrome pole or a grazing floor passes or fails by on-screen size: edge jitter. General form: predict
+> the depth this point had last frame (its world point through last frame's camera) and allow one
+> texel's worth of depth change on this surface. (2) "Still" is a fixed 0.003 texel of motion
+> (`kStillWithinTexels`): at speed, rounding flips pixels between the still and moving handling. General
+> form: the motion lane's own precision, as in RT2-6. (3) The brightness curve used to average
+> (`Compress`/`Expand`, 1/(1+Y)) is tied to absolute brightness rather than the exposure the tone curve
+> will use. General form: weight on the exposed value, so the knee sits at display white.
+> (4) The material widening listed below is a factor of 8 picked from one measurement
+> (`kStableWiden`). General form: extra room only for the part of the pixel's light that does not
+> change with the view, which the composite already separates. (5) The box's own flicker memory is 16
+> frames (`kMomentFrames`). General form: two jitter cycles, from the project's jitter setting.
+> Checked and fine: the 26-degree normal test (world-space normals do not change with speed or scale).
 
 - **What is wrong now.**
   - With rays on, TAA is forced on, and it has become the place where signal and surface problems get patched. It takes 12 inputs, including the sea's motion, two change maps and the see-through revealage.
@@ -1203,6 +1500,10 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 
 ### RT2-30 · Delete the superseded reconstruction and GI paths
 
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** Audit 2 found fixed
+> values in paths this item deletes (the old post-chain AO accumulate; gi_denoise's clamps, curve and
+> frame cap). They go with the deletion and are not fixed separately.
+
 - **What is wrong now.** Once RT2-23 to RT2-29 are proven, the old paths are dead weight:
   - the old accumulator's special rules (the memory caps, the floor scaled by motion, `kSettledBound`, the untested silhouette history, the curved-mover choice);
   - the moving layer and follow-hit (per the owner's RT2-23 decision);
@@ -1221,6 +1522,21 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 - **Closes.** The final parts of REFL-12, GI-13 and frame-13.
 
 ### RT2-31 · Glass and water in the ray-traced world; one transmissive layer
+
+> **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** The
+> water's and glass's own mirror ray is capped at 8 times the probe plus a floor (`ReflectionFloor`
+> 0.05, made a setting when it crushed the bridge's lamp reflections at night). Both are fixed
+> brightness levels (first pass only). General form: once this item gives these rays their own
+> accumulators, the cap becomes the accumulators' relative clamp, from the texel's own statistics,
+> with no absolute floor.
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** Glass hides what is
+> behind it by how bright its reflection is, not by its reflectance: the garage car's windows hide the
+> interior behind bright reflections and show it behind dim ones, and the split moves with the light
+> level (live, first to fix; general form: coverage from the glass's own reflectance). Also
+> the sea's quad-shared refraction walks its lanes in a fixed order (live), the S5 tap tolerance in
+> metres, the backdrop's sky test, and the glass panes' ray plan with fixed counts. (The mirror-ray cap
+> was added this morning.)
 
 - **What is wrong now.**
   - Blended glass and all water are left out of the acceleration structure. So glass casts no shadow, car windows are missing from floor reflections, and the bridge's metal cannot reflect the sea.
@@ -1249,6 +1565,16 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 - **Closes.** MAT-03, MAT-06, REFL-09, ISS-23, the mirror half of ISS-11 (D10); RT-22's glass-pane part.
 
 ### RT2-32 · Water as a material, a surface generator and a medium
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** Twenty-three values
+> in the sea: the lamp glint memory of 16 frames and scatter memory of 4 (live, first to fix) and their
+> bound; the detail normals' tile, scroll, fade distance and strength (the fade is live); the pixel footprint on the
+> water, the Cox-Munk slope ceiling and the footprint saturation (live, first to fix); caustic cells in
+> metres read at an undefined mip (live); the contact-foam band from screen depth instead of vertical
+> depth (live); foam drift, clamp and resolution; the grid's division cap and band; the water's
+> roughness; the detail tile's fixed wave fan (live); the refraction reach. General form: everything
+> from the body's own dials and the wave spectrum (dispersion, Cox-Munk from the implied wind),
+> footprints from the pixel, memories from the estimate's own statistics.
 
 - **What is wrong now.**
   - Water is a parallel renderer. It has its own grid (a fixed 3 m spacing with no LOD), its own lobe inside the lit shader, its own surface layer, three implementations of lamp light, 19 flags, and refraction inside its draw.
@@ -1279,6 +1605,11 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 - **Closes.** MAT-10, materials-s4, ISS-11, ISS-32; the final parts of ISS-15 and direct-15.
 
 ### RT2-33 · Fog, glows and particles in the composition; TAA no longer forced
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** Light glows: a fixed
+> side-glow share and cone edges, a back cutoff and a 1 m depth pull (live: glows seen from the side of
+> spot lamps). Fog: the sky treated as FarClip away (live) and a fixed horizontal-ray threshold. General
+> form: glows follow the light's own emission toward the camera; fog to the sky integrates to infinity.
 
 - **What is wrong now.**
   - Fog is one post pass after TAA over the opaque depth. So traced reflections and refractions carry no fog along their own path: a far tower stays sharp in the near water. See-through pixels are fogged by what lies behind them.
@@ -1418,6 +1749,10 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 
 ### RT2-38 · Levels of detail for raster and rays; opacity micromaps
 
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** Thin members (the
+> bridge's cables) fade out at fixed distances in metres, on screen and in rays (live: flicker). General
+> form: fade by projected width in pixels, the member's thickness over the pixel footprint.
+
 - **What is wrong now.**
   - There is no LOD chain and no mesh simplifier, so every instance is drawn and traced at full detail at any distance.
   - Terrain rays always trace the finest level. That forces a tight raster LOD limit (0.15 ms per pass), and all four levels of every chunk are built up front: about 1.3 GB of vertex and index data at the maximum terrain size (inferred).
@@ -1489,6 +1824,18 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 
 ### RT2-41 · Large-world precision
 
+> **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** Reflection rays stop at
+> 10 km (`tMax` 1e4 m) and the accumulator clamps a miss to 1 km: world-size constants (first pass
+> only). General form: the ray length from the scene's own extent (the ray structure's bounds), and a
+> miss written as a flag (RT2-23).
+
+> **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** Eleven whole-scene
+> reaches written in metres (10 km in most rays, the GI reach, the bake solve's reach), and the
+> terrain's wall texture scale re-derived from screen derivatives, whose rounding grows with distance
+> from the world origin (live on the bridge's Cliff and Headland cameras: the wall texture jumps).
+> General form: one reach from the ray structure's bounds; the known texture mapping instead of a
+> derivative ratio.
+
 - **What is wrong now.** World positions are 32-bit floats everywhere: in the vertex transforms, the TLAS instances, the light-cache cells and the histories. RT2-5 fixes the reflector's plane offset, and RT2-21 the ray origins and the position rebuilt from depth; nothing else plans for worlds far from the origin. The current scenes are safe (the bridge spans about 1.35 km either side of the origin), but open worlds span 10 km and more.
 - **What changes.**
   - The first arm measures: a fixture placed 10 km and 30 km from the origin, checked for vertex shimmer, shadow acne, reflection reprojection and cache-cell stability, so the work is sized by what actually breaks.
@@ -1539,6 +1886,46 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 - **Size.** 2 sessions.
 - **Closes.** The final parts of GEO-01, GEO-02, GEO-04, GEO-14, CORE-02, CORE-07 and ISS-26.
 
+### RT2-44 · The raster fallback on general forms
+
+- **What is wrong now.** Audit 2 (section 10) found about 60 fixed values in the raster recipe, the fallback when rays are off:
+  - shadow maps: at most 4 local maps and one set of cascades, not ranked by what they contribute to the view; a fixed depth bias and slope; a 10% spot frustum widening; near planes, a cascade start floor, a radius quantum and a caster pull-back in metres;
+  - SSR: a fixed stride, stride growth and iteration cap, a blur disc capped in pixels, a thickness and a maximum distance in metres, a fixed Hi-Z level count, and the hit snapped to a half-resolution texel centre;
+  - SSGI and SSAO: biases and a distance falloff in metres, hard normal-agreement switches, fixed blur radii and depth-ratio edge stops, an SSAO rotation that never changes from frame to frame, and taps that fall off screen counted as unoccluded (a crease brightens near the frame edge);
+  - voxel GI: normals transformed without the inverse-transpose, textures read at their average, the last voxel write winning, only the sun shadowed in the grid, a cone aperture and step that double-count opacity, cascades snapped finer than the level they are read at, no conservative rasterisation, a voxel size clamp in metres, and the second bounce read from last frame's grid with this frame's origins;
+  - the raster water refraction: a fixed push and a foreground test in metres.
+- **What changes.** Each value is replaced by the general form in section 10: pixel and texel units from the projection, the light's own size, statistics instead of thresholds, the published algorithm where one exists. One arm at a time, as in RT2-6. Per D1 the OpenGL shader set stays frozen, so these land in the Vulkan raster recipe only.
+- **Owner sees.** With rays off: shadows, reflections and ambient light that behave the same at any resolution, world size and frame rate.
+- **Touches.** The `ssr_*`, `ssgi_*`, `ssao_*`, `voxel*` and `shadow_depth*` shaders, `cull_casters.rvshader`, `include/voxel_cone.glsl`, `VoxelGI.cpp`, `ShadowMap.cpp/.h`, the raster shadow setup in `Scene.cpp`, the shadow pipelines in `Renderer3D.cpp`, the SSR, SSGI and voxel defaults in `PostSettings.h`, the raster refraction in `pbr_fragment.glsl`.
+- **Scope.** Patch. **Depends on.** RT2-2, RT2-6. **Risk.** Low to medium: raster mode is a fallback, and each arm is judged by diff images.
+- **Exit gate.**
+  - Each arm: a diff image against before, in raster mode, on the garage, the bridge's three cameras and the camp, judged by the owner.
+  - `check_ssao.py` and `check_ssr.py` pass.
+  - The same frames at 1600x900 and 2560x1600 show the same effect widths, and a scene scaled by ten shows the same shadows.
+  - A,B,B,A.
+- **Size.** 4-6 sessions.
+- **Closes.** Audit 2's RT2-44 rows (section 10).
+
+### RT2-45 · The post chain on general forms
+
+- **What is wrong now.** Audit 2 (section 10) found fixed values in post-processing:
+  - auto exposure: the histogram's range is not derived from the owner's exposure limits, and light below 0.0001 is dropped from the metering (both first to fix; the second is live);
+  - bloom: its threshold, knee and ceiling are in absolute brightness, not the brightness after exposure (live), and so is its outlier weight;
+  - motion blur: the shutter is a fraction of a frame, so the blur length changes with the frame rate (live); "in front" is decided by 0.5 m of depth (live); a fixed tap count;
+  - depth of field: a fixed 48 taps, and the bokeh cap in pixels, so it changes with resolution;
+  - SMAA: a diagonal margin measured as doing nothing;
+  - the sky: a fixed gradient cube size and a dither compensation constant; the clear colour for a colour sky differs from what rays see.
+- **What changes.** The exposure range from the owner's own limits; bloom and its weights in exposed units; the shutter as a time in seconds; depth tests without metres; tap counts from the reach in pixels; the SMAA diagonal pass made the reference one or removed; one background for rays and raster. One arm at a time, judged by the owner.
+- **Owner sees.** Bloom and exposure that respond the same in dim and bright scenes; motion blur that looks the same at 30 and 120 FPS; depth of field the same at any resolution.
+- **Touches.** The `tonemap`, `bloom_*`, `luminance_*`, `motionblur_*`, `dof_*`, `smaa_*` and `sky` shaders; `PostProcess.cpp`, `PostSettings.h`, `AutoExposure.cpp`, `Skybox.cpp`, `FrameGraphBuilder.h` (the clear colour).
+- **Scope.** Patch. **Depends on.** RT2-2. **Risk.** Low: each arm is a look change the owner judges.
+- **Exit gate.**
+  - `check_auto_exposure.py`, `check_motion_blur.py` (at two frame rates), `check_depth_of_field.py` and `check_smaa.py` pass.
+  - Diff images on the three scenes, judged by the owner.
+  - Bloom at two light scales, with exposure matched, gives the same picture.
+- **Size.** 3-4 sessions.
+- **Closes.** Audit 2's RT2-45 rows (section 10).
+
 ## 5. Milestones and decisions
 
 No milestone is a big bang. A new path lands behind a global setting or a measurement flag, is proven against the old path by its exit gate, and the old path is then deleted in a named step. The engine works, and scenetest is green, at the end of every item.
@@ -1552,8 +1939,9 @@ No milestone is a big bang. A new path lands behind a global setting or a measur
 | M4 Signals rebuilt | RT2-21 to RT2-30 | 58-73 | A designed G-buffer; one BSDF; one composition pass; reflection denoiser v2; direct light by visibility ratio; bounce light in two layers (the bake, plus a live pass for Realtime lights); probes captured through the traced world; roughness tiers; a final temporal pass that only anti-aliases; render scale with upscaling | `--composition=compute`, `--reflection-denoiser=v2`, `--realtime-bounce`, `--render-scale` | The RT-mode forward lit raster; the old accumulator rules; the runtime field; the gi_denoise chain; TAA's surface-specific inputs |
 | M5 Glass and water | RT2-31 to RT2-33 | 19-24 | Glass and water in the ray-traced world; one transmissive layer; water as a material with the accepted sea work; fog in the composition; TAA no longer forced | `--transmissive-layer` | The second glass reflection chain; the water's private passes, target and flags |
 | M6 Scale | RT2-34 to RT2-43 | 64-81 | A GPU-resident scene; the ray-tracing world as a module; a job system; GPU-driven draws; LOD; instance sets for foliage; streaming; large-world precision | `--gpu-scene`, `--job-threads`, `--lod-bias` | The per-frame draw-list, instance and TLAS rebuilds; CPU mesh copies; the dormant meshlet path |
+| M7 The fallback and the post chain | RT2-44 to RT2-45 | 7-10 | Raster mode and post-processing on general forms, from audit 2 | none | nothing |
 
-Total: about 228 to 293 working sessions. A session is about one solo working day (RT-SERIES's unit). Every item longer than a few sessions names its steps, and each step ends with a report and waits for the owner's green signal.
+Total: about 235 to 303 working sessions. A session is about one solo working day (RT-SERIES's unit). Every item longer than a few sessions names its steps, and each step ends with a report and waits for the owner's green signal.
 
 **The owner's decisions, answered on 2026-09-24.** Each answer is written into the items it touches.
 
@@ -1918,3 +2306,344 @@ A critic read the first draft against every input and found no missing issue or 
 **Added for AAA scale.** A baseline harness that diffs every test camera in one command (RT2-2a), instance sets and wind for foliage (RT2-39), large-world precision (RT2-41), one entity per placed model (RT2-35), probes captured through the traced world (RT2-25), sparse streamed bake bricks and cells that move out of walls (RT2-26), frame pacing (RT2-36), animated emissive textures kept current (RT2-11), and reasons for not putting particles and decals in rays or testing on a second vendor (section 7).
 
 **After the owner's answers (2026-09-24).** The twelve answers were written into their items. Three reshaped the plan. The item that would have re-landed the sea work early was dropped, because the sea work now returns with the water rework (D10); the items after it were renumbered. Bounce light was redesigned around the owner's two-layer idea (D4): RT2-25 keeps baked lights on the bake and adds a live pass for Realtime lights on top, and RT2-26 makes a stale bake visible in the editor. The target moved to native 2560x1600 (D8), so section 6 was re-proposed at native and render scale became a fallback (RT2-29). Lifting the forced TAA became the last step of M5 (D3, RT2-33).
+
+## 10. The hard-coded-values audit: every value, and where it goes
+
+RT-24's audit (2026-09-24) read every fixed value in the reflection chain and the frame filter (`reflection_trace`, `reflection_resolve`, `reflection_accumulate`, `reflection_blur`, `reflection_composite`, `taa_resolve` and their C++ settings) against the owner's rule: general solutions only, nothing that depends on speed, frame rate, scale, the scene or a surface. Of 262 values, 170 are fine: maths, pixel units or numerical guards. The other 92 break the rule on paper. The 53 of those with a path to a symptom were checked a second time by a skeptic, who also found 5 the first pass missed; the other 39 were flagged by the first pass only. Evidence: `build/rt24/audit_phase1.json` and `audit_phase2.json`.
+
+Every value found is below, with where the roadmap handles it. **Live** means it affects today's picture. **Latent** means it breaks the rule without a visible effect today. **First pass only** means it was not checked a second time. The general form for each is in the note at the top of the item named.
+
+| Value | Where | What it does | Found | On the roadmap |
+| --- | --- | --- | --- | --- |
+| **Frame filter** (`taa_resolve`) |  |  |  |  |
+| `kDepthTolerance` (2%) | taa_resolve | "Same surface": this frame's depth against last frame's | Live. At speed most of the floor and both poles fail it and show the raw frame: edge jitter | RT2-28 (added) |
+| No-history exits | taa_resolve | A pixel with no usable history showed the raw jittered sample | Fixed in RT-24 (change 1) | RT2-28 (done early) |
+| `kStillWithinTexels` (0.003 texel) | taa_resolve | "Is this pixel still" | Latent. A precision guard written as a number | RT2-28 and RT2-6 (added) |
+| `kStableWiden` (8) | taa_resolve | Widens the colour box on rough non-metals | Latent. Small smear effect at fast speed | RT2-28 (the problem was listed; general form added) |
+| `kMomentFrames` (16) | taa_resolve | Memory of the box's own flicker estimate | Latent | RT2-28 (added) |
+| `Compress`/`Expand` (1/(1+Y)) | taa_resolve | Brightness curve used when averaging | Latent. Tied to absolute brightness, not the exposure | RT2-28 (added) |
+| `kNormalTolerance` (26 degrees) | taa_resolve | Normal test for "same surface" | Fine. World-space normals do not change with speed or scale | none needed |
+| **Reflection memory** (`reflection_accumulate`, `Renderer3D`) |  |  |  |  |
+| Floor that shrinks with travel (RT-24 fix 2) | reflection_accumulate | The fewest frames a reflection keeps | Live. At speed it sets the memory to one frame, so the one-ray grain reaches the screen | RT2-23 (added; change 3 tried and reverted) |
+| Travel hyperbola | reflection_accumulate | Shortens memory with travel | Latent | RT2-23 (added); RT2-30 deletes |
+| `SmearTexels` (6) | Renderer3D.h | Memory limited to 6 texels of travel | Live at the slow start and end of a drag | RT2-23 (added) |
+| `slack` (0.25 floor, 0.25 mirror factor) | reflection_accumulate | Travel that halves the memory; mirrors forget 4x faster | Latent, and the mirror rule is backwards | RT2-23 (added) |
+| `MovingMemory` (8) | Renderer3D.h | Ceiling on memory while moving | Fixed for reflections (now 1, which does nothing); its comment is wrong | RT2-23: delete it (added) |
+| `Memory` (64) | Renderer3D.h | Full memory | Latent | RT2-23 (added) |
+| `SilhouetteMemory` (4) | Renderer3D.h | Memory floor at silhouettes | Latent (first pass only) | RT2-23 (added) |
+| Gloss ramp (roughness 0 to 0.3) | reflection_accumulate | Splits mirror from rough for the memory rules | Latent | RT2-23 (added) |
+| Moving layer: 12 spreads, slack, floor | reflection_accumulate | Bound and memory of the moving layer (RT-15) | Latent (first pass only) | RT2-23 (added; the layer's fate is 24e's) |
+| **Reflection trust tests** (`reflection_accumulate`) |  |  |  |  |
+| `kMirrorSensitivity`, `kRoughSensitivity`, halfway ramp | reflection_accumulate | How far the reflected direction may turn | Latent (the last two first pass only). Also runs on view-independent signals | RT2-23 and RT2-24 (added) |
+| `kMirrorHitTolerance`, `kRoughHitTolerance`, `kHitAgree`, ramp to 3x, 0.25 m floor | reflection_accumulate | Hit-distance agreement | Latent (the last three first pass only) | RT2-23 (added) |
+| `kHitIdentityAgree` (0.2), `kHitNormalAgree` (0.9), 0.05-0.3 ramp | reflection_accumulate | Struck-object test (RT-17) | Latent (first pass only) | RT2-23 (added) |
+| `kMaterialAgree` (0.15), `kIdAgree` (0.25), id ramp, plane edge (0.35), facing ramp (0.8-0.94) | reflection_accumulate | Match confidence | Latent (first pass only) | RT2-23 (added) |
+| Facing refusal | reflection_accumulate | Refuses a history facing elsewhere | Latent | RT2-23 (added) |
+| Roughness refusal (0.5) | reflection_accumulate | Refuses a history of another roughness | Latent | RT2-23 (added) |
+| Staged roughness thresholds (0.15/0.5, 0.5/1.5 texels) | watch_arm.py arm | Trust by lobe difference | Fixed in RT-24: change 2 does it with no numbers | RT2-23 (done early) |
+| Silhouette tests (cosine 0.8; 0.05 m + 1%) | reflection_accumulate | Where a silhouette skips the tests | Latent. In metres | RT2-23 (added) |
+| History plane tolerance (0.05 m + 1%) | reflection_accumulate | Refuses a history off the plane | Latent (first pass only). In metres | RT2-23 (added) |
+| Curvature allowance (0.15 per metre) | reflection_accumulate | Absorbs normal rounding | Latent | RT2-23 (added), with RT2-21's signed curvature |
+| `kCurvedMover`, `kSurfaceNearer` | reflection_accumulate | Choice between two histories on movers | Latent. Per metre | RT2-23 (added); RT2-30 deletes the choice |
+| `kMotionFloor` (1/8 texel) | reflection_accumulate | "Moved on its own" | Latent. Rounding trips it at speed | RT2-6 (added) |
+| **Reflection bounds** (`reflection_accumulate`, `Renderer3D`) |  |  |  |  |
+| Glossy end: 12 spreads, 0.08-0.3 ramp | reflection_accumulate | Colour box width on glossy surfaces | Latent | RT2-23 (added) |
+| `BoundWidth` (3) | Renderer3D.h | Colour box width | Latent | RT2-23 (added) |
+| `kSettledBound` (2), `kSettledFrames` (32) | reflection_accumulate | Box widening once settled | Latent (first pass only) | RT2-23 (added); RT2-6 arm 12 fixes its counter; RT2-30 deletes it |
+| `kMomentFrames` (16) | reflection_accumulate | Moments' memory | Latent (first pass only) | RT2-23 (added) |
+| Firefly clamp width (3 spreads) | reflection_accumulate | Caps a sample at 3 spreads of its neighbours | Fine. Relative to the texel's own neighbours; 3 is a stated convention | RT2-6 arm 7 already reworks the clamp |
+| **Reflection image distance** (`reflection_accumulate`, `reflection_trace`) |  |  |  |  |
+| Image-distance memory (cap 8, 1:1 blend) | reflection_accumulate | Smooths the reflection's depth | Latent | RT2-0 arm F and RT2-23 24a (were there); general form added |
+| Miss as 10 km, clamped to 1 km; multi-ray mean distance | reflection_trace, reflection_accumulate | A miss written as a distance | Latent | RT2-23 24a (was there); general form added |
+| **Direct light** (`Renderer3D`, `reflection_accumulate`) |  |  |  |  |
+| `PairMemory` (4) | Renderer3D.cpp | The lamps' own highlights keep 4 frames | Live. A trail of stale streaks on the chrome poles at speed | RT2-24 (added) |
+| `Fewest` (1 to 4) and the diffuse floor of 4 | Renderer3D.h | Floor under the direct light's memory | Live, through `PairMemory` | RT2-24 (added) |
+| `MaxRadius` (8 texels) | Renderer3D.h | Blur reach of every diffuse-kind signal | Latent (first pass only) | RT2-24 (added) |
+| **Reflection sharing** (`reflection_resolve`) |  |  |  |  |
+| `kEmitterShare` (0.5) | reflection_resolve | Lamp-lit taps skip the outlier clamp | Live. Lucky lamp hits pass whole: speckle | RT2-23 (added) |
+| `kReuseFraction` (1/5) | reflection_resolve | Size of the sharing disc | Live. Sets how much one-ray grain survives | RT2-23 (added) |
+| `kMaxWeight` (4) | reflection_resolve | Cap on a shared tap's weight | Live at puddle edges (plausible, not measured) | RT2-23 (added) |
+| Lamp light re-aimed by a neighbour's ray | reflection_resolve | Spread each lamp's light in a halo | Fixed in RT-24 (fix 1). It costs grain in motion; keep or revert is open | RT2-23 (done early); RT2-12 the proper version |
+| `kCredibleDensity` | reflection_resolve | Lifts the clamp for high-density taps | Latent | RT2-23 (added) |
+| `kMaxReach` (24 texels) | reflection_resolve | Largest disc | Latent (first pass only) | RT2-23 (added) |
+| Plane tolerance (0.02 m + 1%) | reflection_resolve, reflection_blur | Is a neighbour on the same plane | Latent. In metres (the blur's first pass only) | RT2-23 (added) |
+| Texel size: fallback 0.0015 of the distance, floor 0.0002 | reflection_resolve, reflection_blur | Metres per texel when not measured | Latent (partly first pass only) | RT2-23 (added) |
+| **Reflection blur** (`reflection_blur`, `Renderer3D`) |  |  |  |  |
+| Uncertainty gate edges (0.02, 0.20) | reflection_blur | How much blur a texel gets from its measured noise | Live. At speed each rough-floor texel gets anything from none to full blur: speckle | RT2-23 (added) |
+| `MovingRadius` (4 texels) | Renderer3D.cpp | The blur's radius | Live. Caps how much one-ray grain the blur removes at speed | RT2-23 (added) |
+| `kSigmaLFloor` and the mean floor (1e-3) | reflection_blur | Absolute brightness floors | Latent (the mean floor first pass only) | RT2-23 (added) |
+| `BlurFrames`, `YoungOverreach` | Renderer3D.h | The blur's frame ramp and overreach | Latent | RT2-23 (added) |
+| `YoungRadius` | Renderer3D.cpp | Young-pixel blur | Fine. 0 on the floor chain, an off switch | none needed |
+| **Reflection rays** (`reflection_trace`, the ray budget) |  |  |  |  |
+| 16 aimed glowing surfaces (`kMaxAreaEmitters`) | Renderer3D, reflection_trace | Which lamps get aimed rays | Fixed in RT-24 (2026-09-25): every emitter is aimed at | RT2-11 (done early) |
+| 12-step search of an emitter's table | reflection_trace | Picks a point on an emitter | Latent (first pass only) | RT2-11 (was there: picks without a search) |
+| 3 score points per emitter | reflection_trace | Where an emitter is scored for aimed rays | Latent | RT2-11 (added) |
+| Cap of 64 per channel | reflection_trace | Guards the stored moments | Live. Tube reflections come out less blue than the tubes | RT2-6 arm 5 (was there) |
+| "Moved on its own" tolerance (1/8 texel) | change_record.glsl | One ray or four per texel | Live (plausible). At speed rounding flips still texels between 1 and 4 rays | RT2-6 (added) |
+| 4 moving rays; budget 6 frames, 1 ray, 16-pixel tiles, 0.75 dead band, 8-frame dwell | Renderer3D, FrameGraphBuilder, RenderSettings | Ray counts | Latent (first pass only) | RT2-23 24d (added) |
+| Budget read at the same screen tile | reflection_trace, reflection_budget | Last frame's ray counts, not reprojected | Latent defect: a moving object gets another tile's rays | RT2-23 24d (added) |
+| Re-light tolerance (0.004 of the value + 1e-4) | reflection_trace | Did a replayed sample change | Latent | RT2-6 (added) |
+| Random index stride (1601) | reflection_trace | Each texel's random rotation | Latent (first pass only). Tied to resolution | RT2-7 (added) |
+| Ray length (10 km) | reflection_trace | Farthest hit | Latent (first pass only). World size | RT2-41 (added) |
+| **Formats** (`FrameGraphBuilder`) |  |  |  |  |
+| Object ids in half-float history lanes | FrameGraphBuilder | Is this the same object | Latent. Exact only below 2,048 objects | RT2-5 (was there) |
+| Velocity in two half floats | FrameGraphBuilder | Motion vectors | Latent. Precision falls with speed | RT2-6 (added) |
+| **Glass and water** (`pbr_fragment`, `PostSettings`) |  |  |  |  |
+| `ReflectionFloor` (0.05) and the 8x probe cap | pbr_fragment, PostSettings | Cap on water's and glass's own mirror ray | Latent (first pass only). Absolute brightness | RT2-31 (added) |
+| **Found while chasing the lights' sharpness** (not part of the audit) |  |  |  |  |
+| Minimum roughness (0.045) | pbr_fragment | No surface can be smoother | Latent. No puddle or mirror sharper than it | RT2-21 (added) |
+| No ground truth for the lights on the floor | the reference renderer | How sharp the tubes' reflections should be | Open. They fattened when RT-21 removed the highlight cap | RT2-2 (added) |
+
+**The rest of the renderer** was audited the same way on the same day: audit 2, below.
+
+### Audit 2: the rest of the renderer (2026-09-24)
+
+Twelve read-only agents listed every fixed value in the rest of the renderer: the lit shader, the direct light, the live bounce light and AO, the bake and probes, water and glass, post-processing and its settings, `Renderer3D` and the frame setup, and the raster fallbacks (SSR, SSGI, voxel GI, SSAO, shadow maps) -- 852 values. 270 broke the rule on paper. Twelve skeptics then tried to disprove each of those, plus 25 borderline ones the first pass had not flagged, and found 5 more. 75 were refuted (fine, or inert where they sit). The other 225 survived; the same value found by two agents is listed once, so the table below has 217 rows. 30 affect today's picture (**Live**) and 13 are marked first to fix. Live is the skeptics' judgement from reading the code: none of these has been measured on screen yet. Evidence: `build/rt24/audit2_phase1.json` and `audit2_phase2.json`.
+
+Every surviving value is below, under the item that fixes it. The note at the top of each item says the same in plain words. Two new items hold what had no owner: RT2-44 (the raster fallback) and RT2-45 (the post chain), as milestone M7. Not audited: particles, UI, terrain generation, the editor grid and debug views, GPU culling and skinning.
+
+| Value | Where | Found | General form | On the roadmap |
+| --- | --- | --- | --- | --- |
+| **RT2-1** · Fail loud, validate clean, and count VRAM |  |  |  |  |
+| kSaneLimit | BakedLighting.cpp:485 | Latent. cost | Validate the payload against what the header's own stamp implies (Width*Height*Depth*Tiles*bytes per texel, or the BC6H block arithmetic), and against the file length. | added |
+| **RT2-2** · Instruments that can settle questions |  |  |  |  |
+| ScreenshotFrame (+ ScreenshotCount 1) | EngineConfig.h:218 | Latent. no visible effect | Default the capture to the longest accumulator memory in force (derived from the settings), or to a 'settled' signal from the histories, never a fixed frame | added |
+| **RT2-4** · Patches that should not change the picture, and small wins that need no rewrite |  |  |  |  |
+| alpha fetch when the cutoff cannot fail (new) | ray_shadow_trace.glsl:180 | Live. cost; found by the skeptic | An identity guard: if hit.AlphaCutoff <= 0 (or the base alpha alone already decides), return true before the fetch. | added |
+| **RT2-5** · Stable object identity in exact lanes |  |  |  |  |
+| CPU-path object id = pool row + 1 (DrawMesh; also DrawWaterMesh L9724, DrawSkinnedMesh L98 | Renderer3D.cpp:9673 | Live. flicker; first to fix | An object's id comes from the object, not from submission order: the entity handle (as the ray-instance Identity already does, Renderer3D.cpp:5666-5669) combined with the chunk index for terrain. | was there |
+| ray-instance Identity fold (EndScene) and emitter identity (SetAreaEmitters L3207) | Renderer3D.cpp:5669 | Latent. wrong brightness or colour | Carry the unfolded entity id wherever the storage is 32-bit (the ray-instance buffer and the emitter row). | was there |
+| **RT2-6** · Correctness patches that do change the picture, one at a time |  |  |  |  |
+| Probe cubes sampled in the sky's rotated frame | pbr_fragment.glsl:3317 | Latent. wrong brightness or colour; found by the skeptic | Rotate into the sky frame only when sampling slot 0. Probe slots and the parallax take the world-space direction. | added |
+| history read flipped on a gl_FragCoord uv (mirrored tile) | reflection_budget.rvshader:158 | Latent. noise; first to fix; found by the skeptic | A texture lookup from a uv built from gl_FragCoord takes no flip (or uses texelFetch at the integer tile). | added |
+| re-light dead band | direct_trace.rvshader:1413 | Latent. smear | Keep the relative ulp guard. Replace 1e-4 with the half's own absolute step at that magnitude (or drop it). | added |
+| relight change tolerance | rtgi_trace.rvshader:676 | Latent. smear | A pure numerical guard: the stored value's half-float rounding (relative 2^-10) plus the half subnormal step. | added |
+| foam buffer format | Water.cpp:583 | Latent. wrong brightness or colour | Store with the engine's unbiased stochastic rounding onto the half grid (StoreAsHalf/HalfRoundingDraw), or use R32G32_SFLOAT. | was there |
+| WBOIT unit-weight distance | pbr_fragment.glsl:6273 | Latent. wrong brightness or colour | One constant shared by both shaders, with the unit-weight distance derived from the projection (the near plane) so the clamp band spans the camera's [near, far] instead of a metre range. | problem was listed; general form added |
+| kUnitWeightDistance (particles) | particle_weighted.rvshader:36 | Latent. wrong brightness or colour | One shared weight definition for every writer of the pair. Normalise the distance to the view's own depth range (the camera's near/far clip, owner settings) so the discrimination band is the camera's range at any world scale. | was there |
+| 2x2 box on floor-halved sizes | tile_reduce.rvshader:59 | Latent. noise | texelFetch the exact 2x2 at 2*ivec2(gl_FragCoord), and fold an odd last row or column into the last output texel with area weights. | was there |
+| **RT2-7** · Random numbers that move in every anti-aliasing mode |  |  |  |  |
+| Animated lane = any jitter lane nonzero (TraceDirectLight; also TraceDirectWater L8021, Re | Renderer3D.cpp:8131 | Latent. noise | Each consumer decides from whether it feeds a temporal accumulator of its own (the signal's hasHistory/History flag, passed in the push block), not from TAA's jitter. | was there |
+| fade dither lattice | ray_shadow_trace.glsl:143 | Latent. noise | Key the ray-side dither on the ray's own pixel and frame (RV_TRACE_PIXEL / RV_TRACE_FRAME, as the soft-shadow sample does at L350-360), the same domain as the on-screen dissolve. | added |
+| **RT2-10** · One light library |  |  |  |  |
+| sized-lamp streak widening on water | pbr_fragment.glsl:5293 | Latent. wrong brightness or colour | No artist multiplier: evaluate the lobe against the lamp's real extent (representative point with the correct energy normalisation, or an LTC/area integral). | added |
+| streak half renormalisation | pbr_fragment.glsl:5302 | Latent. wrong brightness or colour | The exact, energy-conserving normalisation of the widened lobe. If the shaft reads dim, the lobe's shape (5293) is what is wrong, not its energy. | added |
+| sea streak length terms | direct_trace.rvshader:440 | Live. wrong brightness or colour; first to fix | A sphere widens the slope distribution by its angular radius in both axes (0.5*angular, as the land path and L441 do), applied once, in the wind frame with the Cox-Munk axes along the wind. | added |
+| sea streak half renormalisation | direct_trace.rvshader:442 | Live. wrong brightness or colour; first to fix | Use the exact normalisation (ax0*ay0)/(axS*ayS): energy conservation, the same rule as the land path's (alpha/alpha')^2. | added |
+| specular half of the lamp score (non-water) | direct_trace.rvshader:586 | Live. noise; first to fix | Make the score the shading's own term without the shadow ray: the luminance of albedo*diffuse/pi + specular from DirectTerm, with the same widened, renormalised, length-normalised lobe. | added |
+| hard-shadow sentinel | ray_shadow_trace.glsl:345 | Latent. wrong brightness or colour | Pass the light's kind to TraceShadowSoftFromMasked as an argument instead of inferring it from the ray length. | added |
+| streak elongation | water_lamps.glsl:265 | Live. wrong brightness or colour | No stretch factor. Keep the per-pixel closest-point half vector, which carries the physical elongation. | added |
+| **RT2-11** · Emissive geometry as sampleable lights |  |  |  |  |
+| area-emitter membership threshold (RefreshDrawList) | Scene.cpp:2224 | Latent. noise | Membership = emits anything (strength > 0). The aimed pick weights rows by estimated power (luminance x area x geometry), which reflection_trace's EmitterScore already does. | added |
+| emitter list order handed to the renderer (OnRender -> SetAreaEmitters) | Scene.cpp:5189 | Live. noise; first to fix | Choose the aimed set per shading point by contribution, not list position. | was there |
+| emitter shape: thinnest local-box axis is the normal (RefreshDrawList) | Scene.cpp:2231 | Latent. wrong brightness or colour | Sample the emitting surface itself: emissive triangles with a per-mesh area x radiance CDF, as in pbrt's triangle area lights and RTXDI's emissive-triangle lights. | was there |
+| emitter threshold | RayShadows.cpp:287 | Latent. noise | Compute one predicate once (emitter-list membership) and pass it to AddInstance instead of a second literal. | added |
+| emitter cap | rtgi_trace.rvshader:365 | Latent. wrong brightness or colour | No positional cap. A buffer sized to the scene's emitters, with selection by an importance distribution over emitter power (a CDF or a light tree), so that no emitter is treated differently because of its list position. | was there |
+| **RT2-12** · Light candidates at a fixed cost per pixel, shared by every pass |  |  |  |  |
+| hybrid reject distance: eighths of a metre in 13 bits (PackLightCull) | Renderer3D.cpp:118 | Latent. wrong brightness or colour | Saturate to 'never reject' (0x1FFF meaning unbounded), or pack the reject distance as a half float rounded up, the way the range already is. | added |
+| LightCullRejects hybrid reject distance | pbr_fragment.glsl:529 | Latent. wrong brightness or colour | Saturate conservatively: the all-ones code means 'never reject', as HalfUp does with infinity. | added |
+| RV_WORLD_GRID_X/Y/Z | pbr_fragment.glsl:349 | Latent. cost | Derive the per-axis counts from the reach bounds' own aspect, so cells are near-cubic under one total cell budget (a RenderSettings cost value, if exposed at all). | was there |
+| WorldLightGrid cells | LightGrid.h:158 | Latent. cost | Split a fixed cell budget across axes in proportion to the extent of the lights' bounds, recomputed each build and passed to the shader as a uniform instead of constants. | was there |
+| orthographic cluster range | LightGrid.cpp:26 | Latent. wrong brightness or colour | Derive near and far from the orthographic matrix's own terms (exact algebra, as the perspective branch does). | added |
+| neighbour ring spacing | direct_trace.rvshader:955 | Latent. noise | turn + n*2pi/N (maths), or a golden-angle step. | added |
+| neighbour ring angle step and count (lane History.z) | water_shade.rvshader:117 | Latent. noise | Step = 2pi/count, or a golden-angle sequence. Either way the step comes from the count, not a count of 3 built into the constant. | added |
+| neighbour normal agreement | water_shade.rvshader:144 | Latent. noise | Use the reference's normal threshold, stated as the reference constant, rather than a water-specific loosening. | added |
+| **RT2-16** · Views own their histories |  |  |  |  |
+| GlobalIllumination.y frame counter (BeginScene, static giFrame) | Renderer3D.cpp:3944 | Live. noise | Keep one frame index per view chain, stored with the chain's own state (the per-chain CameraMotion/TemporalHistory the engine already keeps, Renderer3D.cpp:3893-3920) and advanced once per frame of that chain. | added |
+| **RT2-17** · Signals and layers as data |  |  |  |  |
+| plane edge-stop | change_filter.rvshader:92 | Latent. noise | Point-to-plane distance with one normal, abs(n.(P' - P)), against a tolerance equal to the block's world footprint (view depth x pixel angle x 3 x stride), a pixel-unit definition. | added |
+| Floor lane | change_filter.rvshader:106 | Latent. smear | Judge the change the history would carry, not one frame's. Keep the record while the camera is still and compare the re-light against it, so the change accumulates since the history began, and reset when it is acted on. | added |
+| joint-bilateral depth tolerance | signal_upsample.rvshader:108 | Latent. banding | Weight each tap by its distance to the pixel's plane (the depth predicted from the local depth gradient or normal), which is zero for coplanar taps at any angle and resolution. | added |
+| guide texel selection | gbuffer_guide.rvshader:88 | Latent. jagged or jittery edges | Every pass derives a low texel's representative full-resolution texel by one integer rule (texelFetch at dst*d + d/2 from gl_FragCoord), never through a uv that lands on a texel edge. | added |
+| **RT2-20** · Ray passes in compute |  |  |  |  |
+| importance smoothing lane (BuildFrame 'Budget allocate') | FrameGraphBuilder.cpp:4195 | Latent. noise | Remove the cause: evaluate importance at jitter-compensated sample positions, so the lattice does not walk and no temporal average is needed. | added |
+| RayBudgetImportanceSmoothing | RenderSettings.h:542 | Latent. noise | Average the importance over exactly one jitter period, defined by the owner's TemporalJitterPhase. | added |
+| AO budget read (u_Budget.r) | rtao_compute.rvshader:331 | Latent. noise | Reproject the demand history by the velocity like every other history, so the allocation follows surfaces at any speed. | added |
+| motion saturation | importance_tiles.rvshader:151 | Latent. noise | Measure what the term predicts: the tile's share of texels whose accumulated history is young (the accumulators' own frame counts, as reflection_budget reads them), instead of a motion knee. | added |
+| material complexity weights | importance_tiles.rvshader:120 | Latent. noise | Weight a tile by how much each estimator contributes to its pixels: for GI the diffuse weight (1-metallic) x albedo, for AO the ambient term's weight, alongside the geometric partial-occlusion term already there. | added |
+| Smoothing lane | tile_budget.rvshader:203 | Latent. flicker | A box over exactly TemporalJitterPhase frames, which cancels a periodic signal exactly (as the comment itself notes). | added |
+| DwellFrames lane | tile_budget.rvshader:246 | Latent. flicker | If it is meant to span a jitter cycle, read TemporalJitterPhase. Otherwise drop it and let the derived band do its job. | added |
+| **RT2-21** · The G-buffer as a designed contract, and one BSDF for every path |  |  |  |  |
+| TraceSurface ray-origin offset | pbr_fragment.glsl:2643 | Latent. noise | Lift by the origin's own uncertainty, never by metres. The reconstructed point's texel slack (the neighbour-depth difference, as RTAO does) plus the float error of the position. | added |
+| shadow-ray origin push | ray_shadow_trace.glsl:240 | Latent. noise | Wachter & Binder 2019 (Ray Tracing Gems ch. 6): | added |
+| kLiftPerMetre | rtao_compute.rvshader:138 | Latent. wrong brightness or colour | The offset the precision really needs: ulp-scaled on the magnitude of the world position (Wachter & Binder, Ray Tracing Gems 2019 ch. | added |
+| kLift | rtao_compute.rvshader:137 | Latent. wrong brightness or colour | The same ulp-based origin offset as above, which replaces both constants. | added |
+| parallax step count | pbr_fragment.glsl:3671 | Latent. banding | Set the step count from the texels the ray crosses at the read mip, ceil(abs(delta_uv) * textureSize / 2^lod), capped by a cost setting. | added |
+| layered parallax step count | pbr_fragment.glsl:3824 | Latent. banding | A per-layer step count from the texels crossed at the read mip, capped by a cost setting. | added |
+| terrain wall-projection blend | pbr_fragment.glsl:4003 | Latent. banding | Weights from the stretch each projection gives (Geiss, GPU Gems 3 ch.1: | added |
+| terrain weight sampler single level | Material.cpp:341 | Latent. jagged or jittery edges | Build the weight map's mip chain (weights are linear and already renormalised at 3971-3972) and sample with the hardware LOD. | added |
+| alpha-test mip level | ray_shadow_trace.glsl:181 | Latent. jagged or jittery edges | Ray cones (Akenine-Moller et al., Ray Tracing Gems 2019): LOD from the ray's spread angle x hit distance over the texel footprint. | added |
+| **RT2-23** · Reflection denoiser v2 |  |  |  |  |
+| young-share thresholds | reflection_budget.rvshader:149 | Latent. noise | Linear in the share with no dead zone: target = least + share x (most - least). | added |
+| stride-2 lattice, row-only pairs | reflection_budget.rvshader:110 | Latent. noise | Count pairs in both lattice directions (isotropic). | added |
+| **RT2-24** · Direct light: visibility reconstructed apart from shading |  |  |  |  |
+| DirectBudget young threshold and tile (BuildFrame) | FrameGraphBuilder.cpp:1845 | Latent. noise | Extra lamps from the history's deficit against the signal's own memory setting (enough that history + extra reaches the accumulator's Memory), not a fixed 6 | added |
+| ShadowRayFade.y/.z start and end | pbr_fragment.glsl:1335 | Latent. noise | Retire the metre shapes in favour of the share shape (a pixel's own light budget), or express start and end as a lamp's range fraction, so no metres remain. | added |
+| ShadowRayFade.w floor / share threshold | pbr_fragment.glsl:1353 | Latent. wrong brightness or colour | Replace the borrow with an unbiased estimate. Trace with probability p = 1 - skip and weight the answer by 1/p (as the RT-11 and WR-16 reservoirs already do); | added |
+| skipped-ray visibility borrow | pbr_fragment.glsl:4712 | Latent. wrong brightness or colour | Russian roulette: skip with probability p and divide the traced visibility by (1-p), which is unbiased and independent of order. | added |
+| **RT2-25** · Bounce light from Realtime lights, added on top of the bake |  |  |  |  |
+| runtime cache blend per revisit (SolvePendingIrradiance) and its clamps (RequestRuntimeIrr | Renderer3D.cpp:2995 | Latent. smear | Let a cell's memory follow evidence, not a fixed per-sweep weight: a per-cell change test (fresh estimate against stored value, beyond the estimate's own noise) that restarts the cell's average. | added |
+| runtime irradiance field request (UpdateIrradianceVolumes) | Scene.cpp:3629 | Latent. smear | Blend by the cell's own sample count (a cumulative average up to a sample cap set in RenderSettings), and reset or shorten on measured change (the lighting hash, or the MeasuredChange map) rather than a fixed per-visit EMA | added |
+| kHysteresis | RuntimeIrradianceField.h:100 | Latent. smear | History belongs to a world position, not to a texel index. Scroll (toroidally address) the history with the box so a move carries no misregistration, as DDGI's scrolling volumes do. | problem was listed; general form added |
+| kRayBudget | RuntimeIrradianceField.h:95 | Latent. smear | Make the per-frame ray budget an owner RenderSettings value (a cost lever). | added |
+| kMovingThreshold | RuntimeIrradianceField.h:79 | Latent. no visible effect | Measure motion in the grid's own unit, not in metres per frame. The box is moving when its snapped cell changes (one cell, the field's pixel-unit). | added |
+| kDirectionSmoothing | RuntimeIrradianceField.h:85 | Latent. smear | No per-frame smoothing. Make the lead a function of path, not of frames: | added |
+| kSpacing | RuntimeIrradianceField.h:46 | Latent. wrong brightness or colour | Take the runtime cell size from the scene's own statement of scale: the authored volumes' Spacing, or an owner RenderSettings value. | was there |
+| kCellsX/kCellsY/kCellsZ | RuntimeIrradianceField.h:43 | Latent. wrong brightness or colour | The cell count is an owner cost setting. Make the grid isotropic, or derive its aspect from the scene's own bounds, not from an assumed flat world. | was there |
+| kLeadDistance | RuntimeIrradianceField.h:74 | Latent. no visible effect | Express the lead in box units (a stated fraction of the half-extent), or drop it. | added |
+| runtime box extents vs cell pitch (snap unit is not the cell pitch) | RuntimeIrradianceField.cpp:58 | Latent. smear; found by the skeptic | One definition of the cell: Extents = (kCells-1)*spacing/2, so the snap and move unit equals the cell pitch the fill and the readers use, as the authored volumes already do. | added |
+| GiSignal BoundWidth and MaxRadius (GiSignal) | Renderer3D.cpp:7904 | Latent. smear | Set the bound width from the actual correlation of the estimates at the accumulation grid: | problem was listed; general form added |
+| miss radiance | pbr_fragment.glsl:2655 | Latent. wrong brightness or colour | A miss is sky only if the ray could have left the scene. Take the reach as the distance to exit the TLAS bounds (maths from the scene's own extent), or return 'unknown' on a cut-off (fall back to the probe or field) and keep the sky for a true escape. | added |
+| probe slot 0.0 in ProbeIrradiance(hit.Normal, 0.0) / ShadeTraced(...,0.0) | irradiance_fill.rvshader:279 | Latent. wrong brightness or colour | Light the sky and ambient term at a secondary hit by that hit's own sky visibility, using the same visibility the receiver uses: | was there |
+| kIndirectClamp | rtgi_trace.rvshader:369 | Latent. wrong brightness or colour | Bound each sample relative to the estimator's own statistics (k times the pixel's running or neighbourhood mean from the signal history), which is invariant to a global light scale. | was there |
+| kNeeClamp | rtgi_trace.rvshader:583 | Latent. wrong brightness or colour | The same relative-to-mean bound as the hemisphere term, or removing the 'lottery' at its cause (aim only at the emitter's visible part, or MIS between NEE and the hemisphere ray) so that no absolute cap is needed. | was there |
+| **RT2-26** · One rule for indirect light, and a bake that knows when it is stale |  |  |  |  |
+| hybrid lamp blend band (PackLightCull) | Renderer3D.cpp:116 | Latent. wrong brightness or colour | A dimensionless band: a fixed fraction of the author's radius (an owner setting), or a band tied to the irradiance field's cell spacing at the lamp, which is what the bake can resolve. | added |
+| BakedShare blend band | pbr_fragment.glsl:305 | Latent. wrong brightness or colour | The share's transition must be at least as wide as the field can represent (sampling, a Nyquist argument). | added |
+| hybrid live band | LightGrid.cpp:231 | Latent. wrong brightness or colour | Make the band the field's own cell spacing at that point, the narrowest transition the bake can hold. | added |
+| baked-GI settle window (RenderShadows) | Scene.cpp:1849 | Latent. no visible effect | Warn on an event, not a count: the field lookup has completed for the current lighting hash, no load or solve is pending, and the hash has not changed since that lookup | added |
+| bake write settle (UpdateIrradianceVolumes) | Scene.cpp:4147 | Latent. no visible effect | Write when the solve requested for this lighting hash completed and the hash was unchanged across that whole solve (an event), with no frame count | added |
+| bake stall ceiling (UpdateLightingBake) | Scene.cpp:4624 | Latent. no visible effect | Give up on an event: the lighting hash changed during N consecutive completed solves, or a probe's capture was attempted and failed, with no frame count | added |
+| probe 'moved' tolerance (CaptureReflectionProbes) | Scene.cpp:3303 | Latent. cost | Exact comparison of the stored position (capture is deterministic), or a tolerance in ULPs of max(abs(position)) | added |
+| volume padding (UpdateIrradianceVolumes) | Scene.cpp:3840 | Latent. wrong brightness or colour | Pad in realised cells: compute the cell count, then set pad = 2 x realised spacing, and iterate once | added |
+| kMaxIrradianceVolumes | Renderer3D.h:87 | Latent. wrong brightness or colour | Size the region table from the scene (a storage buffer, the way the atlas already packs regions), so the only limit is memory. | was there |
+| Renderer3D::kMaxIrradianceVolumes (UpdateIrradianceVolumes) | Scene.cpp:3823 | Latent. wrong brightness or colour | Volume rows in a storage buffer sized to the scene; if an atlas memory budget (a RenderSettings value) binds, drop by importance and say which | was there |
+| irradiance volume capacity | scene_block.glsl:110 | Latent. wrong brightness or colour | Size the region table from content (a storage buffer indexed per region), keeping the warning for a real memory limit. | was there |
+| BC6H mode-11 box-fit endpoints (lo>>6, hi>>6) | BakedLighting.cpp:157 | Latent. banding | Encode by minimum reconstruction error, not a fixed fit: principal-axis endpoints with least-squares refinement, and try the two-region modes when they reconstruct better (the reference encoder's criterion). | added |
+| Stamp::Matches kEpsilon | BakedLighting.cpp:332 | Latent. no visible effect | Compare in ulps relative to the magnitude, or exactly, since both sides are computed deterministically from the same scene. | added |
+| IrradianceFromCube samplesPerAxis | Cubemap.h:80 | Latent. banding | Tie the sample count to the source (every source texel covered, Nyquist), or sample a mip whose texel matches the grid spacing, as the GPU path does. | added |
+| AoSignal MaxRadius and inherited contract (AoSignal) | Renderer3D.cpp:7869 | Latent. smear | A measured-change record for AO, like the direct light and GI have, so a change caused by an occluder is detected at the receiver by re-tracing a sampled pixel instead of waiting for the receiver to move. | added |
+| AoRadius (engine default, active for the bridge's traced AO) | PostSettings.h:694 | Latent. no visible effect | No change of unit needed. Optionally have the bridge profile state its AO radius explicitly so it is an owner setting. | added |
+| **RT2-27** · Reflections tiered by roughness |  |  |  |  |
+| ProbeParallax proxy radius | pbr_fragment.glsl:2452 | Latent. smear | Separate the proxy from the blend radius, taking it from the capture itself. | added |
+| kMaxProbes (kSlots = 16) | ProbeArray.h:28 | Latent. wrong brightness or colour | Slots = the scene's probe count, bounded by the device's cube-array layer limit and an owner memory-budget setting. | added |
+| **RT2-30** · Delete the superseded reconstruction and GI paths |  |  |  |  |
+| old post-chain occlusion accumulate (BuildFrame 'SSAO accumulate') | FrameGraphBuilder.cpp:4757 | Latent. smear | Route the reference arm's accumulate through the signal contract's motion-shortened memory, or keep it explicitly as a still-only reference | goes with the deletion |
+| kFireflyScale + offset | gi_denoise.rvshader:263 | Latent. wrong brightness or colour | A bound in exposure-normalised units, or relative to the local mean/sigma, with no absolute offset. | goes with the deletion |
+| Compress / Expand | gi_denoise.rvshader:135 | Latent. wrong brightness or colour | Compress exposure-scaled values (value x the frame's exposure), so the filter is invariant to a global light scale at matched exposure. | goes with the deletion |
+| first-frame bound and blend | gi_denoise.rvshader:183 | Latent. wrong brightness or colour | The same exposure-normalised, offset-free bound as the accumulating path, in one unit. | goes with the deletion |
+| kMaxFrames | gi_denoise.rvshader:115 | Latent. noise | Cap = 1/(1-Feedback), where the warm-up hands over by definition, or no cap below half-float exactness. | goes with the deletion |
+| **RT2-31** · Glass and water in the ray-traced world |  |  |  |  |
+| glass pane RT-9 ray plan (BuildFrame 'GlassReflectionBudget') | FrameGraphBuilder.cpp:2826 | Latent. noise | The same as the floor's: extra rays derived from the pane history's deficit against its Memory, and the budget as a RenderSettings value | added |
+| quad tracing-lane walk | pbr_fragment.glsl:4076 | Live. banding | Reconstruct the quad-shared refraction spatially, as S5 does for the mirror: | added |
+| S5 tap distance-agreement tolerance | pbr_fragment.glsl:6063 | Latent. smear | Tolerance in pixel units: the spread of hit distance one S5 texel spans (ray-cone footprint at the reference distance), with no metre floor. | added |
+| glass coverage from reflected radiance | pbr_fragment.glsl:6316 | Live. wrong brightness or colour; first to fix | Take coverage from the directional albedo, a true reflectance: reflectance = largest channel of (F0*envBRDF.x + envBRDF.y)*occlusion, independent of what is reflected. | added |
+| sky depth cut | water_backdrop.rvshader:62 | Latent. wrong brightness or colour | Compare against the clear value exactly (raw <= 0 in reverse-Z). That is a definition, not a threshold. | added |
+| kTracedBound | pbr_fragment.glsl:6155 | Live. wrong brightness or colour | Remove the cause the comment names, a mirror ray reading one mip-0 texel, with ray cones (Akenine-Moller et al., Ray Tracing Gems 2019, texture LOD for ray tracing). | was there |
+| **RT2-32** · Water as a material, a surface generator and a medium |  |  |  |  |
+| sea lamp accumulate memories (AccumulateWaterLamps, the live private pass) | Renderer3D.cpp:7760 | Live. smear | Keep the glint's history only while the view-to-lamp reflection geometry is unchanged within the lobe's own angular width, which the sea's Beckmann roughness gives (physics). | added |
+| WaterLampMemoryGlint | EngineConfig.h:714 | Latent. smear | Shorten the memory by the picture's measured change or texel travel (the contract path, --water-contract=on, already does this in texels, a pixel-unit rule), so 16 is only a cap and never the operating length under motion | added |
+| WaterLampMemoryScatter | EngineConfig.h:702 | Latent. smear | The same as the glint: memory shortened by measured change or texel travel, with the count only a cap | added |
+| glint memory (lane History.z) | water_accumulate.rvshader:401 | Live. smear; first to fix | Set the memory from the estimate's own statistics: accumulate until the running mean's standard error falls below a stated fraction of the signal, rather than a frame count. | added |
+| scatter memory (lane History.y) | water_accumulate.rvshader:400 | Latent. smear | The same as the glint memory: a variance-based stop plus measured change, not a frame count. | added |
+| history clamp width (lane Probe.x) | water_accumulate.rvshader:386 | Latent. smear | Derive the bound from the estimator's known variance: a confidence interval on the neighbourhood mean, widened by the history's own spread, at a stated false-rejection probability. | added |
+| WaterCaustics tile sizes and drift | pbr_fragment.glsl:3471 | Live. noise | Take the caustic cells from the same ripple field the detail normals use: | added |
+| sea detail-normal tiles and scroll | pbr_fragment.glsl:4235 | Latent. banding | Take the tile from the body's own surface-detail dial (TextureScale) and the drift from deep-water dispersion c = sqrt(g*lambda/2pi) at the tile's wavelength. | added |
+| sea detail-normal distance fade | pbr_fragment.glsl:4241 | Live. flicker | Fade as a function of pixel footprint over ripple wavelength, with the footprint from dFdx/dFdy of the world position or from the projection's pixel angle. | added |
+| sea detail-normal strength | pbr_fragment.glsl:4245 | Latent. wrong brightness or colour | Set the amplitude to the share of the sea's total slope variance (Cox-Munk at the wind the body's dials imply) that lies between the grid's shortest carried wave (4 x Spacing) and the ripple tile. | added |
+| contact-foam band | pbr_fragment.glsl:4338 | Live. wrong brightness or colour | Measure vertical depth: reconstruct the backdrop point in world space and take the surface's y minus its y. | added |
+| contact-foam surge | pbr_fragment.glsl:4339 | Latent. flicker | Phase from vertical depth, the same quantity as 4338's fix. | added |
+| sea pixel footprint | pbr_fragment.glsl:4409 | Live. wrong brightness or colour; first to fix | Take the footprint from the pixel itself: max(length(dFdx(P)), length(dFdy(P))), which also includes the grazing stretch exactly and replaces /grazing and its 0.08 floor. | added |
+| Cox-Munk slope ceiling | pbr_fragment.glsl:4413 | Live. wrong brightness or colour | Keep Cox-Munk's formula, not its single value: compute the mean-square slope from the wind speed the body's WaveLength/WaveHeight imply (Pierson-Moskowitz). | added |
+| refraction ray reach | pbr_fragment.glsl:6368 | Latent. wrong brightness or colour | Always reach = -ln(floor)/sigmaMin, with the floor a transmittance defined as invisible (for example under half an output level after exposure), for the reference preset too; | added |
+| RV_WATER_BAND | water_waves.glsl:31 | Latent. banding | Let only the grid end the geometric band: 4 quads, the sampling limit already in the code. | added |
+| foam step clamp | water_foam.rvshader:64 | Latent. smear | No clamp: one clock for waves and foam. | added |
+| foam drift speed | water_foam.rvshader:73 | Latent. smear | Derive the drift from the same dispersion relation the vertex uses, for example the sum's own Stokes drift, sum of a_i^2*k_i*omega_i from the same amplitudes and speeds. | added |
+| foam buffer resolution | Water.cpp:568 | Latent. jagged or jittery edges | Make the foam texel the grid's quad size (spacing), capped by the cost budget. | added |
+| kMaxDivisions | Water.cpp:131 | Latent. jagged or jittery edges | Pass the shader and the foam step the built quad size (extent/divisions, the larger axis), so the clamp reads what the grid actually is. | added |
+| water material roughness | Water.cpp:189 | Latent. wrong brightness or colour | Take the sub-tile slope variance from the same spectrum the waves use: | added |
+| detail tile wave fan orientation | Water.cpp:350 | Live. banding | Sample the tile in the wind frame (u = dot(xz, wind), v = dot(xz, windPerp)) and rotate the decoded slope back to world. | added |
+| **RT2-33** · Fog, glows and particles in the composition |  |  |  |  |
+| kSideGlow (and the shader's 0.34/0.77 cone-width edges) | LightGlow.cpp:29 | Live. wrong brightness or colour | Make the side visibility a per-light (per-fixture) authored property, with the physical default of zero: | added |
+| Side-glow cone smoothstep(0.34, 0.77, cosOuter) | light_glow.rvshader:126 | Live. wrong brightness or colour | The glow carries the intensity the light emits toward the camera, from the same angular profile the shading uses (the cone term alone, or an authored emission profile such as a wider outer cone or IES). | added |
+| Depth pull: max(1.0 m, 2*radius), capped at dist*0.5 | light_glow.rvshader:162 | Latent. wrong brightness or colour | Pull by the light's own size only (a multiple of SourceRadius, the one authored measure of the fitting), or replace the pull with a single visibility test: | added |
+| Back cutoff smoothstep(-0.35, 0.05, cosView) | light_glow.rvshader:127 | Live. wrong brightness or colour | Same as the side-glow item: the glow follows the light's own angular emission toward the camera, and no separate back-face taste curve exists. | added |
+| Sky depth = FarClip | fog.rvshader:132 | Live. wrong brightness or colour | Background pixels integrate to infinity: the closed-form limit for climb > 0, or the floor crossing where the ray descends, which lines 174-213 already solve. | added |
+| Horizontal-ray threshold abs(climb) < 1e-5 | fog.rvshader:235 | Latent. banding | Branch on the dimensionless x = climb*travel. Evaluate (1-exp(-x))/x with its series (1 - x/2 + x^2/6) for abs(x) below the fp32 cancellation point, and the closed form above it. | added |
+| **RT2-38** · Levels of detail for raster and rays |  |  |  |  |
+| thin-member fade distances | pbr_fragment.glsl:4185 | Live. flicker | Fade by projected width in pixels: the member's physical thickness (authored on the material) divided by the pixel footprint (distance x pixel angle from the projection). | added |
+| thin-member fade for rays | ray_shadow_trace.glsl:136 | Live. flicker | Fade by projected size: member thickness / (distance x pixel angle) below one pixel, a pixel-unit definition, shared by raster and rays. | added |
+| **RT2-41** · Large-world precision |  |  |  |  |
+| solve reach (SolvePendingIrradiance) | Renderer3D.cpp:3018 | Latent. wrong brightness or colour | A miss must be a true miss: make the reach unbounded, or the scene's TLAS bounds diagonal (a geometric fact of the scene). | added |
+| kGiReach (BuildFrame) | FrameGraphBuilder.cpp:881 | Latent. wrong brightness or colour | Derive the reach from the world: the diagonal of the TLAS instance bounds. | added |
+| hit directional shadow reach | pbr_fragment.glsl:2984 | Latent. wrong brightness or colour | The ray's tMax is the distance to exit the scene's acceleration-structure bounds (scene maths). | added |
+| TraceReflection reach (and the sky-visibility far) | pbr_fragment.glsl:3336 | Latent. wrong brightness or colour | One scene-derived reach (the TLAS bounds' exit distance) shared by every 'whole scene' ray, replacing each 1e4 literal. | added |
+| ray reach 1.0e4 m | pbr_fragment.glsl:5422 | Latent. wrong brightness or colour | No limit for a directional ray: tMax as a numerical infinity (a large float the traversal accepts), or the diagonal of the scene's TLAS bounds. | added |
+| directional shadow tMax / toward sentinel | direct_trace.rvshader:494 | Latent. wrong brightness or colour | Set tMax from the acceleration structure's world bounds (the distance to leave the TLAS box) or use the largest float the ray query accepts. | added |
+| mirror ray length and miss distance | water_trace.rvshader:81 | Latent. wrong brightness or colour | Take the reach from the scene's own extent (the acceleration structure's bounds diagonal) or leave tMax unbounded. | added |
+| reach (directional light shadow ray) | irradiance_fill.rvshader:321 | Latent. wrong brightness or colour | A ray to an infinitely distant light runs to the edge of the world: tMax = the scene's acceleration-structure bounds diagonal (or an unbounded tMax), never a metre literal. | added |
+| Trace.x lane (ray reach) | irradiance_fill.rvshader:229 | Latent. wrong brightness or colour | A miss must mean a real miss: set the reach to the scene's acceleration-structure bounds diagonal, not a multiple of the volume. | added |
+| bounce reach (GI.w) | rtgi_trace.rvshader:362 | Latent. wrong brightness or colour | tmax equal to the acceleration structure's world-bounds diagonal. No hit can lie beyond it, so the picture is exact at any scale and nothing past the scene is ever paid for. | added |
+| wall metres-per-uv from screen derivatives | pbr_fragment.glsl:4010 | Live. noise | Use the known mapping instead of a derivative ratio. Either pass metres-per-uv (TextureScale x entity scale) as a uniform, or build the wall uv from the same terrain-local coordinate v_TexCoord comes from, so the wall's derivatives are analytic and free of rounding noise. | added |
+| **RT2-44** · The raster fallback on general forms |  |  |  |  |
+| SpotLookup[4] / CascadeLookup[4] (SceneUniforms; ShadowMap kMaxLocal 4, kMaxCascades 4) | Renderer3D.cpp:223 | Latent. wrong brightness or colour | Give every casting light a map from a shared atlas and allocate each light's resolution by screen-space importance, so the budget lowers resolution instead of dropping occlusion. | added |
+| shadow-map depth bias (BeginShadow) | Renderer3D.cpp:9006 | Latent. jagged or jittery edges | Derive the bias from the map's own geometry: a slope term of one texel's depth footprint (receiver-plane), plus the normal offset in texel-world units (CascadeTexel already exists). | added |
+| ShadowMap::kMaxLocal (RenderShadowMaps, raster) | Scene.cpp:2780 | Latent. wrong brightness or colour | Rank casters by their contribution to this view (intensity x attenuation at the frustum x screen coverage) and give the slots to the top N. | added |
+| one directional light gets cascades (RenderShadowMaps, raster) | Scene.cpp:2757 | Latent. wrong brightness or colour | Give the cascades to the directional light with the largest contribution to the view (illuminance x the view's receiver coverage), or a budget of N cascade sets as a RenderSettings value | added |
+| spot shadow frustum widening and clamp (RenderShadowMaps, raster) | Scene.cpp:2795 | Latent. jagged or jittery edges | Widen by the PCF kernel's footprint (kernel texels x the texel's angle), not by 10%. | added |
+| kPointShadowNear as the spot shadow near plane (RenderShadowMaps, raster) | Scene.cpp:2804 | Latent. no visible effect | Near = the light's own SourceRadius (nothing inside the emitter can occlude it), floored by depth-format precision relative to Range. | added |
+| cascade near distance (RenderShadowMaps, raster) | Scene.cpp:2971 | Latent. jagged or jittery edges | Use the camera's near clip (already in hand as camera.GetProjection() at L2965) as the split scheme's start | added |
+| POINT_SHADOW_NEAR | pbr_fragment.glsl:465 | Latent. wrong brightness or colour | Near plane = the light's physical source radius (Direction.w, SourceRadius): | added |
+| raster refraction push | pbr_fragment.glsl:6431 | Latent. smear | Iterate the screen-space refraction to the measured backdrop depth along the refracted ray (one or two secant steps), guarded by the frame edge; | added |
+| raster refraction foreground rejection | pbr_fragment.glsl:6443 | Latent. smear | A relative tolerance: a few ulp of the stored depth at clip.w, or the pixel footprint times the depth slope. | added |
+| raster shadow-map capacity | scene_block.glsl:46 | Latent. wrong brightness or colour | Assign the map budget per view by importance (screen-space contribution), with the budget itself an owner setting (atlas texels). | added |
+| SsrMaxDistance (engine default) | PostSettings.h:534 | Latent. wrong brightness or colour | Bound the ray by the screen: its projected extent to the frame edge. | added |
+| GiRadius (engine default) | PostSettings.h:571 | Latent. wrong brightness or colour | Express the gather footprint as a share of the screen (its natural domain, since the data is the screen), with the tap count as the cost control, not metres. | added |
+| Voxel GI defaults (resolution / cascades / voxel size) | PostSettings.h:673 | Latent. wrong brightness or colour | Derive the cascades from the view: the outer cascade covers the far plane or shadow distance, and the voxel size follows from resolution and reach, so the clipmap spans the visible world by maths. | added |
+| SsrThickness (engine default) | PostSettings.h:539 | Latent. smear | Make the thickness the depth extent of one pixel's footprint at that depth: | added |
+| kSsrHiZLevels / kSsrHiZFineLevels | PostProcess.h:525 | Latent. cost | levels = ceil(log2(max(traceWidth, traceHeight))), the full mip chain, so a coarse step always spans a fixed share of the screen. | added |
+| kBiasPerMetre (SSAO) | ssao_compute.rvshader:80 | Latent. wrong brightness or colour | Per-pixel slope slack from the depth texel's own span (as rtao does), plus an ulp-level precision term. | added |
+| kBias (SSAO) | ssao_compute.rvshader:79 | Latent. wrong brightness or colour | The same per-pixel slope slack and ulp term as above. | added |
+| SameSurface tolerance | ssao_blur.rvshader:56 | Latent. noise | Distance to the tap's plane instead of a depth ratio. | added |
+| SSGI distance falloff | ssgi_compute.rvshader:315 | Latent. wrong brightness or colour; first to fix | A cosine/pdf-weighted gather with no distance term (the traced bounce's estimator), which is independent of world units. | added |
+| SSGI behind-reject | ssgi_compute.rvshader:308 | Latent. wrong brightness or colour | The same per-pixel slope slack as SSAO. | added |
+| kRatio (cone aperture) | voxel_cone.glsl:198 | Latent. wrong brightness or colour | The aperture the cone layout needs to tile the hemisphere, with the near-wall footprint problem it was tuned around fixed at its cause (mip selection or occlusion), not by narrowing the cone. | added |
+| voxel size clamp | VoxelGI.cpp:466 | Latent. wrong brightness or colour | Guard only against non-positive or NaN values (a numerical guard), and let the grid follow the setting. | added |
+| kMaxIterations | ssr_trace.rvshader:101 | Latent. wrong brightness or colour | Derive the cap from the trace itself: enough iterations for the level-0 walk to reach the trace's diagonal, plus a log2(diagonal) allowance per level change. | added |
+| kStride | ssr_trace.rvshader:102 | Latent. jagged or jittery edges | A level-0 walk that visits every texel the ray crosses (a DDA with a 1-texel step, the pixel-unit definition). | added |
+| kStrideGrowth | ssr_trace.rvshader:111 | Latent. jagged or jittery edges | Let the stride grow only up to the reflection lobe's projected footprint in texels: | added |
+| rough-surface step budget | ssr_trace.rvshader:253 | Latent. wrong brightness or colour | Tie the budget to the same screen-derived reach as the main cap, so rough rays can reach as far on screen as the lobe's weight needs, not a fixed fraction of a fixed count. | added |
+| kMaxBlurPixels (with roughness^2 at L79) | ssr_resolve.rvshader:55 | Latent. jagged or jittery edges | Size the disc from the lobe: radius_px = tan(the GGX lobe's half-angle for this roughness) x distance travelled / hit depth x focal length in pixels. | added |
+| kBias | ssgi_compute.rvshader:108 | Latent. no visible effect | Delete it. The Radius bound at L299 (an owner setting) is the real limit. | added |
+| kBiasPerMetre | ssgi_compute.rvshader:109 | Latent. no visible effect | Delete it along with kBias. The Radius bound decides acceptance. | added |
+| kAgreement | ssgi_compute.rvshader:223 | Latent. noise | Blend rather than switch: weight the written normal by how far its angle is inside the lift bound (derived from the kernel's 0.4 lift), so there is no hard threshold to flicker across. | added |
+| SameSurface relative depth tolerance | ssgi_blur.rvshader:55 | Latent. noise | A plane-aware edge stop: compare the neighbour's depth against the centre's depth extrapolated along its screen-space depth gradient (the SVGF depth weight abs(dz) / (/grad z . | added |
+| normal transform = mat3(Model) | voxelize.rvshader:73 | Latent. wrong brightness or colour | Use the inverse-transpose of the model's upper 3x3 (maths), the same normal matrix the lit pass uses, sent per instance or computed in the vertex shader. | added |
+| map sampled at lod 16 (the texture's mean) | voxelize.rvshader:182 | Latent. wrong brightness or colour | Sample at the voxel's own footprint. This pass rasterises one pixel per voxel, so dFdx/dFdy(uv) taken before the dominant-axis return (in uniform control flow, as planeNormal already is at L152) are the per-voxel uv footprint, and textureGrad with them gives the right ... | added |
+| write policy: last writer wins | voxelize.rvshader:198 | Latent. flicker | Accumulate instead of overwrite: the atomic running average of Crassin & Green (OpenGL Insights ch. | added |
+| voxel sun-shadow normal offset (slope floor 0.15, cap 4.0, Trace.w lane) | voxel_inject.rvshader:104 | Latent. wrong brightness or colour | Offset by the voxel's own half-diagonal (sqrt(3)/2 x voxel size, maths) plus the shadow-texel term, or test the position of the surface stored in the voxel instead of the voxel centre. | added |
+| only the cascaded sun is shadowed in the grid | voxel_inject.rvshader:181 | Latent. wrong brightness or colour; first to fix | Shadow every injected light the way the lit pass does: the same local shadow assignment (ShadowMap::GetAssignment) looked up at the voxel. | added |
+| per-voxel loop over every light | voxel_inject.rvshader:147 | Latent. cost | Cull lights per cascade or brick by range against the cascade box, as the lit pass's light list does, so cost follows the lights that can reach, not the count. | added |
+| multi-bounce feedback from last frame (Grid.z >= 1.5) | voxel_inject.rvshader:190 | Latent. smear | Compute the second bounce within the frame: inject, build the mip chain, inject again reading this frame's chain. | added |
+| last frame's chain read with this frame's cascade origins | voxel_inject.rvshader:194 | Latent. flicker | Keep each chain's own origins and address the previous chain with the previous frame's origins. | added |
+| cone step and uncorrected opacity | voxel_cone.glsl:166 | Latent. wrong brightness or colour | Opacity correction for the step length, alpha_c = 1 - (1 - alpha)^(step / footprint), the standard volume-rendering correction used in the voxel cone tracing reference. | added |
+| cascade origin snap | VoxelGI.cpp:478 | Latent. flicker | Snap each cascade to the texel of the coarsest level it is read at (2^maxMip voxels, maths). | added |
+| voxeliser target = N x N, no conservative rasterisation | VoxelGI.cpp:260 | Latent. wrong brightness or colour | Conservative rasterisation (VK_EXT_conservative_rasterization, overestimate), or the published triangle dilation (Hasselgren et al., GPU Gems 2 ch. | added |
+| kAgreement (voxel gather) | voxelgi_gather.rvshader:133 | Latent. noise | Derive the tolerance from this gather's own geometry (the lowest cone edge's elevation, 30 - 16 = 14 degrees), or blend by agreement instead of switching. | added |
+| hit snapped to the half-res texel centre (sub-texel crossing discarded) | ssr_trace.rvshader:307 | Latent. jagged or jittery edges; found by the skeptic | Write the continuous crossing, hitUv = (P0 + D*tCross)/baseSize. The crossing is already exact for planar depth, so no quantisation is needed. | added |
+| kAgreement | ssao_compute.rvshader:194 | Latent. flicker | Derive the tolerance from the kernel itself: accept the written normal while its tilt from the geometric one is below the minimum tap elevation, cos(atan(lift)). | added |
+| spiral rotation seed (pixel only, no frame term) | ssao_compute.rvshader:216 | Latent. noise | Seed the rotation with the frame index whenever a temporal accumulator follows it, as RTAO already does, so noise reduction depends on accumulated sample count and not on motion. | added |
+| off-screen tap policy | ssao_compute.rvshader:240 | Latent. wrong brightness or colour | Estimate from the taps that landed: ao = 1 - occ/valid, the unbiased estimator over the available samples, with the no-tap case as 1. | added |
+| kRadius | ssao_blur.rvshader:49 | Latent. noise | Fixing the frame seed (ssao_compute:216) restores the premise. Beyond that the width should follow the noise the accumulator leaves, not a remembered screen width. | added |
+| bilateral depth epsilon | ssao_apply.rvshader:87 | Latent. banding | The same SVGF-style gradient-normalised depth weight as the blur. A tap is judged against the depth predicted by the pixel's plane, in units of one texel of that plane's slope. | added |
+| AlphaCutoff (material lane) and alpha product | shadow_depth_masked.rvshader:86 | Latent. jagged or jittery edges | Coverage-preserving alpha mips in the texture cook (Castaño 2010, rescale each mip's alpha so the fraction above the cutoff is kept), or hashed alpha testing (Wyman and McGuire 2017). | added |
+| kPointShadowNear | ShadowMap.h:63 | Latent. wrong brightness or colour | Tie the near plane to the light's own physical extent, which is already authored (Light::SourceRadius): | added |
+| kMaxLocal | ShadowMap.h:140 | Latent. wrong brightness or colour | Rank casting lights each frame by their contribution to the view, for example intensity × the screen coverage of the range sphere. | added |
+| cascade split start floor | ShadowMap.cpp:409 | Latent. jagged or jittery edges | Anchor the log split on the camera's own near clip, as PSSM (Zhang 2006, a reference) defines it, and leave the distribution to the owner's lambda. | added |
+| cascade radius quantum | ShadowMap.cpp:452 | Latent. jagged or jittery edges | Quantise relative to the radius, for example round up to a fixed fraction of its power-of-two bracket, so the guard against float jitter is scale-free. | added |
+| caster pull-back margin | ShadowMap.cpp:459 | Latent. wrong brightness or colour | Pancake the casters: enable Vulkan depthClamp on the shadow pipelines, or clamp gl_Position.z in shadow_depth, and drop cull_casters' near plane. | added |
+| DepthBiasSlope (adjacent) | Renderer3D.cpp:9007 | Latent. jagged or jittery edges | Derive the slope factor from the lookup's footprint (the PCF reach in texels), or use receiver-plane depth bias in the lookup, so no magnitude is tuned. | added |
+| **RT2-45** · The post chain on general forms |  |  |  |  |
+| FrameDesc::ClearColor default | FrameGraphBuilder.h:318 | Latent. wrong brightness or colour | The background for SkyType::Color is black, matching the black cube the same sky type gives rays, or a scene-authored colour in SceneEnvironment used by both the clear and the ray miss | added |
+| AutoExposureMinLog / AutoExposureMaxLog (engine defaults, active on the bridge) | PostSettings.h:392 | Latent. wrong brightness or colour; first to fix | Derive the histogram span by maths from the owner's own settings: MinLog = log2(Key / AutoExposureMax) and MaxLog = log2(Key / AutoExposureMin), which are exactly the luminances the exposure clamp can respond to. | added |
+| MaxBokehRadius (engine default) | PostSettings.h:523 | Latent. jagged or jittery edges | State the cap as a share of frame height, so the owner's value means the same blur at every resolution, and scale the gather's tap budget with it. | added |
+| kGradientCubeSize | Skybox.cpp:169 | Latent. banding | The sky is analytic. Evaluate GradientAt at the reflection miss direction (sky.rvshader already has it), or size the cube from the sharpest analytic feature (texels per face >= a Nyquist count over the moon's angular diameter). | added |
+| Bin-0 cutoff 0.0001 | luminance_histogram.rvshader:48 | Live. wrong brightness or colour; first to fix | Bin 0 is 'below the owner's metering range': return 0 when log2(luminance) < Range.x (the AutoExposureMinLog setting). | added |
+| ceiling = max(Clamp, Threshold) | bloom_prefilter.rvshader:93 | Live. wrong brightness or colour | Threshold, knee and ceiling in exposed units: multiply the prefilter's input by the frame's exposure (the same u_Exposure buffer tonemap reads), so bloom follows what is on screen whatever the scene's absolute light level. | added |
+| Shutter lane (velocity is per frame) | motionblur_gather.rvshader:50 | Live. smear | The setting is an exposure time in seconds (a shutter speed). Blur = (velocity per frame / frame delta) * exposure time, using the same deterministic delta auto exposure uses (desc.DeltaSeconds), still capped by MaxRadius. | added |
+| kSoftZ | motionblur_gather.rvshader:62 | Live. smear | Judge 'in front' scale-free: by relative depth (za/zb), with the transition width taken from the local depth slope over the tap's pixel distance (what one surface's own slope explains). | added |
+| KarisWeight 1/(1+luma) | bloom_prefilter.rvshader:71 | Latent. flicker | Evaluate the weight on exposed luminance (luma * frame exposure), the domain the reference constant was defined in. | added |
+| kSkyDitherCompensation | sky.rvshader:268 | Latent. banding | Delete the option, since the tonemap's display-domain dither already covers it. | added |
+| kTaps | motionblur_gather.rvshader:57 | Latent. banding | One tap per pixel of reach: the loop runs ceil(reach) steps per side, bounded by MaxRadius. | added |
+| kTaps | dof_gather.rvshader:54 | Latent. noise | Derive the count from the disc area (about pi*R^2 taps at one per half-res pixel, rings = R), or keep N and prefilter the source to the tap spacing sqrt(pi*R^2/N), so every tap represents its share of the area. | added |
+| kDiagonalMargin | smaa_weights.rvshader:84 | Latent. jagged or jittery edges | Either drop the diagonal pass (at 8 it is measured equal to off), or use the reference SMAA diagonal classification (Jimenez 2012: | added |

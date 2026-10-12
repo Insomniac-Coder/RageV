@@ -5,11 +5,13 @@ finds the moving pixels instead: the cube travels 3 m/s with the camera still,
 so it is the only thing whose picture changes shape over six frames. The two
 arms are geometrically identical, so a box found in one is honest in both.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import glob, os, re
 import numpy as np
 from PIL import Image
 
-SHOTS = r'C:\Users\ism19\Code\RageV\build\garage_burst'
+SHOTS = (_RAGEV + r'\build\garage_burst')
 
 
 def frames(tag):

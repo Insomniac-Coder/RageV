@@ -1,8 +1,10 @@
 """RT-2.2 filed (owner, 2026-09-07): the deferred resolve is an item for the
 end of the RT series, not a question. The rows, the record, the hand-off's
 question, NEXT.md's header, memory."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 
 
 def load(p):

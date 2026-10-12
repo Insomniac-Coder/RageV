@@ -8,6 +8,7 @@
 #include "RageV/Managed/Interop.h"
 #include "RageV/Scene/ComponentRegistry.h"
 #include "RageV/Scene/FieldSerializer.h"
+#include "RageV/Utils/PlatformUtils.h"
 #include "yaml-cpp/yaml.h"
 #include <algorithm>
 #include <fstream>
@@ -787,7 +788,7 @@ namespace RageV
 		//
 		// Absent from an installed build, where the macro is not defined.
 #ifdef RV_DEFAULT_PROJECT
-		const std::filesystem::path fallback = FindIn(RV_DEFAULT_PROJECT);
+		const std::filesystem::path fallback = FindIn(Process::FindAboveExecutable(RV_DEFAULT_PROJECT));
 		if (!fallback.empty())
 			return Load(fallback);
 #endif

@@ -5,8 +5,10 @@ to the "Scene" pass that follows it, which preserves the depth. The lit
 shader is unchanged in what it computes, so raster stays pixel-identical;
 what changes is that every ray-traced signal can now run between the two
 passes with a G-buffer to read. See docs/RT-FIRST.md."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 
 def load(p):
     s = open(p, 'rb').read().decode('utf-8'); return s, ('\r\n' if '\r\n' in s else '\n')

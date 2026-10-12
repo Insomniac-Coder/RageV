@@ -135,6 +135,9 @@ internal unsafe struct NativeApi
 
 	/// <summary>1 while this run is producing lighting bakes. Protocol 12.</summary>
 	public delegate* unmanaged[Cdecl]<int> IsBakingLighting;
+
+	/// <summary>The script moved the camera discontinuously. Protocol 13.</summary>
+	public delegate* unmanaged[Cdecl]<void> RequestCameraCut;
 }
 
 /// <summary>Mirrors <c>RageV::Managed::RayHitData</c>, field for field.</summary>

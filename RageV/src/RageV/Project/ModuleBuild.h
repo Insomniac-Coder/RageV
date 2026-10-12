@@ -49,6 +49,14 @@ namespace RageV
 		static std::filesystem::path ModuleFor(const std::filesystem::path& projectRoot,
 											   const std::string& projectName);
 
+		// Whether a module's CMakeCache.txt was configured for another project
+		// folder or another engine build -- the project or the repository
+		// moved. CMake refuses such a cache outright, and "configure once"
+		// would trust it forever, so Build clears it first. An empty `engine`
+		// (none found) is not held against the cache.
+		static bool CachedElsewhere(const std::filesystem::path& cache, const std::filesystem::path& source,
+									const std::filesystem::path& engine);
+
 		// Configures (first time only) and builds Source/ into bin/<Config>/.
 		// Blocking -- the editor runs it on a worker thread and hands it the
 		// cancel flag, which terminates the whole compiler tree, and the tee,

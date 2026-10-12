@@ -5,9 +5,11 @@ The claim on the record is that the signal contract's geometric history gate
 cannot hold a sea. The water's own accumulate now runs that gate beside its own
 and acts on none of it, so this is the answer with no picture changed.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, re, subprocess, sys
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 RT = os.path.join(ROOT, 'build', 'bin', 'Release', 'RageVRuntime')
 
 CAMERAS = {

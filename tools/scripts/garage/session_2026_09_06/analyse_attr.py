@@ -1,11 +1,13 @@
 """Attribution of the back wall's motion noise: per-frame change in the pole
 band / its edges / the wall between the poles under the dolly (frames 60-100),
 and the same wall parked after the stop (frames 170-189) where rendered."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import numpy as np, sys, os
 from PIL import Image
-sys.path.insert(0, r'C:\Users\ism19\Code\RageV\tools\scripts\garage')
+sys.path.insert(0, (_RAGEV + r'\tools\scripts\garage'))
 from burst_compare import band_of, band_x
-S = 'C:/Users/ism19/Code/RageV/build/garage_burst/'
+S = (_RAGEV + '/build/garage_burst/')
 L = lambda p: (lambda a: 0.2126*a[...,0] + 0.7152*a[...,1] + 0.0722*a[...,2])(np.asarray(Image.open(S + p).convert('RGB'), dtype=float))
 def wall(a, n):
     h, w = a.shape; x0 = int(w * (band_x(n) + 300) / 2000); y0 = int(h * 250 / 1230)

@@ -18,12 +18,14 @@ frame counts compare the two arms and are not either filter's time constant.
 
 Usage: rt5_fade_analyse.py <tagA> <tagB> <first> <last> <switch_seconds>
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, sys
 import numpy as np
 from PIL import Image, ImageDraw
 
-S = r'C:\Users\ism19\Code\RageV\build\garage_burst'
-O = r'C:\Users\ism19\Code\RageV\build\rt5'
+S = (_RAGEV + r'\build\garage_burst')
+O = (_RAGEV + r'\build\rt5')
 A, B, FIRST, LAST = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
 frames = list(range(FIRST, LAST + 1))
 

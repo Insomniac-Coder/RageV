@@ -5,9 +5,11 @@ Writes the measured fix (rt20_arms.py's C, with the surfaces' own motion in
 place of the composite's lane) into RageVEditor/assets/shaders/taa_resolve.rvshader.
 Every substitution must match exactly once; the file keeps its CRLF.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, sys
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 P = os.path.join(ROOT, 'RageVEditor', 'assets', 'shaders', 'taa_resolve.rvshader')
 raw = io.open(P, encoding='utf-8', newline='').read()
 crlf = '\r\n' in raw

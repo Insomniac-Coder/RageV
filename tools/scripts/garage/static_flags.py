@@ -5,11 +5,13 @@ what says so. The car keeps whatever the studio scene gave it. Split out of
 fix1.py, whose material patches belong to the first FBX import and nothing
 since.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import sys, io
-sys.path.insert(0, r'C:\Users\ism19\Code\RageV\tools\scripts\garage')
+sys.path.insert(0, (_RAGEV + r'\tools\scripts\garage'))
 import scene_util as S
 
-SCENE = r'C:\Users\ism19\Code\RageV\SampleProject\assets\scenes\showroom.rage'
+SCENE = (_RAGEV + r'\SampleProject\assets\scenes\showroom.rage')
 
 head, blocks, N = S.load(SCENE)
 roots = [S.eid(b) for b in blocks if S.tag(b).startswith('underground_garage')

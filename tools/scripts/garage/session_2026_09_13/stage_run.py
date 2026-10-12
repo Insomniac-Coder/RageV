@@ -20,11 +20,13 @@ The scene is HEAD's showroom written beside the working copy, because the
 working copy was re-saved by the editor on 2026-09-11 and nothing measured here
 should depend on an uncommitted file.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, re, shutil, subprocess, sys, time
 import numpy as np
 from PIL import Image
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 RT = os.path.join(ROOT, 'build', 'bin', 'Release', 'RageVRuntime')
 SRC_DIR = os.path.join(ROOT, 'RageVEditor', 'assets', 'shaders')
 STAGED_DIR = os.path.join(RT, 'assets', 'shaders')
@@ -200,8 +202,18 @@ def restore():
             src = os.path.join(SRC_DIR, rel)
             if os.path.exists(src) and io.open(src, 'rb').read() != io.open(os.path.join(folder, f), 'rb').read():
                 names.add(rel)
+    # **And a source file the staged tree has never had (2026-09-25).** Walking only
+    # the staged side, a new include (reflection_emitters.glsl) was never copied, and
+    # every shader that included it failed to compile in the runtime -- which the
+    # runtime survives by dropping the pass, so a run measured the picture without it.
+    for folder, _, files in os.walk(SRC_DIR):
+        for f in files:
+            rel = os.path.relpath(os.path.join(folder, f), SRC_DIR)
+            if not os.path.exists(os.path.join(STAGED_DIR, rel)):
+                names.add(rel)
     for name in sorted(names):
         src, dst = os.path.join(SRC_DIR, name), os.path.join(STAGED_DIR, name)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copyfile(src, dst)
         ok = ok and io.open(src, 'rb').read() == io.open(dst, 'rb').read()
     return ok

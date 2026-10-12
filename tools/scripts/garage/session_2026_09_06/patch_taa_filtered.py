@@ -2,8 +2,10 @@
 3x3 around the pixel weighted by a Gaussian centred on the UNJITTERED
 pixel centre, so a bright edge's coverage no longer swings the whole
 sample every frame. Needs the jitter in the resolve's push block."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, sys
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 sign = sys.argv[1] if len(sys.argv) > 1 else '-1.0'
 
 def patch(p, pairs):

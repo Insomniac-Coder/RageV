@@ -4,9 +4,11 @@ its own low-discrepancy sequence instead of lattice offsets. The offsets made a 
 rays the first rays of its diagonal neighbours (the R2 step is the same per ray as per texel),
 so the resolve averaged duplicates and the face came out with fine horizontal striping. One
 ray a texel is bit for bit what it was: the draw index is then the frame's."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, sys
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 CRLF, LF = '\r\n', '\n'
 N = '\n'
 

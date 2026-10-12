@@ -1,10 +1,12 @@
 """Parked drift over 1/4/8/16 frames, motion change, and the settle, for the
 arms named on the command line (each needs <tag>_still_150..169 and
 <tag>_burst_30..189 frames; new2_burst stands for both of its own)."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import numpy as np, os, sys, subprocess
-sys.path.insert(0, r'C:\Users\ism19\Code\RageV\tools\scripts\garage')
+sys.path.insert(0, (_RAGEV + r'\tools\scripts\garage'))
 from burst_compare import band_of, band_x
-S = r'C:\Users\ism19\Code\RageV\build\garage_burst' + os.sep
+S = (_RAGEV + r'\build\garage_burst') + os.sep
 def L(p):
     a = np.asarray(Image.open(S + p).convert('RGB'), dtype=float); return 0.2126*a[...,0] + 0.7152*a[...,1] + 0.0722*a[...,2]
 from PIL import Image

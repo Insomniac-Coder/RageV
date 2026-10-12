@@ -3,9 +3,11 @@ region, against |parked frame - converged still at the end pose|. Also a
 pose check (px shift on the car, must be 0) and the split into edge/flat
 pixels of the reference (edge = gradient > 12): smear shows as flat-pixel
 error next to edges; noise shows as flat-pixel error everywhere."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import numpy as np, sys, os
 from PIL import Image
-S = 'C:/Users/ism19/Code/RageV/build/garage_burst/'
+S = (_RAGEV + '/build/garage_burst/')
 def Y(p):
     a = np.asarray(Image.open(S + p).convert('RGB'), dtype=float); return 0.2126*a[...,0] + 0.7152*a[...,1] + 0.0722*a[...,2]
 def regs(a, n=None):

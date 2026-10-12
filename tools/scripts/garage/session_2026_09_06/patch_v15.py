@@ -2,7 +2,9 @@
 (2,3) progressive over the accumulator's 64-frame memory, rotated per texel
 by the R2 lattice (a Cranley-Patterson rotation), so a texel's samples
 stratify the lobe over time and its neighbours cover other parts of it."""
-p = 'C:/Users/ism19/Code/RageV/RageVEditor/assets/shaders/reflection_trace.rvshader'
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
+p = (_RAGEV + '/RageVEditor/assets/shaders/reflection_trace.rvshader')
 s = open(p, 'rb').read().decode('utf-8'); nl = '\r\n' if '\r\n' in s else '\n'
 def rep(old, new):
     global s; o = old.replace('\n', nl); assert s.count(o) == 1, old[:60]; s = s.replace(o, new.replace('\n', nl))

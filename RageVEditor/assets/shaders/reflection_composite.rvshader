@@ -109,29 +109,13 @@ void main()
 	// The weight has done its work; nothing after this reads the alpha.
 	o_Color = vec4(scene.rgb + weight * added, 0.0);
 
-	// **Which motion this pixel moves by -- chosen, never averaged.**
-	//
-	// A pixel is a surface plus a reflection of something else, and the two
-	// move differently: as the eye slides, a tube's image slides across the
-	// wet floor at its own rate while the floor slides at the floor's. There
-	// is one history to fetch and one velocity to fetch it with, so the honest
-	// answer is to follow whichever of the two the pixel is mostly made of.
-	// Averaging them would give a velocity that describes neither -- the same
-	// reason every velocity read in this engine is point sampled.
-	//
-	// The threshold is the reflection carrying more of the pixel's brightness
-	// than everything else in it, which on the garage floor is the wet
-	// concrete under the tubes and the car, and is not the dry wall behind a
-	// faint sheen.
-	const vec3 kLuma = vec3(0.2126, 0.7152, 0.0722);
-	const float reflected = dot(weight * added, kLuma);
-	const float rest = dot(max(scene.rgb, vec3(0.0)), kLuma);
+	// **Which motion this pixel's history is fetched by: the surface's (RT-24, 2026-09-24).**
+	// This used to follow the reflection's image motion wherever the reflection was the
+	// brighter part of the pixel (RT-6.1), so the frame filter dragged everything else in the
+	// pixel -- the floor's own texture, and the puddle pattern the reflection carries -- along
+	// with the reflection under an orbit. The reflection has its own memory, which follows its
+	// image; this filter's job is the surface. Measured on the garage's slow orbit at 16 rays:
+	// pole ghost 10.5 -> 7.7, parked flicker unchanged.
 	const vec2 surfaceMotion = texture(u_Velocity, uv).xy;
-	// **2026-09-21: the lane is always meaningful now.** The accumulator writes the
-	// surface's own motion where it could not measure the image's, so a zero here
-	// says the reflection stood still -- which is the truth on a mirror sliding in
-	// its own plane, and used to be overridden by the mirror's motion because the
-	// two cases shared one value.
-	const vec2 imageMotion = texture(u_ReflectionMotion, uv).xy;
-	o_Motion = reflected > rest ? imageMotion : surfaceMotion;
+	o_Motion = surfaceMotion;
 }

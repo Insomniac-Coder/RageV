@@ -8,8 +8,10 @@
   Scene pass sampling it and handing it to the lit draw; FrameDesc.DirectLight.
 - The layers: the history slot (unused until the pair contract lands).
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, re
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 exec(open('tools/scripts/garage/session_2026_09_06/t4_prelude.py', encoding='utf-8').read())
 
 # ---------------------------------------------------------------- EngineConfig

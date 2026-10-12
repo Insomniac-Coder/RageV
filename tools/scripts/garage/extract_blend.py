@@ -6,9 +6,11 @@ connects *directly* to a Principled socket. This scene routes almost all of
 its through Mapping nodes and node groups, which is why thirteen materials'
 worth of texture arrived as four. Walking the graph backwards finds them.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import bpy, os, json
 
-OUT = r'C:\Users\ism19\Code\RageV\tools\scripts\garage\blendtex'
+OUT = (_RAGEV + r'\tools\scripts\garage\blendtex')
 os.makedirs(OUT, exist_ok=True)
 
 # --- unpack -----------------------------------------------------------------

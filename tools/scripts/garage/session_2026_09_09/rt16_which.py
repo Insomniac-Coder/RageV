@@ -20,11 +20,13 @@ Each is ablated on its own, staged over the shipped shader, and the frames-to-
 settle re-counted. The picture is wrong on purpose in each arm and the number
 is honest -- the contract `--water-ablate` and `--shade-lights` already carry.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, re, shutil, subprocess, sys
 import numpy as np
 from PIL import Image
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 SHOTS = os.path.join(ROOT, 'build', 'garage_burst')
 BURST = os.path.join(ROOT, 'tools', 'scripts', 'garage', 'burst.py')
 SRC = os.path.join(ROOT, 'RageVEditor', 'assets', 'shaders', 'reflection_accumulate.rvshader')

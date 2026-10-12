@@ -5240,6 +5240,15 @@ void main()
 			const float widenedAlpha = min(alpha + 0.5 * angular, 1.0);
 			specScale = (alpha / widenedAlpha) * (alpha / widenedAlpha);
 			specRoughness = sqrt(widenedAlpha);
+			// RT-24 (2026-09-24): and the length's energy taken back out -- the same rule as
+			// DirectTrace's (direct_trace.rvshader says why).
+			if (tubeLength > 0.0)
+			{
+				const vec3 halfAxis = light.Extent.yzw * (0.5 * tubeLength);
+				const vec3 toMiddle = light.Position.xyz - v_WorldPos;
+				const float subtended = length(normalize(toMiddle + halfAxis) - normalize(toMiddle - halfAxis));
+				specScale *= alpha / min(alpha + 0.25 * subtended, 1.0);
+			}
 #endif
 		}
 
@@ -5958,10 +5967,9 @@ void main()
 	// the temporal filter (reflection_composite.rvshader).
 	float reflectionShare = 0.0;
 	float reflectionWeight = 0.0;
-	// And how quickly the pass's picture is trusted: a mirror's rays hardly
-	// scatter, so its first frame is already the answer and fading it in over
-	// four reads as the reflection blinking off wherever a history was
-	// refused; a rough surface's first frame is grain, and takes the four.
+	// And how quickly the screen-space pass's picture is trusted, by its own
+	// confidence. **The traced form no longer fades its picture in (RT-24,
+	// 2026-09-23)** -- see the hook below.
 	float reflectionLift = 1.0;
 #ifdef RV_RAY_REFLECTIONS
 	// The traced form (7ao): the mirror ray from this surface, this frame,
@@ -5979,7 +5987,6 @@ void main()
 			gloss = vec2(0.25, 0.6);
 		float mirror = 1.0 - smoothstep(gloss.x, gloss.y, roughness);
 		reflectionWindow = mirror;
-		reflectionLift = mix(4.0, 1.0, smoothstep(0.0, 0.3, roughness));
 #ifdef RV_WATER
 		// --water-ablate=reflection. Zeroing the term takes the traced ray,
 		// the probe fallback and the blend that applies them together, which
@@ -6080,8 +6087,8 @@ void main()
 		if (glassReflected)
 		{
 			const vec4 settledReflection = texelFetch(u_GlassReflection, glassTexel, 0);
-			const float settledShare = clamp(settledReflection.a * u_Scene.ScreenReflections.x
-											 * reflectionLift, 0.0, 1.0) * reflectionWindow;
+			// Whole, as the opaque hook's picture is (RT-24).
+			const float settledShare = (settledReflection.a > 0.0 ? 1.0 : 0.0) * reflectionWindow;
 			prefiltered = mix(prefiltered, settledReflection.rgb, settledShare);
 		}
 		else
@@ -6182,8 +6189,23 @@ void main()
 		if (all(greaterThanEqual(traceUV, vec2(0.0))) && all(lessThanEqual(traceUV, vec2(1.0))))
 		{
 			vec4 traced = texture(u_ScreenReflections, traceUV);
+#ifdef RV_RAY_REFLECTIONS
+			// **Whole, whatever its age (RT-24, 2026-09-23).** The picture used to be
+			// trusted in proportion to the frames behind it -- a quarter a frame, over
+			// four -- with the baked probe making up the rest. But a turning camera
+			// makes every shiny pixel's memory young, so the floor flipped to the
+			// probe while moving and back when still: the washed-out smear of a fast
+			// spin (owner-judged "pretty much gone" without the fade). And the fade
+			// did not even serve the pixel it was for: after a cut the probe here is a
+			// third brighter than the traced picture (frame mean 65 against 49), so a
+			// new pixel flashed bright for several frames -- 34% of the frame off at
+			// a cut with it, 7% without. A young picture's grain is the frame
+			// filter's to settle; a different picture is nobody's.
+			float share = (traced.a > 0.0 ? 1.0 : 0.0) * reflectionWindow;
+#else
 			float share = clamp(traced.a * u_Scene.ScreenReflections.x * reflectionLift, 0.0, 1.0)
 						* reflectionWindow;
+#endif
 #ifdef RV_RAY_REFLECTIONS
 			// **Only if that texel was this reflector.** A wall pixel a pole
 			// has just uncovered maps to where the pole was, and the picture

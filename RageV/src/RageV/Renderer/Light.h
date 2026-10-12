@@ -186,7 +186,7 @@ namespace RageV
 		// to know, at a hit, whether the surface it landed on is one this
 		// list answers for**: emissive found by a shadow ray *and* by a
 		// hemisphere ray is counted twice, and emissive found by neither is
-		// lost. Both used to happen -- see kMaxAreaEmitters in Renderer3D.h.
+		// lost. Both used to happen while the list stopped at sixteen (until RT-24, 2026-09-25).
 		//
 		// Not a pointer, deliberately. The renderer compares it against the
 		// same id on a RayCaster and must not be tempted to dereference

@@ -10,8 +10,10 @@ coordinate's explicit derivatives (FootprintLod), so a far pixel marches the
 relief its footprint sees -- filtered as its colour is -- and fetches
 neighbours. Level zero stays level zero up close, where the footprint is
 under a texel."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, re
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 p = 'RageVEditor/assets/shaders/include/pbr_fragment.glsl'
 s = open(p, 'rb').read().decode('utf-8')
 nl = '\r\n' if s.count('\r\n') > s.count('\n') / 2 else '\n'

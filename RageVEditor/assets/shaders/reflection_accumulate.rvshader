@@ -1561,6 +1561,37 @@ void main()
 		// and smeared along its path -- the vertical bands and horizontal lines the owner saw, which
 		// took seconds to fade after it stopped (2026-09-15). The strip starts from its own rays
 		// instead. A curved mover keeps the fallback: its choice between the two is made above.
+		// **RT-24 (2026-09-24): a history gathered through another lobe, where the reflection
+		// slid across the surface.** The traced picture is the room seen through THIS texel's
+		// roughness -- sharp in a puddle, soft on the dry floor -- so it carries the surface's
+		// roughness pattern, and the image lookup drags that pattern along with the reflection
+		// when the eye moves: under an orbit the wet floor's puddles swam, the ghosting the
+		// owner saw. (Under a pan, and parked, the image's history is this very point's and
+		// nothing slides.) So the image's history is trusted by how alike the two pictures are.
+		// Each lobe blurs the reflected picture by 2*alpha radians (a reflection doubles the
+		// angle) over the image distance, seen from the eye; in texels, with the pixel itself
+		// added in quadrature. A 2D blur's peak falls with the square of its width, so a
+		// point-like feature -- a tube's core -- seen through widths s1 < s2 differs by
+		// 1 - (s1/s2)^2: the agreement is (s1/s2)^2, the worst case over pictures. Weighted by
+		// min(slide, 1): whether the image's history came from another pixel than the
+		// surface's own. No tuned number: 2 is the reflection's doubling, 1 is one texel.
+		// Measured against the tuned version it replaces (lobe widths refused past half apart):
+		// the slow orbit's ghosting identical at 1 and 16 rays, parked bit-identical.
+		if (have && haveSurface)
+		{
+			const float slide = length((c.thenNdc - atSurface.thenNdc) * 0.5 * vec2(size));
+			const vec4 alongHere = u_Reflection.InverseViewProjection * vec4(nowNdc, 0.5, 1.0);
+			const vec4 alongNext = u_Reflection.InverseViewProjection
+								 * vec4(nowNdc + vec2(2.0 / float(size.x), 0.0), 0.5, 1.0);
+			const float pixelAngle = max(length(normalize(alongNext.xyz / alongNext.w - eye)
+											   - normalize(alongHere.xyz / alongHere.w - eye)), 1.0e-7);
+			const float perAlpha = 2.0 * image / ((eyeDistance + image) * pixelAngle);
+			const float rThen = UnpackRoughness(c.extra.r);
+			const float sThen = sqrt(rThen * rThen * rThen * rThen * perAlpha * perAlpha + 1.0);
+			const float sNow = sqrt(roughness * roughness * roughness * roughness * perAlpha * perAlpha + 1.0);
+			const float narrowOverWide = min(sThen, sNow) / max(sThen, sNow);
+			c.matchConfidence *= mix(1.0, narrowOverWide * narrowOverWide, min(slide, 1.0));
+		}
 		const bool flatMover = dot(objectShift, objectShift) > 0.0 && curvature <= kCurvedMover;
 		if (!have && haveSurface && !flatMover)
 		{
@@ -1661,7 +1692,23 @@ void main()
 			const float gloss = smoothstep(0.0, 0.3, roughness);
 #endif
 			const float slack = max(u_Reflection.Probe.y, 0.25) * mix(0.25, 1.0, gloss);
+#ifdef RV_SIGNAL_DIFFUSE
 			const float fewest = mix(1.0, max(u_Reflection.History.z, 1.0), gloss);
+#else
+			// **RT-24 (2026-09-23): and the floor shrinks as the picture moves, as the
+			// memory above it does.** A reflection's old picture is found by where its
+			// image was, and under a turning camera that is only approximately where it
+			// is: a floor that kept four frames however far its picture had travelled
+			// blended three quarters of a misplaced picture into every frame -- the haze
+			// and the ghosts behind every reflected pole and car a fast swing left on the
+			// wet floor. Measured with sixteen rays a texel so grain could not hide it:
+			// the floor mid-swing came out as close to its settled picture as with the
+			// reflection memory off. Still (the picture within a slack of where it was),
+			// the floor is exactly what it was, and a diffuse signal's history is the
+			// surface's own and keeps it.
+			const float fewest = max(mix(1.0, max(u_Reflection.History.z, 1.0), gloss)
+									 / (1.0 + max(moved - slack, 0.0) / slack), 1.0);
+#endif
 			// The silhouette rule above keeps the full memory here on purpose:
 			// capped at one jitter cycle (eight frames, tried 2026-09-06) the
 			// edges flickered again at 2.7 levels a frame against 1.5, and the

@@ -11,9 +11,11 @@ the artist set rather than one guessed from the room's size.
 Line-based on purpose: these files are CRLF with no trailing newline, and a
 multiline regex both eats the carriage return and appends onto the last line.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, re, glob
 
-D = r'C:\Users\ism19\Code\RageV\SampleProject\assets\models\garage'
+D = (_RAGEV + r'\SampleProject\assets\models\garage')
 B = os.path.join(D, 'blend')
 
 handles = {}

@@ -1,5 +1,7 @@
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os
-BASE = 'C:/Users/ism19/Code/RageV'
+BASE = _RAGEV
 CR = chr(13); LF = chr(10)
 
 def load(rel):

@@ -255,6 +255,14 @@ namespace RageV
 		// ENGINE-NOTES 7y.
 		float DeltaSeconds = 0.0f;
 
+		// **RT-24: the view jumped, as a fact.** Set by whoever builds the frame
+		// when the camera drawing it is not the one that drew the last frame, a
+		// scene was loaded, or a script said it moved the camera discontinuously
+		// (Scene::ConsumeCameraCut). Every temporal history is dropped for the
+		// frame. How fast the camera moves never sets it -- see the cut in
+		// FrameGraphBuilder.
+		bool CameraCut = false;
+
 		// The three settings blocks the frame reads, from their three owners:
 		// the scene, the project, and the camera's profile. Copies rather than
 		// pointers, because the passes below outlive this call -- a graph pass

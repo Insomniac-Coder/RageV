@@ -1,6 +1,8 @@
 """BURST_SLIDE: a prefix written "=tag" must match the whole tag, so a
 model's root does not take its parts along twice."""
-p = 'C:/Users/ism19/Code/RageV/tools/scripts/garage/burst.py'
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
+p = (_RAGEV + '/tools/scripts/garage/burst.py')
 s = open(p, encoding='utf-8').read()
 old = "            if tag and any(tag.group(1).strip().startswith(pfx) for pfx in prefixes):\n                assert 'NativeScriptComponent' not in part, tag.group(1)"
 assert s.count(old) == 2, s.count(old)   # the switch hook and the slide hook share the line; both may use "=tag"

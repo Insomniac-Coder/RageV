@@ -399,6 +399,16 @@ namespace RageV
 		return best;
 	}
 
+	bool Scene::ConsumeCameraCut()
+	{
+		Entity camera = GetPrimaryCameraEntity();
+		const uint64_t id = camera ? (uint64_t)camera.GetComponent<IDComponent>().ID : 0;
+		const bool cut = m_CameraCutRequested || id != m_CutCamera;
+		m_CameraCutRequested = false;
+		m_CutCamera = id;
+		return cut;
+	}
+
 	PostSettings Scene::GetPostSettings()
 	{
 		Entity camera = GetPrimaryCameraEntity();

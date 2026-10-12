@@ -1,6 +1,8 @@
 """v9: both densities at the same re-aimed direction (this lobe's, and the
 neighbour's as if it had drawn it), so equal lobes weigh exactly one."""
-p = 'C:/Users/ism19/Code/RageV/RageVEditor/assets/shaders/reflection_resolve.rvshader'
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
+p = (_RAGEV + '/RageVEditor/assets/shaders/reflection_resolve.rvshader')
 s = open(p, 'rb').read().decode('utf-8'); nl = '\r\n' if '\r\n' in s else '\n'
 old = """		const float pdfHere = DistributionGGX(N, H, roughness) * max(dot(N, H), 1.0e-4)
 							/ (4.0 * max(dot(V, H), 1.0e-4));

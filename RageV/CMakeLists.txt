@@ -122,11 +122,13 @@ target_compile_definitions(RageV
 # never going to survive a DLL boundary anyway. The executables keep their own
 # LTCG for their own code.
 
-# Where a build run out of the build tree finds a project when nobody says.
-# Absent from an installed build, which then relies on a .rvproject sitting
-# beside the executable -- the shape a packaged game has.
+# The project a build run out of the build tree finds when nobody says: a
+# folder NAME, looked for above the executable at run time (never a path baked
+# in here), so the repository can move without a rebuild. Absent from an
+# installed build, which then relies on a .rvproject sitting beside the
+# executable -- the shape a packaged game has.
 target_compile_definitions(RageV PUBLIC
-    RV_DEFAULT_PROJECT="${CMAKE_SOURCE_DIR}/SampleProject")
+    RV_DEFAULT_PROJECT="SampleProject")
 
 # The /WHOLEARCHIVE that used to be here is gone, and deliberately.
 #
@@ -164,17 +166,16 @@ export(EXPORT RageVTargets
     NAMESPACE RageV::
     FILE "${CMAKE_BINARY_DIR}/RageVTargets.cmake")
 
-# Where that export file is, baked in so the editor can configure a project's
-# game module at runtime -- the same trick RV_ENGINE_SCRIPTS_DIR uses. Only
-# meaningful in a build tree; a packaged editor has RAGEV_ENGINE passed to it
-# or does without.
+# The editor finds that export file at run time, above its own executable
+# (ModuleBuild), so it can configure a project's game module wherever the
+# build tree now lives. It used to be baked in here as RV_ENGINE_EXPORT_DIR,
+# which broke every module build the moment the repository moved.
 #
 # RV_CMAKE_EXE is the cmake that configured this build. If it built the
 # engine, it can build a module against it, and unlike "cmake on PATH" it is
 # guaranteed to exist on this machine -- the VS-bundled cmake usually is not
 # on PATH at all. ModuleBuild falls back to PATH when the baked one is gone.
 target_compile_definitions(RageV PUBLIC
-    RV_ENGINE_EXPORT_DIR="${CMAKE_BINARY_DIR}"
     RV_CMAKE_EXE="${CMAKE_COMMAND}")
 
 # RV_ENGINE_SCRIPTS_DIR is gone: "New Script..." writes into the project's

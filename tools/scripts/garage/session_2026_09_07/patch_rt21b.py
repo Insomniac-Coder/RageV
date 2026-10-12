@@ -1,8 +1,10 @@
 """RT-2.1 (b): `--terrain-lod-error=<ratio>`, a measurement flag for the
 terrain's ground veto (Terrain::kLevelErrorRatio, 0.0003), so the veto's
 share of the G-buffer pass can be measured without a rebuild."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, re
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 
 
 def load(p):

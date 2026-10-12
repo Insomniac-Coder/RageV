@@ -48,7 +48,8 @@ public static unsafe class Interop
 	// 11: which backend is running, and which effects the last frame ran.
 	// 12: whether this run is producing lighting bakes, so a scene that owns
 	//     more than one lighting can walk them while the baker is watching.
-	public const int ProtocolVersion = 12;
+	// 13: a camera cut a script reports (Graphics.CameraCut).
+	public const int ProtocolVersion = 13;
 
 	/// <summary>
 	/// The first call the engine makes. Confirms the protocol and takes the

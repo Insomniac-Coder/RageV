@@ -3,8 +3,10 @@ that did not move at all (the kStillFeedback constant that was switched
 off for the bridge's water on 2026-09-02, now a per-project number). The
 garage sets 0.98: parked bright edges went from 3.3 levels a frame to 0.9
 with reflections off, the no-anti-aliasing floor being 1.0 (2026-09-06)."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 
 def patch(p, pairs):
     s = open(p, 'rb').read().decode('utf-8'); nl = '\r\n' if '\r\n' in s else '\n'

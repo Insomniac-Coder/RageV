@@ -1,5 +1,7 @@
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, sys
-p = r'C:\Users\ism19\Code\RageV\RageVEditor\assets\shaders\include\pbr_fragment.glsl'
+p = (_RAGEV + r'\RageVEditor\assets\shaders\include\pbr_fragment.glsl')
 d = io.open(p, 'r', encoding='utf-8', newline='').read()
 orig = d
 N = '\r\n'

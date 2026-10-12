@@ -10,11 +10,13 @@ inside the sea. A memory long enough to smooth glitter into a haze shows up as
 falling contrast and dimming peaks, which is how the sixteen-frame glint was
 argued for in the first place.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, subprocess, sys
 import numpy as np
 from PIL import Image
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 RT = os.path.join(ROOT, 'build', 'bin', 'Release', 'RageVRuntime')
 SHOTS = os.path.join(ROOT, 'build', 'garage_burst')
 

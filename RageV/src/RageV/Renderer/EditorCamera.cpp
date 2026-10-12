@@ -108,6 +108,7 @@ namespace RageV
 		// Distance at which a sphere of `radius` fills most of the vertical FOV.
 		const float safeRadius = Math::Max(radius, 0.1f);
 		m_Distance = Math::Max(safeRadius / Math::Tan(Math::Radians(m_FOV) * 0.5f) * 1.4f, 0.5f);
+		m_Jumped = true;
 
 		RecalculateView();
 	}
@@ -122,6 +123,7 @@ namespace RageV
 		m_Distance = Math::Max(distance, 0.01f);
 		m_Yaw = Math::Radians(yawDegrees);
 		m_Pitch = Math::Radians(pitchDegrees);
+		m_Jumped = true;
 
 		RecalculateView();
 	}

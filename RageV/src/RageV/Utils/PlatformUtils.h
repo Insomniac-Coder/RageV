@@ -34,5 +34,14 @@ namespace RageV
 		// a failed launch leaves the running editor alone rather than closing
 		// it and leaving nothing.
 		static bool RelaunchSelf(const std::string& arguments);
+
+		// This executable's own path; empty if the system will not say.
+		static std::filesystem::path ExecutablePath();
+
+		// `name` in the nearest folder at or above this executable's that has
+		// one, or empty. **Folders the engine needs at run time are found this
+		// way, never from a path baked in at build time**, so the repository
+		// (or an install) can move without a rebuild.
+		static std::filesystem::path FindAboveExecutable(const std::filesystem::path& name);
 	};
 }

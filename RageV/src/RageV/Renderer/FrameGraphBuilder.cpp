@@ -531,48 +531,36 @@ namespace RageV
 		// takes thirty frames to fade. It is the one temporal failure with no
 		// gradual version, so it gets the one blunt response.
 		//
-		// A speed rather than a distance: a dolly and a jump cover the same
-		// ground given enough frames, and it is the *rate* that makes a
-		// reprojection nonsense. A hundred metres a second is 360 km/h, past
-		// anything a camera travels here; forty-five degrees in one frame is
-		// 2700 degrees a second at sixty.
+		// **RT-24 (2026-09-24): a cut is reported, never guessed.** This used to
+		// infer one from the eye's speed (over 100 m/s) or a turn of more than
+		// 45 degrees in a frame. Both are guesses a faster camera crosses: the
+		// owner's ordinary orbit drag in the garage read 108-165 m/s while
+		// turning under five degrees a frame -- a picture every history could
+		// still use -- and dropped all of them six to eight times a minute, a
+		// burst of one-ray speckle and unfiltered edges each time. Whoever
+		// builds the frame knows when the view truly jumped (FrameDesc::
+		// CameraCut); every other motion, of any speed, is judged pixel by
+		// pixel by the tests each history already makes, which lose a pixel's
+		// history when it no longer matches rather than the whole screen at a
+		// threshold.
 		//
 		// The exposure is deliberately left alone -- a cut into a brighter room
 		// should still adapt rather than snap, and how fast is a look decision.
-		if (desc.History && desc.DeltaSeconds > 1.0e-5f)
+		if (desc.CameraCut && desc.History && desc.History->HasHistory())
 		{
-			const CameraMotion& was = desc.History->Motion();
-			if (was.Eye.w > 0.5f && desc.History->HasHistory())
-			{
-				const Mat4 toWorld = Math::Inverse(desc.View);
-				const Vec3 eyeNow(toWorld[3][0], toWorld[3][1], toWorld[3][2]);
-				const Vec3 facingNow = Math::Normalize(
-					Vec3(-toWorld[2][0], -toWorld[2][1], -toWorld[2][2]));
-				const Vec3 eyeWas(was.Eye.x, was.Eye.y, was.Eye.z);
-				const Vec3 facingWas = Math::Normalize(
-					Vec3(was.Forward.x, was.Forward.y, was.Forward.z));
-				constexpr float kCutMetresPerSecond = 100.0f;
-				constexpr float kCutFacing = 0.7071f;   // forty-five degrees
-				const float speed = Math::Length(eyeNow - eyeWas) / desc.DeltaSeconds;
-				const float turned = Math::Dot(facingNow, facingWas);
-				if (speed > kCutMetresPerSecond || turned < kCutFacing)
-				{
-					RV_CORE_TRACE("Camera cut: {0:.1f} m/s, facing dot {1:.3f}; "
-								  "temporal histories dropped", speed, turned);
-					desc.History->Invalidate();
-					if (desc.Reflections)  desc.Reflections->Invalidate();
-					if (desc.Indirect)     desc.Indirect->Invalidate();
-					if (desc.TaaGuide)     desc.TaaGuide->Invalidate();
-					if (desc.DirectLight)  desc.DirectLight->Invalidate();
-					if (desc.GlassDirectLight) desc.GlassDirectLight->Invalidate();
-					if (desc.GlassReflections) desc.GlassReflections->Invalidate();
-					if (desc.GlassReflectionChange) desc.GlassReflectionChange->Invalidate();
-					if (desc.GlassReflectionBudget) desc.GlassReflectionBudget->Invalidate();
-					if (desc.GiLight)      desc.GiLight->Invalidate();
-					if (desc.Occlusion)    desc.Occlusion->Invalidate();
-					if (desc.RayBudget)    desc.RayBudget->Invalidate();
-				}
-			}
+			RV_CORE_TRACE("Camera cut: temporal histories dropped");
+			desc.History->Invalidate();
+			if (desc.Reflections)  desc.Reflections->Invalidate();
+			if (desc.Indirect)     desc.Indirect->Invalidate();
+			if (desc.TaaGuide)     desc.TaaGuide->Invalidate();
+			if (desc.DirectLight)  desc.DirectLight->Invalidate();
+			if (desc.GlassDirectLight) desc.GlassDirectLight->Invalidate();
+			if (desc.GlassReflections) desc.GlassReflections->Invalidate();
+			if (desc.GlassReflectionChange) desc.GlassReflectionChange->Invalidate();
+			if (desc.GlassReflectionBudget) desc.GlassReflectionBudget->Invalidate();
+			if (desc.GiLight)      desc.GiLight->Invalidate();
+			if (desc.Occlusion)    desc.Occlusion->Invalidate();
+			if (desc.RayBudget)    desc.RayBudget->Invalidate();
 		}
 
 		const uint32_t velocityIndex = (uint32_t)sceneDesc.ExtraColors.size() + 1;
@@ -1806,7 +1794,8 @@ namespace RageV
 				previousDirect = graph.Import(direct.Previous(), "DirectPrevious");
 			RGResource directBudgetMap = kRGInvalid;
 			const bool directMoved = Renderer3D::AnyInstanceMoved()
-								  || !Renderer3D::CameraStill(direct.Motion());
+								  || (config.ConfidenceRaysOnCameraMotion
+									  && !Renderer3D::CameraStill(direct.Motion(), desc.View));
 			// **And not where there is no headroom to allocate.** `directRays` is the
 			// level's count and the shader's ceiling is eight, so at Quality (which is
 			// eight) every tile's answer is the count it already had -- the pass would
@@ -2370,8 +2359,11 @@ namespace RageV
 			// The ray's direction and pdf, for the resolve's ratio estimator.
 			// RT-17: and what each ray struck, for the accumulate's identity test.
 			// RT-15: and how far that moved since last frame, for where its history is.
+			// RT-24: and the aimed samples' light, apart from the lobe's (reflection_trace).
+			// RT-24 (2026-09-25): and the draw behind each aimed sample, for the lamp pool.
 			traceDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT, Format::R16G16_SFLOAT,
-									  Format::R16G16B16A16_SFLOAT };
+									  Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
+									  Format::R32G32B32A32_SFLOAT };
 			traceDesc.Depth = Format::Undefined;
 			traceDesc.Scale = (float)supersample;
 			const RGResource traced = graph.CreateTarget(traceDesc);
@@ -2399,7 +2391,9 @@ namespace RageV
 			// rays cost half a millisecond a frame for it (2026-09-16). The trace then falls
 			// back to one ray a texel, which is what a still scene asked for before RT-9.
 			const bool rt9InstancesMoved = Renderer3D::AnyInstanceMoved();
-			const bool rt9CameraStill = Renderer3D::CameraStill(desc.Reflections->Motion());
+			// RT2-0 arm C: the camera moving on its own counts only when asked (off by default).
+			const bool rt9CameraStill = !config.ConfidenceRaysOnCameraMotion
+									 || Renderer3D::CameraStill(desc.Reflections->Motion(), desc.View);
 			const bool anythingMoved = rt9InstancesMoved || !rt9CameraStill;
 			if (pastBound && anythingMoved && config.ReflectionConfidenceRays && desc.ReflectionBudget
 				&& desc.ReflectionBudget->Current() && desc.ReflectionBudget->Previous())
@@ -2492,13 +2486,17 @@ namespace RageV
 					builder.Sample(sceneHDR);
 					builder.DisableDepth();
 				},
-				[traced, sceneHDR, normalIndex](RGPassContext& context)
+				[traced, sceneHDR, normalIndex, albedoIndex](RGPassContext& context)
 				{
 					Renderer3D::ResolveReflections(context.Color(traced),
 												   context.Color(traced, 1),
 												   context.Depth(sceneHDR),
 												   context.Color(sceneHDR, normalIndex), false,
-												   context.Color(traced, 3));
+												   context.Color(traced, 3),
+												   context.Color(traced, 4),
+												   // RT-24: the draws, and the albedo for the tint.
+												   context.Color(traced, 5),
+												   context.Color(sceneHDR, albedoIndex));
 				});
 			// The previous frame's picture, surface and moments, when there is one.
 			// **The reconstruction contract (RT-first T4).** The accumulate and
@@ -2582,6 +2580,7 @@ namespace RageV
 																   context.Color(traced),
 																   context.Color(sceneHDR, velocityIndex),
 																   context.Color(traced, 3),
+																   context.Color(traced, 4),
 																   reflectionView, *history);
 							});
 					}
@@ -2801,8 +2800,11 @@ namespace RageV
 			RGTargetDesc glassRayDesc;
 			glassRayDesc.Name = "GlassReflectionTrace";
 			glassRayDesc.Color = Format::R16G16B16A16_SFLOAT;
+			// RT-24: and the aimed samples' light, as the floor's trace (reflection_trace).
+			// RT-24 (2026-09-25): and the draw behind each aimed sample, as the floor's.
 			glassRayDesc.ExtraColors = { Format::R16G16B16A16_SFLOAT, Format::R16G16_SFLOAT,
-										 Format::R16G16B16A16_SFLOAT };
+										 Format::R16G16B16A16_SFLOAT, Format::R16G16B16A16_SFLOAT,
+										 Format::R32G32B32A32_SFLOAT };
 			glassRayDesc.Depth = Format::Undefined;
 			glassRayDesc.Scale = (float)supersample;
 			const RGResource glassRays = graph.CreateTarget(glassRayDesc);
@@ -2821,7 +2823,8 @@ namespace RageV
 				pane.Prepare(Renderer::GetDevice(), tilesX, tilesY, Format::R16G16B16A16_SFLOAT,
 							 "GlassReflectionBudget");
 				const bool anythingMoved = Renderer3D::AnyInstanceMoved()
-										|| !Renderer3D::CameraStill(glassMirror.Motion());
+										|| (config.ConfidenceRaysOnCameraMotion
+											&& !Renderer3D::CameraStill(glassMirror.Motion(), desc.View));
 				if (glassPastBound && anythingMoved && config.ReflectionConfidenceRays
 					&& pane.Current() && pane.Previous())
 				{
@@ -2910,7 +2913,11 @@ namespace RageV
 												   context.Color(glassRays, 1),
 												   context.Depth(glassLayer),
 												   context.Color(glassLayer, 1), true,
-												   context.Color(glassRays, 3));
+												   context.Color(glassRays, 3),
+												   context.Color(glassRays, 4),
+												   // RT-24: the draws, and the layer's albedo for the tint.
+												   context.Color(glassRays, 5),
+												   context.Color(glassLayer, 2));
 				});
 
 			// **RT-22 (2026-09-23): the pane's measured change -- the floor's check, on the
@@ -2988,6 +2995,7 @@ namespace RageV
 															   context.Color(glassRays),
 															   context.Color(glassLayer, 0),
 															   context.Color(glassRays, 3),
+															   context.Color(glassRays, 4),
 															   paneView, *history, true);
 						});
 				}
@@ -3936,10 +3944,14 @@ namespace RageV
 					},
 					[source, sceneHDR, previous, velocityIndex, normalIndex, feedback, stillFeedback,
 					 hasHistory, jitter, taaGuideCurrent, taaGuidePrevious, taaGuideHasHistory,
-					 boxGeometry = config.TaaBoxGeometry,
+					 boxGeometry = config.TaaBoxGeometry, planeTest = config.TaaPlaneTest,
 					 reflectionMotion, waterSurface, directChange, directChangeLive,
 					 reflectionChange, reflectionChangeLive, wantTransparent](RGPassContext& context)
 					{
+						Mat4 reproject{ 1.0f };
+						float depthFloor = 0.0f, frustumExtent = 0.0f;
+						const bool reprojected = Renderer3D::TemporalReprojection(reproject, depthFloor,
+																				  frustumExtent);
 						PostProcess::TemporalResolve(
 							context.Cmd,
 							context.Color(source),
@@ -4003,7 +4015,9 @@ namespace RageV
 							// the pixel** -- the revealage, attachment 2 wherever the
 							// transparent pass exists. Every other lane here is the
 							// opaque scene's, so at a window it describes the cabin.
-							wantTransparent ? context.Color(sceneHDR, 2) : nullptr);
+							wantTransparent ? context.Color(sceneHDR, 2) : nullptr,
+							// RT-24: last frame's camera, for NRD's same-surface test.
+							planeTest && reprojected ? &reproject : nullptr, depthFloor, frustumExtent);
 					});
 
 				shaded = current;

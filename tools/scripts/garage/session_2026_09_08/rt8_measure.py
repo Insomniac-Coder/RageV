@@ -4,11 +4,13 @@ Four bridge cameras, the same frame each, before and after. The sea's own bands
 are where it should show; the deck and the towers are the no-regression arms.
 The runtime is driven directly -- burst.py cannot run the bridge.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, shutil, subprocess, sys
 import numpy as np
 from PIL import Image
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 RT = os.path.join(ROOT, 'build', 'bin', 'Release', 'RageVRuntime')
 STAGED = os.path.join(RT, 'assets', 'shaders')
 SRC = os.path.join(ROOT, 'RageVEditor', 'assets', 'shaders')

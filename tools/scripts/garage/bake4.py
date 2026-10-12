@@ -7,10 +7,12 @@ colour was, so after export it lands on the wrong UVs and reads as noise --
 mostly rough -- and the diffuse grid shows through instead. Bake the
 roughness to the same top-face UVs as the colour.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import bpy, os, bmesh
 from mathutils import Vector
 
-OUT = r'C:\Users\ism19\Code\RageV\SampleProject\assets\models\garage_baked'
+OUT = (_RAGEV + r'\SampleProject\assets\models\garage_baked')
 os.makedirs(OUT, exist_ok=True)
 
 sc = bpy.context.scene

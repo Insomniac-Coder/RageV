@@ -1,11 +1,13 @@
 """Per-arm temporal change under the dolly: the pole band, the back wall
 between the poles, and the band's edge pixels only (gradient above a
 threshold in the reference frame), band-following; plus after the stop."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import numpy as np, sys, os
 from PIL import Image
-sys.path.insert(0, r'C:\Users\ism19\Code\RageV\tools\scripts\garage')
+sys.path.insert(0, (_RAGEV + r'\tools\scripts\garage'))
 from burst_compare import band_of, band_x
-S = r'C:\Users\ism19\Code\RageV\build\garage_burst' + '\\'
+S = (_RAGEV + r'\build\garage_burst') + '\\'
 L = lambda p: (lambda a: 0.2126*a[...,0] + 0.7152*a[...,1] + 0.0722*a[...,2])(np.asarray(Image.open(S + p).convert('RGB'), dtype=float))
 
 def wall(a, n):

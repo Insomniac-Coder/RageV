@@ -61,6 +61,11 @@ namespace RageV
 		void  SetMoveSpeed(float speed);
 		float GetDistance() const { return m_Distance; }
 
+		// RT-24: whether Focus or SetOrbit moved the camera since the last call -- both
+		// put it somewhere new at once, which is a camera cut (FrameDesc::CameraCut).
+		// Dragging, flying and zooming are continuous and never set it.
+		bool ConsumeJump() { const bool jumped = m_Jumped; m_Jumped = false; return jumped; }
+
 	private:
 		bool OnMouseScrolled(MouseScrolledEvent& e);
 
@@ -97,5 +102,6 @@ namespace RageV
 		Vec2 m_LastMousePosition{ 0.0f };
 		float m_MoveSpeed = 6.0f;
 		bool  m_Active = false;
+		bool  m_Jumped = false;
 	};
 }

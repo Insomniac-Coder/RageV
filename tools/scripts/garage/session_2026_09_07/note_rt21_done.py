@@ -1,7 +1,9 @@
 """RT-2.1 done: the record into docs/RT-SERIES.md, the rows, the AO decision,
 the hand-off's eleventh entry, NEXT.md's header, the flag's doc line, memory."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, re
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 
 
 def load(p):

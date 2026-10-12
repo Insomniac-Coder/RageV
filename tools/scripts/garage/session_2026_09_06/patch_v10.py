@@ -2,7 +2,9 @@
 reprojected texel for a matching surface when the centre's fails (SVGF).
 Under jitter an edge texel's surface flips sides every frame; refusing the
 history there left every silhouette one frame old and shaking."""
-p = 'C:/Users/ism19/Code/RageV/RageVEditor/assets/shaders/reflection_accumulate.rvshader'
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
+p = (_RAGEV + '/RageVEditor/assets/shaders/reflection_accumulate.rvshader')
 s = open(p, 'rb').read().decode('utf-8'); nl = '\r\n' if '\r\n' in s else '\n'
 a = s.index('\tconst ivec2 pastTexel = clamp(ivec2(c.pastUv * vec2(size)), ivec2(0), size - 1);')
 b = s.index('\treturn c.past.a > 0.0;' + nl + '}', a) + len('\treturn c.past.a > 0.0;' + nl)

@@ -1,8 +1,10 @@
 """Prelude for the second half of the T4 patch: the same helpers, tolerant
 of the mixed line endings Renderer3D.cpp carries (some lines CRLF, some
 LF): each match is tried with both."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 
 def load(p):
     s = open(p, 'rb').read().decode('utf-8'); return s, ('\r\n' if '\r\n' in s else '\n')

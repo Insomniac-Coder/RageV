@@ -13,11 +13,13 @@ frame, and the difference of both at x8 (green: after is brighter).
 
 Usage: rt5_bridge_ab.py [camera-name] [first] [count]
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, os, re, shutil, subprocess, sys
 import numpy as np
 from PIL import Image, ImageDraw
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 RT = os.path.join(ROOT, 'build', 'bin', 'Release', 'RageVRuntime')
 SRC = os.path.join(ROOT, 'RageVEditor', 'assets', 'shaders')
 STAGED = os.path.join(RT, 'assets', 'shaders')

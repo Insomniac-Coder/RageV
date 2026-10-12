@@ -8,8 +8,10 @@
 - --ao-signal=on|off keeps the old post-apply chain as the A/B;
   --debug-view=ao shows the accumulated signal.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, re
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 exec(open('tools/scripts/garage/session_2026_09_06/t4_prelude.py', encoding='utf-8').read())
 
 # ---------------------------------------------------------------- the lit shader

@@ -390,6 +390,18 @@ namespace RageV
 
 		Entity GetPrimaryCameraEntity();
 
+		// **RT-24: whether the view drawn through the primary camera jumped since the
+		// last call** (FrameDesc::CameraCut) -- true once after RequestCameraCut, and
+		// whenever the primary camera is not the entity it was at the last call, which
+		// includes the first frame a scene is drawn. Whoever builds that frame calls it
+		// once; reading clears it. It never looks at how the camera moved.
+		bool ConsumeCameraCut();
+		// Say the camera moved discontinuously -- a teleport, a respawn, a jump to
+		// another viewpoint -- so the next frame drops every temporal history rather
+		// than reprojecting across the jump. Continuous motion, however fast, never
+		// needs it: every history judges that pixel by pixel.
+		void RequestCameraCut() { m_CameraCutRequested = true; }
+
 		// Lowest ListenerRank wins. Falls back to the primary camera when the
 		// scene has no AudioListenerComponent at all, which is the case almost
 		// every time and is what makes audio work without being set up.
@@ -882,6 +894,9 @@ namespace RageV
 		// See SetPaused. Runtime state, deliberately not serialized: a saved
 		// scene is not "a scene somebody had paused".
 		bool m_Paused = false;
+		// RT-24: see ConsumeCameraCut. Runtime state, not serialized.
+		bool m_CameraCutRequested = false;
+		uint64_t m_CutCamera = 0;
 		// True while probe faces are being rendered. A probe capture draws the
 		// scene, and the scene reflects a probe -- without this the second
 		// probe in a scene would capture the first one's reflection of it, and

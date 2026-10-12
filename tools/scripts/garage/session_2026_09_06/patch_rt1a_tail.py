@@ -5,8 +5,10 @@ stashes the tail when the G-buffer pass is active and Scene::OnRenderLit
 draws it, after Renderer3D::DrawLit, from the "Scene" pass. The G-buffer
 pass sets the active flag only around the scene callback, so a probe face
 or a shadow caster drawn outside the graph keeps the single-pass path."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 
 def load(p):
     s = open(p, 'rb').read().decode('utf-8'); return s, ('\r\n' if '\r\n' in s else '\n')

@@ -689,6 +689,8 @@ void EditorLayer::OnUpdate(Timestep ts)
 	scene.TaaGuide = &m_SceneTaaGuide;
 	// The loop's frame time, not a clock read here. ENGINE-NOTES 7y.
 	scene.DeltaSeconds = ts.GetSeconds();
+	// RT-24: the viewport's camera is the editor's, and it reports its own jumps.
+	scene.CameraCut = m_EditorCamera.ConsumeJump();
 	scene.DrawSceneLit = [this](RGPassContext&)
 	{
 		m_Scene->OnRenderLit();
@@ -846,6 +848,8 @@ void EditorLayer::OnUpdate(Timestep ts)
 		game.GiLight = &m_GameGiLight;
 		game.TaaGuide = &m_GameTaaGuide;
 		game.DeltaSeconds = ts.GetSeconds();
+		// RT-24: the game view draws through the scene's camera, which reports its cuts.
+		game.CameraCut = m_Scene->ConsumeCameraCut();
 		game.DrawSceneLit = [this](RGPassContext&)
 		{
 			m_Scene->OnRenderLit();

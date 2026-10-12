@@ -9,10 +9,12 @@ a linear value has no "levels" and a half-per-cent darkening is the question.
 
 Usage: rt5_capture_analyse.py <tagA> <tagB> [names...]
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, sys
 import numpy as np
 
-S = r'C:\Users\ism19\Code\RageV\build\garage_burst'
+S = (_RAGEV + r'\build\garage_burst')
 A, B = 'rt5b_' + sys.argv[1], 'rt5b_' + sys.argv[2]
 names = sys.argv[3:] or ['direct0', 'direct3', 'reflections0', 'occlusion0', 'gi0', 'taa0']
 

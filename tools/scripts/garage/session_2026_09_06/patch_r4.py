@@ -3,7 +3,9 @@ lands more than a few of its own standard deviations from its history's
 mean has a changed signal: its memory is cut, and past four sigmas the
 history is dropped (a hard reset). Within two sigmas nothing changes:
 Monte Carlo variation is not change."""
-p = 'C:/Users/ism19/Code/RageV/RageVEditor/assets/shaders/reflection_accumulate.rvshader'
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
+p = (_RAGEV + '/RageVEditor/assets/shaders/reflection_accumulate.rvshader')
 s = open(p, 'rb').read().decode('utf-8'); nl = '\r\n' if '\r\n' in s else '\n'
 def rep(old, new):
     global s; o = old.replace('\n', nl); assert s.count(o) == 1, old[:60]; s = s.replace(o, new.replace('\n', nl))

@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """The stop-point hand-off, 2026-09-13 late night: written into docs/HANDOFF.md, CRLF kept."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, sys
 
-PATH = 'C:/Users/ism19/Code/RageV/docs/HANDOFF.md'
+PATH = (_RAGEV + '/docs/HANDOFF.md')
 
 ENTRY = '''## 2026-09-13 (late night): validation cleanup mid-way, and the anti-lag to be replaced by measuring change -- STOPPED HERE
 

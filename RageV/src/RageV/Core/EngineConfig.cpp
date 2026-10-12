@@ -437,6 +437,9 @@ namespace RageV
 		if (key == "taa-geometry" || key == "taageometry")
 			return ParseBool(value, config.TaaGeometry);
 
+		if (key == "taa-plane-test" || key == "taaplanetest")
+			return ParseBool(value, config.TaaPlaneTest);
+
 		if (key == "taa-box-geometry" || key == "taaboxgeometry")
 			return ParseBool(value, config.TaaBoxGeometry);
 
@@ -452,6 +455,13 @@ namespace RageV
 		{
 			try { config.ReflectionMovingBlurRadius = std::stof(value); }
 			catch (...) { RV_CORE_WARN("reflection-moving-blur expects a number of texels; got '{0}'", value); return false; }
+			return true;
+		}
+		// RT-24: how many neighbours' lamp points a reflection texel pools.
+		if (key == "reflection-lamp-pool" || key == "reflectionlamppool")
+		{
+			try { config.ReflectionLampPool = std::stoi(value); }
+			catch (...) { RV_CORE_WARN("reflection-lamp-pool expects a count; got '{0}'", value); return false; }
 			return true;
 		}
 		// RT-15b: the rays a texel casts where its surface moves on its own.
@@ -475,6 +485,9 @@ namespace RageV
 		// RT-9: and the direct light's lamps, per tile, on the same terms.
 		if (key == "direct-confidence-rays" || key == "directconfidencerays")
 			return ParseBool(value, config.DirectConfidenceRays);
+		// RT2-0 arm C: whether the camera moving on its own asks for the extra rays.
+		if (key == "confidence-rays-camera" || key == "confidencerayscamera")
+			return ParseBool(value, config.ConfidenceRaysOnCameraMotion);
 		// RT-15: the young blur's radius scaled by the texel's own uncertainty.
 		if (key == "reflection-noise-blur" || key == "reflectionnoiseblur")
 			return ParseBool(value, config.ReflectionNoiseBlur);

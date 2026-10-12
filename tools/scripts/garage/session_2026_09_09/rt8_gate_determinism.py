@@ -6,11 +6,13 @@ read as a defect, the same build is run twice with nothing altered: an A/A. A
 difference here means the scene is not repeatable at that camera and no null
 test taken there means anything.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, subprocess
 import numpy as np
 from PIL import Image
 
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 RT = os.path.join(ROOT, 'build', 'bin', 'Release', 'RageVRuntime')
 SHOTS = os.path.join(ROOT, 'build', 'garage_burst')
 

@@ -5,8 +5,10 @@ chunks the ground's veto and the neighbour cap then held finer, where they
 ended up); the scene's terrain draw counts the chunks drawn per level with
 their triangles into Renderer3D's TerrainStats; the benchmark prints one line.
 Two-phase: every replacement is computed before any file is saved."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 
 
 def load(p):

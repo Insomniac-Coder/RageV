@@ -40,11 +40,13 @@ What it does, in order, and why each step is where it is:
 A manifest of what was baked, at what size, with each image's mean, is
 written beside the export as bake_manifest.json.
 """
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import bpy, os, bmesh, json, math, time
 import numpy as np
 from mathutils import Vector
 
-OUT = r'C:\Users\ism19\Code\RageV\SampleProject\assets\models\garage_pbr'
+OUT = (_RAGEV + r'\SampleProject\assets\models\garage_pbr')
 FLOOR = 'Plane.016'
 SHELL = 'Cube'
 CHANNELS = (('Base Color', 'col'), ('Roughness', 'rough'), ('Metallic', 'metal'), ('Normal', 'normal'))
@@ -683,7 +685,7 @@ log('wrote %d packed images beside the model' % unpacked)
 # Outside the assets tree on purpose: the runtime imports every model it
 # finds under assets/, and an FBX beside the glTF produced materials with
 # the glTF's names and overwrote them mid-run (2026-09-05).
-FBX_DIR = r'C:\Users\ism19\Code\RageV\build\garage_export'
+FBX_DIR = (_RAGEV + r'\build\garage_export')
 os.makedirs(FBX_DIR, exist_ok=True)
 for f in os.listdir(FBX_DIR):
     path = os.path.join(FBX_DIR, f)
@@ -699,6 +701,6 @@ log('EXPORTED', fb, '%.1f MB' % (os.path.getsize(fb) / 1e6))
 
 # The baked state itself, so another export -- a different format, a
 # different setting -- is a one-minute job rather than a re-bake.
-saved = os.path.join(r'C:\Users\ism19\Code\RageV\build', 'garage_pbr_baked.blend')
+saved = os.path.join((_RAGEV + r'\build'), 'garage_pbr_baked.blend')
 bpy.ops.wm.save_as_mainfile(filepath=saved, copy=True)
 log('SAVED', saved)

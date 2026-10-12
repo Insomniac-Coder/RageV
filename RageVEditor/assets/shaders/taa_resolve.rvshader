@@ -223,33 +223,51 @@ layout(push_constant) uniform Params
 	// first frame after a resize has a pair with nothing in it.
 	float HasMoments;
 	float FlipY;
+	// **RT-24 (2026-09-25): last frame's camera, for NRD's same-surface test.** This frame's
+	// rasterised NDC and depth to last frame's rasterised clip: both view-projections as they
+	// were drawn, jitter included, so the depth last frame should hold for this point is
+	// predicted through last frame's camera instead of assumed unchanged. See FrustumExtent.
+	mat4  Reproject;
 	// This frame's jitter in clip units (the scene block's Jitter.xy).
 	vec2  Jitter;
 	// The feedback for a pixel that did not move at all (RenderSettings::
 	// TemporalStillFeedback); zero means Feedback. See kStillWithinTexels.
 	float StillFeedback;
-	// RT-6: one when the identity lanes are bound and hold a real frame, so
-	// the geometric test runs; zero on the first frame, after a resize, and
-	// under --taa-geometry=off, which is the reference arm.
-	float Geometry;
-	// RT-6.2: one when the material lane is bound.
-	float Material;
-	// RT-6.8: one when the colour box may be built from this surface's
-	// taps alone. Zero is the reference arm (--taa-box-geometry=off) and
-	// is exactly the behaviour before RT-6.8.
-	float BoxGeometry;
+	// **Which optional inputs are live, one bit each** (packed 2026-09-25 to make room for
+	// Reproject in the 128 bytes a push block is guaranteed; see the kInput constants below):
+	//   RT-6 the identity lanes are bound and hold a real frame, so the geometric test runs
+	//        (off on the first frame, after a resize, and under --taa-geometry=off);
+	//   RT-6.2 the material lane is bound;
+	//   RT-6.8 the colour box may be built from this surface's taps alone (off is the
+	//        reference arm, --taa-box-geometry=off);
+	//   measured change: binding 11 holds the direct light's change map;
+	//   RT-22: binding 13 holds the transparent pass's revealage.
+	float Inputs;
 	// **RT-5: the frame number**, for the draw that rounds this pass's running
 	// averages onto the half grid (include/half_float.glsl). The jitter above
 	// repeats every eight frames, and a rounding that repeats with it would
 	// leave each pixel a fixed pattern of its own eight draws.
 	float Frame;
-	// **Measured change (docs/RT-MEASURED-CHANGE.md): one when binding 11 holds
-	// the direct light's change map.** Zero is the resolve as it was.
-	float Change;
-	// **RT-22 (2026-09-23): one when binding 13 holds the transparent pass's
-	// revealage**, so the resolve knows which pixels show a see-through surface.
-	float Covered;
+	// **RT-24: minus the depth at infinity.** Reverse-Z with a finite far plane stores
+	// B / z - C; this is C, so a tolerance of t times the distance along the ray is
+	// t * (depth + DepthFloor) in depth units.
+	float DepthFloor;
+	// **RT-24: the frustum's smaller extent per unit of depth** (2 / the projection's larger
+	// scale), for NRD's threshold below. Zero keeps the 2% test (--taa-plane-test=off, an
+	// orthographic camera, no camera record).
+	float FrustumExtent;
 } u_Params;
+
+const uint kInputGeometry    = 1u;
+const uint kInputMaterial    = 2u;
+const uint kInputBoxGeometry = 4u;
+const uint kInputChange      = 8u;
+const uint kInputCovered     = 16u;
+
+bool HasInput(uint bit)
+{
+	return (uint(u_Params.Inputs + 0.5) & bit) != 0u;
+}
 
 // The change map, on the 3x3 block grid of this pass's own size: r the share of
 // the direct diffuse measured to have changed since last frame, g the
@@ -427,6 +445,120 @@ bool Matches(vec4 now, vec4 was, bool centre)
 	return true;
 }
 
+// **RT-24 (2026-09-25): NRD's same-surface test, in place of the 2% one for last frame.**
+//
+// The 2% test compared this frame's depth with last frame's at the texel the history was
+// fetched from, as a fraction of the depth. Two things made it refuse good history, and a
+// refused pixel restarts from this frame's raw light -- the fast swing's speckle, measured
+// (RT2-0's attribution arms: the test off took the swing's speckle from 513 dots to 396, and
+// the ghosting up; at 1% the speckle rose to 665):
+//   - the camera's own motion moves every depth, and the test assumed it did not;
+//   - the lookup is only good to about a texel, and on a surface seen at a slant one texel is
+//     a large step in depth, so a texel's error read as a different surface.
+// NRD's form (ReBLUR's disocclusion test, its documented default threshold): predict where
+// and at what depth this point was last frame through last frame's camera, carry that along
+// the surface's own slope to the texel actually fetched, and allow 1% of the frustum's size
+// at that depth. A surface facing the camera gets a tighter test than 2% (about 1.2% at a
+// 60-degree field of view); a slanted one no longer refuses its own neighbours.
+// NRD's documented default disocclusion threshold: 1% of the frustum's size at the depth.
+const float kNrdDisocclusion = 0.01;
+vec2  g_PredictedUv    = vec2(0.0);
+float g_PredictedDepth = 0.0;
+bool  g_Predicted      = false;
+
+vec2 UvToNdc(vec2 uv)
+{
+	return vec2(uv.x * 2.0 - 1.0, u_Params.FlipY > 0.5 ? 1.0 - 2.0 * uv.y : uv.y * 2.0 - 1.0);
+}
+
+vec2 NdcToUv(vec2 ndc)
+{
+	return vec2(ndc.x * 0.5 + 0.5, u_Params.FlipY > 0.5 ? 0.5 - 0.5 * ndc.y : ndc.y * 0.5 + 0.5);
+}
+
+void PredictPrevious(vec2 uv, float depth)
+{
+	g_Predicted = false;
+	if (!(u_Params.FrustumExtent > 0.0) || !(depth > 0.0))
+		return;
+	const vec4 then = u_Params.Reproject * vec4(UvToNdc(uv), depth, 1.0);
+	if (!(then.w > 0.0))
+		return;
+	g_PredictedDepth = then.z / then.w;
+	g_PredictedUv = NdcToUv(then.xy / then.w);
+	g_Predicted = true;
+}
+
+// Of the two one-sided differences, the smaller: at an edge one side is the other surface,
+// and the step across it is not this surface's slope.
+float OneSidedSlope(float before, float here, float after)
+{
+	const float back = here - before;
+	const float ahead = after - here;
+	return abs(back) < abs(ahead) ? back : ahead;
+}
+
+// Whether last frame's texel `at`, holding `wasDepth`, is where this point's surface was.
+bool DepthMatchesPrevious(float nowDepth, float wasDepth, ivec2 at)
+{
+	if (!g_Predicted)
+		return abs(nowDepth - wasDepth) <= kDepthTolerance * max(nowDepth, 1.0e-4);
+	const ivec2 size = textureSize(u_GuidePrevious, 0);
+	const ivec2 hi = size - 1;
+	const float slopeX = OneSidedSlope(texelFetch(u_GuidePrevious, clamp(at - ivec2(1, 0), ivec2(0), hi), 0).x,
+									   wasDepth,
+									   texelFetch(u_GuidePrevious, clamp(at + ivec2(1, 0), ivec2(0), hi), 0).x);
+	const float slopeY = OneSidedSlope(texelFetch(u_GuidePrevious, clamp(at - ivec2(0, 1), ivec2(0), hi), 0).x,
+									   wasDepth,
+									   texelFetch(u_GuidePrevious, clamp(at + ivec2(0, 1), ivec2(0), hi), 0).x);
+	// From where the point was predicted to be to the centre of the texel fetched, in texels.
+	const vec2 step = (vec2(at) + 0.5) - g_PredictedUv * vec2(size);
+	const float expected = g_PredictedDepth + slopeX * step.x + slopeY * step.y;
+	// NRD's allowance: 1% of the frustum's extent at this depth, as distance from the surface's
+	// plane -- which along the view ray is that divided by the facing, cos(theta). The facing
+	// comes from the surface's own slope on screen: a texel spans extent / texels of angle, and
+	// the depth steps by tan(theta) of that per texel (reverse-Z depth + floor is 1 / distance
+	// up to a constant, so its relative step is the distance's).
+	const float scale = max(wasDepth + u_Params.DepthFloor, 1.0e-8);
+	const float relativeSlope = length(vec2(slopeX, slopeY)) / scale;
+	const float facing = kNrdDisocclusion * u_Params.FrustumExtent;
+	const float slant = kNrdDisocclusion * relativeSlope * float(min(size.x, size.y));
+	return abs(wasDepth - expected) <= sqrt(facing * facing + slant * slant)
+									   * max(expected + u_Params.DepthFloor, 0.0);
+}
+
+// Matches(), for a texel of last frame's: the same clauses, with the depth clause above.
+bool MatchesPrevious(vec4 now, vec4 was, ivec2 at, bool centre)
+{
+	if (!g_Predicted)
+		return Matches(now, was, centre);
+	const bool nowSky = now.x >= 1.0;
+	const bool wasSky = was.x >= 1.0;
+	if (nowSky && wasSky)
+		return true;
+	if (nowSky != wasSky)
+	{
+		if (centre) g_Refusal = kSkyCrossing;
+		return false;
+	}
+	if (abs(now.w - was.w) > 0.5)
+	{
+		if (centre) g_Refusal = kObjectId;
+		return false;
+	}
+	if (!DepthMatchesPrevious(now.x, was.x, at))
+	{
+		if (centre) g_Refusal = kDepth;
+		return false;
+	}
+	if (dot(DecodeOct(now.yz), DecodeOct(was.yz)) < kNormalTolerance)
+	{
+		if (centre) g_Refusal = kNormal;
+		return false;
+	}
+	return true;
+}
+
 // **The reprojected texel, or the nearest neighbour that is this surface,
 // or nothing.** Returns the texel to read the history from and whether one
 // was found; `bilinear` says whether the centre itself matched, because
@@ -448,6 +580,7 @@ ivec2 MatchingTexel(vec2 uv, vec2 pastUv, out bool found, out bool bilinear)
 	const ivec2 nowTexel = clamp(ivec2(uv * vec2(size)), ivec2(0), size - 1);
 	const ivec2 centre = clamp(ivec2(pastUv * vec2(size)), ivec2(0), size - 1);
 	const vec4 now = texelFetch(u_GuideCurrent, nowTexel, 0);
+	PredictPrevious((vec2(nowTexel) + 0.5) / vec2(size), now.x);
 
 	const ivec2 offsets[9] = ivec2[9](ivec2(0, 0), ivec2(1, 0), ivec2(-1, 0),
 									  ivec2(0, 1), ivec2(0, -1), ivec2(1, 1),
@@ -455,7 +588,7 @@ ivec2 MatchingTexel(vec2 uv, vec2 pastUv, out bool found, out bool bilinear)
 	for (int k = 0; k < 9; ++k)
 	{
 		const ivec2 at = clamp(centre + offsets[k], ivec2(0), size - 1);
-		if (Matches(now, texelFetch(u_GuidePrevious, at, 0), k == 0))
+		if (MatchesPrevious(now, texelFetch(u_GuidePrevious, at, 0), at, k == 0))
 		{
 			found = true;
 			bilinear = (k == 0);
@@ -501,6 +634,38 @@ ivec2 MatchingTexel(vec2 uv, vec2 pastUv, out bool found, out bool bilinear)
 // search (RT-6), which did not exist when 0.5 was chosen.
 const float kFilterSigma = 0.25;
 const float kJitterSign = 1.0;
+
+// **RT-24 (2026-09-24): this frame, rebuilt at the pixel's centre.** The kept
+// path below filters the current frame with kFilterSigma's Gaussian, centred
+// where the pixel's unjittered centre sits among this frame's samples. The two
+// exits with no usable history -- the first frame, and a history that is off
+// screen or another surface -- used to show the raw sample instead, which sits
+// wherever this frame's jitter put it: every edge whose history was refused
+// jumped with the jitter, which under fast motion is most edges, and read as
+// jitter on the poles themselves. The same filter, so a pixel looks the same
+// whichever path it took; no number of its own.
+vec3 CurrentAtCentre(vec2 uv, vec3 centreSample)
+{
+	vec2 jitterTexels = u_Params.Jitter * 0.5 / u_Params.TexelSize;
+	jitterTexels.y = u_Params.FlipY > 0.5 ? -jitterTexels.y : jitterTexels.y;
+	jitterTexels *= kJitterSign;
+	const float twoSigmaSq = 2.0 * kFilterSigma * kFilterSigma;
+	float weightSum = exp(-dot(jitterTexels, jitterTexels) / twoSigmaSq);
+	vec3 sum = centreSample * weightSum;
+	for (int y = -1; y <= 1; y++)
+	{
+		for (int x = -1; x <= 1; x++)
+		{
+			if (x == 0 && y == 0)
+				continue;
+			const vec2 offset = vec2(x, y) - jitterTexels;
+			const float w = exp(-dot(offset, offset) / twoSigmaSq);
+			sum += texture(u_Current, uv + u_Params.TexelSize * vec2(x, y)).rgb * w;
+			weightSum += w;
+		}
+	}
+	return sum / max(weightSum, 1.0e-6);
+}
 
 
 // **How many frames a pixel may remember**, for the warm-up below. Once 1/n
@@ -776,7 +941,7 @@ void main()
 	// fading out over the next thirty.
 	if (u_Params.HasHistory < 0.5)
 	{
-		o_Color = current;
+		o_Color = vec4(CurrentAtCentre(uv, current.rgb), current.a);
 		// One frame seen, and its luminance is the whole of what is known.
 		// RT-12: the reason lane, where zero still means "reused" so the
 		// validity WR-16 S0 put here survives as `w == 0`.
@@ -842,12 +1007,12 @@ void main()
 	bool geometryFound = true;
 	bool geometryBilinear = true;
 	ivec2 historyTexel = ivec2(0);
-	if (!offScreen && u_Params.Geometry > 0.5)
+	if (!offScreen && HasInput(kInputGeometry))
 		historyTexel = MatchingTexel(uv, historyUV, geometryFound, geometryBilinear);
-	const bool disoccluded = !offScreen && u_Params.Geometry > 0.5 && !geometryFound;
+	const bool disoccluded = !offScreen && HasInput(kInputGeometry) && !geometryFound;
 	if (offScreen || disoccluded)
 	{
-		o_Color = current;
+		o_Color = vec4(CurrentAtCentre(uv, current.rgb), current.a);
 		// Disoccluded: the count starts again here. Carrying the old one would
 		// tell the next frame to trust the fluctuation of a surface that is
 		// not the one now under this pixel.
@@ -877,7 +1042,7 @@ void main()
 	//
 	// **One bool rather than the condition written at each read**, because
 	// the defect was exactly the second copy of that condition going missing.
-	const bool neighbourServed = u_Params.Geometry > 0.5 && !geometryBilinear;
+	const bool neighbourServed = HasInput(kInputGeometry) && !geometryBilinear;
 
 	// The 3x3 neighbourhood, in YCoCg, as a box -- and the alpha's range
 	// beside it. The alpha is the traced reflection's weight, which the
@@ -894,7 +1059,7 @@ void main()
 	// **RT-6.8: the same box, from this surface's taps only.** Gathered
 	// beside the full one rather than instead of it, because whether it is
 	// usable is not known until the taps have been counted.
-	const bool boxGeometry = u_Params.Geometry > 0.5 && u_Params.BoxGeometry > 0.5;
+	const bool boxGeometry = HasInput(kInputGeometry) && HasInput(kInputBoxGeometry);
 	const ivec2 guideSize = textureSize(u_GuideCurrent, 0);
 	const ivec2 centreTexel = clamp(ivec2(uv * vec2(guideSize)),
 									ivec2(0), guideSize - 1);
@@ -1031,7 +1196,7 @@ void main()
 	// of the light is known to have changed, this frame counts for at least that
 	// share, and the count -- which the moments forget by, and which the next
 	// frames rebuild from -- restarts there. Nothing measured, nothing runs.
-	if (u_Params.Change > 0.5)
+	if (HasInput(kInputChange))
 	{
 		// Read where the history came from, as the accumulate reads it: the map
 		// is on last frame's grid, so this pixel moved back by its velocity --
@@ -1066,7 +1231,7 @@ void main()
 	// outlines the window still streaked in the shape of the cabin's roll cage:
 	// the outlines are the cabin's, seen through the pane. So a covered pixel gets
 	// none.
-	const bool covered = u_Params.Covered > 0.5 && texture(u_Revealage, uv).r < kCoveredBelow;
+	const bool covered = HasInput(kInputCovered) && texture(u_Revealage, uv).r < kCoveredBelow;
 	const bool outline = !boxGeometry || sameSurface < 8;
 	const float temporalSigma = sqrt(max(momMeanSq - momMean * momMean, 0.0)) * stillness
 							  * (outline && !covered ? 1.0 : 0.0);
@@ -1102,7 +1267,7 @@ void main()
 	// by half rough, which is ordinary concrete, brick and paint.
 	// Not under glass (RT-22): the lane is the cabin's, and a pane's reflection is
 	// entirely a function of the view.
-	if (u_Params.Material > 0.5 && !covered)
+	if (HasInput(kInputMaterial) && !covered)
 	{
 		const vec4 material = texelFetch(u_Material, ivec2(gl_FragCoord.xy), 0);
 		const float stability = (1.0 - clamp(material.a, 0.0, 1.0))

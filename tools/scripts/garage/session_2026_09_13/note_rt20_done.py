@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """RT-20 recorded: the status line and row, the record, and the hand-off entry. CRLF kept."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import io, sys
 
-ROOT = 'C:/Users/ism19/Code/RageV/'
+ROOT = (_RAGEV + '/')
 
 
 def edit(path, subs):

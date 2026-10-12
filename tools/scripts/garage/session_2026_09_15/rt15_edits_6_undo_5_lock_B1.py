@@ -2,10 +2,12 @@
 """Undo rt15_edits_5 exactly (the owner locked STATE B1, 2026-09-15 evening), and prove it: the
 trace shader is rebuilt from HEAD through edit scripts 2, 3 and 4 in a scratch copy and must
 equal the undone file byte for byte."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import importlib.util, io, os, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = r'C:\Users\ism19\Code\RageV'
+ROOT = _RAGEV
 REL = 'RageVEditor/assets/shaders/reflection_trace.rvshader'
 CRLF, LF = '\r\n', '\n'
 

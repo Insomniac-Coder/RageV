@@ -73,7 +73,6 @@ namespace RageV
 		// hemisphere term and sampled by nothing. Their light did not become
 		// noisier; it disappeared. AreaEmitter::Owner is what carries the
 		// answer now, matched onto the ray instance in EndScene.
-		static constexpr uint32_t kMaxAreaEmitters = 16;
 
 		// **How many irradiance volumes one scene may hold**, each with its
 		// own grid and its own place in the shared atlas.
@@ -321,7 +320,15 @@ namespace RageV
 									   // RT-15: the trace's fourth lane, how far what each ray struck
 									   // travelled -- what splits the resolved picture into its still
 									   // part and its moving part. Null writes no moving part.
-									   const RHI::Ref<RHI::RHITexture>& travel = nullptr);
+									   const RHI::Ref<RHI::RHITexture>& travel = nullptr,
+									   // RT-24: the trace's fifth lane, its aimed samples' light,
+									   // added back after the sharing. Null reads as none.
+									   const RHI::Ref<RHI::RHITexture>& aimed = nullptr,
+									   // RT-24 (2026-09-25): the trace's sixth, the draw behind each
+									   // texel's aimed sample, and the albedo lane for the tint -- what
+									   // the lamp pool needs. Null for either: no pooling.
+									   const RHI::Ref<RHI::RHITexture>& lampSample = nullptr,
+									   const RHI::Ref<RHI::RHITexture>& albedo = nullptr);
 		// **The reconstruction contract (RT-first T4, docs/RT-FIRST.md).** One
 		// temporal accumulator and one young-history blur for every stochastic
 		// signal, in two kinds: Specular reprojects by the surface and by the
@@ -446,8 +453,13 @@ namespace RageV
 		// the instance table was built for -- read when the graph is built, so it
 		// describes the frames before this one.
 		static bool AnyInstanceMoved();
+		// RT-24: what TAA's same-surface test needs of this view's camera (NRD's form); false
+		// keeps the 2% test. Read while the frame's passes run, after BeginScene.
+		static bool TemporalReprojection(Mat4& reproject, float& depthFloor, float& frustumExtent);
 		// RT-9: whether the eye is where it was, against a signal's own motion record.
-		static bool CameraStill(const CameraMotion& motion);
+		// `view` is THIS frame's camera (FrameDesc::View): the test runs while the graph
+		// is declared, before this frame's scene pass has recorded anything (RT2-0 arm C).
+		static bool CameraStill(const CameraMotion& motion, const Mat4& view);
 
 		static void AccumulateSignal(const SignalParams& signal,
 									 const RHI::Ref<RHI::RHITexture>& fresh,
@@ -997,6 +1009,9 @@ namespace RageV
 										   const RHI::Ref<RHI::RHITexture>& traced,
 										   const RHI::Ref<RHI::RHITexture>& velocity,
 										   const RHI::Ref<RHI::RHITexture>& travel,
+										   // The trace's aimed lane (o_Aimed): since RT-24 the
+										   // texel's light is that lane and `traced` together.
+										   const RHI::Ref<RHI::RHITexture>& aimed,
 										   const GiTraceView& view,
 										   MeasuredChangeHistory& history,
 										   // RT-22: the glass layer's, on sets of its own.

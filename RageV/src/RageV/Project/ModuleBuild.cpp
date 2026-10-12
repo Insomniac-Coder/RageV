@@ -2,6 +2,7 @@
 #include "ModuleBuild.h"
 #include "ScriptGen.h"
 #include "RageV/Core/Log.h"
+#include "RageV/Utils/PlatformUtils.h"
 
 #include <chrono>
 #include <regex>
@@ -178,6 +179,26 @@ namespace RageV
 		return false;
 	}
 
+	bool ModuleBuild::CachedElsewhere(const std::filesystem::path& cache, const std::filesystem::path& source,
+									  const std::filesystem::path& engine)
+	{
+		const auto differs = [](const std::string& line, const std::filesystem::path& now)
+		{
+			std::error_code error;
+			return !std::filesystem::equivalent(line.substr(line.find('=') + 1), now, error);
+		};
+		std::ifstream in(cache);
+		std::string line;
+		while (std::getline(in, line))
+		{
+			if (line.rfind("CMAKE_HOME_DIRECTORY:", 0) == 0 && differs(line, source))
+				return true;
+			if (line.rfind("RAGEV_ENGINE:", 0) == 0 && !engine.empty() && differs(line, engine))
+				return true;
+		}
+		return false;
+	}
+
 	Managed::BuildResult ModuleBuild::Build(const std::filesystem::path& projectRoot,
 											const std::string& projectName,
 											const std::atomic<bool>* cancel,
@@ -257,19 +278,33 @@ namespace RageV
 		// CONFIGURE_DEPENDS in the generated CMakeLists is for -- so
 		// configuring every build would only add seconds for nothing. A
 		// broken cache is repaired by deleting bin/module.
+		//
+		// The engine build is found above this executable, not baked in, and a
+		// cache configured before the project or the engine moved is cleared
+		// first, so a moved repository needs neither a rebuild nor a hand fix.
+		const std::filesystem::path engine = Process::FindAboveExecutable("RageVTargets.cmake").parent_path();
+		if (CachedElsewhere(buildDir / "CMakeCache.txt", source, engine))
+		{
+			RV_CORE_INFO("{0}'s game module was configured in another folder; configuring it afresh",
+						 projectName);
+			std::filesystem::remove(buildDir / "CMakeCache.txt", ec);
+			std::filesystem::remove_all(buildDir / "CMakeFiles", ec);
+		}
 		if (!std::filesystem::exists(buildDir / "CMakeCache.txt", ec))
 		{
-#ifndef RV_ENGINE_EXPORT_DIR
-			result.Output = "This editor was built without an engine export directory, "
-							"so it cannot configure a module.";
-			return result;
-#else
+			if (engine.empty())
+			{
+				result.Output = "No engine build (RageVTargets.cmake) was found above this "
+								"editor, so it cannot configure a module.";
+				return result;
+			}
+
 			// No extra quoting: CreateProcess parses this itself, so the
 			// doubled-quote dance cmd.exe used to require is gone.
 			const std::string configure = ScriptBuild::Quote(cmake)
 										+ " -S " + ScriptBuild::Quote(source)
 										+ " -B " + ScriptBuild::Quote(buildDir)
-										+ " -DRAGEV_ENGINE=" + ScriptBuild::Quote(RV_ENGINE_EXPORT_DIR);
+										+ " -DRAGEV_ENGINE=" + ScriptBuild::Quote(engine);
 
 			RV_CORE_INFO("Configuring {0}'s game module (first build; this is the slow one)",
 						 projectName);
@@ -295,7 +330,6 @@ namespace RageV
 					ParseAllDiagnostics(result);
 				return result;
 			}
-#endif
 		}
 
 		const std::string build = ScriptBuild::Quote(cmake)

@@ -2,11 +2,13 @@
 window at frame 80, frame 81, and |81-80| stretched x8; plus the change split
 into edge pixels (gradient > 12 in frame 80) and flat pixels; plus a dolly
 check (column of peak luminance in the pole band at frames 60 and 100)."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import numpy as np, sys, os
 from PIL import Image
-sys.path.insert(0, 'C:/Users/ism19/Code/RageV/tools/scripts/garage')
+sys.path.insert(0, (_RAGEV + '/tools/scripts/garage'))
 from burst_compare import band_of, band_x
-S = 'C:/Users/ism19/Code/RageV/build/garage_burst/'
+S = (_RAGEV + '/build/garage_burst/')
 def RGB(p): return np.asarray(Image.open(S + p).convert('RGB'), dtype=float)
 def Y(a): return 0.2126*a[...,0] + 0.7152*a[...,1] + 0.0722*a[...,2]
 def wallbox(shape, n):

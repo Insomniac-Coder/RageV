@@ -1,8 +1,10 @@
 """Second half of patch_taa_filtered.py (the header half is applied): the
 .cpp, the frame graph and the shader, with the .cpp strings taken from the
 file's real text (comments included)."""
+import os as _os
+_RAGEV = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..')).replace('\\', '/')  # the repo root, wherever it lives
 import os, sys
-os.chdir(r'C:\Users\ism19\Code\RageV')
+os.chdir(_RAGEV)
 sign = sys.argv[1] if len(sys.argv) > 1 else '-1.0'
 
 def patch(p, pairs):

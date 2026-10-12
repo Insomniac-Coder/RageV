@@ -172,7 +172,14 @@ namespace RageV
 									 // says where a see-through surface covers the pixel -- the one
 									 // thing none of the lanes above describe. Null treats every
 									 // pixel as uncovered, which is what it was.
-									 const RHI::Ref<RHI::RHITexture>& revealage = nullptr);
+									 const RHI::Ref<RHI::RHITexture>& revealage = nullptr,
+									 // **RT-24 (2026-09-25): NRD's same-surface test.** This frame's
+									 // rasterised NDC and depth to last frame's rasterised clip, minus
+									 // the depth at infinity, and the frustum's smaller extent per unit
+									 // of depth (Renderer3D::TemporalReprojection). Null or zero keeps
+									 // the 2% test.
+									 const Math::Mat4* reproject = nullptr, float depthFloor = 0.0f,
+									 float frustumExtent = 0.0f);
 
 		// **Measured change (docs/RT-MEASURED-CHANGE.md, phase 1): one a-trous
 		// pass over the block grid.** `change` holds the re-light's differences
