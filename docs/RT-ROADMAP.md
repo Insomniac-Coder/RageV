@@ -700,15 +700,20 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   reflections). **It is the reflection probe's capture, and only that.** The "Showroom Probe" (0, 1.6, 18)
 >   is drawn once, between frames 1 and 2, in one forward pass with no prepass and no blending -- so the
 >   draw order can change a texel only where two different objects' surfaces sit at exactly the same depth,
->   and with `GreaterOrEqual` the last one drawn wins. Such ties exist on the ceiling light fittings as the
->   probe sees them from below (three faces, ~2,500 texels, all within 0.25% of each other: two near-identical
->   surfaces). The probe then lights every frame, and the screen-space reflections and TAA carry the
+>   and with `GreaterOrEqual` the last one drawn wins. Such ties exist on the ceiling as the probe sees it
+>   (three faces, ~2,500 texels, all within 0.25% of each other: two near-identical surfaces). The probe then lights every frame, and the screen-space reflections and TAA carry the
 >   rounding-sized change into the picture; with rays off the same probe change stays under one display
 >   level. Proof: with the probe drawn in one fixed order in both runs, the runs match exactly (0 px at
 >   frame 60, rays on); with only the probe's order changed, all 79 px come back. Measured on the way:
 >   frame 1 identical everywhere; the G-buffer, depth, direct light, AO, indirect, budgets and measured-change
->   records byte-identical on every frame; the blended order irrelevant. Not an engine path defect; the
->   overlapping fitting surfaces are not yet named (the scene is the owner's). The tolerance is not widened.
+>   records byte-identical on every frame; the blended order irrelevant. Not an engine path defect.
+>   **The surfaces, named** (the probe made to write object ids, both orders compared; temporary code,
+>   removed): the garage model's ceiling beam grid is placed twice -- `Plane.003` (z 0.84..29.99) and
+>   `Plane.010` (z -27.54..1.62), one mesh, one material, both at y 6.5819 -- so a 49 m x 0.78 m strip of
+>   beams (z 0.84..1.62) exists twice in the same place: ~975 of the disputed texels. The rest are faces
+>   flush with those beams: `pipe.020` (~450), `pipe.008` (~140) and the pillars' `Cylinder.013.1` (~130).
+>   A content fix (the owner's scene): trim one copy so the two meet instead of overlapping, and part the
+>   flush faces by a few millimetres. The tolerance is not widened.
 >   Also open: the garage
 >   on the Intel iGPU with the layers silent; the water
 >   shader's read-out-of-bounds question; GPU-assisted validation loses the device while loading the
