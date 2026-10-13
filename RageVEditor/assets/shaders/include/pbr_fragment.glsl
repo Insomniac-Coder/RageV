@@ -3438,7 +3438,15 @@ float DistributionGGX(vec3 N, vec3 H, float roughness)
 	// nothing is capped that should not be and a mirror still cannot divide by
 	// zero. Owner's call on the two options: lower the floor rather than put a
 	// minimum on roughness.
-	return a2 / max(PI * denom * denom, 1e-9);
+	//
+	// **And 1e-9 still capped what it was meant not to** (RT2-2b review,
+	// 2026-10-13). The peak's divisor is PI * a2^2, which at the frame's own
+	// roughness floor of 0.045 is 5.3e-11: below 1e-9, so every roughness under
+	// 0.065 had its peak held down -- at 0.045 to a twentieth, about 60% of the
+	// lobe's energy gone (car windows, chrome, the camp's mirror). 1e-30 is
+	// past the peak of any roughness above 0.0003, so the floor is again what
+	// the paragraph above says it is: a guard against dividing by zero.
+	return a2 / max(PI * denom * denom, 1e-30);
 }
 
 // Smith geometry term with the Schlick-GGX approximation.

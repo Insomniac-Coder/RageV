@@ -913,7 +913,7 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   camp byte-identical; the garage differs in 11 dark pixels by one level, all from the new guard in
 >   `TangentFrameOf` -- a triangle with no uv area made a not-a-number tangent in the frame too (a frame
 >   with an absurd value there moves only those pixels), now a zero frame. The stored `after_garage.png`
->   gate image is replaced by the guarded frame (the old one kept as `after_garage_pre_guard.png`).
+>   gate image is replaced by the guarded frame (the old one deleted with the other captures).
 >   - *Found by the review and fixed:* the scene clock now stands still in reference mode (the bridge's
 >     flashing tower beacons restarted the mean every frame, so 512 samples never settled; now 18 s),
 >     with zero-length fixed steps so scripts are still made; a posed caster's per-frame buffer address
@@ -923,12 +923,16 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >     slot, because a heap texture passed as a sampler2D parameter loses nonuniformEXT in glslang (the
 >     real-time march had become a merged-run hazard on hardware that needs the decoration);
 >     `RAY_INSTANCE_LAYERED` 128.
->   - *Found by the review, a frame defect, owner to decide:* `DistributionGGX`'s 1e-9 divisor floor
->     still caps the peak below roughness 0.065 (at the 0.045 floor to a twentieth of its value, losing
->     about 60% of the lobe's energy; RT-21's comment that it caps nothing real is wrong there). The
->     reference evaluates the uncapped GGX, which is what RT-21 meant; the frame's analytic highlights on
->     polished materials (car windows 0.04, chrome 0.04-0.055, the camp mirror 0.03) keep the cap until
->     the owner rules.
+>   - *Found by the review, a frame defect, fixed with the owner's OK (2026-10-13):* `DistributionGGX`'s
+>     1e-9 divisor floor still capped the peak below roughness 0.065 (at the 0.045 floor to a twentieth
+>     of its value, about 60% of the lobe's energy; RT-21's comment that it capped nothing real was wrong
+>     there). The floor is now 1e-30, past the peak of any roughness above 0.0003, and the reference
+>     calls the same function again. Shown to the owner on the garage's chrome pole: a lamp's highlight
+>     becomes a small bright point instead of a dim smear. Real time: headland and glitter
+>     byte-identical; the garage changes in 5.6% of pixels and the camp in 4.7%, almost all by one or
+>     two levels (the stored gate images are replaced). Left alone: `prefilter.rvshader`'s own
+>     DistributionGGX floors at 1e-6, which only steers which mip a prefiltered environment sample
+>     reads (the raster recipe's probes), noted here for RT2-21b.
 >   - *Found by the review, owner to decide:* which Smith term is the material's. The light loop uses
 >     Schlick's remap k = (r+1)^2/8, the frame's reflections (the EnvBRDF table) k = r^2/2; at roughness
 >     0.045 and a grazing view the two differ by about 2x. The reference uses the light loop's for every

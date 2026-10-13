@@ -26,15 +26,12 @@
 // roughness (WR-13) -- the reference resolves the pixel by averaging -- and no
 // widened lobe for a sized lamp, whose real shape step 3 samples.
 //
-// **Two places where it takes the frame's intent over its arithmetic**
-// (review, 2026-10-13). GGX's distribution is evaluated without the light
-// loop's 1e-9 floor on its divisor: RT-21 lowered that floor so that "nothing
-// is capped that should not be", but below roughness 0.065 it still caps the
-// peak (at the 0.045 floor, to a twentieth), which would take up to 60% of a
-// polished lobe's energy out of every reflection the paths carry -- a numeric
-// accident, recorded in the roadmap for the frame (RT2-2). And albedo is held
-// to [0, 1], as the G-buffer's UNORM lane holds it; the forward loop does not,
-// and an albedo above one (a macro-brightened texel) is light from nowhere.
+// **Albedo is held to [0, 1]** (review, 2026-10-13), as the G-buffer's UNORM
+// lane holds it; the forward loop does not, and an albedo above one (a
+// macro-brightened texel) is light from nowhere. (The review also found the
+// light loop's GGX capping polished peaks below roughness 0.065 through the
+// floor on its divisor; that is fixed in DistributionGGX itself, owner's OK
+// 2026-10-13, so both renderers share the one function.)
 //
 // **Textures at the ray's footprint** (a ray cone, Akenine-Moller et al. 2021):
 // the cone starts at the pixel's angle and grows with the distance travelled;
@@ -637,15 +634,6 @@ bool RefBaseLobe(RefHit h, out mat3 frame, out float ax, out float ay)
 	return false;
 }
 
-// GGX's distribution for alpha `a`, as DistributionGGX defines it but without
-// its divisor floor (the header says why): the anisotropic form at equal
-// widths is the same function, written so it does not underflow.
-float RefGgx(vec3 N, vec3 H, float a)
-{
-	const mat3 frame = RefBasis(N);
-	return DistributionGGXAniso(max(dot(N, H), 0.0), dot(frame[0], H), dot(frame[1], H), a, a);
-}
-
 // The base lobe's specular for a given F0, as the frame's light loop writes
 // it: NDF x G x F over (4 N.V N.L + 0.0001), with N.V clamped at zero.
 // Without the cosine. Returns F too, for the diffuse's share.
@@ -657,8 +645,10 @@ vec3 RefBaseSpecular(RefHit h, vec3 V, vec3 L, vec3 F0, out vec3 F)
 	mat3 frame;
 	float ax, ay;
 	float NDF;
-	RefBaseLobe(h, frame, ax, ay);
-	NDF = DistributionGGXAniso(max(dot(h.N, H), 0.0), dot(frame[0], H), dot(frame[1], H), ax, ay);
+	if (RefBaseLobe(h, frame, ax, ay))
+		NDF = DistributionGGXAniso(max(dot(h.N, H), 0.0), dot(frame[0], H), dot(frame[1], H), ax, ay);
+	else
+		NDF = DistributionGGX(h.N, H, h.Roughness);
 	const float G = GeometrySchlickGGX(NdotVc, h.Roughness) * GeometrySchlickGGX(NdotL, h.Roughness);
 	F = FresnelSchlick(max(dot(H, V), 0.0), F0);
 	return NDF * G * F / (4.0 * NdotVc * NdotL + 0.0001);
@@ -684,7 +674,7 @@ vec3 RefSurfaceCos(RefHit h, vec3 V, vec3 L)
 	{
 		const float VdotH = max(dot(V, H), 0.0);
 		const float coatRoughness = clamp(h.Coat.y, 0.045, 1.0);
-		const float Dc = RefGgx(h.N, H, coatRoughness * coatRoughness);
+		const float Dc = DistributionGGX(h.N, H, coatRoughness);
 		const float Vc = VisibilityKelemen(VdotH);
 		const float Fc = (0.04 + 0.96 * Pow5(1.0 - VdotH)) * h.Coat.x;
 		specular = specular * (1.0 - Fc) + vec3(Dc * Vc * Fc);
