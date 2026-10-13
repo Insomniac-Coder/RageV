@@ -786,6 +786,9 @@ const uint RAY_INSTANCE_MOVING = 16u;
 // RT-15: its transform changed since last frame, and PreviousRow0..2 hold the old one
 // (RayCaster::Travelled) -- narrower than moving, which a pose alone sets.
 const uint RAY_INSTANCE_TRAVELLED = 32u;
+// RT2-2b: blended glass, in the structure only under --reference-render, on its own
+// mask bit (RV_RAY_MASK_TRANSMISSIVE) that no ray but the reference's carries.
+const uint RAY_INSTANCE_TRANSMISSIVE = 64u;
 
 layout(std430, set = 0, binding = 15) readonly buffer RayInstanceBlock
 {

@@ -2906,7 +2906,12 @@ namespace RageV
 				// What is given up is a reflection seeing the glass -- a car
 				// reflected in the floor loses its windows. That is a smaller
 				// wrong than a car with no interior.
-				if (!TracedAsGeometry(material->GetBlendMode()))
+				//
+				// RT2-2b: under --reference-render, blended glass joins the
+				// structure on a mask bit of its own that only the reference's
+				// rays carry, so every other ray passes through it as before.
+				if (!TracedAsGeometry(material->GetBlendMode())
+					&& !(EngineConfig::Get().ReferenceSamples > 0 && IsBlended(material->GetBlendMode())))
 					continue;
 
 				const MaterialParams params =

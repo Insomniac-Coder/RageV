@@ -223,10 +223,13 @@ void RayTraverse(rayQueryEXT query)
 // RV_RAY_MASK_MOVING alone, to find what the field could not know.
 #define RV_RAY_MASK_STATIC 0x01u
 #define RV_RAY_MASK_MOVING 0x02u
+// RT2-2b: blended glass, present only under --reference-render and seen only by the
+// reference's own rays (RayShadows::kMaskTransmissive). Every ray here leaves it out.
+#define RV_RAY_MASK_TRANSMISSIVE 0x04u
 #ifdef RV_IRRADIANCE_FILL
 #define RV_RAY_MASK_SCENE RV_RAY_MASK_STATIC
 #else
-#define RV_RAY_MASK_SCENE 0xFFu
+#define RV_RAY_MASK_SCENE (RV_RAY_MASK_STATIC | RV_RAY_MASK_MOVING)
 #endif
 
 float TraceShadowFromMasked(vec3 worldPos, vec3 Ng, vec3 L, float tMax, uint mask)

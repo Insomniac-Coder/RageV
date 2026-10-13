@@ -187,6 +187,8 @@ namespace RageV
 		// RT-15: its transform changed since last frame, and PreviousRows hold the old
 		// one (RayCaster::Travelled).
 		constexpr uint32_t kRayInstanceTravelled = 32u;
+		// RT2-2b: blended glass, in the structure only under --reference-render.
+		constexpr uint32_t kRayInstanceTransmissive = 64u;
 
 		// Mirrors the std140 SceneData block in pbr.rvshader.
 		struct SceneUniforms
@@ -5713,6 +5715,8 @@ namespace RageV
 						row.Flags |= kRayInstanceMasked;
 						row.AlphaCutoff = caster.Params.AlphaCutoff;
 					}
+					if (caster.MaterialRef && IsBlended(caster.MaterialRef->GetBlendMode()))
+						row.Flags |= kRayInstanceTransmissive;
 					if (caster.Static)
 						row.Flags |= kRayInstanceStatic;
 					if (caster.Moving)

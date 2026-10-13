@@ -91,6 +91,10 @@ namespace RageV
 		// RV_RAY_MASK_MOVING in pbr_fragment.glsl; the two must agree.
 		static constexpr uint8_t kMaskStatic = 0x01;
 		static constexpr uint8_t kMaskMoving = 0x02;
+		// RT2-2b: blended glass, carried only under --reference-render and seen
+		// only by the reference's rays; every other ray's mask leaves it out
+		// (RV_RAY_MASK_SCENE is the two bits above). RV_RAY_MASK_TRANSMISSIVE.
+		static constexpr uint8_t kMaskTransmissive = 0x04;
 
 		static void Init(RHI::RHIDevice& device);
 		static void Shutdown();

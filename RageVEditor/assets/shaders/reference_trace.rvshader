@@ -5,14 +5,27 @@
 // no resolve, no colour box, no firefly clamp, no history beyond the mean, no
 // TAA. Its job is to say which picture is right, so it must not share the
 // shortcuts it judges. From the shared header it takes only data -- the
-// scene's bindings, the ray structure and the one traversal every ray in the
-// engine uses (so a fence's holes are the same holes) -- and does its own
-// shading: the material evaluated from its own lanes at every vertex, the
-// sky and the glowing surfaces reached by the paths themselves, and every
-// light sampled by next-event estimation. The material model is the lit
-// shader's: GGX with its Smith-Schlick geometry term, Schlick Fresnel, and
-// the diffuse weighted by (1 - F)(1 - metallic) -- the definition the frame
-// is judged against, evaluated exactly, not a second opinion about it.
+// scene's bindings and the ray structure -- and walks the structure itself:
+// the shared traversal carries real-time decisions (thin members fading out
+// with distance, a lamp's ray let through its own fitting) that the reference
+// must not inherit. It does its own shading: the material evaluated from its
+// own lanes at every vertex, the sky and the glowing surfaces reached by the
+// paths themselves, and every light sampled by next-event estimation. The
+// material model is the lit shader's: GGX with its Smith-Schlick geometry
+// term, Schlick Fresnel, and the diffuse weighted by (1 - F)(1 - metallic) --
+// the definition the frame is judged against, evaluated exactly, not a second
+// opinion about it.
+//
+// **Glass** (owner, 2026-10-13): blended materials join the structure only in
+// this mode, on a mask bit no other ray carries (RV_RAY_MASK_TRANSMISSIVE).
+// A pane is thin glass: its opacity (the blend alpha) is the share that is
+// ordinary surface, shaded with the material as anything else; the clear rest
+// reflects by the dielectric's Fresnel through the GGX lobe at the pane's
+// roughness and passes the remainder straight through. Untinted, because the
+// frame's glass has no tint to judge yet (RT2-31 adds one). A light's ray
+// through panes keeps the product of their transmittances -- exact for thin
+// glass, in any order, provided no crossing is counted twice, which is checked
+// here rather than left to the hardware.
 //
 // Step 1 of RT2-2b (2026-10-13): the skeleton. Lamps are points and the
 // material lanes are read at mip 0 without normal maps; steps 2 and 3 add the
@@ -59,6 +72,10 @@ layout(push_constant) uniform ReferenceParams
 
 layout(location = 0) out vec4 o_Mean;
 
+// Every ray here sees every world: the static and the moving halves and,
+// in this mode only, the glass.
+const uint REF_MASK_ALL = RV_RAY_MASK_STATIC | RV_RAY_MASK_MOVING | RV_RAY_MASK_TRANSMISSIVE;
+
 // --- random numbers: PCG, one stream per pixel and sample -------------------
 
 uint g_Rng;
@@ -78,9 +95,9 @@ float RefRandom()
 
 // --- rays ------------------------------------------------------------------
 
-// Off the surface along its geometric normal by a few ULPs of the position
-// (Wachter and Binder, Ray Tracing Gems ch. 6): a fixed distance is too much
-// at the camp and too little 2 km out on the bridge.
+// Off the surface along a normal by a few ULPs of the position (Wachter and
+// Binder, Ray Tracing Gems ch. 6): a fixed distance is too much at the camp
+// and too little 2 km out on the bridge.
 vec3 RefOffset(vec3 p, vec3 n)
 {
 	const float origin = 1.0 / 32.0;
@@ -95,6 +112,63 @@ vec3 RefOffset(vec3 p, vec3 n)
 				abs(p.z) < origin ? p.z + floatScale * n.z : pi.z);
 }
 
+// A triangle of an instance: its corners' indices and the material's uv there.
+struct RefTriangle
+{
+	uint I0, I1, I2;
+	vec2 Bary;
+};
+
+vec2 RefUv(RayInstance hit, GpuMaterial material, RefTriangle t)
+{
+	RayFloats attributes = RayFloats(hit.AttributeAddress);
+	const uint as_ = hit.AttributeStrideWords;
+	const float w0 = 1.0 - t.Bary.x - t.Bary.y;
+	const vec2 uv0 = vec2(attributes.Floats[t.I0 * as_ + 6u], attributes.Floats[t.I0 * as_ + 7u]);
+	const vec2 uv1 = vec2(attributes.Floats[t.I1 * as_ + 6u], attributes.Floats[t.I1 * as_ + 7u]);
+	const vec2 uv2 = vec2(attributes.Floats[t.I2 * as_ + 6u], attributes.Floats[t.I2 * as_ + 7u]);
+	return (uv0 * w0 + uv1 * t.Bary.x + uv2 * t.Bary.y) * material.UvTransform.xy + material.UvTransform.zw;
+}
+
+RefTriangle RefTriangleOf(RayInstance hit, uint primitive, vec2 bary)
+{
+	RayWords indices = RayWords(hit.IndexAddress);
+	RefTriangle t;
+	t.I0 = indices.Words[primitive * 3u + 0u];
+	t.I1 = indices.Words[primitive * 3u + 1u];
+	t.I2 = indices.Words[primitive * 3u + 2u];
+	t.Bary = bary;
+	return t;
+}
+
+// The material's coverage at a point: the blend alpha for glass, the cutout's
+// alpha for a masked surface. The base colour map's alpha at level zero.
+float RefAlpha(RayInstance hit, GpuMaterial material, RefTriangle t)
+{
+	float alpha = hit.BaseColor.a;
+	if ((material.MapFlags & MAP_BASE_COLOR) != 0)
+		alpha *= textureLod(u_Textures[nonuniformEXT(material.Maps0.x)], RefUv(hit, material, t), 0.0).a;
+	return alpha;
+}
+
+// Whether a candidate is a surface for a ray looking for the nearest one.
+// Glass is; a cutout is where its alpha clears the cutoff; anything else in a
+// non-opaque instance (a fitting) is solid. No distance fade, no fitting let
+// through: those are the frame's choices, not the scene's.
+bool RefCandidateIsSurface(rayQueryEXT q)
+{
+	const uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(q, false));
+	RayInstance hit = u_RayInstances.Instances[instance];
+	if ((hit.Flags & RAY_INSTANCE_TRANSMISSIVE) != 0u)
+		return true;
+	if ((hit.Flags & RAY_INSTANCE_MASKED) == 0u)
+		return true;
+	const GpuMaterial material = u_Materials.Materials[hit.MaterialIndex];
+	const RefTriangle t = RefTriangleOf(hit, uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, false)),
+										rayQueryGetIntersectionBarycentricsEXT(q, false));
+	return RefAlpha(hit, material, t) >= hit.AlphaCutoff;
+}
+
 struct RefHit
 {
 	vec3  P;
@@ -105,43 +179,45 @@ struct RefHit
 	float Metallic;
 	float Specular;
 	vec3  Emissive;
+	bool  Glass;
+	float Opacity;     // glass: the share of the pane that is ordinary surface
 };
 
 bool RefTrace(vec3 origin, vec3 direction, out RefHit h)
 {
 	h.P = vec3(0.0); h.Ng = vec3(0.0, 1.0, 0.0); h.N = h.Ng;
 	h.Albedo = vec3(0.0); h.Roughness = 1.0; h.Metallic = 0.0; h.Specular = 0.5; h.Emissive = vec3(0.0);
+	h.Glass = false; h.Opacity = 1.0;
 
 	rayQueryEXT q;
-	rayQueryInitializeEXT(q, u_SceneAS, RV_RAY_BASE_FLAGS, RV_RAY_MASK_SCENE,
-						  origin, 0.0, direction, 1.0e6);
-	RayTraverse(q);
+	rayQueryInitializeEXT(q, u_SceneAS, gl_RayFlagsNoneEXT, REF_MASK_ALL, origin, 0.0, direction, 1.0e6);
+	while (rayQueryProceedEXT(q))
+	{
+		if (rayQueryGetIntersectionTypeEXT(q, false) == gl_RayQueryCandidateIntersectionTriangleEXT
+			&& RefCandidateIsSurface(q))
+			rayQueryConfirmIntersectionEXT(q);
+	}
 	if (rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT)
 		return false;
 
 	const uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(q, true));
-	const uint primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, true));
-	const vec2 bary = rayQueryGetIntersectionBarycentricsEXT(q, true);
-	const float w0 = 1.0 - bary.x - bary.y;
 	const mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(q, true);
 	const mat4x3 worldToObject = rayQueryGetIntersectionWorldToObjectEXT(q, true);
-
 	const RayInstance hit = u_RayInstances.Instances[instance];
-	RayWords indices = RayWords(hit.IndexAddress);
+	const RefTriangle t = RefTriangleOf(hit, uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, true)),
+										rayQueryGetIntersectionBarycentricsEXT(q, true));
+	const float w0 = 1.0 - t.Bary.x - t.Bary.y;
 	RayFloats positions = RayFloats(hit.PositionAddress);
 	RayFloats attributes = RayFloats(hit.AttributeAddress);
-	const uint i0 = indices.Words[primitive * 3u + 0u];
-	const uint i1 = indices.Words[primitive * 3u + 1u];
-	const uint i2 = indices.Words[primitive * 3u + 2u];
 	const uint ps = hit.PositionStrideWords;
 	const uint as_ = hit.AttributeStrideWords;
 
 	// The point from the triangle itself, not origin + t * direction: the
 	// next ray starts here, and the barycentric point lies on the surface.
-	const vec3 p0 = vec3(positions.Floats[i0 * ps + 0u], positions.Floats[i0 * ps + 1u], positions.Floats[i0 * ps + 2u]);
-	const vec3 p1 = vec3(positions.Floats[i1 * ps + 0u], positions.Floats[i1 * ps + 1u], positions.Floats[i1 * ps + 2u]);
-	const vec3 p2 = vec3(positions.Floats[i2 * ps + 0u], positions.Floats[i2 * ps + 1u], positions.Floats[i2 * ps + 2u]);
-	h.P = objectToWorld * vec4(p0 * w0 + p1 * bary.x + p2 * bary.y, 1.0);
+	const vec3 p0 = vec3(positions.Floats[t.I0 * ps + 0u], positions.Floats[t.I0 * ps + 1u], positions.Floats[t.I0 * ps + 2u]);
+	const vec3 p1 = vec3(positions.Floats[t.I1 * ps + 0u], positions.Floats[t.I1 * ps + 1u], positions.Floats[t.I1 * ps + 2u]);
+	const vec3 p2 = vec3(positions.Floats[t.I2 * ps + 0u], positions.Floats[t.I2 * ps + 1u], positions.Floats[t.I2 * ps + 2u]);
+	h.P = objectToWorld * vec4(p0 * w0 + p1 * t.Bary.x + p2 * t.Bary.y, 1.0);
 
 	const vec3 objectNg = cross(p1 - p0, p2 - p0);
 	h.Ng = normalize(vec3(dot(worldToObject[0], objectNg), dot(worldToObject[1], objectNg),
@@ -149,10 +225,10 @@ bool RefTrace(vec3 origin, vec3 direction, out RefHit h)
 	vec3 objectN = objectNg;
 	if ((hit.Flags & RAY_INSTANCE_POSED) == 0u)
 	{
-		const vec3 n0 = vec3(attributes.Floats[i0 * as_ + 3u], attributes.Floats[i0 * as_ + 4u], attributes.Floats[i0 * as_ + 5u]);
-		const vec3 n1 = vec3(attributes.Floats[i1 * as_ + 3u], attributes.Floats[i1 * as_ + 4u], attributes.Floats[i1 * as_ + 5u]);
-		const vec3 n2 = vec3(attributes.Floats[i2 * as_ + 3u], attributes.Floats[i2 * as_ + 4u], attributes.Floats[i2 * as_ + 5u]);
-		objectN = n0 * w0 + n1 * bary.x + n2 * bary.y;
+		const vec3 n0 = vec3(attributes.Floats[t.I0 * as_ + 3u], attributes.Floats[t.I0 * as_ + 4u], attributes.Floats[t.I0 * as_ + 5u]);
+		const vec3 n1 = vec3(attributes.Floats[t.I1 * as_ + 3u], attributes.Floats[t.I1 * as_ + 4u], attributes.Floats[t.I1 * as_ + 5u]);
+		const vec3 n2 = vec3(attributes.Floats[t.I2 * as_ + 3u], attributes.Floats[t.I2 * as_ + 4u], attributes.Floats[t.I2 * as_ + 5u]);
+		objectN = n0 * w0 + n1 * t.Bary.x + n2 * t.Bary.y;
 	}
 	h.N = normalize(vec3(dot(worldToObject[0], objectN), dot(worldToObject[1], objectN),
 						 dot(worldToObject[2], objectN)));
@@ -163,11 +239,8 @@ bool RefTrace(vec3 origin, vec3 direction, out RefHit h)
 	if (dot(h.N, h.Ng) < 0.0)
 		h.N = -h.N;
 
-	const vec2 uv0 = vec2(attributes.Floats[i0 * as_ + 6u], attributes.Floats[i0 * as_ + 7u]);
-	const vec2 uv1 = vec2(attributes.Floats[i1 * as_ + 6u], attributes.Floats[i1 * as_ + 7u]);
-	const vec2 uv2 = vec2(attributes.Floats[i2 * as_ + 6u], attributes.Floats[i2 * as_ + 7u]);
 	const GpuMaterial material = u_Materials.Materials[hit.MaterialIndex];
-	const vec2 uv = (uv0 * w0 + uv1 * bary.x + uv2 * bary.y) * material.UvTransform.xy + material.UvTransform.zw;
+	const vec2 uv = RefUv(hit, material, t);
 
 	h.Albedo = hit.BaseColor.rgb;
 	if ((material.MapFlags & MAP_BASE_COLOR) != 0)
@@ -185,6 +258,9 @@ bool RefTrace(vec3 origin, vec3 direction, out RefHit h)
 	if ((material.MapFlags & MAP_EMISSIVE) != 0)
 		h.Emissive *= textureLod(u_Textures[nonuniformEXT(material.Maps0.w)], uv, 0.0).rgb;
 	ApplyMacro(h.Albedo, h.Roughness, h.P, material.Macro.x, material.Macro.y);
+	h.Glass = (hit.Flags & RAY_INSTANCE_TRANSMISSIVE) != 0u;
+	if (h.Glass)
+		h.Opacity = clamp(RefAlpha(hit, material, t), 0.0, 1.0);
 
 	h.Albedo = clamp(h.Albedo, 0.0, 1.0);
 	h.Metallic = clamp(h.Metallic, 0.0, 1.0);
@@ -195,13 +271,64 @@ bool RefTrace(vec3 origin, vec3 direction, out RefHit h)
 	return true;
 }
 
-bool RefVisible(vec3 origin, vec3 direction, float reach)
+// What reaches `reach` along the ray: zero past anything solid, and through
+// glass the product of each pane's clear share times what its Fresnel lets
+// through at that angle. A crossing reported twice (the hardware may) is
+// counted once: up to eight remembered, more than any light here crosses.
+vec3 RefTransmittance(vec3 origin, vec3 direction, float reach)
 {
+	vec3 through = vec3(1.0);
+	uvec2 seen[8];
+	int seenCount = 0;
 	rayQueryEXT q;
-	rayQueryInitializeEXT(q, u_SceneAS, RV_RAY_BASE_FLAGS | gl_RayFlagsTerminateOnFirstHitEXT,
-						  RV_RAY_MASK_SCENE, origin, 0.0, direction, reach);
-	RayTraverse(q);
-	return rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT;
+	rayQueryInitializeEXT(q, u_SceneAS, gl_RayFlagsTerminateOnFirstHitEXT, REF_MASK_ALL,
+						  origin, 0.0, direction, reach);
+	while (rayQueryProceedEXT(q))
+	{
+		if (rayQueryGetIntersectionTypeEXT(q, false) != gl_RayQueryCandidateIntersectionTriangleEXT)
+			continue;
+		const uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(q, false));
+		RayInstance hit = u_RayInstances.Instances[instance];
+		if ((hit.Flags & RAY_INSTANCE_TRANSMISSIVE) == 0u)
+		{
+			if (RefCandidateIsSurface(q))
+				rayQueryConfirmIntersectionEXT(q);
+			continue;
+		}
+		const uint primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, false));
+		bool counted = false;
+		for (int i = 0; i < seenCount; ++i)
+			counted = counted || (seen[i].x == instance && seen[i].y == primitive);
+		if (counted)
+			continue;
+		if (seenCount < 8)
+			seen[seenCount++] = uvec2(instance, primitive);
+
+		const GpuMaterial material = u_Materials.Materials[hit.MaterialIndex];
+		const RefTriangle t = RefTriangleOf(hit, primitive, rayQueryGetIntersectionBarycentricsEXT(q, false));
+		RayFloats positions = RayFloats(hit.PositionAddress);
+		const uint ps = hit.PositionStrideWords;
+		const vec3 p0 = vec3(positions.Floats[t.I0 * ps + 0u], positions.Floats[t.I0 * ps + 1u], positions.Floats[t.I0 * ps + 2u]);
+		const vec3 p1 = vec3(positions.Floats[t.I1 * ps + 0u], positions.Floats[t.I1 * ps + 1u], positions.Floats[t.I1 * ps + 2u]);
+		const vec3 p2 = vec3(positions.Floats[t.I2 * ps + 0u], positions.Floats[t.I2 * ps + 1u], positions.Floats[t.I2 * ps + 2u]);
+		const mat4x3 worldToObject = rayQueryGetIntersectionWorldToObjectEXT(q, false);
+		const vec3 objectNg = cross(p1 - p0, p2 - p0);
+		const vec3 Ng = normalize(vec3(dot(worldToObject[0], objectNg), dot(worldToObject[1], objectNg),
+									   dot(worldToObject[2], objectNg)));
+		float specular = material.Specular;
+		if ((material.MapFlags & MAP_SPECULAR) != 0)
+			specular *= textureLod(u_Textures[nonuniformEXT(material.Maps1.z)], RefUv(hit, material, t), 0.0).r;
+		const float F = FresnelSchlick(abs(dot(Ng, direction)), vec3(0.08 * clamp(specular, 0.0, 1.0))).x;
+		through *= (1.0 - clamp(RefAlpha(hit, material, t), 0.0, 1.0)) * (1.0 - F);
+		if (max(through.r, max(through.g, through.b)) <= 0.0)
+		{
+			rayQueryTerminateEXT(q);
+			return vec3(0.0);
+		}
+	}
+	if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionNoneEXT)
+		return vec3(0.0);
+	return through;
 }
 
 vec3 RefSky(vec3 direction)
@@ -221,23 +348,45 @@ vec3 RefF0(RefHit h)
 	return mix(vec3(0.08 * h.Specular), h.Albedo, h.Metallic);
 }
 
-// f(V, L), without the cosine.
-vec3 RefBsdf(RefHit h, vec3 V, vec3 L)
+// The specular lobe alone, for a given F0. f(V, L) without the cosine.
+vec3 RefSpecular(RefHit h, vec3 V, vec3 L, vec3 F0)
+{
+	const float NdotL = dot(h.N, L);
+	const float NdotV = dot(h.N, V);
+	const vec3 H = normalize(V + L);
+	const vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+	return DistributionGGX(h.N, H, h.Roughness) * GeometrySmith(h.N, V, L, h.Roughness) * F
+		 / (4.0 * NdotV * NdotL);
+}
+
+// The ordinary surface: diffuse and specular, as the lit shader shades it.
+vec3 RefOpaque(RefHit h, vec3 V, vec3 L)
 {
 	const float NdotL = dot(h.N, L);
 	const float NdotV = dot(h.N, V);
 	if (NdotL <= 0.0 || NdotV <= 0.0 || dot(h.Ng, L) <= 0.0)
 		return vec3(0.0);
-	const vec3 H = normalize(V + L);
-	const vec3 F = FresnelSchlick(max(dot(H, V), 0.0), RefF0(h));
-	const vec3 specular = DistributionGGX(h.N, H, h.Roughness) * GeometrySmith(h.N, V, L, h.Roughness) * F
-						/ (4.0 * NdotV * NdotL);
+	const vec3 F0 = RefF0(h);
+	const vec3 F = FresnelSchlick(max(dot(normalize(V + L), V), 0.0), F0);
 	const vec3 kD = (vec3(1.0) - F) * (1.0 - h.Metallic);
-	return kD * h.Albedo / PI + specular;
+	return kD * h.Albedo / PI + RefSpecular(h, V, L, F0);
 }
 
-// How often the specular lobe is chosen: its share at this view, kept off 0
-// and 1 so neither lobe is ever starved of samples.
+// Everything a light can reach at this vertex: the surface, and on glass its
+// clear share's reflection (its straight-through share is a delta no light
+// sample can land on; the path continues through it instead).
+vec3 RefBsdf(RefHit h, vec3 V, vec3 L)
+{
+	if (!h.Glass)
+		return RefOpaque(h, V, L);
+	vec3 f = h.Opacity * RefOpaque(h, V, L);
+	if (dot(h.N, L) > 0.0 && dot(h.N, V) > 0.0 && dot(h.Ng, L) > 0.0)
+		f += (1.0 - h.Opacity) * RefSpecular(h, V, L, vec3(0.08 * h.Specular));
+	return f;
+}
+
+// How often the surface's specular lobe is chosen: its share at this view,
+// kept off 0 and 1 so neither lobe is ever starved of samples.
 float RefSpecularChance(RefHit h, vec3 V)
 {
 	const vec3 F = FresnelSchlick(max(dot(h.N, V), 0.0), RefF0(h));
@@ -276,45 +425,53 @@ float RefSmithG1(float NdotV, float alpha)
 	return 2.0 * NdotV / (NdotV + sqrt(a2 + (1.0 - a2) * NdotV * NdotV));
 }
 
-// The density of choosing L from V, over both lobes.
-float RefPdf(RefHit h, vec3 V, vec3 L, float specularChance)
+vec3 RefSampleSpecularDirection(RefHit h, vec3 V)
 {
-	const float NdotL = dot(h.N, L);
-	const float NdotV = dot(h.N, V);
-	if (NdotL <= 0.0 || NdotV <= 0.0)
-		return 0.0;
-	const vec3 H = normalize(V + L);
-	const float alpha = h.Roughness * h.Roughness;
-	const float specularPdf = RefSmithG1(NdotV, alpha) * DistributionGGX(h.N, H, h.Roughness) / (4.0 * NdotV);
-	return specularChance * specularPdf + (1.0 - specularChance) * NdotL / PI;
+	const mat3 basis = RefBasis(h.N);
+	const vec3 Hl = RefSampleVisibleNormal(transpose(basis) * V, h.Roughness * h.Roughness,
+										   vec2(RefRandom(), RefRandom()));
+	return reflect(-V, basis * Hl);
 }
 
-bool RefSampleBsdf(RefHit h, vec3 V, out vec3 L, out float pdf)
+float RefSpecularPdf(RefHit h, vec3 V, vec3 L)
+{
+	const float NdotV = dot(h.N, V);
+	return RefSmithG1(NdotV, h.Roughness * h.Roughness) * DistributionGGX(h.N, normalize(V + L), h.Roughness)
+		 / (4.0 * NdotV);
+}
+
+// A direction from the ordinary surface, and the throughput it carries
+// (f cos / pdf over both of its lobes). False when the sample is spent.
+bool RefSampleOpaque(RefHit h, vec3 V, out vec3 L, out vec3 weight)
 {
 	const float specularChance = RefSpecularChance(h, V);
-	const mat3 basis = RefBasis(h.N);
-	const vec2 u = vec2(RefRandom(), RefRandom());
 	if (RefRandom() < specularChance)
 	{
-		const vec3 Ve = transpose(basis) * V;
-		const vec3 Hl = RefSampleVisibleNormal(Ve, h.Roughness * h.Roughness, u);
-		L = reflect(-V, basis * Hl);
+		L = RefSampleSpecularDirection(h, V);
 	}
 	else
 	{
+		const vec2 u = vec2(RefRandom(), RefRandom());
 		const float r = sqrt(u.x);
 		const float phi = 2.0 * PI * u.y;
-		L = basis * vec3(r * cos(phi), r * sin(phi), sqrt(max(0.0, 1.0 - u.x)));
+		L = RefBasis(h.N) * vec3(r * cos(phi), r * sin(phi), sqrt(max(0.0, 1.0 - u.x)));
 	}
-	pdf = RefPdf(h, V, L, specularChance);
-	return pdf > 0.0 && dot(h.Ng, L) > 0.0;
+	const float NdotL = dot(h.N, L);
+	if (NdotL <= 0.0 || dot(h.N, V) <= 0.0 || dot(h.Ng, L) <= 0.0)
+		return false;
+	const float pdf = specularChance * RefSpecularPdf(h, V, L) + (1.0 - specularChance) * NdotL / PI;
+	if (pdf <= 0.0)
+		return false;
+	weight = RefOpaque(h, V, L) * NdotL / pdf;
+	return true;
 }
 
 // --- lights: next-event estimation, one lamp per vertex ---------------------
 
 // One lamp chosen uniformly and its light toward P, as the lit shader lights
-// it (range window, inverse square, the spot's ramp). Step 1: every lamp a
-// point; step 3 gives spheres and tubes their area.
+// it (range window, inverse square, the spot's ramp), through whatever glass
+// is in the way. Step 1: every lamp a point; step 3 gives spheres and tubes
+// their area.
 vec3 RefLamp(RefHit h, vec3 V)
 {
 	const int count = u_Scene.LightCount;
@@ -352,10 +509,10 @@ vec3 RefLamp(RefHit h, vec3 V)
 	const vec3 f = RefBsdf(h, V, L);
 	if (all(equal(f, vec3(0.0))))
 		return vec3(0.0);
-	const vec3 origin = RefOffset(h.P, h.Ng);
-	if (!RefVisible(origin, L, reach))
+	const vec3 through = RefTransmittance(RefOffset(h.P, h.Ng), L, reach);
+	if (all(equal(through, vec3(0.0))))
 		return vec3(0.0);
-	return f * max(dot(h.N, L), 0.0) * color * attenuation * float(count);
+	return f * max(dot(h.N, L), 0.0) * color * attenuation * float(count) * through;
 }
 
 // --- one path ---------------------------------------------------------------
@@ -382,11 +539,43 @@ vec3 RefPath(vec3 origin, vec3 direction)
 		const vec3 V = -direction;
 		radiance += throughput * RefLamp(h, V);
 
+		// The next direction. On glass the pane is first split by its opacity
+		// (the surface share, or the clear share); the clear share then
+		// reflects by its Fresnel or goes straight through. Each choice's
+		// probability divides the weight of what it picked, so the estimate is
+		// the whole pane's on average.
 		vec3 L;
-		float pdf;
-		if (!RefSampleBsdf(h, V, L, pdf))
+		vec3 weight;
+		bool straightThrough = false;
+		if (h.Glass && RefRandom() >= h.Opacity)
+		{
+			const float NdotV = max(dot(h.N, V), 0.0);
+			const float reflectChance = FresnelSchlick(NdotV, vec3(0.08 * h.Specular)).x;
+			if (RefRandom() < reflectChance)
+			{
+				L = RefSampleSpecularDirection(h, V);
+				const float NdotL = dot(h.N, L);
+				if (NdotL <= 0.0 || NdotV <= 0.0 || dot(h.Ng, L) <= 0.0)
+					break;
+				const float pdf = RefSpecularPdf(h, V, L) * reflectChance;
+				if (pdf <= 0.0)
+					break;
+				weight = RefSpecular(h, V, L, vec3(0.08 * h.Specular)) * NdotL / pdf;
+			}
+			else
+			{
+				// (1 - F) of the clear share passes, chosen with chance 1 - F:
+				// the weight is one, the direction unchanged.
+				L = direction;
+				weight = vec3(1.0);
+				straightThrough = true;
+			}
+		}
+		else if (!RefSampleOpaque(h, V, L, weight))
+		{
 			break;
-		throughput *= RefBsdf(h, V, L) * max(dot(h.N, L), 0.0) / pdf;
+		}
+		throughput *= weight;
 
 		// Russian roulette from the fourth vertex: unbiased, and it ends the
 		// paths that no longer carry anything.
@@ -397,7 +586,7 @@ vec3 RefPath(vec3 origin, vec3 direction)
 				break;
 			throughput /= keep;
 		}
-		origin = RefOffset(h.P, h.Ng);
+		origin = RefOffset(h.P, straightThrough ? -h.Ng : h.Ng);
 		direction = L;
 	}
 	return radiance;

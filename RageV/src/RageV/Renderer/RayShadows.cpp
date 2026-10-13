@@ -285,13 +285,14 @@ namespace RageV
 		const Vec3 emissive = Vec3(params.EmissiveColor);
 		const bool emitter =
 			Math::Max(emissive.x, Math::Max(emissive.y, emissive.z)) > 1.0f;
-		instance.ForceNoOpaque = emitter
+		const bool transmissive = material && IsBlended(material->GetBlendMode());
+		instance.ForceNoOpaque = emitter || transmissive
 							  || (material && material->GetBlendMode() == BlendMode::Masked);
 
 		// **One of two worlds** (kMaskStatic / kMaskMoving, 7cx): what lets
 		// the bake's solve see only what it bakes, and a static pixel's
 		// subtractive shadow ray see only what can move.
-		instance.Mask = isStatic ? kMaskStatic : kMaskMoving;
+		instance.Mask = transmissive ? kMaskTransmissive : isStatic ? kMaskStatic : kMaskMoving;
 
 		RayCaster record;
 		record.MeshRef = mesh;

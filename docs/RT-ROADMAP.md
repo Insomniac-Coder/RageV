@@ -885,7 +885,18 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   structure, materials, emitters, sky): the first frames, while the scene loads, had put one bad
 >   sample in every pixel. Garage, 1600x900: 1024 samples in 28 s; the mean is flat from one sample
 >   (1.0867) to 64 (1.0869). Still to come: the full material (step 2), the lamps' real shapes and
->   glowing-mesh sampling (step 3), glass (owner, 2026-10-13: next), the furnace and garage checks (step 4).
+>   glowing-mesh sampling (step 3), the furnace and garage checks (step 4).
+> - **2b glass built, 2026-10-13 (owner: the path tracer showed no car-glass reflections).** Blended
+>   materials join the ray structure only under `--reference-render`, on a mask bit no real-time ray
+>   carries (`kMaskTransmissive` 0x04; `RV_RAY_MASK_SCENE` is now static | moving, so real-time frames
+>   are unchanged: the four shots byte-identical, scenetest and check_gpu_lit pass). The reference walks
+>   the structure itself (no thin-member fade, no fitting let through). A pane is thin glass: its opacity
+>   (the blend alpha) is ordinary surface; the clear rest reflects by the dielectric's Fresnel through
+>   GGX at the pane's roughness, F0 = 0.08 x specular, and passes the remainder straight through. A
+>   lamp's shadow ray through panes keeps the product of their transmittances, each crossing counted
+>   once. Untinted, as the frame's glass is (RT2-31 adds tint). Garage close-up of the car at 1024
+>   samples: the windscreen and headlight covers reflect the tubes. Seen, for step 4 to measure: the
+>   real-time floor mirrors the car more sharply than the reference does.
 >
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'
