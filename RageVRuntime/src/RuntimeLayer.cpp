@@ -294,6 +294,8 @@ void RuntimeLayer::CaptureSignals()
 		{ "occlusion", &m_Occlusion, { 0u } },
 		{ "gi", &m_GiLight, { 0u } },
 		{ "taa", &m_History, { 0u } },
+		// RT2-2b: the reference's mean, rgb radiance and a the bad samples, in full floats.
+		{ "reference", &m_Reference.History, { 0u } },
 	};
 
 	// **crop=x:y:w:h**, beside the names: every frame's values in that
@@ -324,7 +326,7 @@ void RuntimeLayer::CaptureSignals()
 		if (!entry)
 		{
 			if (written == first)
-				RV_WARN("capture-signals: no history named '{0}' (direct, glassdirect, glassreflections, reflections, occlusion, gi, taa)", name);
+				RV_WARN("capture-signals: no history named '{0}' (direct, glassdirect, glassreflections, reflections, occlusion, gi, taa, reference)", name);
 			continue;
 		}
 		const RHI::Ref<RHI::RHIRenderTarget>& target = entry->History->Previous();
@@ -609,6 +611,7 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	frame.Occlusion = &m_Occlusion;
 	frame.GiLight = &m_GiLight;
 	frame.TaaGuide = &m_TaaGuide;
+	frame.Reference = EngineConfig::Get().ReferenceSamples > 0 ? &m_Reference : nullptr;
 
 	// The loop's frame time, straight through. Not a clock read here: this is
 	// the number --frame-time pins, and driving the adaptation from it is the

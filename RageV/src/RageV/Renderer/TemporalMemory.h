@@ -41,6 +41,9 @@ namespace RageV
 		// once both have held for longer than Longest().
 		static void Observe(bool cameraStill, bool lightingReady);
 		static bool Settled();
+		// RT2-2b: under --reference-render=N, settled means the reference's mean
+		// holds N samples; the frame graph reports the count as it records them.
+		static void NoteReferenceSamples(uint32_t samples);
 		static uint32_t StillFrames();
 	};
 }

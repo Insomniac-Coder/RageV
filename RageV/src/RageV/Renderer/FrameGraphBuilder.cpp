@@ -9,6 +9,7 @@
 #include "RayCounters.h"
 #include "VoxelGI.h"
 #include "Renderer3D.h"
+#include "TemporalMemory.h"
 #include "RageV/Asset/AssetManager.h"
 #include "Renderer.h"
 #include "UIRenderer.h"
@@ -5243,6 +5244,65 @@ namespace RageV
 				});
 
 			shaded = smeared;
+		}
+
+		// --- RT2-2b: the reference renderer ------------------------------------
+		// Its mean replaces the picture here, after everything the real-time chain
+		// does to it and before bloom and the tone map, so the reference is seen
+		// through the same exposure and the same curve. The real-time chain still
+		// runs in front of it: its passes fill the tables the paths read (the
+		// lights, the ray instances, the materials), and nothing it draws reaches
+		// the reference.
+		if (desc.Reference && Renderer3D::CanTraceReference())
+		{
+			ReferenceAccumulator& reference = *desc.Reference;
+			if (std::memcmp(&reference.View, &desc.View, sizeof(Mat4)) != 0 || desc.CameraCut)
+			{
+				reference.History.Invalidate();
+				reference.View = desc.View;
+			}
+			reference.History.Prepare(Renderer::GetDevice(), desc.Width, desc.Height,
+									  Format::R32G32B32A32_SFLOAT, "Reference");
+			if (reference.History.Current() && reference.History.Previous())
+			{
+				const bool hasPrevious = reference.History.HasHistory();
+				const RGResource previous = graph.Import(reference.History.Previous(), "ReferencePrevious");
+				const RGResource mean = graph.Import(reference.History.Current(), "ReferenceMean");
+				Renderer3D::GiTraceView view;
+				view.NearClip = desc.NearClip;
+				view.FarClip = desc.FarClip;
+				view.InvProjection0 = desc.InvProjection0;
+				view.InvProjection1 = desc.InvProjection1;
+				view.View = desc.View;
+				const uint32_t bounces = config.ReferenceBounces;
+				ReferenceAccumulator* state = &reference;
+				graph.AddPass("ReferenceTrace",
+					[&](RGPassBuilder& builder)
+					{
+						builder.Write(mean);
+						builder.Sample(previous);
+						builder.DisableDepth();
+					},
+					[previous, hasPrevious, view, bounces, state](RGPassContext& context)
+					{
+						// Decided here and not when the pass was declared: the tables
+						// the key covers are this frame's only once the G-buffer pass
+						// has submitted the scene. Anything they hold that differs
+						// from the last sample's -- the scene still loading in its
+						// first frames, a lamp switched, an object moved -- starts
+						// the mean again, so no sample of another scene is averaged in.
+						const uint64_t key = Renderer3D::ReferenceSceneKey();
+						const bool keep = hasPrevious && key == state->SceneKey;
+						state->SceneKey = key;
+						const uint32_t samples = keep ? state->Samples : 0u;
+						Renderer3D::TraceReference(context.Cmd, context.Color(previous), keep,
+												   Format::R32G32B32A32_SFLOAT, view, samples, bounces);
+						state->Samples = samples + 1;
+						TemporalMemory::NoteReferenceSamples(state->Samples);
+					});
+				reference.History.Advance();
+				shaded = mean;
+			}
 		}
 
 		// --- bloom -------------------------------------------------------------

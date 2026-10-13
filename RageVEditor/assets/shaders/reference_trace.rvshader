@@ -1,0 +1,443 @@
+// **RT2-2b: the reference renderer** (`--reference-render=N`).
+//
+// A path tracer at a fixed pose, accumulated into a running mean one path per
+// pixel per frame, with none of the real-time chain's tools for hiding noise:
+// no resolve, no colour box, no firefly clamp, no history beyond the mean, no
+// TAA. Its job is to say which picture is right, so it must not share the
+// shortcuts it judges. From the shared header it takes only data -- the
+// scene's bindings, the ray structure and the one traversal every ray in the
+// engine uses (so a fence's holes are the same holes) -- and does its own
+// shading: the material evaluated from its own lanes at every vertex, the
+// sky and the glowing surfaces reached by the paths themselves, and every
+// light sampled by next-event estimation. The material model is the lit
+// shader's: GGX with its Smith-Schlick geometry term, Schlick Fresnel, and
+// the diffuse weighted by (1 - F)(1 - metallic) -- the definition the frame
+// is judged against, evaluated exactly, not a second opinion about it.
+//
+// Step 1 of RT2-2b (2026-10-13): the skeleton. Lamps are points and the
+// material lanes are read at mip 0 without normal maps; steps 2 and 3 add the
+// full material (normal maps, coat, sheen, anisotropy, the ray's footprint)
+// and the lamps' real shapes. The baked ambient-occlusion map is ignored on
+// purpose (owner, 2026-10-13): the paths compute the occlusion it stands in
+// for. A lamp that also has a glowing mesh is counted both ways, as the frame
+// counts it today, until RT2-11 links the two (owner, 2026-10-13).
+
+#type vertex
+#version 460 core
+
+layout(location = 0) out vec2 v_UV;
+
+void main()
+{
+	v_UV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+	gl_Position = vec4(v_UV * 2.0 - 1.0, 0.0, 1.0);
+}
+
+#type fragment
+#version 460 core
+
+#define RV_TRACE_ONLY
+#include "include/pbr_fragment.glsl"
+#include "include/view_reconstruction.glsl"
+
+layout(location = 0) in vec2 v_UV;
+
+// The mean so far: rgb the radiance, a the samples that came back not a
+// number (counted, never averaged in -- a reference that hid them would hide
+// its own bugs).
+layout(set = 3, binding = 0) uniform sampler2D u_ReferencePrevious;
+
+layout(push_constant) uniform ReferenceParams
+{
+	vec4 Projection;   // xy the inverse projection, z one where rows run down (Vulkan), w samples so far
+	vec4 Settings;     // x the most bounces, y one where a mean exists to add to
+	vec4 CameraRow0;
+	vec4 CameraRow1;
+	vec4 CameraRow2;
+	vec4 CameraPosition;
+} u_Ref;
+
+layout(location = 0) out vec4 o_Mean;
+
+// --- random numbers: PCG, one stream per pixel and sample -------------------
+
+uint g_Rng;
+
+uint RefNext()
+{
+	const uint state = g_Rng * 747796405u + 2891336453u;
+	g_Rng = state;
+	const uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+	return (word >> 22u) ^ word;
+}
+
+float RefRandom()
+{
+	return float(RefNext() >> 8u) * (1.0 / 16777216.0);
+}
+
+// --- rays ------------------------------------------------------------------
+
+// Off the surface along its geometric normal by a few ULPs of the position
+// (Wachter and Binder, Ray Tracing Gems ch. 6): a fixed distance is too much
+// at the camp and too little 2 km out on the bridge.
+vec3 RefOffset(vec3 p, vec3 n)
+{
+	const float origin = 1.0 / 32.0;
+	const float floatScale = 1.0 / 65536.0;
+	const float intScale = 256.0;
+	const ivec3 o = ivec3(intScale * n);
+	const vec3 pi = vec3(intBitsToFloat(floatBitsToInt(p.x) + (p.x < 0.0 ? -o.x : o.x)),
+						 intBitsToFloat(floatBitsToInt(p.y) + (p.y < 0.0 ? -o.y : o.y)),
+						 intBitsToFloat(floatBitsToInt(p.z) + (p.z < 0.0 ? -o.z : o.z)));
+	return vec3(abs(p.x) < origin ? p.x + floatScale * n.x : pi.x,
+				abs(p.y) < origin ? p.y + floatScale * n.y : pi.y,
+				abs(p.z) < origin ? p.z + floatScale * n.z : pi.z);
+}
+
+struct RefHit
+{
+	vec3  P;
+	vec3  Ng;          // facing the ray
+	vec3  N;           // shading normal, on Ng's side
+	vec3  Albedo;
+	float Roughness;
+	float Metallic;
+	float Specular;
+	vec3  Emissive;
+};
+
+bool RefTrace(vec3 origin, vec3 direction, out RefHit h)
+{
+	h.P = vec3(0.0); h.Ng = vec3(0.0, 1.0, 0.0); h.N = h.Ng;
+	h.Albedo = vec3(0.0); h.Roughness = 1.0; h.Metallic = 0.0; h.Specular = 0.5; h.Emissive = vec3(0.0);
+
+	rayQueryEXT q;
+	rayQueryInitializeEXT(q, u_SceneAS, RV_RAY_BASE_FLAGS, RV_RAY_MASK_SCENE,
+						  origin, 0.0, direction, 1.0e6);
+	RayTraverse(q);
+	if (rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT)
+		return false;
+
+	const uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(q, true));
+	const uint primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, true));
+	const vec2 bary = rayQueryGetIntersectionBarycentricsEXT(q, true);
+	const float w0 = 1.0 - bary.x - bary.y;
+	const mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(q, true);
+	const mat4x3 worldToObject = rayQueryGetIntersectionWorldToObjectEXT(q, true);
+
+	const RayInstance hit = u_RayInstances.Instances[instance];
+	RayWords indices = RayWords(hit.IndexAddress);
+	RayFloats positions = RayFloats(hit.PositionAddress);
+	RayFloats attributes = RayFloats(hit.AttributeAddress);
+	const uint i0 = indices.Words[primitive * 3u + 0u];
+	const uint i1 = indices.Words[primitive * 3u + 1u];
+	const uint i2 = indices.Words[primitive * 3u + 2u];
+	const uint ps = hit.PositionStrideWords;
+	const uint as_ = hit.AttributeStrideWords;
+
+	// The point from the triangle itself, not origin + t * direction: the
+	// next ray starts here, and the barycentric point lies on the surface.
+	const vec3 p0 = vec3(positions.Floats[i0 * ps + 0u], positions.Floats[i0 * ps + 1u], positions.Floats[i0 * ps + 2u]);
+	const vec3 p1 = vec3(positions.Floats[i1 * ps + 0u], positions.Floats[i1 * ps + 1u], positions.Floats[i1 * ps + 2u]);
+	const vec3 p2 = vec3(positions.Floats[i2 * ps + 0u], positions.Floats[i2 * ps + 1u], positions.Floats[i2 * ps + 2u]);
+	h.P = objectToWorld * vec4(p0 * w0 + p1 * bary.x + p2 * bary.y, 1.0);
+
+	const vec3 objectNg = cross(p1 - p0, p2 - p0);
+	h.Ng = normalize(vec3(dot(worldToObject[0], objectNg), dot(worldToObject[1], objectNg),
+						  dot(worldToObject[2], objectNg)));
+	vec3 objectN = objectNg;
+	if ((hit.Flags & RAY_INSTANCE_POSED) == 0u)
+	{
+		const vec3 n0 = vec3(attributes.Floats[i0 * as_ + 3u], attributes.Floats[i0 * as_ + 4u], attributes.Floats[i0 * as_ + 5u]);
+		const vec3 n1 = vec3(attributes.Floats[i1 * as_ + 3u], attributes.Floats[i1 * as_ + 4u], attributes.Floats[i1 * as_ + 5u]);
+		const vec3 n2 = vec3(attributes.Floats[i2 * as_ + 3u], attributes.Floats[i2 * as_ + 4u], attributes.Floats[i2 * as_ + 5u]);
+		objectN = n0 * w0 + n1 * bary.x + n2 * bary.y;
+	}
+	h.N = normalize(vec3(dot(worldToObject[0], objectN), dot(worldToObject[1], objectN),
+						 dot(worldToObject[2], objectN)));
+
+	// Two-sided, as the frame draws it: both normals turned to face the ray.
+	if (dot(h.Ng, direction) > 0.0)
+		h.Ng = -h.Ng;
+	if (dot(h.N, h.Ng) < 0.0)
+		h.N = -h.N;
+
+	const vec2 uv0 = vec2(attributes.Floats[i0 * as_ + 6u], attributes.Floats[i0 * as_ + 7u]);
+	const vec2 uv1 = vec2(attributes.Floats[i1 * as_ + 6u], attributes.Floats[i1 * as_ + 7u]);
+	const vec2 uv2 = vec2(attributes.Floats[i2 * as_ + 6u], attributes.Floats[i2 * as_ + 7u]);
+	const GpuMaterial material = u_Materials.Materials[hit.MaterialIndex];
+	const vec2 uv = (uv0 * w0 + uv1 * bary.x + uv2 * bary.y) * material.UvTransform.xy + material.UvTransform.zw;
+
+	h.Albedo = hit.BaseColor.rgb;
+	if ((material.MapFlags & MAP_BASE_COLOR) != 0)
+		h.Albedo *= textureLod(u_Textures[nonuniformEXT(material.Maps0.x)], uv, 0.0).rgb;
+	h.Roughness = hit.Surface.y;
+	if ((material.MapFlags & MAP_ROUGHNESS) != 0)
+		h.Roughness *= textureLod(u_Textures[nonuniformEXT(material.Maps1.x)], uv, 0.0).r;
+	h.Metallic = hit.Surface.x;
+	if ((material.MapFlags & MAP_METALLIC) != 0)
+		h.Metallic *= textureLod(u_Textures[nonuniformEXT(material.Maps1.y)], uv, 0.0).r;
+	h.Specular = material.Specular;
+	if ((material.MapFlags & MAP_SPECULAR) != 0)
+		h.Specular *= textureLod(u_Textures[nonuniformEXT(material.Maps1.z)], uv, 0.0).r;
+	h.Emissive = hit.EmissiveColor.rgb;
+	if ((material.MapFlags & MAP_EMISSIVE) != 0)
+		h.Emissive *= textureLod(u_Textures[nonuniformEXT(material.Maps0.w)], uv, 0.0).rgb;
+	ApplyMacro(h.Albedo, h.Roughness, h.P, material.Macro.x, material.Macro.y);
+
+	h.Albedo = clamp(h.Albedo, 0.0, 1.0);
+	h.Metallic = clamp(h.Metallic, 0.0, 1.0);
+	h.Specular = clamp(h.Specular, 0.0, 1.0);
+	// The lobe's narrowest: below it GGX's sampled directions and its density
+	// stop agreeing in float, which is a number problem, not a material.
+	h.Roughness = clamp(h.Roughness, 0.03, 1.0);
+	return true;
+}
+
+bool RefVisible(vec3 origin, vec3 direction, float reach)
+{
+	rayQueryEXT q;
+	rayQueryInitializeEXT(q, u_SceneAS, RV_RAY_BASE_FLAGS | gl_RayFlagsTerminateOnFirstHitEXT,
+						  RV_RAY_MASK_SCENE, origin, 0.0, direction, reach);
+	RayTraverse(q);
+	return rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT;
+}
+
+vec3 RefSky(vec3 direction)
+{
+	return textureLod(u_Environment, vec4(RotateIntoSky(direction), 0.0), 0.0).rgb * u_Scene.Environment.x;
+}
+
+// --- the material: the lit shader's model, exactly --------------------------
+
+float RefLuminance(vec3 c)
+{
+	return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+vec3 RefF0(RefHit h)
+{
+	return mix(vec3(0.08 * h.Specular), h.Albedo, h.Metallic);
+}
+
+// f(V, L), without the cosine.
+vec3 RefBsdf(RefHit h, vec3 V, vec3 L)
+{
+	const float NdotL = dot(h.N, L);
+	const float NdotV = dot(h.N, V);
+	if (NdotL <= 0.0 || NdotV <= 0.0 || dot(h.Ng, L) <= 0.0)
+		return vec3(0.0);
+	const vec3 H = normalize(V + L);
+	const vec3 F = FresnelSchlick(max(dot(H, V), 0.0), RefF0(h));
+	const vec3 specular = DistributionGGX(h.N, H, h.Roughness) * GeometrySmith(h.N, V, L, h.Roughness) * F
+						/ (4.0 * NdotV * NdotL);
+	const vec3 kD = (vec3(1.0) - F) * (1.0 - h.Metallic);
+	return kD * h.Albedo / PI + specular;
+}
+
+// How often the specular lobe is chosen: its share at this view, kept off 0
+// and 1 so neither lobe is ever starved of samples.
+float RefSpecularChance(RefHit h, vec3 V)
+{
+	const vec3 F = FresnelSchlick(max(dot(h.N, V), 0.0), RefF0(h));
+	const float s = RefLuminance(F);
+	const float d = RefLuminance((vec3(1.0) - F) * (1.0 - h.Metallic) * h.Albedo);
+	return clamp(s / max(s + d, 1.0e-6), 0.05, 0.95);
+}
+
+mat3 RefBasis(vec3 n)
+{
+	const vec3 up = abs(n.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+	const vec3 t = normalize(cross(up, n));
+	return mat3(t, cross(n, t), n);
+}
+
+// GGX's visible normals (Heitz 2018), in the frame where N is +z.
+vec3 RefSampleVisibleNormal(vec3 Ve, float alpha, vec2 u)
+{
+	const vec3 Vh = normalize(vec3(alpha * Ve.x, alpha * Ve.y, Ve.z));
+	const float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+	const vec3 T1 = lensq > 0.0 ? vec3(-Vh.y, Vh.x, 0.0) * inversesqrt(lensq) : vec3(1.0, 0.0, 0.0);
+	const vec3 T2 = cross(Vh, T1);
+	const float r = sqrt(u.x);
+	const float phi = 2.0 * PI * u.y;
+	const float t1 = r * cos(phi);
+	float t2 = r * sin(phi);
+	const float s = 0.5 * (1.0 + Vh.z);
+	t2 = (1.0 - s) * sqrt(1.0 - t1 * t1) + s * t2;
+	const vec3 Nh = t1 * T1 + t2 * T2 + sqrt(max(0.0, 1.0 - t1 * t1 - t2 * t2)) * Vh;
+	return normalize(vec3(alpha * Nh.x, alpha * Nh.y, max(0.0, Nh.z)));
+}
+
+float RefSmithG1(float NdotV, float alpha)
+{
+	const float a2 = alpha * alpha;
+	return 2.0 * NdotV / (NdotV + sqrt(a2 + (1.0 - a2) * NdotV * NdotV));
+}
+
+// The density of choosing L from V, over both lobes.
+float RefPdf(RefHit h, vec3 V, vec3 L, float specularChance)
+{
+	const float NdotL = dot(h.N, L);
+	const float NdotV = dot(h.N, V);
+	if (NdotL <= 0.0 || NdotV <= 0.0)
+		return 0.0;
+	const vec3 H = normalize(V + L);
+	const float alpha = h.Roughness * h.Roughness;
+	const float specularPdf = RefSmithG1(NdotV, alpha) * DistributionGGX(h.N, H, h.Roughness) / (4.0 * NdotV);
+	return specularChance * specularPdf + (1.0 - specularChance) * NdotL / PI;
+}
+
+bool RefSampleBsdf(RefHit h, vec3 V, out vec3 L, out float pdf)
+{
+	const float specularChance = RefSpecularChance(h, V);
+	const mat3 basis = RefBasis(h.N);
+	const vec2 u = vec2(RefRandom(), RefRandom());
+	if (RefRandom() < specularChance)
+	{
+		const vec3 Ve = transpose(basis) * V;
+		const vec3 Hl = RefSampleVisibleNormal(Ve, h.Roughness * h.Roughness, u);
+		L = reflect(-V, basis * Hl);
+	}
+	else
+	{
+		const float r = sqrt(u.x);
+		const float phi = 2.0 * PI * u.y;
+		L = basis * vec3(r * cos(phi), r * sin(phi), sqrt(max(0.0, 1.0 - u.x)));
+	}
+	pdf = RefPdf(h, V, L, specularChance);
+	return pdf > 0.0 && dot(h.Ng, L) > 0.0;
+}
+
+// --- lights: next-event estimation, one lamp per vertex ---------------------
+
+// One lamp chosen uniformly and its light toward P, as the lit shader lights
+// it (range window, inverse square, the spot's ramp). Step 1: every lamp a
+// point; step 3 gives spheres and tubes their area.
+vec3 RefLamp(RefHit h, vec3 V)
+{
+	const int count = u_Scene.LightCount;
+	if (count <= 0)
+		return vec3(0.0);
+	const int index = min(int(RefRandom() * float(count)), count - 1);
+	const GpuLight light = u_Lights.Lights[index];
+	const vec3 color = light.Color.rgb * light.Color.a;
+	vec3 L;
+	float reach;
+	float attenuation = 1.0;
+	if (light.Position.w == 0.0)
+	{
+		L = -light.Direction.xyz;
+		reach = 1.0e6;
+	}
+	else
+	{
+		const vec3 toLight = light.Position.xyz - h.P;
+		const float distance2 = dot(toLight, toLight);
+		const float distance = sqrt(max(distance2, 1.0e-8));
+		L = toLight / distance;
+		reach = distance;
+		const float range = max(light.Params.x, 0.0001);
+		const float t = distance2 / (range * range);
+		const float ratio = clamp(1.0 - t * t, 0.0, 1.0);
+		attenuation = (ratio * ratio) / max(distance2, 0.0001);
+		const float cosInner = light.Params.y;
+		const float cosOuter = light.Params.z;
+		if (cosOuter < cosInner)
+			attenuation *= clamp((dot(L, -light.Direction.xyz) - cosOuter) / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
+	}
+	if (attenuation <= 0.0)
+		return vec3(0.0);
+	const vec3 f = RefBsdf(h, V, L);
+	if (all(equal(f, vec3(0.0))))
+		return vec3(0.0);
+	const vec3 origin = RefOffset(h.P, h.Ng);
+	if (!RefVisible(origin, L, reach))
+		return vec3(0.0);
+	return f * max(dot(h.N, L), 0.0) * color * attenuation * float(count);
+}
+
+// --- one path ---------------------------------------------------------------
+
+vec3 RefPath(vec3 origin, vec3 direction)
+{
+	vec3 radiance = vec3(0.0);
+	vec3 throughput = vec3(1.0);
+	const int bounces = max(int(u_Ref.Settings.x + 0.5), 1);
+	for (int bounce = 0; bounce <= bounces; ++bounce)
+	{
+		RefHit h;
+		if (!RefTrace(origin, direction, h))
+		{
+			radiance += throughput * RefSky(direction);
+			break;
+		}
+		// What glows is reached by the path, never sampled as a lamp, so it is
+		// counted exactly once.
+		radiance += throughput * h.Emissive;
+		if (bounce == bounces)
+			break;
+
+		const vec3 V = -direction;
+		radiance += throughput * RefLamp(h, V);
+
+		vec3 L;
+		float pdf;
+		if (!RefSampleBsdf(h, V, L, pdf))
+			break;
+		throughput *= RefBsdf(h, V, L) * max(dot(h.N, L), 0.0) / pdf;
+
+		// Russian roulette from the fourth vertex: unbiased, and it ends the
+		// paths that no longer carry anything.
+		if (bounce >= 3)
+		{
+			const float keep = clamp(max(throughput.r, max(throughput.g, throughput.b)), 0.05, 0.95);
+			if (RefRandom() > keep)
+				break;
+			throughput /= keep;
+		}
+		origin = RefOffset(h.P, h.Ng);
+		direction = L;
+	}
+	return radiance;
+}
+
+void main()
+{
+	const uvec2 pixel = uvec2(gl_FragCoord.xy);
+	const uint samples = uint(u_Ref.Projection.w + 0.5);
+	g_Rng = pixel.x * 1973u + pixel.y * 9277u + samples * 26699u + 0x6A09E667u;
+	g_Rng = RefNext() ^ (samples * 0x9E3779B9u);
+
+	// Anywhere inside the pixel, so the mean is the pixel's average and not
+	// its centre's: a box filter, the reference's own anti-aliasing.
+	const vec2 size = vec2(textureSize(u_ReferencePrevious, 0));
+	const vec2 jitter = vec2(RefRandom(), RefRandom()) - 0.5;
+	const vec2 uv0 = v_UV + jitter / size;
+	const bool flip = u_Ref.Projection.z > 0.5;
+	const vec2 uv = vec2(uv0.x, flip ? 1.0 - uv0.y : uv0.y);
+	const vec3 frame = ViewPosition(uv, 1.0, u_Ref.Projection.xy);
+	const vec3 view = normalize(vec3(frame.x, flip ? -frame.y : frame.y, -frame.z));
+	const vec3 direction = normalize(vec3(dot(u_Ref.CameraRow0.xyz, view), dot(u_Ref.CameraRow1.xyz, view),
+										  dot(u_Ref.CameraRow2.xyz, view)));
+
+	vec3 radiance = RefPath(u_Ref.CameraPosition.xyz, direction);
+	float invalid = 0.0;
+	if (any(isnan(radiance)) || any(isinf(radiance)))
+	{
+		radiance = vec3(0.0);
+		invalid = 1.0;
+	}
+
+	if (u_Ref.Settings.y > 0.5)
+	{
+		const vec4 previous = texelFetch(u_ReferencePrevious, ivec2(pixel), 0);
+		// The mean over n + 1 samples from the mean over n, in full floats.
+		o_Mean = vec4(previous.rgb + (radiance - previous.rgb) / float(samples + 1u), previous.a + invalid);
+	}
+	else
+	{
+		o_Mean = vec4(radiance, invalid);
+	}
+}

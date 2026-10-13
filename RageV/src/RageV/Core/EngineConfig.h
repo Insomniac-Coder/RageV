@@ -242,6 +242,15 @@ namespace RageV
 		// run, which is the only way to look at a flicker: separate runs are
 		// separate clocks, and consecutive frames of one are not.
 		uint32_t    ScreenshotCount = 1;
+
+		// **RT2-2b: the reference renderer.** `--reference-render=N` adds a path
+		// tracer at a fixed pose that accumulates one path per pixel per frame and
+		// takes the frame's place in front of bloom and the tone map;
+		// `--screenshot-frame=settled` then means "N samples in the mean". Zero is
+		// off. `--reference-bounces` caps a path's length (Russian roulette ends
+		// most paths sooner).
+		uint32_t    ReferenceSamples = 0;
+		uint32_t    ReferenceBounces = 8;
 		// **--capture-signals: what a signal holds, in numbers, not in pixels.**
 		//
 		// A screenshot is eight bits after the tone curve, so a filter's effect

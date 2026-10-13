@@ -959,6 +959,20 @@ namespace RageV
 		static void SetGlassReflection(const RHI::Ref<RHI::RHITexture>& picture);
 		static bool GlassSignalCompiled();
 		static bool CanTraceDirectLight();
+		// **RT2-2b: the reference renderer** (`--reference-render=N`). One path per
+		// pixel from the camera into the running mean in `previous` (when
+		// `hasPrevious`), written whole to the bound target -- see
+		// reference_trace.rvshader. `samples` is how many the mean already holds.
+		static void TraceReference(RHI::RHICommandList& cmd,
+								   const RHI::Ref<RHI::RHITexture>& previous, bool hasPrevious,
+								   RHI::Format targetColor, const GiTraceView& view,
+								   uint32_t samples, uint32_t bounces);
+		static bool CanTraceReference();
+		// Everything a reference path reads, as one number: the lights, the ray
+		// instances' rows and the structure they are in, the materials, the glowing
+		// surfaces and the sky. A different value restarts the mean. Read after
+		// this frame's scene was submitted (inside a pass after the G-buffer).
+		static uint64_t ReferenceSceneKey();
 		// **Measured change, phase 1 (docs/RT-MEASURED-CHANGE.md).** After the
 		// trace: one pixel per 3x3 block -- its world position, the G-buffer's
 		// texels there as the trace read them, the luminance the trace wrote, and

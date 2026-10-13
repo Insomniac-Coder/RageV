@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "TemporalMemory.h"
+#include "RageV/Core/EngineConfig.h"
 
 #include <algorithm>
 #include <cmath>
@@ -14,6 +15,7 @@ namespace RageV
 		uint32_t s_Current = 0;
 		uint32_t s_Last = 0;
 		uint32_t s_Still = 0;
+		uint32_t s_ReferenceSamples = 0;
 
 		std::string Define(const char* name, uint32_t frames)
 		{
@@ -51,9 +53,17 @@ namespace RageV
 
 	bool TemporalMemory::Settled()
 	{
+		// RT2-2b: the reference has one memory, its mean, and it is full at N.
+		if (const uint32_t goal = EngineConfig::Get().ReferenceSamples; goal > 0)
+			return s_ReferenceSamples >= goal;
 		// Strictly more: the frame that fills the longest history is the one
 		// after it has been written that many times.
 		return s_Still > Longest();
+	}
+
+	void TemporalMemory::NoteReferenceSamples(uint32_t samples)
+	{
+		s_ReferenceSamples = samples;
 	}
 
 	uint32_t TemporalMemory::StillFrames()

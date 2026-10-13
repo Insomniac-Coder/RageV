@@ -9,6 +9,19 @@
 
 namespace RageV
 {
+	// **RT2-2b: the reference renderer's state across frames.** The running mean
+	// (RGBA32F: rgb radiance, a the samples that came back not a number), how
+	// many samples it holds, and the view they were taken from -- a different
+	// view starts the mean again. Owned by whoever builds the frame.
+	struct ReferenceAccumulator
+	{
+		TemporalHistory History;
+		uint32_t Samples = 0;
+		Mat4 View{ 0.0f };
+		// What the paths read, as of the last sample (Renderer3D::ReferenceSceneKey).
+		uint64_t SceneKey = 0;
+	};
+
 	// The standard frame, built once and used by both applications.
 	//
 	// The editor and the runtime differ in where the image ends up -- a panel's
@@ -247,6 +260,10 @@ namespace RageV
 		// only way last frame's identity survives into this one. Null leaves
 		// the resolve on the colour box alone.
 		TemporalHistory* TaaGuide = nullptr;
+
+		// RT2-2b: under --reference-render, the reference's mean takes the frame's
+		// place in front of bloom and the tone map. Null is no reference.
+		ReferenceAccumulator* Reference = nullptr;
 
 		// **The frame time the loop handed down**, and the reason it is passed
 		// rather than measured: an adaptation driven by this is a function of

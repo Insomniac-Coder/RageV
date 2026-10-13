@@ -873,6 +873,19 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   about 10 C cooler and halves the spread; a capped run's GPU time is lower than an uncapped one's
 >   (cooler clocks), so A/B timings compare capped with capped. The "up to a millisecond" drift was
 >   not reached in this uncapped series (0.40 ms over eight runs).
+> - **2b step 1 built, 2026-10-13: the reference renderer's skeleton.** `--reference-render=N` runs a path
+>   tracer (`reference_trace.rvshader`) at a fixed pose: one path per pixel per frame into a full-float
+>   running mean that takes the frame's place before bloom and the tone map; `--screenshot-frame=settled`
+>   means "N samples", `--capture-signals=reference` writes the mean as floats (alpha counts samples that
+>   came back not a number). Its own shading on the lit shader's model (GGX, Smith-Schlick, Schlick
+>   Fresnel, diffuse x (1 - F)(1 - metallic)), GGX visible-normal sampling, one lamp per vertex by
+>   next-event estimation, the sky and glowing surfaces reached by the paths, Russian roulette, no clamp.
+>   Owner's choices: baked AO maps ignored; a lamp with a glowing mesh counted both ways until RT2-11.
+>   The mean restarts whenever anything the paths read changes (lights, ray instances and their
+>   structure, materials, emitters, sky): the first frames, while the scene loads, had put one bad
+>   sample in every pixel. Garage, 1600x900: 1024 samples in 28 s; the mean is flat from one sample
+>   (1.0867) to 64 (1.0869). Still to come: the full material (step 2), the lamps' real shapes and
+>   glowing-mesh sampling (step 3), glass (owner, 2026-10-13: next), the furnace and garage checks (step 4).
 >
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'

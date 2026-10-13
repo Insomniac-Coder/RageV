@@ -684,6 +684,9 @@ namespace RageV
 			// graph runs it this frame (the lit shader's switch).
 			Ref<RHIShader>   DirectShader;
 			Ref<RHIPipeline> DirectPipeline;
+			// RT2-2b: the reference renderer, compiled only under --reference-render.
+			Ref<RHIShader>   ReferenceShader;
+			Ref<RHIPipeline> ReferencePipeline;
 			// Measured change, phase 1: the same file as the record and as the
 			// re-light, compiled only when --measured-change asks for them.
 			Ref<RHIShader>   DirectRecordShader;
@@ -951,6 +954,7 @@ namespace RageV
 				Ref<RHIResourceSet> GiRecordInputs;     // measured change, phase 3
 				Ref<RHIResourceSet> GiRelightInputs;
 				Ref<RHIResourceSet> DirectInputs;        // RT-first T5: the G-buffer, set 3
+				Ref<RHIResourceSet> ReferenceInputs;     // RT2-2b: the mean so far, set 3
 			// Measured change: the record's inputs, the re-light's, and the
 			// lamp-numbering map the re-light reads -- per slot, because a
 			// host-visible buffer rewritten while a frame in flight still reads
@@ -1727,6 +1731,8 @@ namespace RageV
 		s_Data->GiRelightPipeline = nullptr;
 		s_Data->DirectShader = nullptr;
 		s_Data->DirectPipeline = nullptr;
+		s_Data->ReferenceShader = nullptr;
+		s_Data->ReferencePipeline = nullptr;
 		s_Data->DirectRecordShader = nullptr;
 		s_Data->DirectRecordPipeline = nullptr;
 		s_Data->DirectRelightShader = nullptr;
@@ -1847,6 +1853,19 @@ namespace RageV
 						}
 					}
 				}
+			}
+
+			// RT2-2b: the reference renderer, under rays and only when asked for. The
+			// trace's defines, so its set 0 is the lamp passes' shape and its rays
+			// walk the one traversal every ray in the engine walks.
+			if (s_Data->RayShadowsOn && EngineConfig::Get().ReferenceSamples > 0)
+			{
+				if (auto reference = ShaderCompiler::CompileFromFile("assets/shaders/reference_trace.rvshader",
+																	traceDefines))
+					s_Data->ReferenceShader = s_Data->Device->CreateShader(*reference);
+				else
+					RV_CORE_ERROR("Renderer3D: assets/shaders/reference_trace.rvshader did not compile; "
+								  "--reference-render has nothing to draw with");
 			}
 
 			// RT-first T5: the direct light from the G-buffer, under rays only.
@@ -8018,6 +8037,101 @@ namespace RageV
 	bool Renderer3D::CanTraceDirectLight()
 	{
 		return s_Data && s_Data->DirectShader != nullptr;
+	}
+
+	bool Renderer3D::CanTraceReference()
+	{
+		return s_Data && s_Data->ReferenceShader != nullptr;
+	}
+
+	uint64_t Renderer3D::ReferenceSceneKey()
+	{
+		if (!s_Data)
+			return 0;
+		uint64_t key = 1469598103934665603ull;
+		const auto mix = [&key](const void* data, size_t size)
+		{
+			const uint8_t* bytes = static_cast<const uint8_t*>(data);
+			for (size_t i = 0; i < size; i++)
+			{
+				key ^= bytes[i];
+				key *= 1099511628211ull;
+			}
+		};
+		const auto mixVector = [&mix](const auto& values)
+		{
+			const size_t count = values.size();
+			mix(&count, sizeof(count));
+			if (count)
+				mix(values.data(), count * sizeof(values[0]));
+		};
+		mixVector(s_Data->LightScratch);
+		mixVector(s_Data->RayInstanceScratch);
+		mixVector(s_Data->MaterialScratch);
+		mixVector(s_Data->Emitters);
+		mixVector(s_Data->EmitterCdf);
+		mix(&s_Data->Scene.Environment, sizeof(s_Data->Scene.Environment));
+		const uint64_t geometry = RayShadows::GetGeometryKey();
+		mix(&geometry, sizeof(geometry));
+		return key;
+	}
+
+	void Renderer3D::TraceReference(RHICommandList& cmd, const Ref<RHITexture>& previous, bool hasPrevious,
+									Format targetColor, const GiTraceView& view,
+									uint32_t samples, uint32_t bounces)
+	{
+		if (!s_Data || !s_Data->ReferenceShader || !previous || !s_Data->ActiveScene)
+			return;
+		if (!s_Data->ReferencePipeline)
+		{
+			GraphicsPipelineDesc reference;
+			reference.Name = "Renderer3D.reference";
+			reference.Shader = s_Data->ReferenceShader;
+			reference.Topology = PrimitiveTopology::TriangleList;
+			reference.Rasterizer.Cull = CullMode::None;
+			reference.Blend = BlendPreset::Opaque;
+			reference.DepthStencil.DepthTestEnable = false;
+			reference.DepthStencil.DepthWriteEnable = false;
+			reference.ColorFormats = { targetColor };
+			reference.DepthFormat = Format::Undefined;
+			s_Data->ReferencePipeline = s_Data->Device->CreatePipeline(reference);
+			for (auto& frame : s_Data->SceneSlots)
+				for (auto& slot : frame)
+					slot.ReferenceInputs = nullptr;
+		}
+		if (!s_Data->ReferencePipeline)
+			return;
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!slot.LampSet)
+			return;
+		if (!slot.ReferenceInputs)
+			slot.ReferenceInputs = s_Data->Device->CreateResourceSet(s_Data->ReferencePipeline, 3);
+		if (!slot.ReferenceInputs)
+			return;
+		slot.ReferenceInputs->SetTexture(0, previous, s_Data->PointSampler);
+		slot.ReferenceInputs->Commit();
+
+		struct ReferenceParams
+		{
+			Vec4 Projection, Settings;
+			Vec4 CameraRow0, CameraRow1, CameraRow2, CameraPosition;
+		} params{};
+		params.Projection = Vec4(view.InvProjection0, view.InvProjection1,
+								 s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f, (float)samples);
+		params.Settings = Vec4((float)bounces, hasPrevious ? 1.0f : 0.0f, 0.0f, 0.0f);
+		const Mat4 camera = Math::Inverse(view.View);
+		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0], 0.0f);
+		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);
+		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], 0.0f);
+		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2], 0.0f);
+
+		cmd.BindPipeline(s_Data->ReferencePipeline);
+		cmd.BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd.BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd.BindResourceSet(3, slot.ReferenceInputs);
+		cmd.PushConstants(ShaderStage::Fragment, 0, sizeof(params), &params);
+		cmd.Draw(3);
 	}
 
 	bool Renderer3D::CanTraceDirectWater()

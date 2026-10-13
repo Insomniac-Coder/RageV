@@ -1282,6 +1282,26 @@ namespace RageV
 			}
 		}
 
+		if (key == "reference-render" || key == "referencerender"
+			|| key == "reference-bounces" || key == "referencebounces")
+		{
+			const bool bounces = key.find("bounces") != std::string::npos;
+			try
+			{
+				const int number = std::stoi(value);
+				if (bounces)
+					config.ReferenceBounces = (uint32_t)Math::Clamp(number, 1, 64);
+				else
+					config.ReferenceSamples = (uint32_t)Math::Max(number, 0);
+				return true;
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("{0} expects an integer, got '{1}'", key, value);
+				return false;
+			}
+		}
+
 		if (key == "screenshot-count" || key == "screenshotcount")
 		{
 			try

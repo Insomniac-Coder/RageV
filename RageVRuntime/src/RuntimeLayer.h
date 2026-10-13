@@ -103,6 +103,7 @@ private:
 	RageV::TemporalHistory m_GiLight;
 	// RT-6: last frame's identity lanes. See FrameDesc::TaaGuide.
 	RageV::TemporalHistory m_TaaGuide;
+	RageV::ReferenceAccumulator m_Reference;   // RT2-2b: --reference-render's mean
 	// WR-16 S4b: the sea's four choices a pixel, kept from frame to frame.
 	RageV::TemporalHistory m_WaterChoices;
 	RageV::TemporalHistory m_WaterLampLight;
