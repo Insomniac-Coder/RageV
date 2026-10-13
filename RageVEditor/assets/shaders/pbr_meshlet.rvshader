@@ -72,6 +72,11 @@ layout(location = 6) out vec4 v_ClipPos[];
 layout(location = 7) flat out vec2 v_Instance[];
 layout(location = 8) out vec4 v_PrevClipPos[];
 layout(location = 9) flat out float v_MaterialIndex[];
+// The G-buffer's object id, as static_vertex.glsl writes it. Missing here, the
+// fragment read an output this stage never wrote (RT2-1: the validation layer
+// named it), so a meshlet surface's id -- the denoisers' "same surface" test --
+// was undefined.
+layout(location = 15) flat out float v_ObjectId[];
 
 void main()
 {
@@ -139,6 +144,7 @@ void main()
 		v_EmissiveColor[tid] = instance.EmissiveColor;
 		v_Surface[tid]       = instance.Surface;
 		v_Instance[tid]      = vec2(instance.Indices.y, instance.Indices.w);
+		v_ObjectId[tid]      = instance.Extra.x;
 		v_MaterialIndex[tid] = instance.Indices.z;
 
 		const vec4 clip = u_Scene.ViewProjection * world;

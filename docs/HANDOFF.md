@@ -9,8 +9,11 @@ documents are history. **RT2-9 (shader and pipeline caches) is built, 2026-10-13
 the Intel iGPU and dropped. `--gpu=intel` runs the engine on the integrated GPU. Then the roadmap's order
 from RT2-1. **RT2-1 part 1 is committed (2026-10-13)**: failures are loud (exit 3, no screenshot, no
 benchmark numbers, a banner), the bridge's two validation errors are fixed, the ray counters are off
-unless `--ray-counters=on`. Part 2 next: VRAM by category, the PRESENT_AFTER_WRITE message every shot
-still prints, the Intel iGPU run, the water shader question (its RT2-1 note).
+unless `--ray-counters=on`. **Part 2a (2026-10-13)**: validation is silent -- the
+last message was an overlay's (implicit layers are off under `--validation=on`), and it hid a
+descriptor use-after-free, now fixed in `VulkanResourceSet`; `check_gpu_lit.py` green. Next: VRAM
+by category, the `--rays` depth-sort residual, the Intel iGPU run, the water shader question
+(all in its RT2-1 note).
 
 **The repository moved** to `D:/Code_secondary/RageV` (2026-10-12) and no longer cares where it lives: tool
 scripts find the root from their own place (`_RAGEV`), the engine finds its sample project and export file

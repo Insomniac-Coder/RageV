@@ -4988,8 +4988,12 @@ namespace RageV
 			// paths: the descriptor layouts are identically defined (the
 			// coarse stage flags in VulkanPipeline are what make that true),
 			// so one fill serves both front ends.
-			if (first.Kind == DrawKind::Static && s_Data->MeshletLitPipeline &&
-				first.MeshRef && slot.Set)
+			// **Never a masked run** (RT2-1), the rule the shadow path already
+			// states: there is no cutout meshlet variant, and through this one
+			// the showroom's graffiti decals drew as solid dark sheets over
+			// the wall (check_gpu_lit: 11% of the frame).
+			if (first.Kind == DrawKind::Static && first.Bucket != DrawBucket::Masked &&
+				s_Data->MeshletLitPipeline && first.MeshRef && slot.Set)
 			{
 				const Mesh::MeshletBuffers& meshlets =
 					first.MeshRef->GetMeshletBuffers(*s_Data->Device);

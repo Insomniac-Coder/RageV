@@ -166,6 +166,9 @@ namespace RageV::Vk
 			// layout the shader declared, or the write is rejected.
 			VkDescriptorType Type;
 			VkDescriptorBufferInfo Info;
+			// Held, not just named (RT2-1): a descriptor points at it until a
+			// later write replaces it, so it lives at least that long.
+			RHI::Ref<RHI::RHIBuffer> Keep;
 		};
 		struct ImageWrite
 		{
@@ -175,12 +178,21 @@ namespace RageV::Vk
 			// the same path, and the type has to match the layout's.
 			VkDescriptorType Type;
 			VkDescriptorImageInfo Info;
+			RHI::Ref<RHI::RHITexture> Keep;
+			RHI::Ref<RHI::RHISampler> KeepSampler;
 		};
 		struct StructureWrite
 		{
 			uint32_t Binding;
 			VkAccelerationStructureKHR Structure;
+			RHI::Ref<RHI::RHIAccelerationStructure> Keep;
 		};
+
+		// Replace the record for the write's binding (and array element), or
+		// add one; any change marks every frame's set behind.
+		void Record(BufferWrite write);
+		void Record(ImageWrite write);
+		void Record(StructureWrite write);
 
 		VulkanDevice&           m_Device;
 		std::shared_ptr<DeletionQueue> m_Deletion;
@@ -194,15 +206,19 @@ namespace RageV::Vk
 		// vkFreeDescriptorSets must be given the one that owns them.
 		VkDescriptorPool m_Pool = VK_NULL_HANDLE;
 
-		std::vector<BufferWrite> m_PendingBuffers;
-		std::vector<ImageWrite>  m_PendingImages;
-		std::vector<StructureWrite> m_PendingStructures;
-		// A set is only valid once written; track which frames still need the
-		// full write set so newly created sets are populated on first use.
-		std::vector<bool> m_Dirty;
-		std::vector<BufferWrite> m_LastBuffers;
-		std::vector<ImageWrite>  m_LastImages;
-		std::vector<StructureWrite> m_LastStructures;
+		// **One record per binding, the latest write (RT2-1).** These were lists
+		// of every write since the last Commit, and the scene's lit sets are
+		// filled every frame but committed only when their family draws -- so
+		// the lists grew frame after frame, and a late commit sent the handles
+		// of light-grid buffers that had grown and been freed since (a use
+		// after free, which the validation layer named). Now a binding holds
+		// one record, the record holds its resource, and a frame's set is
+		// written whole whenever it is behind the records: never written yet,
+		// or written before one changed. An unchanged set is not rewritten.
+		std::vector<BufferWrite> m_Buffers;
+		std::vector<ImageWrite>  m_Images;
+		std::vector<StructureWrite> m_Structures;
+		std::vector<bool> m_Dirty;   // per frame: behind the records
 	};
 
 	// The bindless texture heap (ENGINE-NOTES 7al): one descriptor set, not

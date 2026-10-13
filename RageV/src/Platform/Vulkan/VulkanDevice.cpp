@@ -31,6 +31,13 @@ namespace RageV::Vk
 			// last error left standing after RT-5 part 5 could not be traced
 			// from the message alone. The engine names its pipelines and labels
 			// its passes for the layer already; the callback carries both.
+			// RT2-1: the loader's reports (a layer it skipped, an ICD it found) are
+			// notes, whatever severity it gives them; "[Vulkan]" is kept for problems.
+			if (data->pMessageIdName && std::strcmp(data->pMessageIdName, "Loader Message") == 0)
+			{
+				RV_CORE_INFO("[Vulkan note] {0}", data->pMessage);
+				return VK_FALSE;
+			}
 			std::string context;
 			if (severity & (VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
 							| VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT))
@@ -168,6 +175,28 @@ namespace RageV::Vk
 	{
 		m_PendingWidth = desc.Width;
 		m_PendingHeight = desc.Height;
+
+		// **RT2-1: a validation run judges the engine, not what else is installed.**
+		// Overlays and capture hooks (RivaTuner's on-screen display, the OBS hook,
+		// the Steam overlay, RenderDoc's) are implicit layers the loader puts into
+		// every Vulkan program. They draw into the swapchain image just before the
+		// present, in a command buffer of their own and outside the engine's
+		// synchronisation, and sync validation reported it as PRESENT_AFTER_WRITE on
+		// every frame of every shot -- traced through the API dump to a legacy render
+		// pass the engine never records. So with the layers on they are switched off,
+		// keeping the GPU makers' own (NVIDIA's, AMD's, Intel's). Read by the loader
+		// at instance creation, so set here, before it; never over a choice the
+		// person already made, and RV_KEEP_IMPLICIT_LAYERS=1 keeps them all (a
+		// RenderDoc capture with validation on, say).
+		if (desc.EnableValidation && !std::getenv("VK_LOADER_LAYERS_DISABLE")
+			&& !std::getenv("RV_KEEP_IMPLICIT_LAYERS"))
+		{
+			_putenv_s("VK_LOADER_LAYERS_DISABLE", "~implicit~");
+			if (!std::getenv("VK_LOADER_LAYERS_ALLOW"))
+				_putenv_s("VK_LOADER_LAYERS_ALLOW", "VK_LAYER_NV_*,VK_LAYER_AMD_*,VK_LAYER_INTEL_*");
+			RV_CORE_INFO("Validation: third-party implicit Vulkan layers (overlays, capture hooks) are "
+						 "off for this run; RV_KEEP_IMPLICIT_LAYERS=1 keeps them");
+		}
 
 		if (volkInitialize() != VK_SUCCESS)
 		{

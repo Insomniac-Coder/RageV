@@ -557,8 +557,9 @@ namespace RageV::Vk
 		write.Info.buffer = vulkanBuffer->GetHandle();
 		write.Info.offset = offset;
 		write.Info.range = range == 0 ? VK_WHOLE_SIZE : range;
+		write.Keep = buffer;
 
-		m_PendingBuffers.push_back(write);
+		Record(std::move(write));
 	}
 
 	void VulkanResourceSet::SetStorageBuffer(uint32_t binding, const RHI::Ref<RHI::RHIBuffer>& buffer,
@@ -574,8 +575,9 @@ namespace RageV::Vk
 		write.Info.buffer = vulkanBuffer->GetHandle();
 		write.Info.offset = offset;
 		write.Info.range = range == 0 ? VK_WHOLE_SIZE : range;
+		write.Keep = buffer;
 
-		m_PendingBuffers.push_back(write);
+		Record(std::move(write));
 	}
 
 	void VulkanResourceSet::SetTexture(uint32_t binding, const RHI::Ref<RHI::RHITexture>& texture,
@@ -598,8 +600,10 @@ namespace RageV::Vk
 		// the read-only layout by the time a pass reads it.
 		write.Info.imageLayout = vulkanTexture->IsStorage() ? VK_IMAGE_LAYOUT_GENERAL
 														   : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		write.Keep = texture;
+		write.KeepSampler = sampler;
 
-		m_PendingImages.push_back(write);
+		Record(std::move(write));
 	}
 
 	void VulkanResourceSet::SetStorageImage(uint32_t binding, const RHI::Ref<RHI::RHITexture>& texture,
@@ -624,8 +628,9 @@ namespace RageV::Vk
 		write.Info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 		if (write.Info.imageView == VK_NULL_HANDLE)
 			return;
+		write.Keep = texture;
 
-		m_PendingImages.push_back(write);
+		Record(std::move(write));
 	}
 
 	// From the reflection the layout was built from, which is the same list
@@ -657,31 +662,76 @@ namespace RageV::Vk
 			RV_CORE_ERROR("[Vulkan] SetAccelerationStructure({0}) with no structure; ignored", binding);
 			return;
 		}
-		m_PendingStructures.push_back(write);
+		write.Keep = structure;
+		Record(std::move(write));
+	}
+
+	void VulkanResourceSet::Record(BufferWrite write)
+	{
+		for (BufferWrite& held : m_Buffers)
+			if (held.Binding == write.Binding)
+			{
+				if (held.Keep == write.Keep && held.Type == write.Type
+					&& held.Info.buffer == write.Info.buffer && held.Info.offset == write.Info.offset
+					&& held.Info.range == write.Info.range)
+					return;
+				held = std::move(write);
+				m_Dirty.assign(m_Dirty.size(), true);
+				return;
+			}
+		m_Buffers.push_back(std::move(write));
+		m_Dirty.assign(m_Dirty.size(), true);
+	}
+
+	void VulkanResourceSet::Record(ImageWrite write)
+	{
+		for (ImageWrite& held : m_Images)
+			if (held.Binding == write.Binding && held.ArrayIndex == write.ArrayIndex)
+			{
+				if (held.Keep == write.Keep && held.KeepSampler == write.KeepSampler
+					&& held.Type == write.Type && held.Info.imageView == write.Info.imageView
+					&& held.Info.sampler == write.Info.sampler
+					&& held.Info.imageLayout == write.Info.imageLayout)
+					return;
+				held = std::move(write);
+				m_Dirty.assign(m_Dirty.size(), true);
+				return;
+			}
+		m_Images.push_back(std::move(write));
+		m_Dirty.assign(m_Dirty.size(), true);
+	}
+
+	void VulkanResourceSet::Record(StructureWrite write)
+	{
+		for (StructureWrite& held : m_Structures)
+			if (held.Binding == write.Binding)
+			{
+				if (held.Keep == write.Keep && held.Structure == write.Structure)
+					return;
+				held = std::move(write);
+				m_Dirty.assign(m_Dirty.size(), true);
+				return;
+			}
+		m_Structures.push_back(std::move(write));
+		m_Dirty.assign(m_Dirty.size(), true);
 	}
 
 	void VulkanResourceSet::Commit()
 	{
 		const uint32_t frame = m_Device.GetFrameIndex();
 
-		// Carry forward the last complete write set so a frame slot that has
-		// not been written yet still gets a fully populated descriptor set.
-		if (!m_PendingBuffers.empty())    m_LastBuffers = m_PendingBuffers;
-		if (!m_PendingImages.empty())     m_LastImages = m_PendingImages;
-		if (!m_PendingStructures.empty()) m_LastStructures = m_PendingStructures;
+		// Only a set behind the records is written, and then whole (see
+		// m_Buffers): a frame slot is never left pointing at a resource a later
+		// write replaced and released.
+		if (m_Sets.empty() || !m_Dirty[frame])
+			return;
 
-		const bool needsFullWrite = m_Dirty[frame];
-		const auto& buffers    = needsFullWrite ? m_LastBuffers    : m_PendingBuffers;
-		const auto& images     = needsFullWrite ? m_LastImages     : m_PendingImages;
-		const auto& structures = needsFullWrite ? m_LastStructures : m_PendingStructures;
+		const auto& buffers    = m_Buffers;
+		const auto& images     = m_Images;
+		const auto& structures = m_Structures;
 
 		if (buffers.empty() && images.empty() && structures.empty())
-		{
-			m_PendingBuffers.clear();
-			m_PendingImages.clear();
-			m_PendingStructures.clear();
 			return;
-		}
 
 		// The pNext chain each structure write needs, kept alive until the
 		// update call below has read it.
@@ -754,9 +804,6 @@ namespace RageV::Vk
 		vkUpdateDescriptorSets(m_Device.GetDevice(), (uint32_t)writes.size(), writes.data(), 0, nullptr);
 
 		m_Dirty[frame] = false;
-		m_PendingBuffers.clear();
-		m_PendingImages.clear();
-		m_PendingStructures.clear();
 	}
 
 	// -------------------------------------------------------------------------

@@ -630,7 +630,7 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 - **Closes.** RT-24, framegraph-s1, ISS-40 (the motion test), CORE-08 (the test-mover half, through `Slider`). Also the measured arms of REFL-01, REFL-03, REFL-04, REFL-05 (the camera-motion check), REFL-07, REFL-10 and direct-s2, and the diagnostic half of REFL-06 (done early: every emitter aimed at); their structural parts are later items.
 - **If a symptom survives every arm.** A cause inside the reflection chain that one rule fixes is patched here first. Otherwise RT-24 is committed with that symptom recorded against the item that removes it (D17): RT2-28 for the frame filter's depth test, RT2-24 for the direct highlight's memory, RT2-23 for the structural ghost fix.
 
-### RT2-1 · Fail loud, validate clean, and count VRAM (part 1 built 2026-10-13)
+### RT2-1 · Fail loud, validate clean, and count VRAM (parts 1 and 2a built 2026-10-13)
 
 - **In plain words.** Today a shader that fails to build can silently swap in a different picture, and the engine does not know how much video memory it uses. This item makes every failure visible, makes the bridge run without Vulkan warnings, and adds a VRAM report by category to the HUD and to every benchmark. Nothing on screen changes unless something breaks.
 
@@ -661,14 +661,33 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   1 GB cap replaced by "the payload is exactly the rest of the file" (callers already check the size their
 >   dimensions imply).
 > - *Gates met:* the four shots (garage, Headland, Glitter, camp) byte-identical to c4b66f8; scenetest green.
-> - **Open (part 2):** VRAM by category (VK_EXT_memory_budget); the one validation message left on every
->   shot -- sync validation's PRESENT_AFTER_WRITE on every present, "initiated by vkCmdEndRenderPass", seq 5
->   of a small command buffer, although the engine records no legacy render pass (dynamic rendering, and the
->   COLOR->PRESENT barrier in `VulkanCommandList::End`); ALL_COMMANDS on that barrier and a synchronization2
->   submit were tried and changed nothing (reverted). It blocks `check_gpu_lit.py` (which fails on any
->   `[Vulkan]`) and the "no Vulkan message" gate. Also open: the garage on the Intel iGPU with the layers
->   silent; the water shader's read-out-of-bounds question; GPU-assisted validation loses the device while
->   loading the bridge (stock shaders), so it cannot be used there yet -- and resets the driver (ask first).
+> **Part 2a built, 2026-10-13: validation is silent.**
+> - *The PRESENT_AFTER_WRITE message was not the engine's.* Traced through the API dump to a legacy render
+>   pass recorded by third-party **implicit layers** -- RivaTuner's overlay here; the OBS hook, the Steam
+>   overlay and RenderDoc's are the same kind -- which draw into the swapchain image just before the present,
+>   outside the engine's synchronisation. With `--validation=on` the engine now switches third-party
+>   implicit layers off (`VK_LOADER_LAYERS_DISABLE=~implicit~`, the GPU makers' own kept; never over a
+>   choice already in the environment; `RV_KEEP_IMPLICIT_LAYERS=1` keeps them all). The loader's own
+>   reports log as `[Vulkan note]`.
+> - *A use-after-free it had been hiding.* `VulkanResourceSet` kept a list of every write since its last
+>   commit; the scene's ten lit-family sets are filled every frame but committed only when their family
+>   draws, so the lists grew frame after frame and a late commit sent the handles of light-grid buffers
+>   (`cellIndices`, `worldCellIndices`) that had grown and been freed since. Now a set keeps **one record
+>   per binding**, the record **holds its resource** (a descriptor never outlives what it names), and a
+>   frame's set is written whole whenever it is behind the records -- never written, or written before
+>   one changed; an unchanged set is not rewritten at all.
+> - *The meshlet lit path* drew alpha-masked runs without their cutout (the showroom's graffiti decals as
+>   solid dark sheets: 11% of the frame) -- it now refuses masked runs, the rule its shadow twin already
+>   had -- and never wrote the G-buffer object id its fragment reads (now written).
+> - *Gates met:* the four shots byte-identical before/after and silent under validation; `check_gpu_lit.py`
+>   green (all three paths 0 px); scenetest green. `--gpu-lit`'s texts no longer call it unfinished.
+> - **Open:** `check_gpu_lit.py --rays` -- gpu-lit-off and meshlets pass (23 px at 1 level), depth-sort-off
+>   misses: 106 px, 105 of them 1 level and one 4, on the poles' silhouettes and their floor reflections,
+>   deterministic run to run; none with rays off. Ruled out: validation, run-to-run noise, the TLAS (built
+>   in scene order), instance-index seeds. The tolerance is not widened for it. Also open: VRAM by
+>   category (VK_EXT_memory_budget); the garage on the Intel iGPU with the layers silent; the water
+>   shader's read-out-of-bounds question; GPU-assisted validation loses the device while loading the
+>   bridge (stock shaders) and resets the driver (ask first).
 >
 > **Found on the Intel iGPU (RT2-9, 2026-10-13; `--gpu=intel`).** Two defects NVIDIA's driver lets pass:
 > - `VulkanResourceSet::Commit` writes descriptors for bindings the pipeline's layout does not declare (a set
