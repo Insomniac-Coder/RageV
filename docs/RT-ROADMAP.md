@@ -723,10 +723,21 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   two levels (max 53, a pole's rim beside a tube) -- the strip now shows one copy, and the rays' noise
 >   lands slightly differently. Left as found: neighbouring ceiling light bars share small faces (4-33 cm^2
 >   each, 38 pairs) -- too small for the probe to have shown, not changed without the owner.
->   Also open: the garage
->   on the Intel iGPU with the layers silent; the water
->   shader's read-out-of-bounds question; GPU-assisted validation loses the device while loading the
->   bridge (stock shaders) and resets the driver (ask first).
+> - **The three runs that could fault the GPU, done 2026-10-13 (each asked for):**
+>   - *The garage on the Intel iGPU* (`--gpu=intel --validation=on`): every traced effect on, no crash,
+>     **no Vulkan message**, the picture right.
+>   - *ISS-36's device loss* (rays on, traced reflections off -- "reliably lost the device" 2026-08-29):
+>     **gone.** 290 frames of the garage, clean exit; under validation, no message.
+>   - *GPU-assisted validation on the water* (`--validation=gpu`): on the bridge cut to its sea, its 191
+>     lights and its geometry -- the eight irradiance volumes left out, the likeliest cause of the old
+>     load-time device loss -- at 640x360: no loss, and **no out-of-bounds read in any water shader**
+>     (the open question). It found one elsewhere: **the lamp glow bound `lightCount * 80` bytes of a
+>     96-byte record** (stale since RT-7 added `Extent`), so every light past 159 read beyond its range
+>     -- and on this NVIDIA card those lamps had no halo. The glow now binds the whole buffer (its
+>     shader reads only below the count); the check finds nothing after. Headland and Glitter gain the
+>     missing halos (32k and 39k px, all brighter: the near tower's base, a few on the deck); the garage
+>     and the camp are byte-identical (fewer than 160 lights). GPU-assisted validation on the full bridge,
+>     volumes included, is not retried.
 >
 > **Found on the Intel iGPU (RT2-9, 2026-10-13; `--gpu=intel`).** Two defects NVIDIA's driver lets pass:
 > - `VulkanResourceSet::Commit` writes descriptors for bindings the pipeline's layout does not declare (a set

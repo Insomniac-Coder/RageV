@@ -237,7 +237,11 @@ namespace RageV
 		LightGlowData::Batch& batch = AcquireBatch();
 		batch.Uniforms->Upload(&uniforms, sizeof(uniforms));
 		batch.Set->SetUniformBuffer(0, batch.Uniforms, 0, sizeof(GlowUniforms));
-		batch.Set->SetStorageBuffer(1, lights, 0, (uint64_t)lightCount * 80u);
+		// The whole buffer: the shader reads only below `lightCount`, and a
+		// range spelled here is a third copy of GpuLight's size. It was one --
+		// 80 bytes after RT-7 made the record 96 -- and GPU-assisted
+		// validation caught every light past 159 read beyond it (RT2-1).
+		batch.Set->SetStorageBuffer(1, lights);
 		batch.Set->Commit();
 
 		cmd.BindPipeline(s_Data->Pipeline);
