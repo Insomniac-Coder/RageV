@@ -22,6 +22,13 @@ PNGs, so a differing frame between the kept ones is counted but has no diff pict
 The cameras are the measurement camera (`--camera`), so scenes framed by a script (the garage's
 mouse orbit, the camp's) are held at the pose their script settles to -- printed by the runtime
 as "Captured from --camera=..." -- and can be swung like any other.
+
+Every run is capped (`--frame-cap`, CAP). With the GPU starting each frame straight after the last,
+the NVIDIA driver runs a differently compiled copy of a shader for a few frames, so two uncapped
+runs of one build differ in their last bits (RT2-2, docs/RT-ROADMAP.md); any idle gap between
+frames keeps them identical, and the cap is that gap. It is a gap only while the GPU finishes a
+frame inside the cap's period, which on battery the garage does not (its swing differed there), so
+the harness refuses to run on battery.
 """
 
 import argparse
@@ -53,13 +60,28 @@ WIDTH, HEIGHT = 1600, 900
 SWING = '15,2,1,2'                 # degrees, rate, seconds, delay
 SWING_FIRST, SWING_FRAMES = 121, 60  # the delay ends at frame 120 on a 1/60 s clock
 SWING_KEEP = 10                    # every tenth swing frame is kept as a picture
+CAP = 30                           # frames per second; the idle gap that makes runs repeatable
+
+
+def on_battery():
+    """True when Windows says the machine is running off its battery; False elsewhere or unknown."""
+    if os.name != 'nt':
+        return False
+    import ctypes
+
+    class Status(ctypes.Structure):
+        _fields_ = [('ACLineStatus', ctypes.c_ubyte), ('BatteryFlag', ctypes.c_ubyte),
+                    ('BatteryLifePercent', ctypes.c_ubyte), ('SystemStatusFlag', ctypes.c_ubyte),
+                    ('BatteryLifeTime', ctypes.c_ulong), ('BatteryFullLifeTime', ctypes.c_ulong)]
+    status = Status()
+    return bool(ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status))) and status.ACLineStatus == 0
 
 
 def render(scene, camera, out, flags):
     command = [os.path.join(RUNTIME, 'RageVRuntime.exe'),
                '--project=' + os.path.join(ROOT, 'SampleProject', 'SampleProject.rvproject'),
                '--rhi=vulkan', '--render-defaults=off', '--vsync=off',
-               '--width=%d' % WIDTH, '--height=%d' % HEIGHT,
+               '--width=%d' % WIDTH, '--height=%d' % HEIGHT, '--frame-cap=%d' % CAP,
                '--scene=' + scene, '--camera=' + camera, '--screenshot=' + out] + flags
     p = subprocess.run(command, cwd=RUNTIME, capture_output=True, text=True, errors='replace', timeout=3600)
     return p.returncode, p.stdout + p.stderr
@@ -137,7 +159,7 @@ def record(args):
                 'dirty': bool(subprocess.run(['git', 'status', '--porcelain', '--untracked-files=no'],
                                              cwd=ROOT, capture_output=True, text=True).stdout.strip()),
                 'recorded': time.strftime('%Y-%m-%d %H:%M'), 'size': [WIDTH, HEIGHT], 'swing': SWING,
-                'frames': {}}
+                'cap': CAP, 'frames': {}}
 
     def sink(scene, key, frame, path):
         image = pixels(path)
@@ -232,6 +254,10 @@ def main():
     unknown = [s for s in args.scenes if s not in SCENES] + [a for a in args.aa if a not in AA_MODES]
     if unknown:
         sys.exit('unknown: ' + ', '.join(unknown))
+    if on_battery():
+        print('on battery: the cap leaves no idle gap at battery speed, so runs would not repeat -- '
+              'plug in and run again')
+        return 2
     return record(args) if args.mode == 'record' else check(args)
 
 

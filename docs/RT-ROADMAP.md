@@ -474,7 +474,7 @@ Every issue in the inventory, with one of three fates: fixed directly by an item
 | ISS-29 | Night-realism items not built (WR-5 remainder, WR-6, WR-11, WR-12, WR-14) | Stays deferred | (prerequisites: RT2-33) | They stay in the WR series. RT2-33 does only fog in the composition and fog at ray hits |
 | ISS-30 | Moving chrome cube: stripes, banding, speckle, softer look | Absorbed | RT2-23 (with RT2-21's curvature and the RT2-2 reference) | Measured against a truth render for the first time |
 | ISS-31 | Tube rims report motion while parked | Fixed directly | RT2-6 (arm 14) | It changes pixels, so it is an owner-judged arm |
-| ISS-32 | The sea's lighting gaps, and unconfirmed owner reports | Absorbed | RT2-32 | Lighting per crossing through the layer. The owner is asked for the camera before the blur is chased |
+| ISS-32 | The sea's lighting gaps, and unconfirmed owner reports | Absorbed | RT2-32 | Lighting per crossing through the layer. The blur's camera, given 2026-10-13: Headland under the swing, the reflection patchy while turning (RT2-31d owns it) |
 | ISS-33 | Per-pixel memory grows with resolution | Fixed directly | RT2-19, RT2-29 | |
 | ISS-34 | The optimisation list lives only on the parked branch | Absorbed | This roadmap | Glass rays go to RT2-31; the probe fetch at every hit to RT2-25 and RT2-27; the sea mirror's accumulate to RT2-32 (D10); RT-10's +8 ms is dropped |
 | ISS-35 | No pipeline or shader cache | Fixed directly | RT2-9 (D6: approved) | |
@@ -792,7 +792,7 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 - **Size.** 2-3 sessions.
 - **Closes.** rhi-s1, GPU-13, GPU-15, rhi-s2 (the checking half), ISS-24, ISS-25, ISS-36 (the device-loss re-check); the measuring halves of GPU-09 and CORE-05; parts of ISS-6, GI-13, CORE-10 and frame-13; the comparison's finding E-N5 (section 8).
 
-### RT2-2 · Instruments that can settle questions (2a part 1 built 2026-10-13)
+### RT2-2 · Instruments that can settle questions (2a built 2026-10-13)
 
 - **In plain words.** Most later decisions are "which picture is right" or "does this signal work without TAA". This item builds the instruments that answer those questions: a reference renderer that shares none of the shortcuts it judges, one command that renders and diffs every test camera, a command that proves a signal stands on its own, and new test scenes. Nothing on screen changes.
 
@@ -850,7 +850,7 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   each submit (frames 20-123 checked), `--frame-cap=30` (3 of 3 pairs) or one frame in flight makes
 >   every run identical. Marking every float operation NoContraction at load does not cure it (other
 >   instruction choices still differ), so there is no engine-side fix for bit-repeatable runs at full
->   speed. **Open for the owner:** RT2-2a's harness to run under `--frame-cap` (proposed).
+>   speed. **Owner's decision (2026-10-13):** RT2-2a's harness runs under `--frame-cap` (below).
 >   The Intel iGPU differs too, but differently: ~4,000 px, max 8 levels, even at one frame in flight
 >   or with the gap -- a separate source that does not depend on timing; not looked into.
 > - **Fixed on the way:** `reflection_blur.rvshader` left `o_Variance` unwritten on its two early
@@ -860,6 +860,19 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 > - **Recorded, not changed:** GpuCull's object and template tables are one buffer shared by both
 >   frames in flight, rewritten every frame while the previous frame may still read them. The bytes
 >   are the same every frame today, so it is harmless; a scene whose objects move would race.
+> - **2a done, 2026-10-13.** `baseline.py` runs every capture at `--frame-cap=30` (the idle gap the
+>   driver issue above needs) and refuses to run on battery: on battery the GPU is too slow to finish
+>   a garage frame inside the cap's 33 ms, the gap disappears, and the garage swing differed in all 60
+>   frames (its MSAA parked frame by 154 px, max 2). On mains: record then check, all five cameras
+>   in all six AA modes and over the swing, **330 of 330 frames identical**; a deliberate one-pixel
+>   change in the tone map (+0.02 at one texel) was flagged as exactly 1 px, 5 levels, with its diff
+>   picture, and reverting it put the check back to identical. **The cap and the drift:** eight
+>   back-to-back garage benchmarks each, from the same 60-62 C start: uncapped, GPU work per frame
+>   19.01-19.41 ms (spread 0.40 ms) with the GPU reaching 84 C; capped at 30, 18.55-18.79 ms (spread
+>   0.24 ms, 0.10 ms over the first seven) with the GPU at or below 74 C. The cap keeps the laptop
+>   about 10 C cooler and halves the spread; a capped run's GPU time is lower than an uncapped one's
+>   (cooler clocks), so A/B timings compare capped with capped. The "up to a millisecond" drift was
+>   not reached in this uncapped series (0.40 ms over eight runs).
 >
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'
@@ -2692,6 +2705,15 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 > and against RageV's own weighted blending, AVBOIT and MBOIT were cheaper in Activision's 4K PS5 table
 > (G-N5), so AVBOIT stays a measured arm for the back layers instead of being dismissed on cost.
 
+> **Owner's report (2026-10-13): the sea's reflection breaks up while the camera turns.** In the bridge's
+> rotation test (the harness's swing: 15 degrees either side, twice a second) at the **Headland** view,
+> the water's reflection turns unclear and patchy while the camera rotates, and clears once it stops.
+> The cause today is in "What is wrong now" below: the sea's mirror and refraction rays are traced inside
+> its draw with no accumulator of their own, so only TAA averages them, and under rotation TAA drops most
+> of its history and the raw per-frame rays show. Owned here by 31d (the sea's rays on their own
+> accumulator, with measured change and camera-motion handling); 31d's exit gate now names this camera
+> under the swing. This is the camera ISS-32 was waiting for (RT2-32).
+
 - **What is wrong now.**
   - Blended glass and all water are left out of the acceleration structure (`Scene.cpp:2892-2910`, `Material.h:80-83`; water never reaches `AddInstance`). So glass casts no shadow, car windows are missing from floor reflections, and the bridge's metal cannot reflect the sea. Every BLAS is built with only the opaque flag, so a non-opaque crossing may be reported more than once (G-C2).
   - There is no coloured transmission, so glass cannot tint what is behind it, and only water refracts.
@@ -2718,7 +2740,7 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
   - 31a: the camp (no transmissive material) byte-identical; garage DirectTrace within +5% with the glass in the TLAS (A,B,B,A at 2560x1600); the tinted-pane scene's floor shadow against the reference, near zero; the garage's car windows in the floor reflection, within grain of the reference; the bridge's sea in the deck and metal reflections, against a reference with a one-off displaced BLAS, within grain; AO, GI and reflection images unchanged except where intended; validation and sync validation clean.
   - 31b: the glass-over-glass fixture with a particle in front, against a sorted reference: front-layer error 0, back layers no worse than today; Glitter's over-brightness gone, with the mean and the red-to-blue ratio shown to the owner; the composite and the new layer lanes at most 0.1 ms at 2560x1600 plus the layer's shading, measured A,B,B,A; the AVBOIT arm's result recorded.
   - 31c: the layer histories' VRAM reported, below today's glass 168 bytes a pixel plus the sea's private histories, and zero in a scene with no glass in view.
-  - 31d: every layer signal converges under `--aa=none`, still and moving; `speckle_count.py` on layer pixels at the owner's swing no worse than the 16-ray reference; `check_glint_flicker.py` at 0.80% or better; the pier and the garage close-up against the reference within grain; `emitter_lag.py` over glass; D29's look: a per-pixel diff at the Headland towers, judged live.
+  - 31d: every layer signal converges under `--aa=none`, still and moving; `speckle_count.py` on layer pixels at the owner's swing no worse than the 16-ray reference; `check_glint_flicker.py` at 0.80% or better; the pier and the garage close-up against the reference within grain; `emitter_lag.py` over glass; D29's look: a per-pixel diff at the Headland towers, judged live; the sea at the Headland view under the harness's swing, steady and not patchy while the camera turns, judged live by the owner (their report of 2026-10-13).
   - 31e: the pier, calm and wavy, against the reference (refraction and absorption) within grain, with no structure along the boundary between screen-space and traced points; the share of traced fallback points reported; converges under `--aa=none`.
   - 31f: the garage close-up's back panes judged live by the owner against today and against the reference (D28); under `--aa=none` and MSAA 4x, no frame-to-frame change on a still camera; register counts per pipeline recorded.
   - Costs (proposals, the owner sets the bars from the first measurement): the garage's glass layer at most 0.5 ms at native, against today's +0.45 ms at the owner's close-up (where glass rays are 1.3 of the transparent pass's 2.0 ms). A,B,B,A.
@@ -2782,7 +2804,7 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
   - The owner's live checks on the pier and at Headland: the accepted look, and D30's FFT arm against the 32-wave sum.
   - Skipping on against off: a per-pixel difference of no more than half an output level.
   - The sea at Headland at most 3.6 ms at native in total (section 6's 2026-09-25 proposal); A,B,B,A at Headland and Glitter.
-  - The owner is asked for the camera behind the blur report (ISS-32) before chasing it.
+  - The blur report's camera (ISS-32), given by the owner 2026-10-13: the Headland view, under the swing, where the sea's reflection turns patchy while the camera rotates. Owned by RT2-31d (see the owner's report there); checked here again once the sea work is re-landed.
 - **Size.** 8-11 sessions.
 - **Closes.** MAT-10, materials-s4, ISS-11, ISS-32; the final parts of ISS-15 and direct-15; the comparison's claim G-C15 (section 8).
 
