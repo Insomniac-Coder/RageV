@@ -150,6 +150,14 @@ namespace RageV::Vk
 		VkDescriptorSet GetHandle() const override;
 
 	private:
+		// **RT2-1: a write the shader cannot take is refused, never sent.** The
+		// binding must be one the pipeline's reflected layout declares, of the
+		// same kind, and an array index inside the declared array. Writing past
+		// the layout is invalid Vulkan that NVIDIA's driver let pass and Intel's
+		// crashed on (vkUpdateDescriptorSets). Reported once per pipeline, set,
+		// binding and reason, and counted (RHI::Failures).
+		bool Accepts(uint32_t binding, RHI::ResourceType type, uint32_t arrayIndex) const;
+
 		struct BufferWrite
 		{
 			uint32_t Binding;

@@ -7,7 +7,10 @@ https://claude.ai/artifact/Wi8RckggavWq8htQos4vh8, rebuilt by
 documents are history. **RT2-9 (shader and pipeline caches) is built, 2026-10-13** (its roadmap note): a garage launch 27.9 s ->
 5.1 s, the picture unchanged; the harness keeps the caches on (owner); spirv-opt was tried on NVIDIA and
 the Intel iGPU and dropped. `--gpu=intel` runs the engine on the integrated GPU. Then the roadmap's order
-from RT2-1, which now carries two Intel crashes and the water shader's fault under the optimiser.
+from RT2-1. **RT2-1 part 1 is committed (2026-10-13)**: failures are loud (exit 3, no screenshot, no
+benchmark numbers, a banner), the bridge's two validation errors are fixed, the ray counters are off
+unless `--ray-counters=on`. Part 2 next: VRAM by category, the PRESENT_AFTER_WRITE message every shot
+still prints, the Intel iGPU run, the water shader question (its RT2-1 note).
 
 **The repository moved** to `D:/Code_secondary/RageV` (2026-10-12) and no longer cares where it lives: tool
 scripts find the root from their own place (`_RAGEV`), the engine finds its sample project and export file
@@ -1735,7 +1738,7 @@ this session were reverted rather than folded into RT-6.6's commit.
 
 ### The lessons, in one place
 1. **Averaging neighbours' samples is a parallax blur.** A neighbour's sample is the scene seen from the neighbour's point; the blur is (disc / lobe footprint)^2, on top of the lobe's own. The ratio estimator does not remove it: on a flat floor every neighbour's lobe is this one's, the ratio is one, and the estimate is a plain average of the disc. So the disc must be small against the footprint (a fifth), sized by the neighbourhood minimum hit distance, and the ratio only handles roughness/normal differences (puddles among rough floor).
-2. **Three staged variants identical to the hundredth means the variant did nothing, not that staging failed** -- prove staging with a red-output variant (done: it is used; no shader cache is written).
+2. **Three staged variants identical to the hundredth means the variant did nothing, not that staging failed** -- prove staging with a red-output variant (done: it is used). Since RT2-9 (2026-10-13) a SPIR-V cache IS written, keyed on the expanded source, so an edited staged shader is compiled afresh (`tools/scripts/shader_cache_stale_check.py` proves it); `--shader-cache=off` compiles everything from source.
 3. **A converged reference made under one rule cannot judge a texel that another rule averages** (silhouettes).
 4. **Build both targets**; the editor staged folder is separate.
 5. `--frames=1` runs write `<tag>.png` and the analysis then crashes on the name -- harmless; `endpose_v12.png` was rendered with v15 staged and deleted.
@@ -1766,7 +1769,7 @@ this session were reverted rather than folded into RT-6.6's commit.
 4. The water's velocity/flag so still feedback can be the default (item 4).
 5. Remap the ray preset to taps; re-point the bench counters; the debug views.
 
-**Traps this session:** patch scripts must take their "old" text from the file, not from a `grep -v "//"` listing (three assertion failures); when a patch script fails midway, its earlier files are written -- re-run only the remaining half; `sed -i` with a raw Windows path uppercases the line; `python -` heredocs must use forward-slash paths; the runtime writes no shader cache (`SampleProject/cache` holds models/textures only); a killed burst leaves `assets/scenes/showroom_burst.rage` -- check after every run.
+**Traps this session:** patch scripts must take their "old" text from the file, not from a `grep -v "//"` listing (three assertion failures); when a patch script fails midway, its earlier files are written -- re-run only the remaining half; `sed -i` with a raw Windows path uppercases the line; `python -` heredocs must use forward-slash paths; the runtime wrote no shader cache then (`SampleProject/cache` holds models/textures only; since RT2-9 the SPIR-V and pipeline caches live in `ShaderCache/` beside the executable, keyed so a staged edit is never served stale); a killed burst leaves `assets/scenes/showroom_burst.rage` -- check after every run.
 
 ## 2026-09-06, evening: the smear metric is valid, the noise is diagnosed, the fix is written and NOT YET APPLIED -- UNCOMMITTED, HALTED AT THE USAGE LIMIT
 
@@ -9572,9 +9575,9 @@ Vulkan numbers did not respond to any edit of `voxel_inject.rvshader`, and it
 was written up as the falsify lever failing to reach that backend. **It is
 false.** A syntax error in that file is reported by both backends and disables
 voxel GI on both; the same quarter-scale edit run against `gi_corner` moves
-Vulkan from +1.78 to +0.38. There is no shader cache to be stale either --
-`ShaderCompiler::SetCacheDirectory` is never called, so every launch
-recompiles. **`falsify.py` works on Vulkan and CHK.2's guarantee stands.**
+Vulkan from +1.78 to +0.38. (Then there was no shader cache at all; since
+RT2-9 there is one, keyed on the expanded source, so an edit still reaches
+Vulkan -- `shader_cache_stale_check.py` -- and `--shader-cache=off` recompiles.) **`falsify.py` works on Vulkan and CHK.2's guarantee stands.**
 
 **And the rest is explained: Vulkan has ray tracing and OpenGL does not.**
 `SampleProject.rvproject` has an uncommitted `RayTracing: true` +

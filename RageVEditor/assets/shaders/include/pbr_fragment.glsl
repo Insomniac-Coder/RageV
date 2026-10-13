@@ -541,8 +541,9 @@ bool LightCullRejects(uint index, vec3 position, bool insideField, bool onScreen
 // same define as the structure, so the OpenGL layouts never see the
 // binding; not in the irradiance fill, whose rays are bake time and whose
 // set is its own.
-#if defined(RV_RAY_SHADOWS) && !defined(RV_IRRADIANCE_FILL)
-#define RV_RAY_COUNTERS
+// RT2-1: the CPU decides (RayCounters::IsAvailable, --ray-counters=on), and
+// passes RV_RAY_COUNTERS; this only keeps it to the variants that can count.
+#if defined(RV_RAY_COUNTERS) && defined(RV_RAY_SHADOWS) && !defined(RV_IRRADIANCE_FILL)
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_arithmetic : require
 #extension GL_KHR_shader_subgroup_ballot : require
@@ -682,6 +683,8 @@ void FlushRayCounters(bool shaded)
 	CountLane(base, RAY_LANE_HIT_LIGHTS, b >> 16u, leader);
 }
 #else
+// No counting here, and none in the shaders that include this either.
+#undef RV_RAY_COUNTERS
 #define RV_COUNT_SHADOW_RAY()
 #define RV_COUNT_SURFACE_RAY()
 #define RV_COUNT_HIT(lights)

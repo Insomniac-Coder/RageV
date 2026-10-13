@@ -5,6 +5,7 @@
 #include "VulkanResources.h"
 #include "VulkanPipeline.h"
 #include "VulkanCommandList.h"
+#include "RageV/Renderer/RHI/RHIFailures.h"
 
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -58,10 +59,13 @@ namespace RageV::Vk
 				RV_CORE_ERROR("[Vulkan] {0}{1}", data->pMessage, context);
 			else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
 				RV_CORE_WARN("[Vulkan] {0}{1}", data->pMessage, context);
+			// RT2-1: "[Vulkan]" is kept for a problem -- an error or a warning --
+			// so a script can treat any such line as one (tools/scripts/
+			// vulkan_messages.py); the layer's notes say "[Vulkan note]".
 			else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
-				RV_CORE_INFO("[Vulkan] {0}", data->pMessage);
+				RV_CORE_INFO("[Vulkan note] {0}", data->pMessage);
 			else
-				RV_CORE_TRACE("[Vulkan] {0}", data->pMessage);
+				RV_CORE_TRACE("[Vulkan note] {0}", data->pMessage);
 
 			return VK_FALSE;
 		}
@@ -856,6 +860,18 @@ namespace RageV::Vk
 		VkPhysicalDeviceProperties properties;
 		vkGetPhysicalDeviceProperties(m_PhysicalDevice, &properties);
 
+		// RT2-1: a build's scratch address must be a multiple of this; VMA's
+		// default alignment for a storage buffer does not promise it.
+		if (m_RayQuerySupported)
+		{
+			VkPhysicalDeviceAccelerationStructurePropertiesKHR structures{
+				VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR };
+			VkPhysicalDeviceProperties2 properties2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+			properties2.pNext = &structures;
+			vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &properties2);
+			m_ScratchAlignment = structures.minAccelerationStructureScratchOffsetAlignment;
+		}
+
 		VkPhysicalDeviceMemoryProperties memory;
 		vkGetPhysicalDeviceMemoryProperties(m_PhysicalDevice, &memory);
 
@@ -1440,6 +1456,12 @@ namespace RageV::Vk
 		createInfo.imageExtent = m_SwapchainExtent;
 		createInfo.imageArrayLayers = 1;
 		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+		// RT2-1: --screenshot copies out of the swapchain image, which needs the
+		// image made able to be a copy's source -- asked for only where the
+		// surface allows it; a capture is refused, loudly, where it does not.
+		m_SwapchainCanCapture = (capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
+		if (m_SwapchainCanCapture)
+			createInfo.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 		createInfo.preTransform = capabilities.currentTransform;
 		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 		createInfo.presentMode = m_PresentMode;
@@ -2109,6 +2131,13 @@ namespace RageV::Vk
 	// right for a diagnostic that fires once.
 	void VulkanDevice::CaptureSwapchainImage()
 	{
+		if (!m_SwapchainCanCapture)
+		{
+			if (RHI::Failures::Record("capture|swapchain", "this surface's images cannot be copied from; no screenshot"))
+				RV_CORE_ERROR("[Vulkan] This surface's swapchain images cannot be a copy source; no screenshot taken");
+			m_Capture = nullptr;
+			return;
+		}
 		FrameContext& frame = m_Frames[m_FrameIndex];
 
 		// The submit that drew this frame has to have finished before its
@@ -2398,7 +2427,7 @@ namespace RageV::Vk
 	{
 		if (!m_DescriptorIndexingSupported)
 		{
-			RV_CORE_INFO("[Vulkan] bindless texture heap unavailable on this device; "
+			RV_CORE_INFO("[Vulkan note] bindless texture heap unavailable on this device; "
 						 "the bound path is used");
 			return nullptr;
 		}

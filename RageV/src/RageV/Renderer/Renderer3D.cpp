@@ -1652,6 +1652,12 @@ namespace RageV
 		SamplerDesc exact;
 		exact.MinFilter = FilterMode::Nearest;
 		exact.MagFilter = FilterMode::Nearest;
+		// Nearest between mips too (RT2-1). Integer targets -- the direct light's
+		// reservoir choices, R32G32B32A32_UINT -- are read through this sampler,
+		// and a linear mip filter on a format without linear filtering is invalid
+		// (the bridge's DirectWaterShade validation error). Every target it reads
+		// has one mip, so the picture cannot change.
+		exact.Mipmap = MipmapMode::Nearest;
 		exact.WrapU = WrapMode::ClampToEdge;
 		exact.WrapV = WrapMode::ClampToEdge;
 		exact.WrapW = WrapMode::ClampToEdge;
@@ -1735,6 +1741,8 @@ namespace RageV
 			if (s_Data->Bindless)
 				traceDefines.push_back("RV_BINDLESS");
 			traceDefines.push_back("RV_RAY_SHADOWS");
+			if (RayCounters::IsAvailable())   // RT2-1: --ray-counters=on
+				traceDefines.push_back("RV_RAY_COUNTERS");
 			if (s_Data->RayReflectionsOn)
 				traceDefines.push_back("RV_RAY_REFLECTIONS");
 			traceDefines.push_back("RV_RAY_GI");
@@ -1993,6 +2001,8 @@ namespace RageV
 			defines.push_back("RV_BINDLESS");
 		if (s_Data->RayShadowsOn)
 			defines.push_back("RV_RAY_SHADOWS");
+		if (s_Data->RayShadowsOn && RayCounters::IsAvailable())   // RT2-1: --ray-counters=on
+			defines.push_back("RV_RAY_COUNTERS");
 		// `--debug-view=rays|lights` (WR-16 S0): the lit shaders add their
 		// per-pixel counts into a buffer only under this define, so a run
 		// without the flag pays nothing. Rides the ray switch: the counts
@@ -2049,6 +2059,17 @@ namespace RageV
 		if (!compiled)
 		{
 			RV_CORE_ERROR("Renderer3D: failed to compile assets/shaders/pbr.rvshader");
+			// **RT2-1: nothing stale draws.** A recompile that fails (a settings
+			// toggle) used to leave the previous lit shaders and pipelines drawing,
+			// built under the old defines, while the passes above had already moved
+			// to the new ones -- a believable picture of a mode nobody asked for.
+			// The lit family goes, the pipelines are rebuilt as none (EnsurePipeline),
+			// and the banner says which shader failed.
+			s_Data->Shader = nullptr;
+			s_Data->SkinnedShader = nullptr;
+			s_Data->LayeredShader = nullptr;
+			s_Data->MeshletLitShader = nullptr;
+			s_Data->PipelineDirty = true;
 			return false;
 		}
 		s_Data->Shader = s_Data->Device->CreateShader(*compiled);
@@ -3224,8 +3245,28 @@ namespace RageV
 
 	void Renderer3D::EnsurePipeline()
 	{
-		if (!s_Data->PipelineDirty || !s_Data->Shader)
+		if (!s_Data->PipelineDirty)
 			return;
+		// RT2-1: with no lit shader (its compile failed) there are no lit pipelines
+		// either, rather than the last ones built from shaders that are gone.
+		if (!s_Data->Shader)
+		{
+			s_Data->Pipeline = nullptr;
+			s_Data->MaskedPipeline = nullptr;
+			s_Data->GBufferPipeline = nullptr;
+			s_Data->MaskedGBufferPipeline = nullptr;
+			s_Data->SkinnedGBufferPipeline = nullptr;
+			s_Data->LayeredGBufferPipeline = nullptr;
+			s_Data->GlassLayerPipeline = nullptr;
+			s_Data->PrepassPipeline = nullptr;
+			s_Data->MeshletLitPipeline = nullptr;
+			s_Data->SkinnedPipeline = nullptr;
+			s_Data->LayeredPipeline = nullptr;
+			s_Data->TransparentPipeline = nullptr;
+			s_Data->WaterPipeline = nullptr;
+			s_Data->PipelineDirty = false;
+			return;
+		}
 
 		GraphicsPipelineDesc desc;
 		desc.Name = "Renderer3D.pbr";
@@ -5623,8 +5664,8 @@ namespace RageV
 					// Asked here because this is the first point where both
 					// halves are final: SetAreaEmitters has run for the frame
 					// (the scene hands the list over before EndScene) and the
-					// casters are this frame's. A linear scan over at most
-					// sixteen owners, per caster.
+					// casters are this frame's. A linear scan over every emitter
+					// owner (no cap since RT-24), per caster: O(casters x emitters).
 					//
 					// Owner zero is "no id", which every caller that does not
 					// set one leaves behind -- it must never match, or the

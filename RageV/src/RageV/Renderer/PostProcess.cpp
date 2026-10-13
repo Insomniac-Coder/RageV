@@ -201,7 +201,9 @@ namespace RageV
 			// fragment atomic -- only where the counters exist, which is
 			// the ray-query path. The OpenGL compile is the shader as it was.
 			std::vector<std::string> defines;
-			if (i == (int)Shader::TaaResolve && device.GetCaps().SupportsRayQuery)
+			// RT2-1: only when the counters are on (RayCounters::IsAvailable), the
+			// same answer the binding sites ask; RTAO counts its rays the same way.
+			if ((i == (int)Shader::TaaResolve || i == (int)Shader::RtaoCompute) && RayCounters::IsAvailable())
 				defines.push_back("RV_RAY_COUNTERS");
 
 			auto compiled = ShaderCompiler::CompileFromFile(ShaderPath(i), defines);

@@ -3,6 +3,7 @@
 #include "RageV/Core/CrashHandler.h"
 #include "RageV/Core/EngineConfig.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
+#include "RageV/Renderer/RHI/RHIFailures.h"
 
 #ifdef RV_PLATFORM_WINDOWS
 
@@ -87,6 +88,16 @@ int main(int argc, char** argv)
 					  "it is not a measurement -- exiting 3 rather than reporting "
 					  "it (ENGINE-NOTES 7be).",
 					  failures, RageV::RHI::ShaderCompiler::FirstFailure());
+		return 3;
+	}
+	// RT2-1: and the rest of the GPU layer's failures -- a pipeline not built, a
+	// write refused because the shader has no such binding, a push past its block.
+	const uint32_t gpuFailures = RageV::RHI::Failures::Count();
+	if (measuring && gpuFailures > 0)
+	{
+		RV_CORE_ERROR("{0} GPU-layer failure(s) this run, the first being: {1}. Whatever was "
+					  "captured was not rendered as the engine meant -- exiting 3 (RT2-1).",
+					  gpuFailures, RageV::RHI::Failures::List().front());
 		return 3;
 	}
 

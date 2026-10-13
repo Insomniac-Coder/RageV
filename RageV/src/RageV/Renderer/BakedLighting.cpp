@@ -474,25 +474,20 @@ namespace RageV
 			return false;
 		}
 
-		// Bounded before it is trusted: the size in the header decides an
-		// allocation, and a corrupt file must not be able to ask for a
-		// terabyte. This was sixty-four megabytes, "far past any field this
-		// engine can build" -- until the bridge's bay box (7cx): its packed
-		// atlas is 92 MB a file, every load was refused as not credible, and
-		// the frame fell back to realtime while the benchmark above it read
-		// as a win. The cap is a corruption guard, not a budget; a gigabyte
-		// is still far short of anything that hurts.
-		constexpr uint64_t kSaneLimit = 1024ull * 1024 * 1024;
-		if (header.PayloadBytes == 0 || header.PayloadBytes > kSaneLimit)
+		// **The payload is exactly the rest of the file** (RT2-1). The size in the
+		// header decides an allocation, so a corrupt header must not be able to ask
+		// for a terabyte -- and it cannot, because the file is already in memory and
+		// this compares against its length. That replaced a fixed "sane" cap, which
+		// was a guess: at 64 MB it refused the bridge's 92 MB packed atlas on every
+		// load (7cx) and the frame fell back to realtime while a benchmark read it as
+		// a win; at 1 GB it would only have moved the next such day. Write stores
+		// the payload directly after the header, so anything shorter is a cut-off
+		// file and anything longer is not a file this wrote. Each caller then checks
+		// the payload against the size its own dimensions imply (UploadRaw).
+		if (header.PayloadBytes == 0 || header.PayloadBytes != bytes.size() - sizeof(Header))
 		{
-			RV_CORE_WARN("Bake: {0} claims a {1} byte payload, which is not credible",
-						 file.filename().string(), header.PayloadBytes);
-			return false;
-		}
-
-		if (bytes.size() - sizeof(Header) < header.PayloadBytes)
-		{
-			RV_CORE_WARN("Bake: {0} is shorter than its header says", file.string());
+			RV_CORE_WARN("Bake: {0} claims a {1} byte payload but holds {2} after its header",
+						 file.filename().string(), header.PayloadBytes, bytes.size() - sizeof(Header));
 			return false;
 		}
 

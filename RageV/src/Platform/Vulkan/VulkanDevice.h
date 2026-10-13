@@ -141,6 +141,9 @@ namespace RageV::Vk
 		// enabled (ENGINE-NOTES 7am). Buffers consult it to drop the
 		// device-address usage on a device that has none.
 		bool RayQuerySupported() const { return m_RayQuerySupported; }
+		// RT2-1: what an acceleration-structure build's scratch address must be a
+		// multiple of (minAccelerationStructureScratchOffsetAlignment); 0 without rays.
+		VkDeviceSize GetScratchAlignment() const { return m_ScratchAlignment; }
 
 		// Resources copy this so their destructors never touch the device
 		// itself; see DeletionQueue for why that matters.
@@ -273,6 +276,9 @@ namespace RageV::Vk
 		bool m_DescriptorIndexingSupported = false;
 		VkDescriptorSetLayout m_BindlessLayout = VK_NULL_HANDLE;
 		bool m_RayQuerySupported = false;
+		VkDeviceSize m_ScratchAlignment = 0;
+		// RT2-1: whether the swapchain images can be copied from (--screenshot).
+		bool m_SwapchainCanCapture = false;
 		bool m_MeshShadingSupported = false;
 
 		// Post-mortem diagnostics, both optional extensions probed at device

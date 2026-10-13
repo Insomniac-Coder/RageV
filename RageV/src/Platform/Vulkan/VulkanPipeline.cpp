@@ -3,6 +3,7 @@
 #include "VulkanDevice.h"
 #include <algorithm>
 #include <chrono>
+#include "RageV/Renderer/RHI/RHIFailures.h"
 
 namespace RageV::Vk
 {
@@ -92,9 +93,13 @@ namespace RageV::Vk
 	{
 		if (!m_Build.valid())
 			return;
-		// get() rethrows a failure the worker met (VK_CHECK) here, on the thread
-		// that asked for the pipeline.
 		m_Pipeline = m_Build.get();
+		// **RT2-1: a build that failed is counted, not left as a null handle to
+		// bind.** VK_CHECK logs and does not throw, so the worker hands back null;
+		// the command list refuses to bind it and skips the pass's draws.
+		if (!m_Pipeline && RHI::Failures::Record("pipeline|" + m_DebugName,
+											  "pipeline '" + m_DebugName + "' was not built"))
+			RV_CORE_ERROR("[Vulkan] Pipeline '{0}' was not built; its passes will not draw", m_DebugName);
 		if (m_Pipeline && !m_DebugName.empty())
 			m_Device.SetDebugName((uint64_t)m_Pipeline, VK_OBJECT_TYPE_PIPELINE, m_DebugName.c_str());
 	}
@@ -510,9 +515,40 @@ namespace RageV::Vk
 		return m_Sets[m_Device.GetFrameIndex()];
 	}
 
+	bool VulkanResourceSet::Accepts(uint32_t binding, RHI::ResourceType type, uint32_t arrayIndex) const
+	{
+		const RHI::ResourceSetLayoutDesc* layout =
+			m_Pipeline ? m_Pipeline->GetCommonReflection().FindSet(m_Set) : nullptr;
+		const RHI::ResourceBinding* declared = nullptr;
+		if (layout)
+			for (const RHI::ResourceBinding& candidate : layout->Bindings)
+				if (candidate.Binding == binding)
+				{
+					declared = &candidate;
+					break;
+				}
+		const char* problem = nullptr;
+		if (!declared)
+			problem = "the shader declares no such binding";
+		else if (declared->Type != type)
+			problem = "the shader declares another kind of resource there";
+		else if (declared->Count > 0 && arrayIndex >= declared->Count)
+			problem = "the index is past the end of the shader's array";
+		if (!problem)
+			return true;
+		const std::string name = m_Pipeline ? m_Pipeline->GetDebugName() : std::string("?");
+		const std::string where = "'" + name + "' set " + std::to_string(m_Set) + " binding "
+								+ std::to_string(binding);
+		if (RHI::Failures::Record("set|" + where + "|" + problem, where + " not written: " + problem))
+			RV_CORE_ERROR("[Vulkan] {0} not written: {1}", where, problem);
+		return false;
+	}
+
 	void VulkanResourceSet::SetUniformBuffer(uint32_t binding, const RHI::Ref<RHI::RHIBuffer>& buffer,
 											 uint64_t offset, uint64_t range)
 	{
+		if (!Accepts(binding, RHI::ResourceType::UniformBuffer, 0))
+			return;
 		auto vulkanBuffer = std::static_pointer_cast<VulkanBuffer>(buffer);
 
 		BufferWrite write{};
@@ -528,6 +564,8 @@ namespace RageV::Vk
 	void VulkanResourceSet::SetStorageBuffer(uint32_t binding, const RHI::Ref<RHI::RHIBuffer>& buffer,
 											 uint64_t offset, uint64_t range)
 	{
+		if (!Accepts(binding, RHI::ResourceType::StorageBuffer, 0))
+			return;
 		auto vulkanBuffer = std::static_pointer_cast<VulkanBuffer>(buffer);
 
 		BufferWrite write{};
@@ -543,6 +581,8 @@ namespace RageV::Vk
 	void VulkanResourceSet::SetTexture(uint32_t binding, const RHI::Ref<RHI::RHITexture>& texture,
 									   const RHI::Ref<RHI::RHISampler>& sampler, uint32_t arrayIndex)
 	{
+		if (!Accepts(binding, RHI::ResourceType::CombinedImageSampler, arrayIndex))
+			return;
 		auto vulkanTexture = std::static_pointer_cast<VulkanTexture>(texture);
 		auto vulkanSampler = std::static_pointer_cast<VulkanSampler>(sampler);
 
@@ -565,6 +605,8 @@ namespace RageV::Vk
 	void VulkanResourceSet::SetStorageImage(uint32_t binding, const RHI::Ref<RHI::RHITexture>& texture,
 											uint32_t mip)
 	{
+		if (!Accepts(binding, RHI::ResourceType::StorageImage, 0))
+			return;
 		auto vulkanTexture = std::static_pointer_cast<VulkanTexture>(texture);
 		if (!vulkanTexture || !vulkanTexture->IsStorage())
 		{
@@ -604,6 +646,8 @@ namespace RageV::Vk
 	void VulkanResourceSet::SetAccelerationStructure(uint32_t binding,
 													  const RHI::Ref<RHI::RHIAccelerationStructure>& structure)
 	{
+		if (!Accepts(binding, RHI::ResourceType::AccelerationStructure, 0))
+			return;
 		auto vulkanStructure = std::static_pointer_cast<VulkanAccelerationStructure>(structure);
 		StructureWrite write{};
 		write.Binding = binding;

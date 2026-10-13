@@ -46,10 +46,12 @@ namespace RageV
 		// resolution for the screen-space one.** The two forms have different
 		// things to spend, which is the same split RayDetail already makes:
 		//
-		//   ray-traced   Quarter 2 rays, Half 4 rays, Full 8 rays -- all at
-		//                the frame's own resolution
-		//   screen-space Quarter 1/4, Half 1/2, Full full resolution -- it
-		//                has no ray count to trade
+		//   ray-traced   Quarter 2 rays, Half 4 rays, Full 8 rays -- all at a
+		//                quarter of the pixels (half per axis), the sub-position
+		//                interleaved so four frames cover every pixel
+		//   screen-space Quarter at 1/16 of the pixels, Half and Full at a
+		//                quarter -- Full adds taps, not resolution
+		//   (RT2-1 corrected this text to FrameGraphBuilder's aoDivisor.)
 		//
 		// Four rays is where the traced form ships because the 9x9 separable
 		// blur after it absorbs the difference: measured on the showroom in
@@ -76,9 +78,9 @@ namespace RageV
 	// How much a ray-traced effect spends per pixel.
 	//
 	// The same two axes the rasterised gathers have had since 7az, and in the
-	// same order: Low and Medium differ in how many rays each pixel casts,
-	// High also runs at the frame's own resolution rather than half of it --
-	// which is where most of its cost is and most of its sharpness. Off is
+	// same order (RT2-1 corrected this text to RayDetailDivisor/RayDetailRays):
+	// Low is 2 rays at 1/16 of the pixels, Medium 2 rays at a quarter, High 4
+	// rays at a quarter -- no level runs at the frame's own resolution. Off is
 	// off, and hands the effect back to whichever screen-space form the
 	// profile asks for.
 	enum class RayDetail : uint32_t

@@ -2041,7 +2041,6 @@ namespace RageV
 				{
 					if (rayOcclusion)
 					{
-						RayGpuScope rayTime(context.Cmd);
 						PostProcess::RtaoCompute(context.Cmd, context.Depth(sceneHDR),
 												 context.Color(sceneHDR, normalIndex),
 												 RayShadows::GetStructure(),
@@ -2187,7 +2186,6 @@ namespace RageV
 				[sceneHDR, normalIndex, giView, giBudget, budgetPrevious,
 				 rays = RayDetailRays(giDetail)](RGPassContext& context)
 				{
-					RayGpuScope rayTime(context.Cmd);
 					Renderer3D::TraceGlobalIllumination(context.Cmd,
 													   context.Depth(sceneHDR),
 													   context.Color(sceneHDR, normalIndex),
@@ -4506,7 +4504,6 @@ namespace RageV
 				 rays = RayDetailRays(giDetail)]
 				(RGPassContext& context)
 				{
-					RayGpuScope rayTime(context.Cmd);
 					Renderer3D::TraceGlobalIllumination(context.Cmd,
 														context.Depth(sceneHDR),
 														context.Color(sceneHDR, normalIndex),
@@ -4688,11 +4685,8 @@ namespace RageV
 				{
 					// Depth and the surface attachment: the real normal where
 					// the scene wrote one, reconstruction where it did not.
-					// Timed for the ray budget, always -- see FrameProfiler's
-					// ClaimRayGpuScope. Scoped so it closes before the pass does.
 					if (rayOcclusion)
 					{
-						RayGpuScope rayTime(context.Cmd);
 						PostProcess::RtaoCompute(context.Cmd, context.Depth(sceneHDR),
 												 context.Color(sceneHDR, normalIndex),
 												 RayShadows::GetStructure(),

@@ -96,19 +96,24 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", default="Release")
+    # RT2-1: the same parity with ray tracing on, for every render including the
+    # reference (the override applies on top of --render-defaults; a device without
+    # ray queries falls back to shadow maps and the check still means something).
+    parser.add_argument("--rays", action="store_true", help="every render with --raytracing=on")
     args = parser.parse_args()
+    rays = ["--raytracing=on"] if args.rays else []
 
     runtime_dir = os.path.join(root, "build", "bin", args.config, "RageVRuntime")
     project = os.path.join(root, "SampleProject")
 
     failures = 0
     with tempfile.TemporaryDirectory() as temp:
-        reference = render(runtime_dir, project, [],
+        reference = render(runtime_dir, project, rays,
                            os.path.join(temp, "default.png"))
         scene_rows = int(reference.shape[0] * (1.0 - UI_BAR_FRACTION))
         reference = reference[:scene_rows]
         for name, extra in VARIANTS:
-            image = render(runtime_dir, project, extra,
+            image = render(runtime_dir, project, rays + list(extra),
                            os.path.join(temp, name + ".png"))[:scene_rows]
             delta = np.abs(image - reference).max(axis=2)
             differing = int((delta > 0).sum())

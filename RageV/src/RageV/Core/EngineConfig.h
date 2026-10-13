@@ -26,6 +26,9 @@
 //   --width=N --height=N    window size
 //   --audio=on|off          open an output device at all
 //   --import-cache=on|off   read and write cooked assets (default on)
+//   --ray-counters=on|off   count rays per frame into the benchmark report and
+//                           the HUD (default off: a measuring instrument, not
+//                           part of the frame that ships; on with any --debug-view)
 //   --shader-cache=on|off   reuse compiled shaders and the driver's pipelines
 //                           from ShaderCache/ beside the executable (default on)
 //   --gpu=<name>            prefer the GPU whose name contains this (any case),
@@ -1104,6 +1107,13 @@ namespace RageV
 		// as it was -- for measurements that must not depend on a cache. The picture
 		// is the same either way.
 		bool         ShaderCache = true;
+
+		// **--ray-counters=on|off (RT2-1):** the per-frame ray counts. They used
+		// to be compiled into every ray-traced frame -- subgroup reductions and
+		// atomics in the lit shaders, the traces, TAA and RTAO, and a readback
+		// every frame -- so every benchmark timed an instrumented shader. Off by
+		// default; on for a run that wants the counts, and with any --debug-view.
+		bool         RayCounters = false;
 
 		// **--gpu=<name>:** the GPU whose name contains this, matched in any
 		// case, over the default choice (a discrete GPU first). How a second

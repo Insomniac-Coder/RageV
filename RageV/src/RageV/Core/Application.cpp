@@ -20,6 +20,7 @@
 #include "RageV/Project/ProjectTemplate.h"
 #include "RageV/Utils/PlatformUtils.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
+#include "RageV/Renderer/RHI/RHIFailures.h"
 #include "Platform/Windows/WindowsPlatform.h"
 
 #include <stb_write_image.h>
@@ -375,6 +376,17 @@ namespace RageV {
 	{
 		if (!rgba || width == 0 || height == 0)
 			return false;
+
+		// **RT2-1: a picture made without part of the engine is not written.** The
+		// exit code already says so (3), but most of the test scripts never read it
+		// -- RT-11's evening of measurements was taken on a fallback picture that
+		// way. A missing file is something every script already notices.
+		if (RHI::Failures::Total() > 0)
+		{
+			RV_CORE_ERROR("Not writing {0}: {1} shader or GPU failure(s) this run, the first: {2}",
+						  path, RHI::Failures::Total(), RHI::Failures::First());
+			return false;
+		}
 
 		// So --screenshot=shots/frame.png works without the caller having had to
 		// create the folder first.

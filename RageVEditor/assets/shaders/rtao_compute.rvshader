@@ -54,6 +54,9 @@ layout(set = 0, binding = 4) uniform accelerationStructureEXT u_SceneAS;
 // (RayCounters::kPostBinding, lane AoRays), the way the lit shaders count
 // theirs: one subgroup reduction and one atomic per wave, from a lane that is
 // not a helper. See pbr_fragment.glsl's FlushRayCounters for the reasoning.
+// RT2-1: only under RV_RAY_COUNTERS (--ray-counters=on); the binding below is
+// then filled by the CPU, and absent otherwise.
+#ifdef RV_RAY_COUNTERS
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_arithmetic : require
 #extension GL_KHR_shader_subgroup_ballot : require
@@ -76,6 +79,7 @@ uint RayCounterSlot()
 	const uvec2 px = uvec2(gl_FragCoord.xy);
 	return ((px.x >> 3u) + (px.y >> 2u) * 7u) & 63u;
 }
+#endif
 
 layout(push_constant) uniform Params
 {
@@ -379,6 +383,7 @@ void main()
 
 	// The wave's taps into the frame's counter. Lanes that returned early
 	// above cast nothing and are absent from the reduction, which is right.
+#ifdef RV_RAY_COUNTERS
 	{
 		const bool real = !gl_HelperInvocation;
 		const uvec4 realLanes = subgroupBallot(real);
@@ -386,6 +391,7 @@ void main()
 		if (real && sum > 0u && gl_SubgroupInvocationID == subgroupBallotFindLSB(realLanes))
 			atomicAdd(u_RayCounters.Counts[RayCounterSlot() * RAY_COUNTER_STRIDE + RAY_LANE_AO], sum);
 	}
+#endif
 
 	// Occlusion in R, linear depth in G for the blur's edge test -- the same
 	// contract as ssao_compute, because the same blur reads it.

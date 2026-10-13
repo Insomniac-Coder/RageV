@@ -630,10 +630,46 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 - **Closes.** RT-24, framegraph-s1, ISS-40 (the motion test), CORE-08 (the test-mover half, through `Slider`). Also the measured arms of REFL-01, REFL-03, REFL-04, REFL-05 (the camera-motion check), REFL-07, REFL-10 and direct-s2, and the diagnostic half of REFL-06 (done early: every emitter aimed at); their structural parts are later items.
 - **If a symptom survives every arm.** A cause inside the reflection chain that one rule fixes is patched here first. Otherwise RT-24 is committed with that symptom recorded against the item that removes it (D17): RT2-28 for the frame filter's depth test, RT2-24 for the direct highlight's memory, RT2-23 for the structural ghost fix.
 
-### RT2-1 · Fail loud, validate clean, and count VRAM
+### RT2-1 · Fail loud, validate clean, and count VRAM (part 1 built 2026-10-13)
 
 - **In plain words.** Today a shader that fails to build can silently swap in a different picture, and the engine does not know how much video memory it uses. This item makes every failure visible, makes the bridge run without Vulkan warnings, and adds a VRAM report by category to the HUD and to every benchmark. Nothing on screen changes unless something breaks.
 
+> **Part 1 built, 2026-10-13** (mapped first by five read-only agents: `build/rt2-1/map.json`).
+> - *Fail loud.* `RHI::Failures` counts and names every GPU-layer failure next to ShaderCompiler's: a
+>   pipeline the driver did not build (the command list then refuses to bind it and skips its draws, instead
+>   of binding a null handle), a descriptor write the shader's layout lacks (refused, never sent -- the Intel
+>   crash), a push past its block (sent up to the block's end). A measuring run with any failure exits 3,
+>   **writes no screenshot and prints no benchmark numbers** ("NO NUMBERS -- ..."), so the 107 scripts that
+>   never read the exit code still notice -- that, not a lost log line, is how RT-11's failure escaped (the
+>   harness piped the log and ignored exit 3). A banner over the editor and the runtime names the failures. A
+>   failed lit recompile clears the lit shaders and pipelines instead of leaving the old variant drawing.
+>   Verified headless: a staged compile error gives exit 3, no PNG, "NO NUMBERS", the variant named. Not
+>   built: painting each failed pass a fixed colour (the banner and the refusals carry it).
+> - *Validation fixes.* The water lamps' push block has its `vec4 Trace` (the 112-into-96 error; this fix
+>   was NOT on the wip branch, as this item claimed -- only the sampler fix was); `PointSampler` is nearest
+>   between mips; the swapchain is a copy source where the surface allows (a capture is refused, loudly,
+>   where not); acceleration-structure scratch is aligned to `minAccelerationStructureScratchOffsetAlignment`.
+>   The layer's notes now log as `[Vulkan note]`, so any `[Vulkan]` line is a problem.
+> - *Ray counters* only under `--ray-counters=on` (and any `--debug-view`): pixel-identical off against on
+>   (garage, Headland); the counters cost 0.61 ms in the garage and 0.10 ms at Headland (palindromes),
+>   which every frame now gets back. scenetest turns them on for its own counter checks.
+> - *Instruments.* `tools/scripts/vulkan_messages.py`; the validation pre-pass in `bench_night.py`,
+>   `bench_scale.py` and `watch_arm.py`'s arm check; `check_gpu_lit.py --rays`; `ray_counters_ab.py`.
+> - *Text and dead code.* RTGI and AO resolution texts (incl. the editor tooltip) now match the code; the
+>   instance-mask finding; HANDOFF's shader-cache claims; the emitter-owner comment. `LiveRayGpuMs` and the
+>   whole chain that only fed it (RayGpuScope, ~8 GPU timestamps a frame) deleted. The bake reader's fixed
+>   1 GB cap replaced by "the payload is exactly the rest of the file" (callers already check the size their
+>   dimensions imply).
+> - *Gates met:* the four shots (garage, Headland, Glitter, camp) byte-identical to c4b66f8; scenetest green.
+> - **Open (part 2):** VRAM by category (VK_EXT_memory_budget); the one validation message left on every
+>   shot -- sync validation's PRESENT_AFTER_WRITE on every present, "initiated by vkCmdEndRenderPass", seq 5
+>   of a small command buffer, although the engine records no legacy render pass (dynamic rendering, and the
+>   COLOR->PRESENT barrier in `VulkanCommandList::End`); ALL_COMMANDS on that barrier and a synchronization2
+>   submit were tried and changed nothing (reverted). It blocks `check_gpu_lit.py` (which fails on any
+>   `[Vulkan]`) and the "no Vulkan message" gate. Also open: the garage on the Intel iGPU with the layers
+>   silent; the water shader's read-out-of-bounds question; GPU-assisted validation loses the device while
+>   loading the bridge (stock shaders), so it cannot be used there yet -- and resets the driver (ask first).
+>
 > **Found on the Intel iGPU (RT2-9, 2026-10-13; `--gpu=intel`).** Two defects NVIDIA's driver lets pass:
 > - `VulkanResourceSet::Commit` writes descriptors for bindings the pipeline's layout does not declare (a set
 >   filled by the source's bindings, while the reflected layout lacked some): Intel's driver crashed inside
@@ -660,7 +696,7 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 - **What is wrong now.**
   - A shader variant that fails to compile makes its pass return early, or makes a different variant run. A pipeline that fails to build leaves a null handle in Release.
   - Only screenshot and benchmark runs exit with code 3. The editor and the owner's live arms are not covered, and one failure once escaped the log entirely.
-  - The bridge has two Vulkan validation errors: a 112-byte push into a 96-byte block (WaterAccumulateLamps), and integer images sampled through a linear-mip sampler (DirectWaterShade). Both fixes exist only on `wip/2026-09-21-rt10-and-sea`.
+  - The bridge has two Vulkan validation errors: a 112-byte push into a 96-byte block (WaterAccumulateLamps), and integer images sampled through a linear-mip sampler (DirectWaterShade). Only the sampler fix existed, on `wip/2026-09-21-rt10-and-sea`; the push fix was planned, never written (corrected 2026-10-13; both fixed in part 1).
   - The screenshot path copies from a swapchain image created without the usage flag that allows it. Acceleration-structure scratch memory ignores the device's alignment rule.
   - Push-constant and buffer sizes are never checked against the sizes the shader compiler already reflects.
   - The ray counters, a measurement instrument, are compiled into every ray-traced frame.

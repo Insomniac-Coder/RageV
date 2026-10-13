@@ -26,6 +26,8 @@ sys.path.insert(0, os.path.join(HERE, 'session_2026_09_13'))
 sys.path.insert(0, os.path.join(HERE, 'session_2026_09_21'))
 sys.path.insert(0, os.path.join(HERE, 'session_2026_09_15'))
 import stage_run as sr          # noqa: E402
+sys.path.insert(0, os.path.join(HERE, '..'))
+import vulkan_messages as vm    # noqa: E402
 import burst                    # noqa: E402
 import watch_mover as wm        # noqa: E402
 import emitter_mover as em      # noqa: E402
@@ -989,11 +991,15 @@ def play(case, seconds, flags):
         # its pass or lets another variant run, and the owner would judge a picture that
         # is not the arm at all. A few frames in benchmark mode first -- which exits 3 on
         # a failed shader -- and the window opens only if they came through clean.
-        pre = subprocess.run(common + ['--vsync=off', '--width=640', '--height=360', '--benchmark=3']
-                             + list(flags), cwd=exe_dir, capture_output=True, text=True,
-                             errors='replace', timeout=900)
+        # RT2-1: with the validation layers on (sync validation included), and a
+        # layer message refuses the arm like a failed shader does: the owner would
+        # be judging undefined behaviour. The window itself runs without them.
+        pre = subprocess.run(common + ['--vsync=off', '--width=640', '--height=360', '--benchmark=3',
+                                       '--validation=on'] + list(flags), cwd=exe_dir, capture_output=True,
+                             text=True, errors='replace', timeout=900)
         bad = [l for l in (pre.stdout + pre.stderr).splitlines()
                if re.search(r'Shader (compilation|linking) failed|did not compile|no compute pipeline', l)]
+        bad += vm.vulkan_messages(pre.stdout + pre.stderr)
         if pre.returncode != 0 or bad:
             print('NOT SHOWN: the arm did not build cleanly (exit %d)' % pre.returncode)
             print('\n'.join(bad[:12]) or (pre.stdout + pre.stderr)[-2000:])

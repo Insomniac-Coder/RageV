@@ -1,5 +1,6 @@
 #include <rvpch.h>
 #include "RayCounters.h"
+#include "RageV/Core/EngineConfig.h"
 
 namespace RageV
 {
@@ -54,7 +55,14 @@ namespace RageV
 		// declare the binding under the same condition the structure is
 		// declared under. A device that cannot trace has no rays to count
 		// and no layout that expects the buffer.
-		s_Data->Available = device.GetCaps().SupportsRayQuery;
+		// RT2-1: and only when asked for -- --ray-counters=on, or a debug view
+		// (the rays and lights heat maps count through the same code, and the
+		// composite binds this buffer for the others). The shaders get the
+		// RV_RAY_COUNTERS define from this same answer (Renderer3D, PostProcess),
+		// so a binding is never written into a shader that does not declare it.
+		const EngineConfig& config = EngineConfig::Get();
+		s_Data->Available = device.GetCaps().SupportsRayQuery
+			&& (config.RayCounters || config.DebugView != EngineConfig::DebugViewMode::None);
 		if (!s_Data->Available)
 			return;
 

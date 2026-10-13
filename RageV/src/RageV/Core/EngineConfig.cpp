@@ -135,6 +135,8 @@ namespace RageV
 		if (key == "import-cache" || key == "importcache")
 			return ParseBool(value, config.UseImportCache);
 		// RT2-9: compiled shaders and the driver's pipelines kept on disk.
+		if (key == "ray-counters" || key == "raycounters")
+			return ParseBool(value, config.RayCounters);
 		if (key == "shader-cache" || key == "shadercache")
 			return ParseBool(value, config.ShaderCache);
 		if (key == "gpu")

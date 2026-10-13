@@ -87,6 +87,10 @@ layout(push_constant) uniform LampParams
 	// where a texture row runs the other way up from a normalised coordinate.
 	vec4 History;
 	vec4 Probe;
+	// Unread here: the C++ pushes the lamp passes' whole LampPushConstants (112
+	// bytes), and the block must be as long as what is pushed (RT2-1; the
+	// bridge's validation error, a 112-byte push into this block at 96).
+	vec4 Trace;
 } u_Lamps;
 
 layout(location = 0) out vec4 o_Diffuse;

@@ -85,6 +85,10 @@ namespace RageV::Vk
 		// Whichever kind was bound last. Descriptor sets and push constants
 		// follow it, so a caller never states the bind point twice.
 		VulkanPipelineCommon* m_BoundPipeline = nullptr;
+		// RT2-1: false while the bound pipeline is one the driver never built;
+		// draws and dispatches are skipped then rather than sent with a null
+		// (or the previous) pipeline. The failure is counted where the build ends.
+		bool m_BoundPipelineBuilt = true;
 		// Which target the open render pass writes to; nullptr means the
 		// swapchain. Needed at EndRenderPass to restore image layouts.
 		VulkanRenderTarget* m_ActiveTarget = nullptr;

@@ -63,8 +63,18 @@ def main():
           f"{'shadow':>7}  {'graph':>7}  {'other':>7}  {'draws':>6}  {'culled':>8}")
     print("-" * 78)
 
+    sys.path.insert(0, str(ROOT / "tools" / "scripts"))
+    from vulkan_messages import validate
     for text in args.counts.split(","):
         count = int(text)
+        # RT2-1: the validation pre-pass, on this count's scene, before its numbers.
+        problems = validate([str(RUNTIME), "--project=" + str(ROOT / "SampleProject"),
+                             f"--scene=Scenes/scale_{count}.rage", "--rhi=vulkan",
+                             "--render-defaults=on", "--vsync=off", "--width=640", "--height=360"],
+                            cwd=RUNTIME.parent)
+        if problems:
+            print(f"{count:>8}  -- validation pre-pass failed: {problems[0][:120]}")
+            continue
         found = run(f"scale_{count}.rage", args.frames, args.width, args.height)
         if "frame" not in found:
             print(f"{count:>8}  -- no benchmark output")

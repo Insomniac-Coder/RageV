@@ -4,6 +4,7 @@
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Renderer/RayCounters.h"
+#include "RageV/Renderer/RHI/RHIFailures.h"
 #include <format>
 #include <algorithm>
 #include <unordered_map>
@@ -53,20 +54,6 @@ namespace RageV
 		// with no per-phase breakdown behind it.
 		std::vector<std::vector<ClaimedScope>> s_ClaimHistory;
 		uint32_t s_NextSlot = kFirstScopeSlot;
-
-		// The ray passes' spans, kept apart from the phases for the reason the
-		// header gives: they are inside the graph's phase, not beside it.
-		struct RaySpan { uint32_t Begin; uint32_t End; };
-		std::vector<std::vector<RaySpan>> s_RayClaimHistory;
-		float s_GpuRay = -1.0f;
-		float s_LiveGpuRay = 0.0f;
-
-		std::vector<RaySpan>& RayClaimsFor(uint32_t frame)
-		{
-			if (s_RayClaimHistory.size() <= frame)
-				s_RayClaimHistory.resize(frame + 1);
-			return s_RayClaimHistory[frame];
-		}
 
 		std::vector<ClaimedScope>& ClaimsFor(uint32_t frame)
 		{
@@ -282,19 +269,6 @@ namespace RageV
 		return true;
 	}
 
-	bool FrameProfiler::ClaimRayGpuScope(uint32_t& beginSlot, uint32_t& endSlot)
-	{
-		if (s_NextSlot + 1 >= RHI::RHIDevice::kTimestampSlots || !Renderer::HasDevice())
-			return false;
-
-		beginSlot = s_NextSlot++;
-		endSlot = s_NextSlot++;
-		RayClaimsFor(Renderer::GetDevice().GetFrameIndex()).push_back({ beginSlot, endSlot });
-		return true;
-	}
-
-	float FrameProfiler::LiveRayGpuMs() { return s_LiveGpuRay; }
-
 	bool FrameProfiler::ClaimGpuScope(FramePhase phase, uint32_t& beginSlot, uint32_t& endSlot)
 	{
 		if (s_NextSlot + 1 >= RHI::RHIDevice::kTimestampSlots || !Renderer::HasDevice())
@@ -355,20 +329,6 @@ namespace RageV
 			const int index = (int)scope.Phase;
 			s_GpuPhases[index] = s_GpuPhases[index] < 0.0f ? ms : s_GpuPhases[index] + ms;
 			s_GpuSeen = true;
-		}
-
-		// The ray passes, summed the same way and for the same reason: the
-		// editor runs the graph twice and both runs cost what they cost.
-		{
-			std::vector<RaySpan>& rays = RayClaimsFor(device.GetFrameIndex());
-			for (const RaySpan& scope : rays)
-			{
-				const float ms = span(scope.Begin, scope.End);
-				if (ms < 0.0f)
-					continue;
-				s_GpuRay = s_GpuRay < 0.0f ? ms : s_GpuRay + ms;
-			}
-			rays.clear();
 		}
 
 		// The named scopes, summed by name and counted. A pass that ran in both
@@ -451,23 +411,6 @@ namespace RageV
 		return true;
 	}
 
-	RayGpuScope::RayGpuScope(RHI::RHICommandList& cmd)
-	{
-		uint32_t begin = 0;
-		if (!FrameProfiler::ClaimRayGpuScope(begin, m_EndSlot))
-			return;
-
-		m_Cmd = &cmd;
-		m_Open = true;
-		cmd.WriteTimestamp(begin);
-	}
-
-	RayGpuScope::~RayGpuScope()
-	{
-		if (m_Open && m_Cmd)
-			m_Cmd->WriteTimestamp(m_EndSlot);
-	}
-
 	void ProfileScope::CloseGpuScope(uint32_t endSlot)
 	{
 		if (RHI::RHICommandList* cmd = Renderer::GetCommandList())
@@ -502,25 +445,6 @@ namespace RageV
 				s_LiveGpuFrame = s_GpuTotal;
 			else
 				Smooth(s_LiveGpuFrame, s_GpuTotal);
-		}
-		if (s_GpuRay >= 0.0f)
-		{
-			// **Seeded with the first real sample, not eased up from zero.**
-			//
-			// Every other average here is read by a person, and starting at
-			// zero costs them nothing -- the number is wrong for a few frames
-			// of a panel nobody is reading yet. This one is read by the ray
-			// budget, and a value easing up from zero is a value that says the
-			// rays are cheap. The controller believes it, holds full quality,
-			// and only acts once the average has climbed to the truth -- about
-			// fifty frames, so the quality step lands a second after the scene
-			// appears instead of during its own settling, where it reads as a
-			// flicker in an image that had already stopped moving.
-			if (s_LiveGpuRay <= 0.0f)
-				s_LiveGpuRay = s_GpuRay;
-			else
-				Smooth(s_LiveGpuRay, s_GpuRay);
-			s_GpuRay = -1.0f;
 		}
 		if (frameMs > 0.0f)
 		{
@@ -693,6 +617,16 @@ namespace RageV
 		if (s_Frames.empty())
 		{
 			RV_CORE_WARN("[benchmark] no frames were collected");
+			return;
+		}
+
+		// RT2-1: no numbers from a run missing part of the engine -- the timing is
+		// of a frame that is not the engine's. Scripts that read "frame  mean" find
+		// none and say so, whether or not they read the exit code.
+		if (RHI::Failures::Total() > 0)
+		{
+			RV_CORE_ERROR("[benchmark] {0}: NO NUMBERS -- {1} shader or GPU failure(s) this run, the first: {2}",
+						  label, RHI::Failures::Total(), RHI::Failures::First());
 			return;
 		}
 

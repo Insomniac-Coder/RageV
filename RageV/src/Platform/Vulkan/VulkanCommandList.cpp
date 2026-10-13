@@ -1,5 +1,8 @@
 #include <rvpch.h>
 #include "VulkanCommandList.h"
+#include "RageV/Renderer/RHI/RHIFailures.h"
+#include <algorithm>
+#include <string>
 #include "VulkanDevice.h"
 
 namespace RageV::Vk
@@ -353,8 +356,10 @@ namespace RageV::Vk
 		if (m_BoundPipeline == common)
 			return;
 
-		vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, common->GetHandle());
 		m_BoundPipeline = common;
+		m_BoundPipelineBuilt = common->GetHandle() != VK_NULL_HANDLE;
+		if (m_BoundPipelineBuilt)
+			vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, common->GetHandle());
 	}
 
 	void VulkanCommandList::BindComputePipeline(const RHI::Ref<RHI::RHIComputePipeline>& pipeline)
@@ -364,8 +369,10 @@ namespace RageV::Vk
 		if (m_BoundPipeline == common)
 			return;
 
-		vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, common->GetHandle());
 		m_BoundPipeline = common;
+		m_BoundPipelineBuilt = common->GetHandle() != VK_NULL_HANDLE;
+		if (m_BoundPipelineBuilt)
+			vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, common->GetHandle());
 	}
 
 	void VulkanCommandList::BuildTopLevelAS(const RHI::Ref<RHI::RHIAccelerationStructure>& tlas,
@@ -442,6 +449,26 @@ namespace RageV::Vk
 		if (effective == RHI::ShaderStage::None)
 			effective = stages;   // no reflected range; trust the caller
 
+		// **RT2-1: never past the shader's block.** The layout's push range is the
+		// reflected block, and bytes past it are invalid Vulkan (a 112-byte push
+		// into the 96-byte LampParams of water_accumulate was the bridge's error).
+		// Sent up to the block's end -- what the shader can read -- and reported
+		// once per pipeline, and counted.
+		uint32_t declaredEnd = 0;
+		for (const auto& range : m_BoundPipeline->GetCommonReflection().PushConstants)
+			declaredEnd = std::max(declaredEnd, range.Offset + range.Size);
+		if (declaredEnd > 0 && offset + size > declaredEnd)
+		{
+			const std::string name = m_BoundPipeline->GetDebugName();
+			if (RHI::Failures::Record("push|" + name, "'" + name + "' pushed " + std::to_string(offset + size)
+										  + " bytes into a " + std::to_string(declaredEnd) + "-byte block"))
+				RV_CORE_ERROR("[Vulkan] '{0}' pushed {1} bytes into a {2}-byte push block; sent the first {2}",
+							  name, offset + size, declaredEnd);
+			if (offset >= declaredEnd)
+				return;
+			size = declaredEnd - offset;
+		}
+
 		vkCmdPushConstants(m_CommandBuffer, m_BoundPipeline->GetLayout(),
 						   ToVkShaderStages(effective), offset, size, data);
 	}
@@ -449,19 +476,23 @@ namespace RageV::Vk
 	void VulkanCommandList::Draw(uint32_t vertexCount, uint32_t instanceCount,
 								 uint32_t firstVertex, uint32_t firstInstance)
 	{
+		if (!m_BoundPipelineBuilt)
+			return;
 		vkCmdDraw(m_CommandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
 	}
 
 	void VulkanCommandList::DrawIndexed(uint32_t indexCount, uint32_t instanceCount,
 										uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance)
 	{
+		if (!m_BoundPipelineBuilt)
+			return;
 		vkCmdDrawIndexed(m_CommandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
 	}
 
 	void VulkanCommandList::DrawIndexedIndirect(const RHI::Ref<RHI::RHIBuffer>& args, uint64_t offset,
 												uint32_t drawCount, uint32_t stride)
 	{
-		if (!args || drawCount == 0)
+		if (!args || drawCount == 0 || !m_BoundPipelineBuilt)
 			return;
 
 		auto vulkanBuffer = std::static_pointer_cast<VulkanBuffer>(args);
@@ -474,7 +505,7 @@ namespace RageV::Vk
 		// and a pipeline that needs it cannot have been created without it --
 		// but the guard costs nothing and turns a driver misload into a
 		// skipped draw rather than a jump through null.
-		if (!vkCmdDrawMeshTasksEXT || groupsX == 0 || groupsY == 0 || groupsZ == 0)
+		if (!vkCmdDrawMeshTasksEXT || groupsX == 0 || groupsY == 0 || groupsZ == 0 || !m_BoundPipelineBuilt)
 			return;
 		vkCmdDrawMeshTasksEXT(m_CommandBuffer, groupsX, groupsY, groupsZ);
 	}
@@ -548,7 +579,7 @@ namespace RageV::Vk
 
 		// Zero groups is legal and does nothing, but it is almost always a
 		// count that divided to zero rather than an intent.
-		if (groupsX == 0 || groupsY == 0 || groupsZ == 0)
+		if (groupsX == 0 || groupsY == 0 || groupsZ == 0 || !m_BoundPipelineBuilt)
 			return;
 
 		vkCmdDispatch(m_CommandBuffer, groupsX, groupsY, groupsZ);

@@ -29,6 +29,8 @@ import sys
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tools" / "scripts"))
+from vulkan_messages import validate  # noqa: E402
 RUNTIME = ROOT / "build" / "bin" / "Release" / "RageVRuntime" / "RageVRuntime.exe"
 
 # Focus x,y,z, distance, yaw, pitch: the scene's eight cameras, with distance
@@ -198,6 +200,16 @@ def main():
     wanted = [c for c in CAMERAS if args.cameras == "all" or c[0] in args.cameras.split(",")]
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+
+    # RT2-1: the validation pre-pass. Numbers from a frame the layers object to
+    # are numbers about undefined behaviour, so none are taken while any remain.
+    first = wanted[0][1]
+    problems = validate([str(RUNTIME), "--project=" + str(ROOT / "SampleProject"),
+                         "--scene=" + args.scene, "--rhi=vulkan", "--render-defaults=off",
+                         "--vsync=off", "--width=640", "--height=360", "--camera=" + first]
+                        + args.extra.split(), cwd=RUNTIME.parent)
+    if problems:
+        sys.exit("validation pre-pass failed; no numbers taken:\n" + "\n".join(problems[:12]))
 
     results = []
     for pass_ in args.passes.split(","):

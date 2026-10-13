@@ -16437,7 +16437,12 @@ int RunTests(int argc, char** argv)
 	// startup the editor and the runtime do, hints and all -- and the backend has
 	// to reach EngineConfig for those hints to be right, which is what Init does
 	// with the same --rhi argument parsed above.
-	EngineConfig::Init(argc, argv);
+	// RT2-1: the ray counters are a launch flag now, off by default; the suite
+	// tests them (CheckRayCounters), so it asks for them.
+	std::vector<char*> arguments(argv, argv + argc);
+	char countersOn[] = "--ray-counters=on";
+	arguments.push_back(countersOn);
+	EngineConfig::Init((int)arguments.size(), arguments.data());
 
 	WindowProps props("RageV scene test", 640, 480);
 	props.Visible = false;   // nothing is drawn; the device exists so materials can allocate

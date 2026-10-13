@@ -449,13 +449,15 @@ namespace RageV
 		// everything it needs is bound there. Needs bindless as well as ray
 		// queries, like reflections do, because shading a hit reads the
 		// material heap. While on, the profile's GlobalIllumination is not
-		// consulted; its GiIntensity still is. Four rays a pixel: the most
-		// expensive switch here, and off by default.
+		// consulted; its GiIntensity still is. Up to four rays a traced pixel:
+		// the most expensive switch here, and off by default.
 		//
 		// Off, Low, Medium or High. Since 7bs the bounce is a pass rather than
 		// part of the lit fragment, so the level can mean what it means
-		// everywhere else: Low and Medium differ in rays per pixel, High also
-		// traces at the frame's own resolution instead of half of it.
+		// everywhere else (FrameGraphBuilder's RayDetailDivisor/RayDetailRays;
+		// RT2-1 corrected this text): Low is 2 rays at 1/16 of the pixels, Medium
+		// 2 rays at a quarter of them, High 4 rays at a quarter of them. No level
+		// traces at the frame's own resolution.
 		RayDetail RayTracedGlobalIllumination = RayDetail::Off;
 
 		// **Where the traced form's indirect light comes from.** The same two

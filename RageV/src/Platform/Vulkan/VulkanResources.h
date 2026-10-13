@@ -73,7 +73,9 @@ namespace RageV::Vk
 			VkDeviceAddress Address = 0;
 			uint64_t      RangeSerial = 0;
 		};
-		Backing CreateBacking(VkDeviceSize size, VkBufferUsageFlags usage, bool hostVisible, const char* name);
+		// `alignment` 0 is VMA's own choice; scratch passes the device's rule (RT2-1).
+		Backing CreateBacking(VkDeviceSize size, VkBufferUsageFlags usage, bool hostVisible, const char* name,
+							  VkDeviceSize alignment = 0);
 		void    Destroy(Backing& backing);
 		void    NoteStructureRange(const char* name, uint64_t size);
 		void    VerifyInstanceReference(uint64_t reference, uint32_t index) const;

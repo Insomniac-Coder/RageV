@@ -9,6 +9,7 @@
 #include "RageV/Core/Application.h"
 #include "RageV/Core/EngineConfig.h"
 #include "RageV/Renderer/Renderer.h"
+#include "RageV/Renderer/RHI/RHIFailures.h"
 
 #include "GLFW/glfw3.h"
 
@@ -193,6 +194,35 @@ namespace RageV
 		ImGuiIO& io = ImGui::GetIO();
 		Application& app = Application::Get();
 		io.DisplaySize = ImVec2((float)app.GetWindow().GetWidth(), (float)app.GetWindow().GetHeight());
+
+		// **RT2-1: a failure is on screen, not only in the log.** A shader that did
+		// not compile or a pipeline the driver did not build leaves a picture that
+		// still looks like one; this says what is missing, over everything, in the
+		// editor and the runtime alike, whether or not the stats overlay is on.
+		if (const uint32_t failures = RHI::Failures::Total())
+		{
+			std::vector<std::string> lines;
+			lines.push_back(std::to_string(failures) + " rendering failure(s) -- this picture is not the engine's:");
+			if (RHI::ShaderCompiler::FailureCount() > 0)
+				lines.push_back("shader '" + RHI::ShaderCompiler::FirstFailure() + "' did not compile (see the log)");
+			for (const std::string& line : RHI::Failures::List())
+			{
+				if (lines.size() >= 6)
+					break;
+				lines.push_back(line);
+			}
+			ImDrawList* draw = ImGui::GetForegroundDrawList(ImGui::GetMainViewport());
+			const ImVec2 origin = ImGui::GetMainViewport()->Pos;
+			const float lineHeight = ImGui::GetTextLineHeightWithSpacing();
+			float width = 0.0f;
+			for (const std::string& line : lines)
+				width = std::max(width, ImGui::CalcTextSize(line.c_str()).x);
+			draw->AddRectFilled(origin, ImVec2(origin.x + width + 24.0f, origin.y + lineHeight * lines.size() + 16.0f),
+								 IM_COL32(170, 0, 120, 235));
+			for (size_t k = 0; k < lines.size(); ++k)
+				draw->AddText(ImVec2(origin.x + 12.0f, origin.y + 8.0f + lineHeight * k), IM_COL32(255, 255, 255, 255),
+							   lines[k].c_str());
+		}
 
 		ImGui::Render();
 

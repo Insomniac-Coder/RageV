@@ -901,7 +901,7 @@ namespace RageV::Vk
 	}
 
 	VulkanAccelerationStructure::Backing VulkanAccelerationStructure::CreateBacking(
-		VkDeviceSize size, VkBufferUsageFlags usage, bool hostVisible, const char* name)
+		VkDeviceSize size, VkBufferUsageFlags usage, bool hostVisible, const char* name, VkDeviceSize alignment)
 	{
 		Backing backing;
 
@@ -919,8 +919,8 @@ namespace RageV::Vk
 		}
 
 		VmaAllocationInfo allocationInfo{};
-		VK_CHECK(vmaCreateBuffer(m_Device.GetAllocator(), &bufferInfo, &allocInfo,
-								 &backing.Buffer, &backing.Allocation, &allocationInfo));
+		VK_CHECK(vmaCreateBufferWithAlignment(m_Device.GetAllocator(), &bufferInfo, &allocInfo, alignment,
+											  &backing.Buffer, &backing.Allocation, &allocationInfo));
 		if (hostVisible)
 			backing.Mapped = allocationInfo.pMappedData;
 
@@ -1027,12 +1027,13 @@ namespace RageV::Vk
 			m_Geometry = geometryInfo;
 			m_PrimitiveCount = primitiveCount;
 			m_Scratch = CreateBacking(Math::Max(sizes.buildScratchSize, sizes.updateScratchSize),
-									  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false, "blas.scratch");
+									  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false, "blas.scratch",
+									  m_Device.GetScratchAlignment());
 			return;
 		}
 
 		Backing scratch = CreateBacking(sizes.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false,
-										"blas.scratch");
+										"blas.scratch", m_Device.GetScratchAlignment());
 
 		build.dstAccelerationStructure = m_Structure;
 		build.scratchData.deviceAddress = scratch.Address;
@@ -1137,7 +1138,8 @@ namespace RageV::Vk
 		m_Storage = CreateBacking(sizes.accelerationStructureSize,
 								  VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR, false, "tlas");
 		m_Scratch = CreateBacking(Math::Max(sizes.buildScratchSize, sizes.updateScratchSize),
-								  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false, "tlas.scratch");
+								  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false, "tlas.scratch",
+								  m_Device.GetScratchAlignment());
 
 		VkAccelerationStructureCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
 		createInfo.buffer = m_Storage.Buffer;
