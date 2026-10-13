@@ -250,8 +250,13 @@ void RuntimeLayer::OnLoaded()
 
 void RuntimeLayer::OnFixedUpdate(Timestep dt)
 {
+	// A reference render's scene stands still (OnUpdate says why): its steps
+	// are of zero length. Still taken, because the step is where scripts are
+	// created -- skipping it left every script unmade and its lights at their
+	// authored values rather than at the scene's first instant -- and physics
+	// declines a step of zero.
 	if (m_Ready)
-		m_Scene->OnFixedUpdateRuntime(dt);
+		m_Scene->OnFixedUpdateRuntime(EngineConfig::Get().ReferenceSamples > 0 ? Timestep(0.0f) : dt);
 }
 
 void RuntimeLayer::CaptureSignals()
@@ -510,7 +515,16 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 		ApplyCameraPose(m_PoseClock);
 	}
 
-	m_Scene->OnUpdateRuntime(ts);
+	// **A reference render is of one instant** (RT2-2b). Its mean restarts
+	// whenever anything the paths read changes, so a scene that animates --
+	// the bridge's flashing tower beacons, a script's every OnFrame -- would
+	// restart it every frame and it would never settle. Its scene's clock
+	// stands at zero for the whole run: scripts are made and run with no time
+	// passing, animation, particles and (above) physics do not advance, so
+	// the picture is the scene's first instant. The renderer's own clock (the
+	// exposure's adaptation) keeps running, since it reads the mean rather
+	// than changing it.
+	m_Scene->OnUpdateRuntime(EngineConfig::Get().ReferenceSamples > 0 ? Timestep(0.0f) : ts);
 
 	// RT2-2a: the frame's word for "settled" -- has the camera stood still, and
 	// is the scene's lighting (bakes, probes, solves) ready.

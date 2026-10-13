@@ -189,6 +189,9 @@ namespace RageV
 		constexpr uint32_t kRayInstanceTravelled = 32u;
 		// RT2-2b: blended glass, in the structure only under --reference-render.
 		constexpr uint32_t kRayInstanceTransmissive = 64u;
+		// RT2-2b: a terrain chunk whose four layers the reference renderer reads
+		// (its row in the reference's own layered table). Reference mode only.
+		constexpr uint32_t kRayInstanceLayered = 128u;
 
 		// Mirrors the std140 SceneData block in pbr.rvshader.
 		struct SceneUniforms
@@ -1142,6 +1145,11 @@ namespace RageV
 				// The ray-instance table (7ao), written when reflections trace.
 				Ref<RHIBuffer>      RayInstances;
 				uint32_t            RayInstanceCapacity = 0;
+				// RT2-2b: the reference renderer's terrain layers (set 3).
+				Ref<RHIBuffer>      ReferenceRowLayered;
+				uint32_t            ReferenceRowLayeredCapacity = 0;
+				Ref<RHIBuffer>      ReferenceLayered;
+				uint32_t            ReferenceLayeredCapacity = 0;
 			};
 
 			// [frame in flight][scene within the frame]
@@ -1234,6 +1242,11 @@ namespace RageV
 			// bindless path only. Kept between frames for the allocation.
 			std::vector<GpuMaterial> MaterialScratch;
 			std::unordered_map<const Material*, uint32_t> MaterialIndex;
+			// RT2-2b: the terrain layers the reference renderer reads, and per
+			// ray row the record it reads (~0u for none). Built only when the
+			// reference shader exists.
+			std::vector<LayeredParams> ReferenceLayeredScratch;
+			std::vector<uint32_t> ReferenceRowLayeredScratch;
 			// Kept between frames so the front-to-back reorder allocates
 			// nothing on a stable scene.
 			std::vector<DrawRun> Runs;
@@ -5641,13 +5654,18 @@ namespace RageV
 			// So: build the table when something reads it, and keep one empty
 			// row when nothing does. The same "smallest honest filler" the
 			// bone buffer below uses, and for the same reason.
+			// The reference renderer (RT2-2b) reads a row at every vertex of
+			// every path, whichever real-time passes are on.
 			const bool tracesHits = s_Data->RayReflectionsOn || s_Data->RayGlobalIlluminationOn
-								 || s_Data->RayWaterRefractionOn;
+								 || s_Data->RayWaterRefractionOn || s_Data->ReferenceShader != nullptr;
 			if (tracesHits)
 			{
 				const std::vector<RayCaster>& casters = RayShadows::GetCasters();
 				s_Data->RayInstanceScratch.clear();
 				s_Data->RayInstanceScratch.reserve(casters.size());
+				s_Data->ReferenceLayeredScratch.clear();
+				s_Data->ReferenceRowLayeredScratch.clear();
+				std::unordered_map<const LayeredMaterial*, uint32_t> layeredIndex;
 				if (!s_Data->RayMovingShifted)
 				{
 					s_Data->RayAnyMovingLast = s_Data->RayAnyMoving;
@@ -5747,6 +5765,23 @@ namespace RageV
 					row.EmissiveColor = caster.Params.EmissiveColor;
 					row.Surface = { caster.Params.Metallic, caster.Params.Roughness,
 									caster.Params.Occlusion, caster.Params.NormalScale };
+					if (s_Data->ReferenceShader)
+					{
+						uint32_t layered = ~0u;
+						if (caster.Layered)
+						{
+							auto found = layeredIndex.find(caster.Layered.get());
+							if (found == layeredIndex.end())
+							{
+								found = layeredIndex.emplace(caster.Layered.get(),
+															 (uint32_t)s_Data->ReferenceLayeredScratch.size()).first;
+								s_Data->ReferenceLayeredScratch.push_back(caster.Layered->GetParams());
+							}
+							layered = found->second;
+							row.Flags |= kRayInstanceLayered;
+						}
+						s_Data->ReferenceRowLayeredScratch.push_back(layered);
+					}
 					s_Data->RayInstanceScratch.push_back(row);
 				}
 
@@ -5776,6 +5811,28 @@ namespace RageV
 					slot.RayInstances->Upload(s_Data->RayInstanceScratch.data(),
 											  (uint64_t)s_Data->RayInstanceScratch.size() * sizeof(GpuRayInstance));
 				}
+			}
+			if (s_Data->ReferenceShader)
+			{
+				// One row and one record at least: a declared binding must be
+				// written, and a scene without terrain has neither.
+				if (s_Data->ReferenceRowLayeredScratch.empty())
+					s_Data->ReferenceRowLayeredScratch.push_back(~0u);
+				if (s_Data->ReferenceLayeredScratch.empty())
+					s_Data->ReferenceLayeredScratch.push_back(LayeredParams{});
+				const uint32_t rowCount = (uint32_t)s_Data->ReferenceRowLayeredScratch.size();
+				const uint32_t recordCount = (uint32_t)s_Data->ReferenceLayeredScratch.size();
+				if (!EnsureInstanceBuffer(slot.ReferenceRowLayered, slot.ReferenceRowLayeredCapacity, rowCount,
+										  sizeof(uint32_t), "Renderer3D.reference.rowlayered")
+					|| !EnsureInstanceBuffer(slot.ReferenceLayered, slot.ReferenceLayeredCapacity, recordCount,
+											 sizeof(LayeredParams), "Renderer3D.reference.layered"))
+				{
+					return;
+				}
+				slot.ReferenceRowLayered->Upload(s_Data->ReferenceRowLayeredScratch.data(),
+												 (uint64_t)rowCount * sizeof(uint32_t));
+				slot.ReferenceLayered->Upload(s_Data->ReferenceLayeredScratch.data(),
+											  (uint64_t)recordCount * sizeof(LayeredParams));
 			}
 
 			const uint32_t records = (uint32_t)s_Data->MaterialScratch.size();
@@ -8070,8 +8127,20 @@ namespace RageV
 				mix(values.data(), count * sizeof(values[0]));
 		};
 		mixVector(s_Data->LightScratch);
-		mixVector(s_Data->RayInstanceScratch);
+		// A posed caster's row names this frame-in-flight's copy of its
+		// positions, so its address alternates between frames that hold the
+		// same pose: hashed without it, or a scene with a skinned mesh would
+		// restart the mean every frame. The pose itself cannot change in this
+		// mode -- the scene's clock stands still (RuntimeLayer).
+		static std::vector<GpuRayInstance> rows;
+		rows = s_Data->RayInstanceScratch;
+		for (GpuRayInstance& row : rows)
+			if (row.Flags & kRayInstancePosed)
+				row.PositionAddress = 0;
+		mixVector(rows);
 		mixVector(s_Data->MaterialScratch);
+		mixVector(s_Data->ReferenceLayeredScratch);
+		mixVector(s_Data->ReferenceRowLayeredScratch);
 		mixVector(s_Data->Emitters);
 		mixVector(s_Data->EmitterCdf);
 		mix(&s_Data->Scene.Environment, sizeof(s_Data->Scene.Environment));
@@ -8106,13 +8175,15 @@ namespace RageV
 		if (!s_Data->ReferencePipeline)
 			return;
 		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
-		if (!slot.LampSet)
+		if (!slot.LampSet || !slot.ReferenceRowLayered || !slot.ReferenceLayered)
 			return;
 		if (!slot.ReferenceInputs)
 			slot.ReferenceInputs = s_Data->Device->CreateResourceSet(s_Data->ReferencePipeline, 3);
 		if (!slot.ReferenceInputs)
 			return;
 		slot.ReferenceInputs->SetTexture(0, previous, s_Data->PointSampler);
+		slot.ReferenceInputs->SetStorageBuffer(1, slot.ReferenceRowLayered);
+		slot.ReferenceInputs->SetStorageBuffer(2, slot.ReferenceLayered);
 		slot.ReferenceInputs->Commit();
 
 		struct ReferenceParams
@@ -8122,7 +8193,10 @@ namespace RageV
 		} params{};
 		params.Projection = Vec4(view.InvProjection0, view.InvProjection1,
 								 s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f, (float)samples);
-		params.Settings = Vec4((float)bounces, hasPrevious ? 1.0f : 0.0f, 0.0f, 0.0f);
+		// z: the samples the mean is heading for, which sets how finely a
+		// texture's footprint must resolve (the reference shader says why).
+		params.Settings = Vec4((float)bounces, hasPrevious ? 1.0f : 0.0f,
+							   (float)Math::Max(EngineConfig::Get().ReferenceSamples, 1u), 0.0f);
 		const Mat4 camera = Math::Inverse(view.View);
 		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0], 0.0f);
 		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);

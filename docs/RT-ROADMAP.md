@@ -792,7 +792,7 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 - **Size.** 2-3 sessions.
 - **Closes.** rhi-s1, GPU-13, GPU-15, rhi-s2 (the checking half), ISS-24, ISS-25, ISS-36 (the device-loss re-check); the measuring halves of GPU-09 and CORE-05; parts of ISS-6, GI-13, CORE-10 and frame-13; the comparison's finding E-N5 (section 8).
 
-### RT2-2 · Instruments that can settle questions (2a built 2026-10-13)
+### RT2-2 · Instruments that can settle questions (2a and 2b steps 1-2 built 2026-10-13)
 
 - **In plain words.** Most later decisions are "which picture is right" or "does this signal work without TAA". This item builds the instruments that answer those questions: a reference renderer that shares none of the shortcuts it judges, one command that renders and diffs every test camera, a command that proves a signal stands on its own, and new test scenes. Nothing on screen changes.
 
@@ -897,6 +897,45 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   once. Untinted, as the frame's glass is (RT2-31 adds tint). Garage close-up of the car at 1024
 >   samples: the windscreen and headlight covers reflect the tubes. Seen, for step 4 to measure: the
 >   real-time floor mirrors the car more sharply than the reference does.
+> - **2b step 2 built, 2026-10-13: the full material at every path vertex.** The lit shader's model
+>   term by term: normal maps through the raster's own tangent construction, split out as
+>   `TangentFrameOf` and fed the triangle's edges (the same frame as the screen's derivatives on a flat
+>   triangle; a three-agent review checked the algebra), the same parallax march (`ParallaxMarch`,
+>   `ParallaxLayer`, now shared), the macro variation with its normal flatten, terrain's four layers
+>   through the weight map with the cliff projection (handed to the reference alone: a per-row table
+>   and the chunks' `LayeredParams` at set 3, filled only under `--reference-render`), anisotropic GGX,
+>   clearcoat, sheen and wrap. Sampling: a mixture of GGX visible normals (anisotropic), the coat's
+>   lobe and the wrapped cosine, weighed by the whole mixture density. Textures at a ray cone's level
+>   (Akenine-Moller 2021), the cone's angle the pixel's over sqrt(samples), never below an eighth
+>   (pbrt-v4); alpha at level zero. Checked: the headland's first-hit albedo with all four layers shows
+>   the beach sand and the cliff rock, layer 0 alone is brown everywhere; normal-map relief on the
+>   garage pillars and floor; zero invalid samples at 1024 on the car. Real time: headland, glitter and
+>   camp byte-identical; the garage differs in 11 dark pixels by one level, all from the new guard in
+>   `TangentFrameOf` -- a triangle with no uv area made a not-a-number tangent in the frame too (a frame
+>   with an absurd value there moves only those pixels), now a zero frame. The stored `after_garage.png`
+>   gate image is replaced by the guarded frame (the old one kept as `after_garage_pre_guard.png`).
+>   - *Found by the review and fixed:* the scene clock now stands still in reference mode (the bridge's
+>     flashing tower beacons restarted the mean every frame, so 512 samples never settled; now 18 s),
+>     with zero-length fixed steps so scripts are still made; a posed caster's per-frame buffer address
+>     no longer restarts the mean; a not-a-number sample is counted and left out of the average instead
+>     of averaged in as black; a pane is split by one Fresnel against its triangle for both the path and
+>     the light ray; a pane glows by its opacity share; the height map reaches the shared march as a heap
+>     slot, because a heap texture passed as a sampler2D parameter loses nonuniformEXT in glslang (the
+>     real-time march had become a merged-run hazard on hardware that needs the decoration);
+>     `RAY_INSTANCE_LAYERED` 128.
+>   - *Found by the review, a frame defect, owner to decide:* `DistributionGGX`'s 1e-9 divisor floor
+>     still caps the peak below roughness 0.065 (at the 0.045 floor to a twentieth of its value, losing
+>     about 60% of the lobe's energy; RT-21's comment that it caps nothing real is wrong there). The
+>     reference evaluates the uncapped GGX, which is what RT-21 meant; the frame's analytic highlights on
+>     polished materials (car windows 0.04, chrome 0.04-0.055, the camp mirror 0.03) keep the cap until
+>     the owner rules.
+>   - *Found by the review, owner to decide:* which Smith term is the material's. The light loop uses
+>     Schlick's remap k = (r+1)^2/8, the frame's reflections (the EnvBRDF table) k = r^2/2; at roughness
+>     0.045 and a grazing view the two differ by about 2x. The reference uses the light loop's for every
+>     bounce until the owner chooses (RT2-21b's Smith arm settles it for the frame).
+>   - *Still missing, owner's report 2026-10-13 ("the bridge reflection looks wrong with path
+>     tracer"):* the sea. A WaterComponent is not in the ray structure, so the reference's rays pass
+>     through it and light the seabed. Water is the next item (its own plan to the owner).
 >
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'

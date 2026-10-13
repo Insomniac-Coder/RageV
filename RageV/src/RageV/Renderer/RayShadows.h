@@ -71,6 +71,10 @@ namespace RageV
 		// which a pose alone sets: a posed instance standing still has no travel,
 		// and an exact zero is what keeps a still scene's reflection bit-identical.
 		bool Travelled = false;
+		// **RT2-2b: a terrain chunk's four layers**, for the reference renderer
+		// alone; null everywhere else, and always null outside
+		// --reference-render, so no real-time pass sees it.
+		RHI::Ref<LayeredMaterial> Layered;
 	};
 
 	class RayShadows
@@ -125,7 +129,8 @@ namespace RageV
 								const RHI::Ref<Material>& material = nullptr,
 								const MaterialParams& params = MaterialParams{},
 								uint64_t owner = 0, bool isStatic = false, bool moving = false,
-								const Mat4* previousWorld = nullptr);
+								const Mat4* previousWorld = nullptr,
+								const RHI::Ref<LayeredMaterial>& layered = nullptr);
 		static void Build(RHI::RHICommandList& cmd);
 
 		// This frame's casters, one per instance the structure was built

@@ -789,6 +789,9 @@ const uint RAY_INSTANCE_TRAVELLED = 32u;
 // RT2-2b: blended glass, in the structure only under --reference-render, on its own
 // mask bit (RV_RAY_MASK_TRANSMISSIVE) that no ray but the reference's carries.
 const uint RAY_INSTANCE_TRANSMISSIVE = 64u;
+// RT2-2b: a terrain chunk whose four layers the reference renderer reads from
+// its own table. Reference mode only; real-time hits read layer 0.
+const uint RAY_INSTANCE_LAYERED = 128u;
 
 layout(std430, set = 0, binding = 15) readonly buffer RayInstanceBlock
 {
@@ -929,6 +932,8 @@ layout(set = 1, binding = 0) uniform LayeredData
 #define LAYER_BASE_COLOR(i)  u_Textures[nonuniformEXT(u_Layered.BaseColorSlots[i])]
 #define LAYER_NORMAL(i)      u_Textures[nonuniformEXT(u_Layered.NormalSlots[i])]
 #define LAYER_ROUGHNESS(i)   u_Textures[nonuniformEXT(u_Layered.RoughnessSlots[i])]
+// What ParallaxLayer takes for the same map: the slot (see ParallaxMarch).
+#define LAYER_ROUGHNESS_MAP(i) u_Layered.RoughnessSlots[i]
 #else
 layout(set = 1, binding = 1) uniform sampler2D u_Weights;
 layout(set = 1, binding = 2) uniform sampler2D u_LayerBaseColor[LAYERS];
@@ -937,6 +942,7 @@ layout(set = 1, binding = 4) uniform sampler2D u_LayerRoughness[LAYERS];
 #define LAYER_BASE_COLOR(i)  u_LayerBaseColor[i]
 #define LAYER_NORMAL(i)      u_LayerNormal[i]
 #define LAYER_ROUGHNESS(i)   u_LayerRoughness[i]
+#define LAYER_ROUGHNESS_MAP(i) u_LayerRoughness[i]
 #endif
 
 #endif   // RV_LAYERED
@@ -3579,13 +3585,15 @@ vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
 // so meshes need no precomputed tangents. Built once per fragment and shared
 // by parallax and normal mapping -- two frames that drifted would shade one
 // direction and displace another, which reads as the texture swimming.
-mat3 TangentFrame(vec3 N, vec3 worldPos, vec2 uv)
+//
+// **The construction takes any two independent steps across the surface**, so
+// it is split from where the steps come from: the raster passes the screen's
+// two derivatives, the reference renderer (RT2-2b) a triangle's two edges.
+// Under a change of the pair both T and B scale by the change's determinant,
+// whose sign the orientation test below divides out and whose size the
+// normalisation does, so the two give the same frame on a flat triangle.
+mat3 TangentFrameOf(vec3 N, vec3 dp1, vec3 dp2, vec2 duv1, vec2 duv2)
 {
-	vec3 dp1 = dFdx(worldPos);
-	vec3 dp2 = dFdy(worldPos);
-	vec2 duv1 = dFdx(uv);
-	vec2 duv2 = dFdy(uv);
-
 	vec3 dp2perp = cross(dp2, N);
 	vec3 dp1perp = cross(N, dp1);
 	vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
@@ -3605,8 +3613,21 @@ mat3 TangentFrame(vec3 N, vec3 worldPos, vec2 uv)
 		B = -B;
 	}
 
-	float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
+	// **A triangle the uv does not span has no frame** (every corner on one
+	// texel: a generated prop, a collapsed island). Zero T and B then, which
+	// UnpackNormal turns into N itself and parallax into no march -- a map read
+	// at one texel has no direction to push a bump in -- where the division
+	// below would have made every pixel on it not a number.
+	const float span = max(dot(T, T), dot(B, B));
+	if (span <= 0.0)
+		return mat3(vec3(0.0), vec3(0.0), N);
+	float invmax = inversesqrt(span);
 	return mat3(T * invmax, B * invmax, N);
+}
+
+mat3 TangentFrame(vec3 N, vec3 worldPos, vec2 uv)
+{
+	return TangentFrameOf(N, dFdx(worldPos), dFdy(worldPos), dFdx(uv), dFdy(uv));
 }
 
 // A normal-map texel to a world-space normal through the frame. Z is
@@ -3621,6 +3642,113 @@ vec3 UnpackNormal(mat3 TBN, vec2 xy, float scale)
 	vec3 tangentNormal = vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
 	tangentNormal.xy *= scale;
 	return normalize(TBN * tangentNormal);
+}
+
+// Parallax occlusion: march the view ray through the height field and use the
+// texel where the ray actually meets the surface.
+//
+// This, not the normal map, is what makes a surface read as *deep*. A normal
+// map changes how a texel is shaded; parallax changes which texel is there at
+// all as the view moves, and that motion cue is most of what the eye calls
+// depth on a ground plane seen at an angle. Without it a bumpy floor is a
+// photograph of a bumpy floor.
+//
+// The march itself takes the map and its depth, so the reference renderer
+// (RT2-2b) runs the same one at a ray hit with the hit's view direction.
+//
+// **The map is a heap slot in the bindless build, not a sampler.** A heap
+// texture handed to a function as a sampler2D loses its nonuniformEXT: glslang
+// passes the descriptor by pointer and decorates only loads made through the
+// indexing expression itself, so the fetch inside would be undecorated -- and
+// a merged run, or a ray, whose lanes hold different materials would read one
+// lane's height map for all of them on hardware that needs the decoration. So
+// the slot travels and the heap is indexed here; the bound build has no heap
+// and passes its sampler.
+#ifdef RV_BINDLESS
+#define RV_MAP_ARG uint
+#define RV_MAP_LOD(map, uv, lod) textureLod(u_Textures[nonuniformEXT(map)], uv, lod)
+#else
+#define RV_MAP_ARG sampler2D
+#define RV_MAP_LOD(map, uv, lod) textureLod(map, uv, lod)
+#endif
+
+vec2 ParallaxMarch(RV_MAP_ARG map, vec2 uv, vec3 viewTS, float scale, float lod)
+{
+	if (scale <= 0.0)
+		return uv;
+
+	// More steps at grazing angles, where the ray crosses more surface. The
+	// clamp on viewTS.z stops the offset exploding at the silhouette, where a
+	// grazing ray would otherwise sample texels from the far side of the tile.
+	float steps = mix(28.0, 10.0, clamp(viewTS.z, 0.0, 1.0));
+	float layer = 1.0 / steps;
+	vec2 delta = (viewTS.xy / max(viewTS.z, 0.15)) * scale / steps;
+
+	// textureLod, not texture: the loop's trip count varies per fragment, and
+	// implicit derivatives inside divergent control flow are undefined.
+	vec2 cur = uv;
+	float depth = 0.0;
+	float h = 1.0 - RV_MAP_LOD(map, cur, lod).r;
+	float prevH = h;
+
+	while (depth < h && depth < 1.0)
+	{
+		prevH = h;
+		cur -= delta;
+		depth += layer;
+		h = 1.0 - RV_MAP_LOD(map, cur, lod).r;
+	}
+
+	// One secant step between the sample above the surface and the one below,
+	// which removes the visible layering the raw march leaves on slopes.
+	float after = h - depth;
+	float before = prevH - (depth - layer);
+	float t = clamp(after / (after - before + 1e-5), 0.0, 1.0);
+	return cur + delta * t;
+}
+
+// Parallax occlusion for one layer, marched through the blue channel of the
+// packed surface map.
+//
+// **Height rides in blue** because the layered variant binds three samplers a
+// layer and cannot grow a fourth, so roughness, occlusion and height share one
+// texture (TextureLoader::PackChannels). The march is the same one the
+// single-material path runs, reading `.b` instead of a height map's `.r`.
+//
+// `textureLod`, not `textureGrad`: the trip count varies per fragment, so this
+// is divergent control flow and an implicit derivative in it is undefined.
+// Level zero, because a mip of a height field is a shallower height field and
+// the march would terminate early against it.
+vec2 ParallaxLayer(RV_MAP_ARG surface, vec2 uv, vec3 viewTS, float scale, float lod)
+{
+	if (scale <= 0.0)
+		return uv;
+
+	// More steps at grazing angles, where the ray crosses more surface, and
+	// the clamp on viewTS.z stops the offset exploding at the silhouette.
+	float steps = mix(24.0, 8.0, clamp(viewTS.z, 0.0, 1.0));
+	float step = 1.0 / steps;
+	vec2 delta = (viewTS.xy / max(viewTS.z, 0.15)) * scale / steps;
+
+	vec2 cur = uv;
+	float depth = 0.0;
+	float h = 1.0 - RV_MAP_LOD(surface, cur, lod).b;
+	float prevH = h;
+
+	while (depth < h && depth < 1.0)
+	{
+		prevH = h;
+		cur -= delta;
+		depth += step;
+		h = 1.0 - RV_MAP_LOD(surface, cur, lod).b;
+	}
+
+	// One secant step between the sample above the surface and the one below,
+	// which removes the layering the raw march leaves on slopes.
+	float after = h - depth;
+	float before = prevH - (depth - step);
+	float t = clamp(after / (after - before + 1e-5), 0.0, 1.0);
+	return cur + delta * t;
 }
 
 // **From here down is the lit fragment.** The maps it samples, the surface it
@@ -3657,49 +3785,15 @@ vec3 PerturbNormal(mat3 TBN, vec2 uv)
 	return UnpackNormal(TBN, texture(u_NormalMap, uv).xy, v_Surface.w);
 }
 
-// Parallax occlusion: march the view ray through the height field and use the
-// texel where the ray actually meets the surface.
-//
-// This, not the normal map, is what makes a surface read as *deep*. A normal
-// map changes how a texel is shaded; parallax changes which texel is there at
-// all as the view moves, and that motion cue is most of what the eye calls
-// depth on a ground plane seen at an angle. Without it a bumpy floor is a
-// photograph of a bumpy floor.
 vec2 Parallax(vec2 uv, vec3 viewTS, float lod)
 {
-	float scale = u_Material.HeightScale;
-	if (scale <= 0.0)
-		return uv;
-
-	// More steps at grazing angles, where the ray crosses more surface. The
-	// clamp on viewTS.z stops the offset exploding at the silhouette, where a
-	// grazing ray would otherwise sample texels from the far side of the tile.
-	float steps = mix(28.0, 10.0, clamp(viewTS.z, 0.0, 1.0));
-	float layer = 1.0 / steps;
-	vec2 delta = (viewTS.xy / max(viewTS.z, 0.15)) * scale / steps;
-
-	// textureLod, not texture: the loop's trip count varies per fragment, and
-	// implicit derivatives inside divergent control flow are undefined.
-	vec2 cur = uv;
-	float depth = 0.0;
-	float h = 1.0 - textureLod(u_HeightMap, cur, lod).r;
-	float prevH = h;
-
-	while (depth < h && depth < 1.0)
-	{
-		prevH = h;
-		cur -= delta;
-		depth += layer;
-		h = 1.0 - textureLod(u_HeightMap, cur, lod).r;
-	}
-
-	// One secant step between the sample above the surface and the one below,
-	// which removes the visible layering the raw march leaves on slopes.
-	float after = h - depth;
-	float before = prevH - (depth - layer);
-	float t = clamp(after / (after - before + 1e-5), 0.0, 1.0);
-	return cur + delta * t;
+#ifdef RV_BINDLESS
+	return ParallaxMarch(g_Material.Maps1.w, uv, viewTS, u_Material.HeightScale, lod);
+#else
+	return ParallaxMarch(u_HeightMap, uv, viewTS, u_Material.HeightScale, lod);
+#endif
 }
+
 #endif   // !RV_LAYERED
 
 // What the lighting below is given: the surface at this fragment, with every
@@ -3808,50 +3902,6 @@ Surface SampleSurface(vec3 Ngeo, vec3 V)
 
 #else   // RV_LAYERED
 
-// Parallax occlusion for one layer, marched through the blue channel of the
-// packed surface map.
-//
-// **Height rides in blue** because the layered variant binds three samplers a
-// layer and cannot grow a fourth, so roughness, occlusion and height share one
-// texture (TextureLoader::PackChannels). The march is the same one the
-// single-material path runs, reading `.b` instead of a height map's `.r`.
-//
-// `textureLod`, not `textureGrad`: the trip count varies per fragment, so this
-// is divergent control flow and an implicit derivative in it is undefined.
-// Level zero, because a mip of a height field is a shallower height field and
-// the march would terminate early against it.
-vec2 ParallaxLayer(sampler2D surface, vec2 uv, vec3 viewTS, float scale, float lod)
-{
-	if (scale <= 0.0)
-		return uv;
-
-	// More steps at grazing angles, where the ray crosses more surface, and
-	// the clamp on viewTS.z stops the offset exploding at the silhouette.
-	float steps = mix(24.0, 8.0, clamp(viewTS.z, 0.0, 1.0));
-	float step = 1.0 / steps;
-	vec2 delta = (viewTS.xy / max(viewTS.z, 0.15)) * scale / steps;
-
-	vec2 cur = uv;
-	float depth = 0.0;
-	float h = 1.0 - textureLod(surface, cur, lod).b;
-	float prevH = h;
-
-	while (depth < h && depth < 1.0)
-	{
-		prevH = h;
-		cur -= delta;
-		depth += step;
-		h = 1.0 - textureLod(surface, cur, lod).b;
-	}
-
-	// One secant step between the sample above the surface and the one below,
-	// which removes the layering the raw march leaves on slopes.
-	float after = h - depth;
-	float before = prevH - (depth - step);
-	float t = clamp(after / (after - before + 1e-5), 0.0, 1.0);
-	return cur + delta * t;
-}
-
 // One layer's contribution, at a constant index so every sampler it names
 // is a constant. A macro rather than a function so the bound path's sampler
 // arrays are indexed by a literal -- and unrolled by hand, four times, for
@@ -3910,11 +3960,11 @@ vec2 ParallaxLayer(sampler2D surface, vec2 uv, vec3 viewTS, float scale, float l
 			float pom = (flags & MAP_HEIGHT) != 0                                           \
 				? u_Layered.HeightScale[i] * smoothstep(0.5, 0.8, w) : 0.0;                 \
 			if (pom > 0.0 && wall < 1.0)                                                    \
-				uvL = ParallaxLayer(LAYER_ROUGHNESS(i), uvL,                                \
+				uvL = ParallaxLayer(LAYER_ROUGHNESS_MAP(i), uvL,                            \
 									normalize(transpose(TBN) * V), pom * (1.0 - wall),      \
 									FootprintLod(LAYER_ROUGHNESS(i), ddxL, ddyL));          \
 			if (pom > 0.0 && wall > 0.0)                                                    \
-				uvW = ParallaxLayer(LAYER_ROUGHNESS(i), uvW,                                \
+				uvW = ParallaxLayer(LAYER_ROUGHNESS_MAP(i), uvW,                            \
 									normalize(transpose(TBNW) * V), pom * wall,             \
 									FootprintLod(LAYER_ROUGHNESS(i), ddxW, ddyW));          \
 			vec4 baseL = u_Layered.BaseColor[i];                                            \

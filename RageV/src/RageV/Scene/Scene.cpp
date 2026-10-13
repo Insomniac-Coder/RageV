@@ -2939,8 +2939,13 @@ namespace RageV
 			// of instances the structure does not contain, in an order it does
 			// not share, and a hit resolved through it reads whatever is at
 			// that index. That is the editor's device loss (7bp).
+			// The reference renderer (RT2-2b) also gets the chunk's four layers,
+			// which nothing else traced reads yet (layer 0 stands for the whole
+			// terrain at real-time hits until RT2-21d) -- as PrepareTerrains
+			// refreshed them this frame, before this pass.
+			const bool referenceLayers = EngineConfig::Get().ReferenceSamples > 0;
 			ForEachTerrainChunk([&](Entity, TransformComponent& transform, TerrainComponent& component,
-									Terrain&, Terrain::Chunk& chunk)
+									Terrain& terrain, Terrain::Chunk& chunk)
 			{
 				const RHI::Ref<Mesh>& mesh = chunk.ForRays();
 				if (!mesh)
@@ -2950,7 +2955,8 @@ namespace RageV
 					material = Renderer3D::GetDefaultMaterial();
 				RayShadows::AddInstance(mesh, transform.World, nullptr, material,
 										material ? material->GetParams() : MaterialParams{},
-										0, component.Static);
+										0, component.Static, false, nullptr,
+										referenceLayers ? terrain.GetLayers() : nullptr);
 			});
 
 			RayShadows::Build(*cmd);
