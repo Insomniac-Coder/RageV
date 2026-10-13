@@ -9264,7 +9264,7 @@ Entities:
     TagComponent:
       Tag: Plane.010
     TransformComponent:
-      Position: [-22.887733, 6.581931, 0.8495054]
+      Position: [-22.887233, 6.583431, 0.8505054]
       Rotation: [0, 0, 0]
       Scale: [0.36133486, 0.36133486, 0.19223404]
     MeshComponent:

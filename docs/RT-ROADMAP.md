@@ -695,7 +695,7 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   validation silent; scenetest green. Not built: histories *per view* (one line for all views; the
 >   runtime has one) -- the editor's two viewports are not split. **Finding for RT2-19:** the histories
 >   are the largest category in the garage, larger than every render target together.
-> - **Open, cause found (2026-10-13):** `check_gpu_lit.py --rays` -- gpu-lit-off and meshlets pass (23 px
+> - **Fixed 2026-10-13 (the owner's call):** `check_gpu_lit.py --rays` -- gpu-lit-off and meshlets pass (23 px
 >   at 1 level), depth-sort-off misses (106 px, one at 4 levels, on the poles' edges and their floor
 >   reflections). **It is the reflection probe's capture, and only that.** The "Showroom Probe" (0, 1.6, 18)
 >   is drawn once, between frames 1 and 2, in one forward pass with no prepass and no blending -- so the
@@ -712,8 +712,17 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   `Plane.010` (z -27.54..1.62), one mesh, one material, both at y 6.5819 -- so a 49 m x 0.78 m strip of
 >   beams (z 0.84..1.62) exists twice in the same place: ~975 of the disputed texels. The rest are faces
 >   flush with those beams: `pipe.020` (~450), `pipe.008` (~140) and the pillars' `Cylinder.013.1` (~130).
->   A content fix (the owner's scene): trim one copy so the two meet instead of overlapping, and part the
->   flush faces by a few millimetres. The tolerance is not widened.
+>   **The fix, in the scene:** `Plane.010` moved by (0.5, 1.5, 1.0) mm -- chosen so every face direction
+>   in the beam grid (the axes and the diagonal braces, normal (+-0.789, +-0.614, 0)) parts by at least
+>   0.5 mm; a (1, 1, 1) mm move left the braces 0.175 mm apart. A whole-model scan for same-facing,
+>   coplanar, overlapping faces between different objects (`coplanar_all.py`, in the scratchpad) found
+>   17.5 m^2 before and none for the beams after. The pipe and pillar ids had come from blended texels,
+>   which mix ids; the scan finds no coinciding faces there. **Now:** `check_gpu_lit.py` green with and
+>   without rays (rays: all three paths 35 px at 1 level, the GPU path's own; depth-sort-off equals
+>   gpu-lit-off exactly); scenetest green; the garage shot changes in 6% of pixels, 2,373 by more than
+>   two levels (max 53, a pole's rim beside a tube) -- the strip now shows one copy, and the rays' noise
+>   lands slightly differently. Left as found: neighbouring ceiling light bars share small faces (4-33 cm^2
+>   each, 38 pairs) -- too small for the probe to have shown, not changed without the owner.
 >   Also open: the garage
 >   on the Intel iGPU with the layers silent; the water
 >   shader's read-out-of-bounds question; GPU-assisted validation loses the device while loading the
