@@ -792,7 +792,7 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 - **Size.** 2-3 sessions.
 - **Closes.** rhi-s1, GPU-13, GPU-15, rhi-s2 (the checking half), ISS-24, ISS-25, ISS-36 (the device-loss re-check); the measuring halves of GPU-09 and CORE-05; parts of ISS-6, GI-13, CORE-10 and frame-13; the comparison's finding E-N5 (section 8).
 
-### RT2-2 · Instruments that can settle questions (2a and 2b steps 1-2 built 2026-10-13)
+### RT2-2 · Instruments that can settle questions (2a and 2b steps 1-3 built 2026-10-13)
 
 - **In plain words.** Most later decisions are "which picture is right" or "does this signal work without TAA". This item builds the instruments that answer those questions: a reference renderer that shares none of the shortcuts it judges, one command that renders and diffs every test camera, a command that proves a signal stands on its own, and new test scenes. Nothing on screen changes.
 
@@ -969,6 +969,30 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >     on any frame with a posed caster. The reference now has its own key
 >     (`RayShadows::GetReferenceGeometryKey`): the instances by field, a posed caster by its bones.
 >     Camp at 64 samples: 7 s.
+> - **2b step 3 built, 2026-10-13: the lights.** Every path vertex takes one lamp sample and one
+>   glowing-surface sample, and every path that has scattered can also meet both; the two strategies
+>   are weighed by Veach's power heuristic (MIS). *Lamps* have the frame's shapes -- a sphere where
+>   SourceRadius is set, a capsule with SourceLength along `Light::Axis` -- sampled by the cone a sphere
+>   subtends and over the part of a capsule a vertex can see (its side within the tangent angle, its
+>   end caps by area). Their brightness is the frame's total light: the frame says a lamp's size
+>   changes only its image, so the shape emits a uniform 4 I / A over its area A (I / (pi r^2) for a
+>   sphere, the point again from far off), with the range window and the spot's ramp taken from the
+>   centre as the frame takes them. A lamp of no radius, and a sun, stay deltas. The shapes are not
+>   geometry: they hide nothing, and the camera does not see them, as the frame's does not. A vertex
+>   picks a lamp in proportion to its light there as a point (window, ramp, inverse square to the
+>   centre, never nearer than its own size), so lamps out of range cost nothing. *Glowing surfaces*
+>   are their own triangles: Renderer3D builds a reference-only table of every glowing instance (its
+>   world bounding sphere, mean radiance, area) and its triangles in world space, rebuilt only when a
+>   glowing instance changes; a vertex picks an instance by power over distance squared, a triangle by
+>   area, a point uniformly, and reads the glow exactly as a path meeting it would. Glass, posed meshes
+>   and the camera's own view are found by the path alone. Checked: the combined estimate against each
+>   light found by one strategy only (lamps by their samples, glowing surfaces by the path) on the
+>   garage at 2048 samples -- frame mean 1.60701 against 1.60704, 90% of 25-pixel blocks within 1.5%,
+>   the largest block differences under two standard errors. Grain at 1024 samples is far lower on all
+>   three scenes (garage 45 s, bridge 53 s, camp 22 s, zero invalid samples); the garage's tubes now
+>   reflect in the wet floor as streaks. Real time: the four shots byte-identical, scenetest and
+>   check_gpu_lit pass. The owner's D13 rule still waits for RT2-11: a lamp with a glowing mesh is
+>   counted both ways.
 >
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'

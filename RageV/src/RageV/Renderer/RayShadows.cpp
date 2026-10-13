@@ -411,6 +411,7 @@ namespace RageV
 		record.Params = params;
 		record.Posed = caster.Posed;
 		record.PreviousWorld = world;
+		record.World = world;
 		record.Water = std::move(water);
 
 		s_Data->Instances.push_back(std::move(instance));
@@ -462,6 +463,7 @@ namespace RageV
 		record.Static = isStatic;
 		record.Moving = moving;
 		record.PreviousWorld = previousWorld ? *previousWorld : world;
+		record.World = world;
 		record.Travelled = previousWorld && std::memcmp(previousWorld, &world, sizeof(Mat4)) != 0;
 		record.Layered = layered;
 

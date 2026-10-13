@@ -83,6 +83,9 @@ namespace RageV
 		// is the point carried back through this matrix rather than the one the ray
 		// found.
 		Mat4 PreviousWorld{ 1.0f };
+		// This frame's object-to-world, as the instance was built (RT2-2b: the
+		// reference renderer's glowing-triangle table is built from it).
+		Mat4 World{ 1.0f };
 		// Whether that transform differs from this frame's. Narrower than Moving,
 		// which a pose alone sets: a posed instance standing still has no travel,
 		// and an exact zero is what keeps a still scene's reflection bit-identical.

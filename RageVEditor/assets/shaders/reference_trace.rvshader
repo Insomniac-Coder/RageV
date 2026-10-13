@@ -88,8 +88,16 @@
 // masking is height-correlated, as the owner chose for every lobe. Foam and
 // caustics are left out (owner, 2026-10-13).
 //
-// Steps of RT2-2b (2026-10-13): 1 the skeleton, glass, 2 the full material
-// (this). Lamps are still points until step 3 gives them their shapes. The
+// **Lights** (step 3). Every vertex takes one sample of a lamp and one of a
+// glowing surface, and every path that scatters can also meet them; the two
+// strategies are weighed by Veach's power heuristic (MIS), so each light is
+// found by whichever does it better -- a small lamp by its sample, its image
+// in a mirror by the path. Lamps have the shapes the frame gives them (spheres,
+// capsules) and the frame's total light; glowing surfaces are their own
+// triangles. RefLampNee and RefEmitterNee say how each is chosen.
+//
+// Steps of RT2-2b (2026-10-13): 1 the skeleton, glass, water; 2 the full
+// material; 3 the lights (this). The
 // baked ambient-occlusion map is ignored on purpose (owner, 2026-10-13): the
 // paths compute the occlusion it stands in for. A lamp that also has a glowing
 // mesh is counted both ways, as the frame counts it today, until RT2-11 links
@@ -176,6 +184,42 @@ layout(std430, set = 3, binding = 3) readonly buffer ReferenceWater
 {
 	RefWater Records[];
 } u_RefWater;
+
+// The glowing surfaces (step 3): per ray row its record (~0u for none); per
+// glowing instance its world bounding sphere, mean emitted radiance and total
+// area, and its run of triangles; per triangle its world corners, the running
+// share of the instance's area that ends at it, its primitive and its area.
+layout(std430, set = 3, binding = 4) readonly buffer ReferenceRowEmitter
+{
+	uint Rows[];
+} u_RefRowEmitter;
+
+struct RefEmitter
+{
+	vec4 Sphere;     // xyz centre, w radius
+	vec4 Radiance;   // rgb mean emitted radiance, w total area
+	uint FirstTriangle;
+	uint TriangleCount;
+	uint Row;
+	uint Pad;
+};
+
+layout(std430, set = 3, binding = 5) readonly buffer ReferenceEmitters
+{
+	RefEmitter Records[];
+} u_RefEmitters;
+
+struct RefEmitterTriangle
+{
+	vec4 P0;   // xyz first corner, w the running area share ending here
+	vec4 E1;   // xyz to the second corner, w the primitive (float bits)
+	vec4 E2;   // xyz to the third corner, w the area
+};
+
+layout(std430, set = 3, binding = 6) readonly buffer ReferenceTriangles
+{
+	RefEmitterTriangle Records[];
+} u_RefTriangles;
 
 layout(push_constant) uniform ReferenceParams
 {
@@ -303,6 +347,20 @@ float RefPaneF0(RayInstance hit, GpuMaterial material, RefTriangle t)
 	return 0.08 * clamp(specular, 0.0, 1.0);
 }
 
+// The glow at a point of an instance -- its emissive times its map, at level
+// zero -- read the same way by a path that meets it and by a light sample
+// aimed at it, so the two strategies weigh the same thing.
+vec3 RefEmission(uint row, uint primitive, vec2 bary)
+{
+	const RayInstance hit = u_RayInstances.Instances[row];
+	const GpuMaterial material = u_Materials.Materials[hit.MaterialIndex];
+	vec3 glow = hit.EmissiveColor.rgb;
+	if ((material.MapFlags & MAP_EMISSIVE) != 0)
+		glow *= textureLod(u_Textures[nonuniformEXT(material.Maps0.w)],
+						   RefUv(hit, material, RefTriangleOf(hit, primitive, bary)), 0.0).rgb;
+	return glow;
+}
+
 // Whether a candidate is a surface for a ray looking for the nearest one.
 // Glass is; a cutout is where its alpha clears the cutoff; anything else in a
 // non-opaque instance (a fitting) is solid. No distance fade, no fitting let
@@ -386,6 +444,7 @@ struct RefHit
 	vec3  WaterSigma;     // water: Beer-Lambert's extinction per metre
 	vec2  WaterWind;      // water: the wind's heading in world XZ, which the lobe stretches along
 	vec3  WaterT;         // water: what the refracted ray's path lets through (set by the path)
+	uint  Instance;       // the ray row hit
 };
 
 // One of a water vertex's two vec4 in the wave pass's surface buffer.
@@ -567,6 +626,7 @@ bool RefTrace(vec3 origin, vec3 direction, float width, uint mask, out RefHit h)
 	h.Coat = vec4(0.0, 0.1, 0.0, 0.0); h.Sheen = vec3(0.0); h.SheenRoughness = 0.3;
 	h.Glass = false; h.Opacity = 1.0; h.PaneF0 = 0.04; h.Distance = 0.0;
 	h.Water = false; h.WaterSigma = vec3(0.0); h.WaterWind = vec2(1.0, 0.0); h.WaterT = vec3(0.0);
+	h.Instance = 0u;
 
 	rayQueryEXT q;
 	rayQueryInitializeEXT(q, u_SceneAS, gl_RayFlagsNoneEXT, mask, origin, 0.0, direction, 1.0e6);
@@ -583,8 +643,9 @@ bool RefTrace(vec3 origin, vec3 direction, float width, uint mask, out RefHit h)
 	const mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(q, true);
 	const mat4x3 worldToObject = rayQueryGetIntersectionWorldToObjectEXT(q, true);
 	const RayInstance hit = u_RayInstances.Instances[instance];
-	const RefTriangle t = RefTriangleOf(hit, uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, true)),
-										rayQueryGetIntersectionBarycentricsEXT(q, true));
+	const uint primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, true));
+	const RefTriangle t = RefTriangleOf(hit, primitive, rayQueryGetIntersectionBarycentricsEXT(q, true));
+	h.Instance = instance;
 	h.Distance = rayQueryGetIntersectionTEXT(q, true);
 	const float w0 = 1.0 - t.Bary.x - t.Bary.y;
 	RayFloats positions = RayFloats(hit.PositionAddress);
@@ -670,9 +731,7 @@ bool RefTrace(vec3 origin, vec3 direction, float width, uint mask, out RefHit h)
 		h.Specular = material.Specular;
 		if ((material.MapFlags & MAP_SPECULAR) != 0)
 			h.Specular *= RefMap(material.Maps1.z, uv, base).r;
-		h.Emissive = hit.EmissiveColor.rgb;
-		if ((material.MapFlags & MAP_EMISSIVE) != 0)
-			h.Emissive *= RefMap(material.Maps0.w, uv, base).rgb;
+		h.Emissive = RefEmission(instance, primitive, t.Bary);
 		ApplyMacro(h.Albedo, h.Roughness, h.N, Ns, h.P, material.Macro.x, material.Macro.y);
 		h.T = TBN[0];
 		h.Coat = vec4(material.Clearcoat, material.ClearcoatRoughness, material.Anisotropy, material.Subsurface);
@@ -1054,9 +1113,9 @@ vec3 RefChances(RefHit h, vec3 V)
 	return rest > 0.0 ? vec3(base / rest * (1.0 - d), Fc / rest * (1.0 - d), d) : vec3(0.0, 0.0, 1.0);
 }
 
-// A direction from the ordinary surface and the throughput it carries.
-// False when the sample is spent.
-bool RefSampleSurface(RefHit h, vec3 V, out vec3 L, out vec3 weight)
+// The density of the ordinary surface's mixture for a direction: what
+// RefSampleSurfaceDirection draws from.
+float RefSurfacePdf(RefHit h, vec3 V, vec3 L)
 {
 	mat3 frame;
 	float ax, ay;
@@ -1065,74 +1124,562 @@ bool RefSampleSurface(RefHit h, vec3 V, out vec3 L, out vec3 weight)
 	const float coatRoughness = clamp(h.Coat.y, 0.045, 1.0);
 	const float coatAlpha = coatRoughness * coatRoughness;
 	const vec3 chance = RefChances(h, V);
-	const float pick = RefRandom();
-	if (pick < chance.x)
-		L = RefSampleLobe(frame, ax, ay, V);
-	else if (pick < chance.x + chance.y)
-		L = RefSampleLobe(coatFrame, coatAlpha, coatAlpha, V);
-	else
-		L = RefSampleDiffuse(h);
-	const vec3 f = RefSurfaceCos(h, V, L);
-	if (all(equal(f, vec3(0.0))))
-		return false;
 	float pdf = chance.z * RefDiffusePdf(h, L);
 	if (chance.x > 0.0)
 		pdf += chance.x * RefLobePdf(frame, ax, ay, V, L);
 	if (chance.y > 0.0)
 		pdf += chance.y * RefLobePdf(coatFrame, coatAlpha, coatAlpha, V, L);
-	if (pdf <= 0.0)
-		return false;
-	weight = f / pdf;
-	return true;
+	return pdf;
 }
 
-// --- lights: next-event estimation, one lamp per vertex ---------------------
-
-// One lamp chosen uniformly and its light toward P, as the lit shader lights
-// it (range window, inverse square, the spot's ramp), through whatever glass
-// is in the way. Every lamp a point until step 3 gives spheres and tubes their
-// area.
-vec3 RefLamp(RefHit h, vec3 V)
+// A direction from the ordinary surface's mixture of samplers.
+vec3 RefSampleSurfaceDirection(RefHit h, vec3 V)
 {
-	const int count = u_Scene.LightCount;
-	if (count <= 0)
-		return vec3(0.0);
-	const int index = min(int(RefRandom() * float(count)), count - 1);
-	const GpuLight light = u_Lights.Lights[index];
-	const vec3 color = light.Color.rgb * light.Color.a;
-	vec3 L;
-	float reach;
-	float attenuation = 1.0;
-	if (light.Position.w == 0.0)
+	const vec3 chance = RefChances(h, V);
+	const float pick = RefRandom();
+	if (pick < chance.x)
 	{
-		L = -light.Direction.xyz;
-		reach = 1.0e6;
+		mat3 frame;
+		float ax, ay;
+		RefBaseLobe(h, frame, ax, ay);
+		return RefSampleLobe(frame, ax, ay, V);
+	}
+	if (pick < chance.x + chance.y)
+	{
+		const float coatRoughness = clamp(h.Coat.y, 0.045, 1.0);
+		const float coatAlpha = coatRoughness * coatRoughness;
+		return RefSampleLobe(RefBasis(h.N), coatAlpha, coatAlpha, V);
+	}
+	return RefSampleDiffuse(h);
+}
+
+// Water's choices: how often the surface reflects (by its Fresnel at this
+// view), and how often what enters reaches the bottom (by what it lets through).
+void RefWaterChances(RefHit h, vec3 V, out float Fv, out float pReflect, out float pBottom)
+{
+	Fv = FresnelSchlick(max(dot(h.N, V), 0.0), RefF0(h)).x;
+	pReflect = clamp(Fv, 0.05, 0.95);
+	pBottom = max(h.WaterT.r, max(h.WaterT.g, h.WaterT.b)) > 0.0 ? clamp(RefLuminance(h.WaterT), 0.05, 0.95) : 0.0;
+}
+
+// A pane's clear share reflects by its Fresnel against the triangle -- what
+// RefTransmittance lets through for a light behind it is the rest.
+float RefPaneReflectChance(RefHit h, vec3 V)
+{
+	return FresnelSchlick(abs(dot(h.Ng, V)), vec3(h.PaneF0)).x;
+}
+
+// The density with which the path's choice at this vertex lands on a
+// direction, over every choice that is not a delta (glass's straight-through,
+// water's refraction): what the weighting between a light sample and the path
+// (MIS) needs on the path's side.
+float RefBsdfPdf(RefHit h, vec3 V, vec3 L)
+{
+	if (h.Water)
+	{
+		float Fv, pReflect, pBottom;
+		RefWaterChances(h, V, Fv, pReflect, pBottom);
+		return pReflect * RefWaterPdf(h, V, L) + (1.0 - pReflect) * (1.0 - pBottom) * RefDiffusePdf(h, L);
+	}
+	const float surface = RefSurfacePdf(h, V, L);
+	if (!h.Glass)
+		return surface;
+	mat3 frame;
+	float ax, ay;
+	RefBaseLobe(h, frame, ax, ay);
+	return h.Opacity * surface + (1.0 - h.Opacity) * RefPaneReflectChance(h, V) * RefLobePdf(frame, ax, ay, V, L);
+}
+
+// Veach's power heuristic: the weight of the strategy with density `a`
+// against the one with density `b`.
+float RefPowerHeuristic(float a, float b)
+{
+	const float a2 = a * a;
+	return a2 / max(a2 + b * b, 1.0e-30);
+}
+
+// --- lamps: the lit shader's lights, with their real shapes -----------------
+//
+// The frame lights a lamp as a point of intensity I (colour times intensity)
+// with a range window and a spot's ramp; its size (SourceRadius, and with
+// SourceLength along its axis a capsule) changes, in the frame's own words,
+// only the image it makes in shiny surfaces. So the reference gives the shape
+// the same total light as the frame's point -- a uniform radiance of 4 I / A
+// over its area A = 2 pi r l + 4 pi r^2, which for a sphere is I / (pi r^2) and
+// from far off is the point again -- and keeps the window and the ramp the
+// lamp's own, taken from its centre as the frame takes them. A lamp of no
+// radius stays a point (only a light sample finds it), and so does a
+// directional light. The shapes are not geometry: they hide nothing, and the
+// camera does not see them, as the frame's camera does not; a path that has
+// scattered meets them, and is weighed against the light samples (MIS).
+//
+// Which lamp a vertex samples: each in proportion to its light there as a
+// point (through its window and ramp, inverse square to its centre, never
+// nearer than its own size), so the lamps out of range of a bridge pixel cost
+// it nothing.
+
+// The window and the ramp at P, from the lamp's centre; one for a sun.
+float RefLampScale(GpuLight light, vec3 P)
+{
+	if (light.Position.w == 0.0)
+		return 1.0;
+	const vec3 toLight = light.Position.xyz - P;
+	const float distance2 = dot(toLight, toLight);
+	const float range = max(light.Params.x, 0.0001);
+	const float t = distance2 / (range * range);
+	const float ratio = clamp(1.0 - t * t, 0.0, 1.0);
+	float scale = ratio * ratio;
+	const float cosInner = light.Params.y;
+	const float cosOuter = light.Params.z;
+	if (cosOuter < cosInner && distance2 > 0.0)
+		scale *= clamp((dot(toLight * inversesqrt(distance2), -light.Direction.xyz) - cosOuter)
+					   / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
+	return scale;
+}
+
+bool RefLampShaped(GpuLight light)
+{
+	return light.Position.w != 0.0 && light.Direction.w > 0.0;
+}
+
+float RefLampLength(GpuLight light)
+{
+	return max(light.Extent.x, 0.0);
+}
+
+float RefLampWeight(GpuLight light, vec3 P)
+{
+	const float power = RefLuminance(light.Color.rgb * light.Color.a);
+	if (light.Position.w == 0.0)
+		return power;
+	const vec3 toLight = light.Position.xyz - P;
+	const float size = max(light.Direction.w, 0.0) + 0.5 * RefLampLength(light);
+	return power * RefLampScale(light, P) / max(dot(toLight, toLight), max(size * size, 1.0e-4));
+}
+
+float RefLampTotal(vec3 P)
+{
+	float total = 0.0;
+	for (int i = 0; i < u_Scene.LightCount; ++i)
+		total += RefLampWeight(u_Lights.Lights[i], P);
+	return total;
+}
+
+// What a shaped lamp's surface emits toward a vertex at P.
+vec3 RefLampRadiance(GpuLight light, vec3 P)
+{
+	const float r = light.Direction.w;
+	const float area = 2.0 * PI * r * RefLampLength(light) + 4.0 * PI * r * r;
+	return light.Color.rgb * light.Color.a * RefLampScale(light, P) * (4.0 / area);
+}
+
+// A sphere's directions from P: the cone it subtends, sampled uniformly. The
+// cone's size as 1 - cos without the cancellation, for lamps a kilometre off.
+float RefSphereCone(vec3 C, float R, vec3 P)
+{
+	const vec3 toC = C - P;
+	const float d2 = dot(toC, toC);
+	if (d2 <= R * R)
+		return 0.0;
+	const float sin2 = R * R / d2;
+	return sin2 / (1.0 + sqrt(max(0.0, 1.0 - sin2)));
+}
+
+bool RefSampleSphere(vec3 C, float R, vec3 P, out vec3 L, out float dist, out float pdf)
+{
+	const float cone = RefSphereCone(C, R, P);
+	if (cone <= 0.0)
+		return false;
+	const vec3 toC = C - P;
+	const float d2 = dot(toC, toC);
+	const float om = RefRandom() * cone;
+	const float cosT = 1.0 - om;
+	const float sinT = sqrt(max(0.0, om * (2.0 - om)));
+	const float phi = 2.0 * PI * RefRandom();
+	L = RefBasis(toC * inversesqrt(d2)) * vec3(sinT * cos(phi), sinT * sin(phi), cosT);
+	const float b = dot(toC, L);
+	dist = b - sqrt(max(b * b - (d2 - R * R), 0.0));
+	pdf = 1.0 / (2.0 * PI * cone);
+	return dist > 0.0;
+}
+
+// A capsule as seen from P: its centre, axis, half length and radius; the
+// directions across its side toward P (U) and around it (W); the half angle of
+// the side P can see; and how often the side is chosen over the end caps.
+struct RefCapsule
+{
+	vec3  C;
+	vec3  A;
+	float H;
+	float R;
+	vec3  U;
+	vec3  W;
+	float Alpha;
+	float PSide;
+};
+
+RefCapsule RefCapsuleFrom(GpuLight light, vec3 P)
+{
+	RefCapsule c;
+	c.C = light.Position.xyz;
+	c.A = normalize(light.Extent.yzw);
+	c.H = 0.5 * RefLampLength(light);
+	c.R = light.Direction.w;
+	const vec3 v = P - c.C;
+	const vec3 q = v - c.A * dot(v, c.A);
+	const float rho = length(q);
+	c.U = rho > 1.0e-6 ? q / rho : RefBasis(c.A)[0];
+	c.W = cross(c.A, c.U);
+	c.Alpha = rho > c.R ? acos(clamp(c.R / rho, 0.0, 1.0)) : 0.0;
+	const float side = 2.0 * c.H * c.R * 2.0 * c.Alpha;
+	c.PSide = side / (side + PI * c.R * c.R);
+	return c;
+}
+
+// The density of a point on the capsule, per unit area: on the side, uniform
+// over the part P can see; on an end, uniform over that end's whole sphere
+// (the half inside the side is drawn and refused).
+float RefCapsuleAreaPdf(RefCapsule c, vec3 x)
+{
+	if (abs(dot(x - c.C, c.A)) <= c.H)
+		return c.Alpha > 0.0 ? c.PSide / (2.0 * c.H * c.R * 2.0 * c.Alpha) : 0.0;
+	return (1.0 - c.PSide) * 0.5 / (4.0 * PI * c.R * c.R);
+}
+
+bool RefSampleCapsule(RefCapsule c, vec3 P, out vec3 x, out vec3 n)
+{
+	if (RefRandom() < c.PSide)
+	{
+		const float s = (2.0 * RefRandom() - 1.0) * c.H;
+		const float phi = (2.0 * RefRandom() - 1.0) * c.Alpha;
+		n = c.U * cos(phi) + c.W * sin(phi);
+		x = c.C + c.A * s + n * c.R;
 	}
 	else
 	{
-		const vec3 toLight = light.Position.xyz - h.P;
-		const float distance2 = dot(toLight, toLight);
-		const float distance = sqrt(max(distance2, 1.0e-8));
-		L = toLight / distance;
-		reach = distance;
-		const float range = max(light.Params.x, 0.0001);
-		const float t = distance2 / (range * range);
-		const float ratio = clamp(1.0 - t * t, 0.0, 1.0);
-		attenuation = (ratio * ratio) / max(distance2, 0.0001);
-		const float cosInner = light.Params.y;
-		const float cosOuter = light.Params.z;
-		if (cosOuter < cosInner)
-			attenuation *= clamp((dot(L, -light.Direction.xyz) - cosOuter) / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
+		const float end = RefRandom() < 0.5 ? -1.0 : 1.0;
+		const float z = 2.0 * RefRandom() - 1.0;
+		const float phi = 2.0 * PI * RefRandom();
+		const float ring = sqrt(max(0.0, 1.0 - z * z));
+		n = vec3(ring * cos(phi), ring * sin(phi), z);
+		if (dot(n, c.A) * end < 0.0)
+			return false;
+		x = c.C + c.A * (end * c.H) + n * c.R;
 	}
-	if (attenuation <= 0.0)
+	return dot(n, P - x) > 0.0;
+}
+
+// Where a ray from outside first meets a sphere, or a negative distance.
+float RefHitSphere(vec3 C, float R, vec3 o, vec3 d)
+{
+	const vec3 oc = o - C;
+	const float c2 = dot(oc, oc) - R * R;
+	if (c2 <= 0.0)
+		return -1.0;
+	const float b = dot(oc, d);
+	const float disc = b * b - c2;
+	return disc < 0.0 ? -1.0 : -b - sqrt(disc);
+}
+
+// Where a ray from outside first meets a capsule, and the normal there.
+float RefHitCapsule(GpuLight light, vec3 o, vec3 d, out vec3 n)
+{
+	const vec3 C = light.Position.xyz;
+	const vec3 A = normalize(light.Extent.yzw);
+	const float H = 0.5 * RefLampLength(light);
+	const float R = light.Direction.w;
+	const vec3 oc = o - C;
+	const float oa = dot(oc, A);
+	const vec3 op = oc - A * oa;
+	if (dot(op, op) <= R * R && abs(oa) <= H)
+		return -1.0;
+	float best = 1.0e30;
+	const float da = dot(d, A);
+	const vec3 dp = d - A * da;
+	const float a = dot(dp, dp);
+	if (a > 1.0e-12)
+	{
+		const float b = dot(op, dp);
+		const float c2 = dot(op, op) - R * R;
+		const float disc = b * b - a * c2;
+		if (disc >= 0.0)
+		{
+			const float t = (-b - sqrt(disc)) / a;
+			if (t > 0.0 && abs(oa + t * da) <= H)
+			{
+				best = t;
+				n = normalize(op + dp * t);
+			}
+		}
+	}
+	for (int e = 0; e < 2; ++e)
+	{
+		const float end = e == 0 ? -1.0 : 1.0;
+		const vec3 centre = C + A * (end * H);
+		const float t = RefHitSphere(centre, R, o, d);
+		if (t > 0.0 && t < best)
+		{
+			const vec3 m = (o + d * t - centre) / R;
+			if (dot(m, A) * end >= 0.0)
+			{
+				best = t;
+				n = m;
+			}
+		}
+	}
+	return best < 1.0e30 ? best : -1.0;
+}
+
+// The nearest shaped lamp a segment passes through before `reach`: its index
+// (-1 for none), where, and the normal there.
+int RefCrossLamp(vec3 o, vec3 d, float reach, out vec3 x, out vec3 n)
+{
+	int found = -1;
+	float best = reach;
+	for (int i = 0; i < u_Scene.LightCount; ++i)
+	{
+		const GpuLight light = u_Lights.Lights[i];
+		if (!RefLampShaped(light))
+			continue;
+		vec3 normal = vec3(0.0, 1.0, 0.0);
+		float t;
+		if (RefLampLength(light) <= 0.0)
+		{
+			t = RefHitSphere(light.Position.xyz, light.Direction.w, o, d);
+			normal = normalize(o + d * t - light.Position.xyz);
+		}
+		else
+		{
+			t = RefHitCapsule(light, o, d, normal);
+		}
+		if (t > 0.0 && t < best)
+		{
+			best = t;
+			found = i;
+			n = normal;
+		}
+	}
+	if (found >= 0)
+		x = o + d * best;
+	return found;
+}
+
+// One lamp, chosen by its weight at this vertex, and its light toward P
+// through whatever glass is in the way. A shaped lamp's point is weighed
+// against the path finding the same light.
+vec3 RefLampNee(RefHit h, vec3 V, float total)
+{
+	if (total <= 0.0)
 		return vec3(0.0);
+	const float pick = RefRandom() * total;
+	int index = u_Scene.LightCount - 1;
+	float running = 0.0;
+	for (int i = 0; i < u_Scene.LightCount; ++i)
+	{
+		running += RefLampWeight(u_Lights.Lights[i], h.P);
+		if (pick < running)
+		{
+			index = i;
+			break;
+		}
+	}
+	const GpuLight light = u_Lights.Lights[index];
+	const float weight = RefLampWeight(light, h.P);
+	if (weight <= 0.0)
+		return vec3(0.0);
+	const float chance = weight / total;
+
+	vec3 L;
+	float reach;
+	vec3 arriving;
+	float pdfLight = 0.0;
+	if (!RefLampShaped(light))
+	{
+		const vec3 color = light.Color.rgb * light.Color.a;
+		if (light.Position.w == 0.0)
+		{
+			L = -light.Direction.xyz;
+			reach = 1.0e6;
+			arriving = color;
+		}
+		else
+		{
+			const vec3 toLight = light.Position.xyz - h.P;
+			const float distance2 = dot(toLight, toLight);
+			reach = sqrt(max(distance2, 1.0e-8));
+			L = toLight / reach;
+			arriving = color * RefLampScale(light, h.P) / max(distance2, 0.0001);
+		}
+	}
+	else if (RefLampLength(light) <= 0.0)
+	{
+		if (!RefSampleSphere(light.Position.xyz, light.Direction.w, h.P, L, reach, pdfLight))
+			return vec3(0.0);
+		arriving = RefLampRadiance(light, h.P);
+	}
+	else
+	{
+		const RefCapsule c = RefCapsuleFrom(light, h.P);
+		vec3 x, n;
+		if (!RefSampleCapsule(c, h.P, x, n))
+			return vec3(0.0);
+		const vec3 toX = x - h.P;
+		reach = length(toX);
+		L = toX / reach;
+		const float cosL = dot(n, -L);
+		if (cosL <= 0.0)
+			return vec3(0.0);
+		pdfLight = RefCapsuleAreaPdf(c, x) * reach * reach / cosL;
+		arriving = RefLampRadiance(light, h.P);
+	}
 	const vec3 f = RefBsdfCos(h, V, L);
-	if (all(equal(f, vec3(0.0))))
+	if (all(equal(f, vec3(0.0))) || all(equal(arriving, vec3(0.0))))
 		return vec3(0.0);
 	const vec3 through = RefTransmittance(RefOffset(h.P, h.Ng), L, reach);
 	if (all(equal(through, vec3(0.0))))
 		return vec3(0.0);
-	return f * color * attenuation * float(count) * through;
+	if (pdfLight <= 0.0)
+		return f * arriving * through / chance;
+	const float pl = chance * pdfLight;
+	return f * arriving * through * RefPowerHeuristic(pl, RefBsdfPdf(h, V, L)) / pl;
+}
+
+// A shaped lamp the path met after the vertex at `from`, weighed against the
+// light sample taken there.
+vec3 RefLampCrossing(int index, vec3 x, vec3 n, vec3 direction, vec3 from, float pdfPath, float total)
+{
+	const GpuLight light = u_Lights.Lights[index];
+	const vec3 emitted = RefLampRadiance(light, from);
+	if (total <= 0.0)
+		return emitted;
+	const float chance = RefLampWeight(light, from) / total;
+	float pdfLight = 0.0;
+	if (RefLampLength(light) <= 0.0)
+	{
+		const float cone = RefSphereCone(light.Position.xyz, light.Direction.w, from);
+		pdfLight = cone > 0.0 ? 1.0 / (2.0 * PI * cone) : 0.0;
+	}
+	else
+	{
+		const vec3 toX = x - from;
+		const float cosL = abs(dot(n, direction));
+		pdfLight = cosL > 1.0e-6 ? RefCapsuleAreaPdf(RefCapsuleFrom(light, from), x) * dot(toX, toX) / cosL : 0.0;
+	}
+	return emitted * RefPowerHeuristic(pdfPath, chance * pdfLight);
+}
+
+// --- glowing surfaces: the emissive triangles --------------------------------
+//
+// Every glowing instance's triangles, in world space (Renderer3D builds them
+// once for the reference). A vertex chooses an instance in proportion to its
+// emitted power over the square of its distance (never nearer than its own
+// size), a triangle in it by area, a point on that uniformly, and reads the
+// glow there exactly as a path meeting it would. Both sides glow, as the frame
+// draws them. What the path meets is weighed against these samples (MIS) --
+// except where no sample could have found it (glass, a posed mesh, or straight
+// from the camera).
+
+float RefEmitterWeight(RefEmitter e, vec3 P)
+{
+	const float power = RefLuminance(e.Radiance.rgb) * e.Radiance.w;
+	const vec3 toC = e.Sphere.xyz - P;
+	return power / max(dot(toC, toC), max(e.Sphere.w * e.Sphere.w, 1.0e-4));
+}
+
+float RefEmitterTotal(vec3 P)
+{
+	float total = 0.0;
+	const int count = u_RefEmitters.Records.length();
+	for (int i = 0; i < count; ++i)
+		total += RefEmitterWeight(u_RefEmitters.Records[i], P);
+	return total;
+}
+
+vec3 RefEmitterNee(RefHit h, vec3 V, float total)
+{
+	if (total <= 0.0)
+		return vec3(0.0);
+	const int count = u_RefEmitters.Records.length();
+	const float pick = RefRandom() * total;
+	int index = count - 1;
+	float running = 0.0;
+	for (int i = 0; i < count; ++i)
+	{
+		running += RefEmitterWeight(u_RefEmitters.Records[i], h.P);
+		if (pick < running)
+		{
+			index = i;
+			break;
+		}
+	}
+	const RefEmitter e = u_RefEmitters.Records[index];
+	const float weight = RefEmitterWeight(e, h.P);
+	if (weight <= 0.0 || e.TriangleCount == 0u)
+		return vec3(0.0);
+	const float chance = weight / total;
+
+	// The triangle, by the running area shares (a binary search), and a point
+	// on it, uniform.
+	const float u = RefRandom();
+	uint lo = e.FirstTriangle;
+	uint hi = e.FirstTriangle + e.TriangleCount - 1u;
+	while (lo < hi)
+	{
+		const uint mid = (lo + hi) / 2u;
+		if (u < u_RefTriangles.Records[mid].P0.w)
+			hi = mid;
+		else
+			lo = mid + 1u;
+	}
+	const RefEmitterTriangle tri = u_RefTriangles.Records[lo];
+	const float su = sqrt(RefRandom());
+	const float v = RefRandom();
+	const vec2 bary = vec2(su * (1.0 - v), su * v);
+	const vec3 x = tri.P0.xyz + tri.E1.xyz * bary.x + tri.E2.xyz * bary.y;
+	const vec3 face = cross(tri.E1.xyz, tri.E2.xyz);
+	const float faceLength = length(face);
+	if (faceLength <= 0.0)
+		return vec3(0.0);
+	const vec3 toX = x - h.P;
+	const float dist2 = dot(toX, toX);
+	const float dist = sqrt(dist2);
+	const vec3 L = toX / dist;
+	const float cosL = abs(dot(face / faceLength, L));
+	if (cosL <= 1.0e-6)
+		return vec3(0.0);
+	const vec3 f = RefBsdfCos(h, V, L);
+	if (all(equal(f, vec3(0.0))))
+		return vec3(0.0);
+	const vec3 glow = RefEmission(e.Row, floatBitsToUint(tri.E1.w), bary);
+	if (all(equal(glow, vec3(0.0))))
+		return vec3(0.0);
+	// To just short of the glowing surface, which would otherwise stop its own light.
+	const vec3 through = RefTransmittance(RefOffset(h.P, h.Ng), L, max(dist - max(2.0e-3, dist * 2.0e-5), 0.0));
+	if (all(equal(through, vec3(0.0))))
+		return vec3(0.0);
+	// Per unit solid angle: the instance's chance over its area, through the
+	// distance and the slope (the triangle's chance over its own area is one
+	// over the instance's).
+	const float pl = chance * dist2 / (e.Radiance.w * cosL);
+	return f * glow * through * RefPowerHeuristic(pl, RefBsdfPdf(h, V, L)) / pl;
+}
+
+// What the path's own find of a glowing surface is worth beside the glowing
+// samples taken at the vertex `from`.
+float RefEmitterHitWeight(RefHit h, vec3 direction, vec3 from, float pdfPath, float total)
+{
+	if (pdfPath <= 0.0 || total <= 0.0)
+		return 1.0;
+	const uint k = u_RefRowEmitter.Rows[h.Instance];
+	if (k == ~0u)
+		return 1.0;
+	const RefEmitter e = u_RefEmitters.Records[k];
+	const float cosL = abs(dot(h.Ng, direction));
+	if (cosL <= 1.0e-6 || e.Radiance.w <= 0.0)
+		return 1.0;
+	const vec3 d = h.P - from;
+	const float chance = RefEmitterWeight(e, from) / total;
+	return RefPowerHeuristic(pdfPath, chance * dot(d, d) / (e.Radiance.w * cosL));
 }
 
 // --- one path ---------------------------------------------------------------
@@ -1143,21 +1690,42 @@ vec3 RefPath(vec3 origin, vec3 direction)
 	vec3 throughput = vec3(1.0);
 	float width = 0.0;   // the cone's, at the segment's origin
 	bool underWater = false;
+	// The last vertex that chose its direction by a density (not glass's
+	// straight-through or water's refraction): where it was, that density, and
+	// the totals its light choices were made from -- what a lamp or a glowing
+	// surface the path then meets is weighed against. A density of zero means
+	// no light sample could have found it: the camera, or a refraction.
+	vec3 lastPosition = origin;
+	float lastPdf = 0.0;
+	float lastLampTotal = 0.0;
+	float lastEmitterTotal = 0.0;
 	const int bounces = max(int(u_Ref.Settings.x + 0.5), 1);
 	for (int bounce = 0; bounce <= bounces; ++bounce)
 	{
 		g_ViewDepthScale = bounce == 0 ? max(dot(direction, g_CameraForward), 0.0) : 1.0;
 		RefHit h;
-		if (!RefTrace(origin, direction, width, underWater ? REF_MASK_DRY : REF_MASK_ALL, h))
+		const bool found = RefTrace(origin, direction, width, underWater ? REF_MASK_DRY : REF_MASK_ALL, h);
+
+		// A lamp's shape this segment passes through before what it hits.
+		if (lastPdf > 0.0)
+		{
+			vec3 x, n;
+			const int lamp = RefCrossLamp(origin, direction, found ? h.Distance : 1.0e6, x, n);
+			if (lamp >= 0)
+				radiance += throughput * RefLampCrossing(lamp, x, n, direction, lastPosition, lastPdf, lastLampTotal);
+		}
+		if (!found)
 		{
 			radiance += throughput * RefSky(direction);
 			break;
 		}
 		width += g_ConeSpread * h.Distance;
-		// What glows is reached by the path, never sampled as a lamp, so it is
-		// counted exactly once -- on a pane, only its surface share glows, as
-		// the frame's blend scales the pane's whole colour by its alpha.
-		radiance += throughput * h.Emissive * (h.Glass ? h.Opacity : 1.0);
+		// What glows, as the path meets it -- on a pane, only its surface
+		// share, as the frame's blend scales the pane's whole colour by its
+		// alpha -- weighed against the glowing samples at the last vertex.
+		if (max(h.Emissive.r, max(h.Emissive.g, h.Emissive.b)) > 0.0)
+			radiance += throughput * h.Emissive * (h.Glass ? h.Opacity : 1.0)
+					  * RefEmitterHitWeight(h, direction, lastPosition, lastPdf, lastEmitterTotal);
 		if (bounce == bounces)
 			break;
 
@@ -1175,86 +1743,66 @@ vec3 RefPath(vec3 origin, vec3 direction)
 			h.WaterT = through >= 0.0 ? exp(-h.WaterSigma * through) : vec3(0.0);
 		}
 
-		radiance += throughput * RefLamp(h, V);
+		// One lamp and one glowing surface, each sampled here.
+		const float lampTotal = RefLampTotal(h.P);
+		const float emitterTotal = RefEmitterTotal(h.P);
+		radiance += throughput * (RefLampNee(h, V, lampTotal) + RefEmitterNee(h, V, emitterTotal));
 
-		// The next direction. On glass the pane is first split by its opacity
-		// (the surface share, or the clear share); the clear share then
-		// reflects by its Fresnel or goes straight through. Each choice's
-		// probability divides the weight of what it picked, so the estimate is
-		// the whole pane's on average.
+		// The next direction. Every choice that is not a delta is weighed by
+		// the whole surface over the whole density (RefBsdfCos over
+		// RefBsdfPdf), whichever sampler drew it; the deltas carry their own
+		// share over their own chance.
 		vec3 L;
-		vec3 weight;
-		bool straightThrough = false;
+		vec3 weight = vec3(1.0);
+		int kind = 0;   // 0 drawn by a density, 1 straight through glass, 2 refracted into water
 		if (h.Water)
 		{
-			// Reflect by the surface's Fresnel, or enter; what enters reaches
-			// the bottom through the water (its share T), or is the body's lit
-			// colour (the rest). Each choice's chance divides what it carries.
-			const float Fv = FresnelSchlick(max(dot(h.N, V), 0.0), RefF0(h)).x;
-			const float pReflect = clamp(Fv, 0.05, 0.95);
+			float Fv, pReflect, pBottom;
+			RefWaterChances(h, V, Fv, pReflect, pBottom);
 			if (RefRandom() < pReflect)
 			{
 				L = RefSampleWater(h, V);
-				const vec3 f = RefWaterSpecularCos(h, V, L);
-				const float pdf = RefWaterPdf(h, V, L) * pReflect;
-				if (all(equal(f, vec3(0.0))) || pdf <= 0.0)
-					break;
-				weight = f / pdf;
+			}
+			else if (RefRandom() < pBottom)
+			{
+				L = refracted;
+				weight = (1.0 - Fv) * h.WaterT / ((1.0 - pReflect) * pBottom);
+				kind = 2;
 			}
 			else
 			{
-				const bool bottom = max(h.WaterT.r, max(h.WaterT.g, h.WaterT.b)) > 0.0;
-				const float pBottom = bottom ? clamp(RefLuminance(h.WaterT), 0.05, 0.95) : 0.0;
-				if (RefRandom() < pBottom)
-				{
-					L = refracted;
-					weight = (1.0 - Fv) * h.WaterT / ((1.0 - pReflect) * pBottom);
-					straightThrough = true;
-					underWater = true;
-				}
-				else
-				{
-					L = RefSampleDiffuse(h);
-					const vec3 f = RefWaterScatterCos(h, V, L);
-					const float pdf = RefDiffusePdf(h, L) * (1.0 - pReflect) * (1.0 - pBottom);
-					if (all(equal(f, vec3(0.0))) || pdf <= 0.0)
-						break;
-					weight = f / pdf;
-				}
+				L = RefSampleDiffuse(h);
 			}
 		}
 		else if (h.Glass && RefRandom() >= h.Opacity)
 		{
-			// Split by the pane's own Fresnel against the triangle, exactly
-			// what RefTransmittance lets through for a light behind it, so a
-			// lamp and a lit wall seen through the same pane lose the same
-			// share; the reflection that is chosen keeps the mapped normal's
-			// lobe, whose weight is its own f over its own density.
-			const float reflectChance = FresnelSchlick(abs(dot(h.Ng, V)), vec3(h.PaneF0)).x;
-			if (RefRandom() < reflectChance)
+			if (RefRandom() < RefPaneReflectChance(h, V))
 			{
 				mat3 frame;
 				float ax, ay;
 				RefBaseLobe(h, frame, ax, ay);
 				L = RefSampleLobe(frame, ax, ay, V);
-				const vec3 f = RefClearCos(h, V, L);
-				const float pdf = RefLobePdf(frame, ax, ay, V, L) * reflectChance;
-				if (all(equal(f, vec3(0.0))) || pdf <= 0.0)
-					break;
-				weight = f / pdf;
 			}
 			else
 			{
 				// (1 - F) of the clear share passes, chosen with chance 1 - F:
 				// the weight is one, the direction unchanged.
 				L = direction;
-				weight = vec3(1.0);
-				straightThrough = true;
+				kind = 1;
 			}
 		}
-		else if (!RefSampleSurface(h, V, L, weight))
+		else
 		{
-			break;
+			L = RefSampleSurfaceDirection(h, V);
+		}
+		float pdf = 0.0;
+		if (kind == 0)
+		{
+			pdf = RefBsdfPdf(h, V, L);
+			const vec3 f = RefBsdfCos(h, V, L);
+			if (pdf <= 0.0 || all(equal(f, vec3(0.0))))
+				break;
+			weight = f / pdf;
 		}
 		throughput *= weight;
 
@@ -1267,7 +1815,19 @@ vec3 RefPath(vec3 origin, vec3 direction)
 				break;
 			throughput /= keep;
 		}
-		origin = RefOffset(h.P, straightThrough ? -h.Ng : h.Ng);
+		if (kind == 0)
+		{
+			lastPosition = h.P;
+			lastPdf = pdf;
+			lastLampTotal = lampTotal;
+			lastEmitterTotal = emitterTotal;
+		}
+		else if (kind == 2)
+		{
+			lastPdf = 0.0;
+			underWater = true;
+		}
+		origin = RefOffset(h.P, kind != 0 ? -h.Ng : h.Ng);
 		direction = L;
 	}
 	return radiance;

@@ -211,6 +211,33 @@ namespace RageV
 		};
 		static_assert(sizeof(GpuReferenceWater) == 80, "Must match RefWater in reference_trace.rvshader");
 
+		// RT2-2b step 3: the glowing surfaces, for the reference's next-event
+		// estimation. One record per glowing instance -- its world bounding
+		// sphere, its mean emitted radiance and total world area (what a
+		// vertex weighs it by), and its run of triangles -- and one per
+		// triangle, in world space, with the running share of the instance's
+		// area that ends at it (what a sample picks it by) and its primitive
+		// index (what the emission is read through). Mirror RefEmitter and
+		// RefEmitterTriangle in reference_trace.rvshader, std430.
+		struct GpuReferenceEmitter
+		{
+			Vec4 Sphere{ 0.0f };     // xyz centre, w radius
+			Vec4 Radiance{ 0.0f };   // rgb the mean emitted radiance, w the total area
+			uint32_t FirstTriangle = 0;
+			uint32_t TriangleCount = 0;
+			uint32_t Row = 0;
+			uint32_t Pad = 0;
+		};
+		static_assert(sizeof(GpuReferenceEmitter) == 48, "Must match RefEmitter in reference_trace.rvshader");
+
+		struct GpuReferenceTriangle
+		{
+			Vec4 P0{ 0.0f };   // xyz the first corner, w the running area share ending here
+			Vec4 E1{ 0.0f };   // xyz to the second corner, w the primitive index (as float bits)
+			Vec4 E2{ 0.0f };   // xyz to the third corner, w the triangle's area
+		};
+		static_assert(sizeof(GpuReferenceTriangle) == 48, "Must match RefEmitterTriangle in reference_trace.rvshader");
+
 		// Mirrors the std140 SceneData block in pbr.rvshader.
 		struct SceneUniforms
 		{
@@ -1170,6 +1197,13 @@ namespace RageV
 				uint32_t            ReferenceLayeredCapacity = 0;
 				Ref<RHIBuffer>      ReferenceWater;
 				uint32_t            ReferenceWaterCapacity = 0;
+				Ref<RHIBuffer>      ReferenceRowEmitter;
+				uint32_t            ReferenceRowEmitterCapacity = 0;
+				Ref<RHIBuffer>      ReferenceEmitters;
+				uint32_t            ReferenceEmitterCapacity = 0;
+				Ref<RHIBuffer>      ReferenceTriangles;
+				uint32_t            ReferenceTriangleCapacity = 0;
+				uint64_t            ReferenceTrianglesUploaded = 0;
 			};
 
 			// [frame in flight][scene within the frame]
@@ -1271,6 +1305,15 @@ namespace RageV
 			// read with (wrapping, filtered, as the water pass reads it).
 			std::vector<GpuReferenceWater> ReferenceWaterScratch;
 			Ref<RHISampler> ReferenceWrapSampler;
+			// ... and its glowing surfaces: per ray row the emitter record it is
+			// (~0u for none), the records and their triangles. The triangles are
+			// rebuilt only when the glowing instances change (EmitterKey), since
+			// a big fitting is thousands of them and the reference's scene
+			// stands still.
+			std::vector<uint32_t> ReferenceRowEmitterScratch;
+			std::vector<GpuReferenceEmitter> ReferenceEmitterScratch;
+			std::vector<GpuReferenceTriangle> ReferenceTriangleScratch;
+			uint64_t ReferenceEmitterKey = 0;
 			// Kept between frames so the front-to-back reorder allocates
 			// nothing on a stable scene.
 			std::vector<DrawRun> Runs;
@@ -5876,6 +5919,139 @@ namespace RageV
 				}
 				slot.ReferenceWater->Upload(s_Data->ReferenceWaterScratch.data(),
 											(uint64_t)waterCount * sizeof(GpuReferenceWater));
+
+				// The glowing surfaces (step 3). A caster glows when its
+				// resolved emissive times its map's mean is above zero; a posed
+				// one is left out (its CPU positions are the bind pose), and so
+				// is glass, whose glow the path weighs by its opacity.
+				{
+					const std::vector<RayCaster>& casters = RayShadows::GetCasters();
+					uint64_t key = 1469598103934665603ull;
+					const auto mixKey = [&key](const void* data, size_t size)
+					{
+						const uint8_t* bytes = static_cast<const uint8_t*>(data);
+						for (size_t i = 0; i < size; i++)
+						{
+							key ^= bytes[i];
+							key *= 1099511628211ull;
+						}
+					};
+					std::vector<uint32_t> glowing;
+					for (uint32_t i = 0; i < (uint32_t)casters.size(); i++)
+					{
+						const RayCaster& caster = casters[i];
+						if (!caster.MeshRef || caster.Posed || caster.Water
+							|| caster.MeshRef->GetPositions().empty() || caster.MeshRef->GetIndices().size() < 3)
+							continue;
+						if (caster.MaterialRef && IsBlended(caster.MaterialRef->GetBlendMode()))
+							continue;
+						const Vec3 mean = caster.MaterialRef ? caster.MaterialRef->GetEmissiveMean() : Vec3(1.0f);
+						const Vec3 radiance = Vec3(caster.Params.EmissiveColor) * mean;
+						if (Math::Max(radiance.x, Math::Max(radiance.y, radiance.z)) <= 0.0f)
+							continue;
+						glowing.push_back(i);
+						const Mesh* mesh = caster.MeshRef.get();
+						mixKey(&i, sizeof(i));
+						mixKey(&mesh, sizeof(mesh));
+						mixKey(&caster.World, sizeof(Mat4));
+						mixKey(&radiance, sizeof(Vec3));
+					}
+					if (key != s_Data->ReferenceEmitterKey || s_Data->ReferenceEmitterScratch.empty())
+					{
+						s_Data->ReferenceEmitterKey = key;
+						s_Data->ReferenceEmitterScratch.clear();
+						s_Data->ReferenceTriangleScratch.clear();
+						s_Data->ReferenceRowEmitterScratch.assign(Math::Max((uint32_t)casters.size(), 1u), ~0u);
+						for (uint32_t row : glowing)
+						{
+							const RayCaster& caster = casters[row];
+							const std::vector<Vec3>& positions = caster.MeshRef->GetPositions();
+							const std::vector<uint32_t>& indices = caster.MeshRef->GetIndices();
+							GpuReferenceEmitter emitter;
+							emitter.FirstTriangle = (uint32_t)s_Data->ReferenceTriangleScratch.size();
+							emitter.Row = row;
+							Vec3 lo(1.0e30f), hi(-1.0e30f);
+							float area = 0.0f;
+							for (size_t t = 0; t + 2 < indices.size(); t += 3)
+							{
+								const Vec3 p0 = Vec3(caster.World * Vec4(positions[indices[t + 0]], 1.0f));
+								const Vec3 p1 = Vec3(caster.World * Vec4(positions[indices[t + 1]], 1.0f));
+								const Vec3 p2 = Vec3(caster.World * Vec4(positions[indices[t + 2]], 1.0f));
+								const float a = 0.5f * Math::Length(Math::Cross(p1 - p0, p2 - p0));
+								lo = Math::Min(lo, Math::Min(p0, Math::Min(p1, p2)));
+								hi = Math::Max(hi, Math::Max(p0, Math::Max(p1, p2)));
+								area += a;
+								GpuReferenceTriangle triangle;
+								const uint32_t primitive = (uint32_t)(t / 3);
+								float primitiveBits = 0.0f;
+								std::memcpy(&primitiveBits, &primitive, sizeof(float));
+								triangle.P0 = Vec4(p0, area);
+								triangle.E1 = Vec4(p1 - p0, primitiveBits);
+								triangle.E2 = Vec4(p2 - p0, a);
+								s_Data->ReferenceTriangleScratch.push_back(triangle);
+							}
+							emitter.TriangleCount = (uint32_t)s_Data->ReferenceTriangleScratch.size() - emitter.FirstTriangle;
+							if (emitter.TriangleCount == 0 || area <= 0.0f)
+							{
+								s_Data->ReferenceTriangleScratch.resize(emitter.FirstTriangle);
+								continue;
+							}
+							// The running sums become shares of the instance's area.
+							for (uint32_t t = 0; t < emitter.TriangleCount; t++)
+								s_Data->ReferenceTriangleScratch[emitter.FirstTriangle + t].P0.w /= area;
+							const Vec3 centre = (lo + hi) * 0.5f;
+							emitter.Sphere = Vec4(centre, Math::Length(hi - centre));
+							const Vec3 mean = caster.MaterialRef ? caster.MaterialRef->GetEmissiveMean() : Vec3(1.0f);
+							emitter.Radiance = Vec4(Vec3(caster.Params.EmissiveColor) * mean, area);
+							s_Data->ReferenceRowEmitterScratch[row] = (uint32_t)s_Data->ReferenceEmitterScratch.size();
+							s_Data->ReferenceEmitterScratch.push_back(emitter);
+						}
+					}
+					if (s_Data->ReferenceRowEmitterScratch.size() < Math::Max((uint32_t)casters.size(), 1u))
+						s_Data->ReferenceRowEmitterScratch.resize(Math::Max((uint32_t)casters.size(), 1u), ~0u);
+
+					// None glowing still binds one record of no area, which every
+					// loop over them weighs at zero.
+					const bool none = s_Data->ReferenceEmitterScratch.empty();
+					const GpuReferenceEmitter noEmitter{};
+					const GpuReferenceTriangle noTriangle{};
+					const uint32_t emitterCount = none ? 1u : (uint32_t)s_Data->ReferenceEmitterScratch.size();
+					const uint32_t triangleCount = Math::Max((uint32_t)s_Data->ReferenceTriangleScratch.size(), 1u);
+					const uint32_t rowCount = (uint32_t)s_Data->ReferenceRowEmitterScratch.size();
+					if (!EnsureInstanceBuffer(slot.ReferenceRowEmitter, slot.ReferenceRowEmitterCapacity, rowCount,
+											  sizeof(uint32_t), "Renderer3D.reference.rowemitter")
+						|| !EnsureInstanceBuffer(slot.ReferenceEmitters, slot.ReferenceEmitterCapacity, emitterCount,
+												 sizeof(GpuReferenceEmitter), "Renderer3D.reference.emitters"))
+					{
+						return;
+					}
+					const uint32_t triangleCapacity = slot.ReferenceTriangleCapacity;
+					if (!EnsureInstanceBuffer(slot.ReferenceTriangles, slot.ReferenceTriangleCapacity, triangleCount,
+											  sizeof(GpuReferenceTriangle), "Renderer3D.reference.triangles"))
+					{
+						return;
+					}
+					slot.ReferenceRowEmitter->Upload(s_Data->ReferenceRowEmitterScratch.data(),
+													 (uint64_t)rowCount * sizeof(uint32_t));
+					if (none)
+						slot.ReferenceEmitters->Upload(&noEmitter, sizeof(noEmitter));
+					else
+						slot.ReferenceEmitters->Upload(s_Data->ReferenceEmitterScratch.data(),
+													   (uint64_t)emitterCount * sizeof(GpuReferenceEmitter));
+					// The triangles are this slot's to upload once per change of
+					// the table (a grown buffer is a new one and needs them too).
+					if (slot.ReferenceTrianglesUploaded != s_Data->ReferenceEmitterKey
+						|| triangleCapacity != slot.ReferenceTriangleCapacity)
+					{
+						if (s_Data->ReferenceTriangleScratch.empty())
+							slot.ReferenceTriangles->Upload(&noTriangle, sizeof(noTriangle));
+						else
+							slot.ReferenceTriangles->Upload(s_Data->ReferenceTriangleScratch.data(),
+															(uint64_t)s_Data->ReferenceTriangleScratch.size()
+																* sizeof(GpuReferenceTriangle));
+						slot.ReferenceTrianglesUploaded = s_Data->ReferenceEmitterKey;
+					}
+				}
 				const uint32_t rowCount = (uint32_t)s_Data->ReferenceRowExtraScratch.size();
 				const uint32_t recordCount = (uint32_t)s_Data->ReferenceLayeredScratch.size();
 				if (!EnsureInstanceBuffer(slot.ReferenceRowExtra, slot.ReferenceRowExtraCapacity, rowCount,
@@ -8198,6 +8374,7 @@ namespace RageV
 		mixVector(s_Data->ReferenceLayeredScratch);
 		mixVector(s_Data->ReferenceRowExtraScratch);
 		mixVector(s_Data->ReferenceWaterScratch);
+		mix(&s_Data->ReferenceEmitterKey, sizeof(s_Data->ReferenceEmitterKey));
 		mixVector(s_Data->Emitters);
 		mixVector(s_Data->EmitterCdf);
 		mix(&s_Data->Scene.Environment, sizeof(s_Data->Scene.Environment));
@@ -8232,7 +8409,8 @@ namespace RageV
 		if (!s_Data->ReferencePipeline)
 			return;
 		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
-		if (!slot.LampSet || !slot.ReferenceRowExtra || !slot.ReferenceLayered || !slot.ReferenceWater)
+		if (!slot.LampSet || !slot.ReferenceRowExtra || !slot.ReferenceLayered || !slot.ReferenceWater
+			|| !slot.ReferenceRowEmitter || !slot.ReferenceEmitters || !slot.ReferenceTriangles)
 			return;
 		if (!slot.ReferenceInputs)
 			slot.ReferenceInputs = s_Data->Device->CreateResourceSet(s_Data->ReferencePipeline, 3);
@@ -8242,6 +8420,9 @@ namespace RageV
 		slot.ReferenceInputs->SetStorageBuffer(1, slot.ReferenceRowExtra);
 		slot.ReferenceInputs->SetStorageBuffer(2, slot.ReferenceLayered);
 		slot.ReferenceInputs->SetStorageBuffer(3, slot.ReferenceWater);
+		slot.ReferenceInputs->SetStorageBuffer(4, slot.ReferenceRowEmitter);
+		slot.ReferenceInputs->SetStorageBuffer(5, slot.ReferenceEmitters);
+		slot.ReferenceInputs->SetStorageBuffer(6, slot.ReferenceTriangles);
 		slot.ReferenceInputs->Commit();
 
 		struct ReferenceParams
