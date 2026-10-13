@@ -4,6 +4,9 @@
 #include "Input.h"
 #include "EngineConfig.h"
 #include "RageV/Renderer/Renderer.h"
+#include "RageV/Renderer/TemporalMemory.h"
+#include "RageV/Renderer/RHI/RHIFailures.h"
+#include <thread>
 #include "RageV/Audio/AudioEngine.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Asset/ScriptGraphGenerator.h"
@@ -84,6 +87,12 @@ namespace RageV {
 	// m_Instance so that a module outside the engine DLL sees the one instance.
 	Application& Application::Get() { return *m_Instance; }
 	bool Application::Exists() { return m_Instance != nullptr; }
+
+	uint64_t Application::GetScreenshotFrame() const
+	{
+		const EngineConfig& config = EngineConfig::Get();
+		return config.ScreenshotWhenSettled ? m_SettledFrame : (uint64_t)config.ScreenshotFrame;
+	}
 
 	Application::Application(const std::string& appname, bool choosesProject) {
 		RV_CORE_ASSERT(!m_Instance, "Application instance already present present");
@@ -747,6 +756,23 @@ namespace RageV {
 			? Math::Max(10u, benchmarkFrames / 5u) : 0u;
 
 		while (m_Running) {
+			// **RT2-2a: --frame-cap.** A measurement run held at a level rate
+			// instead of racing: a laptop that runs flat out warms, and the
+			// next arm of an A,B,B,A pays for the last. The coarse part sleeps,
+			// the last two milliseconds spin (Windows rounds a sleep up), and a
+			// frame that ran late moves the deadline rather than bursting.
+			if (config.FrameCap > 0.0f)
+			{
+				using clock = std::chrono::steady_clock;
+				const auto period = std::chrono::duration_cast<clock::duration>(
+					std::chrono::duration<double>(1.0 / config.FrameCap));
+				const auto now = clock::now();
+				m_CapNext = m_CapNext.time_since_epoch().count() == 0 || now - m_CapNext > period
+						  ? now : m_CapNext + period;
+				while (clock::now() + std::chrono::milliseconds(2) < m_CapNext)
+					std::this_thread::sleep_for(std::chrono::milliseconds(1));
+				while (clock::now() < m_CapNext) {}
+			}
 			const float time = (float)GetTime();
 			// A fixed frame time when one was asked for, so a capture is
 			// reproducible. Everything downstream of this -- particles,
@@ -868,10 +894,31 @@ namespace RageV {
 			// jitter. Two counters that were meant to agree would be one more
 			// thing that can drift.
 			const uint64_t frameNumber = Renderer::GetFrameCount();
+			// **RT2-2a: settled, when asked for.** The layer reports the camera
+			// and the scene each frame (TemporalMemory::Observe); the first
+			// frame it says every history in force is full is the capture's.
+			if (config.ScreenshotWhenSettled && m_SettledFrame == 0 && TemporalMemory::Settled())
+			{
+				m_SettledFrame = frameNumber;
+				RV_CORE_INFO("Settled at frame {0}: still for {1} frames, the longest memory {2}",
+							 frameNumber, TemporalMemory::StillFrames(), TemporalMemory::Longest());
+			}
+			// A scene that never settles is a failed measurement, said so --
+			// exit 3 and no file -- rather than a run that never ends.
+			constexpr uint64_t kSettleLimit = 20000;
+			if (config.ScreenshotWhenSettled && m_SettledFrame == 0 && frameNumber >= kSettleLimit
+				&& RHI::Failures::Record("settle|never", "the scene never settled"))
+			{
+				RV_CORE_ERROR("--screenshot-frame=settled: still not settled after {0} frames "
+							  "(the camera moving, or a bake or probe not ready); stopping",
+							  kSettleLimit);
+				m_Running = false;
+			}
+			const uint64_t firstScreenshotFrame = GetScreenshotFrame();
 			const uint64_t lastScreenshotFrame =
-				(uint64_t)config.ScreenshotFrame + Math::Max(config.ScreenshotCount, 1u) - 1;
-			if (!config.ScreenshotPath.empty() && frameNumber >= config.ScreenshotFrame
-				&& frameNumber <= lastScreenshotFrame)
+				firstScreenshotFrame + Math::Max(config.ScreenshotCount, 1u) - 1;
+			if (!config.ScreenshotPath.empty() && firstScreenshotFrame > 0
+				&& frameNumber >= firstScreenshotFrame && frameNumber <= lastScreenshotFrame)
 			{
 				// One frame: the file as named. A run of them: numbered, so a
 				// flicker can be looked at as the sequence it is.
@@ -904,7 +951,7 @@ namespace RageV {
 			// submitted, so the last screenshot frame's values need a frame after
 			// it. That frame writes no screenshot.
 			const uint64_t lastFrame = lastScreenshotFrame + (config.CaptureSignals.empty() ? 0u : 1u);
-			if (!config.ScreenshotPath.empty() && frameNumber >= lastFrame)
+			if (!config.ScreenshotPath.empty() && firstScreenshotFrame > 0 && frameNumber >= lastFrame)
 				m_Running = false;
 
 			// **A lost device ends the run.** It cannot be recovered from

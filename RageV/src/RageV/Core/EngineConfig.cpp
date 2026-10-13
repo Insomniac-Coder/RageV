@@ -1211,6 +1211,46 @@ namespace RageV
 			return true;
 		}
 
+		if (key == "frame-cap" || key == "framecap")
+		{
+			try
+			{
+				config.FrameCap = Math::Max(std::stof(value), 0.0f);
+				return true;
+			}
+			catch (const std::exception&)
+			{
+				RV_CORE_WARN("frame-cap expects frames a second, got '{0}'", value);
+				return false;
+			}
+		}
+
+		if (key == "camera-swing" || key == "cameraswing")
+		{
+			// deg[,rate[,seconds[,delay]]]; what is left out keeps its default.
+			float* fields[4] = { &config.CameraSwing, &config.CameraSwingRate,
+								 &config.CameraSwingSeconds, &config.CameraSwingDelay };
+			size_t start = 0;
+			for (float* field : fields)
+			{
+				const size_t comma = value.find(',', start);
+				try
+				{
+					*field = Math::Max(std::stof(value.substr(start, comma == std::string::npos
+																	? std::string::npos : comma - start)), 0.0f);
+				}
+				catch (const std::exception&)
+				{
+					RV_CORE_WARN("camera-swing expects deg[,rate[,seconds[,delay]]], got '{0}'", value);
+					return false;
+				}
+				if (comma == std::string::npos)
+					break;
+				start = comma + 1;
+			}
+			return true;
+		}
+
 		if (key == "theme")
 		{
 			const std::string wanted = ToLower(value);
@@ -1225,6 +1265,11 @@ namespace RageV
 
 		if (key == "screenshot-frame" || key == "screenshotframe")
 		{
+			if (ToLower(value) == "settled")
+			{
+				config.ScreenshotWhenSettled = true;
+				return true;
+			}
 			try
 			{
 				config.ScreenshotFrame = (uint32_t)Math::Max(std::stoi(value), 1);

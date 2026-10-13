@@ -792,10 +792,41 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 - **Size.** 2-3 sessions.
 - **Closes.** rhi-s1, GPU-13, GPU-15, rhi-s2 (the checking half), ISS-24, ISS-25, ISS-36 (the device-loss re-check); the measuring halves of GPU-09 and CORE-05; parts of ISS-6, GI-13, CORE-10 and frame-13; the comparison's finding E-N5 (section 8).
 
-### RT2-2 · Instruments that can settle questions
+### RT2-2 · Instruments that can settle questions (2a part 1 built 2026-10-13)
 
 - **In plain words.** Most later decisions are "which picture is right" or "does this signal work without TAA". This item builds the instruments that answer those questions: a reference renderer that shares none of the shortcuts it judges, one command that renders and diffs every test camera, a command that proves a signal stands on its own, and new test scenes. Nothing on screen changes.
 
+> **2a part 1 built, 2026-10-13.**
+> - *Settled, not a frame number.* `TemporalMemory` (Renderer): every pass that blends into a history
+>   notes the most frames it keeps (the shared accumulator's Memory, Pair and Blur frames; TAA 64; the
+>   reflection accumulate's settle count 32; GI denoise 16; the sea's lamp cap). The three that lived as
+>   shader constants are defined there once and handed to every shader as defines (a new
+>   `ShaderCompiler::SetGlobalDefines`). `--screenshot-frame=settled` captures at the first frame the
+>   camera has stood still -- with the scene's bakes, probes and solves done (`BakedLightingSettled`) --
+>   for longer than the longest memory in force; a scene that never settles fails loudly (exit 3, no
+>   file) after 20,000 frames. The garage, the bridge and the camp settle at frame 66 (64 in force).
+> - *The measurement camera.* `--camera` now holds the scene's camera every frame (its scripts removed
+>   from the loaded copy), and `--camera-swing=deg[,rate[,seconds[,delay]]]` is RT-24's Orbiter swing
+>   on any scene; settled waits for the swing to end. Each capture logs the pose it was taken from, as
+>   `--camera=...`, so a shot a script frames (the garage's, the camp's) can be repeated and swung.
+> - *`--frame-cap=FPS`:* sleep, then spin the last 2 ms; holds 33.333 ms exactly at 30 (the garage
+>   uncapped: 20.4). Its effect on the warm-laptop drift is still to measure.
+> - *`tools/scripts/baseline.py record|check`:* garage, Headland, Deck, Glitter and the camp, parked
+>   (settled) in all six AA modes and over a 60-frame 15-degree swing, against a stored baseline in
+>   build/baseline/NAME: a count per scene and a diff picture per differing frame. Swing frames are
+>   compared by pixel hash, every tenth kept as a picture (all of them would be ~600 MB).
+> - *Gates so far:* the four shots byte-identical before and after; scenetest and `check_gpu_lit.py`
+>   green; parked frames reproduce their baseline exactly.
+> - **Found, open (blocks 2a's "reproduces its own baseline" gate):** with the scene's clock running
+>   (1/60 s), two runs of one build differ in the ray-traced reflections -- tens of thousands of
+>   speckles on the floor by frame 123, up to ~40 levels. Not with traced reflections off, **not with
+>   `--frames-in-flight=1`**, not when every frame is captured (each capture waits for the GPU), and not
+>   with the clock pinned near zero (nothing changes frame to frame). So the reflection path reads
+>   something the next frame in flight is changing, in a way the layers do not see: sync validation
+>   with the clock running reports nothing, every CPU-written buffer it uses is per frame slot, and its
+>   atomics are the counters' only. Next: dump each history once at frames 20..120 in two runs to find
+>   the first resource that differs.
+>
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'
 > reflections should be: they fattened when RT-21 removed the highlight cap (bisected: 39% of the near

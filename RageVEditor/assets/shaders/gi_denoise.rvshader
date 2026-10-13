@@ -112,7 +112,7 @@ float Luma(vec3 c)
 // job is the warm-up -- once 1/n falls below the configured feedback the
 // feedback takes over -- so it stops there rather than climbing forever and
 // losing precision in a half float.
-const float kMaxFrames = 16.0;
+const float kMaxFrames = RV_MEMORY_GI;   // TemporalMemory::kGiDenoise
 
 // **Accumulate in a range-compressed space, not in linear irradiance.**
 //

@@ -67,8 +67,14 @@
 //   --project=<path>        the .rvproject to open, or a folder containing one
 //   --screenshot=<file>     write a PNG of one frame and exit
 //   --loading-screenshot=<file>  write a PNG of a frame drawn while loading
-//   --screenshot-frame=N    which frame to capture (default 30, to let the
-//                           scene settle and any first-frame allocation pass)
+//   --screenshot-frame=N|settled  which frame to capture (default 30, to let
+//                           the scene settle and any first-frame allocation
+//                           pass). settled: the first frame the camera has stood
+//                           still, with the scene's bakes and probes ready, for
+//                           longer than the longest memory any pass keeps
+//                           (TemporalMemory) -- the count follows the passes
+//   --frame-cap=FPS         at most this many frames a second (measurement
+//                           runs: a level load rather than a race; 0 is off)
 //   --screenshot-count=N    capture N consecutive frames from that one, as
 //                           <file>_<frame>.png, then exit (default 1: the
 //                           file as named)
@@ -81,7 +87,13 @@
 //   --scene=<path>          open this scene instead of the project's start scene
 //   --ui-scale=N|auto       editor UI scale; auto follows the monitor
 //   --theme=dark|light      editor theme; default is whatever was last used
-//   --camera=x,y,z,d,yaw,pitch   where the editor camera starts (degrees)
+//   --camera=x,y,z,d,yaw,pitch   where the editor camera starts (degrees);
+//                           the runtime holds the scene's camera there every
+//                           frame, its scripts removed (a measurement camera)
+//   --camera-swing=deg[,rate[,seconds[,delay]]]  with --camera: swing the yaw
+//                           deg either side, rate times a second, for seconds,
+//                           after delay (defaults 2, 1, 2): the drag test of
+//                           RT-24's Orbiter, on any scene
 //   --ray-budget=<ms>       hold this GPU frame time by scaling ray counts;
 //                           0 (default) spends the quality rung's full count
 //   --shadow-rays=<shape>,<start>,<end>[,<floor>][,lit]  override the project's
@@ -223,6 +235,8 @@ namespace RageV
 		// was drawn, a scene rendered through the wrong camera.
 		std::string ScreenshotPath;
 		uint32_t    ScreenshotFrame = 30;
+		// RT2-2a: capture at the first settled frame instead (TemporalMemory).
+		bool        ScreenshotWhenSettled = false;
 		// How many consecutive frames from ScreenshotFrame to write. One is
 		// the file as named; more writes <stem>_<frame><ext> for each, in one
 		// run, which is the only way to look at a flicker: separate runs are
@@ -910,6 +924,13 @@ namespace RageV
 		float CameraDistance = 10.0f;
 		float CameraYaw = 0.0f;
 		float CameraPitch = 0.0f;
+		// RT2-2a: a swing about the --camera pose. Zero degrees is none.
+		float CameraSwing = 0.0f;
+		float CameraSwingRate = 2.0f;
+		float CameraSwingSeconds = 1.0f;
+		float CameraSwingDelay = 2.0f;
+		// RT2-2a: at most this many frames a second. Zero is off.
+		float FrameCap = 0.0f;
 
 		// How much to scale the editor's font and spacing.
 		//

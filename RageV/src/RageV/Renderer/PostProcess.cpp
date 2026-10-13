@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <rvpch.h>
 #include "PostProcess.h"
+#include "TemporalMemory.h"
 #include "Renderer.h"
 #include "RayCounters.h"
 // The stand-in cube the fog binds when a scene has no sky to take its colour
@@ -1666,6 +1667,7 @@ namespace RageV
 									  const Ref<RHITexture>& revealage,
 									  const Mat4* reproject, float depthFloor, float frustumExtent)
 	{
+		TemporalMemory::Note((float)TemporalMemory::kTaa);   // RT2-2a
 		// The base block, then this frame's jitter (clip units, as the scene
 		// block carries it): the resolve filters the current frame around
 		// the unjittered pixel centre before blending it.
@@ -1818,6 +1820,7 @@ namespace RageV
 	{
 		if (!s_Data || !current)
 			return;
+		TemporalMemory::Note((float)TemporalMemory::kGiDenoise);   // RT2-2a
 
 		// The shared block, then RT-5's frame number for the shader's half-grid
 		// rounding of its averages.

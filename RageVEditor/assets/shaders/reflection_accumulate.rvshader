@@ -265,7 +265,7 @@ const float kMomentFrames = 16.0;
 // How much wider the bound stands once a history has its full memory, and the
 // count at which it gets there. One would be the old behaviour at every age.
 const float kSettledBound = 2.0;
-const float kSettledFrames = 32.0;
+const float kSettledFrames = RV_MEMORY_SETTLED;   // TemporalMemory::kSettled
 // How many of the pixel's own standard deviations the bound opens to.
 const float kTemporalSigma = 2.0;
 // **The smear cap (WR-16 R12, 2026-09-06).** A running average of a moving

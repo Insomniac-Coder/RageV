@@ -15,6 +15,7 @@
 #include "TemporalHistory.h"
 #include "RageV/Core/EngineConfig.h"
 #include "Meshlet.h"
+#include "TemporalMemory.h"
 #include "RageV/Math/Math.h"
 
 namespace RageV
@@ -6943,6 +6944,8 @@ namespace RageV
 		push.History.x = hasHistory && previousIndex && previousWeight
 					  && lamps.WaterLampReuse && lamps.WaterLampHistory ? 1.0f : 0.0f;
 		push.History.y = (float)lamps.WaterLampCap;
+		if (push.History.x > 0.5f)
+			TemporalMemory::Note((float)lamps.WaterLampCap);   // RT2-2a
 		push.History.z = lamps.WaterLampReuse && lamps.WaterLampNeighbours
 					   ? (float)lamps.WaterLampTaps : 0.0f;
 		// And this frame's camera becomes the next one's answer to "where was
@@ -7597,6 +7600,10 @@ namespace RageV
 												   : s_Data->ReflectionAccumulatePipeline;
 		if (!s_Data || !pipeline || !s_Data->ActiveScene)
 			return;
+		// RT2-2a: what this signal keeps, and the accumulate's own settle count.
+		TemporalMemory::Note(Math::Max(signal.Memory, signal.PairMemory));
+		TemporalMemory::Note(signal.BlurFrames);
+		TemporalMemory::Note((float)TemporalMemory::kSettled);
 		RHICommandList* cmd = Renderer::GetCommandList();
 		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
 		if (!cmd || !slot.LampSet || !fresh || !depth || !surface)

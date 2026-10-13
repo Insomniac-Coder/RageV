@@ -2,6 +2,8 @@
 #include "Renderer.h"
 #include "Renderer2D.h"
 #include "Renderer3D.h"
+#include "TemporalMemory.h"
+#include "RHI/ShaderCompiler.h"
 #include "DebugRenderer.h"
 #include "ParticleRenderer.h"
 #include "LightGlow.h"
@@ -45,6 +47,9 @@ namespace RageV
 	void Renderer::Init(RHI::RHIDevice& device)
 	{
 		s_Device = &device;
+		// Before the first compile: the frame limits shaders share with the
+		// engine's settle rule (TemporalMemory, RT2-2a).
+		RHI::ShaderCompiler::SetGlobalDefines(TemporalMemory::ShaderDefines());
 
 
 		Renderer2D::Init(device);
@@ -99,6 +104,7 @@ namespace RageV
 	{
 		s_CommandList = commandList;
 		s_FrameCount++;
+		TemporalMemory::BeginFrame();
 
 		// Belt and braces: nothing outside a scene pass should ever read a
 		// non-zero jitter, and a frame that threw one away half-drawn would

@@ -10,6 +10,7 @@
 #include "FixedStep.h"
 
 #include <filesystem>
+#include <chrono>
 #include <string>
 
 
@@ -122,6 +123,15 @@ namespace RageV {
 		// Frames run under --benchmark, warm-up included. Separate from the
 		// screenshot counter, which only advances when a screenshot is armed.
 		uint32_t m_BenchmarkFrame = 0;
+		// RT2-2a: the frame --screenshot-frame=settled found, zero until then;
+		// and the deadline --frame-cap holds the next frame to.
+		uint64_t m_SettledFrame = 0;
+		std::chrono::steady_clock::time_point m_CapNext{};
+	public:
+		// The first frame a screenshot is taken at: ScreenshotFrame, or the
+		// settled frame once found (zero before). Signal captures read it too.
+		uint64_t GetScreenshotFrame() const;
+	private:
 
 		// Real time not yet spent in fixed steps, plus where the renderer sits
 		// between the last completed step and the next one.

@@ -116,6 +116,11 @@ private:
 	bool m_Ready = false;
 	// How long a forced bake has had nothing left to store. See OnUpdate.
 	uint32_t m_BakeSettledFrames = 0;
+	// RT2-2a: the measurement camera's clock (--camera-swing) and where the
+	// camera stood last frame (whether it has stood still, for "settled").
+	void ApplyCameraPose(float seconds);
+	float m_PoseClock = 0.0f;
+	RageV::Math::Mat4 m_LastCameraWorld{ 0.0f };
 
 	// Which scene was opened, carried from OnLoad so OnLoaded can name it in
 	// the one line a shipped game logs about starting.

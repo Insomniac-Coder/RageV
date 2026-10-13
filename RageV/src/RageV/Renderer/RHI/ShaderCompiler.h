@@ -91,6 +91,9 @@ namespace RageV::RHI
 		// unless --shader-cache=off). Empty disables caching. Trims the folder to
 		// its size cap.
 		static void SetCacheDirectory(const std::filesystem::path& directory);
+		// Defines every compile gets ahead of its own (RT2-2a: the frame limits
+		// TemporalMemory owns). Part of every cache key, like any define.
+		static void SetGlobalDefines(const std::vector<std::string>& defines);
 		// One log line: this run's compiles from source, their time, and the hits.
 		static void LogStats();
 

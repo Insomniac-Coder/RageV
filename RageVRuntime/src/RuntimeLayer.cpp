@@ -1,5 +1,6 @@
 #include "RageV/Renderer/UIRenderer.h"
 #include "RuntimeLayer.h"
+#include "RageV/Renderer/TemporalMemory.h"
 #include "RageV/Asset/AssetManager.h"
 #include "RageV/Project/Project.h"
 #include "RageV/Core/EngineConfig.h"
@@ -157,21 +158,22 @@ void RuntimeLayer::OnLoad(Boot::Progress& progress)
 	// unpacked exactly as EditorCamera::SetOrbit unpacks it -- Euler
 	// (-pitch, -yaw, 0) in radians, eye at focus minus forward times distance
 	// -- so the same six numbers frame the same shot in editor and runtime.
+	//
+	// **RT2-2a: and held there.** A measurement camera owns the eye: the
+	// camera's own scripts (the showroom's mouse orbit) are removed from the
+	// loaded copy, and the pose -- with --camera-swing's swing -- is set every
+	// frame before the scene updates, so world transforms and motion vectors
+	// follow it the way they follow anything else that moves.
 	if (EngineConfig::Get().HasCameraPose)
 	{
 		if (Entity camera = m_Scene->GetPrimaryCameraEntity())
 		{
-			const EngineConfig& config = EngineConfig::Get();
-			const Vec3 rotation(-Math::Radians(config.CameraPitch),
-								-Math::Radians(config.CameraYaw), 0.0f);
-			const Vec3 forward = Math::Rotate(Math::FromEuler(rotation),
-											  Vec3(0.0f, 0.0f, -1.0f));
-			TransformComponent& transform =
-				camera.GetComponent<TransformComponent>();
-			transform.Rotation = rotation;
-			transform.Position = config.CameraFocus
-							   - forward * Math::Max(config.CameraDistance, 0.01f);
+			if (camera.HasComponent<NativeScriptComponent>())
+				camera.RemoveComponent<NativeScriptComponent>();
+			if (camera.HasComponent<ManagedScriptComponent>())
+				camera.RemoveComponent<ManagedScriptComponent>();
 		}
+		ApplyCameraPose(0.0f);
 	}
 
 	if (progress.Cancelled())
@@ -181,6 +183,29 @@ void RuntimeLayer::OnLoad(Boot::Progress& progress)
 	Assets::Manager::PrepareScene(*m_Scene, progress);
 
 	m_SceneName = startScene;
+}
+
+// The --camera orbit, unpacked exactly as EditorCamera::SetOrbit unpacks it --
+// Euler (-pitch, -yaw, 0) in radians, eye at focus minus forward times distance
+// -- with the yaw swung as RT-24's Orbiter swings it: `CameraSwing` degrees
+// either side, `CameraSwingRate` times a second, for `CameraSwingSeconds`,
+// after `CameraSwingDelay`, then still at the start.
+void RuntimeLayer::ApplyCameraPose(float seconds)
+{
+	Entity camera = m_Scene ? m_Scene->GetPrimaryCameraEntity() : Entity{};
+	if (!camera)
+		return;
+	const EngineConfig& config = EngineConfig::Get();
+	const float turning = Math::Clamp(seconds - config.CameraSwingDelay, 0.0f, config.CameraSwingSeconds);
+	const float swung = config.CameraSwing > 0.0f
+					  ? config.CameraSwing * std::sin(2.0f * 3.14159265f * config.CameraSwingRate * turning)
+					  : 0.0f;
+	const Vec3 rotation(-Math::Radians(config.CameraPitch),
+						-Math::Radians(config.CameraYaw + swung), 0.0f);
+	const Vec3 forward = Math::Rotate(Math::FromEuler(rotation), Vec3(0.0f, 0.0f, -1.0f));
+	TransformComponent& transform = camera.GetComponent<TransformComponent>();
+	transform.Rotation = rotation;
+	transform.Position = config.CameraFocus - forward * Math::Max(config.CameraDistance, 0.01f);
 }
 
 // Main thread, one slice per loading-screen frame.
@@ -242,7 +267,9 @@ void RuntimeLayer::CaptureSignals()
 	if (frame == 0)
 		return;
 	const uint64_t written = frame - 1;
-	const uint64_t first = config.ScreenshotFrame;
+	const uint64_t first = Application::Get().GetScreenshotFrame();
+	if (first == 0)
+		return;
 	const uint64_t last = first + Math::Max(config.ScreenshotCount, 1u) - 1;
 	if (written < first || written > last)
 		return;
@@ -475,7 +502,42 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 		UI::UpdatePointer(*m_Scene, (float)m_Width, (float)m_Height, pointer);
 	}
 
+	if (EngineConfig::Get().HasCameraPose)
+	{
+		m_PoseClock += ts.GetSeconds();
+		ApplyCameraPose(m_PoseClock);
+	}
+
 	m_Scene->OnUpdateRuntime(ts);
+
+	// RT2-2a: the frame's word for "settled" -- has the camera stood still, and
+	// is the scene's lighting (bakes, probes, solves) ready.
+	if (Entity camera = m_Scene->GetPrimaryCameraEntity())
+	{
+		const Mat4& world = camera.GetComponent<TransformComponent>().World;
+		// Still, and nothing scheduled left to move it: a swing still to come
+		// is not a settled camera, however long it has stood before it.
+		const EngineConfig& config = EngineConfig::Get();
+		const bool swingDone = config.CameraSwing <= 0.0f
+							|| m_PoseClock >= config.CameraSwingDelay + config.CameraSwingSeconds;
+		const bool still = std::memcmp(&world, &m_LastCameraWorld, sizeof(Mat4)) == 0 && swingDone;
+		m_LastCameraWorld = world;
+		TemporalMemory::Observe(still, m_Scene->BakedLightingSettled());
+
+		// RT2-2a: the pose a capture was taken from, as --camera would set it,
+		// so a shot framed by a scene's own camera script can be repeated with
+		// the measurement camera (and swung). The eye itself, at distance 0.01.
+		if (!config.ScreenshotPath.empty() && Renderer::GetFrameCount() == Application::Get().GetScreenshotFrame())
+		{
+			const Vec3 forward = Math::Normalize(Vec3(-world[2][0], -world[2][1], -world[2][2]));
+			const Vec3 eye(world[3][0], world[3][1], world[3][2]);
+			const float pitch = -Math::Degrees(std::asin(Math::Clamp(forward.y, -1.0f, 1.0f)));
+			const float yaw = -Math::Degrees(std::atan2(-forward.x, -forward.z));
+			const Vec3 focus = eye + forward * 0.01f;
+			RV_INFO("Captured from --camera={0:.6f},{1:.6f},{2:.6f},0.01,{3:.6f},{4:.6f}",
+					focus.x, focus.y, focus.z, yaw, pitch);
+		}
+	}
 
 	RHI::RHICommandList* cmd = Renderer::GetCommandList();
 	if (!cmd || m_Height == 0)

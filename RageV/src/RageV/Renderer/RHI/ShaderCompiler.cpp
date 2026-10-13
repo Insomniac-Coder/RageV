@@ -20,6 +20,7 @@ namespace RageV::RHI
 	{
 		bool s_Initialized = false;
 		std::filesystem::path s_CacheDirectory;
+		std::vector<std::string> s_GlobalDefines;
 		// RT2-9: what this run's compiles cost, for the startup line (LogStats).
 		std::atomic<uint32_t> s_Compiled{ 0 };
 		std::atomic<uint32_t> s_FromCache{ 0 };
@@ -290,6 +291,11 @@ namespace RageV::RHI
 		s_Initialized = false;
 	}
 
+	void ShaderCompiler::SetGlobalDefines(const std::vector<std::string>& defines)
+	{
+		s_GlobalDefines = defines;
+	}
+
 	void ShaderCompiler::SetCacheDirectory(const std::filesystem::path& directory)
 	{
 		s_CacheDirectory = directory;
@@ -487,7 +493,9 @@ namespace RageV::RHI
 		CompiledShader result;
 		result.Name = desc.Name;
 
-		const std::string preamble = PreambleFor(desc.Defines);
+		std::vector<std::string> defines = s_GlobalDefines;
+		defines.insert(defines.end(), desc.Defines.begin(), desc.Defines.end());
+		const std::string preamble = PreambleFor(defines);
 
 		for (const auto& stageSource : desc.Stages)
 		{

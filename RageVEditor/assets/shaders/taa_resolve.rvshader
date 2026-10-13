@@ -675,7 +675,7 @@ vec3 CurrentAtCentre(vec2 uv, vec3 centreSample)
 // and a still feedback of 0.97 (0.03) was never reached -- measured as 0.94
 // in effect, three arms identical to the pixel. 64 is exact in a half float
 // and covers 0.98.
-const float kMaxFrames = 64.0;
+const float kMaxFrames = RV_MEMORY_TAA;   // TemporalMemory::kTaa
 
 // **The one dial of the temporal floor.** How many of the pixel's own
 // standard deviations the history may sit from the box's centre before it is
