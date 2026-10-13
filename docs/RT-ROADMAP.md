@@ -933,10 +933,14 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >     two levels (the stored gate images are replaced). Left alone: `prefilter.rvshader`'s own
 >     DistributionGGX floors at 1e-6, which only steers which mip a prefiltered environment sample
 >     reads (the raster recipe's probes), noted here for RT2-21b.
->   - *Found by the review, owner to decide:* which Smith term is the material's. The light loop uses
->     Schlick's remap k = (r+1)^2/8, the frame's reflections (the EnvBRDF table) k = r^2/2; at roughness
->     0.045 and a grazing view the two differ by about 2x. The reference uses the light loop's for every
->     bounce until the owner chooses (RT2-21b's Smith arm settles it for the frame).
+>   - *Found by the review, decided by the owner (2026-10-13):* which Smith term is the material's. The
+>     light loop uses Schlick's remap k = (r+1)^2/8, the frame's reflections (the EnvBRDF table)
+>     k = r^2/2; at roughness 0.045 and a grazing view the two differ by about 2x. Shown both in the
+>     reference on the garage's wet floor, the owner chose the exact one: the reference now uses the
+>     height-correlated GGX Smith term (Heitz 2014; Unreal's, Frostbite's, Filament's), anisotropic
+>     where the lobe is, for every light and bounce. With it the car's reflection in the puddles is 58%
+>     brighter and the frame as a whole 5-7%, which is the gap step 2 had seen between the real-time
+>     floor and the reference. RT2-21b moves the frame onto the same term (its "Smith swap" arm).
 >   - *Still missing, owner's report 2026-10-13 ("the bridge reflection looks wrong with path
 >     tracer"):* the sea. A WaterComponent is not in the ray structure, so the reference's rays pass
 >     through it and light the seabed. Water is the next item (its own plan to the owner).

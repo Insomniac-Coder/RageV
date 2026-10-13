@@ -26,6 +26,16 @@
 // roughness (WR-13) -- the reference resolves the pixel by averaging -- and no
 // widened lobe for a sized lamp, whose real shape step 3 samples.
 //
+// **The Smith term is the exact one** (owner, 2026-10-13): the
+// height-correlated masking-shadowing of the GGX microsurface (Heitz 2014),
+// anisotropic where the lobe is, which is what Unreal, Frostbite and Filament
+// ship for every light. The frame carries two approximations of it -- the
+// light loop's Schlick remap k = (r+1)^2/8, made for point lamps and darker
+// than the truth at a grazing view, and the reflections' k = r^2/2 in the
+// EnvBRDF table -- and the reference judges both rather than adopting either;
+// RT2-21b moves the frame onto this one. Shown to the owner on the garage's
+// wet floor: the car's reflection in the puddles is 58% brighter with it.
+//
 // **Albedo is held to [0, 1]** (review, 2026-10-13), as the G-buffer's UNORM
 // lane holds it; the forward loop does not, and an albedo above one (a
 // macro-brightened texel) is light from nowhere. (The review also found the
@@ -634,9 +644,17 @@ bool RefBaseLobe(RefHit h, out mat3 frame, out float ax, out float ay)
 	return false;
 }
 
-// The base lobe's specular for a given F0, as the frame's light loop writes
-// it: NDF x G x F over (4 N.V N.L + 0.0001), with N.V clamped at zero.
-// Without the cosine. Returns F too, for the diffuse's share.
+// Smith's Lambda for the lobe's widths, toward a direction above its frame:
+// exact for GGX, anisotropic where ax and ay differ.
+float RefSmithLambda(vec3 w, float ax, float ay)
+{
+	return 0.5 * (-1.0 + sqrt(1.0 + (ax * ax * w.x * w.x + ay * ay * w.y * w.y) / (w.z * w.z)));
+}
+
+// The base lobe's specular for a given F0: NDF x G x F over (4 N.V N.L), with
+// the frame's distribution and Fresnel and the exact height-correlated Smith
+// term (the header says why). Without the cosine. Returns F too, for the
+// diffuse's share.
 vec3 RefBaseSpecular(RefHit h, vec3 V, vec3 L, vec3 F0, out vec3 F)
 {
 	const float NdotL = max(dot(h.N, L), 0.0);
@@ -649,9 +667,13 @@ vec3 RefBaseSpecular(RefHit h, vec3 V, vec3 L, vec3 F0, out vec3 F)
 		NDF = DistributionGGXAniso(max(dot(h.N, H), 0.0), dot(frame[0], H), dot(frame[1], H), ax, ay);
 	else
 		NDF = DistributionGGX(h.N, H, h.Roughness);
-	const float G = GeometrySchlickGGX(NdotVc, h.Roughness) * GeometrySchlickGGX(NdotL, h.Roughness);
 	F = FresnelSchlick(max(dot(H, V), 0.0), F0);
-	return NDF * G * F / (4.0 * NdotVc * NdotL + 0.0001);
+	const vec3 Vl = transpose(frame) * V;
+	const vec3 Ll = transpose(frame) * L;
+	if (Vl.z <= 0.0 || Ll.z <= 0.0)
+		return vec3(0.0);
+	const float G = 1.0 / (1.0 + RefSmithLambda(Vl, ax, ay) + RefSmithLambda(Ll, ax, ay));
+	return NDF * G * F / (4.0 * Vl.z * Ll.z);
 }
 
 // The ordinary surface, f x cosine: what one unit of radiance arriving along
@@ -755,8 +777,7 @@ float RefLobePdf(mat3 frame, float ax, float ay, vec3 V, vec3 L)
 	if (Hl.z <= 0.0)
 		return 0.0;
 	const float D = DistributionGGXAniso(Hl.z, Hl.x, Hl.y, ax, ay);
-	const float lambda = 0.5 * (-1.0 + sqrt(1.0 + (ax * ax * Vl.x * Vl.x + ay * ay * Vl.y * Vl.y) / (Vl.z * Vl.z)));
-	return D / (1.0 + lambda) / (4.0 * Vl.z);
+	return D / (1.0 + RefSmithLambda(Vl, ax, ay)) / (4.0 * Vl.z);
 }
 
 // The wrapped diffuse's own distribution over the upper hemisphere: density
