@@ -824,8 +824,15 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   with the clock pinned near zero (nothing changes frame to frame). So the reflection path reads
 >   something the next frame in flight is changing, in a way the layers do not see: sync validation
 >   with the clock running reports nothing, every CPU-written buffer it uses is per frame slot, and its
->   atomics are the counters' only. Next: dump each history once at frames 20..120 in two runs to find
->   the first resource that differs.
+>   atomics are the counters' only. **Narrowed further (same day):** identical through frame 66 -- the
+>   frame everything first settles -- and differing by frame 72; already present at dc64669, before
+>   today's resource-set change (smaller there). One frame in flight is repeatable every time (3 of 3);
+>   two never are. A full GPU barrier at the start of each frame does NOT make it repeatable (one lucky
+>   pair said so; three repeats did not), so it is not a missing barrier between two frames' GPU work
+>   either: what remains is the CPU, with two frames in flight, changing something a frame's GPU work
+>   still uses, or a decision taken on the CPU from timing. A dump of every history at frame 70 (one
+>   GPU wait) kept both runs identical to frame 72, which fits a timing race. Open; parked until the
+>   owner chooses.
 >
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'
