@@ -228,6 +228,14 @@ void main()
 	const ivec2 size = textureSize(u_Accumulated, 0);
 	const vec4 centre = texelFetch(u_Accumulated, texel, 0);
 	o_Blurred = centre;
+#if !defined(RV_SIGNAL_DIFFUSE) && !defined(RV_SIGNAL_PAIR)
+	// Written before the early returns below, like the colour. An output a path
+	// leaves unwritten is undefined -- on this GPU, whatever the register held,
+	// which changes with how the frame happened to be scheduled. Nothing reads
+	// these texels' variance today, but a lane that holds noise is a lane two
+	// identical runs disagree on (RT2-2, 2026-10-13).
+	o_Variance = 0.0;
+#endif
 #ifdef RV_SIGNAL_PAIR
 	const vec4 centre2 = texelFetch(u_Accumulated2, texel, 0);
 	o_Blurred2 = centre2;

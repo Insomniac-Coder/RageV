@@ -833,6 +833,33 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   still uses, or a decision taken on the CPU from timing. A dump of every history at frame 70 (one
 >   GPU wait) kept both runs identical to frame 72, which fits a timing race. Open; parked until the
 >   owner chooses.
+> - **Cause found, same day, later: not the CPU and not RageV's code -- for a few frames the driver
+>   runs a differently compiled copy of a shader.** (The "CPU-side" reading above was wrong.)
+>   Everything the CPU hands the GPU is byte-identical in the two runs through frame 120: every buffer
+>   upload, push constant, draw and dispatch, every pipeline bound and every resource each descriptor
+>   set names. GPU-assisted validation over frames 1-90 reports nothing. The first pass to differ is
+>   DirectTrace, somewhere in frames 64-76. Run twice in one frame it is bit-identical to itself, and
+>   every bit of every input to its position reconstruction (depth, the snapped coordinate, the
+>   jitter, the inverse projection) is identical between the runs -- yet `ndc * invProjection * depth`
+>   comes out different in ~147,000 pixels. The same product computed again in the same invocation
+>   under `precise` is identical (2 of 2), while the plain copy still differs; the pipeline is one
+>   object all run. So in one run the GPU executes the same SPIR-V compiled with other fusing and
+>   reordering choices, which Vulkan allows for any arithmetic not marked `precise`. NEE at
+>   reflection hits magnifies those last-bit differences into the speckle (reflection NEE off: 90 px,
+>   max 1 level). It needs the GPU to start a frame straight after the last: a 5 ms idle gap before
+>   each submit (frames 20-123 checked), `--frame-cap=30` (3 of 3 pairs) or one frame in flight makes
+>   every run identical. Marking every float operation NoContraction at load does not cure it (other
+>   instruction choices still differ), so there is no engine-side fix for bit-repeatable runs at full
+>   speed. **Open for the owner:** RT2-2a's harness to run under `--frame-cap` (proposed).
+>   The Intel iGPU differs too, but differently: ~4,000 px, max 8 levels, even at one frame in flight
+>   or with the gap -- a separate source that does not depend on timing; not looked into.
+> - **Fixed on the way:** `reflection_blur.rvshader` left `o_Variance` unwritten on its two early
+>   returns, so that lane held whatever the register did and differed between runs every frame.
+>   Nothing reads those texels, so the picture is unchanged (the four shots byte-identical), but every
+>   comparison of the frame's targets is clean now.
+> - **Recorded, not changed:** GpuCull's object and template tables are one buffer shared by both
+>   frames in flight, rewritten every frame while the previous frame may still read them. The bytes
+>   are the same every frame today, so it is harmless; a scene whose objects move would race.
 >
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'
