@@ -1,0 +1,406 @@
+Scene: Furnace spheres
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 1
+  SkyHorizon: [1, 1, 1]
+  SkyZenith: [1, 1, 1]
+  SkyGround: [1, 1, 1]
+  SkyIntensity: 1
+  SkyRotation: 0
+  SkyCurve: 1
+  CityGlowColor: [0, 0, 0]
+  MoonColor: [0, 0, 0]
+Entities:
+  - EntityID: 7740000000000000001
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 0, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.01
+      PerspectiveFarClip: 1000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 7740000000000000100
+    TagComponent:
+      Tag: Metal sphere roughness 0.0
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 1
+      OverrideRoughness: true
+      Roughness: 0.0
+  - EntityID: 7740000000000000101
+    TagComponent:
+      Tag: Metal sphere roughness 0.1
+    TransformComponent:
+      Position: [100, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 1
+      OverrideRoughness: true
+      Roughness: 0.1
+  - EntityID: 7740000000000000102
+    TagComponent:
+      Tag: Metal sphere roughness 0.2
+    TransformComponent:
+      Position: [200, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 1
+      OverrideRoughness: true
+      Roughness: 0.2
+  - EntityID: 7740000000000000103
+    TagComponent:
+      Tag: Metal sphere roughness 0.3
+    TransformComponent:
+      Position: [300, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 1
+      OverrideRoughness: true
+      Roughness: 0.3
+  - EntityID: 7740000000000000104
+    TagComponent:
+      Tag: Metal sphere roughness 0.4
+    TransformComponent:
+      Position: [400, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 1
+      OverrideRoughness: true
+      Roughness: 0.4
+  - EntityID: 7740000000000000105
+    TagComponent:
+      Tag: Metal sphere roughness 0.5
+    TransformComponent:
+      Position: [500, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 1
+      OverrideRoughness: true
+      Roughness: 0.5
+  - EntityID: 7740000000000000106
+    TagComponent:
+      Tag: Metal sphere roughness 0.6
+    TransformComponent:
+      Position: [600, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 1
+      OverrideRoughness: true
+      Roughness: 0.6
+  - EntityID: 7740000000000000107
+    TagComponent:
+      Tag: Metal sphere roughness 0.7
+    TransformComponent:
+      Position: [700, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 1
+      OverrideRoughness: true
+      Roughness: 0.7
+  - EntityID: 7740000000000000108
+    TagComponent:
+      Tag: Metal sphere roughness 0.8
+    TransformComponent:
+      Position: [800, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 1
+      OverrideRoughness: true
+      Roughness: 0.8
+  - EntityID: 7740000000000000109
+    TagComponent:
+      Tag: Metal sphere roughness 0.9
+    TransformComponent:
+      Position: [900, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 1
+      OverrideRoughness: true
+      Roughness: 0.9
+  - EntityID: 7740000000000000110
+    TagComponent:
+      Tag: Metal sphere roughness 1.0
+    TransformComponent:
+      Position: [1000, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 1
+      OverrideRoughness: true
+      Roughness: 1.0
+  - EntityID: 7740000000000000111
+    TagComponent:
+      Tag: White sphere roughness 0.0
+    TransformComponent:
+      Position: [0, 0, -100]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 0
+      OverrideRoughness: true
+      Roughness: 0.0
+  - EntityID: 7740000000000000112
+    TagComponent:
+      Tag: White sphere roughness 0.1
+    TransformComponent:
+      Position: [100, 0, -100]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 0
+      OverrideRoughness: true
+      Roughness: 0.1
+  - EntityID: 7740000000000000113
+    TagComponent:
+      Tag: White sphere roughness 0.2
+    TransformComponent:
+      Position: [200, 0, -100]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 0
+      OverrideRoughness: true
+      Roughness: 0.2
+  - EntityID: 7740000000000000114
+    TagComponent:
+      Tag: White sphere roughness 0.3
+    TransformComponent:
+      Position: [300, 0, -100]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 0
+      OverrideRoughness: true
+      Roughness: 0.3
+  - EntityID: 7740000000000000115
+    TagComponent:
+      Tag: White sphere roughness 0.4
+    TransformComponent:
+      Position: [400, 0, -100]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 0
+      OverrideRoughness: true
+      Roughness: 0.4
+  - EntityID: 7740000000000000116
+    TagComponent:
+      Tag: White sphere roughness 0.5
+    TransformComponent:
+      Position: [500, 0, -100]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 0
+      OverrideRoughness: true
+      Roughness: 0.5
+  - EntityID: 7740000000000000117
+    TagComponent:
+      Tag: White sphere roughness 0.6
+    TransformComponent:
+      Position: [600, 0, -100]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 0
+      OverrideRoughness: true
+      Roughness: 0.6
+  - EntityID: 7740000000000000118
+    TagComponent:
+      Tag: White sphere roughness 0.7
+    TransformComponent:
+      Position: [700, 0, -100]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 0
+      OverrideRoughness: true
+      Roughness: 0.7
+  - EntityID: 7740000000000000119
+    TagComponent:
+      Tag: White sphere roughness 0.8
+    TransformComponent:
+      Position: [800, 0, -100]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 0
+      OverrideRoughness: true
+      Roughness: 0.8
+  - EntityID: 7740000000000000120
+    TagComponent:
+      Tag: White sphere roughness 0.9
+    TransformComponent:
+      Position: [900, 0, -100]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 0
+      OverrideRoughness: true
+      Roughness: 0.9
+  - EntityID: 7740000000000000121
+    TagComponent:
+      Tag: White sphere roughness 1.0
+    TransformComponent:
+      Position: [1000, 0, -100]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916737
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [1, 1, 1, 1]
+      OverrideMetallic: true
+      Metallic: 0
+      OverrideRoughness: true
+      Roughness: 1.0

@@ -1,0 +1,67 @@
+Scene: Lamp shape 0.5
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 1
+  SkyHorizon: [0, 0, 0]
+  SkyZenith: [0, 0, 0]
+  SkyGround: [0, 0, 0]
+  SkyIntensity: 1
+  SkyRotation: 0
+  SkyCurve: 1
+  CityGlowColor: [0, 0, 0]
+  MoonColor: [0, 0, 0]
+Entities:
+  - EntityID: 7750000000000000001
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [0, 6, 7]
+      Rotation: [-0.7, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 50
+      PerspectiveNearClip: 0.01
+      PerspectiveFarClip: 1000
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+  - EntityID: 7750000000000000002
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Position: [0, -0.1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [40, 0.2, 40]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916736
+      Material: 0
+      OverrideBaseColor: true
+      BaseColor: [0.8, 0.8, 0.8, 1]
+      OverrideMetallic: true
+      Metallic: 0
+      OverrideRoughness: true
+      Roughness: 1
+  - EntityID: 7750000000000000003
+    TagComponent:
+      Tag: Lamp
+    TransformComponent:
+      Position: [0, 3, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: Point
+      Color: [1, 1, 1]
+      Intensity: 50
+      Range: 200
+      SourceRadius: 0.5
+      SourceLength: 0
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+      Mobility: Realtime

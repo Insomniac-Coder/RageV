@@ -1302,6 +1302,27 @@ namespace RageV
 			}
 		}
 
+		if (key == "reference-debug" || key == "referencedebug")
+		{
+			std::string lowered = value;
+			std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+						   [](unsigned char c) { return (char)std::tolower(c); });
+			if (lowered == "off" || lowered == "none")
+				config.ReferenceDebug = 0;
+			else if (lowered == "albedo")
+				config.ReferenceDebug = 1;
+			else if (lowered == "nv")
+				config.ReferenceDebug = 2;
+			else if (lowered == "surface")
+				config.ReferenceDebug = 3;
+			else
+			{
+				RV_CORE_WARN("reference-debug expects albedo, nv, surface or off; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
 		if (key == "screenshot-count" || key == "screenshotcount")
 		{
 			try

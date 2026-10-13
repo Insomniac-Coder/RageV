@@ -41,7 +41,16 @@
 // macro-brightened texel) is light from nowhere. (The review also found the
 // light loop's GGX capping polished peaks below roughness 0.065 through the
 // floor on its divisor; that is fixed in DistributionGGX itself, owner's OK
-// 2026-10-13, so both renderers share the one function.)
+// 2026-10-13.)
+//
+// **GGX's distribution in the form that keeps its precision** (step 4's
+// furnace). DistributionGGX builds its divisor from 1 - (N.H)^2, which in
+// float cancels near the peak: at roughness 0.045 the peak itself is off by
+// up to 3%, and a mirror sphere under a uniform sky read 2% dark in places,
+// because the sampler's density used the other form and the two no longer
+// divided out. The reference evaluates D through the half vector's tangent
+// components (DistributionGGXAniso at equal widths -- the same function,
+// without the cancellation) for the material and the density alike.
 //
 // **Textures at the ray's footprint** (a ray cone, Akenine-Moller et al. 2021):
 // the cone starts at the pixel's angle and grows with the distance travelled;
@@ -224,7 +233,7 @@ layout(std430, set = 3, binding = 6) readonly buffer ReferenceTriangles
 layout(push_constant) uniform ReferenceParams
 {
 	vec4 Projection;   // xy the inverse projection, z one where rows run down (Vulkan), w samples so far
-	vec4 Settings;     // x the most bounces, y one where a mean exists to add to, z the samples the mean is heading for
+	vec4 Settings;     // x the most bounces, y one where a mean exists to add to, z the samples the mean is heading for, w the debug lane (0 off)
 	vec4 CameraRow0;
 	vec4 CameraRow1;
 	vec4 CameraRow2;
@@ -873,16 +882,11 @@ float RefSmithLambda(vec3 w, float ax, float ay)
 // diffuse's share.
 vec3 RefBaseSpecular(RefHit h, vec3 V, vec3 L, vec3 F0, out vec3 F)
 {
-	const float NdotL = max(dot(h.N, L), 0.0);
-	const float NdotVc = max(dot(h.N, V), 0.0);
 	const vec3 H = normalize(V + L);
 	mat3 frame;
 	float ax, ay;
-	float NDF;
-	if (RefBaseLobe(h, frame, ax, ay))
-		NDF = DistributionGGXAniso(max(dot(h.N, H), 0.0), dot(frame[0], H), dot(frame[1], H), ax, ay);
-	else
-		NDF = DistributionGGX(h.N, H, h.Roughness);
+	RefBaseLobe(h, frame, ax, ay);
+	const float NDF = DistributionGGXAniso(max(dot(h.N, H), 0.0), dot(frame[0], H), dot(frame[1], H), ax, ay);
 	F = FresnelSchlick(max(dot(H, V), 0.0), F0);
 	const vec3 Vl = transpose(frame) * V;
 	const vec3 Ll = transpose(frame) * L;
@@ -912,7 +916,10 @@ vec3 RefSurfaceCos(RefHit h, vec3 V, vec3 L)
 	{
 		const float VdotH = max(dot(V, H), 0.0);
 		const float coatRoughness = clamp(h.Coat.y, 0.045, 1.0);
-		const float Dc = DistributionGGX(h.N, H, coatRoughness);
+		const mat3 coatFrame = RefBasis(h.N);
+		const float coatAlpha = coatRoughness * coatRoughness;
+		const float Dc = DistributionGGXAniso(max(dot(h.N, H), 0.0), dot(coatFrame[0], H), dot(coatFrame[1], H),
+											  coatAlpha, coatAlpha);
 		const float Vc = VisibilityKelemen(VdotH);
 		const float Fc = (0.04 + 0.96 * Pow5(1.0 - VdotH)) * h.Coat.x;
 		specular = specular * (1.0 - Fc) + vec3(Dc * Vc * Fc);
@@ -1860,7 +1867,28 @@ void main()
 	const float pixelAngle = 2.0 * abs(u_Ref.Projection.y) / size.y;
 	g_ConeSpread = pixelAngle * max(0.125, inversesqrt(max(u_Ref.Settings.z, 1.0)));
 
-	vec3 radiance = RefPath(u_Ref.CameraPosition.xyz, direction);
+	// --reference-debug: a lane of the first surface in place of the light.
+	vec3 radiance;
+	const int debugLane = int(u_Ref.Settings.w + 0.5);
+	if (debugLane != 0)
+	{
+		g_ViewDepthScale = max(dot(direction, g_CameraForward), 0.0);
+		RefHit h;
+		radiance = vec3(0.0);
+		if (RefTrace(u_Ref.CameraPosition.xyz, direction, 0.0, REF_MASK_ALL, h))
+		{
+			if (debugLane == 1)
+				radiance = h.Albedo;
+			else if (debugLane == 2)
+				radiance = vec3(max(dot(h.N, -direction), 0.0), 1.0, 0.0);
+			else
+				radiance = vec3(h.Roughness, h.Metallic, h.Water ? 3.0 : h.Glass ? 2.0 : 1.0);
+		}
+	}
+	else
+	{
+		radiance = RefPath(u_Ref.CameraPosition.xyz, direction);
+	}
 	float invalid = 0.0;
 	if (any(isnan(radiance)) || any(isinf(radiance)))
 	{

@@ -251,6 +251,14 @@ namespace RageV
 		// most paths sooner).
 		uint32_t    ReferenceSamples = 0;
 		uint32_t    ReferenceBounces = 8;
+		// **RT2-2b step 4: what the reference sees, instead of its light.**
+		// `--reference-debug=albedo|nv|surface` averages a lane of the first
+		// surface each camera ray meets into the mean in place of the path's
+		// radiance: the albedo; N.V with the coverage beside it (1 on a hit,
+		// 0 on a miss); or roughness, metallic and the kind (1 surface, 2
+		// glass, 3 water). For tests that need to know, per pixel, what was
+		// there -- the furnace's expected value, a region by material. 0 is off.
+		uint32_t    ReferenceDebug = 0;
 		// **--capture-signals: what a signal holds, in numbers, not in pixels.**
 		//
 		// A screenshot is eight bits after the tone curve, so a filter's effect

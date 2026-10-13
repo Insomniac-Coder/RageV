@@ -792,7 +792,7 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 - **Size.** 2-3 sessions.
 - **Closes.** rhi-s1, GPU-13, GPU-15, rhi-s2 (the checking half), ISS-24, ISS-25, ISS-36 (the device-loss re-check); the measuring halves of GPU-09 and CORE-05; parts of ISS-6, GI-13, CORE-10 and frame-13; the comparison's finding E-N5 (section 8).
 
-### RT2-2 · Instruments that can settle questions (2a and 2b steps 1-3 built 2026-10-13)
+### RT2-2 · Instruments that can settle questions (2a built, 2b built and checked 2026-10-13)
 
 - **In plain words.** Most later decisions are "which picture is right" or "does this signal work without TAA". This item builds the instruments that answer those questions: a reference renderer that shares none of the shortcuts it judges, one command that renders and diffs every test camera, a command that proves a signal stands on its own, and new test scenes. Nothing on screen changes.
 
@@ -993,6 +993,47 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   reflect in the wet floor as streaks. Real time: the four shots byte-identical, scenetest and
 >   check_gpu_lit pass. The owner's D13 rule still waits for RT2-11: a lamp with a glowing mesh is
 >   counted both ways.
+> - **2b step 4 run, 2026-10-13: the reference against known answers, and the garage against the
+>   16-ray truth.** Three checks, two of them kept as scripts.
+>   - *The white furnace* (`check_reference_furnace.py`, scene `furnace_spheres.rage`): 22 spheres --
+>     metal with F0 = 1 and white dielectrics, roughness 0 to 1 -- under a sky of radiance one, a
+>     hundred metres apart. A convex surface under a uniform sky reads its material's directional
+>     albedo, which the script computes independently (Monte Carlo with GGX's visible normals and
+>     the cosine, two hundred thousand samples per N.V) and compares block by block against the
+>     reference at 4096 samples, N.V per pixel from the new `--reference-debug=nv`. All 22 within
+>     2% (worst 1.32%, the mirror 0.17%); the mean error, -0.15% to -0.30%, is the sphere being
+>     triangles (directions below a facet's plane are refused). The furnace found one defect in the
+>     reference, fixed: GGX's D was evaluated through `DistributionGGX`, whose divisor cancels near
+>     the peak in float (the peak itself up to 3% off at roughness 0.045) while the sampler's
+>     density used the tangent form, so a mirror sphere read 2% dark in places; the reference now
+>     uses the tangent form for both. **Not 1.0, and that is the material, not the renderer**: the
+>     single-scattering GGX loses energy at roughness (a metal at roughness 1 reads 0.31 head-on --
+>     checked by hand: half the reflected directions go under the horizon at alpha 1), and the
+>     model *gains* it at grazing on a smooth dielectric (a white sphere at roughness 0 reads 1.30
+>     at N.V 0.2: the diffuse is weighted by 1 - F(H.V), which does not fall as the specular's
+>     grazing energy rises). Both are RT2-21b's energy compensation to close; the frame shares them.
+>   - *Lamp shapes against their point* (`check_reference_lamps.py`, scenes `lamp_point.rage`,
+>     `lamp_sphere.rage`): a sphere lamp lights a matte floor exactly as its point would (a
+>     Lambertian sphere's irradiance is the point's) -- every lit 8x8 block within 0.06%.
+>   - *The parked garage against the 16-ray truth* (truth_test's camera; classes by the reference's
+>     own `--reference-debug=surface`). Frame-mean radiance per class, truth / reference: matte
+>     0.096 / 0.195, mid-rough 0.123 / 0.254, glossy 0.232 / 0.394, metal 4.74 / 4.93, glass 0.059 /
+>     0.094. Attributed with arms on both sides: the lamps' direct light on matte surfaces is the same
+>     in both -- the frame without GI 0.0509, the reference with its lamps as points and one bounce
+>     0.0507 (0.2%); as capsules 0.0533, the shape's own 5%. The whole matte excess is the garage's
+>     glowing tube meshes (emissive 34/63/100 on twenty tubes) and the bounces: in the reference they
+>     add +0.11 directly and +0.03 by bouncing (with them off, matte falls to 0.060), while the
+>     frame's bake and its traced bounce each add about +0.045 -- a third. The reference's glow is
+>     the same total whether found by its samples or by the path alone (step 3's check), so this is
+>     the frame's indirect light under-delivering bright glowing meshes, plus the D13 double count
+>     (each tube lit by its Light and its mesh). Glossy floor, glass and the rest follow: they reflect
+>     the brighter walls. Metal (mostly the glowing tubes seen directly) within 4%. This is what the
+>     reference exists to show, reported and not tuned away; it belongs to RT2-11 (glowing meshes as
+>     light sources), RT2-25 and RT2-26 (what the bounce and the bake take from them).
+>   - *The literal "closed white room converges to uniform within 1%"* cannot be built with this
+>     material model: a uniform room needs one directional albedo at every angle, and Schlick's
+>     Fresnel makes every surface reflect more at grazing. The furnace spheres measure the same
+>     thing per pixel against exact values, which is the stronger form of the check.
 >
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'

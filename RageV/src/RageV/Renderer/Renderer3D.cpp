@@ -8435,7 +8435,8 @@ namespace RageV
 		// z: the samples the mean is heading for, which sets how finely a
 		// texture's footprint must resolve (the reference shader says why).
 		params.Settings = Vec4((float)bounces, hasPrevious ? 1.0f : 0.0f,
-							   (float)Math::Max(EngineConfig::Get().ReferenceSamples, 1u), 0.0f);
+							   (float)Math::Max(EngineConfig::Get().ReferenceSamples, 1u),
+							   (float)EngineConfig::Get().ReferenceDebug);
 		const Mat4 camera = Math::Inverse(view.View);
 		params.CameraRow0 = Vec4(camera[0][0], camera[1][0], camera[2][0], 0.0f);
 		params.CameraRow1 = Vec4(camera[0][1], camera[1][1], camera[2][1], 0.0f);
