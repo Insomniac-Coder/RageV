@@ -630,7 +630,7 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 - **Closes.** RT-24, framegraph-s1, ISS-40 (the motion test), CORE-08 (the test-mover half, through `Slider`). Also the measured arms of REFL-01, REFL-03, REFL-04, REFL-05 (the camera-motion check), REFL-07, REFL-10 and direct-s2, and the diagnostic half of REFL-06 (done early: every emitter aimed at); their structural parts are later items.
 - **If a symptom survives every arm.** A cause inside the reflection chain that one rule fixes is patched here first. Otherwise RT-24 is committed with that symptom recorded against the item that removes it (D17): RT2-28 for the frame filter's depth test, RT2-24 for the direct highlight's memory, RT2-23 for the structural ghost fix.
 
-### RT2-1 · Fail loud, validate clean, and count VRAM (parts 1 and 2a built 2026-10-13)
+### RT2-1 · Fail loud, validate clean, and count VRAM (parts 1, 2a and 2b built 2026-10-13)
 
 - **In plain words.** Today a shader that fails to build can silently swap in a different picture, and the engine does not know how much video memory it uses. This item makes every failure visible, makes the bridge run without Vulkan warnings, and adds a VRAM report by category to the HUD and to every benchmark. Nothing on screen changes unless something breaks.
 
@@ -681,11 +681,25 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   had -- and never wrote the G-buffer object id its fragment reads (now written).
 > - *Gates met:* the four shots byte-identical before/after and silent under validation; `check_gpu_lit.py`
 >   green (all three paths 0 px); scenetest green. `--gpu-lit`'s texts no longer call it unfinished.
+> - *Part 2b, VRAM by category.* Every lasting GPU allocation is counted under a category when made and
+>   taken off when the allocator frees it (`RHI/RHIMemory.h`; `BufferDesc`, `TextureDesc` and
+>   `RenderTargetDesc` carry a `Category`, Auto choosing from the usage; `TemporalHistory` marks histories).
+>   `VK_EXT_memory_budget` is on where offered, so the driver's own usage and budget are read through VMA.
+>   The benchmark report ends with three `vram` lines, and the editor's Statistics panel has a Memory
+>   section. Measured at 1600x900 (driver usage / engine allocations, MB): garage 1994 / 1664 (textures
+>   249, targets 617, **histories 716**, geometry 31, uploads 7, static BLAS 44); Headland 2857 / 2621
+>   (textures 527, targets 950, histories 841, geometry 147, static BLAS 150); Glitter the same scene;
+>   camp 1227 / 905 (targets 390, histories 441). The categories sum to the allocator's own count exactly
+>   on all four (a gap would print as "other"), and the allocator's blocks sit under the driver's figure;
+>   the rest is the driver's (swapchain, pipelines, descriptor pools). Pixels byte-identical to before;
+>   validation silent; scenetest green. Not built: histories *per view* (one line for all views; the
+>   runtime has one) -- the editor's two viewports are not split. **Finding for RT2-19:** the histories
+>   are the largest category in the garage, larger than every render target together.
 > - **Open:** `check_gpu_lit.py --rays` -- gpu-lit-off and meshlets pass (23 px at 1 level), depth-sort-off
 >   misses: 106 px, 105 of them 1 level and one 4, on the poles' silhouettes and their floor reflections,
 >   deterministic run to run; none with rays off. Ruled out: validation, run-to-run noise, the TLAS (built
->   in scene order), instance-index seeds. The tolerance is not widened for it. Also open: VRAM by
->   category (VK_EXT_memory_budget); the garage on the Intel iGPU with the layers silent; the water
+>   in scene order), instance-index seeds. The tolerance is not widened for it. Also open: the garage
+>   on the Intel iGPU with the layers silent; the water
 >   shader's read-out-of-bounds question; GPU-assisted validation loses the device while loading the
 >   bridge (stock shaders) and resets the driver (ask first).
 >

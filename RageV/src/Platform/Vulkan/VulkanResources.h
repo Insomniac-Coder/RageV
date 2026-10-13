@@ -29,6 +29,8 @@ namespace RageV::Vk
 		VmaAllocation m_Allocation = VK_NULL_HANDLE;
 		void*         m_Mapped     = nullptr;
 		bool          m_HasAddress = false;
+		RHI::MemoryCategory m_MemoryCategory = RHI::MemoryCategory::Buffers;
+		uint64_t      m_MemoryBytes = 0;
 		// What this buffer registered with the GPU address-range registry, so
 		// the deletion can hand both back and a fault address can be named.
 		uint64_t      m_RangeBase   = 0;
@@ -72,6 +74,8 @@ namespace RageV::Vk
 			void*         Mapped = nullptr;
 			VkDeviceAddress Address = 0;
 			uint64_t      RangeSerial = 0;
+			RHI::MemoryCategory Category = RHI::MemoryCategory::Buffers;
+			uint64_t      Bytes = 0;
 		};
 		// `alignment` 0 is VMA's own choice; scratch passes the device's rule (RT2-1).
 		Backing CreateBacking(VkDeviceSize size, VkBufferUsageFlags usage, bool hostVisible, const char* name,
@@ -215,6 +219,8 @@ namespace RageV::Vk
 		VkImage       m_Image      = VK_NULL_HANDLE;
 		VkImageView   m_View       = VK_NULL_HANDLE;
 		VmaAllocation m_Allocation = VK_NULL_HANDLE;
+		RHI::MemoryCategory m_MemoryCategory = RHI::MemoryCategory::Textures;
+		uint64_t      m_MemoryBytes = 0;
 		VkImageLayout m_Layout     = VK_IMAGE_LAYOUT_UNDEFINED;
 		VkImageAspectFlags m_Aspect = VK_IMAGE_ASPECT_COLOR_BIT;
 		bool m_Owned = true;

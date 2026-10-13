@@ -42,6 +42,7 @@ namespace RageV::Vk
 
 		RHI::Backend GetBackend() const override { return RHI::Backend::Vulkan; }
 		const RHI::DeviceCaps& GetCaps() const override { return m_Caps; }
+		RHI::MemoryReport GetMemoryReport() const override;
 		bool WideLinesSupported() const { return m_WideLinesSupported; }
 		bool IndependentBlendSupported() const { return m_IndependentBlendSupported; }
 
@@ -251,6 +252,7 @@ namespace RageV::Vk
 
 		VkImage       m_DepthImage      = VK_NULL_HANDLE;
 		VmaAllocation m_DepthAllocation = VK_NULL_HANDLE;
+		uint64_t      m_DepthBytes      = 0;
 		VkImageView   m_DepthImageView  = VK_NULL_HANDLE;
 		VkFormat      m_DepthFormat     = VK_FORMAT_UNDEFINED;
 
@@ -289,6 +291,9 @@ namespace RageV::Vk
 		// a shrug into a pass name and an address.
 		bool m_CheckpointsSupported = false;
 		bool m_DeviceFaultSupported = false;
+		// VK_EXT_memory_budget: the driver's own usage and budget per heap (RT2-1).
+		bool m_MemoryBudgetSupported = false;
+		uint64_t m_FrameCount = 0;
 		// vkCmdSetCheckpointNV stores the raw pointer, not the characters, so
 		// every marker string has to stay alive until the queue is asked for
 		// it -- after the crash. A node-based set gives each interned name a
@@ -334,6 +339,7 @@ namespace RageV::Vk
 			VmaAllocation Allocation = VK_NULL_HANDLE;
 			void*         Mapped = nullptr;
 			uint64_t      Capacity = 0;
+			uint64_t      Bytes = 0;   // as the allocator sized it, for the memory report
 			// Armed by ReadBuffer this frame; recorded as copies at EndFrame.
 			std::vector<ReadbackRequest> Armed;
 			uint64_t ArmedBytes = 0;

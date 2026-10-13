@@ -2669,6 +2669,44 @@ void EditorLayer::DrawStatisticsPanel()
 		}
 	}
 
+	// **GPU memory (RT2-1).** The driver's figure for the device-local heaps
+	// against its budget, then what the engine allocated, by category.
+	{
+		const RHI::MemoryReport memory = Renderer::GetDevice().GetMemoryReport();
+		if (memory.Measured)
+		{
+			constexpr double MB = 1024.0 * 1024.0;
+			ImGui::SeparatorText("Memory");
+			UI::TextCaption("VRAM %.0f of %.0f MB%s; engine %.0f MB",
+							memory.DeviceLocalUsage / MB, memory.DeviceLocalBudget / MB,
+							memory.DriverFigures ? "" : " (estimated)", memory.Allocated / MB);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("VRAM: this process's use of the card's memory and the budget the "
+								  "driver gives it (VK_EXT_memory_budget). Engine: what the engine "
+								  "allocated, in every heap, split below. The difference is the "
+								  "driver's own: the swapchain, pipelines, descriptor pools.");
+			if (ImGui::BeginTable("##MemoryStats", 2, ImGuiTableFlags_SizingStretchProp |
+														ImGuiTableFlags_RowBg))
+			{
+				auto row = [](const char* name, double megabytes)
+				{
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					ImGui::TextUnformatted(name);
+					ImGui::TableSetColumnIndex(1);
+					ImGui::Text("%.1f MB", megabytes);
+				};
+				for (size_t i = 1; i < (size_t)RHI::MemoryCategory::Count; i++)
+					if (memory.Categories[i] > 0)
+						row(RHI::MemoryCategoryName((RHI::MemoryCategory)i), memory.Categories[i] / MB);
+				const int64_t other = (int64_t)memory.Allocated - (int64_t)memory.CategorySum();
+				if (other != 0)
+					row("other", other / MB);
+				ImGui::EndTable();
+			}
+		}
+	}
+
 	// Where the frame goes, on both processors.
 	//
 	// CPU is wall time around each phase and GPU is a timestamp pair inside the

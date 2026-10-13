@@ -46,6 +46,7 @@ namespace RageV
 		// to declare a matching depth format.
 		desc.HasDepth = false;
 
+		desc.Category = MemoryCategory::Histories;   // RT2-1
 		desc.DebugName = std::string(name) + "A";
 		m_Targets[0] = device.CreateRenderTarget(desc);
 		desc.DebugName = std::string(name) + "B";
@@ -105,6 +106,7 @@ namespace RageV
 		desc.ColorAttachments.assign(lanes, { Format::R32G32B32A32_SFLOAT });
 		desc.HasDepth = false;
 		desc.DebugName = "DirectChangeRecord";
+		desc.Category = MemoryCategory::Histories;   // RT2-1: kept from frame to frame
 		Record = device.CreateRenderTarget(desc);
 		Width = width;
 		Height = height;

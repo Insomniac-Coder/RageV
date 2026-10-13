@@ -141,6 +141,15 @@ namespace RageV::Vk
 		if (desc.Memory == RHI::MemoryDomain::HostVisible)
 			m_Mapped = allocationInfo.pMappedData;
 
+		// RT2-1: CPU-visible is an upload whatever it holds; then geometry.
+		m_MemoryCategory = desc.Category != RHI::MemoryCategory::Auto ? desc.Category
+						 : desc.Memory == RHI::MemoryDomain::HostVisible ? RHI::MemoryCategory::Uploads
+						 : (RHI::HasFlag(desc.Usage, RHI::BufferUsage::Vertex) ||
+							RHI::HasFlag(desc.Usage, RHI::BufferUsage::Index)) ? RHI::MemoryCategory::Geometry
+						 : RHI::MemoryCategory::Buffers;
+		m_MemoryBytes = allocationInfo.size;
+		RHI::MemoryCounts::Add(m_MemoryCategory, m_MemoryBytes);
+
 		if (!desc.DebugName.empty())
 			m_Device.SetDebugName((uint64_t)m_Buffer, VK_OBJECT_TYPE_BUFFER, desc.DebugName.c_str());
 
@@ -172,9 +181,12 @@ namespace RageV::Vk
 		// calling it freed early would turn every normal teardown into a
 		// use-after-free accusation.
 		const uint64_t base = m_RangeBase, serial = m_RangeSerial;
-		m_Deletion->Push([allocator, buffer, allocation, base, serial]()
+		const RHI::MemoryCategory category = m_MemoryCategory;
+		const uint64_t bytes = m_MemoryBytes;
+		m_Deletion->Push([allocator, buffer, allocation, base, serial, category, bytes]()
 		{
 			vmaDestroyBuffer(allocator, buffer, allocation);
+			RHI::MemoryCounts::Remove(category, bytes);
 			MarkGpuRangeFreed(base, serial);
 		});
 	}
@@ -314,8 +326,18 @@ namespace RageV::Vk
 		VmaAllocationCreateInfo allocInfo{};
 		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
 
+		VmaAllocationInfo allocated{};
 		VK_CHECK(vmaCreateImage(m_Device.GetAllocator(), &imageInfo, &allocInfo,
-								&m_Image, &m_Allocation, nullptr));
+								&m_Image, &m_Allocation, &allocated));
+
+		// RT2-1: anything drawn or written into is a target; the rest is read.
+		m_MemoryCategory = m_Desc.Category != RHI::MemoryCategory::Auto ? m_Desc.Category
+						 : (RHI::HasFlag(m_Desc.Usage, RHI::TextureUsage::ColorAttachment) ||
+							RHI::HasFlag(m_Desc.Usage, RHI::TextureUsage::DepthAttachment) ||
+							RHI::HasFlag(m_Desc.Usage, RHI::TextureUsage::Storage))
+							   ? RHI::MemoryCategory::Targets : RHI::MemoryCategory::Textures;
+		m_MemoryBytes = allocated.size;
+		RHI::MemoryCounts::Add(m_MemoryCategory, m_MemoryBytes);
 
 		VkImageViewCreateInfo viewInfo{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 		viewInfo.image = m_Image;
@@ -392,6 +414,8 @@ namespace RageV::Vk
 		VkDescriptorSet imguiSet = m_ImGuiDescriptor;
 		VkSampler imguiSampler = m_ImGuiSampler;
 		std::vector<VkImageView> mipViews = std::move(m_MipViews);
+		const RHI::MemoryCategory category = m_MemoryCategory;
+		const uint64_t bytes = m_MemoryBytes;
 
 		m_Deletion->Push([=]()
 		{
@@ -409,6 +433,7 @@ namespace RageV::Vk
 			{
 				if (view)  vkDestroyImageView(device, view, nullptr);
 				if (image) vmaDestroyImage(allocator, image, allocation);
+				RHI::MemoryCounts::Remove(category, bytes);
 			}
 		});
 	}
@@ -802,6 +827,7 @@ namespace RageV::Vk
 			textureDesc.Usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
 								RHI::TextureUsage::TransferSrc;
 			textureDesc.DebugName = m_Desc.DebugName + ".color" + std::to_string(i);
+			textureDesc.Category = m_Desc.Category;
 
 			m_Color.push_back(std::make_shared<VulkanTexture>(m_Device, textureDesc));
 
@@ -837,6 +863,7 @@ namespace RageV::Vk
 			if (m_Desc.DepthSampled && !multisampled)
 				depthDesc.Usage = depthDesc.Usage | RHI::TextureUsage::Sampled;
 			depthDesc.DebugName = m_Desc.DebugName + ".depth";
+			depthDesc.Category = m_Desc.Category;
 
 			m_Depth = std::make_shared<VulkanTexture>(m_Device, depthDesc);
 
@@ -924,6 +951,17 @@ namespace RageV::Vk
 		if (hostVisible)
 			backing.Mapped = allocationInfo.pMappedData;
 
+		// RT2-1: the structure's own storage by level and kind; the instance
+		// buffer is the top level's; anything else is build scratch.
+		backing.Category = (usage & VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR)
+							   ? (IsTopLevel() ? RHI::MemoryCategory::Tlas
+								  : IsDynamic() ? RHI::MemoryCategory::DynamicBlas
+												: RHI::MemoryCategory::StaticBlas)
+						 : hostVisible ? RHI::MemoryCategory::Tlas
+									   : RHI::MemoryCategory::AsScratch;
+		backing.Bytes = allocationInfo.size;
+		RHI::MemoryCounts::Add(backing.Category, backing.Bytes);
+
 		VkBufferDeviceAddressInfo addressInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
 		addressInfo.buffer = backing.Buffer;
 		backing.Address = vkGetBufferDeviceAddress(m_Device.GetDevice(), &addressInfo);
@@ -943,9 +981,12 @@ namespace RageV::Vk
 		VkBuffer buffer = backing.Buffer;
 		VmaAllocation allocation = backing.Allocation;
 		const uint64_t base = backing.Address, serial = backing.RangeSerial;
-		m_Deletion->Push([allocator, buffer, allocation, base, serial]()
+		const RHI::MemoryCategory category = backing.Category;
+		const uint64_t bytes = backing.Bytes;
+		m_Deletion->Push([allocator, buffer, allocation, base, serial, category, bytes]()
 		{
 			vmaDestroyBuffer(allocator, buffer, allocation);
+			RHI::MemoryCounts::Remove(category, bytes);
 			MarkGpuRangeFreed(base, serial);
 		});
 		backing = Backing{};

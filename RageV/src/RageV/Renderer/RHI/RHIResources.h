@@ -146,6 +146,7 @@ namespace RageV::RHI
 		uint32_t                    Layers = 1;
 		bool                        DepthSampled = false;   // shadow maps sample the depth afterwards
 		std::string                 DebugName;
+		MemoryCategory              Category = MemoryCategory::Auto;   // RT2-1; Auto is Targets
 	};
 
 	class RHIRenderTarget

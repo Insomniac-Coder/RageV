@@ -686,6 +686,33 @@ namespace RageV
 		RV_CORE_INFO("[benchmark]   {0:<22} {1:>9.3f}  -- CPU idle: the GPU, the "
 					 "present, or the vsync wait", "unaccounted", mean - accounted);
 
+		// **RT2-1: GPU memory as the run ends.** The driver's figure for the
+		// device-local heaps, the allocator's for what the engine holds (every
+		// heap), and that split by category; a gap between the categories and
+		// the allocator is printed as "other", never folded in.
+		{
+			const RHI::MemoryReport memory = Renderer::GetDevice().GetMemoryReport();
+			if (memory.Measured)
+			{
+				constexpr double MB = 1024.0 * 1024.0;
+				RV_CORE_INFO("[benchmark]   vram   device-local {0:.1f} MB in use of a {1:.1f} MB budget ({2})",
+							 memory.DeviceLocalUsage / MB, memory.DeviceLocalBudget / MB,
+							 memory.DriverFigures ? "the driver's figures"
+												  : "the allocator's estimate: no VK_EXT_memory_budget");
+				RV_CORE_INFO("[benchmark]   vram   engine {0:.1f} MB allocated (every heap) in {1:.1f} MB of "
+							 "blocks; the driver holds the rest (swapchain, pipelines, its own)",
+							 memory.Allocated / MB, memory.Reserved / MB);
+				std::string categories;
+				for (size_t i = 1; i < (size_t)RHI::MemoryCategory::Count; i++)
+					categories += std::format("  {} {:.1f}", RHI::MemoryCategoryName((RHI::MemoryCategory)i),
+											  memory.Categories[i] / MB);
+				const int64_t other = (int64_t)memory.Allocated - (int64_t)memory.CategorySum();
+				if (other != 0)
+					categories += std::format("  other {:.1f}", other / MB);
+				RV_CORE_INFO("[benchmark]   vram   by category, MB:{0}", categories);
+			}
+		}
+
 		if (s_PassTimings)
 		{
 			// True arithmetic means over the collected frames, on both

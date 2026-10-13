@@ -11,9 +11,10 @@ from RT2-1. **RT2-1 part 1 is committed (2026-10-13)**: failures are loud (exit 
 benchmark numbers, a banner), the bridge's two validation errors are fixed, the ray counters are off
 unless `--ray-counters=on`. **Part 2a (2026-10-13)**: validation is silent -- the
 last message was an overlay's (implicit layers are off under `--validation=on`), and it hid a
-descriptor use-after-free, now fixed in `VulkanResourceSet`; `check_gpu_lit.py` green. Next: VRAM
-by category, the `--rays` depth-sort residual, the Intel iGPU run, the water shader question
-(all in its RT2-1 note).
+descriptor use-after-free, now fixed in `VulkanResourceSet`; `check_gpu_lit.py` green. **Part 2b**:
+VRAM by category in every benchmark report and the editor's Statistics panel (histories are the
+garage's largest). Next: the `--rays` depth-sort residual, the Intel iGPU run, the water shader
+question, the device-loss re-check (all in its RT2-1 note; the last three can fault the GPU -- ask).
 
 **The repository moved** to `D:/Code_secondary/RageV` (2026-10-12) and no longer cares where it lives: tool
 scripts find the root from their own place (`_RAGEV`), the engine finds its sample project and export file

@@ -812,6 +812,12 @@ namespace RageV::Vk
 		if (m_CheckpointsSupported)
 			extensions.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
 
+		// RT2-1: the driver's own figure for this process's memory, per heap,
+		// and its budget. Read only by the memory report; free when unread.
+		m_MemoryBudgetSupported = HasDeviceExtensions(m_PhysicalDevice, { VK_EXT_MEMORY_BUDGET_EXTENSION_NAME });
+		if (m_MemoryBudgetSupported)
+			extensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+
 		VkPhysicalDeviceFaultFeaturesEXT supportedFault{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT };
 		if (HasDeviceExtensions(m_PhysicalDevice, { VK_EXT_DEVICE_FAULT_EXTENSION_NAME }))
 		{
@@ -880,8 +886,35 @@ namespace RageV::Vk
 		// VMA has to know the feature is on to allocate memory that can be.
 		if (m_RayQuerySupported)
 			createInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+		if (m_MemoryBudgetSupported)
+			createInfo.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
 
 		VK_CHECK(vmaCreateAllocator(&createInfo, &m_Allocator));
+	}
+
+	RHI::MemoryReport VulkanDevice::GetMemoryReport() const
+	{
+		RHI::MemoryReport report;
+		report.Measured = true;
+		for (size_t i = 0; i < (size_t)RHI::MemoryCategory::Count; i++)
+			report.Categories[i] = RHI::MemoryCounts::Bytes((RHI::MemoryCategory)i);
+
+		const VkPhysicalDeviceMemoryProperties* memory = nullptr;
+		vmaGetMemoryProperties(m_Allocator, &memory);
+		VmaBudget budgets[VK_MAX_MEMORY_HEAPS];
+		vmaGetHeapBudgets(m_Allocator, budgets);
+		for (uint32_t heap = 0; heap < memory->memoryHeapCount; heap++)
+		{
+			report.Allocated += budgets[heap].statistics.allocationBytes;
+			report.Reserved += budgets[heap].statistics.blockBytes;
+			if (memory->memoryHeaps[heap].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+			{
+				report.DeviceLocalUsage += budgets[heap].usage;
+				report.DeviceLocalBudget += budgets[heap].budget;
+			}
+		}
+		report.DriverFigures = m_MemoryBudgetSupported;
+		return report;
 	}
 
 	void VulkanDevice::QueryCaps()
@@ -1194,6 +1227,8 @@ namespace RageV::Vk
 		// through the deferred queue.
 		if (slot.Staging != VK_NULL_HANDLE)
 			vmaDestroyBuffer(m_Allocator, slot.Staging, slot.Allocation);
+		RHI::MemoryCounts::Remove(RHI::MemoryCategory::Uploads, slot.Bytes);
+		slot.Bytes = 0;
 		slot.Staging = VK_NULL_HANDLE;
 		slot.Allocation = VK_NULL_HANDLE;
 		slot.Mapped = nullptr;
@@ -1232,6 +1267,8 @@ namespace RageV::Vk
 
 		slot.Mapped = allocationInfo.pMappedData;
 		slot.Capacity = capacity;
+		slot.Bytes = allocationInfo.size;
+		RHI::MemoryCounts::Add(RHI::MemoryCategory::Uploads, slot.Bytes);
 		SetDebugName((uint64_t)slot.Staging, VK_OBJECT_TYPE_BUFFER, "readback staging");
 		return true;
 	}
@@ -1242,6 +1279,8 @@ namespace RageV::Vk
 		{
 			if (slot.Staging != VK_NULL_HANDLE)
 				vmaDestroyBuffer(m_Allocator, slot.Staging, slot.Allocation);
+			RHI::MemoryCounts::Remove(RHI::MemoryCategory::Uploads, slot.Bytes);
+			slot.Bytes = 0;
 			slot.Staging = VK_NULL_HANDLE;
 			slot.Allocation = VK_NULL_HANDLE;
 			slot.Mapped = nullptr;
@@ -1575,7 +1614,11 @@ namespace RageV::Vk
 		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
 		allocInfo.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 
-		VK_CHECK(vmaCreateImage(m_Allocator, &imageInfo, &allocInfo, &m_DepthImage, &m_DepthAllocation, nullptr));
+		VmaAllocationInfo depthAllocated{};
+		VK_CHECK(vmaCreateImage(m_Allocator, &imageInfo, &allocInfo, &m_DepthImage, &m_DepthAllocation,
+								&depthAllocated));
+		m_DepthBytes = depthAllocated.size;
+		RHI::MemoryCounts::Add(RHI::MemoryCategory::Targets, m_DepthBytes);
 
 		VkImageViewCreateInfo viewInfo{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 		viewInfo.image = m_DepthImage;
@@ -1626,7 +1669,13 @@ namespace RageV::Vk
 		// pending present waits on one, and presentation is not covered by
 		// vkDeviceWaitIdle.
 		if (m_DepthImageView) { vkDestroyImageView(m_Device, m_DepthImageView, nullptr); m_DepthImageView = VK_NULL_HANDLE; }
-		if (m_DepthImage)     { vmaDestroyImage(m_Allocator, m_DepthImage, m_DepthAllocation); m_DepthImage = VK_NULL_HANDLE; }
+		if (m_DepthImage)
+		{
+			vmaDestroyImage(m_Allocator, m_DepthImage, m_DepthAllocation);
+			m_DepthImage = VK_NULL_HANDLE;
+			RHI::MemoryCounts::Remove(RHI::MemoryCategory::Targets, m_DepthBytes);
+			m_DepthBytes = 0;
+		}
 
 		for (VkImageView view : m_SwapchainImageViews)
 			vkDestroyImageView(m_Device, view, nullptr);
@@ -1705,6 +1754,10 @@ namespace RageV::Vk
 
 	RHI::RHICommandList* VulkanDevice::BeginFrame()
 	{
+		// With the budget extension on, this is when the allocator refreshes
+		// the driver's figures (RT2-1); without it, a counter it ignores.
+		vmaSetCurrentFrameIndex(m_Allocator, (uint32_t)++m_FrameCount);
+
 		if (m_SwapchainDirty)
 			RecreateSwapchain();
 

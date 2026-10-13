@@ -50,6 +50,8 @@ namespace RageV::RHI
 
 		virtual Backend           GetBackend() const = 0;
 		virtual const DeviceCaps& GetCaps()    const = 0;
+		// RT2-1: GPU memory by category, beside the driver's own figures.
+		virtual MemoryReport      GetMemoryReport() const { return {}; }
 
 		// ------------------------------------------------------------------
 		// Frame lifecycle

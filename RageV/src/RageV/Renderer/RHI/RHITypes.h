@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include "RHIMemory.h"
 
 namespace RageV::RHI
 {
@@ -139,6 +140,8 @@ namespace RageV::RHI
 		BufferUsage   Usage        = BufferUsage::None;
 		MemoryDomain  Memory       = MemoryDomain::DeviceLocal;
 		std::string   DebugName;
+		// Which line of the GPU memory report it counts under (RT2-1).
+		MemoryCategory Category    = MemoryCategory::Auto;
 	};
 
 	enum class IndexType : uint8_t
@@ -340,6 +343,7 @@ namespace RageV::RHI
 		TextureUsage Usage     = TextureUsage::Sampled;
 		uint32_t     Samples   = 1;
 		std::string  DebugName;
+		MemoryCategory Category = MemoryCategory::Auto;   // RT2-1
 	};
 
 	// How many array layers this description really asks for.
