@@ -695,10 +695,21 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   validation silent; scenetest green. Not built: histories *per view* (one line for all views; the
 >   runtime has one) -- the editor's two viewports are not split. **Finding for RT2-19:** the histories
 >   are the largest category in the garage, larger than every render target together.
-> - **Open:** `check_gpu_lit.py --rays` -- gpu-lit-off and meshlets pass (23 px at 1 level), depth-sort-off
->   misses: 106 px, 105 of them 1 level and one 4, on the poles' silhouettes and their floor reflections,
->   deterministic run to run; none with rays off. Ruled out: validation, run-to-run noise, the TLAS (built
->   in scene order), instance-index seeds. The tolerance is not widened for it. Also open: the garage
+> - **Open, cause found (2026-10-13):** `check_gpu_lit.py --rays` -- gpu-lit-off and meshlets pass (23 px
+>   at 1 level), depth-sort-off misses (106 px, one at 4 levels, on the poles' edges and their floor
+>   reflections). **It is the reflection probe's capture, and only that.** The "Showroom Probe" (0, 1.6, 18)
+>   is drawn once, between frames 1 and 2, in one forward pass with no prepass and no blending -- so the
+>   draw order can change a texel only where two different objects' surfaces sit at exactly the same depth,
+>   and with `GreaterOrEqual` the last one drawn wins. Such ties exist on the ceiling light fittings as the
+>   probe sees them from below (three faces, ~2,500 texels, all within 0.25% of each other: two near-identical
+>   surfaces). The probe then lights every frame, and the screen-space reflections and TAA carry the
+>   rounding-sized change into the picture; with rays off the same probe change stays under one display
+>   level. Proof: with the probe drawn in one fixed order in both runs, the runs match exactly (0 px at
+>   frame 60, rays on); with only the probe's order changed, all 79 px come back. Measured on the way:
+>   frame 1 identical everywhere; the G-buffer, depth, direct light, AO, indirect, budgets and measured-change
+>   records byte-identical on every frame; the blended order irrelevant. Not an engine path defect; the
+>   overlapping fitting surfaces are not yet named (the scene is the owner's). The tolerance is not widened.
+>   Also open: the garage
 >   on the Intel iGPU with the layers silent; the water
 >   shader's read-out-of-bounds question; GPU-assisted validation loses the device while loading the
 >   bridge (stock shaders) and resets the driver (ask first).
