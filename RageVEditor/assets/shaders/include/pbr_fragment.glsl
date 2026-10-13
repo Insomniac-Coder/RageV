@@ -792,6 +792,8 @@ const uint RAY_INSTANCE_TRANSMISSIVE = 64u;
 // RT2-2b: a terrain chunk whose four layers the reference renderer reads from
 // its own table. Reference mode only; real-time hits read layer 0.
 const uint RAY_INSTANCE_LAYERED = 128u;
+// RT2-2b: a body of water, likewise (its record in the reference's water table).
+const uint RAY_INSTANCE_WATER = 256u;
 
 layout(std430, set = 0, binding = 15) readonly buffer RayInstanceBlock
 {

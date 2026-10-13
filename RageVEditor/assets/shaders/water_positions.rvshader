@@ -1,0 +1,74 @@
+// **RT2-2b: a body of water's surface, for the reference renderer's rays.**
+//
+// The water is drawn by displacing a flat grid in its vertex stage
+// (include/water_vertex.glsl), so the ray structure, which is built from
+// buffers, has never had it. Under --reference-render the scene's clock stands
+// still, so the displaced grid is one fixed surface: this pass writes it once
+// -- the positions the structure is built from, and beside them what the
+// vertex stage hands the lit shader per vertex (the wave's normal, the
+// Jacobian the wet-crest term reads, and where the vertex sits between trough
+// and crest), so a hit interpolates exactly what a drawn fragment would have.
+// The same WaterSurfaceEval the vertex stage and the foam pass call: one
+// author for the wave sum.
+
+#type compute
+#version 450 core
+
+#include "include/water_waves.glsl"
+
+layout(local_size_x = 64) in;
+
+// The grid as MeshVertex: position, normal, uv -- eight floats.
+layout(std430, set = 0, binding = 0) readonly buffer Vertices
+{
+	float Floats[];
+} u_Vertices;
+
+layout(std430, set = 0, binding = 1) writeonly buffer Posed
+{
+	vec4 Positions[];
+} u_Posed;
+
+// Two per vertex: the wave's normal and the Jacobian, then the crest position.
+layout(std430, set = 0, binding = 2) writeonly buffer Surface
+{
+	vec4 Values[];
+} u_Surface;
+
+layout(push_constant) uniform Params
+{
+	uint  VertexCount;
+	float Time;
+	float Height;
+	float Length;
+	float Choppiness;
+	float Speed;
+	float Direction;   // radians
+	float Spacing;
+} u_Params;
+
+const uint kFloatsPerVertex = 8u;
+
+void main()
+{
+	const uint i = gl_GlobalInvocationID.x;
+	if (i >= u_Params.VertexCount)
+		return;
+
+	const uint base = i * kFloatsPerVertex;
+	const vec3 rest = vec3(u_Vertices.Floats[base + 0u], u_Vertices.Floats[base + 1u],
+						   u_Vertices.Floats[base + 2u]);
+
+	vec3 offset, tangent, binormal;
+	WaterSurfaceEval(rest.xz, u_Params.Time, u_Params.Height, u_Params.Length, u_Params.Choppiness,
+					 u_Params.Speed, u_Params.Direction, u_Params.Spacing, offset, tangent, binormal);
+
+	// As water_vertex.glsl writes them, term for term.
+	const vec3 normal = normalize(cross(binormal, tangent));
+	const float jacobian = tangent.x * binormal.z - tangent.z * binormal.x;
+	const float crest = clamp(offset.y / max(u_Params.Height * 0.5, 1e-4) * 0.5 + 0.5, 0.0, 1.0);
+
+	u_Posed.Positions[i] = vec4(rest + offset, 1.0);
+	u_Surface.Values[i * 2u + 0u] = vec4(normal, jacobian);
+	u_Surface.Values[i * 2u + 1u] = vec4(crest, 0.0, 0.0, 0.0);
+}

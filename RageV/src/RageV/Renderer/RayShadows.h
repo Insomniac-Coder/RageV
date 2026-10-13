@@ -35,6 +35,22 @@ namespace RageV
 {
 	class Mesh;
 
+	// **RT2-2b: a body of water as the reference renderer sees it** -- the
+	// component's dials, packed as Renderer3D::WaterDraw packs them for the
+	// water pass (shallow rgb + gradient metres; deep rgb + the body's clock;
+	// height, wavelength, choppiness, speed; direction in radians, foam, the
+	// previous clock, grid spacing), and the per-vertex surface the wave pass
+	// wrote beside the displaced positions: the wave's normal and Jacobian,
+	// then the crest position, two vec4 a vertex.
+	struct RayWater
+	{
+		Vec4 Shallow{ 0.0f };
+		Vec4 Deep{ 0.0f };
+		Vec4 Wave{ 0.0f };
+		Vec4 Extra{ 0.0f };
+		RHI::Ref<RHI::RHIBuffer> Surface;
+	};
+
 	// What a ray's hit needs to know about the instance it hit (ENGINE-NOTES
 	// 7ao), kept beside each TLAS instance in build order so the instance's
 	// custom index is the row. Renderer3D turns these into the ray-instance
@@ -75,6 +91,9 @@ namespace RageV
 		// alone; null everywhere else, and always null outside
 		// --reference-render, so no real-time pass sees it.
 		RHI::Ref<LayeredMaterial> Layered;
+		// **RT2-2b: a body of water**, likewise only under --reference-render.
+		// Its positions are Posed (the displaced grid); MeshRef is the flat grid.
+		std::shared_ptr<const RayWater> Water;
 	};
 
 	class RayShadows
@@ -99,6 +118,10 @@ namespace RageV
 		// only by the reference's rays; every other ray's mask leaves it out
 		// (RV_RAY_MASK_SCENE is the two bits above). RV_RAY_MASK_TRANSMISSIVE.
 		static constexpr uint8_t kMaskTransmissive = 0x04;
+		// RT2-2b: water, likewise the reference's alone, and only for the rays
+		// that meet the surface: its lights' rays leave it out, as the frame's
+		// do (the frame's water is in no ray structure). RV_RAY_MASK_WATER.
+		static constexpr uint8_t kMaskWater = 0x08;
 
 		static void Init(RHI::RHIDevice& device);
 		static void Shutdown();
@@ -131,6 +154,15 @@ namespace RageV
 								uint64_t owner = 0, bool isStatic = false, bool moving = false,
 								const Mat4* previousWorld = nullptr,
 								const RHI::Ref<LayeredMaterial>& layered = nullptr);
+		// **RT2-2b: a body of water, for the reference renderer.** `grid` is the
+		// component's flat grid; the surface is its displacement at the dials'
+		// clock, written by a compute pass in Build and built into its own
+		// structure -- once, since the reference's clock stands still, and again
+		// only when the grid or a dial changes. A no-op where the device cannot
+		// trace or the pass did not compile.
+		static void AddWater(const RHI::Ref<Mesh>& grid, const Mat4& world,
+							 const RHI::Ref<Material>& material, const MaterialParams& params,
+							 const RayWater& dials);
 		static void Build(RHI::RHICommandList& cmd);
 
 		// This frame's casters, one per instance the structure was built
@@ -151,5 +183,12 @@ namespace RageV
 		// a fresh value on any frame a skinned caster was posed. Equal from one
 		// frame to the next means no ray can answer differently.
 		static uint64_t GetGeometryKey();
+		// **RT2-2b: the same, as the reference renderer needs it** -- computed
+		// only under --reference-render, and with a posed caster's pose (its
+		// bones) in place of the fresh value: a skinned caster is posed into
+		// this frame-in-flight's buffer and structure every frame, so their
+		// addresses alternate while the pose, under the reference's frozen
+		// clock, does not. Equal means the reference's mean may keep going.
+		static uint64_t GetReferenceGeometryKey();
 	};
 }

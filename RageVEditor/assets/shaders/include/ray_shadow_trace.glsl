@@ -226,6 +226,9 @@ void RayTraverse(rayQueryEXT query)
 // RT2-2b: blended glass, present only under --reference-render and seen only by the
 // reference's own rays (RayShadows::kMaskTransmissive). Every ray here leaves it out.
 #define RV_RAY_MASK_TRANSMISSIVE 0x04u
+// RT2-2b: water, the reference's rays alone, and only those meeting the
+// surface (RayShadows::kMaskWater).
+#define RV_RAY_MASK_WATER 0x08u
 #ifdef RV_IRRADIANCE_FILL
 #define RV_RAY_MASK_SCENE RV_RAY_MASK_STATIC
 #else

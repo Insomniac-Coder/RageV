@@ -2959,6 +2959,35 @@ namespace RageV
 										referenceLayers ? terrain.GetLayers() : nullptr);
 			});
 
+			// **RT2-2b: the water, for the reference renderer alone.** Not a ray
+			// caster anywhere else -- the frame's water is in no structure, and
+			// its light rays pass through the surface -- but the reference's
+			// rays have to meet it to reflect and refract, so under
+			// --reference-render each body joins as its displaced surface, on
+			// a mask bit only those rays carry. The dials as the water pass is
+			// handed them (the draw loop below packs the same).
+			if (referenceLayers)
+			{
+				auto view = m_Registry.GetView<TransformComponent, WaterComponent>();
+				for (auto& item : view)
+				{
+					auto [transform, water] = view.Get<TransformComponent, WaterComponent>(item);
+					if (!Water::Resolve(water) || !water.Runtime)
+						continue;
+					RHI::Ref<Material> material = Water::GetMaterial();
+					if (!material)
+						continue;
+					RayWater dials;
+					dials.Shallow = { water.ShallowColor.x, water.ShallowColor.y, water.ShallowColor.z,
+									  water.GradientDepth };
+					dials.Deep = { water.DeepColor.x, water.DeepColor.y, water.DeepColor.z, water.Time };
+					dials.Wave = { water.WaveHeight, water.WaveLength, water.Choppiness, water.WaveSpeed };
+					dials.Extra = { Math::Radians(water.WaveDirection), water.Foam, water.PreviousTime,
+									water.Spacing };
+					RayShadows::AddWater(water.Runtime, transform.World, material, material->GetParams(), dials);
+				}
+			}
+
 			RayShadows::Build(*cmd);
 			return;
 		}

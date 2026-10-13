@@ -41,6 +41,41 @@ namespace RageV
 			uint32_t BoneBase = 0;
 		};
 
+		// RT2-2b: one body of water's displaced surface and its structure,
+		// kept across frames by slot and rebuilt only when what it was built
+		// from changes (the grid, or a dial -- the clock among them).
+		struct WaterCaster
+		{
+			const Mesh* BuiltFor = nullptr;
+			Vec4 BuiltWave{ 0.0f };
+			Vec4 BuiltExtra{ 0.0f };
+			float BuiltTime = -1.0f;
+			Ref<RHIBuffer> Posed;
+			Ref<RHIBuffer> Surface;
+			Ref<RHIAccelerationStructure> Structure;
+			Ref<RHIResourceSet> Set;
+		};
+
+		struct PendingWater
+		{
+			uint32_t Caster = 0;
+			Ref<Mesh> Grid;
+			RayWater Dials;
+		};
+
+		struct WaterParams
+		{
+			uint32_t VertexCount = 0;
+			float Time = 0.0f;
+			float Height = 0.0f;
+			float Length = 0.0f;
+			float Choppiness = 0.0f;
+			float Speed = 0.0f;
+			float Direction = 0.0f;
+			float Spacing = 0.0f;
+		};
+		static_assert(sizeof(WaterParams) == 32, "Must match Params in water_positions.rvshader");
+
 		struct RayShadowsData
 		{
 			RHIDevice* Device = nullptr;
@@ -71,10 +106,20 @@ namespace RageV
 			std::vector<Ref<RHIBuffer>> Bones;
 			std::vector<uint32_t> BoneCapacity;
 			uint32_t SkinnedThisFrame = 0;
+			// RT2-2b: the water pass, made on first use (only the reference
+			// renderer adds water), its casters by slot, and this frame's
+			// surfaces still to write.
+			Ref<RHIShader> WaterShader;
+			Ref<RHIComputePipeline> WaterPipeline;
+			bool WaterTried = false;
+			std::vector<WaterCaster> Waters;
+			uint32_t WaterCursor = 0;
+			std::vector<PendingWater> PendingWaters;
 			// Measured change: the structure's contents as one number, and a
 			// count that makes a frame with posed skins never match another.
 			uint64_t GeometryKey = 0;
 			uint64_t Builds = 0;
+			uint64_t ReferenceGeometryKey = 0;
 		};
 
 		std::unique_ptr<RayShadowsData> s_Data;
@@ -256,6 +301,120 @@ namespace RageV
 		s_Data->Skins.clear();
 		s_Data->BoneScratch.clear();
 		s_Data->CasterCursor = 0;
+		s_Data->WaterCursor = 0;
+		s_Data->PendingWaters.clear();
+	}
+
+	void RayShadows::AddWater(const Ref<Mesh>& grid, const Mat4& world, const Ref<Material>& material,
+							  const MaterialParams& params, const RayWater& dials)
+	{
+		if (!s_Data || !s_Data->Available || !grid || grid->GetVertexCount() == 0 || grid->GetIndexCount() < 3)
+			return;
+
+		if (!s_Data->WaterTried)
+		{
+			s_Data->WaterTried = true;
+			if (s_Data->Device->GetCaps().SupportsCompute)
+			{
+				if (auto compiled = ShaderCompiler::CompileFromFile("assets/shaders/water_positions.rvshader"))
+				{
+					s_Data->WaterShader = s_Data->Device->CreateShader(*compiled);
+					if (s_Data->WaterShader)
+					{
+						ComputePipelineDesc desc;
+						desc.Name = "RayShadows.water";
+						desc.Shader = s_Data->WaterShader;
+						s_Data->WaterPipeline = s_Data->Device->CreateComputePipeline(desc);
+					}
+				}
+			}
+			if (!s_Data->WaterPipeline)
+				RV_CORE_WARN("Ray-traced shadows: the water surface pass did not build; the reference "
+							 "renderer traces no water");
+		}
+		if (!s_Data->WaterPipeline)
+			return;
+
+		const uint32_t index = s_Data->WaterCursor++;
+		while (index >= s_Data->Waters.size())
+			s_Data->Waters.push_back({});
+		WaterCaster& caster = s_Data->Waters[index];
+
+		// The clock is Deep.w; the rest of what shapes the surface is in Wave and
+		// Extra (direction, spacing -- foam and the previous clock change no
+		// position, and are compared anyway: a rebuild is cheap and rare).
+		const bool current = caster.BuiltFor == grid.get() && caster.Structure
+						  && std::memcmp(&caster.BuiltWave, &dials.Wave, sizeof(Vec4)) == 0
+						  && std::memcmp(&caster.BuiltExtra, &dials.Extra, sizeof(Vec4)) == 0
+						  && caster.BuiltTime == dials.Deep.w;
+		if (!current)
+		{
+			BufferDesc posedDesc;
+			posedDesc.Size = (uint64_t)grid->GetVertexCount() * sizeof(Vec4);
+			posedDesc.Usage = BufferUsage::Storage | BufferUsage::AccelerationStructureInput;
+			posedDesc.Memory = MemoryDomain::DeviceLocal;
+			posedDesc.DebugName = "RayShadows.water.posed";
+			BufferDesc surfaceDesc = posedDesc;
+			surfaceDesc.Size = (uint64_t)grid->GetVertexCount() * 2u * sizeof(Vec4);
+			surfaceDesc.DebugName = "RayShadows.water.surface";
+			Ref<RHIBuffer> posed = s_Data->Device->CreateBuffer(posedDesc);
+			Ref<RHIBuffer> surface = s_Data->Device->CreateBuffer(surfaceDesc);
+			if (!posed || !surface)
+				return;
+
+			AccelerationGeometryDesc geometry;
+			geometry.Vertices = posed;
+			geometry.VertexStride = sizeof(Vec4);
+			geometry.VertexCount = grid->GetVertexCount();
+			geometry.Indices = grid->GetIndexBuffer();
+			geometry.Type = IndexType::UInt32;
+			geometry.IndexCount = grid->GetIndexCount();
+			// Dynamic because BuildBottomLevelAS builds only those; it is
+			// built once and never refit.
+			geometry.Dynamic = true;
+			geometry.DebugName = "RayShadows.water.blas";
+			Ref<RHIAccelerationStructure> structure = s_Data->Device->CreateBottomLevelAS(geometry);
+			if (!structure)
+				return;
+			if (!caster.Set)
+				caster.Set = s_Data->Device->CreateResourceSet(s_Data->WaterPipeline, 0);
+			if (!caster.Set)
+				return;
+
+			caster.Posed = posed;
+			caster.Surface = surface;
+			caster.Structure = structure;
+			// What it is built from is recorded when Build writes it, so a list
+			// cleared before its Build ran (a second view) queues it again.
+			caster.BuiltFor = nullptr;
+
+			PendingWater pending;
+			pending.Caster = index;
+			pending.Grid = grid;
+			pending.Dials = dials;
+			s_Data->PendingWaters.push_back(std::move(pending));
+		}
+
+		AccelerationInstance instance;
+		memcpy(instance.Transform, &world[0][0], sizeof(instance.Transform));
+		instance.CustomIndex = (uint32_t)s_Data->Instances.size();
+		instance.Mask = kMaskWater;
+		instance.ForceNoOpaque = false;
+		instance.Blas = caster.Structure;
+
+		auto water = std::make_shared<RayWater>(dials);
+		water->Surface = caster.Surface;
+
+		RayCaster record;
+		record.MeshRef = grid;
+		record.MaterialRef = material;
+		record.Params = params;
+		record.Posed = caster.Posed;
+		record.PreviousWorld = world;
+		record.Water = std::move(water);
+
+		s_Data->Instances.push_back(std::move(instance));
+		s_Data->Records.push_back(std::move(record));
 	}
 
 	void RayShadows::AddInstance(const Ref<Mesh>& mesh, const Mat4& world, const std::vector<Mat4>* bones,
@@ -428,6 +587,51 @@ namespace RageV
 			s_Data->SkinnedThisFrame = (uint32_t)s_Data->Skins.size();
 		}
 
+		// RT2-2b: the water surfaces still to write -- once each, since the
+		// reference's clock stands still -- then their structures, ordered after
+		// the writes; the per-vertex surface is read by the reference's
+		// fragments, later in the frame.
+		if (!s_Data->PendingWaters.empty())
+		{
+			cmd.BindComputePipeline(s_Data->WaterPipeline);
+			for (const PendingWater& pending : s_Data->PendingWaters)
+			{
+				WaterCaster& caster = s_Data->Waters[pending.Caster];
+				caster.Set->SetStorageBuffer(0, pending.Grid->GetVertexBuffer());
+				caster.Set->SetStorageBuffer(1, caster.Posed);
+				caster.Set->SetStorageBuffer(2, caster.Surface);
+				caster.Set->Commit();
+
+				WaterParams params;
+				params.VertexCount = pending.Grid->GetVertexCount();
+				params.Time = pending.Dials.Deep.w;
+				params.Height = pending.Dials.Wave.x;
+				params.Length = pending.Dials.Wave.y;
+				params.Choppiness = pending.Dials.Wave.z;
+				params.Speed = pending.Dials.Wave.w;
+				params.Direction = pending.Dials.Extra.x;
+				params.Spacing = pending.Dials.Extra.w;
+
+				cmd.BindResourceSet(0, caster.Set);
+				cmd.PushConstants(ShaderStage::Compute, 0, sizeof(params), &params);
+				cmd.Dispatch(s_Data->WaterPipeline->GroupsFor(params.VertexCount));
+
+				caster.BuiltFor = pending.Grid.get();
+				caster.BuiltWave = pending.Dials.Wave;
+				caster.BuiltExtra = pending.Dials.Extra;
+				caster.BuiltTime = pending.Dials.Deep.w;
+			}
+			for (const PendingWater& pending : s_Data->PendingWaters)
+			{
+				const WaterCaster& caster = s_Data->Waters[pending.Caster];
+				cmd.BufferBarrier(caster.Posed, BufferSync::ComputeWrite, BufferSync::AccelerationBuild);
+				cmd.BufferBarrier(caster.Surface, BufferSync::ComputeWrite, BufferSync::ShaderRead);
+			}
+			for (const PendingWater& pending : s_Data->PendingWaters)
+				cmd.BuildBottomLevelAS(s_Data->Waters[pending.Caster].Structure);
+			s_Data->PendingWaters.clear();
+		}
+
 		const uint32_t count = (uint32_t)s_Data->Instances.size();
 		EnsureCapacity(Math::Max(count, 1u));
 
@@ -438,6 +642,39 @@ namespace RageV
 		s_Data->Active = true;
 		s_Data->BuiltThisFrame = true;
 		s_Data->BuiltCount = count;
+
+		// RT2-2b: the reference's key -- the instances by named field as below,
+		// but a posed caster (skinned, or water's surface) by its pose rather
+		// than by the per-frame structure it was posed into.
+		if (EngineConfig::Get().ReferenceSamples > 0)
+		{
+			uint64_t key = 0x9E3779B97F4A7C15ull;
+			const auto mix = [&key](uint64_t word)
+			{
+				key ^= word + 0x9E3779B97F4A7C15ull + (key << 6) + (key >> 2);
+			};
+			for (uint32_t i = 0; i < count; i++)
+			{
+				const AccelerationInstance& instance = s_Data->Instances[i];
+				for (int w = 0; w < 16; w += 2)
+				{
+					uint32_t low = 0, high = 0;
+					std::memcpy(&low, &instance.Transform[w], sizeof(float));
+					std::memcpy(&high, &instance.Transform[w + 1], sizeof(float));
+					mix(((uint64_t)high << 32) | low);
+				}
+				const bool posed = i < s_Data->Records.size() && s_Data->Records[i].Posed;
+				mix(posed ? 0u : (uint64_t)(uintptr_t)instance.Blas.get());
+				mix(((uint64_t)instance.CustomIndex << 16) | ((uint64_t)instance.Mask << 8)
+					| (instance.ForceNoOpaque ? 1u : 0u));
+			}
+			const uint32_t* bones = reinterpret_cast<const uint32_t*>(s_Data->BoneScratch.data());
+			const size_t words = s_Data->BoneScratch.size() * sizeof(Mat4) / sizeof(uint32_t);
+			for (size_t w = 0; w < words; w++)
+				mix(bones[w]);
+			mix(count);
+			s_Data->ReferenceGeometryKey = key;
+		}
 
 		// **Only for the measured change**, which is the one reader: a word at a
 		// time over named fields -- never the struct's bytes, which hold a
@@ -473,6 +710,11 @@ namespace RageV
 	uint64_t RayShadows::GetGeometryKey()
 	{
 		return s_Data ? s_Data->GeometryKey : 0u;
+	}
+
+	uint64_t RayShadows::GetReferenceGeometryKey()
+	{
+		return s_Data ? s_Data->ReferenceGeometryKey : 0u;
 	}
 
 	bool RayShadows::IsActive()

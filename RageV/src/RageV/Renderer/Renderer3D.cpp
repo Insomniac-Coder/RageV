@@ -192,6 +192,24 @@ namespace RageV
 		// RT2-2b: a terrain chunk whose four layers the reference renderer reads
 		// (its row in the reference's own layered table). Reference mode only.
 		constexpr uint32_t kRayInstanceLayered = 128u;
+		// RT2-2b: a body of water (its row in the reference's water table).
+		constexpr uint32_t kRayInstanceWater = 256u;
+
+		// RT2-2b: one body of water as the reference shader reads it -- the
+		// dials as Renderer3D::WaterDraw packs them, the address of the
+		// per-vertex surface the wave pass wrote, and the detail normal map's
+		// heap slot. Mirrors RefWater in reference_trace.rvshader, std430.
+		struct GpuReferenceWater
+		{
+			Vec4 Shallow{ 0.0f };
+			Vec4 Deep{ 0.0f };
+			Vec4 Wave{ 0.0f };
+			Vec4 Extra{ 0.0f };
+			uint64_t SurfaceAddress = 0;
+			uint32_t DetailSlot = 0;
+			uint32_t Pad = 0;
+		};
+		static_assert(sizeof(GpuReferenceWater) == 80, "Must match RefWater in reference_trace.rvshader");
 
 		// Mirrors the std140 SceneData block in pbr.rvshader.
 		struct SceneUniforms
@@ -1146,10 +1164,12 @@ namespace RageV
 				Ref<RHIBuffer>      RayInstances;
 				uint32_t            RayInstanceCapacity = 0;
 				// RT2-2b: the reference renderer's terrain layers (set 3).
-				Ref<RHIBuffer>      ReferenceRowLayered;
-				uint32_t            ReferenceRowLayeredCapacity = 0;
+				Ref<RHIBuffer>      ReferenceRowExtra;
+				uint32_t            ReferenceRowExtraCapacity = 0;
 				Ref<RHIBuffer>      ReferenceLayered;
 				uint32_t            ReferenceLayeredCapacity = 0;
+				Ref<RHIBuffer>      ReferenceWater;
+				uint32_t            ReferenceWaterCapacity = 0;
 			};
 
 			// [frame in flight][scene within the frame]
@@ -1246,7 +1266,11 @@ namespace RageV
 			// ray row the record it reads (~0u for none). Built only when the
 			// reference shader exists.
 			std::vector<LayeredParams> ReferenceLayeredScratch;
-			std::vector<uint32_t> ReferenceRowLayeredScratch;
+			std::vector<uint32_t> ReferenceRowExtraScratch;
+			// ... and its bodies of water, with the sampler their detail map is
+			// read with (wrapping, filtered, as the water pass reads it).
+			std::vector<GpuReferenceWater> ReferenceWaterScratch;
+			Ref<RHISampler> ReferenceWrapSampler;
 			// Kept between frames so the front-to-back reorder allocates
 			// nothing on a stable scene.
 			std::vector<DrawRun> Runs;
@@ -5664,7 +5688,8 @@ namespace RageV
 				s_Data->RayInstanceScratch.clear();
 				s_Data->RayInstanceScratch.reserve(casters.size());
 				s_Data->ReferenceLayeredScratch.clear();
-				s_Data->ReferenceRowLayeredScratch.clear();
+				s_Data->ReferenceRowExtraScratch.clear();
+				s_Data->ReferenceWaterScratch.clear();
 				std::unordered_map<const LayeredMaterial*, uint32_t> layeredIndex;
 				if (!s_Data->RayMovingShifted)
 				{
@@ -5767,8 +5792,29 @@ namespace RageV
 									caster.Params.Occlusion, caster.Params.NormalScale };
 					if (s_Data->ReferenceShader)
 					{
+						// The row's record in whichever reference table its
+						// flag names: the terrain's layers, or the water's.
 						uint32_t layered = ~0u;
-						if (caster.Layered)
+						if (caster.Water && s_Data->Heap)
+						{
+							if (!s_Data->ReferenceWrapSampler)
+							{
+								SamplerDesc wrap;
+								wrap.MaxAnisotropy = 8.0f;
+								s_Data->ReferenceWrapSampler = s_Data->Device->CreateSampler(wrap);
+							}
+							GpuReferenceWater water;
+							water.Shallow = caster.Water->Shallow;
+							water.Deep = caster.Water->Deep;
+							water.Wave = caster.Water->Wave;
+							water.Extra = caster.Water->Extra;
+							water.SurfaceAddress = caster.Water->Surface ? caster.Water->Surface->GetDeviceAddress() : 0;
+							water.DetailSlot = s_Data->Heap->Slot(Water::GetDetailNormal(), s_Data->ReferenceWrapSampler);
+							layered = (uint32_t)s_Data->ReferenceWaterScratch.size();
+							s_Data->ReferenceWaterScratch.push_back(water);
+							row.Flags |= kRayInstanceWater;
+						}
+						else if (caster.Layered)
 						{
 							auto found = layeredIndex.find(caster.Layered.get());
 							if (found == layeredIndex.end())
@@ -5780,7 +5826,7 @@ namespace RageV
 							layered = found->second;
 							row.Flags |= kRayInstanceLayered;
 						}
-						s_Data->ReferenceRowLayeredScratch.push_back(layered);
+						s_Data->ReferenceRowExtraScratch.push_back(layered);
 					}
 					s_Data->RayInstanceScratch.push_back(row);
 				}
@@ -5816,20 +5862,30 @@ namespace RageV
 			{
 				// One row and one record at least: a declared binding must be
 				// written, and a scene without terrain has neither.
-				if (s_Data->ReferenceRowLayeredScratch.empty())
-					s_Data->ReferenceRowLayeredScratch.push_back(~0u);
+				if (s_Data->ReferenceRowExtraScratch.empty())
+					s_Data->ReferenceRowExtraScratch.push_back(~0u);
 				if (s_Data->ReferenceLayeredScratch.empty())
 					s_Data->ReferenceLayeredScratch.push_back(LayeredParams{});
-				const uint32_t rowCount = (uint32_t)s_Data->ReferenceRowLayeredScratch.size();
+				if (s_Data->ReferenceWaterScratch.empty())
+					s_Data->ReferenceWaterScratch.push_back(GpuReferenceWater{});
+				const uint32_t waterCount = (uint32_t)s_Data->ReferenceWaterScratch.size();
+				if (!EnsureInstanceBuffer(slot.ReferenceWater, slot.ReferenceWaterCapacity, waterCount,
+										  sizeof(GpuReferenceWater), "Renderer3D.reference.water"))
+				{
+					return;
+				}
+				slot.ReferenceWater->Upload(s_Data->ReferenceWaterScratch.data(),
+											(uint64_t)waterCount * sizeof(GpuReferenceWater));
+				const uint32_t rowCount = (uint32_t)s_Data->ReferenceRowExtraScratch.size();
 				const uint32_t recordCount = (uint32_t)s_Data->ReferenceLayeredScratch.size();
-				if (!EnsureInstanceBuffer(slot.ReferenceRowLayered, slot.ReferenceRowLayeredCapacity, rowCount,
-										  sizeof(uint32_t), "Renderer3D.reference.rowlayered")
+				if (!EnsureInstanceBuffer(slot.ReferenceRowExtra, slot.ReferenceRowExtraCapacity, rowCount,
+										  sizeof(uint32_t), "Renderer3D.reference.rowextra")
 					|| !EnsureInstanceBuffer(slot.ReferenceLayered, slot.ReferenceLayeredCapacity, recordCount,
 											 sizeof(LayeredParams), "Renderer3D.reference.layered"))
 				{
 					return;
 				}
-				slot.ReferenceRowLayered->Upload(s_Data->ReferenceRowLayeredScratch.data(),
+				slot.ReferenceRowExtra->Upload(s_Data->ReferenceRowExtraScratch.data(),
 												 (uint64_t)rowCount * sizeof(uint32_t));
 				slot.ReferenceLayered->Upload(s_Data->ReferenceLayeredScratch.data(),
 											  (uint64_t)recordCount * sizeof(LayeredParams));
@@ -8140,11 +8196,12 @@ namespace RageV
 		mixVector(rows);
 		mixVector(s_Data->MaterialScratch);
 		mixVector(s_Data->ReferenceLayeredScratch);
-		mixVector(s_Data->ReferenceRowLayeredScratch);
+		mixVector(s_Data->ReferenceRowExtraScratch);
+		mixVector(s_Data->ReferenceWaterScratch);
 		mixVector(s_Data->Emitters);
 		mixVector(s_Data->EmitterCdf);
 		mix(&s_Data->Scene.Environment, sizeof(s_Data->Scene.Environment));
-		const uint64_t geometry = RayShadows::GetGeometryKey();
+		const uint64_t geometry = RayShadows::GetReferenceGeometryKey();
 		mix(&geometry, sizeof(geometry));
 		return key;
 	}
@@ -8175,15 +8232,16 @@ namespace RageV
 		if (!s_Data->ReferencePipeline)
 			return;
 		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
-		if (!slot.LampSet || !slot.ReferenceRowLayered || !slot.ReferenceLayered)
+		if (!slot.LampSet || !slot.ReferenceRowExtra || !slot.ReferenceLayered || !slot.ReferenceWater)
 			return;
 		if (!slot.ReferenceInputs)
 			slot.ReferenceInputs = s_Data->Device->CreateResourceSet(s_Data->ReferencePipeline, 3);
 		if (!slot.ReferenceInputs)
 			return;
 		slot.ReferenceInputs->SetTexture(0, previous, s_Data->PointSampler);
-		slot.ReferenceInputs->SetStorageBuffer(1, slot.ReferenceRowLayered);
+		slot.ReferenceInputs->SetStorageBuffer(1, slot.ReferenceRowExtra);
 		slot.ReferenceInputs->SetStorageBuffer(2, slot.ReferenceLayered);
+		slot.ReferenceInputs->SetStorageBuffer(3, slot.ReferenceWater);
 		slot.ReferenceInputs->Commit();
 
 		struct ReferenceParams

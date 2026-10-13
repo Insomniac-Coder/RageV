@@ -67,6 +67,27 @@
 // glass, in any order, provided no crossing is counted twice, which is checked
 // here rather than left to the hardware.
 //
+// **Water** (owner, 2026-10-13: "the engine's water, traced"). A body of water
+// joins the structure only in this mode, as its displaced surface (written once
+// by water_positions.rvshader -- the clock stands still -- with the per-vertex
+// normal, Jacobian and crest the water pass's vertex stage hands its
+// fragments), on its own mask bit. At a hit the surface is the water pass's:
+// the wave normal plus its two detail ripples (faded with distance from the
+// camera, as drawn), the wet-crest smoothing, the Cox-Munk roughness that
+// grows with the camera's footprint, and the colour from shallow to deep by the
+// water behind the surface along the view. Its light is the water's own model:
+// the Beckmann lobe about the wind for what the surface reflects; for what
+// enters, the refracted ray to the bottom through Beer-Lambert at the
+// component's gradient depth, and the lit body colour taking over as that
+// transmittance dies. Lights' rays pass through the surface, as the frame's do
+// (its water is in no structure), and so does a path once it is under water --
+// the frame absorbs along the one refracted ray it traces and nowhere else.
+// Two departures, both the frame's arithmetic rather than its intent: the
+// light that enters is (1 - F) of what arrives (the frame adds the refracted
+// scene at full strength beside a full Fresnel reflection), and the lobe's
+// masking is height-correlated, as the owner chose for every lobe. Foam and
+// caustics are left out (owner, 2026-10-13).
+//
 // Steps of RT2-2b (2026-10-13): 1 the skeleton, glass, 2 the full material
 // (this). Lamps are still points until step 3 gives them their shapes. The
 // baked ambient-occlusion map is ignored on purpose (owner, 2026-10-13): the
@@ -91,6 +112,8 @@ void main()
 #define RV_TRACE_ONLY
 #include "include/pbr_fragment.glsl"
 #include "include/view_reconstruction.glsl"
+// The water's lobe, which the lit shader includes only in its water variant.
+#include "include/water_lobe.glsl"
 
 layout(location = 0) in vec2 v_UV;
 
@@ -99,13 +122,14 @@ layout(location = 0) in vec2 v_UV;
 // its own bugs).
 layout(set = 3, binding = 0) uniform sampler2D u_ReferencePrevious;
 
-// Terrain's layers, which only this pass reads at a ray hit: per ray row the
-// record its chunk uses (~0u for none), and the records -- LayeredParams, the
-// block the layered lit shader reads, with the bindless slots filled.
-layout(std430, set = 3, binding = 1) readonly buffer ReferenceRowLayered
+// What only this pass reads at a ray hit: per ray row the record its flag
+// names (~0u for none) -- a terrain chunk's layers (LayeredParams, the block
+// the layered lit shader reads, with the bindless slots filled), or a body of
+// water's dials.
+layout(std430, set = 3, binding = 1) readonly buffer ReferenceRowExtra
 {
 	uint Rows[];
-} u_RefRowLayered;
+} u_RefRowExtra;
 
 struct RefLayered
 {
@@ -132,6 +156,27 @@ layout(std430, set = 3, binding = 2) readonly buffer ReferenceLayered
 
 const int REF_LAYER_ACTIVE = 1 << 15;
 
+// A body of water: the dials as Renderer3D::WaterDraw packs them for the water
+// pass (shallow rgb + gradient metres; deep rgb + the clock; height,
+// wavelength, choppiness, speed; direction in radians, foam, the previous
+// clock, spacing), the per-vertex surface the wave pass wrote (two vec4 a
+// vertex: normal + Jacobian, crest), and the detail ripple map's heap slot.
+struct RefWater
+{
+	vec4  Shallow;
+	vec4  Deep;
+	vec4  Wave;
+	vec4  Extra;
+	uvec2 SurfaceAddress;
+	uint  DetailSlot;
+	uint  Pad;
+};
+
+layout(std430, set = 3, binding = 3) readonly buffer ReferenceWater
+{
+	RefWater Records[];
+} u_RefWater;
+
 layout(push_constant) uniform ReferenceParams
 {
 	vec4 Projection;   // xy the inverse projection, z one where rows run down (Vulkan), w samples so far
@@ -144,9 +189,14 @@ layout(push_constant) uniform ReferenceParams
 
 layout(location = 0) out vec4 o_Mean;
 
-// Every ray here sees every world: the static and the moving halves and,
-// in this mode only, the glass.
-const uint REF_MASK_ALL = RV_RAY_MASK_STATIC | RV_RAY_MASK_MOVING | RV_RAY_MASK_TRANSMISSIVE;
+// A path above water sees every world: the static and the moving halves and,
+// in this mode only, the glass and the water. A light's ray, and a path once
+// it is under water, see everything but the water (the header says why).
+const uint REF_MASK_DRY = RV_RAY_MASK_STATIC | RV_RAY_MASK_MOVING | RV_RAY_MASK_TRANSMISSIVE;
+const uint REF_MASK_ALL = REF_MASK_DRY | RV_RAY_MASK_WATER;
+
+// Water's refraction ratio, air into water, as the frame's (1 / 1.33).
+const float REF_WATER_ETA = 0.7519;
 
 // The frame's floor on roughness (pbr_fragment.glsl, main), part of the
 // material as it is defined today; RT2-21c removes it from both.
@@ -171,6 +221,13 @@ float RefRandom()
 
 // The ray cone's angle in radians, the same for every segment of every path.
 float g_ConeSpread;
+
+// The camera's forward axis, and what a distance along this segment is worth
+// as view depth: the frame measures the water behind the surface as a
+// difference of view depths, so a camera ray's distance is scaled by its
+// cosine to the axis; any later segment has no view depth and keeps its own.
+vec3 g_CameraForward;
+float g_ViewDepthScale;
 
 // --- rays ------------------------------------------------------------------
 
@@ -264,6 +321,22 @@ bool RefCandidateIsSurface(rayQueryEXT q)
 	return RefAlpha(hit, material, t) >= hit.AlphaCutoff;
 }
 
+// How far along the ray the nearest surface is, among the instances `mask`
+// lets in, or -1 where there is none.
+float RefNearest(vec3 origin, vec3 direction, uint mask)
+{
+	rayQueryEXT q;
+	rayQueryInitializeEXT(q, u_SceneAS, gl_RayFlagsNoneEXT, mask, origin, 0.0, direction, 1.0e6);
+	while (rayQueryProceedEXT(q))
+	{
+		if (rayQueryGetIntersectionTypeEXT(q, false) == gl_RayQueryCandidateIntersectionTriangleEXT
+			&& RefCandidateIsSurface(q))
+			rayQueryConfirmIntersectionEXT(q);
+	}
+	return rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT
+		 ? -1.0 : rayQueryGetIntersectionTEXT(q, true);
+}
+
 // --- texture footprints -----------------------------------------------------
 
 // The level a map is read at: the cone's footprint in texels, its base (in
@@ -309,7 +382,82 @@ struct RefHit
 	float Opacity;        // glass: the share of the pane that is ordinary surface
 	float PaneF0;         // glass: the clear share's reflectance, read as RefTransmittance reads it
 	float Distance;       // from the ray's origin
+	bool  Water;
+	vec3  WaterSigma;     // water: Beer-Lambert's extinction per metre
+	vec2  WaterWind;      // water: the wind's heading in world XZ, which the lobe stretches along
+	vec3  WaterT;         // water: what the refracted ray's path lets through (set by the path)
 };
+
+// One of a water vertex's two vec4 in the wave pass's surface buffer.
+vec4 RefWaterVertex(RayFloats surface, uint vertex, uint which)
+{
+	const uint base = vertex * 8u + which * 4u;
+	return vec4(surface.Floats[base + 0u], surface.Floats[base + 1u], surface.Floats[base + 2u],
+				surface.Floats[base + 3u]);
+}
+
+// The sea at a hit, as the water pass draws it: the wave normal its vertex
+// stage interpolates, then the RV_WATER blocks of the lit shader's main (the
+// detail ripples, the measured thickness and its colour, the wet crest, the
+// footprint roughness), with foam left out. `footprint` is the cone's width
+// over the slope, in metres.
+void RefWaterSurface(inout RefHit h, RefWater W, RefTriangle t, mat4x3 worldToObject, vec3 direction,
+					 float footprint)
+{
+	RayFloats surface = RayFloats(W.SurfaceAddress);
+	const float w0 = 1.0 - t.Bary.x - t.Bary.y;
+	const vec4 wave = RefWaterVertex(surface, t.I0, 0u) * w0 + RefWaterVertex(surface, t.I1, 0u) * t.Bary.x
+					+ RefWaterVertex(surface, t.I2, 0u) * t.Bary.y;
+	const float crest = RefWaterVertex(surface, t.I0, 1u).x * w0 + RefWaterVertex(surface, t.I1, 1u).x * t.Bary.x
+					  + RefWaterVertex(surface, t.I2, 1u).x * t.Bary.y;
+	vec3 N = normalize(vec3(dot(worldToObject[0], wave.xyz), dot(worldToObject[1], wave.xyz),
+							dot(worldToObject[2], wave.xyz)));
+	if (dot(N, h.Ng) < 0.0)
+		N = -N;
+
+	// The detail ripples: two reads of the tile, scrolled along the wind,
+	// perturbing the normal in world XZ, faded with the camera's distance --
+	// at the cone's level for each read's own metres per repeat.
+	const float time = W.Deep.w;
+	const vec2 wind = vec2(cos(W.Extra.x), sin(W.Extra.x));
+	const float viewDistance = length(u_Ref.CameraPosition.xyz - h.P);
+	const float texels = float(textureSize(u_Textures[nonuniformEXT(W.DetailSlot)], 0).x);
+	const vec2 uv1 = h.P.xz / 6.1 + wind * (time * 0.110);
+	const vec2 uv2 = h.P.xz / 2.3 - wind * (time * 0.067);
+	const vec2 slope1 = textureLod(u_Textures[nonuniformEXT(W.DetailSlot)], uv1,
+								   max(log2(max(footprint / 6.1 * texels, 1.0e-12)), 0.0)).xy * 2.0 - 1.0;
+	const vec2 slope2 = textureLod(u_Textures[nonuniformEXT(W.DetailSlot)], uv2,
+								   max(log2(max(footprint / 2.3 * texels, 1.0e-12)), 0.0)).xy * 2.0 - 1.0;
+	const float detailFade = exp(-viewDistance * 0.010);
+	N = normalize(N + vec3(slope1.x + slope2.x * 0.6, 0.0, slope1.y + slope2.y * 0.6) * (0.32 * detailFade));
+
+	// The water behind the surface along the view, to the scene under it
+	// (none in reach is deep water), and the colour it sets.
+	const float behind = RefNearest(RefOffset(h.P, -h.Ng), direction, REF_MASK_DRY);
+	const float thickness = (behind >= 0.0 ? behind : 1.0e6) * g_ViewDepthScale;
+	const float gradient = max(W.Shallow.w, 0.05);
+	const float depthMix = 1.0 - exp(-thickness / gradient);
+	vec3 albedo = mix(W.Shallow.rgb, W.Deep.rgb, depthMix);
+	albedo = mix(albedo, W.Shallow.rgb, crest * 0.2);
+
+	// The wet crest, smoother; then the roughness the camera's footprint
+	// grows toward the Cox-Munk variance.
+	const float wetness = smoothstep(1.0, 0.45, wave.w);
+	float roughness = clamp(h.Roughness, 0.045, 1.0);
+	roughness = clamp(roughness * mix(1.0, 0.45, wetness), 0.045, 1.0);
+	const float grazing = max(abs(dot(N, normalize(u_Ref.CameraPosition.xyz - h.P))), 0.08);
+	const float pixelSea = viewDistance * 0.0016 / grazing;
+	roughness = clamp(max(roughness, 0.24 * (1.0 - exp(-pixelSea * 0.045))), 0.045, 1.0);
+
+	h.N = N;
+	h.Albedo = albedo;
+	h.Roughness = roughness;
+	h.Metallic = 0.0;
+	h.Emissive = vec3(0.0);
+	h.Water = true;
+	h.WaterSigma = vec3(4.6, 1.9, 1.3) / gradient;
+	h.WaterWind = wind;
+}
 
 // The four layers of a terrain chunk at a hit, as the layered lit shader's
 // SampleSurface and SHADE_LAYER assemble them, at the cone's footprint where
@@ -409,17 +557,19 @@ void RefLayeredSurface(inout RefHit h, RefLayered L, vec3 Ns, vec3 V, vec2 uvM, 
 	h.SheenRoughness = 0.3;
 }
 
-// The nearest surface along the ray, with its material read in full at the
-// footprint of a cone `width` metres wide at the ray's origin.
-bool RefTrace(vec3 origin, vec3 direction, float width, out RefHit h)
+// The nearest surface along the ray among the instances `mask` lets in, with
+// its material read in full at the footprint of a cone `width` metres wide at
+// the ray's origin.
+bool RefTrace(vec3 origin, vec3 direction, float width, uint mask, out RefHit h)
 {
 	h.P = vec3(0.0); h.Ng = vec3(0.0, 1.0, 0.0); h.N = h.Ng; h.T = vec3(0.0);
 	h.Albedo = vec3(0.0); h.Roughness = 1.0; h.Metallic = 0.0; h.Specular = 0.5; h.Emissive = vec3(0.0);
 	h.Coat = vec4(0.0, 0.1, 0.0, 0.0); h.Sheen = vec3(0.0); h.SheenRoughness = 0.3;
 	h.Glass = false; h.Opacity = 1.0; h.PaneF0 = 0.04; h.Distance = 0.0;
+	h.Water = false; h.WaterSigma = vec3(0.0); h.WaterWind = vec2(1.0, 0.0); h.WaterT = vec3(0.0);
 
 	rayQueryEXT q;
-	rayQueryInitializeEXT(q, u_SceneAS, gl_RayFlagsNoneEXT, REF_MASK_ALL, origin, 0.0, direction, 1.0e6);
+	rayQueryInitializeEXT(q, u_SceneAS, gl_RayFlagsNoneEXT, mask, origin, 0.0, direction, 1.0e6);
 	while (rayQueryProceedEXT(q))
 	{
 		if (rayQueryGetIntersectionTypeEXT(q, false) == gl_RayQueryCandidateIntersectionTriangleEXT
@@ -482,9 +632,16 @@ bool RefTrace(vec3 origin, vec3 direction, float width, out RefHit h)
 	const float footprint = (width + g_ConeSpread * h.Distance) / max(abs(dot(h.Ng, direction)), 1.0e-4);
 	const GpuMaterial material = u_Materials.Materials[hit.MaterialIndex];
 
-	if ((hit.Flags & RAY_INSTANCE_LAYERED) != 0u)
+	if ((hit.Flags & RAY_INSTANCE_WATER) != 0u)
 	{
-		RefLayeredSurface(h, u_RefLayered.Records[u_RefRowLayered.Rows[instance]], Ns, V, uvM, duvM1, duvM2,
+		h.Roughness = hit.Surface.y;
+		h.Specular = material.Specular;
+		RefWaterSurface(h, u_RefWater.Records[u_RefRowExtra.Rows[instance]], t, worldToObject, direction,
+						footprint);
+	}
+	else if ((hit.Flags & RAY_INSTANCE_LAYERED) != 0u)
+	{
+		RefLayeredSurface(h, u_RefLayered.Records[u_RefRowExtra.Rows[instance]], Ns, V, uvM, duvM1, duvM2,
 						  dp1, dp2, worldArea2, footprint);
 	}
 	else
@@ -547,7 +704,7 @@ vec3 RefTransmittance(vec3 origin, vec3 direction, float reach)
 	uvec2 seen[8];
 	int seenCount = 0;
 	rayQueryEXT q;
-	rayQueryInitializeEXT(q, u_SceneAS, gl_RayFlagsTerminateOnFirstHitEXT, REF_MASK_ALL,
+	rayQueryInitializeEXT(q, u_SceneAS, gl_RayFlagsTerminateOnFirstHitEXT, REF_MASK_DRY,
 						  origin, 0.0, direction, reach);
 	while (rayQueryProceedEXT(q))
 	{
@@ -724,9 +881,88 @@ vec3 RefClearCos(RefHit h, vec3 V, vec3 L)
 	return RefBaseSpecular(h, V, L, vec3(h.PaneF0), F) * NdotL;
 }
 
+// The water's lobe frame: Beckmann, anisotropic about the wind flattened onto
+// the surface, at the widths the frame's water branch gives it.
+void RefWaterLobe(RefHit h, out vec3 T, out vec3 B, out float ax, out float ay)
+{
+	const vec3 wind = vec3(h.WaterWind.x, 0.0, h.WaterWind.y);
+	T = normalize(wind - h.N * dot(wind, h.N));
+	B = cross(h.N, T);
+	ax = max(h.Roughness * 1.16, 0.02);
+	ay = max(h.Roughness * 0.86, 0.02);
+}
+
+// What the water's surface reflects, f x cosine: the frame's Beckmann
+// distribution and Fresnel, with its Smith G1 made height-correlated
+// (Lambda = 1 / G1 - 1, the owner's exact masking for every lobe).
+vec3 RefWaterSpecularCos(RefHit h, vec3 V, vec3 L)
+{
+	const float NdotL = dot(h.N, L);
+	const float NdotV = dot(h.N, V);
+	if (NdotL <= 0.0 || NdotV <= 0.0 || dot(h.Ng, L) <= 0.0)
+		return vec3(0.0);
+	vec3 T, B;
+	float ax, ay;
+	RefWaterLobe(h, T, B, ax, ay);
+	const vec3 H = normalize(V + L);
+	const float D = WaterBeckmannDX(H, h.N, T, B, ax, ay);
+	const float g1v = WaterBeckmannG1X(V, h.N, T, B, ax, ay);
+	const float g1l = WaterBeckmannG1X(L, h.N, T, B, ax, ay);
+	if (D <= 0.0 || g1v <= 0.0 || g1l <= 0.0)
+		return vec3(0.0);
+	const float G = 1.0 / (1.0 / g1v + 1.0 / g1l - 1.0);
+	const vec3 F = FresnelSchlick(max(dot(H, V), 0.0), RefF0(h));
+	return D * G * F / (4.0 * NdotV);
+}
+
+// The water's lit body, f x cosine: its colour as a diffuse term with the
+// light loop's (1 - F), and only the share the refracted path does not let
+// through -- the frame's `scatter * (1 - T)`.
+vec3 RefWaterScatterCos(RefHit h, vec3 V, vec3 L)
+{
+	const float NdotL = dot(h.N, L);
+	if (NdotL <= 0.0 || dot(h.Ng, L) <= 0.0)
+		return vec3(0.0);
+	const vec3 F = FresnelSchlick(max(dot(normalize(V + L), V), 0.0), RefF0(h));
+	return (vec3(1.0) - h.WaterT) * (vec3(1.0) - F) * h.Albedo / PI * NdotL;
+}
+
+// A direction from the water's Beckmann lobe: a facet normal drawn in
+// proportion to D(H) cos (Walter et al. 2007, anisotropic), reflected.
+vec3 RefSampleWater(RefHit h, vec3 V)
+{
+	vec3 T, B;
+	float ax, ay;
+	RefWaterLobe(h, T, B, ax, ay);
+	const float u1 = RefRandom();
+	const float u2 = RefRandom();
+	const float phi = atan(ay * sin(2.0 * PI * u1), ax * cos(2.0 * PI * u1));
+	const float c = cos(phi);
+	const float s = sin(phi);
+	const float tan2 = -log(max(1.0 - u2, 1.0e-12)) / (c * c / (ax * ax) + s * s / (ay * ay));
+	const float cosTheta = inversesqrt(1.0 + tan2);
+	const float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+	const vec3 H = normalize(T * (sinTheta * c) + B * (sinTheta * s) + h.N * cosTheta);
+	return reflect(-V, H);
+}
+
+float RefWaterPdf(RefHit h, vec3 V, vec3 L)
+{
+	vec3 T, B;
+	float ax, ay;
+	RefWaterLobe(h, T, B, ax, ay);
+	const vec3 H = normalize(V + L);
+	const float VdotH = dot(V, H);
+	if (VdotH <= 0.0)
+		return 0.0;
+	return WaterBeckmannDX(H, h.N, T, B, ax, ay) * max(dot(h.N, H), 0.0) / (4.0 * VdotH);
+}
+
 // Everything a light can reach at this vertex, f x cosine.
 vec3 RefBsdfCos(RefHit h, vec3 V, vec3 L)
 {
+	if (h.Water)
+		return RefWaterSpecularCos(h, V, L) + RefWaterScatterCos(h, V, L);
 	if (!h.Glass)
 		return RefSurfaceCos(h, V, L);
 	return h.Opacity * RefSurfaceCos(h, V, L) + (1.0 - h.Opacity) * RefClearCos(h, V, L);
@@ -906,11 +1142,13 @@ vec3 RefPath(vec3 origin, vec3 direction)
 	vec3 radiance = vec3(0.0);
 	vec3 throughput = vec3(1.0);
 	float width = 0.0;   // the cone's, at the segment's origin
+	bool underWater = false;
 	const int bounces = max(int(u_Ref.Settings.x + 0.5), 1);
 	for (int bounce = 0; bounce <= bounces; ++bounce)
 	{
+		g_ViewDepthScale = bounce == 0 ? max(dot(direction, g_CameraForward), 0.0) : 1.0;
 		RefHit h;
-		if (!RefTrace(origin, direction, width, h))
+		if (!RefTrace(origin, direction, width, underWater ? REF_MASK_DRY : REF_MASK_ALL, h))
 		{
 			radiance += throughput * RefSky(direction);
 			break;
@@ -924,6 +1162,19 @@ vec3 RefPath(vec3 origin, vec3 direction)
 			break;
 
 		const vec3 V = -direction;
+
+		// On water, the refracted ray first: how far it travels to the bottom
+		// sets what the water lets through, which both the body's light and
+		// the path below need.
+		vec3 refracted = vec3(0.0);
+		if (h.Water)
+		{
+			refracted = refract(direction, h.N, REF_WATER_ETA);
+			const float through = dot(refracted, refracted) > 1.0e-6
+								? RefNearest(RefOffset(h.P, -h.Ng), refracted, REF_MASK_DRY) : -1.0;
+			h.WaterT = through >= 0.0 ? exp(-h.WaterSigma * through) : vec3(0.0);
+		}
+
 		radiance += throughput * RefLamp(h, V);
 
 		// The next direction. On glass the pane is first split by its opacity
@@ -934,7 +1185,45 @@ vec3 RefPath(vec3 origin, vec3 direction)
 		vec3 L;
 		vec3 weight;
 		bool straightThrough = false;
-		if (h.Glass && RefRandom() >= h.Opacity)
+		if (h.Water)
+		{
+			// Reflect by the surface's Fresnel, or enter; what enters reaches
+			// the bottom through the water (its share T), or is the body's lit
+			// colour (the rest). Each choice's chance divides what it carries.
+			const float Fv = FresnelSchlick(max(dot(h.N, V), 0.0), RefF0(h)).x;
+			const float pReflect = clamp(Fv, 0.05, 0.95);
+			if (RefRandom() < pReflect)
+			{
+				L = RefSampleWater(h, V);
+				const vec3 f = RefWaterSpecularCos(h, V, L);
+				const float pdf = RefWaterPdf(h, V, L) * pReflect;
+				if (all(equal(f, vec3(0.0))) || pdf <= 0.0)
+					break;
+				weight = f / pdf;
+			}
+			else
+			{
+				const bool bottom = max(h.WaterT.r, max(h.WaterT.g, h.WaterT.b)) > 0.0;
+				const float pBottom = bottom ? clamp(RefLuminance(h.WaterT), 0.05, 0.95) : 0.0;
+				if (RefRandom() < pBottom)
+				{
+					L = refracted;
+					weight = (1.0 - Fv) * h.WaterT / ((1.0 - pReflect) * pBottom);
+					straightThrough = true;
+					underWater = true;
+				}
+				else
+				{
+					L = RefSampleDiffuse(h);
+					const vec3 f = RefWaterScatterCos(h, V, L);
+					const float pdf = RefDiffusePdf(h, L) * (1.0 - pReflect) * (1.0 - pBottom);
+					if (all(equal(f, vec3(0.0))) || pdf <= 0.0)
+						break;
+					weight = f / pdf;
+				}
+			}
+		}
+		else if (h.Glass && RefRandom() >= h.Opacity)
 		{
 			// Split by the pane's own Fresnel against the triangle, exactly
 			// what RefTransmittance lets through for a light behind it, so a
@@ -1007,6 +1296,7 @@ void main()
 	// mean is heading for and never below an eighth of it -- the jittered
 	// samples already average the pixel, so a footprint need only span the
 	// spacing between them.
+	g_CameraForward = -normalize(vec3(u_Ref.CameraRow0.z, u_Ref.CameraRow1.z, u_Ref.CameraRow2.z));
 	const float pixelAngle = 2.0 * abs(u_Ref.Projection.y) / size.y;
 	g_ConeSpread = pixelAngle * max(0.125, inversesqrt(max(u_Ref.Settings.z, 1.0)));
 

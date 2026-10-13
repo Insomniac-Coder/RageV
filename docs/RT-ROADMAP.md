@@ -944,6 +944,31 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   - *Still missing, owner's report 2026-10-13 ("the bridge reflection looks wrong with path
 >     tracer"):* the sea. A WaterComponent is not in the ray structure, so the reference's rays pass
 >     through it and light the seabed. Water is the next item (its own plan to the owner).
+> - **2b water built, 2026-10-13 (owner's choice: "the engine's water, traced").** Under
+>   `--reference-render` each body of water joins the structure as its displaced surface:
+>   `water_positions.rvshader` runs the same `WaterSurfaceEval` the water pass's vertex stage runs, once
+>   (the clock stands still), writing the positions the structure is built from and, beside them, the
+>   per-vertex normal, Jacobian and crest the vertex stage hands its fragments
+>   (`RayShadows::AddWater`, mask bit `kMaskWater` 0x08, a reference-only water table at set 3). At a
+>   hit the surface is the water pass's: the wave normal plus the two detail ripples faded with the
+>   camera's distance, the wet-crest smoothing, the footprint roughness toward Cox-Munk, and the
+>   shallow-to-deep colour by the water behind the surface along the view. Its light: the Beckmann lobe
+>   about the wind for the reflection; for what enters, the refracted ray (eta 0.7519) to the bottom
+>   through Beer-Lambert at the gradient depth, and the lit body colour taking over as that dies.
+>   Lights' rays pass through the surface as the frame's do, and so does a path once under water (the
+>   frame absorbs along its one refracted ray only). Foam and caustics left out (owner). Headland at
+>   1024 samples in 29 s: the bridge's light track and the south tower's reflection on the water, close
+>   to the real-time frame in place and shape; the reference's track is broader and brighter, for step
+>   4 to measure. Real time: the four shots byte-identical, scenetest and check_gpu_lit pass.
+>   - *Two departures from the frame's arithmetic, recorded as frame findings:* the frame adds the
+>     refracted scene at full strength beside a full Fresnel reflection (no 1 - F on what enters), which
+>     the reference applies; and the water lobe's masking is height-correlated (Lambda = 1/G1 - 1), the
+>     owner's exact masking for every lobe, where the frame multiplies the two G1.
+>   - *Found on the way:* the camp never settled in the reference -- its characters are posed every
+>     frame into the frame-in-flight's buffer and structure, and the geometry key took a fresh value
+>     on any frame with a posed caster. The reference now has its own key
+>     (`RayShadows::GetReferenceGeometryKey`): the instances by field, a posed caster by its bones.
+>     Camp at 64 samples: 7 s.
 >
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'
