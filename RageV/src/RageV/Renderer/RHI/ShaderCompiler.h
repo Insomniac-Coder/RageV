@@ -86,9 +86,13 @@ namespace RageV::RHI
 		// the two disagree about where a resource lives.
 		static FlatBindingMap BuildFlatBindingMap(const ShaderReflection& reflection);
 
-		// Compiled SPIR-V is cached here keyed by source hash. Empty disables
-		// caching.
+		// Compiled SPIR-V is cached here, keyed by the expanded source, the
+		// defines, the stage and the compiler's version and options (RT2-9; on
+		// unless --shader-cache=off). Empty disables caching. Trims the folder to
+		// its size cap.
 		static void SetCacheDirectory(const std::filesystem::path& directory);
+		// One log line: this run's compiles from source, their time, and the hits.
+		static void LogStats();
 
 	private:
 		// The bodies. The public pair above are thin wrappers that count a

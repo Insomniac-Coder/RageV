@@ -634,6 +634,19 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 
 - **In plain words.** Today a shader that fails to build can silently swap in a different picture, and the engine does not know how much video memory it uses. This item makes every failure visible, makes the bridge run without Vulkan warnings, and adds a VRAM report by category to the HUD and to every benchmark. Nothing on screen changes unless something breaks.
 
+> **Found on the Intel iGPU (RT2-9, 2026-10-13; `--gpu=intel`).** Two defects NVIDIA's driver lets pass:
+> - `VulkanResourceSet::Commit` writes descriptors for bindings the pipeline's layout does not declare (a set
+>   filled by the source's bindings, while the reflected layout lacked some): Intel's driver crashed inside
+>   `vkUpdateDescriptorSets`. General form: a write to a binding the layout lacks is refused and reported once
+>   per pipeline and binding, never sent.
+> - `water.rvshader` faults the GPU (device lost in the see-through pass, many page faults) when optimised by
+> spirv-opt `-O` -- bisected to that shader alone, NVIDIA, the bridge. Either the optimiser miscompiles it or
+>   the shader reads out of bounds and the unoptimised build survives it; GPU-assisted validation lost the
+>   device before reporting. Find which with the layers on the unoptimised shader first (a read past an
+>   array would hit other vendors without any optimiser). Every run of the faulting form resets the driver
+> and blanks the owner's screen: ask before running it.
+> Gate: the garage and the bridge run on the Intel iGPU with the validation layers silent.
+
 > **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** The bake file
 > loader rejects a file above a fixed "sane" size. General form: check the payload against the size
 > its own header implies, and against the file's length.
@@ -1006,9 +1019,38 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 - **Size.** 2-3 sessions.
 - **Closes.** ISS-1, ISS-2.
 
-### RT2-9 · Pipelines built at load; shader and pipeline caches (moved early)
+### RT2-9 · Pipelines built at load; shader and pipeline caches (moved early; built 2026-10-13)
 
 - **In plain words.** Every launch compiles about 36 versions of the big lit shader on one thread, and some ray-tracing pipelines are first built in the middle of a frame, which causes a hitch. This item builds everything at load on worker threads and keeps shader and pipeline caches on disk (the owner approved caches, D6). Launches and ray-tracing toggles get faster; the picture does not change.
+
+> **Built and measured, 2026-10-13 (owner: "we desperately need shader caching").** Where a garage launch
+> went, timed first: 29 s, of which glslang 3 s (265 compiles) and the driver building pipelines 20.5 s (96
+> builds, one thread, the lit family 1.3-1.7 s each); nothing carried between launches. Built:
+> - **The SPIR-V cache on** (D6), in `ShaderCache/spirv/` beside the executable, keyed on the expanded
+>   source, defines, stage and the compiler's identity (glslang version, options, revision); a non-SPIR-V
+>   file is a miss; written beside and renamed; trimmed past 512 MB, least recently used first.
+>   `--shader-cache=off` compiles everything and keeps no pipeline cache at all.
+> - **A persistent `VkPipelineCache`**, one file per GPU (`pipelines-<vendor>-<device>.bin`), its header
+>   checked against the GPU and driver before the driver sees it; saved at shutdown.
+> - **Pipelines built on worker threads** (`VulkanPipelineCommon::Launch`), waited for at first use, so a
+>   run of requests (the lit family's fifteen) builds side by side.
+> - **Instruments:** `Shaders this run` and `Pipelines this run` log lines; `tools/scripts/launch_time.py`
+>   (palindrome, pixel check) and `shader_cache_stale_check.py` (an edited shader is recompiled).
+> - **`--gpu=<name>`** (e.g. `--gpu=intel`) to measure another vendor on a two-GPU laptop.
+> Measured (garage, 1600x900, RTX 5070 Ti laptop): launch 27.9 s -> 5.1 s with the caches (pipelines 20.2 s
+> -> 0.15 s); a cold launch 27.9 -> 15.6 s from the parallel builds; the bridge 6.5 s; 0 pixels differ cache
+> on against off in both scenes; the stale check passes. (NVIDIA's own driver cache later began serving the
+> unchanged SPIR-V, which Windows cannot switch off, so a later "off" launch read 7.6 s; 15.6 s stays the
+> cold figure.) Not built: one up-front list of every variant -- with the caches a warm launch builds all 96
+> pipelines in 0.15 s and a cold one in parallel, so nothing worth a hitch is left to build mid-frame.
+>
+> **spirv-opt tried and dropped (owner: "give it a shot ... our engine will not just run on NVIDIA").**
+> SPIRV-Tools at glslang's known-good commit, `-O` after glslang (glslang 16 optimises HLSL only), every
+> binding preserved. GPU time on, against off: NVIDIA garage 20.74 -> 20.49 ms (1%), Intel iGPU garage at
+> 1280x720 112.41 -> 112.45 ms (none); pictures the same as each GPU's run-to-run noise (NVIDIA 1 pixel by
+> 1 level; Intel within its own off-against-off spread, 2 pixels beyond it); glslang 3 s -> 33 s cold; the
+> driver's build about the same on both. And it faults the GPU on the bridge: bisected to `water.rvshader`
+> alone (RT2-1 carries it). Removed with its libraries; the 30 s and the fault buy nothing measurable.
 
 > **Checked by the comparison (2026-09-25): kept unchanged.** Pipeline caches and building every
 > permutation at load are what every shipped engine does, with loud failures.
@@ -1561,6 +1603,12 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 ### RT2-19 · A memory budget and lane budgets
 
 - **In plain words.** The engine never asks the driver how much memory it may use, a failed allocation carries on with a null handle, and the histories alone would take about 1.8 GB at native resolution. This item makes every allocation respect the driver's budget and degrade (fewer mips, lower internal resolution) instead of crashing, deletes the lanes nothing needs, and writes down how many bytes each rebuilt signal may use. Memory use falls; the picture does not change.
+
+> **Seen on the Intel iGPU (RT2-9, 2026-10-13).** The bridge at 1280x720 on Intel: `vmaCreateImage` for the
+> irradiance volume's atlas (`IrradianceVolume::CreateAtlas`) returned VK_ERROR_OUT_OF_HOST_MEMORY, the
+> engine logged it and carried on, and crashed on the null image a moment later. This item's degrade-don't-
+> crash rule, on a real device: the atlas must fit what the device can allocate, or degrade. Gate: the
+> bridge loads on the Intel iGPU.
 
 > **Changed by the comparison (2026-09-25).** Keep the budget, the degrade-don't-crash rule, the forced
 > low-budget arm and the release rules. Today's lanes are not repacked: M4 rewrites every history, so
@@ -2511,6 +2559,9 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 
 - **In plain words.** The sea is a renderer of its own: its own grid with no levels of detail, its own lamp passes, its own flags, and hand-set numbers everywhere. This item makes water an ordinary material drawn through RT2-31's transmissive layer, with its waves, roughness and caustics all derived from one wave spectrum set by the body's own dials, on a grid that follows the camera. By the owner's ruling D30, FFT spectrum waves are built as an arm and judged live at the pier and Headland against today's 32-wave sum.
 
+> **See RT2-1 (2026-10-13):** `water.rvshader` faults the GPU once spirv-opt optimises it; RT2-1 finds
+> whether that is a read out of bounds in the shader. A rewrite here must not carry it over.
+
 > **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** Twenty-three values
 > in the sea: the lamp glint memory of 16 frames and scatter memory of 4 (live, first to fix) and their
 > bound; the detail normals' tile, scroll, fade distance and strength (the fade is live); the pixel footprint on the
@@ -3061,7 +3112,7 @@ Total: about 276 to 360 working sessions, plus 1-2 if RT2-12b's 2x2 tier is need
 | D3 | TAA and MSAA once rays no longer need TAA | Lift the force; TAA stays the default | After the glass-and-water work, TAA becomes a choice like any other AA mode; with rays it stays the default, and MSAA 4x becomes selectable at full resolution (RT2-33). **Updated 2026-09-25 by D26:** kept; MSAA 4x in RT mode works through a raster drawing that is added only when MSAA is selected and calls the same shading functions as the compute composition (RT2-22). With D28 no TAA exception is left when the force is lifted |
 | D4 | How bounce light works | Two layers, the owner's design: a baked pass, with a realtime pass on top that also adds bounce light from Realtime lights | Baked lights keep the bake exactly as today ("baked means baked" stands for them); Realtime lights get live bounce light, in a pass that runs only while one is near the camera; the editor flags a stale bake when a Static object changes (RT2-25, RT2-26). **Updated 2026-09-25:** by D18 the realtime pass runs in every ray-traced view at High (near-only at lower settings), and its rays read the baked lamps' stored light where they land; by D19 it may subtract and add moving objects' effect on baked light (25f), which gives D4's "hits lit by Realtime lights only" one exception, dynamic hit surfaces; by D12 the baked direct light of FullBake and HybridFullBake lamps stays until the owner decides from RT2-12's HalfBake arm |
 | D5 | Upscaler and denoiser vendors | The engine's own upscaler, with DLSS and FSR optional | Own TAAU by default; DLSS SR and FSR behind the same setting, their SDKs inside private files; DLSS Ray Reconstruction only as a measured arm (RT2-29). Added 2026-09-25 by D15: NRD's ReBLUR as a comparison arm for the reflection denoiser, never the default |
-| D6 | Shader and pipeline caches | Caches on | The SPIR-V cache keyed on the compiler version and build options, plus a persistent pipeline cache; every measurement runs with `--shader-cache=off` (RT2-9) |
+| D6 | Shader and pipeline caches | Caches on | (Owner, 2026-10-13: the test harness keeps the caches ON -- 0 pixels differ and the key cannot serve a stale shader; `--shader-cache=off` is for timing launches.) The SPIR-V cache keyed on the compiler version and build options, plus a persistent pipeline cache; every measurement runs with `--shader-cache=off` (RT2-9) |
 | D7 | A glowing object with no light of its own | Yes, judged first | Every glowing surface without a light becomes a light source, shown as its own arm before it becomes the default; a surface a light owns stays counted once (RT2-11). **Updated 2026-09-25 by D13:** a Light "owns" a glowing mesh only through the optional, hand-set link field; there is no automatic pairing |
 | D8 | Frame-rate target | 60 FPS at native 2560x1600 | No upscaling is counted on; the budget in section 6 is re-proposed at native, where the garage must get about 3.6 times faster; render scale stays a fallback setting (RT2-29) |
 | D9 | Committing RT-24 while fix 1 leans on TAA | Commit it, with the reliance written down | If arm H cannot remove the reliance, RT-24 is committed anyway and the reliance is removed by RT2-23 and RT2-28 (RT2-0). Arm H was dropped, so the reliance is written down; D17 extends the same approach to a leftover from outside the reflections |

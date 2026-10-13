@@ -4,9 +4,10 @@
 "Closed, 2026-10-12" note).** `docs/RT-ROADMAP.md` is the single ordered roadmap (its page:
 https://claude.ai/artifact/Wi8RckggavWq8htQos4vh8, rebuilt by
 `tools/scripts/garage/rt24_scratchpad/rt2/build_roadmap.py docs/RT-ROADMAP.md <out.html>`); the RT-SERIES
-documents are history. **Next, by the owner's word: RT2-9, shader and pipeline caches, pulled forward**
-("we desperately need shader caching": every launch spends a long time compiling shaders) -- explain the plan
-and wait for the owner's OK before building. Then the roadmap's order from RT2-1.
+documents are history. **RT2-9 (shader and pipeline caches) is built, 2026-10-13** (its roadmap note): a garage launch 27.9 s ->
+5.1 s, the picture unchanged; the harness keeps the caches on (owner); spirv-opt was tried on NVIDIA and
+the Intel iGPU and dropped. `--gpu=intel` runs the engine on the integrated GPU. Then the roadmap's order
+from RT2-1, which now carries two Intel crashes and the water shader's fault under the optimiser.
 
 **The repository moved** to `D:/Code_secondary/RageV` (2026-10-12) and no longer cares where it lives: tool
 scripts find the root from their own place (`_RAGEV`), the engine finds its sample project and export file

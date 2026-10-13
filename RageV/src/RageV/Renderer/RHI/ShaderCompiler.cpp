@@ -4,11 +4,15 @@
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/Public/ResourceLimits.h>
 #include <SPIRV/GlslangToSpv.h>
+#include <glslang/build_info.h>
 
 #include <spirv_glsl.hpp>
 
 #include <fstream>
 #include <sstream>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
 
 namespace RageV::RHI
 {
@@ -16,6 +20,10 @@ namespace RageV::RHI
 	{
 		bool s_Initialized = false;
 		std::filesystem::path s_CacheDirectory;
+		// RT2-9: what this run's compiles cost, for the startup line (LogStats).
+		std::atomic<uint32_t> s_Compiled{ 0 };
+		std::atomic<uint32_t> s_FromCache{ 0 };
+		std::atomic<uint64_t> s_CompileMicroseconds{ 0 };
 
 		EShLanguage ToGlslangStage(ShaderStage stage)
 		{
@@ -143,6 +151,27 @@ namespace RageV::RHI
 			}
 			hash ^= (uint64_t)stage;
 			hash *= 1099511628211ull;
+			// **And the compiler itself (RT2-9).** The SPIR-V is a function of the
+			// expanded source, the defines, the stage -- and of glslang's version and
+			// the options CompileStage passes it. An entry made by another glslang, or
+			// with the debug build's options, is another shader, so a cached file can
+			// never outlive the compiler that wrote it. Bump the revision whenever
+			// CompileStage's options change.
+			static const std::string identity =
+				"glslang " + std::to_string(GLSLANG_VERSION_MAJOR) + "." + std::to_string(GLSLANG_VERSION_MINOR)
+				+ "." + std::to_string(GLSLANG_VERSION_PATCH) + GLSLANG_VERSION_FLAVOR
+				+ "; SPIR-V 1.5, SPIR-V and Vulkan rules, version 450, optimiser off"
+#ifdef RV_DEBUG
+				+ ", debug info"
+#else
+				+ ", debug info stripped"
+#endif
+				+ "; revision 1";
+			for (unsigned char c : identity)
+			{
+				hash ^= c;
+				hash *= 1099511628211ull;
+			}
 			return hash;
 		}
 
@@ -182,16 +211,66 @@ namespace RageV::RHI
 
 			file.seekg(0);
 			outSpirV.resize((size_t)size / sizeof(uint32_t));
-			return (bool)file.read((char*)outSpirV.data(), size);
+			// A file that is not SPIR-V (a write cut short, a stray file) is a miss,
+			// never a module handed to the driver.
+			if (!file.read((char*)outSpirV.data(), size) || outSpirV[0] != 0x07230203u)
+				return false;
+			// Used, so young: TrimCache drops the files unused longest.
+			std::error_code ec;
+			std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now(), ec);
+			return true;
 		}
 
 		void WriteCache(const std::filesystem::path& path, const std::vector<uint32_t>& spirv)
 		{
+			// Written beside and renamed into place, so another process reading the
+			// same entry sees the whole file or none of it.
 			std::error_code ec;
 			std::filesystem::create_directories(path.parent_path(), ec);
-			std::ofstream file(path, std::ios::binary);
-			if (file)
+			std::filesystem::path partial = path;
+			partial += ".partial";
+			{
+				std::ofstream file(partial, std::ios::binary);
+				if (!file)
+					return;
 				file.write((const char*)spirv.data(), (std::streamsize)(spirv.size() * sizeof(uint32_t)));
+				if (!file)
+					return;
+			}
+			std::filesystem::rename(partial, path, ec);
+			if (ec)
+				std::filesystem::remove(partial, ec);
+		}
+
+		// **Kept to a size (RT2-9).** Every staged shader arm and every edit adds
+		// entries and nothing else would ever remove them. Past the cap, the files
+		// unused longest go (a hit refreshes a file's time) until three quarters of
+		// it is left. 512 MB is many times one build's working set.
+		void TrimCache(const std::filesystem::path& directory)
+		{
+			constexpr uintmax_t kCap = 512ull << 20;
+			std::error_code ec;
+			std::vector<std::pair<std::filesystem::file_time_type, std::filesystem::path>> files;
+			uintmax_t total = 0;
+			for (const auto& entry : std::filesystem::directory_iterator(directory, ec))
+			{
+				if (!entry.is_regular_file(ec))
+					continue;
+				total += entry.file_size(ec);
+				files.push_back({ entry.last_write_time(ec), entry.path() });
+			}
+			if (total <= kCap)
+				return;
+			std::sort(files.begin(), files.end());
+			for (const auto& [time, file] : files)
+			{
+				if (total <= kCap / 4 * 3)
+					break;
+				const uintmax_t size = std::filesystem::file_size(file, ec);
+				if (std::filesystem::remove(file, ec))
+					total -= size;
+			}
+			RV_CORE_INFO("Shader cache trimmed to {0} MB ({1})", total >> 20, directory.string());
 		}
 	}
 
@@ -214,6 +293,18 @@ namespace RageV::RHI
 	void ShaderCompiler::SetCacheDirectory(const std::filesystem::path& directory)
 	{
 		s_CacheDirectory = directory;
+		if (directory.empty())
+			return;
+		std::error_code ec;
+		std::filesystem::create_directories(directory, ec);
+		TrimCache(directory);
+	}
+
+	void ShaderCompiler::LogStats()
+	{
+		RV_CORE_INFO("Shaders this run: {0} compiled from source in {1:.0f} ms, {2} from the cache{3}",
+					 s_Compiled.load(), s_CompileMicroseconds.load() / 1000.0, s_FromCache.load(),
+					 s_CacheDirectory.empty() ? " (cache off)" : "");
 	}
 
 	namespace
@@ -409,14 +500,22 @@ namespace RageV::RHI
 
 			if (!fromCache)
 			{
+				const auto began = std::chrono::steady_clock::now();
 				auto compiled = CompileStage(stageSource.Source, stageSource.Stage, preamble,
 											 desc.Name + ":" + ShaderStageName(stageSource.Stage));
+				s_CompileMicroseconds += (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+					std::chrono::steady_clock::now() - began).count();
 				if (!compiled)
 					return std::nullopt;
+				++s_Compiled;
 
 				spirv = std::move(*compiled);
 				if (!s_CacheDirectory.empty())
 					WriteCache(CachePathFor(hash), spirv);
+			}
+			else
+			{
+				++s_FromCache;
 			}
 
 			CompiledStage stage;
@@ -490,7 +589,7 @@ namespace RageV::RHI
 		options.generateDebugInfo = true;
 		options.disableOptimizer = true;
 #else
-		options.disableOptimizer = true;   // spirv-opt is not built in (ENABLE_OPT=OFF)
+		options.disableOptimizer = true;   // spirv-opt is not built in (ENABLE_OPT=OFF; RT2-9 measured it, see the roadmap)
 		options.stripDebugInfo = true;
 #endif
 		glslang::GlslangToSpv(*program.getIntermediate(language), spirv, &logger, &options);

@@ -11,6 +11,8 @@
 #include <GLFW/glfw3native.h>
 
 #include <set>
+#include <fstream>
+#include <iterator>
 
 namespace RageV::Vk
 {
@@ -157,6 +159,8 @@ namespace RageV::Vk
 		, m_FramesInFlight(Math::Max(1u, desc.FramesInFlight))
 		, m_VSync(desc.VSync)
 		, m_ValidationEnabled(desc.EnableValidation)
+		, m_PipelineCacheFile(desc.PipelineCacheFile)
+		, m_PreferredGpu(desc.PreferredGpu)
 	{
 		m_PendingWidth = desc.Width;
 		m_PendingHeight = desc.Height;
@@ -171,6 +175,7 @@ namespace RageV::Vk
 		CreateSurface();
 		SelectPhysicalDevice();
 		CreateLogicalDevice();
+		CreatePipelineCache();
 		CreateAllocator();
 		QueryCaps();
 		CreateFrameContexts();
@@ -187,6 +192,8 @@ namespace RageV::Vk
 	{
 		if (m_Device)
 			vkDeviceWaitIdle(m_Device);
+		// First, while every pipeline this run built is still in it.
+		SavePipelineCache();
 
 		// The readback ring holds the buffers it was asked to copy
 		// (ReadbackRequest::Source), and a buffer whose last reference is
@@ -241,6 +248,7 @@ namespace RageV::Vk
 		if (m_Deletion)
 			m_Deletion->DeviceAlive = false;
 
+		if (m_PipelineCache)  vkDestroyPipelineCache(m_Device, m_PipelineCache, nullptr);
 		if (m_Device)         vkDestroyDevice(m_Device, nullptr);
 		if (m_Surface)        vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
 
@@ -248,6 +256,111 @@ namespace RageV::Vk
 			vkDestroyDebugUtilsMessengerEXT(m_Instance, m_DebugMessenger, nullptr);
 
 		if (m_Instance) vkDestroyInstance(m_Instance, nullptr);
+	}
+
+	// **RT2-9: the driver's finished pipelines, kept between launches.** Building a
+	// pipeline is where the driver turns SPIR-V into the GPU's own code, and on the
+	// garage that was 20.5 s of a 29 s launch -- 96 builds on one thread, every one
+	// repeated on the next launch. Vulkan's pipeline cache is the standard answer:
+	// handed back to the driver, a build it has seen comes out of the cache.
+	//
+	// The file is checked against the specification's header before the driver
+	// sees it. A cache from another GPU or another driver is refused here (the
+	// driver would refuse it too, but a driver handed a damaged file is not always
+	// that careful), and the launch simply starts with an empty one.
+	void VulkanDevice::CreatePipelineCache()
+	{
+		if (m_PipelineCacheFile.empty())
+			return;   // --shader-cache=off: no cache at all, the launch as it was
+
+		VkPhysicalDeviceProperties properties;
+		vkGetPhysicalDeviceProperties(m_PhysicalDevice, &properties);
+		// One file per GPU: a laptop with two would otherwise throw each one's
+		// cache away every time the other ran (--gpu).
+		{
+			char suffix[32];
+			std::snprintf(suffix, sizeof(suffix), "-%04x-%04x", properties.vendorID, properties.deviceID);
+			m_PipelineCacheFile.replace_filename(m_PipelineCacheFile.stem().string() + suffix
+												  + m_PipelineCacheFile.extension().string());
+		}
+
+		std::vector<char> data;
+		{
+			std::ifstream in(m_PipelineCacheFile, std::ios::binary);
+			if (in)
+				data.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+		}
+		const char* refused = nullptr;
+		VkPipelineCacheHeaderVersionOne header{};
+		if (data.empty())
+			refused = "none yet";
+		else if (data.size() < sizeof(header))
+			refused = "the file is cut short";
+		else
+		{
+			std::memcpy(&header, data.data(), sizeof(header));
+			if (header.headerVersion != VK_PIPELINE_CACHE_HEADER_VERSION_ONE || header.headerSize < sizeof(header))
+				refused = "an unknown header";
+			else if (header.vendorID != properties.vendorID || header.deviceID != properties.deviceID)
+				refused = "it was made on another GPU";
+			else if (std::memcmp(header.pipelineCacheUUID, properties.pipelineCacheUUID, VK_UUID_SIZE) != 0)
+				refused = "it was made by another driver";
+		}
+		if (refused)
+			data.clear();
+
+		VkPipelineCacheCreateInfo info{ VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
+		info.initialDataSize = data.size();
+		info.pInitialData = data.empty() ? nullptr : data.data();
+		if (vkCreatePipelineCache(m_Device, &info, nullptr, &m_PipelineCache) != VK_SUCCESS && !data.empty())
+		{
+			// The driver turned the contents down; an empty cache still serves this run.
+			refused = "the driver refused it";
+			info.initialDataSize = 0;
+			info.pInitialData = nullptr;
+			vkCreatePipelineCache(m_Device, &info, nullptr, &m_PipelineCache);
+		}
+		if (refused)
+			RV_CORE_INFO("Pipeline cache: starting empty ({0}); {1}", refused, m_PipelineCacheFile.string());
+		else
+			RV_CORE_INFO("Pipeline cache: {0} MB loaded from {1}", data.size() >> 20, m_PipelineCacheFile.string());
+	}
+
+	void VulkanDevice::SavePipelineCache()
+	{
+		// The time is summed over the build workers, so it is the driver's work,
+		// not how long anything waited for it.
+		if (m_PipelinesBuilt > 0)
+			RV_CORE_INFO("Pipelines this run: {0} built in {1:.0f} ms{2}", m_PipelinesBuilt.load(),
+						 m_PipelineMicroseconds.load() / 1000.0, m_PipelineCache ? "" : " (cache off)");
+		if (!m_PipelineCache || m_PipelineCacheFile.empty())
+			return;
+		size_t size = 0;
+		if (vkGetPipelineCacheData(m_Device, m_PipelineCache, &size, nullptr) != VK_SUCCESS || size == 0)
+			return;
+		std::vector<char> data(size);
+		if (vkGetPipelineCacheData(m_Device, m_PipelineCache, &size, data.data()) != VK_SUCCESS)
+			return;
+		// Written beside and renamed into place: a run killed mid-write leaves the
+		// old file whole rather than a torn one.
+		std::error_code ec;
+		std::filesystem::create_directories(m_PipelineCacheFile.parent_path(), ec);
+		std::filesystem::path partial = m_PipelineCacheFile;
+		partial += ".partial";
+		{
+			std::ofstream out(partial, std::ios::binary);
+			if (!out || !out.write(data.data(), (std::streamsize)size))
+			{
+				RV_CORE_WARN("Pipeline cache: could not write {0}", partial.string());
+				return;
+			}
+		}
+		std::filesystem::rename(partial, m_PipelineCacheFile, ec);
+		if (ec)
+		{
+			RV_CORE_WARN("Pipeline cache: could not replace {0} ({1})", m_PipelineCacheFile.string(), ec.message());
+			std::filesystem::remove(partial, ec);
+		}
 	}
 
 	void VulkanDevice::CreateInstance(bool enableValidation, bool gpuAssisted)
@@ -451,6 +564,15 @@ namespace RageV::Vk
 				default: break;
 			}
 			score += (int)(properties.limits.maxImageDimension2D / 1024);
+			// --gpu=<name> outranks every kind: the asked-for GPU, if it qualifies.
+			if (!m_PreferredGpu.empty())
+			{
+				std::string name = properties.deviceName, wanted = m_PreferredGpu;
+				for (char& c : name) c = (char)std::tolower((unsigned char)c);
+				for (char& c : wanted) c = (char)std::tolower((unsigned char)c);
+				if (name.find(wanted) != std::string::npos)
+					score += 100000;
+			}
 
 			if (score > bestScore)
 			{
@@ -467,6 +589,9 @@ namespace RageV::Vk
 
 		m_PhysicalDevice = best;
 		m_QueueFamilies = FindQueueFamilies(m_PhysicalDevice, m_Surface);
+		if (!m_PreferredGpu.empty() && bestScore < 100000)
+			RV_CORE_WARN("--gpu={0}: no suitable GPU has that in its name; using the default choice",
+						 m_PreferredGpu);
 	}
 
 	void VulkanDevice::CreateLogicalDevice()

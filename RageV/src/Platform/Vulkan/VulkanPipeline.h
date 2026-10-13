@@ -4,6 +4,8 @@
 #include "RageV/Renderer/RHI/RHIPipeline.h"
 #include "RageV/Renderer/RHI/RHIResourceSet.h"
 #include "VulkanResources.h"
+#include <functional>
+#include <future>
 
 namespace RageV::Vk
 {
@@ -45,7 +47,8 @@ namespace RageV::Vk
 	public:
 		virtual ~VulkanPipelineCommon();
 
-		VkPipeline          GetHandle() const { return m_Pipeline; }
+		// Waits for the build if it is still running (RT2-9: Launch).
+		VkPipeline          GetHandle() const { Wait(); return m_Pipeline; }
 		VkPipelineLayout    GetLayout() const { return m_Layout; }
 		VkPipelineBindPoint GetBindPoint() const { return m_BindPoint; }
 
@@ -65,12 +68,21 @@ namespace RageV::Vk
 							 const RHI::ShaderReflection& reflection);
 
 		void CreateLayouts();
+		// **RT2-9: the driver's build on a worker thread.** `build` makes the
+		// VkPipeline; the constructor returns at once and the first GetHandle
+		// waits. Pipelines asked for together (the lit family in EnsurePipeline is
+		// fifteen in a row) are built side by side instead of one after another.
+		// The layouts stay on the calling thread: they are cheap, and the borrowed
+		// bindless layout is made on first use, which is not thread safe.
+		void Launch(std::function<VkPipeline()> build);
+		void Wait() const;
 
 		VulkanDevice&    m_Device;
 		std::shared_ptr<DeletionQueue> m_Deletion;
 		const RHI::ShaderReflection*   m_Reflection = nullptr;
 		VkPipelineBindPoint m_BindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-		VkPipeline       m_Pipeline = VK_NULL_HANDLE;
+		mutable VkPipeline m_Pipeline = VK_NULL_HANDLE;
+		mutable std::future<VkPipeline> m_Build;
 		VkPipelineLayout m_Layout   = VK_NULL_HANDLE;
 		std::string      m_DebugName;
 		// Indexed by set number; gaps are VK_NULL_HANDLE.
@@ -99,7 +111,7 @@ namespace RageV::Vk
 		VulkanPipeline(VulkanDevice& device, const RHI::GraphicsPipelineDesc& desc);
 
 	private:
-		void CreatePipeline();
+		VkPipeline CreatePipeline();
 	};
 
 	class VulkanComputePipeline final : public RHI::RHIComputePipeline, public VulkanPipelineCommon

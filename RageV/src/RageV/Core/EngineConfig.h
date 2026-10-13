@@ -26,6 +26,10 @@
 //   --width=N --height=N    window size
 //   --audio=on|off          open an output device at all
 //   --import-cache=on|off   read and write cooked assets (default on)
+//   --shader-cache=on|off   reuse compiled shaders and the driver's pipelines
+//                           from ShaderCache/ beside the executable (default on)
+//   --gpu=<name>            prefer the GPU whose name contains this (any case),
+//                           e.g. --gpu=intel; default the fastest kind present
 //   --bake=on|off           solve the scene's irradiance fields and write them
 //                           beside the scene, for later runs to load instead of
 //                           solving (default off)
@@ -1090,6 +1094,21 @@ namespace RageV
 		// folder and hoping nothing else moved. The same reason --benchmark
 		// and --frame-time exist.
 		bool         UseImportCache = true;
+
+		// **--shader-cache=on|off (RT2-9, 2026-10-13):** keep compiled shaders
+		// (SPIR-V) and the driver's finished pipelines on disk, in ShaderCache/
+		// beside the executable, and reuse them on later launches. Measured on the
+		// garage: 20.5 s of a 29 s launch was the driver building 96 pipelines on
+		// one thread, and nothing carried over between launches. Off compiles and
+		// builds everything from source with no pipeline cache at all -- the launch
+		// as it was -- for measurements that must not depend on a cache. The picture
+		// is the same either way.
+		bool         ShaderCache = true;
+
+		// **--gpu=<name>:** the GPU whose name contains this, matched in any
+		// case, over the default choice (a discrete GPU first). How a second
+		// vendor's driver is measured on a laptop that has two GPUs.
+		std::string  PreferredGpu;
 
 		// **Solve the scene's lighting and write it to disk.**
 		//

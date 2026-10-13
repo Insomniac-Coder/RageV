@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 #include "VulkanCommon.h"
 #include "RageV/Renderer/RHI/RHIDevice.h"
@@ -98,6 +99,15 @@ namespace RageV::Vk
 		VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
 		VkInstance       GetInstance()       const { return m_Instance; }
 		VmaAllocator     GetAllocator()      const { return m_Allocator; }
+		// RT2-9: every pipeline is built through this (VK_NULL_HANDLE with
+		// --shader-cache=off), and its build time is counted for the exit line.
+		VkPipelineCache  GetPipelineCache()  const { return m_PipelineCache; }
+		// Called from the build workers, so counted atomically.
+		void NotePipelineBuilt(double milliseconds)
+		{
+			++m_PipelinesBuilt;
+			m_PipelineMicroseconds += (uint64_t)(milliseconds * 1000.0);
+		}
 		VkQueue          GetGraphicsQueue()  const { return m_GraphicsQueue; }
 		uint32_t         GetGraphicsFamily() const { return m_QueueFamilies.Graphics; }
 		// ImGui's backend takes a pool at init and keeps the handle for the
@@ -167,6 +177,9 @@ namespace RageV::Vk
 		void CreateSurface();
 		void SelectPhysicalDevice();
 		void CreateLogicalDevice();
+		// RT2-9: the pipeline cache from its file, and back to it at the end.
+		void CreatePipelineCache();
+		void SavePipelineCache();
 		void CreateAllocator();
 		void CreateFrameContexts();
 		void CreateDescriptorPool();
@@ -211,6 +224,11 @@ namespace RageV::Vk
 		VkPhysicalDevice         m_PhysicalDevice = VK_NULL_HANDLE;
 		VkDevice                 m_Device         = VK_NULL_HANDLE;
 		VmaAllocator             m_Allocator      = VK_NULL_HANDLE;
+		VkPipelineCache          m_PipelineCache  = VK_NULL_HANDLE;
+		std::filesystem::path    m_PipelineCacheFile;
+		std::string              m_PreferredGpu;
+		std::atomic<uint32_t>    m_PipelinesBuilt{ 0 };
+		std::atomic<uint64_t>    m_PipelineMicroseconds{ 0 };
 
 		QueueFamilies m_QueueFamilies;
 		VkQueue       m_GraphicsQueue = VK_NULL_HANDLE;

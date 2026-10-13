@@ -19,6 +19,7 @@
 #include "RageV/ImGui/StartupScreen.h"
 #include "RageV/Project/ProjectTemplate.h"
 #include "RageV/Utils/PlatformUtils.h"
+#include "RageV/Renderer/RHI/ShaderCompiler.h"
 #include "Platform/Windows/WindowsPlatform.h"
 
 #include <stb_write_image.h>
@@ -105,8 +106,18 @@ namespace RageV {
 		m_Window = std::unique_ptr<Window>(Window::Create(props));
 		m_Window->SetEventCallback(RV_BIND_FUNCTION(Application::OnEvent));
 
+		// **RT2-9: compiled shaders and the driver's pipelines, kept between launches**
+		// in ShaderCache/ beside the executable -- found from the executable, never a
+		// baked path, so a moved build keeps working (and a fresh folder simply fills).
+		const std::filesystem::path shaderCache = config.ShaderCache
+			? Process::ExecutablePath().parent_path() / "ShaderCache" : std::filesystem::path{};
+		RHI::ShaderCompiler::SetCacheDirectory(shaderCache.empty() ? shaderCache : shaderCache / "spirv");
+
 		RHI::DeviceDesc deviceDesc;
 		deviceDesc.Backend = config.Backend;
+		if (!shaderCache.empty())
+			deviceDesc.PipelineCacheFile = shaderCache / "pipelines.bin";
+		deviceDesc.PreferredGpu = config.PreferredGpu;
 		deviceDesc.Window = m_Window->GetNativeWindow();
 		deviceDesc.Width = m_Window->GetWidth();
 		deviceDesc.Height = m_Window->GetHeight();
@@ -254,6 +265,9 @@ namespace RageV {
 			m_Device->WaitIdle();
 			Renderer::Shutdown();
 		}
+		// RT2-9: what this run spent on shaders; the device says the same of its
+		// pipelines as it goes, after writing them to disk.
+		RHI::ShaderCompiler::LogStats();
 		m_Device.reset();
 	}
 

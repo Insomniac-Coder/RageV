@@ -9,6 +9,7 @@
 #include "RHIPipeline.h"
 #include "RHIResourceSet.h"
 #include "RHICommandList.h"
+#include <filesystem>
 #include <functional>
 #include <vector>
 
@@ -32,6 +33,12 @@ namespace RageV::RHI
 		// With the layers on, also instrument shaders (GPU-assisted). Slow.
 		bool                GpuAssistedValidation = false;
 		uint32_t            FramesInFlight   = 2;
+		// RT2-9: where the driver's finished pipelines are kept between launches
+		// (Vulkan's pipeline cache). Read when the device is made, written when it
+		// goes. Empty keeps no cache at all (--shader-cache=off).
+		std::filesystem::path PipelineCacheFile;
+		// --gpu=<name>: prefer the GPU whose name contains this, in any case.
+		std::string PreferredGpu;
 	};
 
 	class RHIDevice

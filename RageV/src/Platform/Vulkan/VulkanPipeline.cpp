@@ -2,6 +2,7 @@
 #include "VulkanPipeline.h"
 #include "VulkanDevice.h"
 #include <algorithm>
+#include <chrono>
 
 namespace RageV::Vk
 {
@@ -51,6 +52,8 @@ namespace RageV::Vk
 
 	VulkanPipelineCommon::~VulkanPipelineCommon()
 	{
+		// A build still running writes the handle this is about to destroy.
+		Wait();
 		VkDevice device = m_Device.GetDevice();
 		VkPipeline pipeline = m_Pipeline;
 		VkPipelineLayout layout = m_Layout;
@@ -73,6 +76,29 @@ namespace RageV::Vk
 		});
 	}
 
+	void VulkanPipelineCommon::Launch(std::function<VkPipeline()> build)
+	{
+		m_Build = std::async(std::launch::async, [this, build = std::move(build)]()
+		{
+			const auto began = std::chrono::steady_clock::now();
+			const VkPipeline pipeline = build();
+			m_Device.NotePipelineBuilt(std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - began).count());
+			return pipeline;
+		});
+	}
+
+	void VulkanPipelineCommon::Wait() const
+	{
+		if (!m_Build.valid())
+			return;
+		// get() rethrows a failure the worker met (VK_CHECK) here, on the thread
+		// that asked for the pipeline.
+		m_Pipeline = m_Build.get();
+		if (m_Pipeline && !m_DebugName.empty())
+			m_Device.SetDebugName((uint64_t)m_Pipeline, VK_OBJECT_TYPE_PIPELINE, m_DebugName.c_str());
+	}
+
 	VkDescriptorSetLayout VulkanPipelineCommon::GetSetLayout(uint32_t set) const
 	{
 		if (set >= m_SetLayouts.size())
@@ -86,7 +112,11 @@ namespace RageV::Vk
 							   desc.Shader->GetReflection())
 	{
 		CreateLayouts();
-		CreatePipeline();
+		m_DebugName = desc.Name;
+		// RT2-9: the whole build on a worker; its locals live on that thread's
+		// stack, and everything else it reads (m_Desc, m_Layout, the shader's
+		// modules) belongs to this object, whose destructor waits for it.
+		Launch([this]() { return CreatePipeline(); });
 	}
 
 	// A compute pipeline is the shared layout work plus one call. Everything
@@ -117,17 +147,24 @@ namespace RageV::Vk
 			return;
 		}
 
-		VkPipelineShaderStageCreateInfo stageInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
-		stageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-		stageInfo.module = compute->Module;
-		stageInfo.pName = compute->EntryPoint.c_str();
+		// RT2-9: built on a worker, through the device's pipeline cache. The shader
+		// (and so the module and the entry point's string) lives in m_Desc.
+		Launch([this, compute]()
+		{
+			VkPipelineShaderStageCreateInfo stageInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+			stageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+			stageInfo.module = compute->Module;
+			stageInfo.pName = compute->EntryPoint.c_str();
 
-		VkComputePipelineCreateInfo info{ VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
-		info.stage = stageInfo;
-		info.layout = m_Layout;
+			VkComputePipelineCreateInfo info{ VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+			info.stage = stageInfo;
+			info.layout = m_Layout;
 
-		VK_CHECK(vkCreateComputePipelines(m_Device.GetDevice(), VK_NULL_HANDLE, 1,
-										  &info, nullptr, &m_Pipeline));
+			VkPipeline pipeline = VK_NULL_HANDLE;
+			VK_CHECK(vkCreateComputePipelines(m_Device.GetDevice(), m_Device.GetPipelineCache(), 1,
+											  &info, nullptr, &pipeline));
+			return pipeline;
+		});
 	}
 
 	void VulkanPipelineCommon::CreateLayouts()
@@ -245,7 +282,7 @@ namespace RageV::Vk
 		VK_CHECK(vkCreatePipelineLayout(m_Device.GetDevice(), &layoutInfo, nullptr, &m_Layout));
 	}
 
-	void VulkanPipeline::CreatePipeline()
+	VkPipeline VulkanPipeline::CreatePipeline()
 	{
 		auto shader = std::static_pointer_cast<VulkanShader>(m_Desc.Shader);
 
@@ -415,11 +452,9 @@ namespace RageV::Vk
 		createInfo.layout = m_Layout;
 		createInfo.renderPass = VK_NULL_HANDLE;   // dynamic rendering
 
-		VK_CHECK(vkCreateGraphicsPipelines(m_Device.GetDevice(), VK_NULL_HANDLE, 1, &createInfo, nullptr, &m_Pipeline));
-
-		m_DebugName = m_Desc.Name;
-		if (!m_Desc.Name.empty())
-			m_Device.SetDebugName((uint64_t)m_Pipeline, VK_OBJECT_TYPE_PIPELINE, m_Desc.Name.c_str());
+		VkPipeline pipeline = VK_NULL_HANDLE;
+		VK_CHECK(vkCreateGraphicsPipelines(m_Device.GetDevice(), m_Device.GetPipelineCache(), 1, &createInfo, nullptr, &pipeline));
+		return pipeline;
 	}
 
 	// -------------------------------------------------------------------------
