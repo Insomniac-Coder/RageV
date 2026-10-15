@@ -956,7 +956,7 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   about the wind for the reflection; for what enters, the refracted ray (eta 0.7519) to the bottom
 >   through Beer-Lambert at the gradient depth, and the lit body colour taking over as that dies.
 >   Lights' rays pass through the surface as the frame's do, and so does a path once under water (the
->   frame absorbs along its one refracted ray only). Foam and caustics left out (owner). Headland at
+>   frame absorbs along its one refracted ray only). Foam and caustics left out at first (in the option the owner picked; added 2026-10-15, below). Headland at
 >   1024 samples in 29 s: the bridge's light track and the south tower's reflection on the water, close
 >   to the real-time frame in place and shape; the reference's track is broader and brighter, for step
 >   4 to measure. Real time: the four shots byte-identical, scenetest and check_gpu_lit pass.
@@ -964,6 +964,18 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >     refracted scene at full strength beside a full Fresnel reflection (no 1 - F on what enters), which
 >     the reference applies; and the water lobe's masking is height-correlated (Lambda = 1/G1 - 1), the
 >     owner's exact masking for every lobe, where the frame multiplies the two G1.
+>   - *Foam and caustics added, 2026-10-15 (owner: "add both").* The water pass's foam at a hit: the
+>     trails read from the engine's own trail buffer at the grid's rest position (empty while the clock
+>     stands still, as at the scene's first instant), the live crest foam where the surface folds, the
+>     contact foam within a metre of anything the water meets, each through the foam pattern at the
+>     body's wavelength and scaled by its foam dial; it whitens and roughens the surface and hides the
+>     bottom (transmittance times 1 - foam). The caustic web (the frame's WaterCaustics, term for term)
+>     multiplies what the path sees of the bottom where the refracted ray lands. Checked with
+>     `--reference-debug=albedo`: at Headland foam covers 0.02% of the sea, all of it along the
+>     headland's shoreline (contact foam); open water carries none at the first instant, as the frame's
+>     live crest term is rare by design. The trail buffer is a ping-pong pair swapped every frame, so
+>     the reference's restart key hashes the water without its slot (the mean never settled until it
+>     did).
 >   - *Found on the way:* the camp never settled in the reference -- its characters are posed every
 >     frame into the frame-in-flight's buffer and structure, and the geometry key took a fresh value
 >     on any frame with a posed caster. The reference now has its own key

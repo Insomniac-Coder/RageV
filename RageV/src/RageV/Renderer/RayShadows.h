@@ -41,14 +41,19 @@ namespace RageV
 	// height, wavelength, choppiness, speed; direction in radians, foam, the
 	// previous clock, grid spacing), and the per-vertex surface the wave pass
 	// wrote beside the displaced positions: the wave's normal and Jacobian,
-	// then the crest position, two vec4 a vertex.
+	// then the crest position, two vec4 a vertex. And for its foam: the body's
+	// rectangle in metres (what turns a rest position into the trail buffer's
+	// coordinate) and the trail buffer itself (Water::CurrentFoam; null is a
+	// calm sea).
 	struct RayWater
 	{
 		Vec4 Shallow{ 0.0f };
 		Vec4 Deep{ 0.0f };
 		Vec4 Wave{ 0.0f };
 		Vec4 Extra{ 0.0f };
+		Vec4 Size{ 0.0f };
 		RHI::Ref<RHI::RHIBuffer> Surface;
+		RHI::Ref<RHI::RHITexture> Foam;
 	};
 
 	// What a ray's hit needs to know about the instance it hit (ENGINE-NOTES

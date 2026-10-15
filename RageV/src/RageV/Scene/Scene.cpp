@@ -2984,6 +2984,8 @@ namespace RageV
 					dials.Wave = { water.WaveHeight, water.WaveLength, water.Choppiness, water.WaveSpeed };
 					dials.Extra = { Math::Radians(water.WaveDirection), water.Foam, water.PreviousTime,
 									water.Spacing };
+					dials.Size = { water.Width, water.Length, 0.0f, 0.0f };
+					dials.Foam = Water::CurrentFoam(water);
 					RayShadows::AddWater(water.Runtime, transform.World, material, material->GetParams(), dials);
 				}
 			}

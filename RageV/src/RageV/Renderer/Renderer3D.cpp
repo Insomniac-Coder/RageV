@@ -196,20 +196,24 @@ namespace RageV
 		constexpr uint32_t kRayInstanceWater = 256u;
 
 		// RT2-2b: one body of water as the reference shader reads it -- the
-		// dials as Renderer3D::WaterDraw packs them, the address of the
-		// per-vertex surface the wave pass wrote, and the detail normal map's
-		// heap slot. Mirrors RefWater in reference_trace.rvshader, std430.
+		// dials as Renderer3D::WaterDraw packs them, the body's rectangle, the
+		// address of the per-vertex surface the wave pass wrote, and the heap
+		// slots of the detail normal map, the foam pattern and the foam trail
+		// buffer. Mirrors RefWater in reference_trace.rvshader, std430.
 		struct GpuReferenceWater
 		{
 			Vec4 Shallow{ 0.0f };
 			Vec4 Deep{ 0.0f };
 			Vec4 Wave{ 0.0f };
 			Vec4 Extra{ 0.0f };
+			Vec4 Size{ 0.0f };
 			uint64_t SurfaceAddress = 0;
 			uint32_t DetailSlot = 0;
-			uint32_t Pad = 0;
+			uint32_t PatternSlot = 0;
+			uint32_t FoamSlot = 0;
+			uint32_t Pad[3] = { 0, 0, 0 };
 		};
-		static_assert(sizeof(GpuReferenceWater) == 80, "Must match RefWater in reference_trace.rvshader");
+		static_assert(sizeof(GpuReferenceWater) == 112, "Must match RefWater in reference_trace.rvshader");
 
 		// RT2-2b step 3: the glowing surfaces, for the reference's next-event
 		// estimation. One record per glowing instance -- its world bounding
@@ -1305,6 +1309,7 @@ namespace RageV
 			// read with (wrapping, filtered, as the water pass reads it).
 			std::vector<GpuReferenceWater> ReferenceWaterScratch;
 			Ref<RHISampler> ReferenceWrapSampler;
+			Ref<RHISampler> ReferenceClampSampler;
 			// ... and its glowing surfaces: per ray row the emitter record it is
 			// (~0u for none), the records and their triangles. The triangles are
 			// rebuilt only when the glowing instances change (EmitterKey), since
@@ -5846,13 +5851,29 @@ namespace RageV
 								wrap.MaxAnisotropy = 8.0f;
 								s_Data->ReferenceWrapSampler = s_Data->Device->CreateSampler(wrap);
 							}
+							if (!s_Data->ReferenceClampSampler)
+							{
+								SamplerDesc clamp;
+								clamp.WrapU = WrapMode::ClampToEdge;
+								clamp.WrapV = WrapMode::ClampToEdge;
+								clamp.WrapW = WrapMode::ClampToEdge;
+								clamp.MaxLod = 0.0f;
+								s_Data->ReferenceClampSampler = s_Data->Device->CreateSampler(clamp);
+							}
 							GpuReferenceWater water;
 							water.Shallow = caster.Water->Shallow;
 							water.Deep = caster.Water->Deep;
 							water.Wave = caster.Water->Wave;
 							water.Extra = caster.Water->Extra;
+							water.Size = caster.Water->Size;
 							water.SurfaceAddress = caster.Water->Surface ? caster.Water->Surface->GetDeviceAddress() : 0;
 							water.DetailSlot = s_Data->Heap->Slot(Water::GetDetailNormal(), s_Data->ReferenceWrapSampler);
+							water.PatternSlot = s_Data->Heap->Slot(Water::GetFoamPattern(), s_Data->ReferenceWrapSampler);
+							// The trail buffer as the water pass reads it: clamped,
+							// level zero; a sea with none yet reads black.
+							water.FoamSlot = s_Data->Heap->Slot(caster.Water->Foam ? caster.Water->Foam
+																	: TextureLoader::Black(*s_Data->Device),
+																s_Data->ReferenceClampSampler);
 							layered = (uint32_t)s_Data->ReferenceWaterScratch.size();
 							s_Data->ReferenceWaterScratch.push_back(water);
 							row.Flags |= kRayInstanceWater;
@@ -8373,7 +8394,15 @@ namespace RageV
 		mixVector(s_Data->MaterialScratch);
 		mixVector(s_Data->ReferenceLayeredScratch);
 		mixVector(s_Data->ReferenceRowExtraScratch);
-		mixVector(s_Data->ReferenceWaterScratch);
+		// A body's foam trails are a ping-pong pair the water pass swaps every
+		// frame, so the trail buffer's heap slot alternates while its content,
+		// with the scene's clock standing still, does not (the pass neither
+		// grows nor decays foam on a step of zero): hashed without it.
+		static std::vector<GpuReferenceWater> waters;
+		waters = s_Data->ReferenceWaterScratch;
+		for (GpuReferenceWater& water : waters)
+			water.FoamSlot = 0;
+		mixVector(waters);
 		mix(&s_Data->ReferenceEmitterKey, sizeof(s_Data->ReferenceEmitterKey));
 		mixVector(s_Data->Emitters);
 		mixVector(s_Data->EmitterCdf);
