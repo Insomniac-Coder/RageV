@@ -12,6 +12,7 @@
 #include "RageV/Renderer/BakedLighting.h"
 #include "RageV/Renderer/Cubemap.h"
 #include "RageV/Core/EngineConfig.h"
+#include "RageV/Core/FrameProfiler.h"
 #include "RageV/Renderer/EditorIcons.h"
 #include "RageV/Renderer/Renderer3D.h"
 #include "RageV/Renderer/Renderer.h"
@@ -2869,6 +2870,7 @@ namespace RageV
 			// resolution the lit pass makes, so a hit and a draw of one
 			// surface cannot disagree.
 			(void)anyCaster;
+			std::optional<ProfileZone> instanceZone(std::in_place, "rt/instance list", nullptr);
 			RayShadows::ClearInstances();
 			for (auto& item : meshView)
 			{
@@ -2990,6 +2992,7 @@ namespace RageV
 				}
 			}
 
+			instanceZone.reset();
 			RayShadows::Build(*cmd);
 			return;
 		}

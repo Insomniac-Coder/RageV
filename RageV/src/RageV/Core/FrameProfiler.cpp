@@ -5,6 +5,7 @@
 #include "RageV/Renderer/Renderer.h"
 #include "RageV/Renderer/RayCounters.h"
 #include "RageV/Renderer/RHI/RHIFailures.h"
+#include "RageV/Renderer/RHI/RHICommandList.h"
 #include <format>
 #include <algorithm>
 #include <unordered_map>
@@ -225,6 +226,30 @@ namespace RageV
 		std::sort(means.begin(), means.end(),
 				  [](const PassTiming& a, const PassTiming& b) { return a.GpuMs > b.GpuMs; });
 		return means;
+	}
+
+	ProfileZone::ProfileZone(const char* name, RHI::RHICommandList* cmd)
+		: m_Pass(FrameProfiler::PassId(name))
+	{
+		if (m_Pass == FrameProfiler::kNoPass)
+			return;
+		m_Start = std::chrono::steady_clock::now();
+		uint32_t beginSlot = 0;
+		if (cmd && FrameProfiler::ClaimNamedGpuScope(m_Pass, beginSlot, m_EndSlot))
+		{
+			m_Cmd = cmd;
+			cmd->WriteTimestamp(beginSlot);
+		}
+	}
+
+	ProfileZone::~ProfileZone()
+	{
+		if (m_Pass == FrameProfiler::kNoPass)
+			return;
+		if (m_Cmd)
+			m_Cmd->WriteTimestamp(m_EndSlot);
+		const auto elapsed = std::chrono::steady_clock::now() - m_Start;
+		FrameProfiler::AddPassCpu(m_Pass, (float)std::chrono::duration<double, std::milli>(elapsed).count());
 	}
 
 	uint32_t FrameProfiler::PassId(const char* name)
@@ -719,7 +744,13 @@ namespace RageV
 			// processors -- the same statistic as the frame and phase rows
 			// above, so the two halves of this report can finally be
 			// differenced against each other.
-			const std::vector<PassTiming> passes = MeanPassTimings();
+			// The zones outside the graph (ProfileZone, "rt/...") apart: their
+			// time is inside the shadow phase, and summed with the graph's
+			// passes it would be counted twice.
+			std::vector<PassTiming> passes;
+			std::vector<PassTiming> zones;
+			for (PassTiming& entry : MeanPassTimings())
+				(entry.Name.rfind("rt/", 0) == 0 ? zones : passes).push_back(std::move(entry));
 			if (!passes.empty())
 			{
 				RV_CORE_INFO("[benchmark]   --- render graph, by pass (mean of {0} frames) ---",
@@ -751,6 +782,13 @@ namespace RageV
 								 "names: barriers, transitions, probes, shadows, present",
 								 "(whole frame - passes)", "  --",
 								 std::max(gpuFrame - listedGpu, 0.0f));
+			}
+			if (!zones.empty())
+			{
+				RV_CORE_INFO("[benchmark]   --- ray-tracing structures, inside the shadow phase ---");
+				for (const PassTiming& entry : zones)
+					RV_CORE_INFO("[benchmark]   {0:<34} {1:>9}  {2:>9}", entry.Name,
+								 column(entry.CpuMs), column(entry.GpuMs));
 			}
 		}
 

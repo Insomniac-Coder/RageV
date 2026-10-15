@@ -792,7 +792,7 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 - **Size.** 2-3 sessions.
 - **Closes.** rhi-s1, GPU-13, GPU-15, rhi-s2 (the checking half), ISS-24, ISS-25, ISS-36 (the device-loss re-check); the measuring halves of GPU-09 and CORE-05; parts of ISS-6, GI-13, CORE-10 and frame-13; the comparison's finding E-N5 (section 8).
 
-### RT2-2 · Instruments that can settle questions (2a built, 2b built and checked 2026-10-13)
+### RT2-2 · Instruments that can settle questions (2a built, 2b built and checked 2026-10-13, 2c built 2026-10-15)
 
 - **In plain words.** Most later decisions are "which picture is right" or "does this signal work without TAA". This item builds the instruments that answer those questions: a reference renderer that shares none of the shortcuts it judges, one command that renders and diffs every test camera, a command that proves a signal stands on its own, and new test scenes. Nothing on screen changes.
 
@@ -1092,6 +1092,35 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >     material model: a uniform room needs one directional albedo at every angle, and Schlick's
 >     Fresnel makes every surface reflect more at grazing. The furnace spheres measure the same
 >     thing per pixel against exact values, which is the stronger form of the check.
+>
+> - **2c built, 2026-10-15: the scale benchmark.** `bench_scale.py` runs every scene in two arms at the
+>   project's settings -- `rt` as saved and `raster` with only `--raytracing=off` -- still and, where a
+>   `<scene>_moving` twin exists, moving; each configuration twice in A,B,...,B,A order, reported as the
+>   mean of the two with half their difference. Columns: frame, p95, GPU, the CPU phases, the G-buffer
+>   pass's recording, and the ray-tracing structures, which now have their own timing zones
+>   (`ProfileZone` in FrameProfiler, a table of their own in every benchmark report, CPU and GPU):
+>   `rt/instance list`, `rt/BLAS builds (posed, water)`, `rt/TLAS build`. The parser is fixed (the
+>   project file, `scenes/`, today's draw line); a validation pre-pass per scene, a mains-power check and
+>   the thermal gate (65/100 C by default; the owner suspended it today, so `--cool 999 --hot 999`); every
+>   run's log in `bench/scale/logs/` (ignored), the summaries in `bench/scale/`. Scenes, all generated
+>   (the scenes ignored, the generators and the foliage assets committed): moving twins of the cube
+>   scenes (one object in ten spinning); `scale_content_<n>` at 20k, 60k and 120k meshes -- a block is
+>   the garage's 141 textured meshes with its glowing panels, two copies of the showroom car (337 nodes,
+>   151 meshes) and the camp's fire, tent and van, copied by tag from the shipped scenes, under a
+>   placement node so each import keeps its own root; a quarter of the cars turn in the twin -- and
+>   `scale_foliage_20000` (`make_foliage_scene.py`: a drawn leaf atlas cut at 0.5 by a Masked material,
+>   card crowns with both windings, bark trunks; for RT2-38 and RT2-39). Gates: the four shots
+>   byte-identical, scenetest OK, check_gpu_lit OK, every scene validation-clean.
+>   *The baseline, 60,000 cubes, 1280x720, 300 frames:* rays on 41.97 ms +-0.67 still, 43.41 +-0.14
+>   moving (was 40.76, one run); rays off 13.90 +-0.19 still, 15.43 +-0.70 moving. With rays on the frame
+>   is CPU-bound: the shadow phase 21.0 ms, of which the TLAS build 12.2 ms of CPU (0.10 on the GPU) and
+>   the instance list 5.05; G-buffer recording 11.4; GPU 8.8.
+>   *Content and foliage* (rays on / off, still -> moving): content 20k 47.8 -> 100.1 ms / 13.0 -> 13.0,
+>   GPU-bound; content 60k 115.2 -> 274.5 / 39.4 -> 45.8; foliage 20k 15.55 / 5.83, CPU-bound (TLAS 3.9
+>   of CPU). Two things the counts alone never showed. At 20k content the reflections' trace is 28 ms
+>   still (1,075 area emitters, the garage panels; RT2-11, RT2-12), and when 22 cars turn it goes to 83
+>   ms, with ReflectionRelight 0 -> 9 ms (RT2-23g's ground). The rays-off arm does not move.
+>   *Owed:* the 120k runs (cube and content) wait for the owner's go, for the device-lost risk.
 >
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'

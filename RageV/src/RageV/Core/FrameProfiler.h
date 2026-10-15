@@ -238,6 +238,26 @@ namespace RageV
 		// out of slots.
 		bool m_Gpu = false;
 	};
+
+	// **A named zone outside the render graph** (RT2-2c): the CPU and GPU
+	// columns a graph pass gets, for work recorded somewhere else -- the
+	// ray-tracing structures, which the shadow phase builds. A name starting
+	// "rt/" is listed in a table of its own and kept out of the graph's sum,
+	// since its time already sits inside the shadow phase's row. `cmd` null
+	// times the CPU alone. Near free when pass timings are off: one branch.
+	class ProfileZone
+	{
+	public:
+		ProfileZone(const char* name, RHI::RHICommandList* cmd);
+		~ProfileZone();
+		ProfileZone(const ProfileZone&) = delete;
+		ProfileZone& operator=(const ProfileZone&) = delete;
+	private:
+		uint32_t m_Pass;
+		RHI::RHICommandList* m_Cmd = nullptr;
+		uint32_t m_EndSlot = 0;
+		std::chrono::steady_clock::time_point m_Start;
+	};
 }
 
 // Two levels, because a single ## would paste the token `__LINE__` rather than

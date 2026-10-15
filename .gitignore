@@ -51,3 +51,13 @@ vke.txt
 eo_*.txt
 ee_*.txt
 imgui.ini
+# RT2-2c: generated scale scenes (tools/scripts/make_scale_scenes.py and
+# make_foliage_scene.py write them; 20-100 MB each). The still cube scenes stay
+# tracked as before.
+SampleProject/assets/scenes/scale_*_moving.rage
+SampleProject/assets/scenes/scale_*_moving.rage.meta
+SampleProject/assets/scenes/scale_content_*.rage
+SampleProject/assets/scenes/scale_content_*.rage.meta
+SampleProject/assets/scenes/scale_foliage_*.rage
+SampleProject/assets/scenes/scale_foliage_*.rage.meta
+bench/scale/logs/

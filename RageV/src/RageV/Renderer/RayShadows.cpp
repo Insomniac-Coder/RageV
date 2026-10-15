@@ -2,6 +2,7 @@
 #include "RayShadows.h"
 #include "Mesh.h"
 #include "RageV/Core/EngineConfig.h"
+#include "RageV/Core/FrameProfiler.h"
 #include "RageV/Renderer/RHI/ShaderCompiler.h"
 
 namespace RageV
@@ -554,6 +555,7 @@ namespace RageV
 		// the write and the build that reads it, every dynamic structure
 		// refit (its own barrier orders the top-level build after it), and
 		// then the frame's structure. All before the first render pass.
+		std::optional<ProfileZone> blasZone(std::in_place, "rt/BLAS builds (posed, water)", &cmd);
 		if (!s_Data->Skins.empty() && EnsureBones(frame, (uint32_t)s_Data->BoneScratch.size()))
 		{
 			s_Data->Bones[frame]->Upload(s_Data->BoneScratch.data(),
@@ -634,13 +636,18 @@ namespace RageV
 			s_Data->PendingWaters.clear();
 		}
 
+		blasZone.reset();
+
 		const uint32_t count = (uint32_t)s_Data->Instances.size();
 		EnsureCapacity(Math::Max(count, 1u));
 
 		if (frame >= s_Data->Structures.size() || !s_Data->Structures[frame])
 			return;
 
-		cmd.BuildTopLevelAS(s_Data->Structures[frame], s_Data->Instances.data(), count);
+		{
+			ProfileZone zone("rt/TLAS build", &cmd);
+			cmd.BuildTopLevelAS(s_Data->Structures[frame], s_Data->Instances.data(), count);
+		}
 		s_Data->Active = true;
 		s_Data->BuiltThisFrame = true;
 		s_Data->BuiltCount = count;
