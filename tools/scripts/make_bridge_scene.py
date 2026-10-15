@@ -824,7 +824,13 @@ def build(sky_name="dusk", seabed_name="bay", hero=DEFAULT_HERO, grounded=None,
             # finds it has to reach the sea from 83 m up, which 44 m never
             # could. Widening the cone to 85 degrees is what lets a shallow
             # mirror ray see the lens at all near the horizon.
-            ("Range", 600),
+            # **And to 3000 m, 2026-10-15 (owner, against the Battery Spencer
+            # photographs).** A lamp's mirror point on the bay is about as far
+            # from the lamp as from the camera -- some 550 m from the
+            # headland -- where the 600 m window had already cut the light to a
+            # few percent, so the reflection hugged the bridge; the photographs'
+            # sheet starts further out and reaches the foreground.
+            ("Range", 3000),
             ("SourceRadius", 0.6),
             # Hybrid Full Bake (ENGINE-NOTES 7cx, owner 2026-09-03): half
             # baked within 2 m of the lamp -- the head and the top of the

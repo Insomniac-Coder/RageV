@@ -1012,8 +1012,16 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >     percent and the sheet hugs the bridge, where the photograph's starts further out and reaches the
 >     foreground. At 3000 m (a test copy of the scene) the sheet spreads toward the camera like the
 >     photograph; cost +3.7 ms at Headland (18.1 to 21.8, A,B,B,A), of which the sea's forward draw
->     (scene/Transparent) +2.3 ms -- it still scores every lamp in its cell before handing them to the
->     sea's own passes, work the optimisation pass after the series can remove.
+>     (scene/Transparent) +2.3 ms.
+>     *Raised to 3000 m the same day (owner)*, in the scene and in `make_bridge_scene.py`, and the
+>     bridge re-baked for the new lighting (with each bake in place, Headland 17.2 -> 20.1 ms, two
+>     runs each). *The +2.3 ms, measured (it is not the sea draw scoring its
+>     cell, as first said -- that sampler already skips when the sea's passes run):* it goes with the
+>     sea's mirror (`--water-ablate=reflection` removes it) and with the traced hit's light walk
+>     (`--hit-lights=off` removes it). Each mirror hit weighs every lamp in reach to keep one (RT-11);
+>     at 600 m the cull record dropped most of the 117 it walks, at 3000 m all pass. That is ISS-18,
+>     RT2-12's light tree; the owner left it there ("leave it for now"). The other +1.4 ms is the
+>     lamps' real reach in DirectTrace, the sea's choose pass, ReflectionTrace and GI.
 >   - *Found on the way:* the camp never settled in the reference -- its characters are posed every
 >     frame into the frame-in-flight's buffer and structure, and the geometry key took a fresh value
 >     on any frame with a posed caster. The reference now has its own key
@@ -1674,6 +1682,11 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 ### RT2-12 · Light candidates at a fixed cost per pixel, shared by every pass
 
 - **In plain words.** Today the cost of picking lights grows with the number of lights: DirectTrace scores every light near a pixel (up to 190 on the bridge) and a reflection hit walks every light in the scene. This item builds one light tree (a light BVH) over all lights and glowing surfaces, which every ray hit uses to pick a light at a cost that barely grows with the light count. It is measured against the light grid Doom: The Dark Ages ships (nested grids around the camera, built on the GPU), which is built first as the baseline (rule 1). The picking at the camera's own pixels moves to RT2-12b. By the owner's ruling D12, an arm here then tests moving the FullBake and HybridFullBake lamps to HalfBake, and the owner decides from it.
+
+>  **Measured case, 2026-10-15 (the bridge's deck lamps raised to 3000 m, owner).** With every deck
+> lamp in reach of every sea mirror hit, the hits' weigh-every-lamp walk costs 2.3 ms at Headland
+> (scene/Transparent 5.7 -> 8.0; `--hit-lights=off` removes the difference). Left for this item by the
+> owner; it is the number this item's light tree should take back.
 
 > **Added from audit 2 (2026-09-24; section 10 lists each value with its general form).** The Hybrid
 > lamps' cull distance is packed in eighths of a metre in 13 bits and capped at about 1 km by rounding
