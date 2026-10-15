@@ -1,0 +1,36 @@
+  [1/16] scale_120000.rage              rt     started at 62 C, peak 90 C: 89.24 ms
+  [2/16] scale_120000.rage              raster started at 80 C, peak 90 C: 30.38 ms
+  [3/16] scale_120000_moving.rage       rt     started at 64 C, peak 92 C: 97.01 ms
+  [4/16] scale_120000_moving.rage       raster started at 62 C, peak 90 C: 34.74 ms
+  [5/16] scale_content_120000.rage      rt     started at 63 C, peak 95 C: 338.48 ms
+  [6/16] scale_content_120000.rage      raster started at 63 C, peak 96 C: 135.40 ms
+  [7/16] scale_content_120000_moving.rage rt     started at 64 C, peak 94 C: 552.72 ms
+  [8/16] scale_content_120000_moving.rage raster started at 65 C, peak 96 C: 184.37 ms
+  [9/16] scale_content_120000_moving.rage raster started at 66 C, peak 94 C: 180.51 ms
+  [10/16] scale_content_120000_moving.rage rt     started at 64 C, peak 95 C: 544.04 ms
+  [11/16] scale_content_120000.rage      raster started at 66 C, peak 96 C: 132.17 ms
+  [12/16] scale_content_120000.rage      rt     started at 69 C, peak 95 C: 336.63 ms
+  [13/16] scale_120000_moving.rage       raster started at 72 C, peak 93 C: 34.96 ms
+  [14/16] scale_120000_moving.rage       rt     started at 64 C, peak 90 C: 96.96 ms
+  [15/16] scale_120000.rage              raster started at 63 C, peak 90 C: 30.18 ms
+  [16/16] scale_120000.rage              rt     started at 68 C, peak 91 C: 89.33 ms
+
+mean of the two runs (ms); +- half their difference under the frame
+scene                    motion arm        frame       p95       GPU      wait    shadow     graph  gbuf rec     other   rt list  TLAS cpu  TLAS gpu  BLAS cpu  BLAS gpu
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+scale_120000             still  rt        89.284    92.251    11.399     0.061    42.480    30.986    22.921    15.241    10.052    24.389     0.151     0.003     0.001
+                                          +-0.04   4 draws (4 indirect), 46.6 M triangles; neither dominates; the gap is present or vsync
+scale_120000             still  raster    30.277    31.420     7.983     0.048     6.542    15.932    15.785     7.249        --        --        --        --        --
+                                          +-0.10   20 draws (20 indirect), 232.8 M triangles; neither dominates; the gap is present or vsync
+scale_120000             moving rt        96.984   100.008    12.275     0.058    42.688    31.082    23.013    22.644    10.347    24.355     0.150     0.003     0.001
+                                          +-0.03   4 draws (4 indirect), 46.6 M triangles; neither dominates; the gap is present or vsync
+scale_120000             moving raster    34.852    36.924     8.009     0.048     6.684    16.212    16.063    11.407        --        --        --        --        --
+                                          +-0.11   20 draws (20 indirect), 232.8 M triangles; neither dominates; the gap is present or vsync
+scale_content_120000     still  rt       337.557   347.075   233.618     0.080    54.363   145.260   133.430   137.290    10.938    23.049     0.173     0.005     0.001
+                                          +-0.92   297 draws (297 indirect), 438.7 M triangles; neither dominates; the gap is present or vsync
+scale_content_120000     still  raster   133.785   141.136    59.160     0.057    19.185    31.599    31.372    82.404        --        --        --        --        --
+                                          +-1.62   1365 draws (1365 indirect), 2159.8 M triangles; neither dominates; the gap is present or vsync
+scale_content_120000     moving rt       548.382   793.110   547.964   173.770    55.331   144.231   132.485   173.681    11.076    23.147     0.214     0.004     0.001
+                                          +-4.34   297 draws (297 indirect), 438.7 M triangles; GPU bound
+scale_content_120000     moving raster   182.440   193.708    59.823     0.056    19.135    31.477    31.249   131.224        --        --        --        --        --
+                                          +-1.93   1365 draws (1365 indirect), 2159.8 M triangles; neither dominates; the gap is present or vsync

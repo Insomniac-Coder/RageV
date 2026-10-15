@@ -1120,7 +1120,12 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   of CPU). Two things the counts alone never showed. At 20k content the reflections' trace is 28 ms
 >   still (1,075 area emitters, the garage panels; RT2-11, RT2-12), and when 22 cars turn it goes to 83
 >   ms, with ReflectionRelight 0 -> 9 ms (RT2-23g's ground). The rays-off arm does not move.
->   *Owed:* the 120k runs (cube and content) wait for the owner's go, for the device-lost risk.
+>   *The 120k runs (owner's go, same day; no device loss):* cubes, rays on 89.28 +-0.04 still, 96.98
+>   +-0.03 moving; rays off 30.28 / 34.85. The TLAS build's CPU doubles with the count (12.2 -> 24.4 ms)
+>   and the instance list with it (5.05 -> 10.05), so the rays-on frame stays CPU-bound and linear.
+>   Content 120k: rays on 337.6 +-0.9 still, 548.4 +-4.3 moving (GPU 234 -> 548); rays off 133.8 +-1.6
+>   still, 182.4 +-1.9 moving, where 82 -> 131 ms of the CPU frame is outside every phase -- the
+>   hierarchies' per-frame work, which 2f's zones are there to name.
 >
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'
