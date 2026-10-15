@@ -187,8 +187,8 @@ bool LampOutOfRange(uint index, vec3 position)
 }
 
 // One lamp, shaded in full, in the order the lit shader does it: the sized
-// source's closest point for the half vector, the widening its angular size
-// adds to the slope, then the streak frame it turns the lobe into.
+// source's closest point for the half vector, then the widening its angular
+// size adds to the slope of the sea's own lobe.
 void ShadeLamp(WaterPoint p, uint index, out vec3 diffuse, out vec3 specular,
 			   out vec3 L, out float toward)
 {
@@ -251,30 +251,11 @@ void ShadeLamp(WaterPoint p, uint index, out vec3 diffuse, out vec3 specular,
 	const vec3 windT = normalize(windDir - N * dot(windDir, N));
 	const vec3 windB = cross(N, windT);
 
-	float NDF;
-	float G;
-	vec3 Tv = V - N * dot(V, N);
-	const float tv2 = dot(Tv, Tv);
-	if (radius > 0.0 && tv2 > 1.0e-6)
-	{
-		Tv *= inversesqrt(tv2);
-		const vec3 Bv = cross(N, Tv);
-		const float ax0 = max(specRoughness * 1.16, 0.02);
-		const float ay0 = max(specRoughness * 0.86, 0.02);
-		const float angular = radius * inversesqrt(max(distance2, 1.0e-8));
-		const float axS = min(ax0 * 3.0 + 4.0 * angular, 1.0);
-		const float ayS = min(ay0 + 0.5 * angular, 1.0);
-		specScale = sqrt((ax0 * ay0) / (axS * ayS));
-		NDF = WaterBeckmannDX(H, N, Tv, Bv, axS, ayS);
-		G   = WaterBeckmannG1X(V, N, Tv, Bv, ax0, ay0)
-			* WaterBeckmannG1X(L, N, Tv, Bv, ax0, ay0);
-	}
-	else
-	{
-		NDF = WaterBeckmannD(H, N, windT, windB, specRoughness);
-		G   = WaterBeckmannG1(V, N, windT, windB, specRoughness)
-			* WaterBeckmannG1(L, N, windT, windB, specRoughness);
-	}
+	// The same lobe for every lamp (the streak frame went 2026-10-15; the lit
+	// shader's water branch says why).
+	const float NDF = WaterBeckmannD(H, N, windT, windB, specRoughness);
+	const float G   = WaterBeckmannG1(V, N, windT, windB, specRoughness)
+					* WaterBeckmannG1(L, N, windT, windB, specRoughness);
 
 	const float f0 = 0.08 * clamp(p.Specular, 0.0, 1.0);
 	const float VdotH = max(dot(H, V), 0.0);
@@ -359,15 +340,10 @@ float ScoreLamp(WaterPoint p, uint index, out vec3 L, out float NdotL)
 	if (!LampScoreIsTerm())
 		return max(score, 1.0e-9);   // the irradiance arm, kept as the arm it lost as
 
-	// The sea's own lobe, in the frame a sized lamp turns toward the viewer.
+	// The sea's own lobe, about the wind.
 	const vec3 windDir = vec3(cos(p.Wind), 0.0, sin(p.Wind));
 	const vec3 windT = normalize(windDir - p.N * dot(windDir, p.N));
 	const vec3 windB = cross(p.N, windT);
-	vec3 viewT = p.V - p.N * dot(p.V, p.N);
-	const float viewT2 = dot(viewT, viewT);
-	const bool hasStreak = viewT2 > 1.0e-6;
-	viewT = hasStreak ? viewT * inversesqrt(max(viewT2, 1.0e-12)) : windT;
-	const vec3 viewB = hasStreak ? cross(p.N, viewT) : windB;
 	const float NdotV = max(dot(p.N, p.V), 1.0e-3);
 	const float angular = light.Direction.w * inversesqrt(max(distance2, 1.0e-8));
 	// **The lamp's size widens the slope before the lobe is built**, which
@@ -379,26 +355,10 @@ float ScoreLamp(WaterPoint p, uint index, out vec3 L, out float NdotL)
 	// unbiased it is in the limit.
 	const float widened = light.Direction.w > 0.0
 						? min(p.Roughness + 0.5 * angular, 1.0) : p.Roughness;
-	const float ax0 = max(widened * 1.16, 0.02);
-	const float ay0 = max(widened * 0.86, 0.02);
-
-	float ndf, ndfScale, g;
-	if (light.Direction.w > 0.0 && hasStreak)
-	{
-		const float axS = min(ax0 * 3.0 + 4.0 * angular, 1.0);
-		const float ayS = min(ay0 + 0.5 * angular, 1.0);
-		ndfScale = sqrt((ax0 * ay0) / (axS * ayS));
-		ndf = WaterBeckmannDX(H, p.N, viewT, viewB, axS, ayS);
-		g = WaterBeckmannG1X(p.V, p.N, viewT, viewB, ax0, ay0)
-		  * WaterBeckmannG1X(L, p.N, viewT, viewB, ax0, ay0);
-	}
-	else
-	{
-		ndfScale = (p.Roughness * p.Roughness) / max(widened * widened, 1.0e-12);
-		ndf = WaterBeckmannD(H, p.N, windT, windB, widened);
-		g = WaterBeckmannG1(p.V, p.N, windT, windB, widened)
-		  * WaterBeckmannG1(L, p.N, windT, windB, widened);
-	}
+	const float ndfScale = (p.Roughness * p.Roughness) / max(widened * widened, 1.0e-12);
+	const float ndf = WaterBeckmannD(H, p.N, windT, windB, widened);
+	const float g = WaterBeckmannG1(p.V, p.N, windT, windB, widened)
+				  * WaterBeckmannG1(L, p.N, windT, windB, widened);
 	score += lum * ndf * ndfScale * g * fresnel * 0.25 / NdotV;
 	return max(score, 1.0e-9);
 }

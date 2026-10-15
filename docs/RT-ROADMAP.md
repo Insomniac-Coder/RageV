@@ -987,6 +987,33 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >     therefore returns about a third of the deck lamps' light in that band, through its own water-lamp
 >     passes (WR-16 S4b) and their streak model -- where the shortfall is lost is not yet found. It
 >     belongs to RT2-32 (ISS-32, the sea's lighting gaps), which can now be judged against this.
+>   - *Found the same day (owner: "compare it with real picture and make both come closer").* Real
+>     night photographs settle the look: from Battery Spencer (about 90 m up, our Headland camera) the
+>     deck lamps lay one smooth sheet on the bay; from the beach at Kirby Cove the same lamps lay separate
+>     columns. Both follow from the sea's own lobe -- at grazing view a glint is roughly 1/elevation
+>     times taller than wide -- and the reference, with every lamp on, draws the sheet (with every eighth
+>     lamp on, separate streaks). Two frame-side causes, each measured against it, both fixed:
+>     1. *The streak frame* (in the lit shader's water branch, ShadeLamp and DirectTerm, and their
+>        scores): a sized lamp's lobe turned to the view, 3x longer toward the camera at half the
+>        renormalisation, held at the narrow Cox-Munk width across. With it switched off the frame's
+>        streaks merged into the reference's sheet. Removed; every lamp takes the wind-frame lobe, a
+>        sized one widened by its angular radius as before.
+>     2. *Soft shadow rays ran into the lamp's own fitting.* TraceShadowSoftFromMasked aimed at a disc
+>        point and ran the ray on to the centre plane (past it, by design, to dodge the source's far
+>        edge), so a lamp head or housing modelled inside the source radius blocked it. It hid 22-25% of
+>        the deck lamps' light from the sea. The ray now ends where it meets the source's sphere, as the
+>        reference's does. With lamp shadows off in both, the two already agreed (0.97-1.0 per row).
+>     After both, the frame's lamp light on the sea is within 6% of the reference's, row for row. Gates:
+>     camp byte-identical; garage 0.83% of pixels move more than 8 levels (the shadow fix, a little
+>     brighter); Headland and Glitter change (new baselines); scenetest OK; check_gpu_lit OK; Vulkan
+>     validation 0 messages. Glitter (2.5 m up) still lays a separate pool per lamp.
+>     *Still apart from the photographs, the owner's call:* the deck lamps' Range of 600 m. Each lamp's
+>     mirror point on the sea is about 550 m from it, so the window leaves the true reflection a few
+>     percent and the sheet hugs the bridge, where the photograph's starts further out and reaches the
+>     foreground. At 3000 m (a test copy of the scene) the sheet spreads toward the camera like the
+>     photograph; cost +3.7 ms at Headland (18.1 to 21.8, A,B,B,A), of which the sea's forward draw
+>     (scene/Transparent) +2.3 ms -- it still scores every lamp in its cell before handing them to the
+>     sea's own passes, work the optimisation pass after the series can remove.
 >   - *Found on the way:* the camp never settled in the reference -- its characters are posed every
 >     frame into the frame-in-flight's buffer and structure, and the geometry key took a fresh value
 >     on any frame with a posed caster. The reference now has its own key

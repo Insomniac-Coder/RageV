@@ -416,40 +416,16 @@ bool DirectTerm(DirectPoint p, GpuLight light, out vec3 diffuse, out vec3 specul
 	}
 #ifdef RV_DIRECT_WATER
 	// **The sea's lobe, in the wind's frame.** Transcribed from ShadeLamp in
-	// include/water_lamps.glsl, which is the copy this pass replaces -- the
-	// same two branches, the same constants, so the two answer alike where
-	// they overlap. A sized source stretches the lobe along the view rather
-	// than the wind: a lamp's reflection on water is a column reaching towards
-	// the eye, not a disc, and the wind frame cannot make one.
+	// include/water_lamps.glsl, which is the copy this pass replaces, so the
+	// two answer alike where they overlap. One lobe for every lamp -- a sized
+	// source only widens it, above (the streak frame went 2026-10-15; the lit
+	// shader's water branch says why).
 	const vec3 windDir = vec3(cos(p.Wind), 0.0, sin(p.Wind));
 	const vec3 windT = normalize(windDir - N * dot(windDir, N));
 	const vec3 windB = cross(N, windT);
-	float NDF;
-	float G;
-	vec3 Tv = V - N * dot(V, N);
-	const float tv2 = dot(Tv, Tv);
-	if (positional && light.Direction.w > 0.0 && tv2 > 1.0e-6)
-	{
-		Tv *= inversesqrt(tv2);
-		const vec3 Bv = cross(N, Tv);
-		const float ax0 = max(specRoughness * 1.16, 0.02);
-		const float ay0 = max(specRoughness * 0.86, 0.02);
-		const float angular = light.Direction.w
-							* inversesqrt(max(dot(light.Position.xyz - p.P,
-												  light.Position.xyz - p.P), 1.0e-8));
-		const float axS = min(ax0 * 3.0 + 4.0 * angular, 1.0);
-		const float ayS = min(ay0 + 0.5 * angular, 1.0);
-		specScale = sqrt((ax0 * ay0) / (axS * ayS));
-		NDF = WaterBeckmannDX(H, N, Tv, Bv, axS, ayS);
-		G   = WaterBeckmannG1X(V, N, Tv, Bv, ax0, ay0)
-			* WaterBeckmannG1X(L, N, Tv, Bv, ax0, ay0);
-	}
-	else
-	{
-		NDF = WaterBeckmannD(H, N, windT, windB, specRoughness);
-		G   = WaterBeckmannG1(V, N, windT, windB, specRoughness)
-			* WaterBeckmannG1(L, N, windT, windB, specRoughness);
-	}
+	const float NDF = WaterBeckmannD(H, N, windT, windB, specRoughness);
+	const float G   = WaterBeckmannG1(V, N, windT, windB, specRoughness)
+					* WaterBeckmannG1(L, N, windT, windB, specRoughness);
 #else
 	const float NDF = DistributionGGX(N, H, specRoughness);
 	const float G = GeometrySchlickGGX(p.NdotV, specRoughness)
@@ -552,33 +528,13 @@ float ScoreDirect(DirectPoint p, uint index)
 	const vec3 windDir = vec3(cos(p.Wind), 0.0, sin(p.Wind));
 	const vec3 windT = normalize(windDir - p.N * dot(windDir, p.N));
 	const vec3 windB = cross(p.N, windT);
-	vec3 viewT = p.V - p.N * dot(p.V, p.N);
-	const float viewT2 = dot(viewT, viewT);
-	const bool hasStreak = viewT2 > 1.0e-6;
-	viewT = hasStreak ? viewT * inversesqrt(max(viewT2, 1.0e-12)) : windT;
-	const vec3 viewB = hasStreak ? cross(p.N, viewT) : windB;
 	const float angular = light.Direction.w * inversesqrt(max(distance2, 1.0e-8));
 	const float widened = light.Direction.w > 0.0
 						? min(p.Roughness + 0.5 * angular, 1.0) : p.Roughness;
-	const float ax0 = max(widened * 1.16, 0.02);
-	const float ay0 = max(widened * 0.86, 0.02);
-	float ndf, ndfScale, g;
-	if (light.Direction.w > 0.0 && hasStreak)
-	{
-		const float axS = min(ax0 * 3.0 + 4.0 * angular, 1.0);
-		const float ayS = min(ay0 + 0.5 * angular, 1.0);
-		ndfScale = sqrt((ax0 * ay0) / (axS * ayS));
-		ndf = WaterBeckmannDX(H, p.N, viewT, viewB, axS, ayS);
-		g = WaterBeckmannG1X(p.V, p.N, viewT, viewB, ax0, ay0)
-		  * WaterBeckmannG1X(L, p.N, viewT, viewB, ax0, ay0);
-	}
-	else
-	{
-		ndfScale = (p.Roughness * p.Roughness) / max(widened * widened, 1.0e-12);
-		ndf = WaterBeckmannD(H, p.N, windT, windB, widened);
-		g = WaterBeckmannG1(p.V, p.N, windT, windB, widened)
-		  * WaterBeckmannG1(L, p.N, windT, windB, widened);
-	}
+	const float ndfScale = (p.Roughness * p.Roughness) / max(widened * widened, 1.0e-12);
+	const float ndf = WaterBeckmannD(H, p.N, windT, windB, widened);
+	const float g = WaterBeckmannG1(p.V, p.N, windT, windB, widened)
+				  * WaterBeckmannG1(L, p.N, windT, windB, widened);
 	const float peak = ndf * ndfScale * g * dot(p.F0, kLum) * 0.25
 					 / max(p.NdotV, 1.0e-3);
 	return lum * (NdotL * diffuseLum + peak);

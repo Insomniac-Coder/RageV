@@ -4897,9 +4897,8 @@ void main()
 #ifdef RV_WATER
 		// **The water's lobe is not GGX and its roughness is not a roughness**
 		// (see WaterBeckmannD): it is the surface's RMS slope, and the lobe is
-		// an anisotropic Beckmann in a frame that a sized lamp turns from the
-		// wind to the view -- which is what draws the shaft toward the camera
-		// instead of a pool along the wind. The first landing of this sampler
+		// an anisotropic Beckmann about the wind, for every lamp (a sized one
+		// only widens it -- see the shading below). The first landing of this sampler
 		// scored the sea with the GGX distribution and this number, and the
 		// two disagree by enough that the lamps carrying the glitter were
 		// scored as if dim: Pier came out at 10.7% of the frame over six
@@ -4911,18 +4910,9 @@ void main()
 		const vec3  windDir = vec3(waterWind.x, 0.0, waterWind.y);
 		const vec3  windT = normalize(windDir - N * dot(windDir, N));
 		const vec3  windB = cross(N, windT);
-		vec3  viewT = V - N * dot(V, N);
-		const float viewT2 = dot(viewT, viewT);
-		const bool  hasStreak = viewT2 > 1.0e-6;
-		viewT = hasStreak ? viewT * inversesqrt(max(viewT2, 1.0e-12)) : windT;
-		const vec3  viewB = hasStreak ? cross(N, viewT) : windB;
-		const float ax0 = max(shadingRoughness * 1.16, 0.02);
-		const float ay0 = max(shadingRoughness * 0.86, 0.02);
-		// The view's half of the masking: the same in both frames and the
-		// same for every lamp, so it is paid once.
-		const float g1View = hasStreak
-						   ? WaterBeckmannG1X(V, N, viewT, viewB, ax0, ay0)
-						   : WaterBeckmannG1(V, N, windT, windB, shadingRoughness);
+		// The view's half of the masking: the same for every lamp, so it is
+		// paid once.
+		const float g1View = WaterBeckmannG1(V, N, windT, windB, shadingRoughness);
 #endif
 		const float f0Lum  = dot(F0, kLum);
 		const float albLum = max(dot(albedo, kLum), 1.0e-3);
@@ -4980,29 +4970,15 @@ void main()
 			if (sampleTarget != 0)
 			{
 #ifdef RV_WATER
-				// The sized-lamp streak, or the wind frame for a point source:
-				// the shading's own two branches, with its renormalisation.
+				// The wind-frame lobe, widened by the source's angular size, with
+				// the shading's renormalisation (zero size folds to the bare lobe).
 				const float angular = light.Direction.w
 									* inversesqrt(max(distance2, 1.0e-8));
-				float ndf;
-				float ndfScale;
-				float g;
-				if (light.Direction.w > 0.0 && hasStreak)
-				{
-					const float axS = min(ax0 * 3.0 + 4.0 * angular, 1.0);
-					const float ayS = min(ay0 + 0.5 * angular, 1.0);
-					ndfScale = sqrt((ax0 * ay0) / (axS * ayS));
-					ndf = WaterBeckmannDX(H, N, viewT, viewB, axS, ayS);
-					g = g1View * WaterBeckmannG1X(L, N, viewT, viewB, ax0, ay0);
-				}
-				else
-				{
-					const float widened = min(shadingRoughness + 0.5 * angular, 1.0);
-					ndfScale = (shadingRoughness * shadingRoughness)
-							 / max(widened * widened, 1.0e-12);
-					ndf = WaterBeckmannD(H, N, windT, windB, widened);
-					g = g1View * WaterBeckmannG1(L, N, windT, windB, shadingRoughness);
-				}
+				const float widened = min(shadingRoughness + 0.5 * angular, 1.0);
+				const float ndfScale = (shadingRoughness * shadingRoughness)
+									 / max(widened * widened, 1.0e-12);
+				const float ndf = WaterBeckmannD(H, N, windT, windB, widened);
+				const float g = g1View * WaterBeckmannG1(L, N, windT, windB, shadingRoughness);
 				target += lum * ndf * ndfScale * g * fresnel * 0.25 / NdotVs;
 #else
 				const float NdotH = max(dot(N, H), 0.0);
@@ -5327,67 +5303,21 @@ void main()
 								- N * dot(vec3(waterWind.x, 0.0, waterWind.y), N));
 		vec3 waterB = cross(N, waterT);
 
-		// **A sized light trades the wind frame for the streak frame.** The
-		// reference photographs' shafts run toward the viewer, not along the
-		// wind: at grazing incidence the facets that can still mirror the
-		// source differ mostly in their toward-viewer tilt, so the lobe is
-		// widened along the view direction projected onto the surface and
-		// held near the Cox-Munk width across it. Isotropic widening spreads
-		// the same energy into a pool; this stretches it into the shaft.
-		// Point lights (radius zero) keep the wind frame bit-for-bit.
-		float NDF;
-		float G;
-		if (isPositional != 0.0 && light.Direction.w > 0.0)
-		{
-			vec3 Tv = V - N * dot(V, N);
-			const float tv2 = dot(Tv, Tv);
-			// Looking straight down there is no toward-viewer axis and no
-			// streak to draw; the wind frame answers as before.
-			if (tv2 > 1.0e-6)
-			{
-				Tv *= inversesqrt(tv2);
-				const vec3 Bv = cross(N, Tv);
-				const float ax0 = max(specRoughness * 1.16, 0.02);
-				const float ay0 = max(specRoughness * 0.86, 0.02);
-				const float angular = light.Direction.w *
-					inversesqrt(max(dot(light.Position.xyz - v_WorldPos,
-										light.Position.xyz - v_WorldPos), 1.0e-8));
-				// Along the view: the streak's length. The 3x is the artist
-				// term that makes the shaft read at all; the angular term is
-				// the physical one that scales it with the source. Across:
-				// only the source's own width, so the shaft stays narrow.
-				const float axS = min(ax0 * 3.0 + 4.0 * angular, 1.0);
-				const float ayS = min(ay0 + 0.5 * angular, 1.0);
-				// **Half the renormalisation, on purpose.** The exact factor
-				// (ax0*ay0)/(axS*ayS) conserves energy and buries the shaft:
-				// three times the length at a third the brightness reads as
-				// nothing on a night sea. The square root keeps the streak
-				// visibly lit while still paying for most of its spread --
-				// the same licence every renderer takes with a sun glitter
-				// path, because the alternative is a shaft nobody can see.
-				specScale = sqrt((ax0 * ay0) / (axS * ayS));
-				NDF = WaterBeckmannDX(H, N, Tv, Bv, axS, ayS);
-				// **The masking stays at the surface's own width.** The
-				// stretch stands in for the source's size, and a bigger lamp
-				// does not make the sea shadow itself more -- widening G with
-				// D collapsed G1(V) at exactly the grazing angles the shaft
-				// lives at, and the streak died of its own correction.
-				G   = WaterBeckmannG1X(V, N, Tv, Bv, ax0, ay0)
-					* WaterBeckmannG1X(L, N, Tv, Bv, ax0, ay0);
-			}
-			else
-			{
-				NDF = WaterBeckmannD(H, N, waterT, waterB, specRoughness);
-				G   = WaterBeckmannG1(V, N, waterT, waterB, specRoughness)
-					* WaterBeckmannG1(L, N, waterT, waterB, specRoughness);
-			}
-		}
-		else
-		{
-			NDF = WaterBeckmannD(H, N, waterT, waterB, specRoughness);
-			G   = WaterBeckmannG1(V, N, waterT, waterB, specRoughness)
-				* WaterBeckmannG1(L, N, waterT, waterB, specRoughness);
-		}
+		// **Every lamp takes the same lobe; a sized one only widens it** (above).
+		// There was a streak frame here (RT2-2b, removed 2026-10-15): a sized
+		// lamp's lobe turned to the view, three times as long toward the camera
+		// at half the renormalisation, held at the narrow Cox-Munk width across.
+		// It drew separate shafts from every height, and real photographs say
+		// that depends on the height: from the beach at Kirby Cove the deck
+		// lamps lay separate columns on the bay, from Battery Spencer (90 m up)
+		// one smooth sheet. The foreshortening already does that -- at grazing
+		// view a facet's toward-viewer tilt moves its reflection far more on
+		// screen than its sideways tilt, so the glint is a column roughly
+		// 1/elevation times taller than wide -- and the reference path tracer,
+		// with this lobe, matches both photographs.
+		const float NDF = WaterBeckmannD(H, N, waterT, waterB, specRoughness);
+		const float G   = WaterBeckmannG1(V, N, waterT, waterB, specRoughness)
+						* WaterBeckmannG1(L, N, waterT, waterB, specRoughness);
 #else
 		// **Anisotropic only when asked for, and only with a tangent to turn
 		// about.** The layered path fills a zero tangent, so terrain takes the

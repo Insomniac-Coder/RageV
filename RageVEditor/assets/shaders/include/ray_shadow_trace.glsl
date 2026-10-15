@@ -382,11 +382,19 @@ float TraceShadowSoftFromMasked(vec3 worldPos, vec3 Ng, vec3 L, float tMax,
 	const vec3 b = cross(L, t);
 
 	const vec3 target = L * tMax + (t * cos(phi) + b * sin(phi)) * radius;
-	// The sampled point is fractionally further than the centre; ending the
-	// ray at the centre distance would let the source's own far edge occlude
-	// it. sqrt is exact here and the term is one instruction.
-	return TraceShadowFromMasked(worldPos, Ng, normalize(target),
-								 sqrt(tMax * tMax + radius * radius), mask);
+	// **The ray ends where it meets the source's sphere, not at its centre**
+	// (RT2-2b, 2026-10-15). The light leaves the sphere's surface, so nothing
+	// inside it can stand between the lamp and the point -- but a fitting
+	// modelled round the light (a lamp head, a housing) does sit inside it, and
+	// a ray run on to the centre plane met that fitting. On the bridge it hid
+	// 22-25% of the deck lamps' light from the sea, measured against the
+	// reference path tracer, whose rays stop at the surface it samples; with
+	// this the two agree to a few percent. The disc point lies inside the
+	// sphere's outline, so the near intersection always exists.
+	const vec3 toward = normalize(target);
+	const float along = dot(toward, L) * tMax;
+	const float inside = max(along * along - (tMax * tMax - sourceRadius * sourceRadius), 0.0);
+	return TraceShadowFromMasked(worldPos, Ng, toward, max(along - sqrt(inside), 0.0), mask);
 }
 
 // **RT-7: the same soft shadow from a tube** -- a point drawn along the lamp's
