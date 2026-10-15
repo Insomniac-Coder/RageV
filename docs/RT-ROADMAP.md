@@ -976,6 +976,17 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >     live crest term is rare by design. The trail buffer is a ping-pong pair swapped every frame, so
 >     the reference's restart key hashes the water without its slot (the mean never settled until it
 >     did).
+>   - *The sea against the frame, Headland (2026-10-15, owner: "the path traced headland view doesn't
+>     look right").* The reference shows the deck lamps' reflection as one broad bright band between the
+>     bridge and the headland, where the frame shows separate narrow streaks. Measured over that band
+>     (linear radiance): the reference 0.0247, the frame 0.0090 -- 2.7x; over the whole sea 1.7x. Not
+>     the seabed (with the water made opaque the band is unchanged) and not the glowing lamp heads (with
+>     them off it is 0.0246); it is the 120 sodium deck lamps (with the lamps off, 0.0016). The
+>     reference's estimate holds: the lamps found by their samples alone give the same band as the
+>     weighted pair (0.0247 both), so its water lobe's sampling and density agree. The frame's sea
+>     therefore returns about a third of the deck lamps' light in that band, through its own water-lamp
+>     passes (WR-16 S4b) and their streak model -- where the shortfall is lost is not yet found. It
+>     belongs to RT2-32 (ISS-32, the sea's lighting gaps), which can now be judged against this.
 >   - *Found on the way:* the camp never settled in the reference -- its characters are posed every
 >     frame into the frame-in-flight's buffer and structure, and the geometry key took a fresh value
 >     on any frame with a posed caster. The reference now has its own key
