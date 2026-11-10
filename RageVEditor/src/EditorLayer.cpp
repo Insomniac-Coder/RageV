@@ -544,10 +544,13 @@ void EditorLayer::OnUpdate(Timestep ts)
 		OnScenePlay();
 	}
 
-	if (m_SceneState == SceneState::Edit)
-		m_Scene->OnUpdateEditor(ts);
-	else
-		m_Scene->OnUpdateRuntime(ts);
+	{
+		RV_PROFILE_PHASE(FramePhase::Update);
+		if (m_SceneState == SceneState::Edit)
+			m_Scene->OnUpdateEditor(ts);
+		else
+			m_Scene->OnUpdateRuntime(ts);
+	}
 
 	// Before either frame graph, and once for both: a probe capture opens
 	// render passes of its own, nothing may do that inside another one, and the
@@ -1351,7 +1354,10 @@ void EditorLayer::ApplyPendingResizes()
 void EditorLayer::OnFixedUpdate(Timestep dt)
 {
 	if (m_SceneState == SceneState::Play && m_Scene)
+	{
+		RV_PROFILE_PHASE(FramePhase::Update);
 		m_Scene->OnFixedUpdateRuntime(dt);
+	}
 }
 
 // Play snapshots the scene; Stop restores it. Everything done while running --

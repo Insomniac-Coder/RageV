@@ -256,7 +256,10 @@ void RuntimeLayer::OnFixedUpdate(Timestep dt)
 	// authored values rather than at the scene's first instant -- and physics
 	// declines a step of zero.
 	if (m_Ready)
+	{
+		RV_PROFILE_PHASE(FramePhase::Update);
 		m_Scene->OnFixedUpdateRuntime(EngineConfig::Get().ReferenceSamples > 0 ? Timestep(0.0f) : dt);
+	}
 }
 
 void RuntimeLayer::CaptureSignals()
@@ -524,7 +527,10 @@ void RuntimeLayer::OnUpdate(Timestep ts)
 	// the picture is the scene's first instant. The renderer's own clock (the
 	// exposure's adaptation) keeps running, since it reads the mean rather
 	// than changing it.
-	m_Scene->OnUpdateRuntime(EngineConfig::Get().ReferenceSamples > 0 ? Timestep(0.0f) : ts);
+	{
+		RV_PROFILE_PHASE(FramePhase::Update);
+		m_Scene->OnUpdateRuntime(EngineConfig::Get().ReferenceSamples > 0 ? Timestep(0.0f) : ts);
+	}
 
 	// RT2-2a: the frame's word for "settled" -- has the camera stood still, and
 	// is the scene's lighting (bakes, probes, solves) ready.

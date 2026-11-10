@@ -1,0 +1,36 @@
+  [1/16] scale_60000.rage               rt     started at 66 C, peak 86 C: 44.02 ms
+  [2/16] scale_60000.rage               raster started at 76 C, peak 89 C: 15.53 ms
+  [3/16] scale_60000_moving.rage        rt     started at 74 C, peak 90 C: 46.36 ms
+  [4/16] scale_60000_moving.rage        raster started at 66 C, peak 89 C: 16.71 ms
+  [5/16] scale_content_20000.rage       rt     started at 64 C, peak 95 C: 44.32 ms
+  [6/16] scale_content_20000.rage       raster started at 68 C, peak 93 C: 12.76 ms
+  [7/16] scale_content_20000_moving.rage rt     started at 64 C, peak 90 C: 104.08 ms
+  [8/16] scale_content_20000_moving.rage raster started at 63 C, peak 89 C: 12.52 ms
+  [9/16] scale_content_20000_moving.rage raster started at 63 C, peak 90 C: 12.52 ms
+  [10/16] scale_content_20000_moving.rage rt     started at 63 C, peak 91 C: 103.49 ms
+  [11/16] scale_content_20000.rage       raster started at 69 C, peak 85 C: 12.49 ms
+  [12/16] scale_content_20000.rage       rt     started at 64 C, peak 87 C: 39.05 ms
+  [13/16] scale_60000_moving.rage        raster started at 64 C, peak 92 C: 16.55 ms
+  [14/16] scale_60000_moving.rage        rt     started at 63 C, peak 90 C: 45.83 ms
+  [15/16] scale_60000.rage               raster started at 63 C, peak 91 C: 15.34 ms
+  [16/16] scale_60000.rage               rt     started at 63 C, peak 88 C: 43.83 ms
+
+mean of the two runs (ms); +- half their difference under the frame
+scene                    motion arm        frame       p95       GPU    update      wait    shadow shd parts   no part     graph  gbuf rec     other   rt list  TLAS cpu  TLAS gpu  BLAS cpu  BLAS gpu
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+scale_60000              still  rt        43.926    45.499     8.720     3.902     0.049    22.057    22.044     0.013    16.404    12.234     1.048     5.396    12.335     0.099     0.000     0.000
+                                          +-0.09   4 draws (4 indirect), 23.3 M triangles; CPU bound; per frame 0.00 blocking submits (0.000 ms), 35699 KB up, 0.00 asset misses, 509 allocations
+scale_60000              still  raster    15.435    16.249     4.183     2.655     0.042     3.636     3.627     0.009     8.580     8.434     0.036        --        --        --        --        --
+                                          +-0.09   20 draws (20 indirect), 116.4 M triangles; CPU bound; per frame 0.00 blocking submits (0.000 ms), 27261 KB up, 0.00 asset misses, 139 allocations
+scale_60000              moving rt        46.097    48.169     9.780     6.008     0.051    21.965    21.953     0.013    16.548    12.307     1.053     5.225    12.343     0.102     0.000     0.000
+                                          +-0.27   4 draws (4 indirect), 23.3 M triangles; CPU bound; per frame 0.00 blocking submits (0.000 ms), 35699 KB up, 0.00 asset misses, 612 allocations
+scale_60000              moving raster    16.634    17.438     4.217     3.780     0.042     3.719     3.710     0.009     8.593     8.447     0.039        --        --        --        --        --
+                                          +-0.08   20 draws (20 indirect), 116.4 M triangles; CPU bound; per frame 0.00 blocking submits (0.000 ms), 27261 KB up, 0.00 asset misses, 185 allocations
+scale_content_20000      still  rt        41.684    47.524    41.633     5.239    15.619     8.473     8.461     0.012    11.419     8.955     0.416     1.729     3.963     0.055     0.001     0.000
+                                          +-2.63   297 draws (297 indirect), 74.0 M triangles; GPU bound; per frame 0.00 blocking submits (0.000 ms), 12513 KB up, 0.00 asset misses, 911 allocations
+scale_content_20000      still  raster    12.627    14.168    12.556     2.792     1.887     2.705     2.697     0.009     4.638     4.426     0.049        --        --        --        --        --
+                                          +-0.13   1365 draws (1365 indirect), 364.2 M triangles; GPU bound; per frame 0.00 blocking submits (0.000 ms), 9264 KB up, 0.00 asset misses, 354 allocations
+scale_content_20000      moving rt       103.786   130.310   103.703    10.191    72.970     8.349     8.337     0.012    11.331     8.809     0.456     1.725     3.957     0.057     0.000     0.000
+                                          +-0.29   297 draws (297 indirect), 74.0 M triangles; GPU bound; per frame 0.00 blocking submits (0.000 ms), 12748 KB up, 0.00 asset misses, 1001 allocations
+scale_content_20000      moving raster    12.520    13.689    12.486     3.402     1.506     2.628     2.619     0.009     4.421     4.228     0.049        --        --        --        --        --
+                                          +-0.00   1365 draws (1365 indirect), 364.2 M triangles; GPU bound; per frame 0.00 blocking submits (0.000 ms), 9264 KB up, 0.00 asset misses, 370 allocations

@@ -2,6 +2,7 @@
 #include "VulkanResources.h"
 #include "VulkanImGui.h"
 #include "VulkanDevice.h"
+#include "RageV/Core/FrameProfiler.h"
 
 #include <backends/imgui_impl_vulkan.h>
 
@@ -195,6 +196,7 @@ namespace RageV::Vk
 	{
 		if (size == 0)
 			return;
+		FrameProfiler::CountUpload(size);
 
 		RV_CORE_ASSERT(offset + size <= m_Desc.Size, "Buffer upload out of range");
 
@@ -559,6 +561,7 @@ namespace RageV::Vk
 						 m_Desc.Width, m_Desc.Height);
 			return;
 		}
+		FrameProfiler::CountUpload(size);
 
 		const uint64_t expected = TextureDataSize(m_Desc.Format, width, height);
 		if (size != expected)
@@ -615,6 +618,7 @@ namespace RageV::Vk
 
 	void VulkanTexture::StageInto(const void* data, uint64_t size, uint32_t mip, uint32_t layer)
 	{
+		FrameProfiler::CountUpload(size);
 		VkBufferCreateInfo stagingInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 		stagingInfo.size = size;
 		stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;

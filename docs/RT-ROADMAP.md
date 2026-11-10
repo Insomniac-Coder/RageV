@@ -1200,6 +1200,38 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   went black behind each decal once daylight lit them. The occlusion rays now test the cutout's
 >   alpha with the scene's tables bound; the garage shot changed only on the decal sheets.
 >
+> - **2f built, 2026-11-10: CPU timing zones and counters.** `ProfileZone` (RT2-2c) now nests by name
+>   and groups by its first segment: `update/`, `shadows/`, `gbuffer/` and `rt/` each print as a tree
+>   of their own, and a group's top-level parts are summed against the phase or pass they sit in,
+>   with what no part names printed as a number. Zones may open on any thread (the table is locked
+>   while pass timings are on; one off the main thread is marked and kept out of the sum); a lookup
+>   by name no longer allocates. Off, a zone is one branch. A new phase, **scene update**, holds the
+>   fixed steps and the frame update (scripts, physics, animation, transforms, motion history,
+>   audio, particles), where the 2c content scenes' 82-131 ms "outside every phase" was. The shadow
+>   phase is split into terrain, transforms, the draw-list rebuild (with the cull-table upload and
+>   the emitter extraction under it), the local lights, the TLAS pack, the build recording, the
+>   cascades, the camera cull and the voxel grid; the G-buffer's recording gains the instance fill
+>   and the hit table. Counters per frame, mean and worst: blocking submits and their milliseconds
+>   (every immediate submit, timed to its fence), bytes uploaded (buffer and texture writes, staged
+>   or mapped; Vulkan), asset-cache misses (meshes, textures, materials, terrain) and allocations
+>   (operator new in the engine module, replaced only to count). `bench_scale.py` prints the update
+>   phase, the shadow parts' sum and its remainder, and the counters. The roadmap's "measured-change
+>   hash" is not in today's shadow phase -- the measured change compares camera matrices in the
+>   graph -- so it gets its zone when RT2-4's change test adds one.
+>   *Gate* (`bench/scale/zones_2026-11-10.txt`, 60,000 cubes and content 20k, rt and raster, still
+>   and moving, A,B,...,B,A): the shadow parts sum to the phase within 0.013 ms in all eight, against
+>   spreads of +-0.08 to +-2.6.
+>   *What the zones say.* At 60,000 cubes with rays on, the 22.1 ms shadow phase is the build
+>   recording 13.0 (the TLAS build's CPU), the TLAS pack 5.5, the draw-list rebuild 3.0 -- **every
+>   frame on a still scene**, with the cull-table upload 0.7 of it (RT2-34) -- and transforms 0.6.
+>   The G-buffer's 12.3 ms of recording holds the hit table 3.1 (the "about 4 ms rays add", now
+>   measured; rays off it is 8.5 with no hit table) and the instance fill 3.7; 5.5 ms of it is in no
+>   zone yet. With 22 cars turning in the content scene, the
+>   scene update is 10.2 ms, 9.2 of it the transform walk; at 60,000 still cubes it is 4.1, of which
+>   transforms 2.8 and the motion-history copy 0.6. Particles cost 0.6 ms a frame in scenes
+>   that have none. Per frame: no blocking submits in any steady run; 36 MB uploaded at 60k rays on
+>   (27 MB rays off); 140-1,000 allocations.
+>
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'
 > reflections should be: they fattened when RT-21 removed the highlight cap (bisected: 39% of the near
@@ -3205,7 +3237,7 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
     Each carries its own copy of the world matrix and its own index.
   - The transform walk visits every entity three to seven times per frame, with a hash lookup per child.
   - The renderer reads live component memory through borrowed pointers, so simulation cannot overlap recording.
-  - Each frame's instance fill runs a per-object loop on the CPU: a material lookup, a parameter resolve, a probe-slot search and a matrix inverse per object (`Scene.cpp:5118-5159`). This, not the draw submission (already about 20 indirect draws), is most likely where the G-buffer pass's 11.5 ms of CPU at 60,000 objects goes (inferred; RT2-2f confirms).
+  - Each frame's instance fill runs a per-object loop on the CPU: a material lookup, a parameter resolve, a probe-slot search and a matrix inverse per object (`Scene.cpp:5118-5159`). This, not the draw submission (already about 20 indirect draws), is most likely where the G-buffer pass's 11.5 ms of CPU at 60,000 objects goes (RT2-2f measured 3.7 ms of the pass's 12.3; the hit table is 3.1, and 5.5 is in no zone yet).
   - The hit table's emitter-owner scan is O(casters x emitters) per frame per view since RT-24 lifted the emitter cap (`Renderer3D.cpp:5627-5637`).
   - Only physics bodies are interpolated; objects moved in the fixed step move stop-go at any display rate other than 60 Hz.
 - **What changes.** Four named steps, each ending in a report:
@@ -3252,7 +3284,7 @@ Only fixes whose picture should not change are here. Any fix that turns out to m
 - **What is wrong now.**
   - The TLAS instance list is rebuilt from the ECS every frame (per view) inside the shadow code, and packed on the CPU. (RT2-4 already skips the build when nothing changed, and removed the shared-pointer copy per instance.) With shadows off, no ray is traced at all.
   - A refit is taken whenever the instance count is unchanged, even when BLAS references, masks or flags changed, and every build carries ALLOW_UPDATE; each frame-in-flight TLAS keeps its own refit counter, so a slot is fully rebuilt only every 64 of its own builds (E-C1, E-N1).
-  - The hit table is rebuilt from scratch every frame in `EndScene`. That is probably the roughly 4 ms that rays add to the G-buffer pass's CPU at 60,000 objects (inferred; RT2-2f confirms).
+  - The hit table is rebuilt from scratch every frame in `EndScene`. That is probably the roughly 4 ms that rays add to the G-buffer pass's CPU at 60,000 objects (RT2-2f measured it: 3.1 ms of the pass's 12.3 at 60,000 cubes).
   - Each static BLAS is built the first time it is gathered into the ray world, with its own scratch buffer and a blocking submit. It is never compacted, and nothing tracks its memory (E-C3).
   - Skinned BLASes are refit forever, one after another with a barrier each, with no check for an unchanged pose, and skinned twice (once in the vertex shader, once in compute), with no normals written (E-C9, E-N2).
   - Each material section of a model is its own BLAS and TLAS instance (a car of 150 parts). By D25 this stays as the artist built it.

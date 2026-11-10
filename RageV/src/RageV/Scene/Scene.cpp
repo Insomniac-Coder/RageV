@@ -868,7 +868,10 @@ namespace RageV
 		// them before the layers update), so one of them has normally taken
 		// the snapshot already. A frame that ran no step takes it here.
 		if (!m_MotionHistoryTaken)
-			AdvanceMotionHistory();
+			{
+				RV_PROFILE_ZONE("update/motion history");
+				AdvanceMotionHistory();
+			}
 		m_MotionHistoryTaken = false;
 
 		// A paused frame derives and places, but advances nothing.
@@ -891,22 +894,37 @@ namespace RageV
 		// On the frame rather than the fixed step, for the same reason the
 		// audio positions are: an animation is presentation, and pinning it to
 		// the simulation rate would make it stutter at any other frame rate.
-		UpdateAnimators(ts);
+		{
+			RV_PROFILE_ZONE("update/animation");
+			UpdateAnimators(ts);
+		}
 
 		// Per frame, not per step: this is where the blend between the last two
 		// simulation states is applied, and it is the frame that needs it.
 		if (m_Physics)
+		{
+			RV_PROFILE_ZONE("update/physics");
 			m_Physics->SyncTransforms(*this, Application::GetInterpolationAlpha());
+		}
 
-		UpdateWorldTransforms();
+		{
+			RV_PROFILE_ZONE("update/transforms");
+			UpdateWorldTransforms();
+		}
 
 		// After the sync and the derive, which is the entire point: OnFrame
 		// reads the transforms that are about to be drawn, blended for this
 		// frame, rather than the ones the last simulation step left behind.
 		// Moved any earlier it would see stale positions and there would be no
 		// reason to have it.
-		if (StepFrameScripts(ts))
+		bool scriptsRan = false;
 		{
+			RV_PROFILE_ZONE("update/scripts");
+			scriptsRan = StepFrameScripts(ts);
+		}
+		if (scriptsRan)
+		{
+			RV_PROFILE_ZONE("update/transforms");
 			// A frame script may destroy, like a fixed one may -- deferred to
 			// here so it can destroy anything, including itself, without
 			// deleting the object it is executing in.
@@ -927,10 +945,14 @@ namespace RageV
 		// After the sync, so a sound on a simulated body is placed where it is
 		// being drawn rather than one step behind it. Audio is presentation,
 		// like rendering, and belongs on the frame for the same reason.
-		UpdateAudio();
+		{
+			RV_PROFILE_ZONE("update/audio");
+			UpdateAudio();
+		}
 
 		// Presentation too: nothing collides with a particle and nothing
 		// scores one, so they move at whatever rate the display shows them.
+		RV_PROFILE_ZONE("update/particles");
 		Particles::System::Update(*this, ts.GetSeconds());
 
 		// The GPU half, for emitters that asked for it.
@@ -1143,7 +1165,10 @@ namespace RageV
 		// frame of invented motion.
 		if (!m_MotionHistoryTaken)
 		{
-			AdvanceMotionHistory();
+			{
+				RV_PROFILE_ZONE("update/motion history");
+				AdvanceMotionHistory();
+			}
 			m_MotionHistoryTaken = true;
 		}
 
@@ -1165,6 +1190,7 @@ namespace RageV
 		// otherwise mistake for a fresh spawn and resurrect.
 		if (m_Physics)
 		{
+			RV_PROFILE_ZONE("update/physics");
 			auto simulated = m_Registry.GetView<RigidBodyComponent, ColliderComponent>();
 			for (auto handle : simulated)
 			{
@@ -1183,6 +1209,10 @@ namespace RageV
 		// The handles are collected before stepping any of them. A script may
 		// spawn an entity, attach a script to it, or remove one -- any of which
 		// restructures the pool a view is iterating.
+		//
+		// RT2-2f: the zone closes after the managed half and the UI clicks,
+		// both of which are script code too.
+		std::optional<ProfileZone> scriptZone(std::in_place, "update/scripts", nullptr);
 		std::vector<ECS::Entity> scripted;
 		m_Registry.GetView<NativeScriptComponent>().Each(
 			[&](auto handle, NativeScriptComponent&) { scripted.push_back(handle); });
@@ -1255,16 +1285,21 @@ namespace RageV
 		// step has already advanced -- and after creation, so a button bound to
 		// something spawned this same step finds it.
 		DispatchUIClicks();
+		scriptZone.reset();
 
 		// Applied once the pass is over, so a script can destroy anything --
 		// including itself -- without deleting the object it is executing in.
-		FlushDestroyQueue();
-		UpdateWorldTransforms();
+		{
+			RV_PROFILE_ZONE("update/transforms");
+			FlushDestroyQueue();
+			UpdateWorldTransforms();
+		}
 
 		// After the scripts, so a script's forces and velocity changes are part
 		// of the step they were issued for rather than the next one.
 		if (m_Physics)
 		{
+			RV_PROFILE_ZONE("update/physics");
 			m_Physics->Step(dt.GetSeconds());
 
 			// After the step, not during it: a contact callback that pushes
@@ -1766,7 +1801,10 @@ namespace RageV
 		// this frame, before anything -- the shadow casters, the ray-instance
 		// list, the draw -- reads them (7ap, 7aq). First, so a shadows-off
 		// return below still leaves them chosen for the frame's draw.
-		PrepareTerrains(Vec3(cameraTransform[3]));
+		{
+			RV_PROFILE_ZONE("shadows/terrain");
+			PrepareTerrains(Vec3(cameraTransform[3]));
+		}
 
 		// Maps or rays (ENGINE-NOTES 7am, 7an), resolved once here and told to
 		// the lit pass, which recompiles its shaders when the answer changes.
@@ -1939,9 +1977,13 @@ namespace RageV
 		m_CulledLit = {};
 		m_CulledBlend = {};
 		m_CulledLitFor = Mat4(0.0f);
-		RefreshDrawList();
+		{
+			RV_PROFILE_ZONE("shadows/draw list");
+			RefreshDrawList();
+		}
 		if (RHI::RHICommandList* cull = Renderer::GetCommandList())
 		{
+			ProfileZone cullZone("shadows/camera cull", cull);
 			const Mat4 viewProjection = camera.GetProjection() * Math::Inverse(cameraTransform);
 
 			// Not when the lit pass eats meshlets: the indirect path would
@@ -1965,6 +2007,7 @@ namespace RageV
 		}
 
 		// The voxel grid, after the maps it is lit from (ENGINE-NOTES 7bc).
+		RV_PROFILE_ZONE("shadows/voxel GI");
 		UpdateVoxelGI(cameraTransform);
 	}
 
@@ -1983,6 +2026,13 @@ namespace RageV
 		if (!m_DrawListDirty)
 			return;
 		m_DrawListDirty = false;
+
+		// RT2-2f: the emitters' share, timed only around the meshes that do
+		// become emitters (a clock pair per emitter, a few hundred at most),
+		// not around every mesh's emissive test -- 60,000 clock pairs would be
+		// a cost of their own inside the number.
+		const bool timeEmitters = FrameProfiler::PassTimingsEnabled();
+		double emitterMs = 0.0;
 
 		m_DrawBounds.clear();
 		m_DrawItems.clear();
@@ -2243,6 +2293,8 @@ namespace RageV
 				// something that changes nothing.
 				if (strength > 1.0f)
 				{
+					const auto emitterStart = timeEmitters ? std::chrono::steady_clock::now()
+														   : std::chrono::steady_clock::time_point{};
 					const AABB local = resolved->GetBounds();
 					const Vec3 halfExtent = (local.Max - local.Min) * 0.5f;
 					const Vec3 localCentre = (local.Max + local.Min) * 0.5f;
@@ -2347,6 +2399,9 @@ namespace RageV
 					}
 
 					m_Emitters.push_back(emitter);
+					if (timeEmitters)
+						emitterMs += std::chrono::duration<double, std::milli>(
+							std::chrono::steady_clock::now() - emitterStart).count();
 				}
 			}
 
@@ -2462,7 +2517,10 @@ namespace RageV
 				base += m_CullCounts[i];
 			}
 
-			if (!GpuCull::SetObjects(this, m_CullObjects, m_CullSlots))
+			std::optional<ProfileZone> uploadZone(std::in_place, "shadows/draw list/cull-table upload", nullptr);
+			const bool uploaded = GpuCull::SetObjects(this, m_CullObjects, m_CullSlots);
+			uploadZone.reset();
+			if (!uploaded)
 			{
 				// The table did not reach the GPU, so nothing may claim its
 				// objects were drawn from it. Every view then takes the walk,
@@ -2488,8 +2546,11 @@ namespace RageV
 				base += m_BlendCounts[i];
 			}
 
-			if (!GpuCull::SetObjects(this, m_BlendObjects, m_BlendSlots,
-									 GpuCull::Pass::Blended))
+			std::optional<ProfileZone> uploadZone(std::in_place, "shadows/draw list/cull-table upload", nullptr);
+			const bool uploaded = GpuCull::SetObjects(this, m_BlendObjects, m_BlendSlots,
+													  GpuCull::Pass::Blended);
+			uploadZone.reset();
+			if (!uploaded)
 			{
 				// Back to the CPU list for the blended ones only. The opaque
 				// table is untouched: two tables fail independently, and one
@@ -2550,6 +2611,9 @@ namespace RageV
 				break;
 			}
 		}
+
+		if (timeEmitters)
+			FrameProfiler::AddPassCpu(FrameProfiler::PassId("shadows/draw list/emitters"), (float)emitterMs);
 	}
 
 	void Scene::RenderShadowMaps(const Camera& camera, const Mat4& cameraTransform)
@@ -2567,8 +2631,14 @@ namespace RageV
 		if (!cmd)
 			return;
 
-		UpdateWorldTransforms();
-		RefreshDrawList();
+		{
+			RV_PROFILE_ZONE("shadows/transforms");
+			UpdateWorldTransforms();
+		}
+		{
+			RV_PROFILE_ZONE("shadows/draw list");
+			RefreshDrawList();
+		}
 
 		// Nothing to shadow, and a shadow pass over an empty scene is a render
 		// pass that clears and stops.
@@ -2739,6 +2809,9 @@ namespace RageV
 		uint32_t pointSlot = 0;
 		Vec3 direction(0.0f, -1.0f, 0.0f);
 
+		// RT2-2f: the lights' pass -- the spot and point maps when they are
+		// rasterised, the bookkeeping alone when the rays shadow everything.
+		std::optional<ProfileZone> lightZone(std::in_place, "shadows/local lights", cmd);
 		auto lightView = m_Registry.GetView<TransformComponent, LightComponent>();
 		for (auto& item : lightView)
 		{
@@ -2868,6 +2941,7 @@ namespace RageV
 				}
 			}
 		}
+		lightZone.reset();
 
 		if (traced)
 		{
@@ -2889,6 +2963,9 @@ namespace RageV
 			// resolution the lit pass makes, so a hit and a draw of one
 			// surface cannot disagree.
 			(void)anyCaster;
+			// The pack as a part of the shadow phase (RT2-2f), around the same
+			// span as RT2-2c's rt/ zone, which bench_scale reads by that name.
+			std::optional<ProfileZone> packZone(std::in_place, "shadows/TLAS pack", nullptr);
 			std::optional<ProfileZone> instanceZone(std::in_place, "rt/instance list", nullptr);
 			RayShadows::ClearInstances();
 			for (auto& item : meshView)
@@ -3012,6 +3089,8 @@ namespace RageV
 			}
 
 			instanceZone.reset();
+			packZone.reset();
+			ProfileZone buildZone("shadows/build recording", cmd);
 			RayShadows::Build(*cmd);
 			return;
 		}
@@ -3030,6 +3109,7 @@ namespace RageV
 		const float fovY = 2.0f * Math::Atan(1.0f / Math::Max(projection[1][1], 1e-4f));
 		const float aspect = Math::Max(projection[1][1] / Math::Max(projection[0][0], 1e-4f), 1e-4f);
 
+		ProfileZone cascadeZone("shadows/cascades", cmd);
 		ShadowCascade cascades[ShadowMap::kMaxCascades];
 		ShadowMap::ComputeCascades(cameraTransform, fovY, aspect,
 								   0.1f, Project::Render().ShadowDistance,
@@ -5197,6 +5277,9 @@ namespace RageV
 				// reads one instance buffer and a draw cannot bind two, so the
 				// blended rows are simply the ones after the opaque rows -- and
 				// the cull that wrote their indices was told the same base.
+				// RT2-2f: the per-object instance fill, the roadmap's suspect
+				// for most of this pass's CPU at scale.
+				std::optional<ProfileZone> fillZone(std::in_place, "gbuffer/instance fill", nullptr);
 				Renderer3D::ReserveSceneInstances(m_CullObjectCount + m_BlendObjectCount);
 
 				const size_t itemCount = m_DrawItems.size();
@@ -5242,6 +5325,7 @@ namespace RageV
 												 entry.Static);
 				}
 
+				fillZone.reset();
 				if (gpuLit)
 					Renderer3D::DrawSceneIndirect(m_CulledLit, m_CullMeshes);
 

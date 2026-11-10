@@ -8,6 +8,10 @@
 #include "RageV/Renderer/RHI/RHICommandList.h"
 #include <format>
 #include <algorithm>
+#include <atomic>
+#include <mutex>
+#include <string_view>
+#include <thread>
 #include <unordered_map>
 
 namespace RageV
@@ -30,6 +34,13 @@ namespace RageV
 			// device answered -- so a frame with no answer is not filed as a
 			// frame of zero rays.
 			RayCounters::Sample Rays;
+
+			// RT2-2f's counters, this frame's.
+			uint32_t BlockingSubmits = 0;
+			float    BlockingMs = 0.0f;
+			uint64_t UploadBytes = 0;
+			uint32_t AssetMisses = 0;
+			uint64_t Allocations = 0;
 		};
 
 		std::vector<FrameRecord> s_Frames;
@@ -82,7 +93,32 @@ namespace RageV
 		// a thousand string compares a frame, paid by the thing measuring the
 		// frame. A profiler that is part of what it measures is the one bug
 		// this file cannot afford.
-		std::unordered_map<std::string, uint32_t> s_PassIds;
+		//
+		// Looked up by view (RT2-2f): a zone names itself every time it opens,
+		// and a lookup that built a std::string from a name longer than the
+		// small-string buffer allocated once per zone per frame -- counted by
+		// the allocation counter as the frame's own.
+		struct NameHash
+		{
+			using is_transparent = void;
+			size_t operator()(std::string_view name) const { return std::hash<std::string_view>{}(name); }
+		};
+		std::unordered_map<std::string, uint32_t, NameHash, std::equal_to<>> s_PassIds;
+
+		// Zones open on any thread (RT2-2f). The table is guarded while pass
+		// timings are on -- an uncontended lock, a few dozen a frame -- and a
+		// zone that ran off the main thread is marked, so its time is not
+		// summed into a main-thread phase it never sat inside.
+		std::mutex s_ZoneMutex;
+		std::thread::id s_MainThread;
+		std::vector<uint8_t> s_PassOffMain;
+
+		// This frame's counters, from any thread.
+		std::atomic<uint32_t> s_BlockingSubmits{ 0 };
+		std::atomic<uint64_t> s_BlockingMicros{ 0 };
+		std::atomic<uint64_t> s_UploadBytes{ 0 };
+		std::atomic<uint32_t> s_AssetMisses{ 0 };
+		uint64_t s_AllocationsAtFrameEnd = 0;
 
 		// This frame's CPU time per pass, summed over the times a pass ran.
 		// Cleared with the phases at the top of every frame.
@@ -119,6 +155,7 @@ namespace RageV
 			s_PassCalls.resize(count, 0u);
 			s_LivePassCpu.resize(count, 0.0f);
 			s_LivePassGpu.resize(count, 0.0f);
+			s_PassOffMain.resize(count, 0u);
 		}
 
 		struct NamedClaim { uint32_t Name; uint32_t Begin; uint32_t End; };
@@ -142,6 +179,7 @@ namespace RageV
 
 		const char* kPhaseNames[(int)FramePhase::Count] =
 		{
+			"scene update",
 			"wait (gpu/vsync)",
 			"environment prefilter",
 			"shadow maps",
@@ -162,6 +200,10 @@ namespace RageV
 
 	void FrameProfiler::BeginFrame()
 	{
+		// The loop's own thread, which is the one every phase runs on.
+		if (s_MainThread == std::thread::id())
+			s_MainThread = std::this_thread::get_id();
+
 		for (float& phase : s_Phases)
 			phase = 0.0f;
 		s_GpuTotal = -1.0f;
@@ -171,6 +213,7 @@ namespace RageV
 		// The per-pass CPU accumulators, cleared with the phases they sit
 		// inside. The call counts go with them: a pass that stopped running
 		// should stop reporting a count, not keep last frame's.
+		std::lock_guard<std::mutex> lock(s_ZoneMutex);
 		for (float& pass : s_PassCpu)
 			pass = 0.0f;
 		for (uint32_t& calls : s_PassCalls)
@@ -257,7 +300,8 @@ namespace RageV
 		if (!s_PassTimings || !name)
 			return kNoPass;
 
-		auto it = s_PassIds.find(name);
+		std::lock_guard<std::mutex> lock(s_ZoneMutex);
+		auto it = s_PassIds.find(std::string_view(name));
 		if (it != s_PassIds.end())
 			return it->second;
 
@@ -270,8 +314,13 @@ namespace RageV
 
 	void FrameProfiler::AddPassCpu(uint32_t pass, float milliseconds)
 	{
-		if (pass == kNoPass || pass >= s_PassCpu.size())
+		if (pass == kNoPass)
 			return;
+		std::lock_guard<std::mutex> lock(s_ZoneMutex);
+		if (pass >= s_PassCpu.size())
+			return;
+		if (std::this_thread::get_id() != s_MainThread)
+			s_PassOffMain[pass] = 1u;
 
 		// Summed, not assigned: the editor runs the whole graph twice and both
 		// runs are the frame's cost, which is the rule the phase rows already
@@ -477,10 +526,21 @@ namespace RageV
 			Smooth(s_LiveCpuFrame, frameMs);
 		}
 
+		// RT2-2f's counters: taken every frame, so a count always belongs to
+		// the frame it was made in, collecting or not.
+		const uint32_t submits = s_BlockingSubmits.exchange(0, std::memory_order_relaxed);
+		const float blockingMs = (float)s_BlockingMicros.exchange(0, std::memory_order_relaxed) / 1000.0f;
+		const uint64_t uploaded = s_UploadBytes.exchange(0, std::memory_order_relaxed);
+		const uint32_t misses = s_AssetMisses.exchange(0, std::memory_order_relaxed);
+		const uint64_t allocatedSoFar = AllocationCount();
+		const uint64_t allocations = allocatedSoFar - s_AllocationsAtFrameEnd;
+		s_AllocationsAtFrameEnd = allocatedSoFar;
+
 		// The CPU half of the passes, filed here rather than in CollectGpu:
 		// that runs near the top of the frame, before the graph has recorded
 		// anything, so it would only ever see the values BeginFrame just
 		// cleared.
+		std::unique_lock<std::mutex> zoneLock(s_ZoneMutex);
 		for (size_t i = 0; i < s_PassCpu.size(); i++)
 		{
 			if (s_PassCalls[i] == 0)
@@ -494,6 +554,8 @@ namespace RageV
 			}
 		}
 
+		zoneLock.unlock();
+
 		if (!s_Collecting)
 			return;
 
@@ -506,8 +568,29 @@ namespace RageV
 			record.GpuPhases[i] = s_GpuPhases[i];
 		}
 		record.Rays = RayCounters::Fresh();
+		record.BlockingSubmits = submits;
+		record.BlockingMs = blockingMs;
+		record.UploadBytes = uploaded;
+		record.AssetMisses = misses;
+		record.Allocations = allocations;
 
 		s_Frames.push_back(record);
+	}
+
+	void FrameProfiler::CountBlockingSubmit(float milliseconds)
+	{
+		s_BlockingSubmits.fetch_add(1, std::memory_order_relaxed);
+		s_BlockingMicros.fetch_add((uint64_t)(Math::Max(milliseconds, 0.0f) * 1000.0f), std::memory_order_relaxed);
+	}
+
+	void FrameProfiler::CountUpload(uint64_t bytes)
+	{
+		s_UploadBytes.fetch_add(bytes, std::memory_order_relaxed);
+	}
+
+	void FrameProfiler::CountAssetMiss()
+	{
+		s_AssetMisses.fetch_add(1, std::memory_order_relaxed);
 	}
 
 	void FrameProfiler::StartCollecting()
@@ -744,13 +827,34 @@ namespace RageV
 			// processors -- the same statistic as the frame and phase rows
 			// above, so the two halves of this report can finally be
 			// differenced against each other.
-			// The zones outside the graph (ProfileZone, "rt/...") apart: their
-			// time is inside the shadow phase, and summed with the graph's
-			// passes it would be counted twice.
+			// The zones outside the graph (ProfileZone) apart, by group: their
+			// time is inside a phase or a pass already, and summed with the
+			// graph's passes it would be counted twice.
+			struct ZoneGroup
+			{
+				const char* Prefix;
+				const char* Heading;
+				int Phase;			// the phase the group's parts sum against, or -1
+				const char* Pass;	// or the graph pass they sit inside
+			};
+			static const ZoneGroup kGroups[] =
+			{
+				{ "update/",  "scene update, by part", (int)FramePhase::Update, nullptr },
+				{ "shadows/", "shadow phase, by part", (int)FramePhase::Shadows, nullptr },
+				{ "rt/",      "ray-tracing structures, inside the shadow phase", -1, nullptr },
+				{ "gbuffer/", "inside the G-buffer pass's recording", -1, "scene/GBuffer" },
+			};
+			constexpr size_t kGroupCount = sizeof(kGroups) / sizeof(kGroups[0]);
 			std::vector<PassTiming> passes;
-			std::vector<PassTiming> zones;
+			std::vector<PassTiming> grouped[kGroupCount];
 			for (PassTiming& entry : MeanPassTimings())
-				(entry.Name.rfind("rt/", 0) == 0 ? zones : passes).push_back(std::move(entry));
+			{
+				size_t group = kGroupCount;
+				for (size_t g = 0; g < kGroupCount; g++)
+					if (entry.Name.rfind(kGroups[g].Prefix, 0) == 0)
+						group = g;
+				(group < kGroupCount ? grouped[group] : passes).push_back(std::move(entry));
+			}
 			if (!passes.empty())
 			{
 				RV_CORE_INFO("[benchmark]   --- render graph, by pass (mean of {0} frames) ---",
@@ -783,12 +887,52 @@ namespace RageV
 								 "(whole frame - passes)", "  --",
 								 std::max(gpuFrame - listedGpu, 0.0f));
 			}
-			if (!zones.empty())
+			for (size_t g = 0; g < kGroupCount; g++)
 			{
-				RV_CORE_INFO("[benchmark]   --- ray-tracing structures, inside the shadow phase ---");
+				std::vector<PassTiming>& zones = grouped[g];
+				if (zones.empty())
+					continue;
+
+				// By name, so a zone's children follow it: "shadows/draw list"
+				// sorts before "shadows/draw list/emitters".
+				std::sort(zones.begin(), zones.end(),
+						  [](const PassTiming& a, const PassTiming& b) { return a.Name < b.Name; });
+				RV_CORE_INFO("[benchmark]   --- {0} ---", kGroups[g].Heading);
+				float parts = 0.0f;
 				for (const PassTiming& entry : zones)
-					RV_CORE_INFO("[benchmark]   {0:<34} {1:>9}  {2:>9}", entry.Name,
-								 column(entry.CpuMs), column(entry.GpuMs));
+				{
+					const size_t depth = (size_t)std::count(entry.Name.begin(), entry.Name.end(), '/');
+					const auto id = s_PassIds.find(std::string_view(entry.Name));
+					const bool offMain = id != s_PassIds.end() && s_PassOffMain[id->second] != 0;
+					if (depth == 1 && !offMain && entry.CpuMs >= 0.0f)
+						parts += entry.CpuMs;
+					RV_CORE_INFO("[benchmark]   {0:<34} {1:>9}  {2:>9}{3}",
+								 std::string(2 * (depth - 1), ' ') + entry.Name,
+								 column(entry.CpuMs), column(entry.GpuMs),
+								 offMain ? "  (another thread: not in the sum)" : "");
+				}
+
+				// **The parts against the whole they sit in.** What no part
+				// names is printed as a number, so a missing zone shows up as
+				// a gap rather than as a part that seems to cost nothing.
+				float whole = -1.0f;
+				std::string of;
+				if (kGroups[g].Phase >= 0)
+				{
+					whole = MeanPhaseMs((FramePhase)kGroups[g].Phase);
+					of = std::format("the {} phase's", kPhaseNames[kGroups[g].Phase]);
+				}
+				else if (kGroups[g].Pass)
+				{
+					for (const PassTiming& pass : passes)
+						if (pass.Name == kGroups[g].Pass)
+							whole = pass.CpuMs;
+					of = std::format("{}'s", kGroups[g].Pass);
+				}
+				if (whole >= 0.0f)
+					RV_CORE_INFO("[benchmark]   {0:<34} {1:>9.3f}  -- of {2} {3:.3f} ms of CPU; "
+								 "{4:.3f} in no part", "(sum of the top-level parts)", parts,
+								 of, whole, whole - parts);
 			}
 		}
 
@@ -998,6 +1142,36 @@ namespace RageV
 					 "submitted, {3} culled on the CPU",
 					 Renderer3D::GetDrawCallCount(), Renderer3D::GetIndirectDrawCount(),
 					 Renderer3D::GetTriangleCount(), Renderer3D::GetCulledCount());
+
+		// **RT2-2f's counters**: per frame, the mean over the collected frames
+		// and the worst one. A steady frame should block on nothing and load
+		// nothing; the allocations are operator new in the engine's module.
+		{
+			double submits = 0.0, blocking = 0.0, uploaded = 0.0, misses = 0.0, allocations = 0.0;
+			uint32_t worstSubmits = 0, worstMisses = 0;
+			float worstBlocking = 0.0f;
+			uint64_t worstUploaded = 0, worstAllocations = 0;
+			for (const FrameRecord& record : s_Frames)
+			{
+				submits += record.BlockingSubmits;
+				blocking += record.BlockingMs;
+				uploaded += (double)record.UploadBytes;
+				misses += record.AssetMisses;
+				allocations += (double)record.Allocations;
+				worstSubmits = std::max(worstSubmits, record.BlockingSubmits);
+				worstBlocking = std::max(worstBlocking, record.BlockingMs);
+				worstUploaded = std::max(worstUploaded, record.UploadBytes);
+				worstMisses = std::max(worstMisses, record.AssetMisses);
+				worstAllocations = std::max(worstAllocations, record.Allocations);
+			}
+			const double frames = (double)s_Frames.size();
+			RV_CORE_INFO("[benchmark]   per frame: blocking submits {0:.2f} ({1:.3f} ms), worst {2} ({3:.3f} ms); "
+						 "uploaded {4:.1f} KB, worst {5:.1f}; asset-cache misses {6:.2f}, worst {7}; "
+						 "allocations {8:.1f}, worst {9}",
+						 submits / frames, blocking / frames, worstSubmits, worstBlocking,
+						 uploaded / frames / 1024.0, (double)worstUploaded / 1024.0,
+						 misses / frames, worstMisses, allocations / frames, worstAllocations);
+		}
 		// The terrain's levels of detail (RT-2.1): what was drawn at each
 		// level, and why the level rule held chunks finer than distance alone
 		// would have. Each chunk here is rasterised by the G-buffer half and

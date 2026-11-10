@@ -53,6 +53,7 @@ ARMS = {"rt": [], "raster": ["--raytracing=off"], "every": ["--rays-per-pixel=0"
 PATTERNS = {
     "frame": r"frame\s+mean\s+([0-9.]+) ms",
     "p95": r"frame\s+mean\s+[0-9.]+ ms\s+median\s+[0-9.]+\s+p95\s+([0-9.]+)",
+    "update": r"\] *scene update\s+([0-9.]+)",
     "wait": r"\] *wait \(gpu/vsync\)\s+([0-9.]+)",
     "shadow": r"\] *shadow maps\s+([0-9.]+)\s+([0-9.]+)",
     "graph": r"\] *render graph\s+([0-9.]+)\s+([0-9.]+)",
@@ -62,6 +63,9 @@ PATTERNS = {
     "instances": r"rt/instance list\s+([0-9.]+)",
     "blas": r"rt/BLAS builds \(posed, water\)\s+([0-9.]+)\s+([0-9.]+)",
     "tlas": r"rt/TLAS build\s+([0-9.]+)\s+([0-9.]+)",
+    # RT2-2f: the shadow phase's top-level parts summed, beside the phase.
+    "parts": r"\(sum of the top-level parts\)\s+([0-9.]+)\s+-- of the shadow maps phase's ([0-9.]+) ms of CPU; (-?[0-9.]+) in no part",
+    "counters": r"per frame: blocking submits ([0-9.]+) \(([0-9.]+) ms\).*?uploaded ([0-9.]+) KB.*?asset-cache misses ([0-9.]+).*?allocations ([0-9.]+)",
     "draws": r"([0-9]+) mesh draws \(([0-9]+) indirect\), ([0-9]+) triangles submitted",
     "verdict": r"verdict: (.*)",
 }
@@ -148,8 +152,9 @@ def number(found, key, column=0):
         return None
 
 
-COLUMNS = [("frame", "frame", 0), ("p95", "p95", 0), ("gpu", "GPU", 0), ("wait", "wait", 0),
-           ("shadow", "shadow", 0), ("graph", "graph", 0), ("gbuffer", "gbuf rec", 0),
+COLUMNS = [("frame", "frame", 0), ("p95", "p95", 0), ("gpu", "GPU", 0), ("update", "update", 0),
+           ("wait", "wait", 0), ("shadow", "shadow", 0), ("parts", "shd parts", 0), ("parts", "no part", 2),
+           ("graph", "graph", 0), ("gbuffer", "gbuf rec", 0),
            ("unaccounted", "other", 0), ("instances", "rt list", 0), ("tlas", "TLAS cpu", 0),
            ("tlas", "TLAS gpu", 1), ("blas", "BLAS cpu", 0), ("blas", "BLAS gpu", 1)]
 
@@ -233,9 +238,13 @@ def main():
         print(f"{name:24s} {motion:6s} {arm:6s} " + " ".join(cells))
         draws = runs[-1].get("draws") if runs else None
         verdict = runs[-1].get("verdict", ("",))[0] if runs else ""
+        counters = [[float(x) for x in r["counters"]] for r in runs if r.get("counters")]
+        mean = [statistics.mean(c[k] for c in counters) for k in range(5)] if counters else None
         print(f"{'':39s}{spread:>9s}   "
               + (f"{draws[0]} draws ({draws[1]} indirect), {int(draws[2]) / 1e6:.1f} M triangles; " if draws else "")
-              + verdict.split(" -- ")[0])
+              + verdict.split(" -- ")[0]
+              + (f"; per frame {mean[0]:.2f} blocking submits ({mean[1]:.3f} ms), {mean[2]:.0f} KB up, "
+                 f"{mean[3]:.2f} asset misses, {mean[4]:.0f} allocations" if mean else ""))
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 #define VMA_IMPLEMENTATION
 #include "VulkanDevice.h"
+#include "RageV/Core/FrameProfiler.h"
 #include "VulkanResources.h"
 #include "VulkanPipeline.h"
 #include "VulkanCommandList.h"
@@ -2321,6 +2322,9 @@ namespace RageV::Vk
 
 	void VulkanDevice::ImmediateSubmit(const std::function<void(VkCommandBuffer)>& record)
 	{
+		// RT2-2f: a blocking submit, timed from recording to the fence, which
+		// is how long the caller stood still for it.
+		const auto started = std::chrono::steady_clock::now();
 		VkCommandBufferAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
 		allocInfo.commandPool = m_ImmediatePool;
 		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -2351,6 +2355,8 @@ namespace RageV::Vk
 		VK_CHECK(vkResetFences(m_Device, 1, &m_ImmediateFence));
 
 		vkFreeCommandBuffers(m_Device, m_ImmediatePool, 1, &cmd);
+		FrameProfiler::CountBlockingSubmit((float)std::chrono::duration<double, std::milli>(
+			std::chrono::steady_clock::now() - started).count());
 	}
 
 	void VulkanDevice::ExecuteImmediate(const std::function<void(RHI::RHICommandList&)>& record)

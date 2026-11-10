@@ -18,6 +18,7 @@
 #include "Meshlet.h"
 #include "TemporalMemory.h"
 #include "RageV/Math/Math.h"
+#include "RageV/Core/FrameProfiler.h"
 
 namespace RageV
 {
@@ -5752,6 +5753,8 @@ namespace RageV
 								 || s_Data->RayWaterRefractionOn || s_Data->ReferenceShader != nullptr;
 			if (tracesHits)
 			{
+				// RT2-2f: the hit table, rebuilt from every caster each frame.
+				RV_PROFILE_ZONE("gbuffer/hit table");
 				const std::vector<RayCaster>& casters = RayShadows::GetCasters();
 				s_Data->RayInstanceScratch.clear();
 				s_Data->RayInstanceScratch.reserve(casters.size());

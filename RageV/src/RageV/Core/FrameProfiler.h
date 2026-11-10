@@ -27,6 +27,11 @@ namespace RageV
 	// alone has been misread here before.
 	enum class FramePhase
 	{
+		Update,					// the scene's step and frame update: scripts,
+								// physics, animation, transforms, particles
+								// (RT2-2f). Before it had a row, a scene of many
+								// hierarchies spent 82-131 ms a frame outside
+								// every phase.
 		Wait,					// device BeginFrame: the in-flight fence and the
 								// swapchain acquire. On Vulkan this is where the
 								// vsync wait actually blocks, and before it had a
@@ -192,6 +197,22 @@ namespace RageV
 		// misread.
 		static void LogReport(const char* label);
 
+		// --- counters (RT2-2f) -----------------------------------------------
+		// Filed per frame and reported as a mean and a worst frame over the
+		// collected ones. Always on: each is a relaxed atomic add, from any
+		// thread (uploads and asset loads also happen on loader threads).
+		//
+		// A blocking submit is one the CPU waits on before it can go on -- a
+		// staging copy, a layout change at creation, a one-off build. In a
+		// steady frame there should be none.
+		static void CountBlockingSubmit(float milliseconds);
+		// Bytes the CPU handed to the GPU: buffer and texture writes, staged or
+		// mapped.
+		static void CountUpload(uint64_t bytes);
+		// A lookup the asset cache could not answer, so the asset was read
+		// from disk there and then.
+		static void CountAssetMiss();
+
 	private:
 		static float s_Phases[(int)FramePhase::Count];
 	};
@@ -245,6 +266,16 @@ namespace RageV
 	// "rt/" is listed in a table of its own and kept out of the graph's sum,
 	// since its time already sits inside the shadow phase's row. `cmd` null
 	// times the CPU alone. Near free when pass timings are off: one branch.
+	//
+	// **Groups and nesting (RT2-2f).** The name's first segment is its group
+	// -- `update/`, `shadows/`, `gbuffer/`, `rt/` -- and every group gets a
+	// table of its own. Zones nest by name: `shadows/draw list/emitters` sits
+	// inside `shadows/draw list`, and is printed under it. Only a group's top
+	// level (two segments) is summed, and that sum is set beside the phase the
+	// group lives in, so whatever no part names is a number, not a guess.
+	// Zones may open on any thread; one off the main thread is marked so and
+	// kept out of the sum, since its time does not sit inside a main-thread
+	// phase. Only the main thread may pass a command list.
 	class ProfileZone
 	{
 	public:
@@ -258,6 +289,11 @@ namespace RageV
 		uint32_t m_EndSlot = 0;
 		std::chrono::steady_clock::time_point m_Start;
 	};
+
+	// Heap allocations made through operator new in the engine's module since
+	// the process started (AllocationCounter.cpp). FrameProfiler differences it
+	// per frame.
+	uint64_t AllocationCount();
 }
 
 // Two levels, because a single ## would paste the token `__LINE__` rather than
@@ -266,3 +302,6 @@ namespace RageV
 #define RV_PROFILE_JOIN(a, b) RV_PROFILE_JOIN2(a, b)
 #define RV_PROFILE_PHASE(phase) \
 	::RageV::ProfileScope RV_PROFILE_JOIN(rv_profile_scope_, __LINE__)(phase)
+// A CPU-only zone to the end of the enclosing block.
+#define RV_PROFILE_ZONE(name) \
+	::RageV::ProfileZone RV_PROFILE_JOIN(rv_profile_zone_, __LINE__)(name, nullptr)

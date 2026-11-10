@@ -41,6 +41,7 @@ namespace
 	{
 		struct Row { const char* Name; RageV::FramePhase Phase; };
 		static const Row kPhases[] = {
+			{ "scene update",     RageV::FramePhase::Update },
 			{ "wait (gpu/vsync)", RageV::FramePhase::Wait },
 			{ "environment",      RageV::FramePhase::EnvironmentPrefilter },
 			{ "shadows",          RageV::FramePhase::Shadows },

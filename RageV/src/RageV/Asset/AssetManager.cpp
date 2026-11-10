@@ -4,6 +4,7 @@
 #include "ModelImporter.h"
 #include "RageV/IO/VFS.h"
 #include "RageV/Core/Log.h"
+#include "RageV/Core/FrameProfiler.h"
 #include "RageV/Renderer/TextureLoader.h"
 #include "RageV/Renderer/EnvironmentIBL.h"
 #include "RageV/Renderer/ProbeArray.h"
@@ -768,6 +769,8 @@ namespace RageV::Assets
 		const auto cached = s_Meshes.find(handle);
 		if (cached != s_Meshes.end())
 			return cached->second;
+		// RT2-2f: not in the cache, so read from disk now.
+		FrameProfiler::CountAssetMiss();
 
 		// The model's own handle addresses its first primitive; anything else
 		// is a handle *inside* a model and has to be traced back to it.
@@ -892,6 +895,8 @@ namespace RageV::Assets
 		const auto cached = cache.find(handle);
 		if (cached != cache.end())
 			return cached->second;
+		// RT2-2f: not in the cache, so read from disk now.
+		FrameProfiler::CountAssetMiss();
 
 		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
 		if (path.empty())
@@ -914,6 +919,8 @@ namespace RageV::Assets
 		const auto cached = s_Materials.find(handle);
 		if (cached != s_Materials.end())
 			return cached->second;
+		// RT2-2f: not in the cache, so read from disk now.
+		FrameProfiler::CountAssetMiss();
 
 		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
 
@@ -1131,6 +1138,8 @@ namespace RageV::Assets
 		const auto cached = s_Terrains.find(handle);
 		if (cached != s_Terrains.end())
 			return &cached->second;
+		// RT2-2f: not in the cache, so read from disk now.
+		FrameProfiler::CountAssetMiss();
 
 		const std::filesystem::path path = Registry::GetAbsolutePath(handle);
 
