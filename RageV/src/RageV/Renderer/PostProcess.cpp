@@ -4,6 +4,7 @@
 #include "TemporalMemory.h"
 #include "Renderer.h"
 #include "RayCounters.h"
+#include "Renderer3D.h"
 // The stand-in cube the fog binds when a scene has no sky to take its colour
 // from (WR-3). A declared binding with nothing in it is undefined on both
 // backends, so "no sky" has to be a black cube rather than a null.
@@ -926,6 +927,19 @@ namespace RageV
 		params.CameraRow2 = Vec4(camera[0][2], camera[1][2], camera[2][2], 0.0f);
 		params.CameraPosition = Vec4(camera[3][0], camera[3][1], camera[3][2], 0.0f);
 		params.Jitter = Vec4(view.JitterX, view.JitterY, 0.0f, 0.0f);
+
+		// RT2-2e: with the scene's tables where they are bound, so a cutout
+		// is tested rather than occluding as solid; this plain form otherwise.
+		// That path does not go through Dispatch, so it is handed the flip
+		// Dispatch would have patched in (see there): without it the pass read
+		// the frame upside down on Vulkan, and the car took the occlusion of
+		// whatever sat mirrored across the screen.
+		{
+			RtaoComputeParams traced = params;
+			traced.Base.FlipY = s_Data->Device->GetBackend() == Backend::Vulkan ? 1.0f : 0.0f;
+			if (Renderer3D::TraceOcclusion(cmd, depth, surface, budget, &traced, sizeof(traced), outputFormat))
+				return;
+		}
 
 		Dispatch(cmd, Shader::RtaoCompute, outputFormat, depth, surface,
 				 &params, sizeof(params), Sampling::Point, Sampling::Point,

@@ -1,4 +1,5 @@
 #include <rvpch.h>
+#include <map>
 #include "Renderer3D.h"
 #include "LightGlow.h"
 #include "Renderer.h"
@@ -652,6 +653,10 @@ namespace RageV
 			// reflection_trace.rvshader says why).
 			Ref<RHIShader>   ReflectionTraceShader;
 			Ref<RHIPipeline> ReflectionTracePipeline;
+			// RT2-2e: the occlusion pass under the traced passes' defines, one
+			// pipeline per target format it is asked to write.
+			Ref<RHIShader>   OcclusionTraceShader;
+			std::map<Format, Ref<RHIPipeline>> OcclusionTracePipelines;
 			// Measured change, phase 2: the trace's file as the record and as the
 			// re-light, compiled only when --measured-change asks for them.
 			Ref<RHIShader>   ReflectionRecordShader;
@@ -1147,6 +1152,7 @@ namespace RageV
 				Ref<RHIResourceSet> WaterTraceInputs;
 				// The opaque reflection pass and its accumulator, one input set each.
 				Ref<RHIResourceSet> ReflectionTraceInputs;
+				Ref<RHIResourceSet> OcclusionTraceInputs;    // RT2-2e
 				Ref<RHIResourceSet> ReflectionRecordInputs;    // measured change, phase 2
 				Ref<RHIResourceSet> ReflectionRelightInputs;
 				// One per signal slot (SignalParams::Slot): the accumulate and
@@ -1871,6 +1877,20 @@ namespace RageV
 			// defines for the same reason, and only when the traced form is on:
 			// GlossyReflection and TraceReflection live under RV_RAY_REFLECTIONS.
 			s_Data->ReflectionTraceShader = nullptr;
+			// RT2-2e: the occlusion with the cutout test, wherever rays are.
+			s_Data->OcclusionTraceShader = nullptr;
+			s_Data->OcclusionTracePipelines.clear();
+			{
+				std::vector<std::string> occlusionDefines = traceDefines;
+				occlusionDefines.push_back("RV_RTAO_SCENE");
+				if (auto shader = ShaderCompiler::CompileFromFile("assets/shaders/rtao_compute.rvshader",
+																  occlusionDefines))
+					s_Data->OcclusionTraceShader = s_Data->Device->CreateShader(*shader);
+				else
+					RV_CORE_WARN("Renderer3D: rtao_compute.rvshader did not compile with the scene's "
+								 "tables; the occlusion keeps its plain form, whose cutouts occlude "
+								 "as solid");
+			}
 			s_Data->ReflectionRecordShader = nullptr;
 			s_Data->ReflectionRecordPipeline = nullptr;
 			s_Data->ReflectionRelightShader = nullptr;
@@ -7476,6 +7496,54 @@ namespace RageV
 	// (reflection_resolve.rvshader): the trace's estimate in, the same shape
 	// out with every rough pixel averaged with the neighbours that are the
 	// same reflector. Nothing happens to a mirror.
+	bool Renderer3D::TraceOcclusion(RHICommandList& cmd, const Ref<RHITexture>& depth,
+									const Ref<RHITexture>& surface, const Ref<RHITexture>& budget,
+									const void* params, uint32_t paramSize, Format outputFormat)
+	{
+		if (!s_Data || !s_Data->OcclusionTraceShader || !s_Data->ActiveScene || !depth || !surface)
+			return false;
+		Renderer3DData::SceneSlot& slot = *s_Data->ActiveScene;
+		if (!slot.LampSet)
+			return false;
+
+		Ref<RHIPipeline>& pipeline = s_Data->OcclusionTracePipelines[outputFormat];
+		if (!pipeline)
+		{
+			GraphicsPipelineDesc desc;
+			desc.Name = "Renderer3D.occlusion.trace";
+			desc.Shader = s_Data->OcclusionTraceShader;
+			desc.Topology = PrimitiveTopology::TriangleList;
+			desc.Rasterizer.Cull = CullMode::None;
+			desc.Blend = BlendPreset::Opaque;
+			desc.DepthStencil.DepthTestEnable = false;
+			desc.DepthStencil.DepthWriteEnable = false;
+			desc.ColorFormats = { outputFormat };
+			desc.DepthFormat = Format::Undefined;
+			pipeline = s_Data->Device->CreatePipeline(desc);
+			if (!pipeline)
+				return false;
+		}
+
+		if (!slot.OcclusionTraceInputs)
+			slot.OcclusionTraceInputs = s_Data->Device->CreateResourceSet(pipeline, 3);
+		const Ref<RHIResourceSet>& inputs = slot.OcclusionTraceInputs;
+		if (!inputs)
+			return false;
+		inputs->SetTexture(0, depth, s_Data->PointSampler);
+		inputs->SetTexture(1, surface, s_Data->PointSampler);
+		inputs->SetTexture(2, budget ? budget : TextureLoader::Black(*s_Data->Device), s_Data->PointSampler);
+		inputs->Commit();
+
+		cmd.BindPipeline(pipeline);
+		cmd.BindResourceSet(0, slot.LampSet);
+		if (s_Data->Heap)
+			cmd.BindResourceSet(TextureHeap::kSet, s_Data->Heap->GetSet());
+		cmd.BindResourceSet(3, inputs);
+		cmd.PushConstants(ShaderStage::Fragment, 0, paramSize, params);
+		cmd.Draw(3);
+		return true;
+	}
+
 	void Renderer3D::ResolveReflections(const RHI::Ref<RHITexture>& fresh,
 										const RHI::Ref<RHITexture>& hit,
 										const RHI::Ref<RHITexture>& depth,

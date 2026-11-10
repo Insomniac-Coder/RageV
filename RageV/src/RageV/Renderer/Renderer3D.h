@@ -281,6 +281,18 @@ namespace RageV
 										 const RHI::Ref<RHI::RHITexture>& position,
 										 float downscale);
 
+		// The ray-traced occlusion with the scene's tables bound, so its rays
+		// run the cutout test (RT2-2e; rtao_compute.rvshader's RV_RTAO_SCENE).
+		// `params` is PostProcess's RtaoComputeParams. False where this form
+		// is not built or not bound this frame; the caller then records the
+		// plain form, whose cutouts occlude as solid.
+		static bool TraceOcclusion(RHI::RHICommandList& cmd,
+								   const RHI::Ref<RHI::RHITexture>& depth,
+								   const RHI::Ref<RHI::RHITexture>& surface,
+								   const RHI::Ref<RHI::RHITexture>& budget,
+								   const void* params, uint32_t paramSize,
+								   RHI::Format outputFormat);
+
 		// The opaque surfaces' glossy reflection in a pass of its own, and the
 		// pass that averages it over frames; the lit shader composites the result
 		// through the screen-reflection hook a frame late (reflection_trace.rvshader).

@@ -32,12 +32,27 @@ void main()
 #version 460 core
 #extension GL_EXT_ray_query : require
 
+// **RV_RTAO_SCENE: with the scene's tables, so cutouts are tested** (RT2-2e).
+// Renderer3D compiles this file a second time under the traced passes' own
+// defines and binds the lit shader's set 0 -- the instances, the materials,
+// the texture heap -- so a ray runs the shared alpha test inside traversal
+// (RayTraverse) as the shadow and reflection rays do. This pass's own inputs
+// then move to set 3. The plain form below, with only the structure, stays
+// for a device with no material heap to read.
+#ifdef RV_RTAO_SCENE
+#define RV_TRACE_ONLY
+#include "include/pbr_fragment.glsl"
+#define RV_RTAO_SET 3
+#else
+#define RV_RTAO_SET 0
+#endif
+
 layout(location = 0) in vec2 v_UV;
 layout(location = 0) out vec4 o_Color;
 
-layout(set = 0, binding = 0) uniform sampler2D u_Depth;
+layout(set = RV_RTAO_SET, binding = 0) uniform sampler2D u_Depth;
 // Octahedral world normal in RG, roughness B, metallic A. Point sampled.
-layout(set = 0, binding = 1) uniform sampler2D u_Surface;
+layout(set = RV_RTAO_SET, binding = 1) uniform sampler2D u_Surface;
 // The frame's structure, built before the graph (7am).
 // **What the ray budget gave this tile.** One texel per 16x16 block, `.r`
 // the ray count -- so a crease, where occlusion is partial and the estimate
@@ -46,9 +61,11 @@ layout(set = 0, binding = 1) uniform sampler2D u_Surface;
 //
 // Sampled at the pixel's own UV: the map is the screen scaled down, so the
 // same coordinate lands in the tile containing the pixel.
-layout(set = 0, binding = 2) uniform sampler2D u_Budget;
+layout(set = RV_RTAO_SET, binding = 2) uniform sampler2D u_Budget;
 
+#ifndef RV_RTAO_SCENE
 layout(set = 0, binding = 4) uniform accelerationStructureEXT u_SceneAS;
+#endif
 
 // WR-16 S0: the taps are counted into the frame's ray counters
 // (RayCounters::kPostBinding, lane AoRays), the way the lit shaders count
@@ -56,7 +73,7 @@ layout(set = 0, binding = 4) uniform accelerationStructureEXT u_SceneAS;
 // not a helper. See pbr_fragment.glsl's FlushRayCounters for the reasoning.
 // RT2-1: only under RV_RAY_COUNTERS (--ray-counters=on); the binding below is
 // then filled by the CPU, and absent otherwise.
-#ifdef RV_RAY_COUNTERS
+#if defined(RV_RAY_COUNTERS) && !defined(RV_RTAO_SCENE)   // the scene's own block otherwise
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_arithmetic : require
 #extension GL_KHR_shader_subgroup_ballot : require
@@ -359,22 +376,25 @@ void main()
 		rayCount++;
 
 		rayQueryEXT q;
-		// **Cutouts occlude as solid here, deliberately.**
-		//
-		// The alpha test during traversal needs the instance table, the
-		// material table and the texture heap; this pass has the acceleration
-		// structure and nothing else, and plumbing three bindings through a
-		// compute pass to refine a short-range darkening term is not a trade
-		// worth making. `gl_RayFlagsOpaqueEXT` forces every instance opaque,
-		// so no candidate is ever reported and the cost stays where it was.
-		//
-		// The error is that occlusion under a railing is slightly too dark.
-		// The lit pass's shadow rays and the reflection rays do test the
-		// alpha, which is where a fence reading as a wall would actually show.
+#ifdef RV_RTAO_SCENE
+		// **Cutouts with their alpha test** (RT2-2e). This said cutouts
+		// occlude as solid, "deliberately", at the price of occlusion under
+		// a railing reading slightly too dark. A decal is a cutout sheet laid
+		// a centimetre off its wall, and every ray leaving the wall met the
+		// sheet's clear part: the garage's walls went black behind each decal
+		// the moment daylight lit them. The scene's tables are bound here, so
+		// the ray takes the shared test the shadow rays take.
+		rayQueryInitializeEXT(q, u_SceneAS, RV_RAY_BASE_FLAGS | gl_RayFlagsTerminateOnFirstHitEXT,
+							  RV_RAY_MASK_SCENE, origin, 0.0, direction, u_Params.Radius);
+		RayTraverse(q);
+#else
+		// Without the scene's tables there is no alpha to test: every
+		// instance is forced opaque and a cutout occludes as solid.
 		rayQueryInitializeEXT(q, u_SceneAS,
 							  gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
 							  0xFFu, origin, 0.0, direction, u_Params.Radius);
 		while (rayQueryProceedEXT(q)) {}
+#endif
 		if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionNoneEXT)
 			occlusion += 1.0;
 	}
