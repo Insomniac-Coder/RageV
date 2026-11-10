@@ -1127,6 +1127,27 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   still, 182.4 +-1.9 moving, where 82 -> 131 ms of the CPU frame is outside every phase -- the
 >   hierarchies' per-frame work, which 2f's zones are there to name.
 >
+> - **2d built, 2026-11-10: the many-light scene.** `make_many_lights.py` writes `many_lights_1000`,
+>   `_4000` and `_10000` and their `_moving` twins (generated, ignored): a grid of roofless rooms 10 m
+>   apart, walled from their neighbours, each with four shadow-casting Realtime lights -- a ceiling
+>   point (radius 0.03-0.25 m, reach 6-16 m, so through the walls), a 1.2 m tube, a wall spot and a 3 m
+>   table lamp -- a table, and in one room in four a glowing panel. The twin orbits one room in eight's
+>   lights on a pivot and moves the camera on a scripted circle. `bench_scale.py` gains the every-light
+>   arm (`every`: `--rays-per-pixel=0`, K=0) beside `rt` (K=8 sampled). **A fix on the way:** a mesh
+>   with no material asset was resolved to no material in the draw list, so its emissive override never
+>   reached the area emitters -- it glowed on screen and lit nothing. It now resolves to the default
+>   material, as every other walk does (`Scene.cpp`); the scenes went from 0 emitters to 63 (1k) and
+>   625 (10k). The four shots are unchanged.
+>   *Results, 1280x720, 300 frames, A,B,...,B,A* (rt / every, ms; +- half the two runs' difference),
+>   all GPU-bound: 1k still 8.80 +-0.06 / 8.28 +-0.12, moving 11.04 +-0.03 / 10.24 +-0.19; 4k still 24.44
+>   +-0.10 / 25.41 +-0.93, moving 36.0 +-7.5 / 64.9 +-13.3; 10k still 83.1 +-10.4 / 74.0 +-7.5, moving
+>   99.2 +-6.9 / 97.7 +-14.6. The laptop peaked at 74-97 C (the thermal gate is suspended), so the 4k-moving and 10k spreads are heat, not the arms; at 1k and 4k still the two arms
+>   sit within a millisecond of each other. Where the 10k frame goes (one still rt run, 72.6 ms): the
+>   bounce's trace 30.6 (24.2 before the 625 panels became emitters), the reflections' trace 14.4
+>   (12.7), GiRelight 7.7; the busiest cluster holds 467 lights. So at 10k it is the traced passes that
+>   pay for the lights and the panels, which is RT2-12's ground (one candidate set for every pass), not
+>   the shading's sampling arm.
+>
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'
 > reflections should be: they fattened when RT-21 removed the highlight cap (bisected: 39% of the near

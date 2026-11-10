@@ -1,0 +1,52 @@
+  [1/24] many_lights_1000.rage          rt     started at 64 C, peak 74 C: 8.86 ms
+  [2/24] many_lights_1000.rage          every  started at 72 C, peak 87 C: 8.40 ms
+  [3/24] many_lights_1000_moving.rage   rt     started at 63 C, peak 78 C: 11.06 ms
+  [4/24] many_lights_1000_moving.rage   every  started at 70 C, peak 88 C: 10.43 ms
+  [5/24] many_lights_4000.rage          rt     started at 75 C, peak 90 C: 24.54 ms
+  [6/24] many_lights_4000.rage          every  started at 80 C, peak 92 C: 26.34 ms
+  [7/24] many_lights_4000_moving.rage   rt     started at 80 C, peak 94 C: 43.50 ms
+  [8/24] many_lights_4000_moving.rage   every  started at 78 C, peak 97 C: 78.23 ms
+  [9/24] many_lights_10000.rage         rt     started at 81 C, peak 97 C: 93.47 ms
+  [10/24] many_lights_10000.rage         every  started at 70 C, peak 95 C: 81.52 ms
+  [11/24] many_lights_10000_moving.rage  rt     started at 75 C, peak 91 C: 92.37 ms
+  [12/24] many_lights_10000_moving.rage  every  started at 67 C, peak 90 C: 83.12 ms
+  [13/24] many_lights_10000_moving.rage  every  started at 68 C, peak 91 C: 112.22 ms
+  [14/24] many_lights_10000_moving.rage  rt     started at 72 C, peak 90 C: 106.12 ms
+  [15/24] many_lights_10000.rage         every  started at 67 C, peak 92 C: 66.56 ms
+  [16/24] many_lights_10000.rage         rt     started at 63 C, peak 90 C: 72.75 ms
+  [17/24] many_lights_4000_moving.rage   every  started at 66 C, peak 91 C: 51.56 ms
+  [18/24] many_lights_4000_moving.rage   rt     started at 77 C, peak 92 C: 28.56 ms
+  [19/24] many_lights_4000.rage          every  started at 70 C, peak 84 C: 24.48 ms
+  [20/24] many_lights_4000.rage          rt     started at 66 C, peak 90 C: 24.34 ms
+  [21/24] many_lights_1000_moving.rage   every  started at 66 C, peak 85 C: 10.06 ms
+  [22/24] many_lights_1000_moving.rage   rt     started at 68 C, peak 77 C: 11.01 ms
+  [23/24] many_lights_1000.rage          every  started at 68 C, peak 86 C: 8.17 ms
+  [24/24] many_lights_1000.rage          rt     started at 64 C, peak 80 C: 8.75 ms
+
+mean of the two runs (ms); +- half their difference under the frame
+scene                    motion arm        frame       p95       GPU      wait    shadow     graph  gbuf rec     other   rt list  TLAS cpu  TLAS gpu  BLAS cpu  BLAS gpu
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+many_lights_1000         still  rt         8.803    10.032     8.773     5.667     0.356     2.297     1.784     0.119     0.064     0.188     0.022     0.000     0.000
+                                          +-0.06   2 draws (2 indirect), 0.0 M triangles; GPU bound
+many_lights_1000         still  every      8.283     9.381     8.258     5.214     0.353     2.252     1.753     0.116     0.064     0.188     0.022     0.000     0.000
+                                          +-0.12   2 draws (2 indirect), 0.0 M triangles; GPU bound
+many_lights_1000         moving rt        11.035    12.708    11.013     7.522     0.366     2.580     1.935     0.168     0.065     0.193     0.021     0.000     0.000
+                                          +-0.03   2 draws (2 indirect), 0.0 M triangles; GPU bound
+many_lights_1000         moving every     10.244    11.985    10.217     6.697     0.371     2.599     1.966     0.178     0.066     0.194     0.022     0.000     0.000
+                                          +-0.19   2 draws (2 indirect), 0.0 M triangles; GPU bound
+many_lights_4000         still  rt        24.439    28.303    24.422    15.552     1.332     6.598     5.321     0.497     0.278     0.700     0.022     0.001     0.000
+                                          +-0.10   2 draws (2 indirect), 0.0 M triangles; GPU bound
+many_lights_4000         still  every     25.413    27.601    25.325    16.234     1.337     6.683     5.407     0.676     0.276     0.706     0.022     0.001     0.000
+                                          +-0.93   2 draws (2 indirect), 0.0 M triangles; GPU bound
+many_lights_4000         moving rt        36.028    70.629    35.856    25.962     1.373     7.177     5.460     1.046     0.290     0.717     0.023     0.001     0.000
+                                          +-7.47   2 draws (2 indirect), 0.0 M triangles; GPU bound
+many_lights_4000         moving every     64.895   100.302    64.667    54.589     1.373     7.173     5.452     1.288     0.286     0.720     0.058     0.001     0.000
+                                         +-13.33   2 draws (2 indirect), 0.0 M triangles; GPU bound
+many_lights_10000        still  rt        83.112   113.410    82.955    63.450     3.374    13.819    11.090     1.991     0.760     1.744     0.029     0.002     0.000
+                                         +-10.36   2 draws (2 indirect), 0.1 M triangles; GPU bound
+many_lights_10000        still  every     74.037   108.820    73.855    54.382     3.295    13.925    11.199     1.930     0.719     1.715     0.086     0.002     0.000
+                                          +-7.48   2 draws (2 indirect), 0.1 M triangles; GPU bound
+many_lights_10000        moving rt        99.243   145.067    99.020    75.523     3.370    16.392    12.645     3.412     0.720     1.735     0.100     0.002     0.000
+                                          +-6.88   2 draws (2 indirect), 0.1 M triangles; GPU bound
+many_lights_10000        moving every     97.666   204.033    97.655    74.216     3.318    16.579    12.821     3.036     0.708     1.728     0.029     0.002     0.000
+                                         +-14.55   2 draws (2 indirect), 0.1 M triangles; GPU bound

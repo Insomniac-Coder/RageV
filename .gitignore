@@ -61,3 +61,6 @@ SampleProject/assets/scenes/scale_content_*.rage.meta
 SampleProject/assets/scenes/scale_foliage_*.rage
 SampleProject/assets/scenes/scale_foliage_*.rage.meta
 bench/scale/logs/
+# RT2-2d: generated many-light scenes (tools/scripts/make_many_lights.py; up to 8 MB each).
+SampleProject/assets/scenes/many_lights_*.rage
+SampleProject/assets/scenes/many_lights_*.rage.meta

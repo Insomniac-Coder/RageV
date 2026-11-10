@@ -43,7 +43,10 @@ SCENES = ROOT / "SampleProject" / "assets" / "scenes"
 # Every run's whole log, for the per-pass table the summary leaves out.
 LOGS = ROOT / "bench" / "scale" / "logs"
 
-ARMS = {"rt": [], "raster": ["--raytracing=off"]}
+# `every` is the every-light arm (RT2-2d): K = 0, so the direct light walks every
+# light in a pixel's cell instead of sampling K of them -- what selection is
+# measured against.
+ARMS = {"rt": [], "raster": ["--raytracing=off"], "every": ["--rays-per-pixel=0"]}
 
 # Each value is the first number of the row (the CPU column) unless the
 # pattern captures two, in which case both CPU and GPU are kept.

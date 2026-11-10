@@ -2143,8 +2143,13 @@ namespace RageV
 			// are meant to vanish become solid plates over the rims. Blended
 			// materials take the CPU path, which is where the transparent list
 			// is built.
-			const RHI::Ref<Material> resolvedMaterial =
-				Assets::Manager::GetMaterial(mesh.Material);
+			// A mesh with no material asset draws with the default one (every
+			// other walk falls back the same way), so it is resolved to it here
+			// too: before RT2-2d this left such a mesh's emissive override out
+			// of the area emitters -- it glowed on screen and lit nothing.
+			RHI::Ref<Material> resolvedMaterial = Assets::Manager::GetMaterial(mesh.Material);
+			if (!resolvedMaterial)
+				resolvedMaterial = Renderer3D::GetDefaultMaterial();
 			const bool blended = resolvedMaterial
 							  && IsBlended(resolvedMaterial->GetBlendMode());
 			m_HasBlended = m_HasBlended || blended;
