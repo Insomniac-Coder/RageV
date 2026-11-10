@@ -1148,6 +1148,58 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
 >   pay for the lights and the panels, which is RT2-12's ground (one candidate set for every pass), not
 >   the shading's sampling arm.
 >
+> - **2e built, 2026-11-10: GI scenes where the bounce carries energy.** `make_gi_bright.py` writes
+>   `gi_room_bright` (an 8 x 3 x 8 m white room with one red wall and a 3 x 1.6 m south window; sun 6,
+>   sky 3; the camera looks at the back, which no direct light reaches), `showroom_daylit` (the garage
+>   under a midday sky with a sun, its own lights as they are; baked, `field_64d6233491e05b38`) and
+>   `irradiance_leak*_sky` (each leak fixture with a grey sky and ambient 0.25, otherwise the
+>   original; baked). New switches: `--gi=off` (every form of realtime indirect light off, nothing
+>   else), `--rt-sky-visibility=off|quarter|half|full` (the traced sky occlusion's rays, which the
+>   project leaves off) and `--script-field=Script.Field=Value` (a script's field at launch, after
+>   the scene's values and before OnCreate). `--screenshot-frame=settled` no longer waits for a field
+>   the frame does not read or one with no file and none being made (a scene with no bake hung it
+>   for good), nor for a baked probe whose live capture is whole. `gi_worth.py` measures GI on
+>   against off by diff image, 16 frames from frame 400 averaged (a live bounce never reports
+>   settled), and `gi_worth.py leaks` the leak fixtures, bake against live.
+>   *GI worth* (lit-region mean, on - off, display levels; share moving two levels or more): room
+>   +13.47 (100%), the room with sky occlusion on +141.70 (100%), daylit garage +3.87 (51%) -- the
+>   gate's two levels met on both new scenes. Re-recorded with realtime GI forced: garage +8.41
+>   (61%; RT-3 had +0.38, before the bounce's aimed rays worked), the garage's mode 2 +8.28 (61%),
+>   camp +1.06 (12%; RT-3 +0.59).
+>   *The room against the path tracer* (frame mean, path tracer 114.4): as shipped 237, no bounce
+>   224, sky occlusion on 214, sky occlusion on and no bounce 73. The bounce brings 141 levels where
+>   41 are owed -- the leak below, in a room that is open.
+>   *The leak fixtures* (mean |baked - live| over the frame): the black-sky four as before, 0.000 on
+>   `irradiance_leak`, `_point` and `_s2`, 59.9 on `_s3` (60.6 recorded; 3 m cells against 200 mm
+>   walls). With sky and ambient: 7.18, 7.18, 5.56, 5.75 -- but the sealed room reads near white
+>   (live 231 of 255) where the path tracer gives 0.1. Taken apart on `irradiance_leak_sky`: no
+>   bounce and no sky occlusion 209.6 (the pixel takes the whole sky through its roof, the project's
+>   setting); sky occlusion on, no bounce 19.3; sky occlusion on with the live bounce 198.7 (+179);
+>   with the bake 236.9 (+218). The live bounce shades each hit with the probe that covers it, or
+>   the open sky where none does (`rtgi_trace.rvshader:619`), with no visibility -- the live twin of
+>   C-N3. Both go with RT2-25d's hit contract (sky at a hit times that hit's own sky visibility) and
+>   RT2-26; these fixtures with `--rt-sky-visibility=full` are its test (truth 0.1).
+>   *Three things found on the way.*
+>   (1) **The bright bay is gone.** Its four downlights left the scene in d34c905, when the showroom
+>   became the garage; ShowroomMode still names them (`Bay Downlight Light 0-3`, warned at load).
+>   Mode 2 today is the brighter key and fills of the same room. The stored camera is the garage's
+>   (`0,1.355368,7.262258,0.01,0,5.000002`) with `--script-field=ShowroomMode.StartMode=2`; RT2-25e's
+>   "bright bay" gate is that camera, and C-N1's 1.00 against 0.51 cannot be repeated on it.
+>   (2) **No script runs in a run pinned to `--frame-time=0.000001`.** Scripts are created on the first
+>   fixed step, 1/60 s of simulated time, which such a run reaches only after 16,667 frames. Every
+>   capture at that clock -- the four shots, `baseline.py`'s parked set, the glint and emitter-lag
+>   checks -- shows the scene as authored, with no script's OnCreate applied (the garage is authored
+>   in mode 1, so it matched by luck). `gi_worth`'s mode 2 runs at 0.0166667 for this. A general
+>   fix (one zero-length step before the first frame, the way a reference render already steps) moves
+>   the camp's shot and every pinned baseline, so it is listed for 2g rather than slipped in here.
+>   A second hazard of the same kind: a UI button takes its hover tint from the real mouse, so a
+>   capture can change because the pointer rested over the window (the camp's pause button once
+>   read 7 levels brighter; the reshoot was identical).
+>   (3) **RTAO forced every instance opaque** (86640f3). A decal is a cutout sheet a centimetre off
+>   its wall, so every occlusion ray from the wall hit the sheet's clear part and the garage's walls
+>   went black behind each decal once daylight lit them. The occlusion rays now test the cutout's
+>   alpha with the scene's tables bound; the garage shot changed only on the decal sheets.
+>
 > **Added from RT-24's hard-coded-values audit (2026-09-24; section 10 lists every value).** A
 > ground-truth render of the garage's wet floor under the tubes, to settle how sharp the lights'
 > reflections should be: they fattened when RT-21 removed the highlight cap (bisected: 39% of the near
@@ -1184,7 +1236,7 @@ Each item lands behind a flag or a reference arm, is measured, and is reported b
   - **2d. A many-light scene**, starting from `lights256.rage`: 1k to 10k realtime lights of mixed sizes and ranges including tubes, moving lights, emissive meshes, rooms whose light ranges cross walls, a scripted camera path, and an every-light (K=0) arm.
   - **2e. GI scenes where bounce light carries energy**: a bright-sky enclosed room and a daylit version of the garage. Then GI on against GI off is re-measured by diff image, with realtime GI forced in the garage and the camp. The leak fixtures gain variants with a non-black sky and a non-zero ambient. The showroom's bright bay (mode 2) gets a stored camera, because the one real-scene measurement of the bake gathered at hits lost there (C-N1).
   - **2f. CPU timing zones** (nestable, aware of threads, near-free when off), with phases for simulation, scripts, physics, animation, transforms, extraction, TLAS instances and uploads. The shadow phase is split into its parts: the draw-list rebuild, the cull-table upload, the measured-change hash, emitter extraction, the TLAS pack and the build recording. Report counters: blocking submits and their milliseconds, bytes uploaded, asset-cache misses, allocations per frame.
-  - **2g. Cleaner switches.** The confounded switches are split into single-purpose ones, a "no reflections" arm that does not bring SSR back is added, and spin_measure's method is applied at the bridge cameras.
+  - **2g. Cleaner switches.** The confounded switches are split into single-purpose ones, a "no reflections" arm that does not bring SSR back is added, and spin_measure's method is applied at the bridge cameras. Captures pinned to `--frame-time=0.000001` get their scripts (RT2-2e found none is ever created at that clock: the first fixed step never comes), and the pointer's hover is kept off UI buttons during a capture.
   - **2h. The "signal stands alone" command and the test fixtures** (added 2026-09-25). For each signal, the command runs `--capture-signals` under `--aa=none` and under TAA with `--no-frame-memory`, parked and through the owner's swing, and prints convergence (frame 400 against frame 200, against the parked noise floor), the grain across centre crossings, `speckle_count.py` on the signal's own capture, and a histogram of history ages. Every "no reliance on TAA" gate uses it. `spin_measure.py`, `speckle_count.py` and `ghost_map.py` also run at 2560x1600, with their spots scaled by resolution. New fixtures, as new scenes (rule 5: no shipped scene or material is edited): white-furnace spheres (F0 = 1 and albedo 1, roughness 0 to 1); a strongly normal-mapped plane under grazing light, at the origin and 10 km away; a coat, sheen and anisotropy parity scene; a curved chrome pole; a roughness-ramp scene (0.05 to 1.0, lit by a tube and a Realtime light); a tinted pane over a floor; glass over glass with a particle in front. The primary-ray parity check (RT2-21d) becomes a scenetest claim, and each scene gets a triangles-per-pixel histogram.
 - **Owner sees.** Nothing in the frame. Numbers that can finally answer "which one is right".
 - **Touches.** New reference passes; `FrameGraphBuilder.cpp`; `EngineConfig`; `FrameProfiler.cpp`; `Application.cpp` (the frame cap); `EngineConfig.h:218` (`ScreenshotFrame`); `tools/scripts/bench_scale.py`, `make_scale_scenes.py`, a new baseline harness, the signal-stands-alone command, new scene scripts, `garage/spin_measure.py` (its 1600x900-only spots, lines 233-239), `speckle_count.py`, `ghost_map.py`, `watch_arm.py`.

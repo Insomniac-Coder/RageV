@@ -234,6 +234,44 @@ namespace RageV
 			}
 		}
 
+		if (key == "gi")
+		{
+			bool on = true;
+			if (!ParseBool(value, on))
+				return false;
+			config.GiOff = !on;
+			return true;
+		}
+
+		if (key == "rt-sky-visibility" || key == "rtskyvisibility")
+		{
+			const std::string level = ToLower(value);
+			if (level == "off" || level == "none") config.SkyVisibilityRaysOverride = 0;
+			else if (level == "quarter") config.SkyVisibilityRaysOverride = 2;
+			else if (level == "half") config.SkyVisibilityRaysOverride = 4;
+			else if (level == "full") config.SkyVisibilityRaysOverride = 8;
+			else
+			{
+				RV_CORE_WARN("rt-sky-visibility expects off, quarter, half or full; got '{0}'", value);
+				return false;
+			}
+			return true;
+		}
+
+		if (key == "script-field" || key == "scriptfield")
+		{
+			const size_t dot = value.find('.');
+			const size_t equals = dot == std::string::npos ? std::string::npos : value.find('=', dot);
+			if (dot == std::string::npos || dot == 0 || equals == std::string::npos || equals == dot + 1)
+			{
+				RV_CORE_WARN("script-field expects Script.Field=Value; got '{0}'", value);
+				return false;
+			}
+			config.ScriptFields.push_back({ value.substr(0, dot), value.substr(dot + 1, equals - dot - 1),
+											value.substr(equals + 1) });
+			return true;
+		}
+
 		if (key == "gi-source" || key == "gisource")
 		{
 			const std::string wanted = ToLower(value);

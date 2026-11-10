@@ -936,6 +936,36 @@ namespace RageV
 		bool  HasGiSourceOverride = false;
 		bool  GiSourceBaked = true;
 
+		// --gi=off (RT2-2e): no realtime indirect light at all -- the traced
+		// bounce, the voxel gather and the screen-space gather all off,
+		// whatever the profile and the project hold. The "GI off" arm of a
+		// GI-on-against-off measurement; --rt-gi=off is not one, because the
+		// screen-space gather takes over from it. The baked field is not
+		// touched: pair it with --gi-source=realtime to measure the live bounce.
+		bool  GiOff = false;
+
+		// --rt-sky-visibility=off|quarter|half|full (RT2-2e): the rays that
+		// darken the sky's light where the sky cannot be seen, overriding the
+		// project's level for a measurement. -1 is "as the project says".
+		int   SkyVisibilityRaysOverride = -1;
+
+		// --script-field=Script.Field=Value, repeatable (RT2-2e): set a script's
+		// field at launch, after the scene's own values and before OnCreate, so
+		// a measurement camera can reach a state only the scene's script
+		// switches to -- the showroom's bright bay is ShowroomMode.StartMode=2 --
+		// without a copy of the scene. Managed and native scripts alike; the
+		// scene file is never touched. Scripts are created on the first fixed
+		// step (1/60 s of simulated time), so a run pinned to
+		// --frame-time=0.000001 never creates one and the override, like every
+		// script, has no effect: pin 0.0166667 instead.
+		struct ScriptFieldOverride
+		{
+			std::string Script;
+			std::string Field;
+			std::string Value;
+		};
+		std::vector<ScriptFieldOverride> ScriptFields;
+
 		bool  HasCameraPose = false;
 		Vec3  CameraFocus{ 0.0f, 0.0f, 0.0f };
 		float CameraDistance = 10.0f;

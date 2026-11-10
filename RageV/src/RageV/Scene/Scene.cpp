@@ -1004,6 +1004,14 @@ namespace RageV
 						{
 							for (const auto& entry : script->Fields.Values)
 								managed.SetFieldValue(script->Handle, entry.Name.c_str(), entry.Value.c_str());
+							// --script-field: after the scene's own values.
+							for (const auto& set : EngineConfig::Get().ScriptFields)
+								if (set.Script == script->ScriptName)
+								{
+									const int written = managed.SetFieldValue(script->Handle, set.Field.c_str(), set.Value.c_str());
+									RV_CORE_INFO("script-field: {0}.{1} = {2}{3}", set.Script, set.Field, set.Value,
+												 written == 1 ? "" : " (not written: no such field, or the text does not parse)");
+								}
 						}
 
 						managed.InvokeCreate(script->Handle);
@@ -1215,6 +1223,10 @@ namespace RageV
 						{
 							if (const std::string* value = script->Fields.Find(field.Name))
 								field.Set(script->Instance, *value);
+							// --script-field: after the scene's own values.
+							for (const auto& set : EngineConfig::Get().ScriptFields)
+								if (set.Script == script->ScriptName && set.Field == field.Name)
+									field.Set(script->Instance, set.Value);
 						}
 
 						script->Instance->OnCreate();
@@ -1790,6 +1802,8 @@ namespace RageV
 			case AoDetail::Full:    skyRays = 8; break;
 			default:                skyRays = 0; break;
 		}
+		if (EngineConfig::Get().SkyVisibilityRaysOverride >= 0)
+			skyRays = EngineConfig::Get().SkyVisibilityRaysOverride;
 		Renderer3D::SetRayTracedSkyVisibility(traced ? skyRays : 0);
 		// And the traced bounce (7at), on the same beat and by the same
 		// resolve. Its dial is the post profile's, handed to the renderer
@@ -4503,7 +4517,14 @@ namespace RageV
 		// Both flavours, not one: a bake is a pair of files, and a run that
 		// stops after the first would leave the other GI form falling back to
 		// realtime with nothing saying so until somebody toggled it.
-		if (m_FieldVolumes > 0 && (!m_FieldBaked || !m_FieldBakedAlt))
+		// **Waiting is only for what can still arrive** (RT2-2e: a scene with
+		// no bake on disk hung `--screenshot-frame=settled` for good). A field
+		// the frame does not read (the setting is Realtime) or one with no
+		// file for this lighting and none being made (the fallback warning has
+		// been given) will not change again, so it does not hold the frame.
+		const bool fieldMatters = m_BakedGi != BakedGi::NotAsked && m_BakedGi != BakedGi::NoBake
+							   && m_BakedGi != BakedGi::NoVolume;
+		if (m_FieldVolumes > 0 && fieldMatters && (!m_FieldBaked || !m_FieldBakedAlt))
 			return false;
 
 		auto probes = m_Registry.GetView<TransformComponent, ReflectionProbeComponent>();
@@ -4511,7 +4532,10 @@ namespace RageV
 		{
 			const ReflectionProbeComponent& probe =
 				probes.Get<ReflectionProbeComponent>(item);
-			if (probe.Update != ProbeUpdate::Realtime && !probe.Baked)
+			// A baked probe with no capture on disk for this lighting is
+			// captured live instead; once that capture is whole, it is done.
+			if (probe.Update != ProbeUpdate::Realtime && !probe.Baked
+				&& (BakingLighting() || !probe.Probe || !probe.Probe->IsComplete()))
 				return false;
 		}
 

@@ -307,6 +307,8 @@ namespace RageV
 	bool ResolveVoxelGlobalIllumination(const PostSettings& post)
 	{
 		const EngineConfig& config = EngineConfig::Get();
+		if (config.GiOff)
+			return false;
 		const bool requested = config.HasVoxelGiOverride ? config.VoxelGiOverride
 														: post.VoxelGlobalIllumination;
 		if (requested && !VoxelGI::IsReady())
@@ -329,6 +331,8 @@ namespace RageV
 		if (!ResolveRayTracing(render))
 			return RayDetail::Off;
 		const EngineConfig& config = EngineConfig::Get();
+		if (config.GiOff)
+			return RayDetail::Off;
 		RayDetail requested = render.RayTracedGlobalIllumination;
 		if (config.HasRayGiOverride)
 		{
@@ -941,7 +945,7 @@ namespace RageV
 			active.RayTracedGlobalIllumination = rayGi && !bakedOnly;
 			active.ScreenSpaceReflections = wantReflections;
 			active.ScreenSpaceGlobalIllumination =
-				desc.Post.GlobalIllumination && !rayGi && !voxelGi && !bakedOnly;
+				desc.Post.GlobalIllumination && !config.GiOff && !rayGi && !voxelGi && !bakedOnly;
 			active.VoxelGlobalIllumination = voxelGi && !bakedOnly;
 			active.AmbientOcclusion =
 				(rayOcclusion ? rayAo : desc.Post.AmbientOcclusion) != AoDetail::Off;
@@ -1077,7 +1081,7 @@ namespace RageV
 		// asks whether *anything* will, not which. `voxelGi`, `voxelWanted`
 		// and `bakedOnly` are resolved above, beside the feature report that
 		// has to agree with them.
-		const bool wantIndirect = (desc.Post.GlobalIllumination || rayGi)
+		const bool wantIndirect = ((desc.Post.GlobalIllumination && !config.GiOff) || rayGi)
 							   && !bakedOnly
 							   && desc.Indirect != nullptr
 							   && PostProcess::IsReady()

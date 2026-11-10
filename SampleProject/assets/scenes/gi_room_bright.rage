@@ -1,0 +1,205 @@
+Scene: GI bright room
+Version: 6
+Environment:
+  AmbientColor: [0, 0, 0]
+  AmbientIntensity: 0
+  Sky: 2
+  SkyHorizon: [0.75, 0.82, 0.95]
+  SkyZenith: [0.35, 0.55, 0.95]
+  SkyGround: [0.35, 0.33, 0.3]
+  SkyIntensity: 3
+  SkyRotation: 0
+Entities:
+  - EntityID: 9100000
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Position: [0.000, -0.100, 0.000]
+      Rotation: [0.0000, 0.0000, 0.0000]
+      Scale: [8.400, 0.200, 8.400]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.780, 0.780, 0.760, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 9100001
+    TagComponent:
+      Tag: Ceiling
+    TransformComponent:
+      Position: [0.000, 3.100, 0.000]
+      Rotation: [0.0000, 0.0000, 0.0000]
+      Scale: [8.400, 0.200, 8.400]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.780, 0.780, 0.760, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 9100002
+    TagComponent:
+      Tag: North wall
+    TransformComponent:
+      Position: [0.000, 1.500, -4.100]
+      Rotation: [0.0000, 0.0000, 0.0000]
+      Scale: [8.000, 3.000, 0.200]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.780, 0.780, 0.760, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 9100003
+    TagComponent:
+      Tag: West wall (red)
+    TransformComponent:
+      Position: [-4.100, 1.500, 0.000]
+      Rotation: [0.0000, 0.0000, 0.0000]
+      Scale: [0.200, 3.000, 8.000]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.750, 0.080, 0.060, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 9100004
+    TagComponent:
+      Tag: East wall
+    TransformComponent:
+      Position: [4.100, 1.500, 0.000]
+      Rotation: [0.0000, 0.0000, 0.0000]
+      Scale: [0.200, 3.000, 8.000]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.780, 0.780, 0.760, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 9100005
+    TagComponent:
+      Tag: South wall, left of the window
+    TransformComponent:
+      Position: [-3.250, 1.500, 4.100]
+      Rotation: [0.0000, 0.0000, 0.0000]
+      Scale: [1.500, 3.000, 0.200]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.780, 0.780, 0.760, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 9100006
+    TagComponent:
+      Tag: South wall, right of the window
+    TransformComponent:
+      Position: [2.250, 1.500, 4.100]
+      Rotation: [0.0000, 0.0000, 0.0000]
+      Scale: [3.500, 3.000, 0.200]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.780, 0.780, 0.760, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 9100007
+    TagComponent:
+      Tag: South wall, under the window
+    TransformComponent:
+      Position: [-1.000, 0.400, 4.100]
+      Rotation: [0.0000, 0.0000, 0.0000]
+      Scale: [3.000, 0.800, 0.200]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.780, 0.780, 0.760, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 9100008
+    TagComponent:
+      Tag: South wall, over the window
+    TransformComponent:
+      Position: [-1.000, 2.700, 4.100]
+      Rotation: [0.0000, 0.0000, 0.0000]
+      Scale: [3.000, 0.600, 0.200]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.780, 0.780, 0.760, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 9100009
+    TagComponent:
+      Tag: Block
+    TransformComponent:
+      Position: [1.500, 0.450, -1.000]
+      Rotation: [0.0000, 0.0000, 0.0000]
+      Scale: [1.200, 0.900, 1.200]
+    MeshComponent:
+      Static: true
+      Mesh: 8241982477996916736
+      Material:
+        BaseColor: [0.780, 0.780, 0.760, 1]
+        Emissive: [0, 0, 0, 1]
+        Metallic: 0
+        Roughness: 0.9
+        Occlusion: 1
+  - EntityID: 9100010
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Position: [0.000, 0.000, 0.000]
+      Rotation: [-0.5500, 0.2500, 0.0000]
+      Scale: [1.000, 1.000, 1.000]
+    LightComponent:
+      Type: Directional
+      Color: [1, 0.95, 0.88]
+      Intensity: 6
+      Range: 10
+      InnerCone: 20
+      OuterCone: 30
+      CastShadows: true
+  - EntityID: 11400714819323198485
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Position: [1.500, 1.600, 3.400]
+      Rotation: [-0.1200, 0.3500, 0.0000]
+      Scale: [1.000, 1.000, 1.000]
+    CameraComponent:
+      ViewRank: 0
+      FixedAspectRatio: false
+      ProjectionType: Perspective
+      PerspectiveFOV: 75
+      PerspectiveNearClip: 0.05
+      PerspectiveFarClip: 200
+      OrthographicScale: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      PostProfile: 0
